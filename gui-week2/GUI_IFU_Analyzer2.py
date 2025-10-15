@@ -1,4 +1,4 @@
-# Week 2: Oct 6 - Oct 10
+# Week 3: Oct 13 - Oct 17
 
 '''
 Goals:
@@ -7,6 +7,7 @@ Goals:
 
 '''
 Achievements:
+Week 1.
 - Create GUI template using PyQt.
 - Develop a Cube class with all the necessary functions.
 - Import FITS files and match them with predetermine telescope options.
@@ -14,11 +15,13 @@ Achievements:
 - Show a specific slice by zooming and clicking on the spectrum.
 - Display data of the specific slide (wavelength, intensity, RA, DEC).
 - Implement process for different telescopes.
+
+Week 2.
+- Create GitHub repo to store weekly advancements and compare scripts.
 '''
 
 '''
 Next Steps:
-- Create GitHub repo to store weekly advancements and compare scripts.
 - Test with more telescopes (need more FITS files).
 - Display more cube information (e.g., pixel size and position angle in sky).
 - Avoid unit misuse (especially with ALMA telescopes).
@@ -38,7 +41,6 @@ Basic Cube Explorer:
 - Top-left: image slice at selected wavelength (click spectrum to pick)
 - Top-left overlay: min/max/mean and RA/DEC
 """
-
 
 # General libraries
 import sys
@@ -85,17 +87,14 @@ class CubeExplorer(QWidget):
 
     # INITIALIZE GUI -- LAYOUT AND WIDGETS
     def _init_ui(self):
-        # Top controls
-        open_btn = QPushButton("Open FITS")  # file dialog
+        # === Top Controls ===
+        open_btn = QPushButton("Open FITS")
         open_btn.clicked.connect(self.select_file)
-        self.instrument_cb = QComboBox()  # dropdown
+        self.instrument_cb = QComboBox()
         self.instrument_cb.addItems(["MUSE", "ALMA", "MIRI", "NIRSpec"])
-
-        # button to load cube
         load_btn = QPushButton("Load Cube")
         load_btn.clicked.connect(self.load_cube)
 
-        # dropdown
         controls = QHBoxLayout()
         controls.addWidget(open_btn)
         controls.addWidget(QLabel("Instrument:"))
@@ -103,33 +102,60 @@ class CubeExplorer(QWidget):
         controls.addWidget(load_btn)
         controls.addStretch()
 
-        # Top area: left = slice canvas, right = placeholder
-        top_h = QHBoxLayout()
-        self.slice_fig = Figure(figsize=(5,4))
-        self.slice_canvas = FigureCanvas(self.slice_fig)
-        self.slice_ax = self.slice_fig.add_subplot(111)
-        top_h.addWidget(self.slice_canvas, 3)
+        # === Slice 1 area ===
+        self.slice1_fig = Figure(figsize=(4, 4))
+        self.slice1_canvas = FigureCanvas(self.slice1_fig)
+        self.slice1_ax = self.slice1_fig.add_subplot(111)
+        self.stats1_label = QLabel("Slice 1 Stats:\n-")
+        self.stats1_label.setMinimumWidth(150)
 
-        placeholder = QFrame()
-        placeholder.setFrameShape(QFrame.StyledPanel)
-        top_h.addWidget(placeholder, 1)
+        # === Slice 2 area ===
+        self.slice2_fig = Figure(figsize=(4, 4))
+        self.slice2_canvas = FigureCanvas(self.slice2_fig)
+        self.slice2_ax = self.slice2_fig.add_subplot(111)
+        self.stats2_label = QLabel("Slice 2 Stats:\n-")
+        self.stats2_label.setMinimumWidth(150)
 
-        # Bottom: spectrum
-        self.spec_fig = Figure(figsize=(8,3))
+        # === Top Layout (4 horizontal sections) ===
+        top_layout = QHBoxLayout()
+        top_layout.addWidget(self.stats1_label, 1)
+        top_layout.addWidget(self.slice1_canvas, 3)
+        top_layout.addWidget(self.stats2_label, 1)
+        top_layout.addWidget(self.slice2_canvas, 3)
+
+        # === Slice selection controls (for bottom half) ===
+        self.set_left_btn = QPushButton("Set Left Slice")
+        self.set_right_btn = QPushButton("Set Right Slice")
+        self.set_left_btn.setCheckable(True)
+        self.set_right_btn.setCheckable(True)
+
+        self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
+        self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
+
+        slice_select_layout = QHBoxLayout()
+        slice_select_layout.addWidget(self.set_left_btn)
+        slice_select_layout.addWidget(self.set_right_btn)
+        slice_select_layout.addStretch()
+
+        # === Spectrum (Bottom full width) ===
+        self.spec_fig = Figure(figsize=(8, 3))
         self.spec_canvas = FigureCanvas(self.spec_fig)
         self.spec_ax = self.spec_fig.add_subplot(111)
+        self.spec_toolbar = NavigationToolbar(self.spec_canvas, self)
         self.spec_canvas.mpl_connect("button_press_event", self.on_spec_click)
 
-        # toolbar
-        self.spec_toolbar = NavigationToolbar(self.spec_canvas, self)
+        # === Final main layout ===
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(controls)
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(slice_select_layout)
+        main_layout.addWidget(self.spec_canvas)
+        main_layout.addWidget(self.spec_toolbar)
 
-        # Layout
-        layout = QVBoxLayout()
-        layout.addLayout(controls)
-        layout.addLayout(top_h)
-        layout.addWidget(self.spec_canvas)
-        layout.addWidget(self.spec_toolbar)
-        self.setLayout(layout)
+        self.setLayout(main_layout)
+
+        # Default state
+        self.active_target = None
 
 
     # OPENING A FITS CUBE AFTER SELECTING A FILE
@@ -301,62 +327,80 @@ class CubeExplorer(QWidget):
                                self.spec_ax.get_ylim(), 'r--', lw=1.2)[0]
 
 
+    # Select which side to get slice from (left or right)
+    def _select_target(self, target):
+        """Handle slice selection mode (left/right)."""
+        if target == "left":
+            self.set_right_btn.setChecked(False)
+            self.active_target = "left" if self.set_left_btn.isChecked() else None
+        elif target == "right":
+            self.set_left_btn.setChecked(False)
+            self.active_target = "right" if self.set_right_btn.isChecked() else None
+
+        print("Active target:", self.active_target)
+
     # Display slice when clicked
     def on_spec_click(self, event):
-        # triggered when user clicks on the bottom spectrum
-        if event.inaxes != self.spec_ax:
+        """When clicking on the spectrum, update the corresponding slice."""
+        if event.inaxes != self.spec_ax or self.active_target is None:
             return
-        x = event.xdata
-        if x is None or self.wavelength is None:
+
+        # Find nearest wavelength index
+        if self.wavelength is None:
             return
-        
-        idx = int(np.argmin(np.abs(self.wavelength - x)))
+        click_x = event.xdata
+        if click_x is None:
+            return
 
-        # update vertical line
-        self.vline.set_xdata([self.wavelength[idx], self.wavelength[idx]])  # must be a list
-        self.vline.set_ydata(self.spec_ax.get_ylim())  # keep it spanning full y-axis
-        self.spec_canvas.draw_idle()
-        self._display_slice(idx)
+        idx = (np.abs(self.wavelength - click_x)).argmin()
 
+        if self.active_target == "left":
+            self._display_slice(idx, target="left")
+        elif self.active_target == "right":
+            self._display_slice(idx, target="right")
 
     # Display work
-    def _display_slice(self, idx):
+    def _display_slice(self, idx, target="left"):
+        """Display a slice image on the chosen side."""
         image = np.take(self.cube, indices=idx, axis=self.spec_axis)
-        self.slice_ax.clear()
 
-        # show image
-        im = self.slice_ax.imshow(image, origin='lower', interpolation='nearest')
-        self.slice_ax.set_title(f"Slice at index={idx}")
-
-        # handle colorbar -- flux values change for color consistency
-        if not hasattr(self, 'cbar') or self.cbar is None:
-            # Create the colorbar only once
-            self.cbar = self.slice_fig.colorbar(im, ax=self.slice_ax, fraction=0.046, pad=0.04)
-            self.cbar.set_label("Flux / Intensity")
+        # Select which side to update
+        if target == "left":
+            ax = self.slice1_ax
+            canvas = self.slice1_canvas
+            stats_label = self.stats1_label
+            fig = self.slice1_fig
         else:
-            # Update existing colorbar for new data
-            self.cbar.update_normal(im)
+            ax = self.slice2_ax
+            canvas = self.slice2_canvas
+            stats_label = self.stats2_label
+            fig = self.slice2_fig
 
-        # intensity stats (min, max, mean)
-        mn = np.nanmin(image)
-        mx = np.nanmax(image)
-        mean = np.nanmean(image)
+        # Clear and show the image
+        ax.clear()
+        im = ax.imshow(image, origin='lower', interpolation='nearest', cmap='magma')
+        ax.set_title(f"{target.capitalize()} Slice @ idx={idx}")
 
-        stats_text = f"Intensity:\nmin={mn:.3e}\nmax={mx:.3e}\nmean={mean:.3e}"
-        self.slice_ax.text(0.01, 0.99, stats_text, transform=self.slice_ax.transAxes,
-                        va='top', ha='left', fontsize=9, bbox=dict(facecolor='white', alpha=0.75))
-    
-        # wavelength top-right
-        wave_val = self.wavelength[idx] if self.wavelength is not None else idx
-        self.slice_ax.text(0.99, 0.99, f"Wavelength: {wave_val:.6g} {self.wave_unit}",
-                        transform=self.slice_ax.transAxes, va='top', ha='right', fontsize=9,
-                        bbox=dict(facecolor='white', alpha=0.75))
-    
-        # RA/DEC (use WCS pix->world)
-        ra_dec_text = ""
+        # --- Handle colorbar ---
+        if target == "left":
+            # Create or update the LEFT colorbar
+            if not hasattr(self, 'cbar_left') or self.cbar_left is None:
+                self.cbar_left = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                self.cbar_left.set_label("Flux / Intensity")
+            else:
+                self.cbar_left.update_normal(im)
+        else:
+            # Create or update the RIGHT colorbar
+            if not hasattr(self, 'cbar_right') or self.cbar_right is None:
+                self.cbar_right = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                self.cbar_right.set_label("Flux / Intensity")
+            else:
+                self.cbar_right.update_normal(im)
+
+        # --- Stats display ---
+        mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
 
         instrument = self.instrument_cb.currentText()
-
         if instrument == "MUSE":
             ra = self.header.get("CRVAL1", np.nan)
             dec = self.header.get("CRVAL2", np.nan)
@@ -369,41 +413,17 @@ class CubeExplorer(QWidget):
         else:
             ra = dec = np.nan
 
-        ra_dec_text = f"RA={ra:.6f}\nDEC={dec:.6f}"
+        stats_label.setText(
+            f"Intensity:\n"
+            f"min={mn:.3e}\n"
+            f"max={mx:.3e}\n"
+            f"mean={mean:.3e}\n"
+            f"RA={ra:.6f}\n"
+            f"DEC={dec:.6f}"
+        )
 
-        '''
-        try:
-            w = WCS(self.header)
-            ctypes = w.wcs.ctype
-            nax = self.header.get('NAXIS', self.cube.ndim)
-            centers = [(self.cube.shape[i]-1)/2.0 for i in range(self.cube.ndim)]
-            pix = np.zeros((1, nax))
-
-            for j in range(nax):
-                data_axis = self.cube.ndim - (j+1)
-                if data_axis == self.spec_axis:
-                    pix[0, j] = idx + 1
-                else:
-                    pix[0, j] = centers[data_axis] + 1
-                    
-            world = w.wcs_pix2world(pix, 1)[0]
-            ra_idx = next((i for i, ct in enumerate(ctypes) if 'RA' in ct.upper()), None)
-            dec_idx = next((i for i, ct in enumerate(ctypes) if 'DEC' in ct.upper()), None)
-            
-            if ra_idx is not None and dec_idx is not None:
-                ra = world[ra_idx]
-                dec = world[dec_idx]
-                ra_dec_text = f"\nRA={ra:.6f}\nDEC={dec:.6f}"
-            else:
-                ra_dec_text = "\nRA/DEC: n/a"
-
-        except Exception:
-            ra_dec_text = "\nRA/DEC: n/a"
-        '''
-        self.slice_ax.text(0.01, 0.75, ra_dec_text, transform=self.slice_ax.transAxes,
-                        va='top', ha='left', fontsize=9, bbox=dict(facecolor='white', alpha=0.75))
-        self.slice_canvas.draw_idle()
-
+        # Redraw
+        canvas.draw_idle()
 
 # Run script
 if __name__ == "__main__":
