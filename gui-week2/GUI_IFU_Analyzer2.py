@@ -22,6 +22,7 @@ Week 2.
 - RIGHT SIDE: Add second slice for comparison.
 - Get instrument info from file and remove dropbox.
 - Zoom in slices and click pixels.
+- Get pixel info after click (RA/DEC, intensity, coordinates).
 '''
 
 '''
@@ -30,11 +31,8 @@ Next Steps:
 - Display more cube information (e.g., pixel size and position angle in sky).
 - Avoid unit misuse (especially with ALMA telescopes).
 - Get new ALMA FITS file.
-- Get pixel info after click (RA/DEC, intensity, coordinates).
 - README and additonal documentation (expected outputs and commands).
 '''
-
-'''NEXT STEPS TOMORROW: BRING SPEC LINE BACK'''
 
 """
 Basic Cube Explorer:
@@ -90,49 +88,53 @@ class CubeExplorer(QWidget):
 
     # INITIALIZE GUI -- LAYOUT AND WIDGETS
     def _init_ui(self):
-        # === Top Controls ===
+        # File Controls
         open_btn = QPushButton("Open FITS")
         open_btn.clicked.connect(self.select_file)
         load_btn = QPushButton("Load Cube")
         load_btn.clicked.connect(self.load_cube)
+        
+        self.instrument_label = QLabel("Instrument: -")
+        self.instrument_label.setStyleSheet("font-weight: bold;")
 
         controls = QHBoxLayout()
         controls.addWidget(open_btn)
         controls.addWidget(load_btn)
+        controls.addWidget(self.instrument_label)
         controls.addStretch()
 
-        # === Slice 1 area ===
+        # Slice 1 Stats
         self.slice1_fig = Figure(figsize=(4, 4))
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
         self.slice1_ax = self.slice1_fig.add_subplot(111)
         self.stats1_label = QLabel("Slice 1 Stats:\n-")
         self.stats1_label.setMinimumWidth(150)
 
-        # === Slice 2 area ===
+        # Slice 2 Stats
         self.slice2_fig = Figure(figsize=(4, 4))
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
         self.slice2_ax = self.slice2_fig.add_subplot(111)
         self.stats2_label = QLabel("Slice 2 Stats:\n-")
         self.stats2_label.setMinimumWidth(150)
 
-        # === Slice 1 ===
+        # Slice 1 Plot
         self.slice1_fig = Figure(figsize=(4, 4))
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
         self.slice1_ax = self.slice1_fig.add_subplot(111)
-        self.slice1_toolbar = NavigationToolbar(self.slice1_canvas, self)  # ✅ Add toolbar
+        self.slice1_toolbar = NavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self.on_slice_click(e, "left"))
 
-        # === Slice 2 ===
+        # Slice 2 Plot
         self.slice2_fig = Figure(figsize=(4, 4))
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
         self.slice2_ax = self.slice2_fig.add_subplot(111)
         self.slice2_toolbar = NavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self.on_slice_click(e, "right"))
 
-        # === Top Layout ===
+        # Top Layout: Stats and Slices
         top_layout = QHBoxLayout()
 
-        # --- Left Stats + Slice ---
+        # Left Stats + Slice
         left_stats = QVBoxLayout()
         left_stats.addWidget(self.stats1_label)
         left_stats.addStretch()  # keeps the label top-aligned
@@ -141,7 +143,7 @@ class CubeExplorer(QWidget):
         left_slice.addWidget(self.slice1_canvas)
         left_slice.addWidget(self.slice1_toolbar)
 
-        # --- Right Stats + Slice ---
+        # Right Stats + Slice
         right_stats = QVBoxLayout()
         right_stats.addWidget(self.stats2_label)
         right_stats.addStretch()
@@ -150,13 +152,13 @@ class CubeExplorer(QWidget):
         right_slice.addWidget(self.slice2_canvas)
         right_slice.addWidget(self.slice2_toolbar)
 
-        # Add them to top_layout with weights (12.5%, 37.5%, 12.5%, 37.5%)
+        # 1:3 ratio for both halves
         top_layout.addLayout(left_stats, 1)   # 12.5%
         top_layout.addLayout(left_slice, 3)   # 37.5%
         top_layout.addLayout(right_stats, 1)  # 12.5%
         top_layout.addLayout(right_slice, 3)  # 37.5%
 
-        # === Slice selection controls (for bottom half) ===
+        # Slice selection controls
         self.set_left_btn = QPushButton("Set Left Slice")
         self.set_right_btn = QPushButton("Set Right Slice")
         self.set_left_btn.setCheckable(True)
@@ -170,14 +172,14 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.set_right_btn)
         slice_select_layout.addStretch()
 
-        # === Spectrum (Bottom full width) ===
+        # Spectrum (Bottom half)
         self.spec_fig = Figure(figsize=(8, 3))
         self.spec_canvas = FigureCanvas(self.spec_fig)
         self.spec_ax = self.spec_fig.add_subplot(111)
         self.spec_toolbar = NavigationToolbar(self.spec_canvas, self)
         self.spec_canvas.mpl_connect("button_press_event", self.on_spec_click)
 
-        # === Final main layout ===
+        # Final main layout
         main_layout = QVBoxLayout()
         main_layout.addLayout(controls)
         main_layout.addLayout(top_layout)
@@ -189,6 +191,7 @@ class CubeExplorer(QWidget):
 
         # Default state
         self.active_target = None
+
 
     # OPENING A FITS CUBE AFTER SELECTING A FILE
     def select_file(self):
@@ -205,8 +208,9 @@ class CubeExplorer(QWidget):
         try:
             hdul = fits.open(self.selected_file, memmap=True)
 
-            # get instrument value
+            # get instrument
             instrument = self._detect_instrument(hdul)
+            self.instrument_label.setText(f"Instrument: {instrument}")
             
             if instrument is None:
                 QMessageBox.warning(self, "Unknown Instrument", "Could not detect instrument from FITS headers.")
@@ -265,24 +269,27 @@ class CubeExplorer(QWidget):
             QMessageBox.critical(self, "Error", f"Error reading FITS: {e}")
             raise
 
+
+    # Find telescope name in fits file
     def _detect_instrument(self, hdul):
         """Try to detect the instrument name from FITS headers."""
         for hdu in hdul:
             hdr = hdu.header
-            instrume = hdr.get("INSTRUME", "").strip().upper()
-            telesco = hdr.get("TELESCOP", "").strip().upper()
+            instrument = hdr.get("INSTRUME", "").strip().upper()
+            telescope = hdr.get("TELESCOP", "").strip().upper()
 
-            # Match to known telescope keywords
-            if "MUSE" in instrume or "MUSE" in telesco:
+            # Match to known telescope keywords -- get by cases
+            if "MUSE" in instrument or "MUSE" in telescope:
                 return "MUSE"
-            if "ALMA" in instrume or "ALMA" in telesco:
+            if "ALMA" in instrument or "ALMA" in telescope:
                 return "ALMA"
-            if "MIRI" in instrume or "MIRI" in telesco:
+            if "MIRI" in instrument or "MIRI" in telescope:
                 return "MIRI"
-            if "NIRSPEC" in instrume or "NIRSPEC" in telesco:
+            if "NIRSPEC" in instrument or "NIRSPEC" in telescope:
                 return "NIRSpec"
 
         return None  # if no match found
+
 
     # Axis data
     def _infer_spec_axis(self, header, data):
@@ -371,7 +378,7 @@ class CubeExplorer(QWidget):
         self.spec_canvas.draw()
         self.spec_fig.tight_layout()  # automatically adjusts spacing
         
-        # --- Create persistent vertical lines for left and right slices ---
+        # Create persistent vertical lines for left and right slices
         # Remove old ones if they exist
         if hasattr(self, 'vline_left') and self.vline_left:
             self.vline_left.remove()
@@ -406,6 +413,7 @@ class CubeExplorer(QWidget):
 
         print("Active target:", self.active_target)
 
+
     # Display slice when clicked
     def on_spec_click(self, event):
         """When clicking on the spectrum, update the corresponding slice."""
@@ -429,9 +437,7 @@ class CubeExplorer(QWidget):
                 self.vline_left.set_xdata([self.wavelength[idx], self.wavelength[idx]])
             else:
                 self.vline_left = self.spec_ax.plot(
-                    [self.wavelength[idx], self.wavelength[idx]], [ymin, ymax],
-                    'r--', lw=1.2
-                )[0]
+                    [self.wavelength[idx], self.wavelength[idx]], [ymin, ymax], 'r--', lw=1.2)[0]
             self._display_slice(idx, target="left")
 
         elif self.active_target == "right":
@@ -439,9 +445,7 @@ class CubeExplorer(QWidget):
                 self.vline_right.set_xdata([self.wavelength[idx], self.wavelength[idx]])
             else:
                 self.vline_right = self.spec_ax.plot(
-                    [self.wavelength[idx], self.wavelength[idx]], [ymin, ymax],
-                    'b--', lw=1.2
-                )[0]
+                    [self.wavelength[idx], self.wavelength[idx]], [ymin, ymax], 'b--', lw=1.2)[0]
             self._display_slice(idx, target="right")
 
         self.spec_canvas.draw_idle()
@@ -469,7 +473,7 @@ class CubeExplorer(QWidget):
         im = ax.imshow(image, origin='lower', interpolation='nearest', cmap='magma')
         ax.set_title(f"{target.capitalize()} Slice @ idx={idx}")
 
-        # --- Handle colorbar ---
+        # Handle colorbar
         if target == "left":
             self.last_idx_left = idx
             # Create or update the LEFT colorbar
@@ -487,7 +491,9 @@ class CubeExplorer(QWidget):
             else:
                 self.cbar_right.update_normal(im)
 
-        # --- Stats display ---
+        fig.tight_layout(pad=2.0)   # padding
+
+        # Stats display
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
 
         instrument = getattr(self, "instrument", None)
@@ -515,14 +521,16 @@ class CubeExplorer(QWidget):
         # Redraw
         canvas.draw_idle()
 
-
+    # Pixel information
     def on_slice_click(self, event, target):
-        """Handle clicks on left or right slice: get pixel intensity."""
+        """Handle clicks on left or right slice: get pixel intensity and show a single marker."""
         if event.inaxes is None:
             return
 
         # Determine which image axes were clicked
         ax = self.slice1_ax if target == "left" else self.slice2_ax
+        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
+        stats_label = self.stats1_label if target == "left" else self.stats2_label
 
         if event.inaxes != ax:
             return  # clicked outside the relevant subplot
@@ -534,7 +542,10 @@ class CubeExplorer(QWidget):
         # Bounds check
         if x < 0 or y < 0:
             return
-        image = np.take(self.cube, indices=self.last_idx_left if target == "left" else self.last_idx_right, axis=self.spec_axis)
+        image = np.take(
+            self.cube,
+            indices=self.last_idx_left if target == "left" else self.last_idx_right,
+            axis=self.spec_axis)
         if y >= image.shape[0] or x >= image.shape[1]:
             return
 
@@ -547,14 +558,19 @@ class CubeExplorer(QWidget):
             self.last_clicked_right = (x, y, intensity)
 
         # Update stats label
-        stats_label = self.stats1_label if target == "left" else self.stats2_label
         old_text = stats_label.text().split("\nPixel:")[0]  # remove old pixel info
-        new_text = f"{old_text}\nPixel: (x={x}, y={y})\nValue={intensity:.3e}"
+        new_text = f"{old_text}\nPixel: (x={x}, y={y})\nIntensity={intensity:.3e}"
         stats_label.setText(new_text)
 
-        # Draw a marker on the selected pixel
-        ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)
-        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
+        # Remove previous marker if exists
+        attr_name = f"pixel_marker_{target}"
+        if hasattr(self, attr_name) and getattr(self, attr_name) is not None:
+            getattr(self, attr_name).remove()
+
+        # Draw new marker
+        marker = ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]
+        setattr(self, attr_name, marker)
+
         canvas.draw_idle()
 
 
