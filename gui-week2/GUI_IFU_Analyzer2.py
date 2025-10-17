@@ -18,6 +18,9 @@ Week 1.
 
 Week 2.
 - Create GitHub repo to store weekly advancements and compare scripts.
+- Move slice information to the left.
+- RIGHT SIDE: Add second slice for comparison.
+- Get instrument info from file and remove dropbox.
 '''
 
 '''
@@ -25,13 +28,13 @@ Next Steps:
 - Test with more telescopes (need more FITS files).
 - Display more cube information (e.g., pixel size and position angle in sky).
 - Avoid unit misuse (especially with ALMA telescopes).
-- Get instrument info from file and remove dropbox.
+- Get new ALMA FITS file.
 - Zoom in slices and click pixels.
-- Move slice information to the left.
 - Get pixel info after click (RA/DEC, intensity, coordinates).
-- RIGHT SIDE: Add second slice for comparison.
 - README and additonal documentation (expected outputs and commands).
 '''
+
+'''NEXT STEPS TOMORROW: BRING SPEC LINE BACK'''
 
 """
 Basic Cube Explorer:
@@ -90,15 +93,11 @@ class CubeExplorer(QWidget):
         # === Top Controls ===
         open_btn = QPushButton("Open FITS")
         open_btn.clicked.connect(self.select_file)
-        self.instrument_cb = QComboBox()
-        self.instrument_cb.addItems(["MUSE", "ALMA", "MIRI", "NIRSpec"])
         load_btn = QPushButton("Load Cube")
         load_btn.clicked.connect(self.load_cube)
 
         controls = QHBoxLayout()
         controls.addWidget(open_btn)
-        controls.addWidget(QLabel("Instrument:"))
-        controls.addWidget(self.instrument_cb)
         controls.addWidget(load_btn)
         controls.addStretch()
 
@@ -157,7 +156,6 @@ class CubeExplorer(QWidget):
         # Default state
         self.active_target = None
 
-
     # OPENING A FITS CUBE AFTER SELECTING A FILE
     def select_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, "Open FITS", filter="FITS files (*.fits *.fz *.fit)")
@@ -170,11 +168,19 @@ class CubeExplorer(QWidget):
             QMessageBox.warning(self, "No File", "Please open a FITS file first.")
             return
 
-        # get instrument value
-        instrument = self.instrument_cb.currentText()
-
         try:
             hdul = fits.open(self.selected_file, memmap=True)
+
+            # get instrument value
+            instrument = self._detect_instrument(hdul)
+            
+            if instrument is None:
+                QMessageBox.warning(self, "Unknown Instrument", "Could not detect instrument from FITS headers.")
+                return
+            
+            self.instrument = instrument
+
+            QMessageBox.information(self, "Instrument Detected", f"Detected instrument: {instrument}")
 
             # Find telescope in selection
             header, data = TELESCOPE_LOADERS[instrument](hdul)
@@ -232,6 +238,24 @@ class CubeExplorer(QWidget):
             QMessageBox.critical(self, "Error", f"Error reading FITS: {e}")
             raise
 
+    def _detect_instrument(self, hdul):
+        """Try to detect the instrument name from FITS headers."""
+        for hdu in hdul:
+            hdr = hdu.header
+            instrume = hdr.get("INSTRUME", "").strip().upper()
+            telesco = hdr.get("TELESCOP", "").strip().upper()
+
+            # Match to known telescope keywords
+            if "MUSE" in instrume or "MUSE" in telesco:
+                return "MUSE"
+            if "ALMA" in instrume or "ALMA" in telesco:
+                return "ALMA"
+            if "MIRI" in instrume or "MIRI" in telesco:
+                return "MIRI"
+            if "NIRSPEC" in instrume or "NIRSPEC" in telesco:
+                return "NIRSpec"
+
+        return None  # if no match found
 
     # Axis data
     def _infer_spec_axis(self, header, data):
@@ -258,7 +282,7 @@ class CubeExplorer(QWidget):
         Returns (wavelength_array, unit_string)
         """
 
-        instrument = self.instrument_cb.currentText()
+        instrument = getattr(self, "instrument", None)
 
         if instrument == "MUSE":
             crval3 = header["CRVAL3"]
@@ -320,11 +344,27 @@ class CubeExplorer(QWidget):
         self.spec_canvas.draw()
         self.spec_fig.tight_layout()  # automatically adjusts spacing
         
-        # vertical line placeholder --  makes it better to see which slice is clicked
-        if hasattr(self, 'vline') and self.vline:
-            self.vline.remove()
-        self.vline = self.spec_ax.plot([self.wavelength[0], self.wavelength[0]],
-                               self.spec_ax.get_ylim(), 'r--', lw=1.2)[0]
+        # --- Create persistent vertical lines for left and right slices ---
+        # Remove old ones if they exist
+        if hasattr(self, 'vline_left') and self.vline_left:
+            self.vline_left.remove()
+        if hasattr(self, 'vline_right') and self.vline_right:
+            self.vline_right.remove()
+
+        ymin, ymax = self.spec_ax.get_ylim()
+
+        # Start both at the beginning of the spectrum
+        self.vline_left = self.spec_ax.plot(
+            [self.wavelength[0], self.wavelength[0]],
+            [ymin, ymax], 'r--', lw=1.2, label='Left slice')[0]
+
+        self.vline_right = self.spec_ax.plot(
+            [self.wavelength[0], self.wavelength[0]],
+            [ymin, ymax], 'b--', lw=1.2, label='Right slice')[0]
+        
+        self.spec_ax.set_ylim(ymin, ymax)
+
+        self.spec_ax.legend(loc='upper right', fontsize=8)
 
 
     # Select which side to get slice from (left or right)
@@ -354,10 +394,31 @@ class CubeExplorer(QWidget):
 
         idx = (np.abs(self.wavelength - click_x)).argmin()
 
+        ymin, ymax = self.spec_ax.get_ylim()
+
+        # Move the appropriate vertical line
         if self.active_target == "left":
+            if hasattr(self, 'vline_left'):
+                self.vline_left.set_xdata([self.wavelength[idx], self.wavelength[idx]])
+            else:
+                self.vline_left = self.spec_ax.plot(
+                    [self.wavelength[idx], self.wavelength[idx]], [ymin, ymax],
+                    'r--', lw=1.2
+                )[0]
             self._display_slice(idx, target="left")
+
         elif self.active_target == "right":
+            if hasattr(self, 'vline_right'):
+                self.vline_right.set_xdata([self.wavelength[idx], self.wavelength[idx]])
+            else:
+                self.vline_right = self.spec_ax.plot(
+                    [self.wavelength[idx], self.wavelength[idx]], [ymin, ymax],
+                    'b--', lw=1.2
+                )[0]
             self._display_slice(idx, target="right")
+
+        self.spec_canvas.draw_idle()
+
 
     # Display work
     def _display_slice(self, idx, target="left"):
@@ -400,7 +461,7 @@ class CubeExplorer(QWidget):
         # --- Stats display ---
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
 
-        instrument = self.instrument_cb.currentText()
+        instrument = getattr(self, "instrument", None)
         if instrument == "MUSE":
             ra = self.header.get("CRVAL1", np.nan)
             dec = self.header.get("CRVAL2", np.nan)
