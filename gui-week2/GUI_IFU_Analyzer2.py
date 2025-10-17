@@ -21,6 +21,7 @@ Week 2.
 - Move slice information to the left.
 - RIGHT SIDE: Add second slice for comparison.
 - Get instrument info from file and remove dropbox.
+- Zoom in slices and click pixels.
 '''
 
 '''
@@ -29,7 +30,6 @@ Next Steps:
 - Display more cube information (e.g., pixel size and position angle in sky).
 - Avoid unit misuse (especially with ALMA telescopes).
 - Get new ALMA FITS file.
-- Zoom in slices and click pixels.
 - Get pixel info after click (RA/DEC, intensity, coordinates).
 - README and additonal documentation (expected outputs and commands).
 '''
@@ -115,12 +115,46 @@ class CubeExplorer(QWidget):
         self.stats2_label = QLabel("Slice 2 Stats:\n-")
         self.stats2_label.setMinimumWidth(150)
 
-        # === Top Layout (4 horizontal sections) ===
+        # === Slice 1 ===
+        self.slice1_fig = Figure(figsize=(4, 4))
+        self.slice1_canvas = FigureCanvas(self.slice1_fig)
+        self.slice1_ax = self.slice1_fig.add_subplot(111)
+        self.slice1_toolbar = NavigationToolbar(self.slice1_canvas, self)  # ✅ Add toolbar
+        self.slice1_canvas.mpl_connect("button_press_event", lambda e: self.on_slice_click(e, "left"))
+
+        # === Slice 2 ===
+        self.slice2_fig = Figure(figsize=(4, 4))
+        self.slice2_canvas = FigureCanvas(self.slice2_fig)
+        self.slice2_ax = self.slice2_fig.add_subplot(111)
+        self.slice2_toolbar = NavigationToolbar(self.slice2_canvas, self)
+        self.slice2_canvas.mpl_connect("button_press_event", lambda e: self.on_slice_click(e, "right"))
+
+        # === Top Layout ===
         top_layout = QHBoxLayout()
-        top_layout.addWidget(self.stats1_label, 1)
-        top_layout.addWidget(self.slice1_canvas, 3)
-        top_layout.addWidget(self.stats2_label, 1)
-        top_layout.addWidget(self.slice2_canvas, 3)
+
+        # --- Left Stats + Slice ---
+        left_stats = QVBoxLayout()
+        left_stats.addWidget(self.stats1_label)
+        left_stats.addStretch()  # keeps the label top-aligned
+
+        left_slice = QVBoxLayout()
+        left_slice.addWidget(self.slice1_canvas)
+        left_slice.addWidget(self.slice1_toolbar)
+
+        # --- Right Stats + Slice ---
+        right_stats = QVBoxLayout()
+        right_stats.addWidget(self.stats2_label)
+        right_stats.addStretch()
+
+        right_slice = QVBoxLayout()
+        right_slice.addWidget(self.slice2_canvas)
+        right_slice.addWidget(self.slice2_toolbar)
+
+        # Add them to top_layout with weights (12.5%, 37.5%, 12.5%, 37.5%)
+        top_layout.addLayout(left_stats, 1)   # 12.5%
+        top_layout.addLayout(left_slice, 3)   # 37.5%
+        top_layout.addLayout(right_stats, 1)  # 12.5%
+        top_layout.addLayout(right_slice, 3)  # 37.5%
 
         # === Slice selection controls (for bottom half) ===
         self.set_left_btn = QPushButton("Set Left Slice")
@@ -196,10 +230,6 @@ class CubeExplorer(QWidget):
             self.cube = np.array(data, dtype=float)  # ensure float
             self.cube = np.squeeze(self.cube)
 
-            # get global min and max for colorbar consistency
-            #self.global_vmin = np.nanmin(self.cube)
-            #self.global_vmax = np.nanmax(self.cube)
-
             self.header = header
             self.spec_axis = self._infer_spec_axis(header, self.cube)
 
@@ -223,11 +253,8 @@ class CubeExplorer(QWidget):
             self._plot_spectrum()
 
             # initial slice in the middle
-            if self.wavelength is not None and len(self.wavelength) > 0:
-                idx = len(self.wavelength) // 2
-            else:
-                idx = 0
-            self._display_slice(idx)
+            self._display_slice(0, target="left")
+            self._display_slice(0, target="right")
 
             print("Cube shape:", self.cube.shape)
             print("Spectrum shape:", self.spectrum.shape)
@@ -444,6 +471,7 @@ class CubeExplorer(QWidget):
 
         # --- Handle colorbar ---
         if target == "left":
+            self.last_idx_left = idx
             # Create or update the LEFT colorbar
             if not hasattr(self, 'cbar_left') or self.cbar_left is None:
                 self.cbar_left = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -451,6 +479,7 @@ class CubeExplorer(QWidget):
             else:
                 self.cbar_left.update_normal(im)
         else:
+            self.last_idx_right = idx
             # Create or update the RIGHT colorbar
             if not hasattr(self, 'cbar_right') or self.cbar_right is None:
                 self.cbar_right = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -485,6 +514,49 @@ class CubeExplorer(QWidget):
 
         # Redraw
         canvas.draw_idle()
+
+
+    def on_slice_click(self, event, target):
+        """Handle clicks on left or right slice: get pixel intensity."""
+        if event.inaxes is None:
+            return
+
+        # Determine which image axes were clicked
+        ax = self.slice1_ax if target == "left" else self.slice2_ax
+
+        if event.inaxes != ax:
+            return  # clicked outside the relevant subplot
+
+        # Get pixel coordinates (rounded to nearest int)
+        x = int(round(event.xdata))
+        y = int(round(event.ydata))
+
+        # Bounds check
+        if x < 0 or y < 0:
+            return
+        image = np.take(self.cube, indices=self.last_idx_left if target == "left" else self.last_idx_right, axis=self.spec_axis)
+        if y >= image.shape[0] or x >= image.shape[1]:
+            return
+
+        intensity = image[y, x]
+
+        # Store last clicked pixel
+        if target == "left":
+            self.last_clicked_left = (x, y, intensity)
+        else:
+            self.last_clicked_right = (x, y, intensity)
+
+        # Update stats label
+        stats_label = self.stats1_label if target == "left" else self.stats2_label
+        old_text = stats_label.text().split("\nPixel:")[0]  # remove old pixel info
+        new_text = f"{old_text}\nPixel: (x={x}, y={y})\nValue={intensity:.3e}"
+        stats_label.setText(new_text)
+
+        # Draw a marker on the selected pixel
+        ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)
+        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
+        canvas.draw_idle()
+
 
 # Run script
 if __name__ == "__main__":
