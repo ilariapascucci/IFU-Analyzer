@@ -32,15 +32,15 @@ Next Steps:
 - Avoid unit misuse (especially with ALMA telescopes).
 - Get new ALMA FITS file.
 - README and additonal documentation (expected outputs and commands).
+- Display pixel-specific data (unique RA/DEC?, pixel coordinate of reference point?)
 '''
 
 """
 Basic Cube Explorer:
 - Open a FITS cube (first 3D HDU)
-- Instrument dropdown (placeholder for now)
 - Bottom: full-spectrum (sum over spatial pixels)
-- Top-left: image slice at selected wavelength (click spectrum to pick)
-- Top-left overlay: min/max/mean and RA/DEC
+- Top: slice comparison (plot and stats)
+- Stats: min/max/mean and RA/DEC
 """
 
 # General libraries
@@ -83,6 +83,7 @@ class CubeExplorer(QWidget):
         self.wave_unit = ""  # units
         self.spec_axis = 0  # axes
         self.spectrum = None  # 1d spectrum of sums
+        self.wcs = WCS(self.header)
         self._init_ui()  # function to initialize GUI
 
 
@@ -538,13 +539,14 @@ class CubeExplorer(QWidget):
         # Get pixel coordinates (rounded to nearest int)
         x = int(round(event.xdata))
         y = int(round(event.ydata))
+        idx = self.last_idx_left if target == "left" else self.last_idx_right
 
         # Bounds check
         if x < 0 or y < 0:
             return
         image = np.take(
             self.cube,
-            indices=self.last_idx_left if target == "left" else self.last_idx_right,
+            indices=idx,
             axis=self.spec_axis)
         if y >= image.shape[0] or x >= image.shape[1]:
             return
@@ -557,20 +559,34 @@ class CubeExplorer(QWidget):
         else:
             self.last_clicked_right = (x, y, intensity)
 
+        # Convert to world coordinates (RA, DEC, wavelength)
+        if hasattr(self, "wcs"):
+            try:
+                # Only pass x, y for 2D WCS
+                ra, dec = self.wcs.all_pix2world([[x, y]], 0)[0]
+                # Wavelength from cube index
+                lam = self.wavelength[idx] if self.wavelength is not None else None
+            except Exception as e:
+                print("WCS conversion error:", e)
+                ra, dec, lam = None, None, None
+        else:
+            ra, dec, lam = None, None, None
+
+
         # Update stats label
         old_text = stats_label.text().split("\nPixel:")[0]  # remove old pixel info
-        new_text = f"{old_text}\nPixel: (x={x}, y={y})\nIntensity={intensity:.3e}"
-        stats_label.setText(new_text)
+        coord_text = f"Pixel: (x={x}, y={y})\nIntensity={intensity:.3e}"
+        if ra is not None:
+            coord_text += f"\nRA={ra:.5f}°\nDEC={dec:.5f}°"
 
-        # Remove previous marker if exists
-        attr_name = f"pixel_marker_{target}"
-        if hasattr(self, attr_name) and getattr(self, attr_name) is not None:
-            getattr(self, attr_name).remove()
+        stats_label.setText(f"{old_text}\n{coord_text}")
 
-        # Draw new marker
-        marker = ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]
-        setattr(self, attr_name, marker)
+        # Update visual marker
+        for artist in getattr(ax, "pixel_marker", []):
+            artist.remove()
+        ax.pixel_marker = [ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]]
 
+        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw_idle()
 
 
