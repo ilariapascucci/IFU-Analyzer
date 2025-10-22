@@ -33,6 +33,15 @@ Next Steps:
 - Get new ALMA FITS file.
 - README and additonal documentation (expected outputs and commands).
 - Display pixel-specific data (unique RA/DEC?, pixel coordinate of reference point?)
+
+- Add scaling (function and percentage) and color options -- defaults stay.
+- Check into matplotlib toolbar.
+- Upgrade slice comparison (copy settings)
+- Upgrade GUI placement and visualization.
+- Select region from different shapes (rectangle, circle, ellipse, point, custom).
+- Normalize spectrum and overlay region spectrum (normalize only when comparing).
+- Update pixel RA/DEC using VAL, PIX, DELTA.
+- Reform file structure.
 '''
 
 """
@@ -492,7 +501,7 @@ class CubeExplorer(QWidget):
             else:
                 self.cbar_right.update_normal(im)
 
-        fig.tight_layout(pad=2.0)   # padding
+        #fig.tight_layout(pad=2.0)   # padding
 
         # Stats display
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
