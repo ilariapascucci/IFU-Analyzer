@@ -23,6 +23,10 @@ Week 2.
 - Get instrument info from file and remove dropbox.
 - Zoom in slices and click pixels.
 - Get pixel info after click (RA/DEC, intensity, coordinates).
+
+Week 3.
+- Upgrade GUI placement and visualization.
+- Update pixel RA/DEC using VAL, PIX, DELTA.
 '''
 
 '''
@@ -37,10 +41,8 @@ Next Steps:
 - Add scaling (function and percentage) and color options -- defaults stay.
 - Check into matplotlib toolbar.
 - Upgrade slice comparison (copy settings)
-- Upgrade GUI placement and visualization.
 - Select region from different shapes (rectangle, circle, ellipse, point, custom).
 - Normalize spectrum and overlay region spectrum (normalize only when comparing).
-- Update pixel RA/DEC using VAL, PIX, DELTA.
 - Reform file structure.
 '''
 
@@ -125,7 +127,7 @@ class CubeExplorer(QWidget):
 
         self.stats1_label = QLabel("Slice 1 Stats:\n-")
         self.stats1_label.setMinimumWidth(150)
-        self.stats1_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        self.stats1_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
 
         # ---------------- SLICE 2 ----------------
         self.slice2_fig = Figure(figsize=(4, 4))
@@ -137,7 +139,7 @@ class CubeExplorer(QWidget):
 
         self.stats2_label = QLabel("Slice 2 Stats:\n-")
         self.stats2_label.setMinimumWidth(150)
-        self.stats2_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+        self.stats2_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
 
         # ---------------- SHAPE BUTTONS (LEFT + RIGHT) ----------------
         # Shared style (compact icon buttons)
@@ -163,9 +165,9 @@ class CubeExplorer(QWidget):
 
         # --- Left-side shape buttons ---
         self.rectangle_btn_l = make_shape_button("▭", "left")
-        self.circle_btn_l    = make_shape_button("◯", "left")
-        self.ellipse_btn_l   = make_shape_button("⬭", "left")
-        self.custom_btn_l    = make_shape_button("✏", "left")
+        self.circle_btn_l = make_shape_button("◯", "left")
+        self.ellipse_btn_l = make_shape_button("⬭", "left")
+        self.custom_btn_l = make_shape_button("✏", "left")
 
         self.left_shape_layout = QVBoxLayout()
         for b in [self.rectangle_btn_l, self.circle_btn_l, self.ellipse_btn_l, self.custom_btn_l]:
@@ -174,9 +176,9 @@ class CubeExplorer(QWidget):
 
         # --- Right-side shape buttons ---
         self.rectangle_btn_r = make_shape_button("▭", "right")
-        self.circle_btn_r    = make_shape_button("◯", "right")
-        self.ellipse_btn_r   = make_shape_button("⬭", "right")
-        self.custom_btn_r    = make_shape_button("✏", "right")
+        self.circle_btn_r = make_shape_button("◯", "right")
+        self.ellipse_btn_r = make_shape_button("⬭", "right")
+        self.custom_btn_r = make_shape_button("✏", "right")
 
         self.right_shape_layout = QVBoxLayout()
         for b in [self.rectangle_btn_r, self.circle_btn_r, self.ellipse_btn_r, self.custom_btn_r]:
@@ -212,9 +214,9 @@ class CubeExplorer(QWidget):
         # Final top layout (10/40 split)
         top_layout = QHBoxLayout()
         top_layout.addLayout(left_stats, 1)
-        top_layout.addLayout(left_slice_row, 4)
+        top_layout.addLayout(left_slice_row, 3)
         top_layout.addLayout(right_stats, 1)
-        top_layout.addLayout(right_slice_row, 4)
+        top_layout.addLayout(right_slice_row, 3)
 
         # ---------------- SLICE SELECTION CONTROLS ----------------
         self.set_left_btn = QPushButton("Set Left Slice")
@@ -599,10 +601,7 @@ class CubeExplorer(QWidget):
         # Bounds check
         if x < 0 or y < 0:
             return
-        image = np.take(
-            self.cube,
-            indices=idx,
-            axis=self.spec_axis)
+        image = np.take(self.cube, indices=idx, axis=self.spec_axis)
         if y >= image.shape[0] or x >= image.shape[1]:
             return
 
@@ -614,34 +613,95 @@ class CubeExplorer(QWidget):
         else:
             self.last_clicked_right = (x, y, intensity)
 
-        # Convert to world coordinates (RA, DEC, wavelength)
-        if hasattr(self, "wcs"):
-            try:
-                # Only pass x, y for 2D WCS
+        # --- Coordinate conversion ---
+        ra = dec = lam = None
+        instrument = getattr(self, "instrument", None)
+
+        try:
+            if instrument == "MUSE":
+                # TAN projection with CD matrix
+                crpix1 = float(self.header["CRPIX1"])
+                crpix2 = float(self.header["CRPIX2"])
+                crval1 = float(self.header["CRVAL1"])
+                crval2 = float(self.header["CRVAL2"])
+                cd11 = float(self.header.get("CD1_1", 0.0))
+                cd12 = float(self.header.get("CD1_2", 0.0))
+                cd21 = float(self.header.get("CD2_1", 0.0))
+                cd22 = float(self.header.get("CD2_2", 0.0))
+
+                dx = x + 1 - crpix1
+                dy = y + 1 - crpix2
+
+                dra = cd11 * dx + cd12 * dy
+                ddec = cd21 * dx + cd22 * dy
+
+                ra = crval1 + dra
+                dec = crval2 + ddec
+
+            elif instrument == "ALMA":
+                crval1 = float(self.header["CRVAL1"])
+                crval2 = float(self.header["CRVAL2"])
+                cdelt1 = float(self.header["CDELT1"])
+                cdelt2 = float(self.header["CDELT2"])
+                crpix1 = float(self.header["CRPIX1"])
+                crpix2 = float(self.header["CRPIX2"])
+                crota = float(self.header.get("CROTA2", 0.0))
+
+                theta = np.deg2rad(crota)
+                dx = x + 1 - crpix1
+                dy = y + 1 - crpix2
+
+                dra = dx * cdelt1 * np.cos(theta) - dy * cdelt2 * np.sin(theta)
+                ddec = dx * cdelt1 * np.sin(theta) + dy * cdelt2 * np.cos(theta)
+
+                ra = crval1 + dra
+                dec = crval2 + ddec
+
+            elif instrument in ["MIRI", "NIRSpec"]:
+                crpix1 = float(self.header.get("CRPIX1", 0.0))
+                crpix2 = float(self.header.get("CRPIX2", 0.0))
+                crval1 = float(self.header.get("CRVAL1", np.nan))
+                crval2 = float(self.header.get("CRVAL2", np.nan))
+                cdelt1 = float(self.header.get("CDELT1", 0.0))
+                cdelt2 = float(self.header.get("CDELT2", 0.0))
+                crota = float(self.header.get("CROTA2", 0.0))
+                theta = np.deg2rad(crota)
+
+                dx = x + 1 - crpix1
+                dy = y + 1 - crpix2
+
+                dra = dx * cdelt1 * np.cos(theta) - dy * cdelt2 * np.sin(theta)
+                ddec = dx * cdelt1 * np.sin(theta) + dy * cdelt2 * np.cos(theta)
+
+                ra = crval1 + dra
+                dec = crval2 + ddec
+
+            elif hasattr(self, "wcs"):
+                # Generic fallback: try WCS directly
                 ra, dec = self.wcs.all_pix2world([[x, y]], 0)[0]
-                # Wavelength from cube index
-                lam = self.wavelength[idx] if self.wavelength is not None else None
-            except Exception as e:
-                print("WCS conversion error:", e)
-                ra, dec, lam = None, None, None
-        else:
-            ra, dec, lam = None, None, None
 
+            # Wavelength (if available)
+            if hasattr(self, "wavelength") and self.wavelength is not None:
+                lam = self.wavelength[idx]
 
-        # Update stats label
-        old_text = stats_label.text().split("\nPixel:")[0]  # remove old pixel info
+        except Exception as e:
+            print("Coordinate conversion error:", e)
+
+        # --- Update stats label ---
+        old_text = stats_label.text().split("\nPixel:")[0]
         coord_text = f"Pixel: (x={x}, y={y})\nIntensity={intensity:.3e}"
-        if ra is not None:
-            coord_text += f"\nRA={ra:.5f}°\nDEC={dec:.5f}°"
+        if ra is not None and dec is not None:
+            coord_text += f"\nRA={ra:.6f}°\nDEC={dec:.6f}°"
+        if lam is not None:
+            coord_text += f"\nλ={lam:.3f}"
 
         stats_label.setText(f"{old_text}\n{coord_text}")
 
-        # Update visual marker
+        # --- Update visual marker ---
         for artist in getattr(ax, "pixel_marker", []):
             artist.remove()
         ax.pixel_marker = [ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]]
 
-        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw_idle()
 
 
