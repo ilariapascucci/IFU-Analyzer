@@ -55,6 +55,7 @@ Basic Cube Explorer:
 # General libraries
 import sys
 import numpy as np
+import matplotlib
 
 # Astronomy libraries
 from astropy.io import fits
@@ -70,6 +71,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.widgets import RectangleSelector, EllipseSelector, LassoSelector
 
 
 # Information from each telescope -- constants, so more telescopes can be added
@@ -98,7 +100,7 @@ class CubeExplorer(QWidget):
 
     # INITIALIZE GUI -- LAYOUT AND WIDGETS
     def _init_ui(self):
-        # File Controls
+        # ---------------- FILE CONTROLS ----------------
         open_btn = QPushButton("Open FITS")
         open_btn.clicked.connect(self.select_file)
         load_btn = QPushButton("Load Cube")
@@ -113,67 +115,112 @@ class CubeExplorer(QWidget):
         controls.addWidget(self.instrument_label)
         controls.addStretch()
 
-        # Slice 1 Stats
+        # ---------------- SLICE 1 ----------------
         self.slice1_fig = Figure(figsize=(4, 4))
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
         self.slice1_ax = self.slice1_fig.add_subplot(111)
-        self.stats1_label = QLabel("Slice 1 Stats:\n-")
-        self.stats1_label.setMinimumWidth(150)
-
-        # Slice 2 Stats
-        self.slice2_fig = Figure(figsize=(4, 4))
-        self.slice2_canvas = FigureCanvas(self.slice2_fig)
-        self.slice2_ax = self.slice2_fig.add_subplot(111)
-        self.stats2_label = QLabel("Slice 2 Stats:\n-")
-        self.stats2_label.setMinimumWidth(150)
-
-        # Slice 1 Plot
-        self.slice1_fig = Figure(figsize=(4, 4))
-        self.slice1_canvas = FigureCanvas(self.slice1_fig)
-        self.slice1_ax = self.slice1_fig.add_subplot(111)
+        self.slice1_ax.set_position([0.05, 0.05, 0.9, 0.9])
         self.slice1_toolbar = NavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self.on_slice_click(e, "left"))
 
-        # Slice 2 Plot
+        self.stats1_label = QLabel("Slice 1 Stats:\n-")
+        self.stats1_label.setMinimumWidth(150)
+        self.stats1_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
+
+        # ---------------- SLICE 2 ----------------
         self.slice2_fig = Figure(figsize=(4, 4))
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
         self.slice2_ax = self.slice2_fig.add_subplot(111)
+        self.slice2_ax.set_position([0.05, 0.05, 0.9, 0.9])
         self.slice2_toolbar = NavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self.on_slice_click(e, "right"))
 
-        # Top Layout: Stats and Slices
-        top_layout = QHBoxLayout()
+        self.stats2_label = QLabel("Slice 2 Stats:\n-")
+        self.stats2_label.setMinimumWidth(150)
+        self.stats2_label.setStyleSheet("font-size: 12pt; font-weight: bold;")
 
-        # Left Stats + Slice
+        # ---------------- SHAPE BUTTONS (LEFT + RIGHT) ----------------
+        # Shared style (compact icon buttons)
+        def make_shape_button(symbol, target):
+            btn = QPushButton(symbol)
+            btn.setCheckable(True)
+            btn.setFixedSize(36, 36)
+            btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 18pt;
+                    border: 1px solid #888;
+                    border-radius: 6px;
+                    background-color: #f0f0f0;
+                }
+                QPushButton:checked {
+                    background-color: #4a90e2;
+                    color: white;
+                    border: 2px solid #2d73c5;
+                }
+            """)
+            btn.clicked.connect(lambda _, s=symbol: self._set_shape(s, target=target))
+            return btn
+
+        # --- Left-side shape buttons ---
+        self.rectangle_btn_l = make_shape_button("▭", "left")
+        self.circle_btn_l    = make_shape_button("◯", "left")
+        self.ellipse_btn_l   = make_shape_button("⬭", "left")
+        self.custom_btn_l    = make_shape_button("✏", "left")
+
+        self.left_shape_layout = QVBoxLayout()
+        for b in [self.rectangle_btn_l, self.circle_btn_l, self.ellipse_btn_l, self.custom_btn_l]:
+            self.left_shape_layout.addWidget(b)
+        self.left_shape_layout.addStretch()
+
+        # --- Right-side shape buttons ---
+        self.rectangle_btn_r = make_shape_button("▭", "right")
+        self.circle_btn_r    = make_shape_button("◯", "right")
+        self.ellipse_btn_r   = make_shape_button("⬭", "right")
+        self.custom_btn_r    = make_shape_button("✏", "right")
+
+        self.right_shape_layout = QVBoxLayout()
+        for b in [self.rectangle_btn_r, self.circle_btn_r, self.ellipse_btn_r, self.custom_btn_r]:
+            self.right_shape_layout.addWidget(b)
+        self.right_shape_layout.addStretch()
+
+        # ---------------- STATS AND SLICES ----------------
         left_stats = QVBoxLayout()
         left_stats.addWidget(self.stats1_label)
-        left_stats.addStretch()  # keeps the label top-aligned
+        left_stats.addStretch()
+
+        right_stats = QVBoxLayout()
+        right_stats.addWidget(self.stats2_label)
+        right_stats.addStretch()
 
         left_slice = QVBoxLayout()
         left_slice.addWidget(self.slice1_canvas)
         left_slice.addWidget(self.slice1_toolbar)
 
-        # Right Stats + Slice
-        right_stats = QVBoxLayout()
-        right_stats.addWidget(self.stats2_label)
-        right_stats.addStretch()
-
         right_slice = QVBoxLayout()
         right_slice.addWidget(self.slice2_canvas)
         right_slice.addWidget(self.slice2_toolbar)
 
-        # 1:3 ratio for both halves
-        top_layout.addLayout(left_stats, 1)   # 12.5%
-        top_layout.addLayout(left_slice, 3)   # 37.5%
-        top_layout.addLayout(right_stats, 1)  # 12.5%
-        top_layout.addLayout(right_slice, 3)  # 37.5%
+        # Combine slice + shape buttons in a row each
+        left_slice_row = QHBoxLayout()
+        left_slice_row.addLayout(left_slice, 10)
+        left_slice_row.addLayout(self.left_shape_layout, 1)
 
-        # Slice selection controls
+        right_slice_row = QHBoxLayout()
+        right_slice_row.addLayout(right_slice, 10)
+        right_slice_row.addLayout(self.right_shape_layout, 1)
+
+        # Final top layout (10/40 split)
+        top_layout = QHBoxLayout()
+        top_layout.addLayout(left_stats, 1)
+        top_layout.addLayout(left_slice_row, 4)
+        top_layout.addLayout(right_stats, 1)
+        top_layout.addLayout(right_slice_row, 4)
+
+        # ---------------- SLICE SELECTION CONTROLS ----------------
         self.set_left_btn = QPushButton("Set Left Slice")
         self.set_right_btn = QPushButton("Set Right Slice")
         self.set_left_btn.setCheckable(True)
         self.set_right_btn.setCheckable(True)
-
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
 
@@ -182,21 +229,20 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.set_right_btn)
         slice_select_layout.addStretch()
 
-        # Spectrum (Bottom half)
+        # ---------------- SPECTRUM ----------------
         self.spec_fig = Figure(figsize=(8, 3))
         self.spec_canvas = FigureCanvas(self.spec_fig)
         self.spec_ax = self.spec_fig.add_subplot(111)
         self.spec_toolbar = NavigationToolbar(self.spec_canvas, self)
         self.spec_canvas.mpl_connect("button_press_event", self.on_spec_click)
 
-        # Final main layout
+        # ---------------- MAIN LAYOUT ----------------
         main_layout = QVBoxLayout()
         main_layout.addLayout(controls)
         main_layout.addLayout(top_layout)
         main_layout.addLayout(slice_select_layout)
         main_layout.addWidget(self.spec_canvas)
         main_layout.addWidget(self.spec_toolbar)
-
         self.setLayout(main_layout)
 
         # Default state
@@ -299,7 +345,7 @@ class CubeExplorer(QWidget):
                 return "NIRSpec"
 
         return None  # if no match found
-
+    
 
     # Axis data
     def _infer_spec_axis(self, header, data):
@@ -595,6 +641,124 @@ class CubeExplorer(QWidget):
             artist.remove()
         ax.pixel_marker = [ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]]
 
+        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
+        canvas.draw_idle()
+
+
+    # Options for shape figures
+    def _set_shape(self, shape):
+        # Uncheck other buttons
+        for btn in [self.rectangle_btn, self.circle_btn, self.ellipse_btn, self.custom_btn]:
+            btn.setChecked(False)
+        getattr(self, f"{shape}_btn").setChecked(True)
+        
+        self.active_shape = shape
+        print("Active shape:", shape)
+        
+        # Disconnect any old selectors
+        if hasattr(self, "selector") and self.selector is not None:
+            self.selector.disconnect_events()
+            self.selector = None
+
+
+    def _activate_selector(self, ax, target):
+        """Activate the appropriate matplotlib selector for a slice."""
+        
+        if not hasattr(self, "active_shape") or self.active_shape is None:
+            return
+        
+        if self.active_shape == "rectangle":
+            self.selector = RectangleSelector(
+                ax, 
+                lambda eclick, erelease: self._on_select(eclick, erelease, target),
+                drawtype='box', useblit=True, button=[1], minspanx=2, minspany=2, spancoords='pixels'
+            )
+            
+        elif self.active_shape == "circle":
+            self.selector = EllipseSelector(
+                ax, 
+                lambda eclick, erelease: self._on_select(eclick, erelease, target),
+                drawtype='box', interactive=True
+            )
+            
+        elif self.active_shape == "ellipse":
+            self.selector = EllipseSelector(
+                ax, 
+                lambda eclick, erelease: self._on_select(eclick, erelease, target),
+                drawtype='box', interactive=True
+            )
+            
+        elif self.active_shape == "custom":
+            self.selector = LassoSelector(
+                ax, 
+                lambda verts: self._on_lasso_select(verts, target)
+            )
+
+
+    def _on_select(self, eclick, erelease, target):
+        # eclick and erelease are mouse events
+        x0, y0 = int(eclick.xdata), int(eclick.ydata)
+        x1, y1 = int(erelease.xdata), int(erelease.ydata)
+        
+        xmin, xmax = sorted([x0, x1])
+        ymin, ymax = sorted([y0, y1])
+        
+        idx = self.last_idx_left if target == "left" else self.last_idx_right
+        image = np.take(self.cube, indices=idx, axis=self.spec_axis)
+        
+        # Clip to image bounds
+        xmin, xmax = max(0, xmin), min(image.shape[1]-1, xmax)
+        ymin, ymax = max(0, ymin), min(image.shape[0]-1, ymax)
+        
+        selected_area = image[ymin:ymax+1, xmin:xmax+1]
+        
+        mn, mx, mean = np.nanmin(selected_area), np.nanmax(selected_area), np.nanmean(selected_area)
+        
+        stats_label = self.stats1_label if target == "left" else self.stats2_label
+        old_text = stats_label.text().split("\nPixel:")[0]
+        stats_label.setText(f"{old_text}\nSelected Area Stats:\nmin={mn:.3e}\nmax={mx:.3e}\nmean={mean:.3e}")
+        
+        # Optional: overlay rectangle on the slice
+        ax = self.slice1_ax if target == "left" else self.slice2_ax
+        rect_artist = ax.add_patch(
+            matplotlib.patches.Rectangle((xmin, ymin), xmax-xmin, ymax-ymin,
+                                        edgecolor='cyan', facecolor='none', lw=1.5)
+        )
+        if not hasattr(ax, "area_artists"):
+            ax.area_artists = []
+        ax.area_artists.append(rect_artist)
+        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
+        canvas.draw_idle()
+
+
+    def _on_lasso_select(self, verts, target):
+        from matplotlib.path import Path
+        
+        idx = self.last_idx_left if target == "left" else self.last_idx_right
+        image = np.take(self.cube, indices=idx, axis=self.spec_axis)
+        ny, nx = image.shape
+        
+        x, y = np.meshgrid(np.arange(nx), np.arange(ny))
+        coords = np.vstack((x.flatten(), y.flatten())).T
+        
+        path = Path(verts)
+        mask = path.contains_points(coords).reshape(ny, nx)
+        
+        selected_area = image[mask]
+        mn, mx, mean = np.nanmin(selected_area), np.nanmax(selected_area), np.nanmean(selected_area)
+        
+        stats_label = self.stats1_label if target == "left" else self.stats2_label
+        old_text = stats_label.text().split("\nPixel:")[0]
+        stats_label.setText(f"{old_text}\nSelected Area Stats:\nmin={mn:.3e}\nmax={mx:.3e}\nmean={mean:.3e}")
+        
+        ax = self.slice1_ax if target == "left" else self.slice2_ax
+        from matplotlib.patches import Polygon
+        poly_artist = Polygon(verts, edgecolor='magenta', facecolor='none', lw=1.5)
+        ax.add_patch(poly_artist)
+        if not hasattr(ax, "area_artists"):
+            ax.area_artists = []
+        ax.area_artists.append(poly_artist)
+        
         canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw_idle()
 
