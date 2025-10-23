@@ -96,7 +96,7 @@ class CubeExplorer(QWidget):
         self.wave_unit = ""  # units
         self.spec_axis = 0  # axes
         self.spectrum = None  # 1d spectrum of sums
-        self.wcs = WCS(self.header)
+        self.wcs = None
         self._init_ui()  # function to initialize GUI
 
 
@@ -164,24 +164,26 @@ class CubeExplorer(QWidget):
             return btn
 
         # --- Left-side shape buttons ---
+        self.pixel_btn_l = make_shape_button("*", "left")
         self.rectangle_btn_l = make_shape_button("▭", "left")
         self.circle_btn_l = make_shape_button("◯", "left")
         self.ellipse_btn_l = make_shape_button("⬭", "left")
         self.custom_btn_l = make_shape_button("✏", "left")
 
         self.left_shape_layout = QVBoxLayout()
-        for b in [self.rectangle_btn_l, self.circle_btn_l, self.ellipse_btn_l, self.custom_btn_l]:
+        for b in [self.pixel_btn_l, self.rectangle_btn_l, self.circle_btn_l, self.ellipse_btn_l, self.custom_btn_l]:
             self.left_shape_layout.addWidget(b)
         self.left_shape_layout.addStretch()
 
         # --- Right-side shape buttons ---
+        self.pixel_btn_r = make_shape_button("*", "right")
         self.rectangle_btn_r = make_shape_button("▭", "right")
         self.circle_btn_r = make_shape_button("◯", "right")
         self.ellipse_btn_r = make_shape_button("⬭", "right")
         self.custom_btn_r = make_shape_button("✏", "right")
 
         self.right_shape_layout = QVBoxLayout()
-        for b in [self.rectangle_btn_r, self.circle_btn_r, self.ellipse_btn_r, self.custom_btn_r]:
+        for b in [self.pixel_btn_r, self.rectangle_btn_r, self.circle_btn_r, self.ellipse_btn_r, self.custom_btn_r]:
             self.right_shape_layout.addWidget(b)
         self.right_shape_layout.addStretch()
 
@@ -249,6 +251,12 @@ class CubeExplorer(QWidget):
 
         # Default state
         self.active_target = None
+        self.region_mode = None
+        self.selector = None
+        self.last_clicked_left = None
+        self.last_clicked_right = None
+        self.last_idx_left = 0
+        self.last_idx_right = 0
 
 
     # OPENING A FITS CUBE AFTER SELECTING A FILE
@@ -265,6 +273,8 @@ class CubeExplorer(QWidget):
 
         try:
             hdul = fits.open(self.selected_file, memmap=True)
+
+            self.wcs = WCS(self.header)
 
             # get instrument
             instrument = self._detect_instrument(hdul)
@@ -471,7 +481,6 @@ class CubeExplorer(QWidget):
 
         print("Active target:", self.active_target)
 
-
     # Display slice when clicked
     def on_spec_click(self, event):
         """When clicking on the spectrum, update the corresponding slice."""
@@ -579,216 +588,283 @@ class CubeExplorer(QWidget):
         # Redraw
         canvas.draw_idle()
 
+    
+    def set_region_mode(self, mode):
+        """Sets the current region selection mode."""
+        self.region_mode = mode
+        print(f"Region mode set to: {mode}")
+
     # Pixel information
     def on_slice_click(self, event, target):
         """Handle clicks on left or right slice: get pixel intensity and show a single marker."""
         if event.inaxes is None:
             return
-
-        # Determine which image axes were clicked
-        ax = self.slice1_ax if target == "left" else self.slice2_ax
-        canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
-        stats_label = self.stats1_label if target == "left" else self.stats2_label
-
-        if event.inaxes != ax:
-            return  # clicked outside the relevant subplot
-
-        # Get pixel coordinates (rounded to nearest int)
-        x = int(round(event.xdata))
-        y = int(round(event.ydata))
-        idx = self.last_idx_left if target == "left" else self.last_idx_right
-
-        # Bounds check
-        if x < 0 or y < 0:
-            return
-        image = np.take(self.cube, indices=idx, axis=self.spec_axis)
-        if y >= image.shape[0] or x >= image.shape[1]:
+        
+        if self.region_mode is None:
+            print("Click ignored — no region mode active.")
             return
 
-        intensity = image[y, x]
+        if self.region_mode == '*':
+            # Determine which image axes were clicked
+            ax = self.slice1_ax if target == "left" else self.slice2_ax
+            canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
+            stats_label = self.stats1_label if target == "left" else self.stats2_label
 
-        # Store last clicked pixel
-        if target == "left":
-            self.last_clicked_left = (x, y, intensity)
-        else:
-            self.last_clicked_right = (x, y, intensity)
+            if event.inaxes != ax:
+                return  # clicked outside the relevant subplot
 
-        # --- Coordinate conversion ---
-        ra = dec = lam = None
-        instrument = getattr(self, "instrument", None)
+            # Get pixel coordinates (rounded to nearest int)
+            x = int(round(event.xdata))
+            y = int(round(event.ydata))
+            idx = self.last_idx_left if target == "left" else self.last_idx_right
 
-        try:
-            if instrument == "MUSE":
-                # TAN projection with CD matrix
-                crpix1 = float(self.header["CRPIX1"])
-                crpix2 = float(self.header["CRPIX2"])
-                crval1 = float(self.header["CRVAL1"])
-                crval2 = float(self.header["CRVAL2"])
-                cd11 = float(self.header.get("CD1_1", 0.0))
-                cd12 = float(self.header.get("CD1_2", 0.0))
-                cd21 = float(self.header.get("CD2_1", 0.0))
-                cd22 = float(self.header.get("CD2_2", 0.0))
+            # Bounds check
+            if x < 0 or y < 0:
+                return
+            image = np.take(self.cube, indices=idx, axis=self.spec_axis)
+            if y >= image.shape[0] or x >= image.shape[1]:
+                return
 
-                dx = x + 1 - crpix1
-                dy = y + 1 - crpix2
+            intensity = image[y, x]
 
-                dra = cd11 * dx + cd12 * dy
-                ddec = cd21 * dx + cd22 * dy
+            # Store last clicked pixel
+            if target == "left":
+                self.last_clicked_left = (x, y, intensity)
+            else:
+                self.last_clicked_right = (x, y, intensity)
 
-                ra = crval1 + dra
-                dec = crval2 + ddec
+            # --- Coordinate conversion ---
+            ra = dec = lam = None
+            instrument = getattr(self, "instrument", None)
 
-            elif instrument == "ALMA":
-                crval1 = float(self.header["CRVAL1"])
-                crval2 = float(self.header["CRVAL2"])
-                cdelt1 = float(self.header["CDELT1"])
-                cdelt2 = float(self.header["CDELT2"])
-                crpix1 = float(self.header["CRPIX1"])
-                crpix2 = float(self.header["CRPIX2"])
-                crota = float(self.header.get("CROTA2", 0.0))
+            try:
+                if instrument == "MUSE":
+                    # TAN projection with CD matrix
+                    crpix1 = float(self.header["CRPIX1"])
+                    crpix2 = float(self.header["CRPIX2"])
+                    crval1 = float(self.header["CRVAL1"])
+                    crval2 = float(self.header["CRVAL2"])
+                    cd11 = float(self.header.get("CD1_1", 0.0))
+                    cd12 = float(self.header.get("CD1_2", 0.0))
+                    cd21 = float(self.header.get("CD2_1", 0.0))
+                    cd22 = float(self.header.get("CD2_2", 0.0))
 
-                theta = np.deg2rad(crota)
-                dx = x + 1 - crpix1
-                dy = y + 1 - crpix2
+                    dx = x + 1 - crpix1
+                    dy = y + 1 - crpix2
 
-                dra = dx * cdelt1 * np.cos(theta) - dy * cdelt2 * np.sin(theta)
-                ddec = dx * cdelt1 * np.sin(theta) + dy * cdelt2 * np.cos(theta)
+                    dra = cd11 * dx + cd12 * dy
+                    ddec = cd21 * dx + cd22 * dy
 
-                ra = crval1 + dra
-                dec = crval2 + ddec
+                    ra = crval1 + dra
+                    dec = crval2 + ddec
 
-            elif instrument in ["MIRI", "NIRSpec"]:
-                crpix1 = float(self.header.get("CRPIX1", 0.0))
-                crpix2 = float(self.header.get("CRPIX2", 0.0))
-                crval1 = float(self.header.get("CRVAL1", np.nan))
-                crval2 = float(self.header.get("CRVAL2", np.nan))
-                cdelt1 = float(self.header.get("CDELT1", 0.0))
-                cdelt2 = float(self.header.get("CDELT2", 0.0))
-                crota = float(self.header.get("CROTA2", 0.0))
-                theta = np.deg2rad(crota)
+                elif instrument == "ALMA":
+                    crval1 = float(self.header["CRVAL1"])
+                    crval2 = float(self.header["CRVAL2"])
+                    cdelt1 = float(self.header["CDELT1"])
+                    cdelt2 = float(self.header["CDELT2"])
+                    crpix1 = float(self.header["CRPIX1"])
+                    crpix2 = float(self.header["CRPIX2"])
+                    crota = float(self.header.get("CROTA2", 0.0))
 
-                dx = x + 1 - crpix1
-                dy = y + 1 - crpix2
+                    theta = np.deg2rad(crota)
+                    dx = x + 1 - crpix1
+                    dy = y + 1 - crpix2
 
-                dra = dx * cdelt1 * np.cos(theta) - dy * cdelt2 * np.sin(theta)
-                ddec = dx * cdelt1 * np.sin(theta) + dy * cdelt2 * np.cos(theta)
+                    dra = dx * cdelt1 * np.cos(theta) - dy * cdelt2 * np.sin(theta)
+                    ddec = dx * cdelt1 * np.sin(theta) + dy * cdelt2 * np.cos(theta)
 
-                ra = crval1 + dra
-                dec = crval2 + ddec
+                    ra = crval1 + dra
+                    dec = crval2 + ddec
 
-            elif hasattr(self, "wcs"):
-                # Generic fallback: try WCS directly
-                ra, dec = self.wcs.all_pix2world([[x, y]], 0)[0]
+                elif instrument in ["MIRI", "NIRSpec"]:
+                    crpix1 = float(self.header.get("CRPIX1", 0.0))
+                    crpix2 = float(self.header.get("CRPIX2", 0.0))
+                    crval1 = float(self.header.get("CRVAL1", np.nan))
+                    crval2 = float(self.header.get("CRVAL2", np.nan))
+                    cdelt1 = float(self.header.get("CDELT1", 0.0))
+                    cdelt2 = float(self.header.get("CDELT2", 0.0))
+                    crota = float(self.header.get("CROTA2", 0.0))
+                    theta = np.deg2rad(crota)
 
-            # Wavelength (if available)
-            if hasattr(self, "wavelength") and self.wavelength is not None:
-                lam = self.wavelength[idx]
+                    dx = x + 1 - crpix1
+                    dy = y + 1 - crpix2
 
-        except Exception as e:
-            print("Coordinate conversion error:", e)
+                    dra = dx * cdelt1 * np.cos(theta) - dy * cdelt2 * np.sin(theta)
+                    ddec = dx * cdelt1 * np.sin(theta) + dy * cdelt2 * np.cos(theta)
 
-        # --- Update stats label ---
-        old_text = stats_label.text().split("\nPixel:")[0]
-        coord_text = f"Pixel: (x={x}, y={y})\nIntensity={intensity:.3e}"
-        if ra is not None and dec is not None:
-            coord_text += f"\nRA={ra:.6f}°\nDEC={dec:.6f}°"
-        if lam is not None:
-            coord_text += f"\nλ={lam:.3f}"
+                    ra = crval1 + dra
+                    dec = crval2 + ddec
 
-        stats_label.setText(f"{old_text}\n{coord_text}")
+                elif hasattr(self, "wcs"):
+                    # Generic fallback: try WCS directly
+                    ra, dec = self.wcs.all_pix2world([[x, y]], 0)[0]
 
-        # --- Update visual marker ---
-        for artist in getattr(ax, "pixel_marker", []):
-            artist.remove()
-        ax.pixel_marker = [ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]]
+                # Wavelength (if available)
+                if hasattr(self, "wavelength") and self.wavelength is not None:
+                    lam = self.wavelength[idx]
 
-        canvas.draw_idle()
+            except Exception as e:
+                print("Coordinate conversion error:", e)
+
+            # --- Update stats label ---
+            old_text = stats_label.text().split("\nPixel:")[0]
+            coord_text = f"Pixel: (x={x}, y={y})\nIntensity={intensity:.3e}"
+            if ra is not None and dec is not None:
+                coord_text += f"\nRA={ra:.6f}°\nDEC={dec:.6f}°"
+            if lam is not None:
+                coord_text += f"\nλ={lam:.3f}"
+
+            stats_label.setText(f"{old_text}\n{coord_text}")
+
+            # --- Update visual marker ---
+            if not hasattr(ax, 'pixel_marker'):
+                ax.pixel_marker = []
+            for artist in ax.pixel_marker:
+                artist.remove()
+            
+            ax.pixel_marker = [ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]]
+            canvas.draw_idle()
 
 
     # Options for shape figures
-    def _set_shape(self, shape):
+    def _set_shape(self, shape, target=None):
+        # Determine which side
+        target = target or self.active_target
+        if target not in ["left", "right"]:
+            return
+
+        # Choose the correct buttons
+        if target == "left":
+            btns = [self.pixel_btn_l, self.rectangle_btn_l, self.circle_btn_l, self.ellipse_btn_l, self.custom_btn_l]
+        else:
+            btns = [self.pixel_btn_r, self.rectangle_btn_r, self.circle_btn_r, self.ellipse_btn_r, self.custom_btn_r]
+
         # Uncheck other buttons
-        for btn in [self.rectangle_btn, self.circle_btn, self.ellipse_btn, self.custom_btn]:
-            btn.setChecked(False)
-        getattr(self, f"{shape}_btn").setChecked(True)
-        
-        self.active_shape = shape
-        print("Active shape:", shape)
-        
-        # Disconnect any old selectors
+        for b in btns:
+            b.setChecked(False)
+
+        # Disconnect old selectors FIRST
         if hasattr(self, "selector") and self.selector is not None:
             self.selector.disconnect_events()
             self.selector = None
 
+        # Check the selected shape
+        shape_map = {
+            "*": self.pixel_btn_l if target=="left" else self.pixel_btn_r,
+            "▭": self.rectangle_btn_l if target=="left" else self.rectangle_btn_r,
+            "◯": self.circle_btn_l if target=="left" else self.circle_btn_r,
+            "⬭": self.ellipse_btn_l if target=="left" else self.ellipse_btn_r,
+            "✏": self.custom_btn_l if target=="left" else self.custom_btn_r,
+        }
+        btn_to_check = shape_map.get(shape)
+        if btn_to_check:
+            btn_to_check.setChecked(True)
+        
+        self.active_shape = shape
+        self.active_target = target  # important!
+        print("Active shape:", shape)
+        self._activate_selector()
 
-    def _activate_selector(self, ax, target):
-        """Activate the appropriate matplotlib selector for a slice."""
+
+    def _activate_selector(self):
+        """Activate the appropriate matplotlib selector for the currently active target."""
         
         if not hasattr(self, "active_shape") or self.active_shape is None:
             return
-        
-        if self.active_shape == "rectangle":
+        if not hasattr(self, "active_target") or self.active_target is None:
+            return
+
+        # Choose axes and canvas
+        ax = self.slice1_ax if self.active_target == "left" else self.slice2_ax
+        canvas = self.slice1_canvas if self.active_target == "left" else self.slice2_canvas
+
+        # Disconnect old selector
+        if hasattr(self, "selector") and self.selector is not None:
+            self.selector.disconnect_events()
+            self.selector = None
+
+        # Create the right selector
+        if self.active_shape == "*":
+            return
+
+        if self.active_shape == "▭":  # rectangle
             self.selector = RectangleSelector(
-                ax, 
-                lambda eclick, erelease: self._on_select(eclick, erelease, target),
-                drawtype='box', useblit=True, button=[1], minspanx=2, minspany=2, spancoords='pixels'
+                ax, lambda eclick, erelease: self._on_select(eclick, erelease, self.active_target),
+                useblit=True, button=[1], minspanx=2, minspany=2, spancoords='pixels',
+                interactive=True
             )
-            
-        elif self.active_shape == "circle":
+        elif self.active_shape == "◯" or self.active_shape == "⬭":  # circle or ellipse
             self.selector = EllipseSelector(
-                ax, 
-                lambda eclick, erelease: self._on_select(eclick, erelease, target),
-                drawtype='box', interactive=True
+                ax, lambda eclick, erelease: self._on_select(eclick, erelease, self.active_target),
+                interactive=True
             )
-            
-        elif self.active_shape == "ellipse":
-            self.selector = EllipseSelector(
-                ax, 
-                lambda eclick, erelease: self._on_select(eclick, erelease, target),
-                drawtype='box', interactive=True
-            )
-            
-        elif self.active_shape == "custom":
+        elif self.active_shape == "✏":  # custom
             self.selector = LassoSelector(
-                ax, 
-                lambda verts: self._on_lasso_select(verts, target)
+                ax, lambda verts: self._on_lasso_select(verts, self.active_target)
             )
+
+        canvas.draw_idle()
 
 
     def _on_select(self, eclick, erelease, target):
-        # eclick and erelease are mouse events
         x0, y0 = int(eclick.xdata), int(eclick.ydata)
         x1, y1 = int(erelease.xdata), int(erelease.ydata)
-        
+
         xmin, xmax = sorted([x0, x1])
         ymin, ymax = sorted([y0, y1])
-        
+
         idx = self.last_idx_left if target == "left" else self.last_idx_right
         image = np.take(self.cube, indices=idx, axis=self.spec_axis)
-        
-        # Clip to image bounds
+
         xmin, xmax = max(0, xmin), min(image.shape[1]-1, xmax)
         ymin, ymax = max(0, ymin), min(image.shape[0]-1, ymax)
-        
-        selected_area = image[ymin:ymax+1, xmin:xmax+1]
-        
+
+        if self.active_shape == "◯":  # Circle
+            yy, xx = np.indices(image.shape)
+            cx = (xmin + xmax) // 2
+            cy = (ymin + ymax) // 2
+            r = min((xmax - xmin)//2, (ymax - ymin)//2)
+            mask = (xx - cx)**2 + (yy - cy)**2 <= r**2
+            selected_area = image[mask]
+            patch = matplotlib.patches.Circle((cx, cy), r, edgecolor='cyan', facecolor='none', lw=1.5)
+
+        elif self.active_shape == "⬭":  # Ellipse
+            yy, xx = np.indices(image.shape)
+            cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
+            a, b = (xmax - xmin) / 2, (ymax - ymin) / 2
+            mask = ((xx - cx) / a)**2 + ((yy - cy) / b)**2 <= 1
+            selected_area = image[mask]
+            patch = matplotlib.patches.Ellipse((cx, cy), 2*a, 2*b, edgecolor='cyan', facecolor='none', lw=1.5)
+
+        else:  # Rectangle
+            mask = np.zeros_like(image, dtype=bool)
+            mask[ymin:ymax+1, xmin:xmax+1] = True
+            selected_area = image[mask]
+            patch = matplotlib.patches.Rectangle((xmin, ymin), xmax-xmin, ymax-ymin,
+                                                edgecolor='cyan', facecolor='none', lw=1.5)
+
+        self.last_mask = mask  # Save for spectrum computation
+
         mn, mx, mean = np.nanmin(selected_area), np.nanmax(selected_area), np.nanmean(selected_area)
-        
+
         stats_label = self.stats1_label if target == "left" else self.stats2_label
         old_text = stats_label.text().split("\nPixel:")[0]
         stats_label.setText(f"{old_text}\nSelected Area Stats:\nmin={mn:.3e}\nmax={mx:.3e}\nmean={mean:.3e}")
-        
-        # Optional: overlay rectangle on the slice
+
         ax = self.slice1_ax if target == "left" else self.slice2_ax
-        rect_artist = ax.add_patch(
-            matplotlib.patches.Rectangle((xmin, ymin), xmax-xmin, ymax-ymin,
-                                        edgecolor='cyan', facecolor='none', lw=1.5)
-        )
-        if not hasattr(ax, "area_artists"):
-            ax.area_artists = []
-        ax.area_artists.append(rect_artist)
+        ax.add_patch(patch)
         canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw_idle()
+
+        # --- Update spectrum plot ---
+        if hasattr(self, "spectrum_ax") and self.wavelength is not None:
+            spectrum = self.compute_region_spectrum(self.last_mask)
+            self.spec_ax.clear()
+            self.spec_ax.plot(self.wavelength, spectrum, color='cyan')
+            self.spec_ax.set_xlabel("Wavelength")
+            self.spec_ax.set_ylabel("Mean Intensity")
+            self.spec_canvas.draw_idle()
 
 
     def _on_lasso_select(self, verts, target):
@@ -821,6 +897,24 @@ class CubeExplorer(QWidget):
         
         canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw_idle()
+
+
+    def compute_region_spectrum(self, mask):
+        """
+        Compute mean spectrum through wavelength for all pixels inside mask.
+        """
+        cube = self.cube
+        spec_axis = self.spec_axis
+
+        # Reorder so spec_axis is 0 for simplicity
+        cube_reordered = np.moveaxis(cube, spec_axis, 0)  # shape (λ, y, x)
+
+        # Apply mask
+        masked_pixels = cube_reordered[:, mask]
+
+        # Compute mean across selected pixels for each λ
+        spectrum = np.nanmean(masked_pixels, axis=1)
+        return spectrum
 
 
 # Run script
