@@ -28,6 +28,7 @@ Week 3.
 - Upgrade GUI placement and visualization.
 - Update pixel RA/DEC using VAL, PIX, DELTA.
 - Select region from different shapes (rectangle, circle, ellipse, point, custom).
+- Upgrade slice comparison (copy settings)
 '''
 
 '''
@@ -41,7 +42,6 @@ Next Steps:
 
 - Add scaling (function and percentage) and color options -- defaults stay.
 - Check into matplotlib toolbar.
-- Upgrade slice comparison (copy settings)
 - Normalize spectrum and overlay region spectrum (normalize only when comparing).
 - Reform file structure.
 '''
@@ -101,6 +101,24 @@ class CubeExplorer(QWidget):
         self.wcs = None
         self._init_ui()  # function to initialize GUI
 
+    def closeEvent(self, event):
+        import gc, matplotlib.pyplot as plt
+        try:
+            del self.cube
+            del self.spectrum
+            del self.last_mask
+        except AttributeError:
+            pass
+        plt.close('all')
+        gc.collect()
+        event.accept()
+
+    def free_memory(self):
+        import gc, matplotlib.pyplot as plt
+        try: del self.cube
+        except AttributeError: pass
+        plt.close('all')
+        gc.collect()
 
     # INITIALIZE GUI -- LAYOUT AND WIDGETS
     def _init_ui(self):
@@ -108,7 +126,7 @@ class CubeExplorer(QWidget):
         open_btn = QPushButton("Open FITS")
         open_btn.clicked.connect(self.select_file)
         load_btn = QPushButton("Load Cube")
-        load_btn.clicked.connect(self.load_cube)
+        load_btn.clicked.connect(lambda: (self.free_memory(), self.load_cube()))
         
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
@@ -145,7 +163,7 @@ class CubeExplorer(QWidget):
 
         # ---------------- SHAPE BUTTONS (LEFT + RIGHT) ----------------
         # Shared style (compact icon buttons)
-        def make_shape_button(symbol, target):
+        def make_shape_button(symbol, target, callback=None):
             btn = QPushButton(symbol)
             btn.setCheckable(True)
             btn.setFixedSize(36, 36)
@@ -162,7 +180,10 @@ class CubeExplorer(QWidget):
                     border: 2px solid #2d73c5;
                 }
             """)
-            btn.clicked.connect(lambda _, s=symbol: self._set_shape(s, target=target))
+            if callback is None:
+                btn.clicked.connect(lambda _, s=symbol: self._set_shape(s, target=target))
+            else:
+                btn.clicked.connect(callback)
             return btn
 
         # --- Left-side shape buttons ---
@@ -171,9 +192,10 @@ class CubeExplorer(QWidget):
         self.circle_btn_l = make_shape_button("◯", "left")
         self.ellipse_btn_l = make_shape_button("⬭", "left")
         self.custom_btn_l = make_shape_button("✏", "left")
+        self.copy_btn_l = make_shape_button("⎘", "left", callback=lambda: self.copy_selection(source="right", target="left"))
 
         self.left_shape_layout = QVBoxLayout()
-        for b in [self.pixel_btn_l, self.rectangle_btn_l, self.circle_btn_l, self.ellipse_btn_l, self.custom_btn_l]:
+        for b in [self.pixel_btn_l, self.rectangle_btn_l, self.circle_btn_l, self.ellipse_btn_l, self.custom_btn_l, self.copy_btn_l]:
             self.left_shape_layout.addWidget(b)
         self.left_shape_layout.addStretch()
 
@@ -183,9 +205,10 @@ class CubeExplorer(QWidget):
         self.circle_btn_r = make_shape_button("◯", "right")
         self.ellipse_btn_r = make_shape_button("⬭", "right")
         self.custom_btn_r = make_shape_button("✏", "right")
+        self.copy_btn_r = make_shape_button("⎘", "right", callback=lambda: self.copy_selection(source="left", target="right"))
 
         self.right_shape_layout = QVBoxLayout()
-        for b in [self.pixel_btn_r, self.rectangle_btn_r, self.circle_btn_r, self.ellipse_btn_r, self.custom_btn_r]:
+        for b in [self.pixel_btn_r, self.rectangle_btn_r, self.circle_btn_r, self.ellipse_btn_r, self.custom_btn_r, self.copy_btn_r]:
             self.right_shape_layout.addWidget(b)
         self.right_shape_layout.addStretch()
 
@@ -260,7 +283,10 @@ class CubeExplorer(QWidget):
         self.last_clicked_right = None
         self.last_idx_left = 0
         self.last_idx_right = 0
-
+        self.last_selection_left = None
+        self.last_selection_right = None
+        self.slice1_ax.area_artists = []
+        self.slice2_ax.area_artists = []
 
     # OPENING A FITS CUBE AFTER SELECTING A FILE
     def select_file(self):
@@ -727,6 +753,19 @@ class CubeExplorer(QWidget):
         ax.pixel_marker = [ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]]
         canvas.draw_idle()
 
+        if target == "left":
+            self.last_selection_left = {
+                "shape": "*",
+                "coords": (x, y),
+                "mask": None  # pixels don’t need a mask
+            }
+        else:
+            self.last_selection_right = {
+                "shape": "*",
+                "coords": (x, y),
+                "mask": None
+            }
+
 
     # Options for shape figures
     def _set_shape(self, shape, target=None):
@@ -828,16 +867,11 @@ class CubeExplorer(QWidget):
     def _on_select(self, eclick, erelease, target):
         # --- Clear previous region and stats ---
         ax = self.slice1_ax if target == "left" else self.slice2_ax
-        if hasattr(ax, "area_artists"):
-            for artist in ax.area_artists:
-                artist.remove()
-            ax.area_artists.clear()
-        else:
-            ax.area_artists = []
+        for artist in getattr(ax, "area_artists", []):
+            artist.remove()
+        ax.area_artists = []
 
         stats_label = self.stats1_label if target == "left" else self.stats2_label
-        old_text = stats_label.text().split("\nPixel:")[0]
-        stats_label.setText(old_text)  # clear appended stats
 
         # --- Get selection bounds ---
         x0, y0 = int(eclick.xdata), int(eclick.ydata)
@@ -874,15 +908,14 @@ class CubeExplorer(QWidget):
             patch = matplotlib.patches.Rectangle((xmin, ymin), xmax-xmin, ymax-ymin,
                                                 edgecolor='cyan', facecolor='none', lw=1.5)
 
-        # --- Save and plot spectrum ---
+        # --- Save mask ---
         self.last_mask = mask
-        if hasattr(self, "spec_ax") and self.wavelength is not None:
-            spectrum = self.compute_region_spectrum(mask)
-            self.spec_ax.clear()
-            self.spec_ax.plot(self.wavelength, spectrum, color='cyan')
-            self.spec_ax.set_xlabel("Wavelength")
-            self.spec_ax.set_ylabel("Mean Intensity")
-            self.spec_canvas.draw_idle()
+        if target == "left":
+            self.last_selection_left = {"shape": self.active_shape, "coords": (xmin, xmax, ymin, ymax), "mask": mask}
+            self._plot_region_spectrum(mask, color='cyan', label='Left Selection')
+        else:
+            self.last_selection_right = {"shape": self.active_shape, "coords": (xmin, xmax, ymin, ymax), "mask": mask}
+            self._plot_region_spectrum(mask, color='magenta', label='Right Selection')
 
         # --- Compute stats ---
         selected_area = image[mask]
@@ -921,23 +954,48 @@ class CubeExplorer(QWidget):
         self.last_mask = mask
 
         # --- Plot spectrum ---
-        if hasattr(self, "spec_ax") and self.wavelength is not None:
-            spectrum = self.compute_region_spectrum(mask)
-            self.spec_ax.clear()
-            self.spec_ax.plot(self.wavelength, spectrum, color='cyan')
-            self.spec_ax.set_xlabel("Wavelength")
-            self.spec_ax.set_ylabel("Mean Intensity")
-            self.spec_canvas.draw_idle()
+        if target == "left":
+            self.last_selection_left = {"shape": "lasso", "coords": verts, "mask": mask}
+            self._plot_region_spectrum(mask, color='cyan', label='Left Selection')
+        else:
+            self.last_selection_right = {"shape": "lasso", "coords": verts, "mask": mask}
+            self._plot_region_spectrum(mask, color='magenta', label='Right Selection')
 
         selected_area = image[mask]
         mn, mx, mean = np.nanmin(selected_area), np.nanmax(selected_area), np.nanmean(selected_area)
-        stats_label.setText(f"Selected Area Stats:\nmin={mn:.3e}\nmax={mx:.3e}\nmean={mean:.3e}")
+        stats_label.setText(f"{old_text}\nSelected Area Stats:\nmin={mn:.3e}\nmax={mx:.3e}\nmean={mean:.3e}")
 
         poly_artist = Polygon(verts, edgecolor='magenta', facecolor='none', lw=1.5)
         ax.add_patch(poly_artist)
         ax.area_artists.append(poly_artist)
         canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw_idle()
+
+    def copy_selection(self, source, target):
+        # Choose the selection and axes
+        sel = self.last_selection_right if source=="right" else self.last_selection_left
+        if sel is None:
+            return  # nothing to copy
+
+        # Set the target slice active_shape temporarily
+        self.active_shape = sel["shape"]
+
+        # For pixel:
+        if sel["shape"] == "*":
+            x, y = sel["coords"]
+            class Event: pass
+            event = Event()
+            event.inaxes = self.slice1_ax if target=="left" else self.slice2_ax
+            event.xdata, event.ydata = x, y
+            self.on_slice_click(event, target)
+        else:
+            # For region: compute the mask on the target slice using same coordinates
+            xmin, xmax, ymin, ymax = sel["coords"]
+            class EventClick: pass
+            class EventRelease: pass
+            eclick = EventClick(); eclick.xdata = xmin; eclick.ydata = ymin
+            erelease = EventRelease(); erelease.xdata = xmax; erelease.ydata = ymax
+            self._on_select(eclick, erelease, target)
 
     def compute_region_spectrum(self, mask):
         """
@@ -955,6 +1013,38 @@ class CubeExplorer(QWidget):
         # Compute mean across selected pixels for each λ
         spectrum = np.nanmean(masked_pixels, axis=1)
         return spectrum
+    
+    def _plot_region_spectrum(self, mask, color='cyan', label=None):
+        """Helper to plot region spectrum without clearing axes."""
+        if not hasattr(self, "spectrum") or self.spectrum is None:
+            return
+
+        region_spectrum = self.compute_region_spectrum(mask)
+
+        # Normalize if you want
+        region_spectrum /= np.nanmax(region_spectrum)
+
+        # Keep reference so we can remove old region lines
+        if not hasattr(self, "region_lines"):
+            self.region_lines = {}
+
+        # Remove previous line for this color/label
+        if label in self.region_lines:
+            self.region_lines[label].remove()
+
+        # Plot new region spectrum
+        line, = self.spec_ax.plot(self.wavelength, region_spectrum, color=color, label=label)
+        self.region_lines[label] = line
+
+        # Always keep original spectrum (plot once)
+        if not hasattr(self, "original_spectrum_plotted") or not self.original_spectrum_plotted:
+            self.spec_ax.plot(self.wavelength, self.spectrum, color='gray', alpha=0.5, label='Original')
+            self.original_spectrum_plotted = True
+
+        self.spec_ax.set_xlabel("Wavelength")
+        self.spec_ax.set_ylabel("Mean Intensity")
+        self.spec_ax.legend()
+        self.spec_canvas.draw_idle()
 
 
 # Run script
