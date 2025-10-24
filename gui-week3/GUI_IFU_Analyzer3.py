@@ -617,18 +617,13 @@ class CubeExplorer(QWidget):
         # Redraw
         canvas.draw_idle()
 
-    
-    def set_region_mode(self, mode):
-        """Sets the current region selection mode."""
-        self.region_mode = mode
-        print(f"Region mode set to: {mode}")
-
     # Pixel information
     def on_slice_click(self, event, target):
         """Handle clicks on left or right slice: get pixel intensity and show a single marker."""
         if event.inaxes is None:
             return
         
+        # pixel specific task
         if self.active_shape != '*':
             return
     
@@ -824,6 +819,7 @@ class CubeExplorer(QWidget):
         self._activate_selector()
 
 
+    # BE ABLE TO DRAW GIVEN THE SHAPE SELECTION
     def _activate_selector(self):
         """Activate the appropriate matplotlib selector for the currently active target."""
         
@@ -842,7 +838,7 @@ class CubeExplorer(QWidget):
             self.selector = None
 
         # Create the right selector
-        if self.active_shape == "*":
+        if self.active_shape == "*":    # pixel - already uses on slice click
             canvas.mpl_connect("button_press_event", lambda event: self.on_slice_click(event, self.active_target))
 
         if self.active_shape == "▭":  # rectangle
@@ -864,6 +860,7 @@ class CubeExplorer(QWidget):
         canvas.draw_idle()
 
 
+    # GET VALUES GIVEN A SHAPE
     def _on_select(self, eclick, erelease, target):
         # --- Clear previous region and stats ---
         ax = self.slice1_ax if target == "left" else self.slice2_ax
@@ -929,6 +926,7 @@ class CubeExplorer(QWidget):
         canvas.draw_idle()
 
 
+    # FREEFORM OPTION
     def _on_lasso_select(self, verts, target):        
         ax = self.slice1_ax if target == "left" else self.slice2_ax
         if hasattr(ax, "area_artists"):
@@ -971,6 +969,8 @@ class CubeExplorer(QWidget):
         canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw_idle()
 
+
+    # COPY SLICE SHAPE REGIONS
     def copy_selection(self, source, target):
         # Choose the selection and axes
         sel = self.last_selection_right if source=="right" else self.last_selection_left
@@ -997,6 +997,8 @@ class CubeExplorer(QWidget):
             erelease = EventRelease(); erelease.xdata = xmax; erelease.ydata = ymax
             self._on_select(eclick, erelease, target)
 
+
+    # CALCULATE SPECTRUM FOR REGION
     def compute_region_spectrum(self, mask):
         """
         Compute mean spectrum through wavelength for all pixels inside mask.
@@ -1014,6 +1016,8 @@ class CubeExplorer(QWidget):
         spectrum = np.nanmean(masked_pixels, axis=1)
         return spectrum
     
+
+    # PLOT REGION
     def _plot_region_spectrum(self, mask, color='cyan', label=None):
         """Helper to plot region spectrum without clearing axes."""
         if not hasattr(self, "spectrum") or self.spectrum is None:
