@@ -1,4 +1,4 @@
-# Week 3: Oct 13 - Oct 17
+# Week 4: Oct 27 - Oct 31
 
 '''
 Goals:
@@ -44,6 +44,13 @@ Next Steps:
 - Check into matplotlib toolbar.
 - Normalize spectrum and overlay region spectrum (normalize only when comparing).
 - Reform file structure.
+- UNITS FLUX - WAVELENGTH ON SLICE - SUM AND STD FOR REGION
+- .lst files: given elemenet and micron region, select rows and plot vertical lines in wavelength
+when clicked, show other info... -> list of elements option -> species, wavelength range, 1
+? to show list of possible transitions [Fe II] != Fe II
+- Info module: load cube, getting info out of cube, plot spectrum
+- Tool module: zoom in slice, etc... will call info module
+- create multiple small modules that'll call info module.
 '''
 
 """
