@@ -2,13 +2,15 @@
 Utility functions and constants for the Cube Explorer
 """
 
+import numpy as np
+
 # Dictionary mapping telescope/instrument names to their data loading functions
 # Each function takes an HDUList and returns (header, data) tuple
 # The returned header contains metadata and WCS info
 # The returned data is the 3D data cube
 TELESCOPE_LOADERS = {
     "MUSE": lambda hdul: (hdul[1].header, hdul[1].data),
-    "ALMA": lambda hdul: (hdul[0].header, hdul[0].data),
+    "ALMA": lambda hdul: (hdul[0].header, np.moveaxis(np.squeeze(hdul[0].data, axis=-1), -1, 0)),
     "MIRI": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data),
     "NIRSpec": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data),
 }

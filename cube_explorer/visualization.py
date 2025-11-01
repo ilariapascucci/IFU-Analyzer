@@ -45,6 +45,7 @@ class SpectrumPlotter:
         self.original_spectrum_plotted = False
         self.vline_left = None
         self.vline_right = None
+        self.cube_data = None  # Will be set later
 
     def plot_spectrum(self, spectrum):
         """
@@ -84,8 +85,14 @@ class SpectrumPlotter:
                 print("Warning: Spectrum contains all NaN values")
                 spectrum = np.zeros_like(spectrum)
             
+            # Clear any existing plot lines and reset storage
+            self.ax.clear()
+            self.region_lines = {}
+            self.vline_left = None
+            self.vline_right = None
+            
             # Plot main spectrum
-            self.ax.plot(x, spectrum)
+            self.ax.plot(x, spectrum, label='Total Spectrum')
 
             # X axis label depends on units
             if self.wave_unit in ["Å", "µm"]:
@@ -94,17 +101,33 @@ class SpectrumPlotter:
                 xlabel = f"Velocity [{self.wave_unit}]"
             else:
                 xlabel = "Spectral axis"
-        
+    
             self.ax.set_xlabel(xlabel)
-            self.ax.set_ylabel("Flux (sum over spatial pixels)")
-            
-            # Create vertical lines for slice indicators
+            # Get flux units from data if available
+            if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
+                ylabel = f"Flux [{self.cube_data.flux_unit}]"
+            else:
+                # Fallback to standard units based on instrument type
+                if self.wave_unit == "Å":
+                    ylabel = "Flux [10⁻²⁰ erg s⁻¹ cm⁻² Å⁻¹]"  # Standard MUSE units
+                elif self.wave_unit == "µm":
+                    ylabel = "Flux [Jy]"  # Common unit for IR observations
+                elif self.wave_unit == "km/s":
+                    ylabel = "Flux [K]"   # Common for radio/velocity cubes
+                else:
+                    ylabel = "Flux [arbitrary units]"
+            self.ax.set_ylabel(ylabel)
+                        # Create vertical lines for slice indicators
             # Create vertical lines for slice indicators
             ymin, ymax = self.ax.get_ylim()
             # label these so they appear in the legend as 'Left slice' / 'Right slice'
-            self.vline_left = self.ax.plot([x[0], x[0]], [ymin, ymax], 'r--', lw=1.2, label='Left slice')[0]
-            self.vline_right = self.ax.plot([x[0], x[0]], [ymin, ymax], 'b--', lw=1.2, label='Right slice')[0]
+            # Use cyan for left slice, magenta for right slice to match region colors
+            self.vline_left = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='cyan', 
+                                         lw=1.5, label='Left slice', zorder=3)[0]
+            self.vline_right = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='magenta', 
+                                          lw=1.5, label='Right slice', zorder=3)[0]
             self.ax.set_ylim(ymin, ymax)
+            self.ax.legend(loc='upper right', fontsize=8)
             
         except Exception as e:
             print(f"Error plotting spectrum: {e}")
@@ -239,11 +262,18 @@ class SlicePlotter:
             - Initializes empty attributes for later use
         """
         self.fig = figure
+        # Clear any existing axes
+        self.fig.clear()
+        # Create new axes with specific position
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_position([0.05, 0.05, 0.9, 0.9])
+        self.ax.set_position([0.1, 0.1, 0.8, 0.8])  # Adjust to leave room for colorbar
         self.im = None
         self.cbar = None
         self.pixel_marker = None
+        # Draw empty axis
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+        self.fig.canvas.draw()
 
     def plot_slice(self, image, title=""):
         """
@@ -260,16 +290,28 @@ class SlicePlotter:
             - Creates or updates colorbar as needed
             - Maintains consistent colorbar size and position
         """
+        # Clear the axis
         self.ax.clear()
+        
+        # Remove old colorbar if it exists
+        if hasattr(self, 'cbar') and self.cbar is not None:
+            try:
+                self.cbar.remove()
+            except Exception:
+                pass
+            self.cbar = None
+            
+        # Plot new image
         self.im = self.ax.imshow(image, origin='lower', interpolation='nearest', cmap='magma')
         self.ax.set_title(title)
 
-        # Create or update colorbar
-        if self.cbar is None:
+        # Create new colorbar
+        try:
             self.cbar = self.fig.colorbar(self.im, ax=self.ax, fraction=0.046, pad=0.04)
             self.cbar.set_label("Flux / Intensity")
-        else:
-            self.cbar.update_normal(self.im)
+        except Exception as e:
+            print(f"Warning: Could not create colorbar: {e}")
+            self.cbar = None
 
     def update_pixel_marker(self, x, y):
         """

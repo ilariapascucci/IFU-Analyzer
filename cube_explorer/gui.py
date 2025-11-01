@@ -3,9 +3,13 @@ Main GUI class for the Cube Explorer application
 """
 
 import gc
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+
+# Suppress FITS warning messages about header formatting
+warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox
@@ -34,6 +38,68 @@ class CubeExplorer(QWidget):
         plt.close('all')
         gc.collect()
         event.accept()
+        
+    def _clear_all_displays(self):
+        """Clear all plots, selections, and stats when loading a new cube"""
+        # Clear slice displays
+        if hasattr(self, 'slice1_plotter'):
+            self.slice1_plotter.ax.clear()
+            # Handle colorbar removal safely
+            try:
+                if hasattr(self.slice1_plotter, 'cbar') and self.slice1_plotter.cbar is not None:
+                    self.slice1_plotter.cbar.remove()
+                self.slice1_plotter.cbar = None
+            except Exception:
+                pass
+            self.slice1_canvas.draw()
+            
+        if hasattr(self, 'slice2_plotter'):
+            self.slice2_plotter.ax.clear()
+            # Handle colorbar removal safely
+            try:
+                if hasattr(self.slice2_plotter, 'cbar') and self.slice2_plotter.cbar is not None:
+                    self.slice2_plotter.cbar.remove()
+                self.slice2_plotter.cbar = None
+            except Exception:
+                pass
+            self.slice2_canvas.draw()
+            
+        # Clear spectrum display
+        if hasattr(self, 'spec_plotter') and hasattr(self.spec_plotter, 'ax'):
+            self.spec_plotter.ax.clear()
+            self.spec_canvas.draw()
+            
+        # Reset all selections and markers
+        self.last_selection_left = None
+        self.last_selection_right = None
+        self.last_idx_left = 0
+        self.last_idx_right = 0
+        
+        # Clear region selectors
+        if hasattr(self, 'region_selector_left'):
+            self.region_selector_left.active_shape = None
+        if hasattr(self, 'region_selector_right'):
+            self.region_selector_right.active_shape = None
+            
+        # Reset stats labels
+        self.stats1_label.setText("Slice 1 Stats:\n-")
+        self.stats2_label.setText("Slice 2 Stats:\n-")
+        
+        # Uncheck all shape buttons
+        for side in ["left", "right"]:
+            for btn in self.shape_buttons[side].values():
+                btn.setChecked(False)
+                
+        # Uncheck slice selection buttons
+        self.set_left_btn.setChecked(False)
+        self.set_right_btn.setChecked(False)
+        self.active_target = None
+        
+        # Reset instrument label
+        self.instrument_label.setText("Instrument: -")
+        
+        # Force garbage collection
+        gc.collect()
 
     def _init_ui(self):
         # File controls
@@ -276,6 +342,9 @@ class CubeExplorer(QWidget):
             return
 
         try:
+            # Clear all previous plots and selections
+            self._clear_all_displays()
+            
             # Free any existing memory
             if hasattr(self, 'cube_data'):
                 self.cube_data.free_memory()
@@ -299,6 +368,7 @@ class CubeExplorer(QWidget):
                 self.cube_data.wavelength,
                 self.cube_data.wave_unit
             )
+            self.spec_plotter.cube_data = self.cube_data  # Set cube_data for unit handling
             
             try:
                 # Plot the spectrum
@@ -332,8 +402,22 @@ class CubeExplorer(QWidget):
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
         stats_label = self.stats1_label if target == "left" else self.stats2_label
         
+        # Create title with wavelength/velocity information
+        if hasattr(self.cube_data, 'wavelength') and self.cube_data.wavelength is not None:
+            wave = self.cube_data.wavelength[idx]
+            if self.cube_data.wave_unit == "Å":
+                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.1f} Å"
+            elif self.cube_data.wave_unit == "µm":
+                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.3f} µm"
+            elif self.cube_data.wave_unit == "km/s":
+                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.1f} km/s"
+            else:
+                title = f"{target.capitalize()} Slice @ idx={idx}"
+        else:
+            title = f"{target.capitalize()} Slice @ idx={idx}"
+            
         # Update the plot
-        plotter.plot_slice(image, f"{target.capitalize()} Slice @ idx={idx}")
+        plotter.plot_slice(image, title)
 
         # Force immediate redraw so UI updates without needing a manual resize
         if target == "left":
@@ -453,7 +537,22 @@ class CubeExplorer(QWidget):
         if selected_area.size > 0:
             mn, mx, mean = np.nanmin(selected_area), np.nanmax(selected_area), np.nanmean(selected_area)
             stats_label = self.stats1_label if target == "left" else self.stats2_label
-            stats_label.setText(f"Selected Area Stats:\nmin={mn:.3e}\nmax={mx:.3e}\nmean={mean:.3e}")
+            current_text = stats_label.text().split("\n")
+            
+            # Keep the slice stats if they exist (they start with "Intensity:")
+            slice_stats = [line for line in current_text if line.startswith("Intensity:")]
+            
+            # Create region stats
+            region_stats = [
+                "Selected Area Stats:",
+                f"min={mn:.3e}",
+                f"max={mx:.3e}",
+                f"mean={mean:.3e}"
+            ]
+            
+            # Combine stats (slice stats first, then region stats)
+            combined_stats = slice_stats + [""] + region_stats if slice_stats else region_stats
+            stats_label.setText("\n".join(combined_stats))
 
         # Diagnostic: print mask summary to help debug zero spectra
         try:

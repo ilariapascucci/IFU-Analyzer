@@ -327,8 +327,14 @@ class CubeExplorer(QWidget):
             # Find telescope in selection
             header, data = TELESCOPE_LOADERS[instrument](hdul)
 
-            # Squeeze axes to get 3
-            data = np.squeeze(data)
+            # Special handling for ALMA 4D data with shape (640, 640, 43, 1)
+            if instrument == "ALMA" and data.ndim == 4:
+                data = np.squeeze(data, axis=-1)  # Remove the last dimension if it's size 1
+                data = np.moveaxis(data, 2, 0)  # Move spectral axis to front
+
+            # For other instruments, just squeeze
+            else:
+                data = np.squeeze(data)
 
             if data.ndim != 3:
                 QMessageBox.warning(self, "Invalid FITS data",
@@ -336,7 +342,6 @@ class CubeExplorer(QWidget):
                 return
 
             self.cube = np.array(data, dtype=float)  # ensure float
-            self.cube = np.squeeze(self.cube)
 
             self.header = header
             self.spec_axis = self._infer_spec_axis(header, self.cube)

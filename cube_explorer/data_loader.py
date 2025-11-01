@@ -74,10 +74,29 @@ class CubeData:
             # Load data using appropriate loader
             self.header, data = TELESCOPE_LOADERS[self.instrument](self.hdul)
             
+            # Handle ALMA data
+            if self.instrument == "ALMA":
+                print(f"Original data shape: {data.shape}")  # Debug info
+                if len(data.shape) == 4:
+                    if data.shape[3] == 1:  # Fourth dimension is single Stokes
+                        # For ALMA data in (nx, ny, nchan, stokes) format
+                        # Remove Stokes axis and move channels to front
+                        data = np.squeeze(data, axis=3)  # Remove Stokes dimension
+                        data = np.moveaxis(data, 2, 0)   # Move channels to front
+                        print(f"Reshaped data: {data.shape}")  # Debug info
+                    else:
+                        raise ValueError(f"Unexpected Stokes parameters in ALMA data: shape={data.shape}")
+                elif len(data.shape) == 3:
+                    # Move spectral axis to front if it's not already there
+                    if self.header.get('NAXIS3') == data.shape[2]:
+                        data = np.moveaxis(data, 2, 0)
+
             # Process data - keep as memory mapped array when possible
-            data = np.squeeze(data)
+            data = np.squeeze(data)  # Remove any remaining singleton dimensions
             if data.ndim != 3:
-                raise ValueError(f"Expected 3D cube after squeezing, but got shape {data.shape}")
+                raise ValueError(f"Expected 3D cube after processing, but got shape {data.shape}")
+                
+            print(f"Data shape after processing: {data.shape}")  # Debug info
 
             # Convert to float32 to save memory, but keep as memmap
             if not isinstance(data, np.ndarray) or not data.flags.writeable:
@@ -148,29 +167,36 @@ class CubeData:
             Convention: FITS axis j corresponds to numpy axis data.ndim - j
         """
         try:
+            if self.instrument == "ALMA":
+                # For ALMA, we've already moved spectral axis to front during loading
+                return 0
+                
             naxis3 = self.header.get('NAXIS3', None)
             if naxis3 is not None:
+                print(f"Checking spectral axis: NAXIS3={naxis3}, cube shape={self.cube.shape}")  # Debug info
                 if naxis3 == self.cube.shape[0]:
                     return 0
                 elif naxis3 == self.cube.shape[-1]:
                     return self.cube.ndim - 1
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error inferring spectral axis: {e}")  # Debug info
         return 0
 
     def _get_wavelength(self):
         """
         Calculate wavelength/velocity array from FITS header based on instrument type.
 
-        Uses instrument-specific calculations:
+        Uses instrument-specific calculations and checks CTYPE3 to determine proper units:
         - MUSE: Wavelength in Angstroms (Å)
-        - ALMA: Velocity in km/s 
+        - ALMA: Velocity (km/s) or frequency converted to velocity
         - MIRI/NIRSpec: Wavelength in microns (µm)
 
         Uses standard FITS keywords:
+        - CTYPE3: Axis type (e.g., WAVE, FREQ, VRAD)
         - CRVAL3: Reference value
         - CRPIX3: Reference pixel
         - CDELT3/CD3_3: Step size/transformation matrix
+        - CUNIT3: Unit specification (if present)
 
         Returns:
             tuple: (wavelength_array, unit_string)
@@ -180,30 +206,128 @@ class CubeData:
         Note:
             Returns None, "" if wavelength calculation fails
         """
-        if self.instrument == "MUSE":
-            crval3 = self.header["CRVAL3"]
-            crpix3 = self.header["CRPIX3"]
-            cd33 = self.header["CD3_3"]
-            n_slices = self.header["NAXIS3"]
-            wavelengths = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cd33
-            return wavelengths, "Å"
+        try:
+            # Get axis type
+            ctype3 = self.header.get("CTYPE3", "").strip().upper()
+            
+            if self.instrument == "MUSE":
+                # Verify MUSE wavelength axis configuration
+                if (self.header.get("CTYPE3", "").strip().upper() == "AWAV" and 
+                    self.header.get("CUNIT3", "").strip().upper() == "ANGSTROM"):
+                    
+                    # Get wavelength calibration
+                    crval3 = float(self.header["CRVAL3"])  # Starting wavelength
+                    crpix3 = float(self.header["CRPIX3"])  # Reference pixel
+                    cd33 = float(self.header["CD3_3"])     # Step size
+                    n_slices = int(self.header["NAXIS3"])  # Number of slices
+                    
+                    # Calculate wavelength array
+                    wavelengths = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cd33
+                    
+                    # Store uncertainty if available
+                    if "CRDER3" in self.header:
+                        self.wave_error = float(self.header["CRDER3"])
+                    
+                    # Store flux units for display
+                    self.flux_unit = self.header.get("BUNIT", "")
+                    
+                    return wavelengths, "Å"
+                else:
+                    raise ValueError("Unexpected MUSE wavelength axis configuration")
 
-        elif self.instrument == "ALMA":
-            crval3 = self.header["CRVAL3"]
-            cdelt3 = self.header["CDELT3"]
-            crpix3 = self.header["CRPIX3"]
-            n_slices = self.header["NAXIS3"]
-            velocities = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
-            velocities /= 1000.0  # convert to km/s
-            return velocities, "km/s"
+            elif self.instrument == "ALMA":
+                # Get spectral axis parameters
+                crval3 = float(self.header["CRVAL3"])
+                cdelt3 = float(self.header["CDELT3"])
+                crpix3 = float(self.header["CRPIX3"])
+                n_slices = int(self.header["NAXIS3"])
+                
+                print(f"ALMA spectral axis parameters:")  # Debug info
+                print(f"CRVAL3={crval3}, CDELT3={cdelt3}, CRPIX3={crpix3}, NAXIS3={n_slices}")
+                print(f"Current cube shape: {self.cube.shape}")
+                
+                # Store beam information for flux calculations
+                self.beam_maj = float(self.header.get("BMAJ", 0.0))
+                self.beam_min = float(self.header.get("BMIN", 0.0))
+                self.beam_pa = float(self.header.get("BPA", 0.0))
+                self.flux_unit = self.header.get("BUNIT", "Jy/beam")
+                
+                if 'FREQ' in ctype3:
+                    # Get frequencies
+                    freq = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
+                    rest_freq = float(self.header.get("RESTFRQ", self.header.get("RESTFREQ", 0.0)))
+                    
+                    if rest_freq > 0:
+                        c = 2.99792458e5  # speed of light in km/s
+                        # Check velocity reference frame
+                        velref = self.header.get("VELREF", 0)
+                        radio_vel = (velref & 256) > 0  # Check if radio velocity convention
+                        
+                        if radio_vel:
+                            # Radio velocity convention (appropriate for ALMA)
+                            velocities = c * (1.0 - freq/rest_freq)
+                        else:
+                            # Optical velocity convention
+                            velocities = c * (rest_freq/freq - 1.0)
+                            
+                        # Store reference frame information
+                        self.velocity_frame = self.header.get("SPECSYS", "LSRK")
+                    else:
+                        raise ValueError("Rest frequency not found in header")
+                else:
+                    # Handle direct velocity specification
+                    velocities = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
+                    if self.header.get("CUNIT3", "").strip().upper() == "M/S":
+                        velocities /= 1000.0  # convert to km/s
 
-        elif self.instrument in ["MIRI", "NIRSpec"]:
-            crval3 = self.header["CRVAL3"]
-            cdelt3 = self.header["CDELT3"]
-            crpix3 = self.header["CRPIX3"]
-            n_slices = self.header["NAXIS3"]
-            wavelengths = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
-            return wavelengths, "µm"
+                return velocities, "km/s"
+
+            elif self.instrument in ["MIRI", "NIRSpec"]:
+                # Handle JWST IFU data
+                if "SCI" not in self.hdul:
+                    # Look for SCI extension
+                    sci_ext = None
+                    for i, hdu in enumerate(self.hdul):
+                        if hdu.name == "SCI":
+                            sci_ext = i
+                            break
+                    if sci_ext is None:
+                        raise ValueError("No SCI extension found in JWST data")
+                    self.header = self.hdul[sci_ext].header
+                
+                # Get wavelength solution
+                crval3 = float(self.header["CRVAL3"])
+                cdelt3 = float(self.header["CDELT3"])
+                crpix3 = float(self.header["CRPIX3"])
+                n_slices = int(self.header["NAXIS3"])
+                
+                # Check units and convert if needed
+                cunit3 = self.header.get("CUNIT3", "").strip().upper()
+                wavelengths = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
+                
+                # Store MJD for potential time-series analysis
+                self.mjd_avg = float(self.header.get("MJD-AVG", 0.0))
+                self.exposure_time = float(self.header.get("XPOSURE", 0.0))
+                
+                # Store flux units (typically MJy/sr for JWST)
+                self.flux_unit = self.header.get("BUNIT", "MJy/sr")
+                
+                # Convert wavelengths to microns if needed
+                if cunit3 == "ANGSTROM" or "ANGSTROM" in ctype3:
+                    wavelengths /= 10000  # convert to microns
+                elif cunit3 == "NM" or "NANOMETER" in ctype3:
+                    wavelengths /= 1000  # convert to microns
+                elif cunit3 == "M":
+                    wavelengths *= 1e6  # convert to microns
+                
+                # Store aperture position angle for orientation
+                self.pa_aper = float(self.header.get("PA_APER", 0.0))
+                
+                return wavelengths, "µm"
+                
+        except Exception as e:
+            print(f"Error calculating wavelength array: {e}")
+            return None, ""
 
     def _compute_spectrum(self):
         """
