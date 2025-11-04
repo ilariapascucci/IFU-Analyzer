@@ -487,6 +487,10 @@ class CubeExplorer(QWidget):
             x0 = xmin
             y1 = y0 + h_mask
             x1 = x0 + w_mask
+
+            y0, y1 = int(y0), int(y1)
+            x0, x1 = int(x0), int(x1)
+            
             # Clip to image bounds
             y1 = min(y1, image.shape[0])
             x1 = min(x1, image.shape[1])
