@@ -535,19 +535,26 @@ class CubeExplorer(QWidget):
         # Compute stats for the selected area and update label
         selected_area = image[full_mask]
         if selected_area.size > 0:
-            mn, mx, mean = np.nanmin(selected_area), np.nanmax(selected_area), np.nanmean(selected_area)
+            mn = np.nanmin(selected_area)
+            mx = np.nanmax(selected_area)
+            mean = np.nanmean(selected_area)
+            total_sum = np.nansum(selected_area)  # Add sum
+            std = np.nanstd(selected_area)  # Add standard deviation
+            
             stats_label = self.stats1_label if target == "left" else self.stats2_label
             current_text = stats_label.text().split("\n")
             
             # Keep the slice stats if they exist (they start with "Intensity:")
             slice_stats = [line for line in current_text if line.startswith("Intensity:")]
             
-            # Create region stats
+            # Create region stats with sum and std
             region_stats = [
                 "Selected Area Stats:",
                 f"min={mn:.3e}",
                 f"max={mx:.3e}",
-                f"mean={mean:.3e}"
+                f"mean={mean:.3e}",
+                f"sum={total_sum:.3e}",
+                f"std={std:.3e}"
             ]
             
             # Combine stats (slice stats first, then region stats)
@@ -715,8 +722,16 @@ class CubeExplorer(QWidget):
                             pass
                     plotter.ax.area_artists = []
 
+                # Clear existing pixel markers
+                if hasattr(plotter.ax, 'pixel_marker'):
+                    for marker in plotter.ax.pixel_marker:
+                        marker.remove()
+                    plotter.ax.pixel_marker = []
+
                 # Update marker
                 plotter.update_pixel_marker(x, y)
+                
+                # Force immediate redraw
                 if target == "left":
                     self.slice1_canvas.draw()
                 else:

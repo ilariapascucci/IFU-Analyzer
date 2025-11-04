@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 
 class SpectrumPlotter:
     """
@@ -290,28 +292,39 @@ class SlicePlotter:
             - Creates or updates colorbar as needed
             - Maintains consistent colorbar size and position
         """
-        # Clear the axis
-        self.ax.clear()
-        
-        # Remove old colorbar if it exists
-        if hasattr(self, 'cbar') and self.cbar is not None:
-            try:
-                self.cbar.remove()
-            except Exception:
-                pass
-            self.cbar = None
-            
-        # Plot new image
-        self.im = self.ax.imshow(image, origin='lower', interpolation='nearest', cmap='magma')
-        self.ax.set_title(title)
+        # First plot: create image and fixed colorbar
+        if self.im is None:
+            self.ax.clear()
+            self.ax.set_xticks([])
+            self.ax.set_yticks([])
+            self.ax.set_title(title)
 
-        # Create new colorbar
-        try:
-            self.cbar = self.fig.colorbar(self.im, ax=self.ax, fraction=0.046, pad=0.04)
-            self.cbar.set_label("Flux / Intensity")
-        except Exception as e:
-            print(f"Warning: Could not create colorbar: {e}")
-            self.cbar = None
+            self.im = self.ax.imshow(image, origin='lower', interpolation='nearest', cmap='magma')
+
+            # Create fixed colorbar using axes divider
+            divider = make_axes_locatable(self.ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            try:
+                self.cbar = self.fig.colorbar(self.im, cax=cax)
+                self.cbar.set_label("Flux / Intensity")
+            except Exception as e:
+                print(f"Warning: Could not create colorbar: {e}")
+                self.cbar = None
+
+        else:
+            # Update existing image
+            self.im.set_data(image)
+            self.im.set_clim(np.nanmin(image), np.nanmax(image))
+            self.ax.set_title(title)
+            if self.cbar is not None:
+                self.cbar.update_normal(self.im)
+
+        # Keep ticks off
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+
+        # Redraw canvas
+        self.fig.canvas.draw_idle()
 
     def update_pixel_marker(self, x, y):
         """
@@ -330,9 +343,11 @@ class SlicePlotter:
         if not hasattr(self.ax, 'pixel_marker'):
             self.ax.pixel_marker = []
         
-        # Remove old marker
+        # Remove old markers
         for artist in self.ax.pixel_marker:
             artist.remove()
+        self.ax.pixel_marker = []  # Clear the list after removing
         
         # Add new marker
-        self.ax.pixel_marker = [self.ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]]
+        marker = self.ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]
+        self.ax.pixel_marker = [marker]  # Store only the new marker

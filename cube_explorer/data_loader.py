@@ -73,26 +73,35 @@ class CubeData:
 
             # Load data using appropriate loader
             self.header, data = TELESCOPE_LOADERS[self.instrument](self.hdul)
-            
-            # Handle ALMA data
-            if self.instrument == "ALMA":
-                print(f"Original data shape: {data.shape}")  # Debug info
-                if len(data.shape) == 4:
-                    if data.shape[3] == 1:  # Fourth dimension is single Stokes
-                        # For ALMA data in (nx, ny, nchan, stokes) format
-                        # Remove Stokes axis and move channels to front
-                        data = np.squeeze(data, axis=3)  # Remove Stokes dimension
-                        data = np.moveaxis(data, 2, 0)   # Move channels to front
-                        print(f"Reshaped data: {data.shape}")  # Debug info
-                    else:
-                        raise ValueError(f"Unexpected Stokes parameters in ALMA data: shape={data.shape}")
-                elif len(data.shape) == 3:
-                    # Move spectral axis to front if it's not already there
-                    if self.header.get('NAXIS3') == data.shape[2]:
-                        data = np.moveaxis(data, 2, 0)
 
-            # Process data - keep as memory mapped array when possible
-            data = np.squeeze(data)  # Remove any remaining singleton dimensions
+            # --- Handle ALMA data ---
+            if self.instrument == "ALMA":
+                print(f"Original ALMA data shape: {data.shape}")  # Debug info
+
+                # Case 1: ALMA cubes with leading Stokes axis (1, nchan, nx, ny)
+                if data.ndim == 4 and data.shape[0] == 1:
+                    data = np.squeeze(data, axis=0)   # Remove Stokes dimension
+                    data = np.moveaxis(data, 0, 0)    # (43, 640, 640)
+                    print(f"Reshaped ALMA data (removed Stokes): {data.shape}")
+
+                # Case 2: ALMA cubes with trailing Stokes axis (nx, ny, nchan, 1)
+                elif data.ndim == 4 and data.shape[-1] == 1:
+                    data = np.squeeze(data, axis=-1)  # Remove Stokes dimension
+                    data = np.moveaxis(data, 2, 0)    # (43, 640, 640)
+                    print(f"Reshaped ALMA data (trailing Stokes): {data.shape}")
+
+                # Case 3: Already 3D but spectral axis not first
+                elif data.ndim == 3 and self.header.get("NAXIS3") == data.shape[2]:
+                    data = np.moveaxis(data, 2, 0)
+                    print(f"Reordered 3D ALMA data: {data.shape}")
+
+                else:
+                    print(f"ALMA data already in correct format: {data.shape}")
+
+            else:
+                # Non-ALMA instruments just squeeze safely
+                data = np.squeeze(data)
+                
             if data.ndim != 3:
                 raise ValueError(f"Expected 3D cube after processing, but got shape {data.shape}")
                 
