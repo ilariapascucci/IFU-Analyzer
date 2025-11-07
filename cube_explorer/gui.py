@@ -213,6 +213,8 @@ class CubeExplorer(QWidget):
         self.species_input.setPlaceholderText("Species")
         self.ok_wave_button = QPushButton("OK")
         self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
+        self.show_lst_btn = QPushButton("SPECIES")
+        self.show_lst_btn.clicked.connect(self.show_filtered_lines)
 
         # Hide until LST is loaded
         self.wavelength_label.hide()
@@ -220,6 +222,7 @@ class CubeExplorer(QWidget):
         self.max_wave_input.hide()
         self.species_input.hide()
         self.ok_wave_button.hide()
+        self.show_lst_btn.hide()
 
         # Layout for wavelength input
         wl_layout = QHBoxLayout()
@@ -228,6 +231,7 @@ class CubeExplorer(QWidget):
         wl_layout.addWidget(self.max_wave_input)
         wl_layout.addWidget(self.species_input)
         wl_layout.addWidget(self.ok_wave_button)
+        wl_layout.addWidget(self.show_lst_btn)
 
         self.wavelength_layout = wl_layout
 
@@ -500,6 +504,7 @@ class CubeExplorer(QWidget):
             self.max_wave_input.show()
             self.species_input.show()
             self.ok_wave_button.show()
+            self.show_lst_btn.show()
 
     def apply_wavelength_range(self):
         """Triggered when user confirms wavelength range and species"""
@@ -1158,26 +1163,29 @@ class CubeExplorer(QWidget):
                 self.span = None
 
     def _init_line_search_controls(self):
-        """Create wavelength and species input boxes + OK button"""
+        """Initialize the min/max/species inputs and buttons."""
         self.min_wave_input = QLineEdit()
         self.max_wave_input = QLineEdit()
         self.species_input = QLineEdit()
         
         self.min_wave_input.setPlaceholderText("Min λ (µm)")
         self.max_wave_input.setPlaceholderText("Max λ (µm)")
-        self.species_input.setPlaceholderText("Species (optional)")
+        self.species_input.setPlaceholderText("Species")
 
         self.ok_wave_button = QPushButton("OK")
         self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
+
+        self.show_lst_btn = QPushButton("SPECIES")
+        self.show_lst_btn.clicked.connect(self.show_filtered_lines)
 
         layout = QHBoxLayout()
         layout.addWidget(QLabel("Wavelength range:"))
         layout.addWidget(self.min_wave_input)
         layout.addWidget(self.max_wave_input)
-        layout.addWidget(QLabel("Species:"))
         layout.addWidget(self.species_input)
         layout.addWidget(self.ok_wave_button)
-        
+        layout.addWidget(self.show_lst_btn)
+
         self.line_search_layout = layout
 
     def enable_wavelength_selector(self):
@@ -1233,3 +1241,44 @@ class CubeExplorer(QWidget):
             ax.text(λ, 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
 
         self.spec_canvas.draw()
+
+
+    def show_filtered_lines(self):
+        """Show the spectral lines that match the current wavelength range and species in a popup."""
+        if not self.lst_file:
+            QMessageBox.warning(self, "No LST File", "Please load a .LST file first.")
+            return
+
+        try:
+            min_wave = float(self.min_wave_input.text())
+            max_wave = float(self.max_wave_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Enter valid numbers for min and max wavelength.")
+            return
+
+        species = self.species_input.text().strip() or None  # None = show all
+
+        # Get filtered lines
+        lines, _ = filter_spectral_lines(self.lst_file, min_wave, max_wave, species)
+
+        # Add header
+        header = "|MODEL|lambda micron|  L-species |    transition                          | A-coeff | Eupper (K)|Comments|"
+        if lines:
+            lines_text = "\n".join(line["raw"] if isinstance(line, dict) else line for line in lines)
+            text_content = f"{header}\n{lines_text}"
+        else:
+            text_content = f"{header}\nNo matching lines found."
+
+        # Show in a new window
+        self.lines_window = QWidget()
+        self.lines_window.setWindowTitle("Filtered Spectral Lines")
+        self.lines_window.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout()
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setText(text_content)
+        layout.addWidget(text_edit)
+
+        self.lines_window.setLayout(layout)
+        self.lines_window.show()
