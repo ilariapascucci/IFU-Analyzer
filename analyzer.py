@@ -1,4 +1,4 @@
-# Week 4: Oct 27 - Oct 31
+# Week 5: Nov 3 - Nov 7
 
 '''
 Goals:
@@ -44,18 +44,16 @@ when clicked, show other info... -> list of elements option -> species, waveleng
 '''
 
 '''
-Next Steps:
-- Test with more telescopes (need more FITS files).
-- Avoid unit misuse (especially with ALMA telescopes).
-- Get new ALMA FITS file.
-
-- Add scaling (function and percentage) and color options -- defaults stay.
-- Check into matplotlib toolbar.
-- Normalize spectrum and overlay region spectrum (normalize only when comparing).
-- UNITS FLUX - WAVELENGTH ON SLICE - SUM AND STD FOR REGION
-? to show list of possible transitions [Fe II] != Fe II
-
-NORMALIZE SPECTRUM
+WEEK 6 next steps
+- after selecting wavelengths and species, show a list of the possible
+rows and make the user select the ones the user wants plotted.
+- once you plot, hover on a line and identify the row/show in a box.
+- normalizing by the median AKA the middle y is 1 (check picture)
+- scaling and color
+- publish/make executable
+- improve species (Fe -> Fe II and Fe IV; [Fe IV] != Fe IV).
+- option hitron
+- fits + lsd convert if not the same units (e.g. muse and micron)
 '''
 
 """
