@@ -51,6 +51,10 @@ when clicked, show other info... -> list of elements option -> species, waveleng
 - Info module: load cube, getting info out of cube, plot spectrum
 - Tool module: zoom in slice, etc... will call info module
 - create multiple small modules that'll call info module.
+
+ADD HEADER AS BUTTON
+NORMALIZE SPECTRUM
+HYDRON IMPLEMENTATION INTO SPECTRUM
 '''
 
 """
