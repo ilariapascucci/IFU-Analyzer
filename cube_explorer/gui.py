@@ -65,6 +65,10 @@ class CubeExplorer(QWidget):
                 ax1.set_ylabel("")
                 ax1.set_xlim(0, 1)
                 ax1.set_ylim(0, 1)
+                ax1.set_xticklabels([])
+                ax1.set_yticklabels([])
+                ax1.relim()
+                ax1.autoscale()
                 self.slice1_canvas.draw()
                 print("[DEBUG] Slice1 canvas redrawn")
 
@@ -84,6 +88,10 @@ class CubeExplorer(QWidget):
                 ax2.set_ylabel("")
                 ax2.set_xlim(0, 1)
                 ax2.set_ylim(0, 1)
+                ax2.set_xticklabels([])
+                ax2.set_yticklabels([])
+                ax2.relim()
+                ax2.autoscale()
                 self.slice2_canvas.draw()
                 print("[DEBUG] Slice2 canvas redrawn")
 
