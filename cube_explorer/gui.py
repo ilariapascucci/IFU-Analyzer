@@ -12,7 +12,7 @@ import matplotlib.patches as patches
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox
+    QLabel, QMessageBox, QTextEdit
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -124,6 +124,9 @@ class CubeExplorer(QWidget):
         
         self.load_btn = QPushButton("Load Cube")
         self.load_btn.clicked.connect(self.load_cube)
+
+        self.header_btn = QPushButton("Header")
+        self.header_btn.clicked.connect(self.show_header)
         
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
@@ -131,6 +134,7 @@ class CubeExplorer(QWidget):
         self.controls_layout = QHBoxLayout()
         self.controls_layout.addWidget(self.open_btn)
         self.controls_layout.addWidget(self.load_btn)
+        self.controls_layout.addWidget(self.header_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
@@ -393,6 +397,32 @@ class CubeExplorer(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
             print(f"Detailed error: {e}")  # For debugging
+
+
+    def show_header(self):
+        if not hasattr(self.cube_data, 'header') or self.cube_data.header is None:
+            QMessageBox.warning(self, "No file loaded", "Please load a FITS file first.")
+            return
+
+        header = self.cube_data.header
+        header_text = "\n".join(
+            f"{k:8} = {v!r} / {header.comments[k]}" if k in header.comments else f"{k:8} = {v!r}" 
+            for k, v in header.items()
+        )
+
+        # Keep reference to prevent garbage collection
+        self.header_window = QWidget()
+        self.header_window.setWindowTitle("FITS Header")
+        self.header_window.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout()
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setText(header_text)
+        layout.addWidget(text_edit)
+
+        self.header_window.setLayout(layout)
+        self.header_window.show()
 
     def _display_slice(self, idx, target):
         """Display a wavelength/velocity slice"""
