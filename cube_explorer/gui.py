@@ -2,6 +2,7 @@
 Main GUI class for the Cube Explorer application
 """
 
+import os
 import gc
 import warnings
 import numpy as np
@@ -12,15 +13,17 @@ import matplotlib.patches as patches
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit
+    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from matplotlib.widgets import SpanSelector
 
 from .data_loader import CubeData
 from .visualization import SpectrumPlotter, SlicePlotter
 from .region_selector import RegionSelector
+from .line_catalog import filter_spectral_lines
 
 class CubeExplorer(QWidget):
     def __init__(self):
@@ -28,6 +31,7 @@ class CubeExplorer(QWidget):
         self.setWindowTitle("Cube Explorer")
         self.cube_data = CubeData()
         self.selected_file = None
+        self.lst_file = None
         self._init_ui()
 
     def closeEvent(self, event):
@@ -68,12 +72,16 @@ class CubeExplorer(QWidget):
         if hasattr(self, 'spec_plotter') and hasattr(self.spec_plotter, 'ax'):
             self.spec_plotter.ax.clear()
             self.spec_canvas.draw()
+        
+        if self.normalize_btn.isChecked():
+            self.normalize_spectrum()  # this will detect no selection and revert
             
         # Reset all selections and markers
         self.last_selection_left = None
         self.last_selection_right = None
         self.last_idx_left = 0
         self.last_idx_right = 0
+        self.original_spectrum = None
         
         # Clear region selectors
         if hasattr(self, 'region_selector_left'):
@@ -93,10 +101,13 @@ class CubeExplorer(QWidget):
         # Uncheck slice selection buttons
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
+        self.normalize_btn.setChecked(False)
+        self.set_range_btn.setChecked(False)
         self.active_target = None
         
         # Reset instrument label
         self.instrument_label.setText("Instrument: -")
+        self.lst_label.setText("LST Loaded: -")
         
         # Force garbage collection
         gc.collect()
@@ -127,15 +138,23 @@ class CubeExplorer(QWidget):
 
         self.header_btn = QPushButton("Header")
         self.header_btn.clicked.connect(self.show_header)
+
+        self.lst_btn = QPushButton("Import LST")
+        self.lst_btn.clicked.connect(self.select_lst)
         
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
+
+        self.lst_label = QLabel("LST loaded: -")
+        self.lst_label.setStyleSheet("font-weight: bold;")
 
         self.controls_layout = QHBoxLayout()
         self.controls_layout.addWidget(self.open_btn)
         self.controls_layout.addWidget(self.load_btn)
         self.controls_layout.addWidget(self.header_btn)
+        self.controls_layout.addWidget(self.lst_btn)
         self.controls_layout.addWidget(self.instrument_label)
+        self.controls_layout.addWidget(self.lst_label)
         self.controls_layout.addStretch()
 
     def _init_plots(self):
@@ -173,10 +192,44 @@ class CubeExplorer(QWidget):
         # Slice selection buttons
         self.set_left_btn = QPushButton("Set Left Slice")
         self.set_right_btn = QPushButton("Set Right Slice")
+        self.normalize_btn = QPushButton("Normalize")
+        self.set_range_btn = QPushButton("Set Range")
         self.set_left_btn.setCheckable(True)
         self.set_right_btn.setCheckable(True)
+        self.normalize_btn.setCheckable(True)
+        self.set_range_btn.setCheckable(True)
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
+        self.normalize_btn.clicked.connect(self.normalize_spectrum)
+        self.set_range_btn.clicked.connect(self._activate_range_selector)
+
+       # Wavelength range inputs (hidden until LST loaded)
+        self.wavelength_label = QLabel("Wavelength range:")
+        self.min_wave_input = QLineEdit(self)
+        self.min_wave_input.setPlaceholderText("Min λ")
+        self.max_wave_input = QLineEdit(self)
+        self.max_wave_input.setPlaceholderText("Max λ")
+        self.species_input = QLineEdit(self)
+        self.species_input.setPlaceholderText("Species")
+        self.ok_wave_button = QPushButton("OK")
+        self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
+
+        # Hide until LST is loaded
+        self.wavelength_label.hide()
+        self.min_wave_input.hide()
+        self.max_wave_input.hide()
+        self.species_input.hide()
+        self.ok_wave_button.hide()
+
+        # Layout for wavelength input
+        wl_layout = QHBoxLayout()
+        wl_layout.addWidget(self.wavelength_label)
+        wl_layout.addWidget(self.min_wave_input)
+        wl_layout.addWidget(self.max_wave_input)
+        wl_layout.addWidget(self.species_input)
+        wl_layout.addWidget(self.ok_wave_button)
+
+        self.wavelength_layout = wl_layout
 
     def _init_shape_controls(self):
         """Initialize shape selection buttons"""
@@ -301,12 +354,16 @@ class CubeExplorer(QWidget):
         slice_select_layout = QHBoxLayout()
         slice_select_layout.addWidget(self.set_left_btn)
         slice_select_layout.addWidget(self.set_right_btn)
+        slice_select_layout.addWidget(self.normalize_btn)
         slice_select_layout.addStretch()
         main_layout.addLayout(slice_select_layout)
 
         # Add spectrum at bottom
         main_layout.addWidget(self.spec_canvas)
         main_layout.addWidget(self.spec_toolbar)
+
+        # Add wavelength range controls under the spectrum
+        main_layout.addLayout(self.wavelength_layout)
 
         self.setLayout(main_layout)
 
@@ -362,6 +419,9 @@ class CubeExplorer(QWidget):
             if self.cube_data.spectrum is None or len(self.cube_data.spectrum) == 0:
                 QMessageBox.warning(self, "Data Error", "Failed to compute spectrum from the data")
                 return
+
+            # Copy spectrum for normalization
+            self.original_spectrum = self.cube_data.spectrum.copy()
 
             # Update instrument label
             self.instrument_label.setText(f"Instrument: {self.cube_data.instrument}")
@@ -423,6 +483,96 @@ class CubeExplorer(QWidget):
 
         self.header_window.setLayout(layout)
         self.header_window.show()
+
+    def select_lst(self):
+        """Open dialog to load .LST line list file"""
+        fname, _ = QFileDialog.getOpenFileName(
+            self, "Open Line List", filter="Line List (*.lst *.txt)"
+        )
+        if fname:
+            self.lst_file = fname
+            self.lst_label.setText(f".LST: LOADED ({os.path.basename(fname)})")
+            QMessageBox.information(self, "LST Loaded", f"Imported line list:\n{fname}")
+
+            # Reveal wavelength controls and OK button
+            self.wavelength_label.show()
+            self.min_wave_input.show()
+            self.max_wave_input.show()
+            self.species_input.show()
+            self.ok_wave_button.show()
+
+    def apply_wavelength_range(self):
+        """Triggered when user confirms wavelength range and species"""
+        if not hasattr(self, "lst_file") or not self.lst_file:
+            QMessageBox.warning(self, "No LST File", "Please load a .LST file first.")
+            return
+
+        # Read min/max wavelength
+        try:
+            min_wave = float(self.min_wave_input.text())
+            max_wave = float(self.max_wave_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
+            return
+
+        if min_wave >= max_wave:
+            QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than max wavelength.")
+            return
+
+        # Read species (optional)
+        species = self.species_input.text().strip()
+        if species == "":
+            species = None  # plot all if empty
+
+        # Plot lines
+        self.plot_lst_lines(min_wave, max_wave, species)
+
+
+    def plot_lst_lines(self, min_wave, max_wave, species=None):
+        """Plot vertical lines from LST file within a wavelength range and optional species"""
+        if not hasattr(self, "lst_file") or not self.lst_file:
+            print("No LST file loaded")
+            return
+
+        # Filter spectral lines
+        results, species_counts = filter_spectral_lines(
+            self.lst_file, min_wave, max_wave, species
+        )
+
+        # Debug prints
+        print(f"Filtering for species: '{species}' in range {min_wave}-{max_wave}")
+        print(f"Available species in this range: {list(species_counts.keys())}")
+        print(f"Number of matched lines: {len(results)}")
+
+        if not results:
+            QMessageBox.information(
+                self, "No Matches",
+                f"No spectral lines found for '{species or 'all'}' in this range."
+            )
+            return
+
+        # Use spectrum axis
+        ax = self.spec_plotter.ax
+
+        # Remove previous LST lines
+        for line in ax.lines[:]:
+            if getattr(line, "_from_lst", False):
+                line.remove()
+
+        # Plot new lines (no text labels)
+        for row in results:
+            try:
+                wavelength = row["lambda_micron"]
+                vline = ax.axvline(wavelength, color="red", linestyle="--", alpha=0.6)
+                vline._from_lst = True
+            except Exception:
+                continue
+
+        self.spec_canvas.draw_idle()
+
+    def on_span_selected(self, xmin, xmax):
+        self.min_wave_input.setText(f"{xmin:.3f}")
+        self.max_wave_input.setText(f"{xmax:.3f}")
 
     def _display_slice(self, idx, target):
         """Display a wavelength/velocity slice"""
@@ -601,6 +751,7 @@ class CubeExplorer(QWidget):
         except Exception:
             n_pixels = None
         print(f"REGION DEBUG [{target}] mask pixels={n_pixels}, mask_shape={full_mask.shape}")
+        print(f"REGION DEBUG [left] type={type(self.last_selection_left)}, shape={getattr(self.last_selection_left, 'shape', None)}")
 
         # Compute and plot region spectrum on top of original
         region_spectrum = self.cube_data.compute_region_spectrum(full_mask)
@@ -853,6 +1004,8 @@ class CubeExplorer(QWidget):
         
         # Update any active region selections
         if self.active_target == "left" and self.last_selection_left:
+            self.left_region_spectrum = self.cube_data.compute_region_spectrum(
+                self.last_selection_left["mask"])
             if self.last_selection_left["shape"] == "*":
                 x, y = self.last_selection_left["coords"]
                 self._handle_pixel_click(x, y, "left")
@@ -862,6 +1015,8 @@ class CubeExplorer(QWidget):
                 self._recreate_region(xmin, xmax, ymin, ymax, mask, "left")
                 
         elif self.active_target == "right" and self.last_selection_right:
+            self.right_region_spectrum = self.cube_data.compute_region_spectrum(
+                self.last_selection_right["mask"])
             if self.last_selection_right["shape"] == "*":
                 x, y = self.last_selection_right["coords"]
                 self._handle_pixel_click(x, y, "right")
@@ -939,3 +1094,142 @@ class CubeExplorer(QWidget):
                 self.spec_canvas.draw()
             except Exception:
                 pass
+
+    def normalize_spectrum(self):
+        """
+        Normalize the region spectrum(s) to max=1.
+        - Uses spectra already computed for left/right slice selections.
+        - Reverts to original spectrum if no region is selected.
+        - Overlays normalized region spectrum on top of global spectrum.
+        """
+        left_selected = self.last_selection_left is not None
+        right_selected = self.last_selection_right is not None
+
+        # If no regions selected, revert to original spectrum
+        if not (left_selected or right_selected):
+            if hasattr(self, 'original_spectrum'):
+                self.spec_plotter.plot_spectrum(self.original_spectrum)
+                self.spec_canvas.draw()
+            return
+
+        # Collect already computed region spectra
+        spectra = []
+        if left_selected and hasattr(self, 'left_region_spectrum'):
+            spectra.append(self.left_region_spectrum)
+        if right_selected and hasattr(self, 'right_region_spectrum'):
+            spectra.append(self.right_region_spectrum)
+
+        if not spectra:
+            # No valid spectra available
+            return
+
+        # Combine spectra if both regions are selected
+        if len(spectra) == 2:
+            combined_spectrum = 0.5 * (spectra[0] + spectra[1])
+        else:
+            combined_spectrum = spectra[0]
+
+        # Normalize combined spectrum to max=1
+        max_val = np.nanmax(combined_spectrum)
+        if max_val == 0 or np.isnan(max_val):
+            print("Warning: Region spectrum is all zeros or NaNs")
+            return
+
+        norm_spectrum = combined_spectrum / max_val
+
+        # Plot normalized spectrum on the existing axes
+        self.spec_plotter.plot_spectrum(norm_spectrum)
+        self.spec_canvas.draw()
+
+    def _activate_range_selector(self):
+        if self.set_range_btn.isChecked():
+            self.active_target = "range"
+            if hasattr(self, 'spec_plotter') and self.spec_plotter:
+                self.span = SpanSelector(
+                    self.spec_plotter.ax,
+                    self.on_span_selected,
+                    "horizontal",
+                    useblit=True,
+                    props=dict(alpha=0.3, facecolor='orange')
+                )
+        else:
+            if hasattr(self, 'span'):
+                self.span.disconnect_events()
+                self.span = None
+
+    def _init_line_search_controls(self):
+        """Create wavelength and species input boxes + OK button"""
+        self.min_wave_input = QLineEdit()
+        self.max_wave_input = QLineEdit()
+        self.species_input = QLineEdit()
+        
+        self.min_wave_input.setPlaceholderText("Min λ (µm)")
+        self.max_wave_input.setPlaceholderText("Max λ (µm)")
+        self.species_input.setPlaceholderText("Species (optional)")
+
+        self.ok_wave_button = QPushButton("OK")
+        self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
+
+        layout = QHBoxLayout()
+        layout.addWidget(QLabel("Wavelength range:"))
+        layout.addWidget(self.min_wave_input)
+        layout.addWidget(self.max_wave_input)
+        layout.addWidget(QLabel("Species:"))
+        layout.addWidget(self.species_input)
+        layout.addWidget(self.ok_wave_button)
+        
+        self.line_search_layout = layout
+
+    def enable_wavelength_selector(self):
+        def on_select(xmin, xmax):
+            self.find_spectral_lines(xmin, xmax)
+        self.span = SpanSelector(
+            self.spec_plotter.ax, on_select, "horizontal",
+            useblit=True, props=dict(alpha=0.3, facecolor='orange')
+        )
+
+    def on_spectrum_region_selected(self, start_lambda, end_lambda):
+        lines, species_counts = filter_spectral_lines("publis20240406.lst", start_lambda, end_lambda)
+        print(f"Found {len(lines)} lines between {start_lambda} and {end_lambda}")
+
+        # Plot lines on top of spectrum
+        for row in lines:
+            self.spec_plotter.ax.axvline(row["lambda_micron"], color="red", linestyle="--", alpha=0.4)
+            self.spec_plotter.ax.text(row["lambda_micron"], 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
+        self.spec_canvas.draw()
+
+    def find_spectral_lines(self, wavelength_min=None, wavelength_max=None):
+        """Search and overlay spectral lines within a wavelength range."""
+        if not hasattr(self, "lst_file"):
+            QMessageBox.warning(self, "No LST File", "Please import an LST file first.")
+            return
+
+        # Get input wavelengths if not passed from SpanSelector
+        if wavelength_min is None or wavelength_max is None:
+            try:
+                wavelength_min = float(self.lambda_min_input.text())
+                wavelength_max = float(self.lambda_max_input.text())
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
+                return
+
+        # Ask user for a species (optional)
+        species, ok = QInputDialog.getText(self, "Select Species", "Enter species (e.g., H2, [Fe II]):")
+        if not ok:
+            return
+
+        # Search lines
+        results, _ = filter_spectral_lines(self.lst_file, wavelength_min, wavelength_max, species)
+
+        if not results:
+            QMessageBox.information(self, "No Matches", "No lines found in this range.")
+            return
+
+        # Plot vertical markers
+        ax = self.spec_plotter.ax
+        for row in results:
+            λ = row["lambda_micron"]
+            ax.axvline(λ, color="red", linestyle="--", alpha=0.4)
+            ax.text(λ, 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
+
+        self.spec_canvas.draw()

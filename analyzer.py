@@ -29,21 +29,24 @@ Week 3.
 - Update pixel RA/DEC using VAL, PIX, DELTA.
 - Select region from different shapes (rectangle, circle, ellipse, point, custom).
 - Upgrade slice comparison (copy settings)
+
+Week 4 & 5.
+- Display more cube information (e.g., pixel size and position angle in sky).
+- README and additonal documentation (expected outputs and commands).
+- Display pixel-specific data (unique RA/DEC?, pixel coordinate of reference point?)
+- Reform file structure.
+- Add header button.
 '''
 
 '''
 Next Steps:
 - Test with more telescopes (need more FITS files).
-- Display more cube information (e.g., pixel size and position angle in sky).
 - Avoid unit misuse (especially with ALMA telescopes).
 - Get new ALMA FITS file.
-- README and additonal documentation (expected outputs and commands).
-- Display pixel-specific data (unique RA/DEC?, pixel coordinate of reference point?)
 
 - Add scaling (function and percentage) and color options -- defaults stay.
 - Check into matplotlib toolbar.
 - Normalize spectrum and overlay region spectrum (normalize only when comparing).
-- Reform file structure.
 - UNITS FLUX - WAVELENGTH ON SLICE - SUM AND STD FOR REGION
 - .lst files: given elemenet and micron region, select rows and plot vertical lines in wavelength
 when clicked, show other info... -> list of elements option -> species, wavelength range, 1
@@ -52,7 +55,6 @@ when clicked, show other info... -> list of elements option -> species, waveleng
 - Tool module: zoom in slice, etc... will call info module
 - create multiple small modules that'll call info module.
 
-ADD HEADER AS BUTTON
 NORMALIZE SPECTRUM
 HYDRON IMPLEMENTATION INTO SPECTRUM
 '''
