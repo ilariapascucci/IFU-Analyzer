@@ -292,6 +292,10 @@ class SlicePlotter:
             - Creates or updates colorbar as needed
             - Maintains consistent colorbar size and position
         """
+        # If axes are empty (or cleared), reset self.im
+        if self.im is None or not self.ax.has_data():
+            self.im = None
+            
         # First plot: create image and fixed colorbar
         if self.im is None:
             self.ax.clear()
