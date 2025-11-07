@@ -36,6 +36,11 @@ Week 4 & 5.
 - Display pixel-specific data (unique RA/DEC?, pixel coordinate of reference point?)
 - Reform file structure.
 - Add header button.
+- .lst files: given elemenet and micron region, select rows and plot vertical lines in wavelength
+when clicked, show other info... -> list of elements option -> species, wavelength range, 1
+- Info module: load cube, getting info out of cube, plot spectrum
+- Tool module: zoom in slice, etc... will call info module
+- create multiple small modules that'll call info module.
 '''
 
 '''
@@ -48,15 +53,9 @@ Next Steps:
 - Check into matplotlib toolbar.
 - Normalize spectrum and overlay region spectrum (normalize only when comparing).
 - UNITS FLUX - WAVELENGTH ON SLICE - SUM AND STD FOR REGION
-- .lst files: given elemenet and micron region, select rows and plot vertical lines in wavelength
-when clicked, show other info... -> list of elements option -> species, wavelength range, 1
 ? to show list of possible transitions [Fe II] != Fe II
-- Info module: load cube, getting info out of cube, plot spectrum
-- Tool module: zoom in slice, etc... will call info module
-- create multiple small modules that'll call info module.
 
 NORMALIZE SPECTRUM
-HYDRON IMPLEMENTATION INTO SPECTRUM
 '''
 
 """

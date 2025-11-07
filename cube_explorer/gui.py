@@ -42,75 +42,101 @@ class CubeExplorer(QWidget):
         plt.close('all')
         gc.collect()
         event.accept()
-        
+
     def _clear_all_displays(self):
-        """Clear all plots, selections, and stats when loading a new cube"""
-        # Clear slice displays
+        """Clear all plots, selections, and stats when loading a new cube."""
+        print("=== CLEAR ALL DISPLAYS START ===")
+
+        # --- Slice 1 ---
         if hasattr(self, 'slice1_plotter'):
-            self.slice1_plotter.ax.clear()
-            # Handle colorbar removal safely
-            try:
+            print(f"[DEBUG] Clearing slice1_plotter, ax exists: {hasattr(self.slice1_plotter, 'ax')}")
+            ax1 = self.slice1_plotter.ax
+            if ax1:
+                ax1.clear()
+                # Remove colorbar safely
                 if hasattr(self.slice1_plotter, 'cbar') and self.slice1_plotter.cbar is not None:
-                    self.slice1_plotter.cbar.remove()
-                self.slice1_plotter.cbar = None
-            except Exception:
-                pass
-            self.slice1_canvas.draw()
-            
+                    try:
+                        self.slice1_plotter.cbar.remove()
+                    except Exception as e:
+                        print(f"[DEBUG] Error removing slice1 colorbar: {e}")
+                    self.slice1_plotter.cbar = None
+                # Reset axes explicitly
+                ax1.set_xlabel("")
+                ax1.set_ylabel("")
+                ax1.set_xlim(0, 1)
+                ax1.set_ylim(0, 1)
+                self.slice1_canvas.draw()
+                print("[DEBUG] Slice1 canvas redrawn")
+
+        # --- Slice 2 ---
         if hasattr(self, 'slice2_plotter'):
-            self.slice2_plotter.ax.clear()
-            # Handle colorbar removal safely
-            try:
+            print(f"[DEBUG] Clearing slice2_plotter, ax exists: {hasattr(self.slice2_plotter, 'ax')}")
+            ax2 = self.slice2_plotter.ax
+            if ax2:
+                ax2.clear()
                 if hasattr(self.slice2_plotter, 'cbar') and self.slice2_plotter.cbar is not None:
-                    self.slice2_plotter.cbar.remove()
-                self.slice2_plotter.cbar = None
-            except Exception:
-                pass
-            self.slice2_canvas.draw()
-            
-        # Clear spectrum display
+                    try:
+                        self.slice2_plotter.cbar.remove()
+                    except Exception as e:
+                        print(f"[DEBUG] Error removing slice2 colorbar: {e}")
+                    self.slice2_plotter.cbar = None
+                ax2.set_xlabel("")
+                ax2.set_ylabel("")
+                ax2.set_xlim(0, 1)
+                ax2.set_ylim(0, 1)
+                self.slice2_canvas.draw()
+                print("[DEBUG] Slice2 canvas redrawn")
+
+        # --- Spectrum plot ---
         if hasattr(self, 'spec_plotter') and hasattr(self.spec_plotter, 'ax'):
-            self.spec_plotter.ax.clear()
+            print(f"[DEBUG] Clearing spec_plotter, ax exists: True")
+            ax_spec = self.spec_plotter.ax
+            ax_spec.clear()
+            ax_spec.set_xlabel("")
+            ax_spec.set_ylabel("")
+            ax_spec.set_xlim(0, 1)
+            ax_spec.set_ylim(0, 1)
+            ax_spec.set_xticklabels([])
+            ax_spec.set_yticklabels([])
+            ax_spec.relim()
+            ax_spec.autoscale()
             self.spec_canvas.draw()
-        
-        if self.normalize_btn.isChecked():
-            self.normalize_spectrum()  # this will detect no selection and revert
-            
-        # Reset all selections and markers
+            print("[DEBUG] Spectrum canvas redrawn")
+
+        # --- Reset stats labels ---
+        self.stats1_label.setText("Slice 1 Stats:\n-")
+        self.stats2_label.setText("Slice 2 Stats:\n-")
+        print("[DEBUG] Resetting stats labels")
+
+        # --- Reset selections ---
         self.last_selection_left = None
         self.last_selection_right = None
         self.last_idx_left = 0
         self.last_idx_right = 0
         self.original_spectrum = None
-        
-        # Clear region selectors
-        if hasattr(self, 'region_selector_left'):
-            self.region_selector_left.active_shape = None
-        if hasattr(self, 'region_selector_right'):
-            self.region_selector_right.active_shape = None
-            
-        # Reset stats labels
-        self.stats1_label.setText("Slice 1 Stats:\n-")
-        self.stats2_label.setText("Slice 2 Stats:\n-")
-        
-        # Uncheck all shape buttons
+        print("[DEBUG] Resetting selections")
+
+        # --- Uncheck buttons ---
         for side in ["left", "right"]:
-            for btn in self.shape_buttons[side].values():
+            for btn in self.shape_buttons.get(side, {}).values():
                 btn.setChecked(False)
-                
-        # Uncheck slice selection buttons
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
         self.normalize_btn.setChecked(False)
         self.set_range_btn.setChecked(False)
         self.active_target = None
-        
-        # Reset instrument label
+        print("[DEBUG] Unchecking all buttons")
+
+        # --- Reset labels ---
         self.instrument_label.setText("Instrument: -")
         self.lst_label.setText("LST Loaded: -")
-        
-        # Force garbage collection
+        print("[DEBUG] Resetting instrument and LST labels")
+
+        # --- Force garbage collection ---
+        import gc
         gc.collect()
+
+        print("=== CLEAR ALL DISPLAYS END ===")
 
     def _init_ui(self):
         # File controls
@@ -580,14 +606,14 @@ class CubeExplorer(QWidget):
         self.max_wave_input.setText(f"{xmax:.3f}")
 
     def _display_slice(self, idx, target):
-        """Display a wavelength/velocity slice"""
+        """Display a wavelength/velocity slice with proper title and intensity units"""
         image = self.cube_data.get_slice(idx)
         
-        # Select appropriate plotter and labels
+        # Select plotter and stats label
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
         stats_label = self.stats1_label if target == "left" else self.stats2_label
-        
-        # Create title with wavelength/velocity information
+
+        # Title with spectral value
         if hasattr(self.cube_data, 'wavelength') and self.cube_data.wavelength is not None:
             wave = self.cube_data.wavelength[idx]
             if self.cube_data.wave_unit == "Å":
@@ -600,29 +626,26 @@ class CubeExplorer(QWidget):
                 title = f"{target.capitalize()} Slice @ idx={idx}"
         else:
             title = f"{target.capitalize()} Slice @ idx={idx}"
-            
-        # Update the plot
+        
+        # Update plot
         plotter.plot_slice(image, title)
-
-        # Force immediate redraw so UI updates without needing a manual resize
-        if target == "left":
-            self.slice1_canvas.draw()
-        else:
-            self.slice2_canvas.draw()
-
-        # Update stats
+        
+        # Intensity stats with units
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
+        unit = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
         stats_label.setText(
-            f"Intensity:\n"
+            f"Intensity\n[{unit}]:\n"
             f"min={mn:.3e}\n"
             f"max={mx:.3e}\n"
             f"mean={mean:.3e}\n"
         )
 
-        # Store the index
+        # Force redraw
         if target == "left":
+            self.slice1_canvas.draw()
             self.last_idx_left = idx
         else:
+            self.slice2_canvas.draw()
             self.last_idx_right = idx
 
     def _set_shape(self, shape, target):
