@@ -60,4 +60,4 @@ The program will display the welcome screen and prompt you for input.
 * Enter your speci name and also it's isotopologue number.
 * After that choose the type of cache you wanna use (2 is recommended).
 
-![image alt]()
+![image alt](https://github.com/ilariapascucci/IFU-Analyzer/blob/msa-week5/Screenshot%202025-11-14%20051646.png?raw=true)
