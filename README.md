@@ -51,6 +51,13 @@ The program will display the welcome screen and prompt you for input.
 ### Step 2: Enter Wavelength Range
 
 * Enter the minimum and maximum wavelengths in micrometers (μm):
-* Then enter whether you want the data from your local environment or from Hatran.
+* Then enter whether you want the data from your local environment or from Hitran.
 
 ![image alt](https://github.com/ilariapascucci/IFU-Analyzer/blob/msa-week5/Screenshot%202025-11-14%20042326.png?raw=true)
+
+### Step 3: Enter which species you want to search
+
+* Enter your speci name and also it's isotopologue number.
+* After that choose the type of checha you wanna use (2 is recommended).
+
+![image alt]()
