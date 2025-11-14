@@ -52,5 +52,4 @@ The program will display the welcome screen and prompt you for input.
 
 Enter the minimum and maximum wavelengths in micrometers (μm):
 
-![image alt](<img width="1010" height="382" alt="Screenshot 2025-11-14 042326" src="https://github.com/user-attachments/assets/e2c74524-c88b-4d7d-99f2-60e0fd3ae124" />
-)
+![image alt](https://github.com/ilariapascucci/IFU-Analyzer/blob/msa-week5/Screenshot%202025-11-14%20042326.png?raw=true)
