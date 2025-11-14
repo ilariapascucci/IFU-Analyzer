@@ -58,6 +58,6 @@ The program will display the welcome screen and prompt you for input.
 ### Step 3: Enter which species you want to search
 
 * Enter your speci name and also it's isotopologue number.
-* After that choose the type of checha you wanna use (2 is recommended).
+* After that choose the type of cache you wanna use (2 is recommended).
 
 ![image alt]()
