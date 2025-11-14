@@ -1,15 +1,95 @@
-import re
+"""
+HITRAN/Local Spectral Line Data Extractor
+Extracts molecular spectroscopy data from HITRAN database or local line lists
+"""
 
+import re
+import os
+import numpy as np
+import shutil
+import time
+
+# -------------------- Species Normalization --------------------
+def normalize_species_input(user_input):
+    """
+    Converts various species input formats into standardized bracketed notation.
+    Handles space-separated (Fe II), concatenated (FeII), numeric (Fe2), and 
+    already-bracketed formats.
+    """
+    if not user_input:
+        return user_input
+    
+    original = user_input.strip()
+    
+    if original.startswith('[') and original.endswith(']'):
+        return original
+    
+    species = original.upper()
+    species = species.replace('[', '').replace(']', '').strip()
+    
+    molecules = ['H2', 'CO', 'CO2', 'H2O', 'CH4', 'NH3', 'O2', 'N2', 'NO', 'NO2', 
+                 'SO2', 'O3', 'H2S', 'HCN', 'C2H2', 'C2H6', 'PH3', 'H2CO', 'N2O',
+                 'HCL', 'HF', 'HBR', 'HI', 'OH', 'CLO', 'OCS', 'HOCL']
+    
+    if species in molecules:
+        return original
+    
+    ionization_map = {
+        '1': 'I', '2': 'II', '3': 'III', '4': 'IV', '5': 'V',
+        '6': 'VI', '7': 'VII', '8': 'VIII', '9': 'IX', '10': 'X',
+        'I': 'I', 'II': 'II', 'III': 'III', 'IV': 'IV', 'V': 'V',
+        'VI': 'VI', 'VII': 'VII', 'VIII': 'VIII', 'IX': 'IX', 'X': 'X'
+    }
+    
+    parts = species.split()
+    if len(parts) == 2:
+        element, ion_state = parts[0], parts[1]
+        if ion_state in ionization_map or ion_state.isdigit():
+            if ion_state.isdigit():
+                ion_state = ionization_map.get(ion_state, ion_state)
+            else:
+                ion_state = ionization_map.get(ion_state, ion_state)
+            return f"[{element.capitalize()} {ion_state}]"
+    
+    match = re.match(r'^([A-Z][A-Z])([IVX]+)$', species)
+    if match:
+        element, ion_state = match.groups()
+        second_char = element[1]
+        if (second_char not in ['I', 'V', 'X'] or len(ion_state) >= 2) and ion_state in ionization_map:
+            return f"[{element.capitalize()} {ion_state}]"
+    
+    match = re.match(r'^([A-Z])([IVX]{2,})$', species)
+    if match:
+        element, ion_state = match.groups()
+        if ion_state in ionization_map:
+            return f"[{element} {ion_state}]"
+    
+    match = re.match(r'^([A-Z][A-Z]?)(\d+)$', species)
+    if match:
+        element, ion_num = match.groups()
+        if not (len(element) == 1 and element + ion_num in molecules):
+            ion_state = ionization_map.get(ion_num, ion_num)
+            return f"[{element.capitalize()} {ion_state}]"
+    
+    return original
+
+# -------------------- Local Line Filter --------------------
 def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=None):
     """
-    Filter spectral lines in .lst file by wavelength and optional species.
-    Returns:
-        - matching_rows: list of line strings for the selected species
-        - all_species: dict of all species found in the range
+    Parse a local spectral line list and return entries within wavelength range.
+    If species is None or empty, return ALL lines in range.
+    Otherwise perform case-insensitive exact or bracketed element matching.
     """
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
-
+    if not os.path.exists(file_path):
+        print(f"❌ Error: File '{file_path}' not found.")
+        return [], {}
+    try:
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+    except Exception as e:
+        print(f"❌ Error reading file: {e}")
+        return [], {}
+    
     data_rows = []
     all_species = {}
     
@@ -19,8 +99,7 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
             try:
                 wavelength = float(parts[1])
                 if wavelength_min <= wavelength <= wavelength_max:
-                    line_text = line
-                    bracketed_match = re.search(r'\[[\w\s]+\]', line_text)
+                    bracketed_match = re.search(r'\[[\w\s]+\]', line)
                     if bracketed_match:
                         found_species = bracketed_match.group()
                     else:
@@ -30,16 +109,301 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
                             found_species = parts[2].strip()
                     
                     all_species[found_species] = all_species.get(found_species, 0) + 1
-                    
-                    if species is None or species == found_species:
+
+                    # If no species filter requested include everything
+                    if species is None or str(species).strip() == "":
+                        priority = 0
+                        include = True
+                    else:
+                        species_upper = species.upper()
+                        found_upper = found_species.upper()
+                        exact_match = (found_upper == species_upper)
+                        element_match = species_upper in found_upper and '[' in found_species
+                        priority = 0 if exact_match else 1 if element_match else 2
+                        include = (priority <= 1)
+
+                    if include:
+                        wavenumber = 1e4 / wavelength
+                        model = parts[0]
+                        transition = ""
+                        a_coeff = 0.0
+                        e_upper = 0.0
+                        
+                        try:
+                            fields = line.split()
+                            if len(fields) >= 6:
+                                transition_parts = []
+                                coeff_idx = -1
+                                for i in range(3, len(fields)):
+                                    if 'E' in fields[i] and any(c.isdigit() for c in fields[i]):
+                                        try:
+                                            a_coeff = float(fields[i])
+                                            coeff_idx = i
+                                            break
+                                        except:
+                                            transition_parts.append(fields[i])
+                                    else:
+                                        transition_parts.append(fields[i])
+                                transition = " ".join(transition_parts) if transition_parts else "Unknown"
+                                if coeff_idx >= 0 and coeff_idx + 1 < len(fields):
+                                    try:
+                                        e_upper = float(fields[coeff_idx + 1])
+                                    except:
+                                        pass
+                        except:
+                            pass
                         data_rows.append({
-                            "model": parts[0],
-                            "lambda_micron": wavelength,
-                            "species": found_species,
-                            "transition": " ".join(parts[3:]),
-                            "raw": line.strip()
+                            'model': model,
+                            'wavelength': wavelength,
+                            'wavenumber': wavenumber,
+                            'species': found_species,
+                            'transition': transition,
+                            'a_coeff': a_coeff,
+                            'e_upper': e_upper,
+                            'priority': priority,
                         })
             except (ValueError, IndexError):
                 continue
     
+    # Sort: if priority present use it, else all zeros
+    data_rows = sorted(data_rows, key=lambda x: (x.get('priority', 0), x['wavelength']))
+    for row in data_rows:
+        if 'priority' in row:
+            del row['priority']
     return data_rows, all_species
+
+# -------------------- HITRAN Utilities --------------------
+def get_available_molecules():
+    return {
+        'H2O': 1, 'CO2': 2, 'O3': 3, 'N2O': 4, 'CO': 5, 'CH4': 6, 'O2': 7, 'NO': 8,
+        'SO2': 9, 'NO2': 10, 'NH3': 11, 'HNO3': 12, 'OH': 13, 'HF': 14, 'HCl': 15,
+        'HBr': 16, 'HI': 17, 'ClO': 18, 'OCS': 19, 'H2CO': 20, 'HOCl': 21, 'N2': 22,
+        'HCN': 23, 'CH3Cl': 24, 'H2O2': 25, 'C2H2': 26, 'C2H6': 27, 'PH3': 28,
+        'COF2': 29, 'SF6': 30, 'H2S': 31, 'HCOOH': 32, 'HO2': 33, 'O': 34,
+        'ClONO2': 35, 'NOp': 36, 'HOBr': 37, 'C2H4': 38, 'CH3OH': 39, 'CH3Br': 40,
+        'CH3CN': 41, 'CF4': 42, 'C4H2': 43, 'HC3N': 44, 'H2': 45, 'CS': 46,
+        'SO3': 47, 'C2N2': 48, 'COCl2': 49, 'SO': 50, 'CH3F': 51, 'GeH4': 52,
+        'CS2': 53, 'CH3I': 54, 'NF3': 55,
+    }
+
+def convert_to_numpy(data):
+    if data is None:
+        return None
+    if isinstance(data, np.ndarray):
+        return np.array(data, dtype=float)
+    if isinstance(data, (list, tuple)):
+        try:
+            return np.array(data, dtype=float)
+        except:
+            return np.array(data)
+    return np.array([data], dtype=float)
+
+def delete_cache_properly(table_name):
+    try:
+        from hapi import purgeCache
+        purgeCache(table_name)
+    except:
+        try:
+            shutil.rmtree('hitran_local', ignore_errors=True)
+        except Exception as e:
+            print(f"⚠️ Could not delete cache: {e}")
+
+def get_cache_age(table_name):
+    try:
+        data_file = f'hitran_local/{table_name}.data'
+        if os.path.exists(data_file):
+            mod_time = os.path.getmtime(data_file)
+            age_seconds = time.time() - mod_time
+            return age_seconds / (24 * 3600)
+    except:
+        return None
+    return None
+
+def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, cache_days=30):
+    """
+    Retrieves molecular spectroscopic line data from the HITRAN database using HAPI.
+    Implements smart caching to minimize downloads, converts wavelength ranges to 
+    wavenumbers, extracts quantum numbers for transition labeling, and calculates 
+    upper energy levels. Handles both cached and fresh data with user prompts for 
+    cache refresh based on age.
+    """
+    try:
+        from hapi import db_begin, fetch, getColumns, tableList
+    except ImportError:
+        print("❌ Error: HAPI not installed!")
+        print("📦 Install with: pip install hitran-api")
+        return [], {}
+
+    mol_numbers = get_available_molecules()
+    if molecule not in mol_numbers:
+        print(f"❌ Molecule '{molecule}' not found in HITRAN")
+        return [], {}
+
+    M = mol_numbers[molecule]
+    I = isotopologue
+    # Convert wavelength (μm) to wavenumber (cm⁻¹)
+    wavenum_min = 1e4 / wavelength_max 
+    wavenum_max = 1e4 / wavelength_min
+    table_name = f'{molecule}_{M}_{I}_{int(wavenum_min)}_{int(wavenum_max)}'
+
+    try:
+        db_begin('hitran_local')
+
+        # Check for existing cached data
+        try:
+            existing_tables = tableList()
+            data_cached = table_name in existing_tables
+        except:
+            data_cached = False
+
+        # Non-interactive cache policy: if cached and older than threshold, only refresh when requested
+        if data_cached and not refresh_cache:
+            cache_age = get_cache_age(table_name)
+            if cache_age is not None:
+                print(f"📅 Cache age: {cache_age:.1f} days")
+                if cache_age > cache_days:
+                    print(f"⚠️  Cache is older than {cache_days} days (using cached unless refresh_cache=True)")
+
+        if refresh_cache and data_cached:
+            print(f"🗑️  Deleting old cache...")
+            delete_cache_properly(table_name)
+            data_cached = False
+
+        if data_cached and not refresh_cache:
+            print(f"✓ Using cached {molecule} data")
+        else:
+            print(f"📥 Downloading {molecule} from HITRAN...")
+            fetch(table_name, M, I, wavenum_min, wavenum_max)
+            print(f"✓ Download complete - cached locally")
+
+        print(f"⏳ Processing data...\n")
+        data_rows = []
+
+        # Attempt to retrieve quantum numbers for transition labeling
+        try:
+            nu, sw, A, gamma_air, gamma_self, elower, n_air, delta_air, Gp, Gpp, \
+            global_upper_quanta, global_lower_quanta, local_upper_quanta, local_lower_quanta = getColumns(
+                table_name, 
+                ['nu', 'sw', 'A', 'gamma_air', 'gamma_self', 'elower', 'n_air', 
+                 'delta_air', 'Gp', 'Gpp', 'global_upper_quanta', 'global_lower_quanta',
+                 'local_upper_quanta', 'local_lower_quanta']
+            )
+        except:
+            # Fallback without quantum numbers
+            nu, sw, A, gamma_air, gamma_self, elower, n_air, delta_air, Gp, Gpp = getColumns(
+                table_name, 
+                ['nu', 'sw', 'A', 'gamma_air', 'gamma_self', 'elower', 'n_air', 
+                 'delta_air', 'Gp', 'Gpp']
+            )
+            global_upper_quanta = None
+            global_lower_quanta = None
+            local_upper_quanta = None
+            local_lower_quanta = None
+
+        nu = convert_to_numpy(nu)
+        A = convert_to_numpy(A)
+        elower = convert_to_numpy(elower)
+        wavelength = 1e4 / nu
+        # Calculate upper energy level: E_upper = (E_lower + ν) × 1.44 [K]
+        eupper = (elower + nu) * 1.44
+        species_name = molecule
+
+        for i in range(len(nu)):
+            wl = wavelength[i]
+            if wavelength_min <= wl <= wavelength_max:
+                # Parse transition notation from quantum numbers
+                if global_upper_quanta is not None and local_lower_quanta is not None:
+                    try:
+                        v_upper = str(global_upper_quanta[i]).strip()
+                        v_lower = str(global_lower_quanta[i]).strip()
+
+                        lower_str = str(local_lower_quanta[i]).strip()
+                        j_match = re.search(r'(\d+)', lower_str)
+                        branch_match = re.search(r'([A-Z])', lower_str)
+
+                        if j_match and branch_match:
+                            j_lower = int(j_match.group(1))
+                            branch = branch_match.group(1)
+
+                            # Apply selection rules for different branches
+                            if branch == 'S':
+                                j_upper = j_lower + 2
+                            elif branch == 'R':
+                                j_upper = j_lower + 1
+                            elif branch == 'Q':
+                                j_upper = j_lower
+                            elif branch == 'P':
+                                j_upper = j_lower - 1
+                            elif branch == 'O':
+                                j_upper = j_lower - 2
+                            else:
+                                j_upper = '?'
+
+                            transition = f"v={v_upper}->{v_lower}, J={j_upper}->{j_lower}"
+                        else:
+                            transition = f"v={v_upper}->{v_lower}"
+                    except Exception as ex:
+                        transition = "N/A"
+                else:
+                    transition = "N/A"
+
+                data_rows.append({
+                    'model': 'HITRAN',
+                    'wavelength': float(wl),
+                    'wavenumber': float(nu[i]),
+                    'species': species_name,
+                    'transition': transition,
+                    'a_coeff': float(A[i]),
+                    'e_upper': float(eupper[i]),
+                })
+
+        print(f"✓ Retrieved {len(data_rows)} lines\n")
+        return data_rows, {}
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return [], {}
+
+def display_results(results):
+    """
+    Formats and prints spectral line data in a clean tabular layout. Displays
+    wavelength, wavenumber, species, transition notation, Einstein A-coefficient,
+    and upper energy level for each line, sorted by wavelength.
+    """
+    if not results:
+        print("❌ No entries found.")
+        return
+    
+    print("="*115)
+    print(f"{'MODEL':<10} | {'Wavelength λ [μm]':<19} | {'Wavenumber ν [cm⁻¹]':<20} | {'L-species':<10} | {'Transition':<20} | {'A-coeff(1/sec)':<14} | {'E_upper [K]':<12}")
+    print("="*115)
+    
+    # Sort by wavelength for organized output
+    sorted_results = sorted(results, key=lambda x: x['wavelength'])
+    for row in sorted_results:
+        print(
+            f"{row['model']:<10} | "
+            f"{row['wavelength']:>19.9f} | "
+            f"{row['wavenumber']:>20.4f} | "
+            f"{row['species']:<10} | "
+            f"{row['transition']:<20} | "
+            f"{row['a_coeff']:>13.3e} | "
+            f"{row['e_upper']:>11.2f}"
+        )
+    print("="*115)
+    print(f"✓ Total entries: {len(results)}\n")
+
+def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False):
+    """
+    GUI-compatible function to fetch HITRAN data and return results for display.
+    """
+    try:
+        results, _ = fetch_hitran_data(
+            wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache
+        )
+        return results
+    except Exception as e:
+        print(f"❌ Error in HITRAN GUI interface: {e}")
+        return []
+
+# Example GUI integration point (to be connected to the main GUI application):
+# Functions above are designed to be imported and used by the GUI; no CLI entry point here.

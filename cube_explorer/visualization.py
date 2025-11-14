@@ -48,8 +48,9 @@ class SpectrumPlotter:
         self.vline_left = None
         self.vline_right = None
         self.cube_data = None  # Will be set later
+        self.global_line = None
 
-    def plot_spectrum(self, spectrum):
+    def plot_spectrum(self, spectrum, ax=None):
         """
         Plot the main integrated spectrum of the data cube.
 
@@ -69,73 +70,78 @@ class SpectrumPlotter:
             - Creates persistent vertical lines for slice indication
             - Sets up proper axis labels based on units
         """
+
+        print("DEBUG plot_spectrum called")
+        print("Existing lines on axis before clear:", len(self.ax.lines))
+
         if spectrum is None:
             print("Warning: Cannot plot spectrum - data is None")
             return
             
         self.ax.clear()
-        
+
+        print("DEBUG plot_spectrum cleared axis, lines now:", len(self.ax.lines))
+
         try:
-            # Create x-axis values
-            if self.wavelength is not None and len(self.wavelength) == len(spectrum):
-                x = self.wavelength
-            else:
-                x = np.arange(len(spectrum))
-            
-            # Ensure data is valid
-            if np.all(np.isnan(spectrum)):
-                print("Warning: Spectrum contains all NaN values")
-                spectrum = np.zeros_like(spectrum)
-            
-            # Clear any existing plot lines and reset storage
-            self.ax.clear()
+            # X-axis values
+            x = self.wavelength if (self.wavelength is not None and len(self.wavelength) == len(spectrum)) else np.arange(len(spectrum))
+
+            # Reset line registries
             self.region_lines = {}
             self.vline_left = None
             self.vline_right = None
-            
-            # Plot main spectrum
-            self.ax.plot(x, spectrum, label='Total Spectrum')
 
-            # X axis label depends on units
+            # Robust normalization to median=1 (positive finite values only)
+            arr = np.asarray(spectrum)
+            valid = arr[np.isfinite(arr) & (arr > 0)]
+            med = np.median(valid) if valid.size > 0 else np.nan
+            if np.isfinite(med) and med > 0:
+                y = arr / med
+                print(f"Global spectrum normalized by median={med:.3e}")
+            else:
+                y = arr.astype(np.float32)
+                print("Global spectrum NOT normalized (median invalid)")
+
+            # Plot main spectrum (consistent color)
+            self.global_line, = self.ax.plot(x, y, color='blue', label='Total Spectrum', zorder=1)
+
+            # Axis labels
             if self.wave_unit in ["Å", "µm"]:
                 xlabel = f"Wavelength [{self.wave_unit}]"
             elif self.wave_unit == "km/s":
                 xlabel = f"Velocity [{self.wave_unit}]"
             else:
                 xlabel = "Spectral axis"
-    
             self.ax.set_xlabel(xlabel)
-            # Get flux units from data if available
+
             if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
                 ylabel = f"Flux [{self.cube_data.flux_unit}]"
             else:
-                # Fallback to standard units based on instrument type
                 if self.wave_unit == "Å":
-                    ylabel = "Flux [10⁻²⁰ erg s⁻¹ cm⁻² Å⁻¹]"  # Standard MUSE units
+                    ylabel = "Flux [10⁻²⁰ erg s⁻¹ cm⁻² Å⁻¹]"
                 elif self.wave_unit == "µm":
-                    ylabel = "Flux [Jy]"  # Common unit for IR observations
+                    ylabel = "Flux [Jy]"
                 elif self.wave_unit == "km/s":
-                    ylabel = "Flux [K]"   # Common for radio/velocity cubes
+                    ylabel = "Flux [K]"
                 else:
                     ylabel = "Flux [arbitrary units]"
             self.ax.set_ylabel(ylabel)
-                        # Create vertical lines for slice indicators
-            # Create vertical lines for slice indicators
+
+            # Create slice indicator lines spanning current y-limits
             ymin, ymax = self.ax.get_ylim()
-            # label these so they appear in the legend as 'Left slice' / 'Right slice'
-            # Use cyan for left slice, magenta for right slice to match region colors
-            self.vline_left = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='cyan', 
-                                         lw=1.5, label='Left slice', zorder=3)[0]
-            self.vline_right = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='magenta', 
-                                          lw=1.5, label='Right slice', zorder=3)[0]
+            self.vline_left = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='cyan', lw=1.5, label='Left slice', zorder=3)[0]
+            self.vline_right = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='magenta', lw=1.5, label='Right slice', zorder=3)[0]
             self.ax.set_ylim(ymin, ymax)
+
+            # Finalize legend
             self.ax.legend(loc='upper right', fontsize=8)
-            
         except Exception as e:
             print(f"Error plotting spectrum: {e}")
             # Create an empty plot as fallback
             self.ax.plot([], [])
         self.fig.tight_layout()
+
+        return self.ax
 
     def plot_region_spectrum(self, spectrum, color='cyan', label=None):
         """
@@ -158,6 +164,10 @@ class SpectrumPlotter:
             - Preserves original spectrum in plot
             - Uses consistent color scheme for different sides
         """
+
+        print(f"DEBUG plot_region_spectrum called for label={label}")
+        print("Existing lines before plotting:", len(self.ax.lines))
+
         if not hasattr(self, "region_lines"):
             self.region_lines = {}
 
@@ -172,15 +182,20 @@ class SpectrumPlotter:
             except Exception:
                 pass
 
-        # Plot the provided spectrum values directly (no normalization).
-        # The GUI will provide region spectra scaled appropriately (e.g. summed over selected pixels)
-        x = self.wavelength if self.wavelength is not None else np.arange(len(spectrum))
-        try:
-            plot_values = np.array(spectrum, dtype='float32')
-        except Exception:
-            plot_values = np.zeros_like(x, dtype='float32')
+        # Robust normalization by region median (positive finite values)
+        arr = np.asarray(spectrum)
+        valid = arr[np.isfinite(arr) & (arr > 0)]
+        med = np.median(valid) if valid.size > 0 else np.nan
+        if np.isfinite(med) and med > 0:
+            y = arr / med
+            print(f"Region spectrum normalized by median={med:.3e}")
+        else:
+            y = arr.astype(np.float32)
+            print("Region spectrum NOT normalized (median invalid)")
 
-        line, = self.ax.plot(x, plot_values, color=color, label=plot_label)
+        # Plot region line
+        x = self.wavelength if self.wavelength is not None else np.arange(len(arr))
+        line, = self.ax.plot(x, y, color=color, label=plot_label, zorder=2)
         self.region_lines[plot_label] = line
 
         # Update legend to include slice vlines and selection lines
@@ -188,6 +203,17 @@ class SpectrumPlotter:
             self.ax.legend(loc='upper right', fontsize=8)
         except Exception:
             pass
+
+        print(f"DEBUG plot_region_spectrum added line, total lines now: {len(self.ax.lines)}")
+
+
+    def normalize_global(self, factor):
+        """Normalize the global spectrum line in-place."""
+        if hasattr(self, 'global_line'):
+            ydata = self.global_line.get_ydata()
+            self.global_line.set_ydata(ydata / factor)
+            self.fig.canvas.draw()
+
 
     def update_slice_indicator(self, wavelength_idx, target="left"):
         """
@@ -277,7 +303,7 @@ class SlicePlotter:
         self.ax.set_yticks([])
         self.fig.canvas.draw()
 
-    def plot_slice(self, image, title=""):
+    def plot_slice(self, image, title="", cmap=None):
         """
         Plot a 2D slice image with colorbar.
 
@@ -302,8 +328,11 @@ class SlicePlotter:
             self.ax.set_xticks([])
             self.ax.set_yticks([])
             self.ax.set_title(title)
-
-            self.im = self.ax.imshow(image, origin='lower', interpolation='nearest', cmap='magma')
+            # Choose colormap: provided cmap or existing or default
+            if cmap is None:
+                cmap = getattr(self, 'current_cmap', 'magma')
+            self.current_cmap = cmap
+            self.im = self.ax.imshow(image, origin='lower', interpolation='nearest', cmap=cmap)
 
             # Create fixed colorbar using axes divider
             divider = make_axes_locatable(self.ax)
@@ -319,6 +348,13 @@ class SlicePlotter:
             # Update existing image
             self.im.set_data(image)
             self.im.set_clim(np.nanmin(image), np.nanmax(image))
+            # Update cmap if a new one is specified
+            if cmap is not None:
+                self.current_cmap = cmap
+                try:
+                    self.im.set_cmap(cmap)
+                except Exception:
+                    pass
             self.ax.set_title(title)
             if self.cbar is not None:
                 self.cbar.update_normal(self.im)
@@ -328,6 +364,18 @@ class SlicePlotter:
         self.ax.set_yticks([])
 
         # Redraw canvas
+        self.fig.canvas.draw_idle()
+
+    def set_cmap(self, cmap_name):
+        """Update the colormap for the existing slice image."""
+        self.current_cmap = cmap_name
+        if self.im is not None:
+            try:
+                self.im.set_cmap(cmap_name)
+                if self.cbar is not None:
+                    self.cbar.update_normal(self.im)
+            except Exception as e:
+                print(f"Could not set colormap {cmap_name}: {e}")
         self.fig.canvas.draw_idle()
 
     def update_pixel_marker(self, x, y):

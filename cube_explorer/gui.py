@@ -13,7 +13,7 @@ import matplotlib.patches as patches
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog
+    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -22,8 +22,10 @@ from matplotlib.widgets import SpanSelector
 
 from .data_loader import CubeData
 from .visualization import SpectrumPlotter, SlicePlotter
+from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
-from .line_catalog import filter_spectral_lines
+from .line_catalog import filter_spectral_lines, normalize_species_input, hitran_gui_interface
+from .species_dialog import SpeciesDialog
 
 class CubeExplorer(QWidget):
     def __init__(self):
@@ -237,26 +239,27 @@ class CubeExplorer(QWidget):
         self.normalize_btn.clicked.connect(self.normalize_spectrum)
         self.set_range_btn.clicked.connect(self._activate_range_selector)
 
-       # Wavelength range inputs (hidden until LST loaded)
+        # Wavelength range inputs (hidden until LST loaded)
         self.wavelength_label = QLabel("Wavelength range:")
         self.min_wave_input = QLineEdit(self)
         self.min_wave_input.setPlaceholderText("Min λ")
         self.max_wave_input = QLineEdit(self)
         self.max_wave_input.setPlaceholderText("Max λ")
         self.species_input = QLineEdit(self)
-        self.species_input.setPlaceholderText("Species")
+        self.species_input.setPlaceholderText("Species (optional)")
         self.ok_wave_button = QPushButton("OK")
         self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
         self.show_lst_btn = QPushButton("SPECIES")
+        self.show_lst_btn.setToolTip("Open list of lines within current range (optional species filter)")
         self.show_lst_btn.clicked.connect(self.show_filtered_lines)
+        self.hitran_btn = QPushButton("HITRAN")
+        self.hitran_btn.setToolTip("Fetch HITRAN lines for current wavelength range")
+        self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
 
         # Hide until LST is loaded
-        self.wavelength_label.hide()
-        self.min_wave_input.hide()
-        self.max_wave_input.hide()
-        self.species_input.hide()
-        self.ok_wave_button.hide()
-        self.show_lst_btn.hide()
+        for w in [self.wavelength_label, self.min_wave_input, self.max_wave_input,
+                  self.species_input, self.ok_wave_button, self.show_lst_btn, self.hitran_btn]:
+            w.hide()
 
         # Layout for wavelength input
         wl_layout = QHBoxLayout()
@@ -266,6 +269,7 @@ class CubeExplorer(QWidget):
         wl_layout.addWidget(self.species_input)
         wl_layout.addWidget(self.ok_wave_button)
         wl_layout.addWidget(self.show_lst_btn)
+        wl_layout.addWidget(self.hitran_btn)
 
         self.wavelength_layout = wl_layout
 
@@ -301,6 +305,28 @@ class CubeExplorer(QWidget):
             "left": {shape: make_shape_button(shape, "left") for shape in shapes},
             "right": {shape: make_shape_button(shape, "right") for shape in shapes}
         }
+
+        # Colormap (color scale) buttons (non-shape, open dialog)
+        self.color_btn_left = QPushButton("🌈")
+        self.color_btn_left.setFixedSize(36, 36)
+        self.color_btn_left.setToolTip("Change left slice color scale")
+        self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
+
+        self.color_btn_right = QPushButton("🌈")
+        self.color_btn_right.setFixedSize(36, 36)
+        self.color_btn_right.setToolTip("Change right slice color scale")
+        self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
+
+        # Copy colormap buttons
+        self.copy_color_btn_l = QPushButton("⎘🌈")
+        self.copy_color_btn_l.setFixedSize(42, 36)
+        self.copy_color_btn_l.setToolTip("Copy right slice colormap to left slice")
+        self.copy_color_btn_l.clicked.connect(lambda: self.copy_colormap('right','left'))
+
+        self.copy_color_btn_r = QPushButton("⎘🌈")
+        self.copy_color_btn_r.setFixedSize(42, 36)
+        self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
+        self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left','right'))
 
         # Add copy buttons
         self.copy_btn_l = make_shape_button("⎘", "left", 
@@ -342,9 +368,12 @@ class CubeExplorer(QWidget):
 
         # Left sidebar (shape buttons / copy / erase)
         left_sidebar = QVBoxLayout()
+        # Add color button at top
+        left_sidebar.addWidget(self.color_btn_left)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
         left_sidebar.addWidget(self.copy_btn_l)
+        left_sidebar.addWidget(self.copy_color_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
         left_sidebar.addStretch()
 
@@ -365,9 +394,11 @@ class CubeExplorer(QWidget):
         right_combined = QHBoxLayout()
 
         right_sidebar = QVBoxLayout()
+        right_sidebar.addWidget(self.color_btn_right)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
         right_sidebar.addWidget(self.copy_btn_r)
+        right_sidebar.addWidget(self.copy_color_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
         right_sidebar.addStretch()
 
@@ -413,6 +444,8 @@ class CubeExplorer(QWidget):
         self.last_idx_right = 0
         self.last_selection_left = None
         self.last_selection_right = None
+        self.lst_plotted_lines = []
+        self.lst_plotted_artists = []
 
         # Initialize region selectors
         self.region_selector_left = RegionSelector(
@@ -528,9 +561,15 @@ class CubeExplorer(QWidget):
             self, "Open Line List", filter="Line List (*.lst *.txt)"
         )
         if fname:
+            # Read file safely
+            with open(fname, "r") as f:
+                self.lst_data = f.read().splitlines()
+
             self.lst_file = fname
             self.lst_label.setText(f".LST: LOADED ({os.path.basename(fname)})")
-            QMessageBox.information(self, "LST Loaded", f"Imported line list:\n{fname}")
+
+            QMessageBox.information(self, "LST Loaded",
+                                    f"Imported line list:\n{fname}")
 
             # Reveal wavelength controls and OK button
             self.wavelength_label.show()
@@ -539,6 +578,7 @@ class CubeExplorer(QWidget):
             self.species_input.show()
             self.ok_wave_button.show()
             self.show_lst_btn.show()
+            self.hitran_btn.show()
 
     def apply_wavelength_range(self):
         """Triggered when user confirms wavelength range and species"""
@@ -559,12 +599,20 @@ class CubeExplorer(QWidget):
             return
 
         # Read species (optional)
-        species = self.species_input.text().strip()
+        species_txt = self.species_input.text().strip()
+        species = normalize_species_input(species_txt) if species_txt else None
+
         if species == "":
             species = None  # plot all if empty
 
-        # Plot lines
-        self.plot_lst_lines(min_wave, max_wave, species)
+        # Don't plot lines automatically - wait for user to click SPECIES button
+        # and select which rows to plot in the dialog
+        QMessageBox.information(
+            self, "Range Set", 
+            f"Wavelength range set to {min_wave:.3f} - {max_wave:.3f} µm\n"
+            f"Species: {species or 'All'}\n\n"
+            "Click the SPECIES button to view and select lines to plot."
+        )
 
 
     def plot_lst_lines(self, min_wave, max_wave, species=None):
@@ -575,7 +623,7 @@ class CubeExplorer(QWidget):
 
         # Filter spectral lines
         results, species_counts = filter_spectral_lines(
-            self.lst_file, min_wave, max_wave, species
+            self.lst_data, min_wave, max_wave, species
         )
 
         # Debug prints
@@ -601,7 +649,7 @@ class CubeExplorer(QWidget):
         # Plot new lines (no text labels)
         for row in results:
             try:
-                wavelength = row["lambda_micron"]
+                wavelength = SpeciesDialog.get_row_wavelength(row)
                 vline = ax.axvline(wavelength, color="red", linestyle="--", alpha=0.6)
                 vline._from_lst = True
             except Exception:
@@ -635,8 +683,9 @@ class CubeExplorer(QWidget):
         else:
             title = f"{target.capitalize()} Slice @ idx={idx}"
         
-        # Update plot
-        plotter.plot_slice(image, title)
+        # Update plot using stored colormap preference per slice if available
+        cmap = getattr(self, 'slice1_cmap' if target == 'left' else 'slice2_cmap', None)
+        plotter.plot_slice(image, title, cmap=cmap)
         
         # Intensity stats with units
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
@@ -758,8 +807,8 @@ class CubeExplorer(QWidget):
             mn = np.nanmin(selected_area)
             mx = np.nanmax(selected_area)
             mean = np.nanmean(selected_area)
-            total_sum = np.nansum(selected_area)  # Add sum
-            std = np.nanstd(selected_area)  # Add standard deviation
+            total_sum = np.nansum(selected_area) # Add sum
+            std = np.nanstd(selected_area) # Add standard deviation
             
             stats_label = self.stats1_label if target == "left" else self.stats2_label
             current_text = stats_label.text().split("\n")
@@ -1132,50 +1181,60 @@ class CubeExplorer(QWidget):
                 pass
 
     def normalize_spectrum(self):
-        """
-        Normalize the region spectrum(s) to max=1.
-        - Uses spectra already computed for left/right slice selections.
-        - Reverts to original spectrum if no region is selected.
-        - Overlays normalized region spectrum on top of global spectrum.
-        """
-        left_selected = self.last_selection_left is not None
-        right_selected = self.last_selection_right is not None
+        """Normalize global and region spectra without deleting anything."""
 
-        # If no regions selected, revert to original spectrum
-        if not (left_selected or right_selected):
-            if hasattr(self, 'original_spectrum'):
-                self.spec_plotter.plot_spectrum(self.original_spectrum)
-                self.spec_canvas.draw()
+        # --- Global spectrum ---
+        global_spec = self.original_spectrum
+        global_med = np.nanmedian(np.abs(global_spec))
+        if global_med == 0 or np.isnan(global_med):
             return
 
-        # Collect already computed region spectra
-        spectra = []
-        if left_selected and hasattr(self, 'left_region_spectrum'):
-            spectra.append(self.left_region_spectrum)
-        if right_selected and hasattr(self, 'right_region_spectrum'):
-            spectra.append(self.right_region_spectrum)
+        # Update the global spectrum line in-place
+        self.spec_plotter.normalize_global(global_med)
 
-        if not spectra:
-            # No valid spectra available
-            return
+        # --- Region spectra ---
+        for side, attr, color, label in [
+            ('left', 'left_region_spectrum', 'cyan', 'Left Region'),
+            ('right', 'right_region_spectrum', 'magenta', 'Right Region')
+        ]:
+            spec = getattr(self, attr, None)
+            selected = getattr(self, f'last_selection_{side}', None)
+            if spec is not None and selected is not None:
+                region_med = np.nanmedian(np.abs(spec))
+                if region_med == 0 or np.isnan(region_med):
+                    continue
+                region_norm = spec / region_med
+                self.spec_plotter.plot_region_spectrum(
+                    region_norm,
+                    color=color,
+                    label=label
+                )
 
-        # Combine spectra if both regions are selected
-        if len(spectra) == 2:
-            combined_spectrum = 0.5 * (spectra[0] + spectra[1])
-        else:
-            combined_spectrum = spectra[0]
-
-        # Normalize combined spectrum to max=1
-        max_val = np.nanmax(combined_spectrum)
-        if max_val == 0 or np.isnan(max_val):
-            print("Warning: Region spectrum is all zeros or NaNs")
-            return
-
-        norm_spectrum = combined_spectrum / max_val
-
-        # Plot normalized spectrum on the existing axes
-        self.spec_plotter.plot_spectrum(norm_spectrum)
+        # --- Median guide line ---
+        self.spec_plotter.ax.axhline(1.0, color='gray', linestyle='--', linewidth=1)
         self.spec_canvas.draw()
+
+    def _open_colormap_dialog(self, target):
+        dialog = ColorMapDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            cmap = dialog.selected_cmap
+            if target == 'left':
+                self.slice1_cmap = cmap
+                self.slice1_plotter.set_cmap(cmap)
+            else:
+                self.slice2_cmap = cmap
+                self.slice2_plotter.set_cmap(cmap)
+
+    def copy_colormap(self, source, target):
+        src_cmap = getattr(self, 'slice1_cmap' if source == 'left' else 'slice2_cmap', None)
+        if not src_cmap:
+            return
+        if target == 'left':
+            self.slice1_cmap = src_cmap
+            self.slice1_plotter.set_cmap(src_cmap)
+        else:
+            self.slice2_cmap = src_cmap
+            self.slice2_plotter.set_cmap(src_cmap)
 
     def _activate_range_selector(self):
         if self.set_range_btn.isChecked():
@@ -1209,6 +1268,11 @@ class CubeExplorer(QWidget):
         self.show_lst_btn = QPushButton("SPECIES")
         self.show_lst_btn.clicked.connect(self.show_filtered_lines)
 
+        # HITRAN fetch button
+        self.hitran_btn = QPushButton("HITRAN")
+        self.hitran_btn.setToolTip("Fetch spectral lines from HITRAN database")
+        self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
+
         layout = QHBoxLayout()
         layout.addWidget(QLabel("Wavelength range:"))
         layout.addWidget(self.min_wave_input)
@@ -1216,6 +1280,7 @@ class CubeExplorer(QWidget):
         layout.addWidget(self.species_input)
         layout.addWidget(self.ok_wave_button)
         layout.addWidget(self.show_lst_btn)
+        layout.addWidget(self.hitran_btn)
 
         self.line_search_layout = layout
 
@@ -1228,13 +1293,13 @@ class CubeExplorer(QWidget):
         )
 
     def on_spectrum_region_selected(self, start_lambda, end_lambda):
-        lines, species_counts = filter_spectral_lines("publis20240406.lst", start_lambda, end_lambda)
+        lines, species_counts = filter_spectral_lines(start_lambda, end_lambda)
         print(f"Found {len(lines)} lines between {start_lambda} and {end_lambda}")
 
         # Plot lines on top of spectrum
         for row in lines:
-            self.spec_plotter.ax.axvline(row["lambda_micron"], color="red", linestyle="--", alpha=0.4)
-            self.spec_plotter.ax.text(row["lambda_micron"], 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
+            self.spec_plotter.ax.axvline(SpeciesDialog.get_row_wavelength(row), color="red", linestyle="--", alpha=0.4)
+            self.spec_plotter.ax.text(SpeciesDialog.get_row_wavelength(row), 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
         self.spec_canvas.draw()
 
     def find_spectral_lines(self, wavelength_min=None, wavelength_max=None):
@@ -1258,16 +1323,16 @@ class CubeExplorer(QWidget):
             return
 
         # Search lines
-        results, _ = filter_spectral_lines(self.lst_file, wavelength_min, wavelength_max, species)
+        lines, _ = filter_spectral_lines(self.lst_data, wavelength_min, wavelength_max, species)
 
-        if not results:
+        if not lines:
             QMessageBox.information(self, "No Matches", "No lines found in this range.")
             return
 
         # Plot vertical markers
         ax = self.spec_plotter.ax
-        for row in results:
-            λ = row["lambda_micron"]
+        for row in lines:
+            λ = SpeciesDialog.get_row_wavelength(row)
             ax.axvline(λ, color="red", linestyle="--", alpha=0.4)
             ax.text(λ, 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
 
@@ -1275,41 +1340,162 @@ class CubeExplorer(QWidget):
 
 
     def show_filtered_lines(self):
-        """Show the spectral lines that match the current wavelength range and species in a popup."""
-        if not self.lst_file:
-            QMessageBox.warning(self, "No LST File", "Please load a .LST file first.")
+        # 1. Filter lines
+        species_text = self.species_input.text().strip()
+        species = normalize_species_input(species_text) if species_text else None
+
+        # Use self.lst_file (file path) instead of self.lst_data (file contents)
+        lines, _ = filter_spectral_lines(self.lst_file,
+                                         float(self.min_wave_input.text()),
+                                         float(self.max_wave_input.text()), species)
+
+        if not lines:
+            QMessageBox.information(self, "No Matches", "No spectral lines found.")
             return
 
+        # 2. Show dialog
+        dlg = SpeciesDialog(lines, parent=self, plotted_rows=self.lst_plotted_lines)
+        result = dlg.exec_()
+
+        # 3. Get selected rows and plot only those
+        if result == QDialog.Accepted:
+            selected_rows = dlg.get_selected_rows()
+            if not selected_rows:
+                QMessageBox.information(self, "No Selection", "No lines selected.")
+                return
+
+            self.plot_selected_lines(selected_rows)
+
+    def on_species_button_clicked(self):
+        species = self.species_combo.currentText()
+        lam_min = float(self.min_edit.text())
+        lam_max = float(self.max_edit.text())
+
+        # Get filtered rows from catalog
+        lines = self.catalog.filter_species_wavelength(species, lam_min, lam_max)
+
+        # Create dialog
+        dlg = SpeciesDialog(lines, parent=self, plotted_rows=self.lst_plotted_lines)
+        result = dlg.exec_()
+
+        if result == QDialog.Accepted:
+            selected_rows = dlg.get_selected_rows()
+
+            # Extract wavelengths for plotting
+            wavelengths = [row["wavelength"] for row in selected_rows]
+
+            self.display.draw_vertical_lines(wavelengths)
+
+    def plot_selected_lines(self, rows):
+        ax = self.spec_plotter.ax
+
+        # Remove old lines/text
+        for artist in self.lst_plotted_artists:
+            try:
+                artist.remove()
+            except Exception as e:
+                print("DEBUG: could not remove artist", e)
+        self.lst_plotted_artists = []
+
+        # Update currently plotted rows
+        self.lst_plotted_lines = rows.copy()
+
+        # Plot new selection
+        for row in rows:
+            λ = SpeciesDialog.get_row_wavelength(row)
+            line = ax.axvline(λ, color="red", linestyle="--", alpha=0.4)
+            text = ax.text(
+                λ, ax.get_ylim()[1],
+                row["species"], rotation=90, va="bottom", ha="center",
+                fontsize=7, color="orange"
+            )
+            self.lst_plotted_artists.extend([line, text])
+
+        self.spec_canvas.draw()
+
+    def fetch_hitran_lines(self):
+        """
+        Fetch HITRAN lines based on user input from the GUI.
+        """
         try:
-            min_wave = float(self.min_wave_input.text())
-            max_wave = float(self.max_wave_input.text())
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Input", "Enter valid numbers for min and max wavelength.")
-            return
+            # Get wavelength range from GUI inputs
+            try:
+                wavelength_min = float(self.min_wave_input.text())
+                wavelength_max = float(self.max_wave_input.text())
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
+                return
 
-        species = self.species_input.text().strip() or None  # None = show all
+            if wavelength_min >= wavelength_max:
+                QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
+                return
 
-        # Get filtered lines
-        lines, _ = filter_spectral_lines(self.lst_file, min_wave, max_wave, species)
+            # Molecule selection from known HITRAN list
+            try:
+                from .line_catalog import get_available_molecules, hitran_gui_interface
+            except Exception:
+                # Fallback absolute import
+                from cube_explorer.line_catalog import get_available_molecules, hitran_gui_interface
 
-        # Add header
-        header = "|MODEL|lambda micron|  L-species |    transition                          | A-coeff | Eupper (K)|Comments|"
-        if lines:
-            lines_text = "\n".join(line["raw"] if isinstance(line, dict) else line for line in lines)
-            text_content = f"{header}\n{lines_text}"
-        else:
-            text_content = f"{header}\nNo matching lines found."
+            mol_map = get_available_molecules()
+            molecules = sorted(mol_map.keys())
+            molecule, ok = QInputDialog.getItem(
+                self,
+                "Select Molecule",
+                "Choose a HITRAN molecule:",
+                molecules,
+                0,
+                True  # editable so they can type
+            )
+            if not ok:
+                return
+            molecule = molecule.strip().upper()
+            if molecule == "":
+                QMessageBox.warning(self, "Invalid Input", "Molecule cannot be empty.")
+                return
+            if molecule not in mol_map:
+                QMessageBox.warning(self, "Unknown Molecule", f"'{molecule}' is not in the HITRAN list.")
+                return
 
-        # Show in a new window
-        self.lines_window = QWidget()
-        self.lines_window.setWindowTitle("Filtered Spectral Lines")
-        self.lines_window.setMinimumSize(600, 400)
+            # Isotopologue selection
+            isotopologue, ok = QInputDialog.getInt(
+                self,
+                "Isotopologue",
+                "Enter isotopologue number:",
+                1,
+                1,
+                100,
+                1
+            )
+            if not ok:
+                return
 
-        layout = QVBoxLayout()
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
-        text_edit.setText(text_content)
-        layout.addWidget(text_edit)
+            # Cache refresh option
+            refresh_cache = QMessageBox.question(
+                self,
+                "Cache Option",
+                "Refresh the HITRAN cache for this query?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            ) == QMessageBox.Yes
 
-        self.lines_window.setLayout(layout)
-        self.lines_window.show()
+            # Fetch HITRAN data
+            results = hitran_gui_interface(
+                wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache
+            )
+
+            if not results:
+                QMessageBox.information(self, "No Matches", "No HITRAN lines found in this range.")
+                return
+
+            # Show selection dialog (reuse SpeciesDialog)
+            dlg = SpeciesDialog(results, parent=self, plotted_rows=self.lst_plotted_lines)
+            if dlg.exec_() == QDialog.Accepted:
+                selected_rows = dlg.get_selected_rows()
+                if not selected_rows:
+                    QMessageBox.information(self, "No Selection", "No lines selected for plotting.")
+                    return
+                self.plot_selected_lines(selected_rows)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred while fetching HITRAN lines:\n{e}")
