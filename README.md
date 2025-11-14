@@ -30,12 +30,24 @@ pip install numpy hitran-api
 
 ## Installation
 
-### Step 1: Clone the Repository
-
-Make your folder and run
+### Clone the Repository
 
 ```
 git clone https://github.com/ilariapascucci/IFU-Analyzer.git
 cd IFU-Analyzer
 git checkout msa-week5
 ```
+## How to run the program?
+
+### Step 1: Launch the Tool
+
+Run the Python script:
+```
+python spectral_line_extractor.py
+```
+
+The program will display the welcome screen and prompt you for input.
+
+### Step 2: Enter Wavelength Range
+
+Enter the minimum and maximum wavelengths in micrometers (μm):
