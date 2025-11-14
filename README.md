@@ -64,7 +64,7 @@ The program will display the welcome screen and prompt you for input.
 
 ### Step 4: Analyze your data
 
-* Now if you entered correct data it would give a output like this
+* Now if you entered the correct data it would give a output like this
 
 ![image alt](https://github.com/ilariapascucci/IFU-Analyzer/blob/msa-week5/Screenshot%202025-11-14%20042429.png?raw=true)
 
