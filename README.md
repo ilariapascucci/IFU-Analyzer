@@ -50,6 +50,7 @@ The program will display the welcome screen and prompt you for input.
 
 ### Step 2: Enter Wavelength Range
 
-Enter the minimum and maximum wavelengths in micrometers (μm):
+-Enter the minimum and maximum wavelengths in micrometers (μm):
+-Then enter whether you want the data from your local environment or from Hatran.
 
 ![image alt](https://github.com/ilariapascucci/IFU-Analyzer/blob/msa-week5/Screenshot%202025-11-14%20042326.png?raw=true)
