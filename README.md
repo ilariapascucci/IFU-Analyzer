@@ -61,3 +61,9 @@ The program will display the welcome screen and prompt you for input.
 * After that choose the type of cache you wanna use (2 is recommended).
 
 ![image alt](https://github.com/ilariapascucci/IFU-Analyzer/blob/msa-week5/Screenshot%202025-11-14%20051646.png?raw=true)
+
+### Step 4: Analyze your data
+
+* Now if you entered correct data it would give a output like this
+
+![image alt]()
