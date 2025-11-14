@@ -23,9 +23,9 @@ This tool provides astronomers and spectroscopists with a unified interface for 
 
 Install all dependencies:
 
-'''
+```
 pip install numpy hitran-api
-'''
+```
 
 
 ## Installation
@@ -34,8 +34,8 @@ pip install numpy hitran-api
 
 Make your folder and run
 
-'''
+```
 git clone https://github.com/ilariapascucci/IFU-Analyzer.git
 cd IFU-Analyzer
 git checkout msa-week5
-'''
+```
