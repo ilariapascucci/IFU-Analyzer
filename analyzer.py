@@ -44,15 +44,19 @@ when clicked, show other info... -> list of elements option -> species, waveleng
 '''
 
 '''
-WEEK 6 next steps
+WEEK 6
 - after selecting wavelengths and species, show a list of the possible
 rows and make the user select the ones the user wants plotted.
+- color
+- option hitran (kinda)
+'''
+
+'''
+WEEK 7 next steps
 - once you plot, hover on a line and identify the row/show in a box.
 - normalizing by the median AKA the middle y is 1 (check picture)
-- scaling and color
+- scaling
 - publish/make executable
-- improve species (Fe -> Fe II and Fe IV; [Fe IV] != Fe IV).
-- option hitron
 - fits + lsd convert if not the same units (e.g. muse and micron)
 '''
 

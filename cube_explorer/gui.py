@@ -13,7 +13,7 @@ import matplotlib.patches as patches
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog
+    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -215,6 +215,7 @@ class CubeExplorer(QWidget):
         self.spec_plotter = None  # Will be initialized after loading data
         self.spec_toolbar = NavigationToolbar(self.spec_canvas, self)
         self.spec_canvas.mpl_connect("button_press_event", self._on_spec_click)
+        self.spec_canvas.mpl_connect("motion_notify_event", self._on_spec_hover)
 
         # Stats labels
         self.stats1_label = QLabel("Slice 1 Stats:\n-")
@@ -1400,10 +1401,12 @@ class CubeExplorer(QWidget):
         # Update currently plotted rows
         self.lst_plotted_lines = rows.copy()
 
-        # Plot new selection
+        # Plot new selection with hover metadata
         for row in rows:
             λ = SpeciesDialog.get_row_wavelength(row)
-            line = ax.axvline(λ, color="red", linestyle="--", alpha=0.4)
+            line = ax.axvline(λ, color="red", linestyle="--", alpha=0.4, picker=5)
+            # Store row data in the line for hover access
+            line.row_data = row
             text = ax.text(
                 λ, ax.get_ylim()[1],
                 row["species"], rotation=90, va="bottom", ha="center",
@@ -1412,6 +1415,56 @@ class CubeExplorer(QWidget):
             self.lst_plotted_artists.extend([line, text])
 
         self.spec_canvas.draw()
+
+    def _on_spec_hover(self, event):
+        """Handle hover events over spectrum plot to show line info."""
+        if event.inaxes != self.spec_plotter.ax:
+            return
+        
+        if not hasattr(self, 'lst_plotted_lines') or not self.lst_plotted_lines:
+            return
+        
+        # Check if hovering near any plotted lines
+        hover_threshold = 0.01  # wavelength units tolerance
+        mouse_x = event.xdata
+        if mouse_x is None:
+            return
+        
+        # Find nearest line within threshold
+        nearest_row = None
+        min_dist = float('inf')
+        
+        for row in self.lst_plotted_lines:
+            λ = SpeciesDialog.get_row_wavelength(row)
+            dist = abs(λ - mouse_x)
+            if dist < hover_threshold and dist < min_dist:
+                min_dist = dist
+                nearest_row = row
+        
+        if nearest_row:
+            # Format tooltip with line information
+            species = nearest_row.get('species', 'Unknown')
+            wavelength = nearest_row.get('wavelength', 0)
+            transition = nearest_row.get('transition', 'N/A')
+            a_coeff = nearest_row.get('a_coeff', 0)
+            e_upper = nearest_row.get('e_upper', 0)
+            
+            tooltip_text = (
+                f"Species: {species}\n"
+                f"λ: {wavelength:.4f} µm\n"
+                f"Transition: {transition}\n"
+                f"A-coeff: {a_coeff:.2e} s⁻¹\n"
+                f"E_upper: {e_upper:.2f} K"
+            )
+            
+            # Use QToolTip for floating box - convert matplotlib event coords to global screen coords
+            from PyQt5.QtCore import QPoint
+            cursor_pos = self.spec_canvas.mapToGlobal(QPoint(int(event.x), int(self.spec_canvas.height() - event.y)))
+            QToolTip.showText(cursor_pos, tooltip_text, self.spec_canvas)
+        else:
+            # Hide tooltip when not hovering over a line
+            QToolTip.hideText()
+
 
     def fetch_hitran_lines(self):
         """

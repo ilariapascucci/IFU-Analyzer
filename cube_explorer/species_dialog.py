@@ -35,8 +35,8 @@ class SpeciesDialog(QDialog):
 
         # ---- Table ----
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels([" ", "λ (µm)", "Species", "Transition"])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels([" ", "λ (µm)", "Species", "Transition", "A-coeff (s⁻¹)", "E_upper (K)"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setRowCount(len(rows))
         layout.addWidget(self.table)
@@ -87,7 +87,6 @@ class SpeciesDialog(QDialog):
             elif default_checked is False:
                 checkbox.setChecked(False)
             else:  # default_checked is None -> reflect plotted_rows membership
-                # Use the wavelength as the unique key to avoid dict identity issues
                 wave = float(row.get('lambda_micron') or row.get('wavelength') or 0.0)
                 checkbox.setChecked(wave in self.plotted_waves)
 
@@ -105,6 +104,24 @@ class SpeciesDialog(QDialog):
             self.table.setItem(i, 2, QTableWidgetItem(row.get("species", "")))
             # Transition
             self.table.setItem(i, 3, QTableWidgetItem(row.get("transition", "")))
+            # A-coeff
+            a_coeff = row.get("a_coeff", "")
+            if a_coeff != "" and a_coeff is not None:
+                try:
+                    self.table.setItem(i, 4, QTableWidgetItem(f"{float(a_coeff):.2e}"))
+                except:
+                    self.table.setItem(i, 4, QTableWidgetItem(str(a_coeff)))
+            else:
+                self.table.setItem(i, 4, QTableWidgetItem(""))
+            # E_upper
+            e_upper = row.get("e_upper", "")
+            if e_upper != "" and e_upper is not None:
+                try:
+                    self.table.setItem(i, 5, QTableWidgetItem(f"{float(e_upper):.2f}"))
+                except:
+                    self.table.setItem(i, 5, QTableWidgetItem(str(e_upper)))
+            else:
+                self.table.setItem(i, 5, QTableWidgetItem(""))
 
         # Narrow first column
         self.table.setColumnWidth(0, 30)
