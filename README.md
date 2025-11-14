@@ -66,4 +66,4 @@ The program will display the welcome screen and prompt you for input.
 
 * Now if you entered correct data it would give a output like this
 
-![image alt]()
+![image alt](https://github.com/ilariapascucci/IFU-Analyzer/blob/msa-week5/Screenshot%202025-11-14%20042429.png?raw=true)
