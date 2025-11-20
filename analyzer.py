@@ -49,15 +49,20 @@ WEEK 6
 rows and make the user select the ones the user wants plotted.
 - color
 - option hitran (kinda)
+- once you plot, hover on a line and identify the row/show in a box.
 '''
 
 '''
 WEEK 7 next steps
-- once you plot, hover on a line and identify the row/show in a box.
 - normalizing by the median AKA the middle y is 1 (check picture)
 - scaling
 - publish/make executable
 - fits + lsd convert if not the same units (e.g. muse and micron)
+- troubleshooting
+- refresh button
+- fit gaussian and area under the curve W/m^2, erg/s/cm^2
+- same order of magnitude (1 or 10)
+- gaussian fit in each pixel. 
 '''
 
 """
