@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.colors import LogNorm, PowerNorm, Normalize
 
 
 class SpectrumPlotter:
@@ -303,24 +304,54 @@ class SlicePlotter:
         self.ax.set_yticks([])
         self.fig.canvas.draw()
 
-    def plot_slice(self, image, title="", cmap=None):
+    def plot_slice(self, image, title="", cmap=None, scale='Linear'):
         """
         Plot a 2D slice image with colorbar.
 
         Args:
             image (numpy.ndarray): 2D array of intensity values
             title (str, optional): Title for the plot
+            cmap (str, optional): Colormap name
+            scale (str, optional): Intensity scaling - 'Linear', 'Log', 'Sqrt', or 'Power (γ=2)'
 
         Note:
-            - Uses 'magma' colormap for visualization
+            - Uses 'magma' colormap for visualization by default
             - Origin at lower left (astronomical convention)
             - Nearest neighbor interpolation for pixel accuracy
             - Creates or updates colorbar as needed
             - Maintains consistent colorbar size and position
+            - Supports multiple scaling options for intensity
         """
         # If axes are empty (or cleared), reset self.im
         if self.im is None or not self.ax.has_data():
             self.im = None
+        
+        # Determine normalization based on scale
+        vmin, vmax = np.nanmin(image), np.nanmax(image)
+        
+        # Handle negative values for log scale
+        if scale == 'Log':
+            if vmin <= 0:
+                # Shift data to positive range for log scale
+                image_shifted = image - vmin + 1e-10
+                vmin_shifted = np.nanmin(image_shifted)
+                vmax_shifted = np.nanmax(image_shifted)
+                norm = LogNorm(vmin=vmin_shifted, vmax=vmax_shifted)
+                image = image_shifted
+            else:
+                norm = LogNorm(vmin=vmin, vmax=vmax)
+        elif scale == 'Sqrt':
+            # Handle negative values for sqrt
+            if vmin < 0:
+                image_shifted = image - vmin
+                vmin = 0
+                vmax = np.nanmax(image_shifted)
+                image = image_shifted
+            norm = PowerNorm(gamma=0.5, vmin=vmin, vmax=vmax)
+        elif scale == 'Power (γ=2)':
+            norm = PowerNorm(gamma=2.0, vmin=vmin, vmax=vmax)
+        else:  # Linear
+            norm = Normalize(vmin=vmin, vmax=vmax)
             
         # First plot: create image and fixed colorbar
         if self.im is None:
@@ -332,7 +363,8 @@ class SlicePlotter:
             if cmap is None:
                 cmap = getattr(self, 'current_cmap', 'magma')
             self.current_cmap = cmap
-            self.im = self.ax.imshow(image, origin='lower', interpolation='nearest', cmap=cmap)
+            self.im = self.ax.imshow(image, origin='lower', interpolation='nearest', 
+                                     cmap=cmap, norm=norm)
 
             # Create fixed colorbar using axes divider
             divider = make_axes_locatable(self.ax)
@@ -347,7 +379,7 @@ class SlicePlotter:
         else:
             # Update existing image
             self.im.set_data(image)
-            self.im.set_clim(np.nanmin(image), np.nanmax(image))
+            self.im.set_norm(norm)
             # Update cmap if a new one is specified
             if cmap is not None:
                 self.current_cmap = cmap

@@ -6,7 +6,6 @@ Extracts molecular spectroscopy data from HITRAN database or local line lists
 import re
 import os
 import numpy as np
-import shutil
 import time
 
 # -------------------- Species Normalization --------------------
@@ -199,14 +198,24 @@ def convert_to_numpy(data):
     return np.array([data], dtype=float)
 
 def delete_cache_properly(table_name):
+    """Delete specific table cache files without removing the hitran_local directory"""
     try:
         from hapi import purgeCache
         purgeCache(table_name)
-    except:
+        print(f"✓ Purged cache for {table_name}")
+    except Exception as e:
+        # Fallback: manually delete just the table files
         try:
-            shutil.rmtree('hitran_local', ignore_errors=True)
-        except Exception as e:
-            print(f"⚠️ Could not delete cache: {e}")
+            data_file = f'hitran_local/{table_name}.data'
+            header_file = f'hitran_local/{table_name}.header'
+            if os.path.exists(data_file):
+                os.remove(data_file)
+                print(f"✓ Removed {data_file}")
+            if os.path.exists(header_file):
+                os.remove(header_file)
+                print(f"✓ Removed {header_file}")
+        except Exception as e2:
+            print(f"⚠️ Could not delete cache files: {e2}")
 
 def get_cache_age(table_name):
     try:
@@ -247,6 +256,8 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
     table_name = f'{molecule}_{M}_{I}_{int(wavenum_min)}_{int(wavenum_max)}'
 
     try:
+        # Ensure hitran_local directory exists
+        os.makedirs('hitran_local', exist_ok=True)
         db_begin('hitran_local')
 
         # Check for existing cached data

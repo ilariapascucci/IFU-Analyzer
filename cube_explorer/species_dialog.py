@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem, QLabel, QWidget, QCheckBox
 )
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor
 
 class SpeciesDialog(QDialog):
     """
@@ -23,15 +24,28 @@ class SpeciesDialog(QDialog):
         self.plotted_rows = plotted_rows or []
 
         # Build a set of wavelengths for quick membership checks
-        try:
-            self.plotted_waves = {float(r['lambda_micron']) for r in self.plotted_rows}
-        except Exception:
-            self.plotted_waves = set()
+        # Use the same logic as get_row_wavelength to extract wavelengths
+        self.plotted_waves = set()
+        for r in self.plotted_rows:
+            try:
+                wave = float(r.get('lambda_micron') or r.get('wavelength') or 0.0)
+                if wave > 0:
+                    self.plotted_waves.add(wave)
+            except Exception:
+                pass
+        
+        print(f"[DEBUG] SpeciesDialog: {len(self.plotted_rows)} plotted rows, {len(self.plotted_waves)} wavelengths")
 
         layout = QVBoxLayout(self)
 
-        # Title
-        layout.addWidget(QLabel(f"{len(rows)} matching lines found"))
+        # Title with counts
+        lst_count = sum(1 for r in rows if r.get('source') != 'HITRAN')
+        hitran_count = sum(1 for r in rows if r.get('source') == 'HITRAN')
+        if hitran_count > 0:
+            title_text = f"{len(rows)} matching lines found ({lst_count} LST, {hitran_count} HITRAN)"
+        else:
+            title_text = f"{len(rows)} matching lines found"
+        layout.addWidget(QLabel(title_text))
 
         # ---- Table ----
         self.table = QTableWidget()
@@ -41,9 +55,12 @@ class SpeciesDialog(QDialog):
         self.table.setRowCount(len(rows))
         layout.addWidget(self.table)
 
-        # Always default to all checkboxes selected
-        # User can then unselect all and pick specific ones if desired
-        default_checked = True
+        # If we have plotted_rows, use them to determine checkboxes
+        # Otherwise (first time), check all boxes
+        if plotted_rows:
+            default_checked = None  # Will check against plotted_waves
+        else:
+            default_checked = True  # First time: select all
         self.populate_table(rows, default_checked=default_checked)
 
         # Buttons for selecting/unselecting all rows
@@ -88,40 +105,70 @@ class SpeciesDialog(QDialog):
                 checkbox.setChecked(False)
             else:  # default_checked is None -> reflect plotted_rows membership
                 wave = float(row.get('lambda_micron') or row.get('wavelength') or 0.0)
-                checkbox.setChecked(wave in self.plotted_waves)
+                # Check with small tolerance for floating point comparison
+                is_plotted = any(abs(wave - pw) < 1e-9 for pw in self.plotted_waves)
+                checkbox.setChecked(is_plotted)
 
             layout = QHBoxLayout()
             layout.addWidget(checkbox)
             layout.setAlignment(Qt.AlignCenter)
             layout.setContentsMargins(0, 0, 0, 0)
             checkbox_widget.setLayout(layout)
+            
+            # Apply background color for HITRAN rows
+            if row.get('source') == 'HITRAN':
+                checkbox_widget.setStyleSheet("background-color: rgba(255, 200, 200, 80);")
+            
             self.table.setCellWidget(i, 0, checkbox_widget)
 
+            # Check if this is a HITRAN line for background coloring
+            is_hitran = row.get('source') == 'HITRAN'
+            hitran_color = QColor(255, 200, 200, 80)  # Faint red background
+            
             # Wavelength
             lam = row.get('lambda_micron') if 'lambda_micron' in row else row.get('wavelength')
-            self.table.setItem(i, 1, QTableWidgetItem(f"{float(lam):.6f}"))
+            item = QTableWidgetItem(f"{float(lam):.6f}")
+            if is_hitran:
+                item.setBackground(hitran_color)
+            self.table.setItem(i, 1, item)
+            
             # Species
-            self.table.setItem(i, 2, QTableWidgetItem(row.get("species", "")))
+            item = QTableWidgetItem(row.get("species", ""))
+            if is_hitran:
+                item.setBackground(hitran_color)
+            self.table.setItem(i, 2, item)
+            
             # Transition
-            self.table.setItem(i, 3, QTableWidgetItem(row.get("transition", "")))
+            item = QTableWidgetItem(row.get("transition", ""))
+            if is_hitran:
+                item.setBackground(hitran_color)
+            self.table.setItem(i, 3, item)
+            
             # A-coeff
             a_coeff = row.get("a_coeff", "")
             if a_coeff != "" and a_coeff is not None:
                 try:
-                    self.table.setItem(i, 4, QTableWidgetItem(f"{float(a_coeff):.2e}"))
+                    item = QTableWidgetItem(f"{float(a_coeff):.2e}")
                 except:
-                    self.table.setItem(i, 4, QTableWidgetItem(str(a_coeff)))
+                    item = QTableWidgetItem(str(a_coeff))
             else:
-                self.table.setItem(i, 4, QTableWidgetItem(""))
+                item = QTableWidgetItem("")
+            if is_hitran:
+                item.setBackground(hitran_color)
+            self.table.setItem(i, 4, item)
+            
             # E_upper
             e_upper = row.get("e_upper", "")
             if e_upper != "" and e_upper is not None:
                 try:
-                    self.table.setItem(i, 5, QTableWidgetItem(f"{float(e_upper):.2f}"))
+                    item = QTableWidgetItem(f"{float(e_upper):.2f}")
                 except:
-                    self.table.setItem(i, 5, QTableWidgetItem(str(e_upper)))
+                    item = QTableWidgetItem(str(e_upper))
             else:
-                self.table.setItem(i, 5, QTableWidgetItem(""))
+                item = QTableWidgetItem("")
+            if is_hitran:
+                item.setBackground(hitran_color)
+            self.table.setItem(i, 5, item)
 
         # Narrow first column
         self.table.setColumnWidth(0, 30)

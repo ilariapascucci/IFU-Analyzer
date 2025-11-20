@@ -86,12 +86,22 @@ class RegionSelector:
                 spancoords='pixels',
                 interactive=True
             )
+            # Make sure selector is visible and active
+            if hasattr(self.selector, 'set_visible'):
+                self.selector.set_visible(True)
+            if hasattr(self.selector, 'set_active'):
+                self.selector.set_active(True)
         elif shape in ["◯", "⬭"]:  # circle or ellipse
             self.selector = EllipseSelector(
                 self.ax,
                 self.on_select,
                 interactive=True
             )
+            # Make sure selector is visible and active
+            if hasattr(self.selector, 'set_visible'):
+                self.selector.set_visible(True)
+            if hasattr(self.selector, 'set_active'):
+                self.selector.set_active(True)
         elif shape == "✏":  # custom
             self.selector = LassoSelector(
                 self.ax,

@@ -8,12 +8,13 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.colors import LogNorm, PowerNorm, Normalize
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip
+    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -178,6 +179,10 @@ class CubeExplorer(QWidget):
         self.lst_btn = QPushButton("Import LST")
         self.lst_btn.clicked.connect(self.select_lst)
         
+        self.refresh_btn = QPushButton("🔄")
+        self.refresh_btn.clicked.connect(self.refresh_view)
+        self.refresh_btn.setToolTip("Refresh all plots")
+        
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
 
@@ -189,6 +194,7 @@ class CubeExplorer(QWidget):
         self.controls_layout.addWidget(self.load_btn)
         self.controls_layout.addWidget(self.header_btn)
         self.controls_layout.addWidget(self.lst_btn)
+        self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addWidget(self.lst_label)
         self.controls_layout.addStretch()
@@ -329,6 +335,19 @@ class CubeExplorer(QWidget):
         self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
         self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left','right'))
 
+        # Scale selection dropdowns
+        self.scale_combo_left = QComboBox()
+        self.scale_combo_left.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
+        self.scale_combo_left.setToolTip("Intensity scaling for left slice")
+        self.scale_combo_left.currentTextChanged.connect(lambda: self._change_scale('left'))
+        self.scale_combo_left.setMaximumWidth(120)
+
+        self.scale_combo_right = QComboBox()
+        self.scale_combo_right.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
+        self.scale_combo_right.setToolTip("Intensity scaling for right slice")
+        self.scale_combo_right.currentTextChanged.connect(lambda: self._change_scale('right'))
+        self.scale_combo_right.setMaximumWidth(120)
+
         # Add copy buttons
         self.copy_btn_l = make_shape_button("⎘", "left", 
             callback=lambda: self.copy_selection(source="right", target="left"))
@@ -371,6 +390,9 @@ class CubeExplorer(QWidget):
         left_sidebar = QVBoxLayout()
         # Add color button at top
         left_sidebar.addWidget(self.color_btn_left)
+        # Add scale dropdown
+        left_sidebar.addWidget(QLabel("Scale:"))
+        left_sidebar.addWidget(self.scale_combo_left)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
         left_sidebar.addWidget(self.copy_btn_l)
@@ -396,6 +418,9 @@ class CubeExplorer(QWidget):
 
         right_sidebar = QVBoxLayout()
         right_sidebar.addWidget(self.color_btn_right)
+        # Add scale dropdown
+        right_sidebar.addWidget(QLabel("Scale:"))
+        right_sidebar.addWidget(self.scale_combo_right)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
         right_sidebar.addWidget(self.copy_btn_r)
@@ -447,6 +472,10 @@ class CubeExplorer(QWidget):
         self.last_selection_right = None
         self.lst_plotted_lines = []
         self.lst_plotted_artists = []
+        self.hitran_lines = []  # Store HITRAN lines separately
+        self.lst_lines = []  # Store LST lines separately
+        self.scale_left = 'Linear'
+        self.scale_right = 'Linear'
 
         # Initialize region selectors
         self.region_selector_left = RegionSelector(
@@ -686,7 +715,8 @@ class CubeExplorer(QWidget):
         
         # Update plot using stored colormap preference per slice if available
         cmap = getattr(self, 'slice1_cmap' if target == 'left' else 'slice2_cmap', None)
-        plotter.plot_slice(image, title, cmap=cmap)
+        scale = self.scale_left if target == 'left' else self.scale_right
+        plotter.plot_slice(image, title, cmap=cmap, scale=scale)
         
         # Intensity stats with units
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
@@ -797,6 +827,20 @@ class CubeExplorer(QWidget):
         # Add the new patch and record it
         plotter.ax.add_patch(patch)
         plotter.ax.area_artists.append(patch)
+        
+        # Hide the selector handles after selection is complete
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+        if selector.selector is not None:
+            try:
+                # Set selector to non-interactive to hide handles
+                if hasattr(selector.selector, 'set_active'):
+                    selector.selector.set_active(False)
+                # Alternatively, make it invisible
+                if hasattr(selector.selector, 'set_visible'):
+                    selector.selector.set_visible(False)
+            except Exception as e:
+                print(f"[DEBUG] Could not hide selector handles: {e}")
+        
         if target == "left":
             self.slice1_canvas.draw()
         else:
@@ -1237,6 +1281,22 @@ class CubeExplorer(QWidget):
             self.slice2_cmap = src_cmap
             self.slice2_plotter.set_cmap(src_cmap)
 
+    def _change_scale(self, target):
+        """Change the intensity scaling (linear, log, sqrt, power) for a slice"""
+        scale_combo = self.scale_combo_left if target == 'left' else self.scale_combo_right
+        scale_type = scale_combo.currentText()
+        
+        # Store the scale choice
+        if target == 'left':
+            self.scale_left = scale_type
+        else:
+            self.scale_right = scale_type
+        
+        # Redisplay the current slice with the new scale
+        if hasattr(self, 'cube_data') and self.cube_data is not None:
+            idx = self.last_idx_left if target == 'left' else self.last_idx_right
+            self._display_slice(idx, target)
+
     def _activate_range_selector(self):
         if self.set_range_btn.isChecked():
             self.active_target = "range"
@@ -1341,24 +1401,50 @@ class CubeExplorer(QWidget):
 
 
     def show_filtered_lines(self):
-        # 1. Filter lines
+        # 1. Filter LST lines
         species_text = self.species_input.text().strip()
         species = normalize_species_input(species_text) if species_text else None
 
         # Use self.lst_file (file path) instead of self.lst_data (file contents)
-        lines, _ = filter_spectral_lines(self.lst_file,
+        lst_lines, _ = filter_spectral_lines(self.lst_file,
                                          float(self.min_wave_input.text()),
                                          float(self.max_wave_input.text()), species)
 
-        if not lines:
+        # Mark LST lines with source
+        for line in lst_lines:
+            line['source'] = 'LST'
+        
+        # Store LST lines for future reference
+        self.lst_lines = lst_lines
+
+        # 2. Filter HITRAN lines to current wavelength range
+        min_wave = float(self.min_wave_input.text())
+        max_wave = float(self.max_wave_input.text())
+        filtered_hitran = []
+        for line in self.hitran_lines:
+            wave = float(line.get('lambda_micron') or line.get('wavelength') or 0.0)
+            if min_wave <= wave <= max_wave:
+                filtered_hitran.append(line)
+        
+        # 3. Merge with filtered HITRAN lines
+        all_lines = lst_lines + filtered_hitran
+        
+        # Sort by wavelength (ascending)
+        all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
+        
+        if not all_lines:
             QMessageBox.information(self, "No Matches", "No spectral lines found.")
             return
 
-        # 2. Show dialog
-        dlg = SpeciesDialog(lines, parent=self, plotted_rows=self.lst_plotted_lines)
+        # 4. If this is the first time (nothing plotted yet), plot all lines first
+        if not self.lst_plotted_lines:
+            self.plot_selected_lines(all_lines)
+
+        # 5. Show merged dialog
+        dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.lst_plotted_lines)
         result = dlg.exec_()
 
-        # 3. Get selected rows and plot only those
+        # 6. Get selected rows and plot only those
         if result == QDialog.Accepted:
             selected_rows = dlg.get_selected_rows()
             if not selected_rows:
@@ -1404,7 +1490,12 @@ class CubeExplorer(QWidget):
         # Plot new selection with hover metadata
         for row in rows:
             λ = SpeciesDialog.get_row_wavelength(row)
-            line = ax.axvline(λ, color="red", linestyle="--", alpha=0.4, picker=5)
+            # Use darker red for HITRAN lines, regular red for LST lines
+            is_hitran = row.get('source') == 'HITRAN'
+            line_color = "darkred" if is_hitran else "red"
+            line_alpha = 0.6 if is_hitran else 0.4
+            
+            line = ax.axvline(λ, color=line_color, linestyle="--", alpha=line_alpha, picker=5)
             # Store row data in the line for hover access
             line.row_data = row
             text = ax.text(
@@ -1465,6 +1556,20 @@ class CubeExplorer(QWidget):
             # Hide tooltip when not hovering over a line
             QToolTip.hideText()
 
+    def refresh_view(self):
+        """
+        Refresh all plots by redrawing canvases
+        """
+        try:
+            if hasattr(self, 'slice1_canvas'):
+                self.slice1_canvas.draw_idle()
+            if hasattr(self, 'slice2_canvas'):
+                self.slice2_canvas.draw_idle()
+            if hasattr(self, 'spec_canvas'):
+                self.spec_canvas.draw_idle()
+            print("[DEBUG] All plots refreshed")
+        except Exception as e:
+            print(f"[DEBUG] Error refreshing plots: {e}")
 
     def fetch_hitran_lines(self):
         """
@@ -1541,8 +1646,25 @@ class CubeExplorer(QWidget):
                 QMessageBox.information(self, "No Matches", "No HITRAN lines found in this range.")
                 return
 
-            # Show selection dialog (reuse SpeciesDialog)
-            dlg = SpeciesDialog(results, parent=self, plotted_rows=self.lst_plotted_lines)
+            # Mark HITRAN lines with source
+            for line in results:
+                line['source'] = 'HITRAN'
+            
+            # Store HITRAN lines (append to existing if any)
+            self.hitran_lines = results
+
+            # Merge with LST lines for display
+            all_lines = self.lst_lines + self.hitran_lines
+            
+            # Sort by wavelength (ascending)
+            all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
+
+            # If this is the first time (nothing plotted yet), plot all lines first
+            if not self.lst_plotted_lines:
+                self.plot_selected_lines(all_lines)
+
+            # Show merged selection dialog
+            dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.lst_plotted_lines)
             if dlg.exec_() == QDialog.Accepted:
                 selected_rows = dlg.get_selected_rows()
                 if not selected_rows:
