@@ -487,39 +487,44 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 Area (AUC) Map - ⭐ Most Important
 This shows the integrated flux (total energy) from the spectral line at each position:
 
-Bright regions = strong emission from that line
-Dark regions = weak or no emission
-Physical meaning: Maps where your target (star, galaxy, nebula) is emitting that specific spectral line
-Use case: See the spatial distribution of H-alpha emission, [O III], CO lines, etc.
+- Bright regions = strong emission from that line
+- Dark regions = weak or no emission
+- Physical meaning: Maps where your target (star, galaxy, nebula) is emitting that specific spectral line
+- Use case: See the spatial distribution of H-alpha emission, [O III], CO lines, etc.
+
 Amplitude Map
 Shows the peak height of the line at each pixel:
 
-Tells you line intensity, but doesn't account for width
-Bright = tall narrow lines OR tall broad lines
-Less informative than Area for total flux
+- Tells you line intensity, but doesn't account for width
+- Bright = tall narrow lines OR tall broad lines
+- Less informative than Area for total flux
+
 Center Map
 Shows the wavelength/velocity at the line center for each pixel:
 
-Physical meaning: Detects kinematic motion (redshift/blueshift)
-Blue regions = material moving toward you (blueshifted)
-Red regions = material moving away (redshifted)
-Use case: See rotation in galaxies, outflows in jets, velocity structure in disks
+- Physical meaning: Detects kinematic motion (redshift/blueshift)
+- Blue regions = material moving toward you (blueshifted)
+- Red regions = material moving away (redshifted)
+- Use case: See rotation in galaxies, outflows in jets, velocity structure in disks
+
 Sigma / FWHM Maps
 Shows the line width at each pixel:
 
-Physical meaning: Line broadening from turbulence, temperature, or rotation
-Broad lines (large sigma) = hot gas, turbulent regions, or velocity dispersion
-Narrow lines (small sigma) = cold, ordered gas
-Use case: Find shocked regions, temperature maps, turbulent mixing zones
+- Physical meaning: Line broadening from turbulence, temperature, or rotation
+- Broad lines (large sigma) = hot gas, turbulent regions, or velocity dispersion
+- Narrow lines (small sigma) = cold, ordered gas
+- Use case: Find shocked regions, temperature maps, turbulent mixing zones
+
 R² Map (Fit Quality)
 Shows how well the Gaussian fit worked:
 
-Values near 1.0 (green) = good fit
-Values near 0.5 (yellow) = poor fit, maybe not Gaussian-shaped
-Use case: Quality control - identify pixels where the line is complex (double-peaked, absorption, etc.)
+- Values near 1.0 (green) = good fit
+- Values near 0.5 (yellow) = poor fit, maybe not Gaussian-shaped
+- Use case: Quality control - identify pixels where the line is complex (double-peaked, absorption, etc.)
+
 Success Mask
 Binary map showing which pixels had successful fits:
 
-White = fit succeeded
-Black = fit failed (no line detected, too noisy, etc.)
+- White = fit succeeded
+- Black = fit failed (no line detected, too noisy, etc.)
 '''
