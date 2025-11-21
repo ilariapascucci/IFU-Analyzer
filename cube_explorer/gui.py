@@ -28,6 +28,7 @@ from .region_selector import RegionSelector
 from .line_catalog import filter_spectral_lines, normalize_species_input, hitran_gui_interface
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
+from .unit_converter import convert_wavelength, are_units_compatible
 
 class CubeExplorer(QWidget):
     def __init__(self):
@@ -243,6 +244,7 @@ class CubeExplorer(QWidget):
         self.gauss_left_btn = QPushButton("Left")
         self.gauss_right_btn = QPushButton("Right")
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
+        self.gauss_map_btn = QPushButton("Fit Gaussian Map")
         
         self.set_left_btn.setCheckable(True)
         self.set_right_btn.setCheckable(True)
@@ -258,6 +260,8 @@ class CubeExplorer(QWidget):
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_right_btn.clicked.connect(self._activate_gaussian_right)
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
+        self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
+        self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
 
         # Wavelength range inputs (hidden until LST loaded)
         self.wavelength_label = QLabel("Wavelength range:")
@@ -470,6 +474,7 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.gauss_left_btn)
         slice_select_layout.addWidget(self.gauss_right_btn)
         slice_select_layout.addWidget(self.gauss_fit_btn)
+        slice_select_layout.addWidget(self.gauss_map_btn)
         slice_select_layout.addStretch()
         
         main_layout.addLayout(slice_select_layout)
@@ -503,6 +508,10 @@ class CubeExplorer(QWidget):
         self.gauss_right_x = None
         self.gauss_mode = None  # 'left' or 'right'
         self.gauss_markers = []  # Store marker artists
+        
+        # Normalization state
+        self.is_normalized = False
+        self.continuum_line = None  # Store continuum line artist
 
         # Initialize region selectors
         self.region_selector_left = RegionSelector(
@@ -747,7 +756,9 @@ class CubeExplorer(QWidget):
         
         # Intensity stats with units
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
-        unit = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
+        from .unit_converter import clean_flux_unit
+        unit_raw = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
+        unit = clean_flux_unit(unit_raw)
         stats_label.setText(
             f"Intensity\n[{unit}]:\n"
             f"min={mn:.3e}\n"
@@ -888,9 +899,15 @@ class CubeExplorer(QWidget):
             # Keep the slice stats if they exist (they start with "Intensity:")
             slice_stats = [line for line in current_text if line.startswith("Intensity:")]
             
+            # Get cleaned flux unit
+            from .unit_converter import clean_flux_unit
+            unit_raw = getattr(self.cube_data, "flux_unit", "")
+            unit = clean_flux_unit(unit_raw) if unit_raw else ""
+            unit_str = f" [{unit}]" if unit else ""
+            
             # Create region stats with sum and std
             region_stats = [
-                "Selected Area Stats:",
+                f"Selected Area Stats{unit_str}:",
                 f"min={mn:.3e}",
                 f"max={mx:.3e}",
                 f"mean={mean:.3e}",
@@ -1258,38 +1275,166 @@ class CubeExplorer(QWidget):
                 pass
 
     def normalize_spectrum(self):
-        """Normalize global and region spectra without deleting anything."""
-
-        # --- Global spectrum ---
-        global_spec = self.original_spectrum
-        global_med = np.nanmedian(np.abs(global_spec))
-        if global_med == 0 or np.isnan(global_med):
+        """Toggle continuum normalization of spectra."""
+        
+        # Check if spectrum is loaded
+        if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
+            QMessageBox.warning(self, "No Spectrum", "Load a data cube first.")
+            self.normalize_btn.setChecked(False)
             return
-
-        # Update the global spectrum line in-place
-        self.spec_plotter.normalize_global(global_med)
-
-        # --- Region spectra ---
+        
+        # Toggle normalization
+        if self.normalize_btn.isChecked():
+            self._apply_normalization()
+        else:
+            self._remove_normalization()
+    
+    def _apply_normalization(self):
+        """Apply continuum normalization to all spectra."""
+        
+        # Check if at least one region is selected
+        has_region = (self.last_selection_left is not None or 
+                     self.last_selection_right is not None)
+        
+        if not has_region:
+            QMessageBox.warning(
+                self, "No Region Selected",
+                "Please select at least one region (left or right) before normalizing.\n\n"
+                "The selected region will be used to estimate the continuum."
+            )
+            self.normalize_btn.setChecked(False)
+            return
+        
+        # Get the selected region spectrum for continuum estimation
+        if self.last_selection_left is not None:
+            region_spec = self.cube_data.compute_region_spectrum(
+                self.last_selection_left["mask"]
+            )
+        else:
+            region_spec = self.cube_data.compute_region_spectrum(
+                self.last_selection_right["mask"]
+            )
+        
+        if region_spec is None:
+            QMessageBox.warning(self, "Error", "Could not compute region spectrum.")
+            self.normalize_btn.setChecked(False)
+            return
+        
+        # Estimate continuum using percentile filtering (removes emission lines)
+        # Use 50th percentile in sliding window - robust to outliers
+        from scipy.ndimage import percentile_filter
+        window_size = max(5, len(region_spec) // 20)  # Adaptive window
+        if window_size % 2 == 0:
+            window_size += 1  # Must be odd
+        
+        continuum = percentile_filter(region_spec, 50, size=window_size)
+        
+        # Smooth the continuum to avoid artifacts
+        from scipy.ndimage import uniform_filter1d
+        continuum = uniform_filter1d(continuum, size=max(3, window_size // 3))
+        
+        # Avoid division by zero
+        continuum[continuum <= 0] = np.nanmedian(continuum[continuum > 0])
+        
+        # Store continuum for later
+        self.continuum = continuum
+        
+        # Normalize global spectrum
+        normalized_global = self.original_spectrum / continuum
+        self.spec_plotter.update_spectrum(normalized_global)
+        
+        # Plot the actual continuum curve (before normalization) for reference
+        wavelength = self.spec_plotter.wavelength
+        if self.continuum_line is not None:
+            try:
+                self.continuum_line.remove()
+            except:
+                pass
+        
+        # Plot the continuum curve itself (not normalized)
+        # This shows what baseline was used for normalization
+        self.continuum_line, = self.spec_plotter.ax.plot(
+            wavelength, continuum,
+            'g--', linewidth=2, alpha=0.7, label='Continuum (fit)', zorder=5
+        )
+        
+        # Update region spectra if they exist
         for side, attr, color, label in [
-            ('left', 'left_region_spectrum', 'cyan', 'Left Region'),
-            ('right', 'right_region_spectrum', 'magenta', 'Right Region')
+            ('left', 'left_region_spectrum', 'cyan', 'Left Selection'),
+            ('right', 'right_region_spectrum', 'magenta', 'Right Selection')
         ]:
-            spec = getattr(self, attr, None)
             selected = getattr(self, f'last_selection_{side}', None)
-            if spec is not None and selected is not None:
-                region_med = np.nanmedian(np.abs(spec))
-                if region_med == 0 or np.isnan(region_med):
-                    continue
-                region_norm = spec / region_med
-                self.spec_plotter.plot_region_spectrum(
-                    region_norm,
-                    color=color,
-                    label=label
-                )
-
-        # --- Median guide line ---
-        self.spec_plotter.ax.axhline(1.0, color='gray', linestyle='--', linewidth=1)
+            if selected is not None:
+                # Recompute and plot normalized region spectrum
+                mask = selected.get("mask")
+                if mask is not None:
+                    region_spec = self.cube_data.compute_region_spectrum(mask)
+                    if region_spec is not None:
+                        normalized_region = region_spec / continuum
+                        self.spec_plotter.plot_region_spectrum(
+                            normalized_region,
+                            color=color,
+                            label=label
+                        )
+        
+        # Update legend and redraw
+        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw()
+        self.is_normalized = True
+        
+        print("[DEBUG] Continuum normalization applied")
+    
+    def _remove_normalization(self):
+        """Remove normalization and restore original spectra."""
+        
+        print("[DEBUG] Removing normalization...")
+        
+        # Remove continuum line
+        if self.continuum_line is not None:
+            try:
+                self.continuum_line.remove()
+                print("[DEBUG] Removed continuum line")
+            except Exception as e:
+                print(f"[DEBUG] Error removing continuum line: {e}")
+            self.continuum_line = None
+        
+        # Clear existing region lines to prevent duplicates
+        if hasattr(self.spec_plotter, 'region_lines'):
+            for label, line in list(self.spec_plotter.region_lines.items()):
+                try:
+                    line.remove()
+                except:
+                    pass
+            self.spec_plotter.region_lines = {}
+        
+        # Restore original global spectrum
+        print(f"[DEBUG] Restoring spectrum, shape: {self.original_spectrum.shape}")
+        self.spec_plotter.update_spectrum(self.original_spectrum)
+        
+        # Restore region spectra if they exist
+        for side, color, label in [
+            ('left', 'cyan', 'Left Selection'),
+            ('right', 'magenta', 'Right Selection')
+        ]:
+            selected = getattr(self, f'last_selection_{side}', None)
+            if selected is not None:
+                mask = selected.get("mask")
+                if mask is not None:
+                    region_spec = self.cube_data.compute_region_spectrum(mask)
+                    if region_spec is not None:
+                        print(f"[DEBUG] Restoring {side} region spectrum")
+                        self.spec_plotter.plot_region_spectrum(
+                            region_spec,
+                            color=color,
+                            label=label
+                        )
+        
+        # Update legend and redraw
+        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+        self.spec_canvas.draw_idle()
+        self.is_normalized = False
+        
+        print("[DEBUG] Normalization removed successfully")
 
     def _open_colormap_dialog(self, target):
         dialog = ColorMapDialog(self)
@@ -1518,12 +1663,29 @@ class CubeExplorer(QWidget):
 
         # Update currently plotted rows
         self.lst_plotted_lines = rows.copy()
+        
+        # Get cube wavelength unit
+        cube_unit = getattr(self.cube_data, 'wave_unit', 'µm') if hasattr(self, 'cube_data') else 'µm'
 
         # Plot new selection with hover metadata
         for row in rows:
             λ = SpeciesDialog.get_row_wavelength(row)
-            # Use darker red for HITRAN lines, regular red for LST lines
+            
+            # Determine source unit (LST files are typically in µm, HITRAN varies)
             is_hitran = row.get('source') == 'HITRAN'
+            source_unit = row.get('wavelength_unit', 'µm')  # Default to µm for LST
+            
+            # Convert wavelength to cube units if needed
+            try:
+                if cube_unit != source_unit and are_units_compatible(source_unit, cube_unit):
+                    λ_converted = convert_wavelength(λ, source_unit, cube_unit)
+                    print(f"[DEBUG] Converted line {row.get('species', 'Unknown')}: {λ:.4f} {source_unit} -> {λ_converted:.4f} {cube_unit}")
+                    λ = λ_converted
+            except Exception as e:
+                print(f"[DEBUG] Unit conversion failed for {row.get('species', 'Unknown')}: {e}")
+                # Use original wavelength if conversion fails
+            
+            # Use darker red for HITRAN lines, regular red for LST lines
             line_color = "darkred" if is_hitran else "red"
             line_alpha = 0.6 if is_hitran else 0.4
             
@@ -1565,16 +1727,30 @@ class CubeExplorer(QWidget):
                 nearest_row = row
         
         if nearest_row:
+            # Get cube wavelength unit
+            cube_unit = getattr(self.cube_data, 'wave_unit', 'µm') if hasattr(self, 'cube_data') else 'µm'
+            
             # Format tooltip with line information
             species = nearest_row.get('species', 'Unknown')
             wavelength = nearest_row.get('wavelength', 0)
+            source_unit = nearest_row.get('wavelength_unit', 'µm')
             transition = nearest_row.get('transition', 'N/A')
             a_coeff = nearest_row.get('a_coeff', 0)
             e_upper = nearest_row.get('e_upper', 0)
             
+            # Show both original and converted wavelength if units differ
+            if cube_unit != source_unit:
+                try:
+                    wavelength_converted = convert_wavelength(wavelength, source_unit, cube_unit)
+                    wavelength_str = f"λ: {wavelength:.4f} {source_unit} ({wavelength_converted:.4f} {cube_unit})"
+                except:
+                    wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
+            else:
+                wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
+            
             tooltip_text = (
                 f"Species: {species}\n"
-                f"λ: {wavelength:.4f} µm\n"
+                f"{wavelength_str}\n"
                 f"Transition: {transition}\n"
                 f"A-coeff: {a_coeff:.2e} s⁻¹\n"
                 f"E_upper: {e_upper:.2f} K"
@@ -1590,18 +1766,152 @@ class CubeExplorer(QWidget):
 
     def refresh_view(self):
         """
-        Refresh all plots by redrawing canvases
+        Complete reset: Clear all plots, selections, normalizations, and Gaussian fits.
+        Reload spectrum from original data.
         """
-        try:
-            if hasattr(self, 'slice1_canvas'):
-                self.slice1_canvas.draw_idle()
-            if hasattr(self, 'slice2_canvas'):
-                self.slice2_canvas.draw_idle()
-            if hasattr(self, 'spec_canvas'):
-                self.spec_canvas.draw_idle()
-            print("[DEBUG] All plots refreshed")
-        except Exception as e:
-            print(f"[DEBUG] Error refreshing plots: {e}")
+        print("[DEBUG] === REFRESH VIEW: Complete Reset ===")
+        
+        if not hasattr(self, 'cube_data') or self.cube_data is None:
+            print("[DEBUG] No cube data loaded")
+            return
+        
+        # Reset state variables
+        self.last_idx_left = 0
+        self.last_idx_right = 0
+        self.last_selection_left = None
+        self.last_selection_right = None
+        self.active_shape = None
+        self.active_target = None
+        
+        # Reset Gaussian fitting state
+        self.gauss_left_x = None
+        self.gauss_right_x = None
+        self.gauss_mode = None
+        if hasattr(self, 'gauss_left_marker') and self.gauss_left_marker:
+            try:
+                self.gauss_left_marker.remove()
+            except:
+                pass
+        if hasattr(self, 'gauss_right_marker') and self.gauss_right_marker:
+            try:
+                self.gauss_right_marker.remove()
+            except:
+                pass
+        self.gauss_left_marker = None
+        self.gauss_right_marker = None
+        
+        # Reset normalization
+        if hasattr(self, 'is_normalized') and self.is_normalized:
+            self.normalize_btn.setChecked(False)
+            self.is_normalized = False
+        if hasattr(self, 'continuum_line') and self.continuum_line:
+            try:
+                self.continuum_line.remove()
+            except:
+                pass
+        self.continuum_line = None
+        
+        # Uncheck all buttons
+        self.set_left_btn.setChecked(False)
+        self.set_right_btn.setChecked(False)
+        self.normalize_btn.setChecked(False)
+        self.gauss_left_btn.setChecked(False)
+        self.gauss_right_btn.setChecked(False)
+        
+        # Clear all plotted lines (LST, HITRAN)
+        if hasattr(self, 'lst_plotted_artists'):
+            for artist in self.lst_plotted_artists:
+                try:
+                    artist.remove()
+                except:
+                    pass
+            self.lst_plotted_artists = []
+            self.lst_plotted_lines = []
+        
+        # Clear spectrum plot and reload
+        if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
+            # Clear all lines and artists
+            self.spec_plotter.ax.clear()
+            
+            # Clear Gaussian fit artists
+            if hasattr(self.spec_plotter, 'gauss_fit_artists'):
+                for artist in self.spec_plotter.gauss_fit_artists:
+                    try:
+                        artist.remove()
+                    except:
+                        pass
+                self.spec_plotter.gauss_fit_artists = []
+            
+            # Clear region lines
+            if hasattr(self.spec_plotter, 'region_lines'):
+                for line in self.spec_plotter.region_lines.values():
+                    try:
+                        line.remove()
+                    except:
+                        pass
+                self.spec_plotter.region_lines = {}
+            
+            # Reload spectrum from original
+            if hasattr(self, 'original_spectrum') and self.original_spectrum is not None:
+                self.spec_plotter.plot_spectrum(self.original_spectrum)
+            self.spec_canvas.draw()
+        
+        # Reset slice displays to index 0
+        if hasattr(self, 'slice1_plotter') and self.slice1_plotter is not None:
+            # Clear patches and markers
+            if hasattr(self.slice1_plotter.ax, 'area_artists'):
+                for artist in self.slice1_plotter.ax.area_artists:
+                    try:
+                        artist.remove()
+                    except:
+                        pass
+                self.slice1_plotter.ax.area_artists = []
+            if hasattr(self.slice1_plotter.ax, 'pixel_marker'):
+                for marker in self.slice1_plotter.ax.pixel_marker:
+                    try:
+                        marker.remove()
+                    except:
+                        pass
+                self.slice1_plotter.ax.pixel_marker = []
+            
+            self._display_slice(0, "left")
+        
+        if hasattr(self, 'slice2_plotter') and self.slice2_plotter is not None:
+            # Clear patches and markers
+            if hasattr(self.slice2_plotter.ax, 'area_artists'):
+                for artist in self.slice2_plotter.ax.area_artists:
+                    try:
+                        artist.remove()
+                    except:
+                        pass
+                self.slice2_plotter.ax.area_artists = []
+            if hasattr(self.slice2_plotter.ax, 'pixel_marker'):
+                for marker in self.slice2_plotter.ax.pixel_marker:
+                    try:
+                        marker.remove()
+                    except:
+                        pass
+                self.slice2_plotter.ax.pixel_marker = []
+            
+            self._display_slice(0, "right")
+        
+        # Reset stats labels
+        self.stats1_label.setText("Slice 1 Stats:\n-")
+        self.stats2_label.setText("Slice 2 Stats:\n-")
+        
+        # Deactivate region selectors
+        if hasattr(self, 'region_selector_left'):
+            self.region_selector_left.activate_selector(None)
+        if hasattr(self, 'region_selector_right'):
+            self.region_selector_right.activate_selector(None)
+        
+        # Uncheck shape buttons
+        if hasattr(self, 'shape_buttons'):
+            for side in ["left", "right"]:
+                for btn in self.shape_buttons[side].values():
+                    btn.setChecked(False)
+        
+        print("[DEBUG] Refresh complete - all displays reset to initial state")
 
     def fetch_hitran_lines(self):
         """
@@ -1816,39 +2126,70 @@ class CubeExplorer(QWidget):
     def _display_gaussian_results(self, result: GaussianFitResult):
         """Display Gaussian fit results in a dialog"""
         from PyQt5.QtWidgets import QTextEdit
+        from .unit_converter import clean_wave_unit, clean_flux_unit
         
-        # Format results text
+        # Get units from cube data
+        wave_unit_raw = getattr(self.cube_data, 'wave_unit', 'spectral units')
+        flux_unit_raw = getattr(self.cube_data, 'flux_unit', 'flux units')
+        
+        # Clean units for display
+        wave_unit = clean_wave_unit(wave_unit_raw)
+        flux_unit = clean_flux_unit(flux_unit_raw)
+        
+        # Determine appropriate unit names
+        if wave_unit in ["Å", "µm", "nm"]:
+            axis_name = "Wavelength"
+        elif "km/s" in wave_unit or "m/s" in wave_unit:
+            axis_name = "Velocity"
+        else:
+            axis_name = "Spectral axis"
+        
+        # For area, don't repeat the wavelength unit if it's already in flux_unit
+        # E.g., if flux_unit is "erg s⁻¹ cm⁻² Å⁻¹", area should be "erg s⁻¹ cm⁻²" (integrated over Å)
+        if wave_unit and (wave_unit in flux_unit or wave_unit.replace('Å', 'Angstrom') in flux_unit_raw):
+            # Flux unit already includes per-wavelength, so area is flux integrated
+            # Remove the "per wavelength" part for area
+            area_unit = flux_unit.replace(f' {wave_unit}⁻¹', '').replace(f'/{wave_unit}', '')
+        else:
+            # Standard case: area = flux × wavelength
+            area_unit = f"{flux_unit}·{wave_unit}"
+        
+        # For baseline slope
+        slope_unit = f"{flux_unit}/{wave_unit}" if wave_unit not in flux_unit else flux_unit
+        
+        # Format results text with dynamic units
         results_text = f"""
 GAUSSIAN FIT RESULTS
-{'='*50}
+{'='*60}
 
 FITTED PARAMETERS:
-  Center (μ):        {result.center:.6f} μm
-  Amplitude (A):     {result.amplitude:.4e} flux units
-  Sigma (σ):         {result.sigma:.6f} μm
-  FWHM:              {result.fwhm:.6f} μm
+  Center ({axis_name}):  {result.center:.6f} {wave_unit}
+  Amplitude:             {result.amplitude:.4e} {flux_unit}
+  Sigma (σ):             {result.sigma:.6f} {wave_unit}
+  FWHM:                  {result.fwhm:.6f} {wave_unit}
 
 INTEGRATED QUANTITIES:
-  Gaussian Area:     {result.area:.4e}
-  Equivalent Width:  {result.area/np.mean(result.baseline):.4e} μm
+  Gaussian Area:         {result.area:.4e} {area_unit}
+  Equivalent Width:      {result.area/np.mean(result.baseline):.4e} {wave_unit}
 
 BASELINE:
-  Slope:             {result.baseline_slope:.4e}
-  Left endpoint:     {result.baseline_intercept:.4e}
+  Slope:                 {result.baseline_slope:.4e} {slope_unit}
+  Left endpoint:         {result.baseline_intercept:.4e} {flux_unit}
 
 FIT QUALITY:
-  R² (coefficient):  {result.r_squared:.4f}
-  χ² (chi-squared):  {result.chi_squared:.4e}
-  Data points:       {len(result.x_data)}
+  R² (coefficient):      {result.r_squared:.4f}
+  χ² (chi-squared):      {result.chi_squared:.4e}
+  Data points:           {len(result.x_data)}
 
 STATUS: {result.message}
-{'='*50}
+{'='*60}
 
 INTERPRETATION:
-- Center: Peak wavelength of the spectral line
+- Center: Peak {axis_name.lower()} of the spectral line
 - FWHM: Full Width at Half Maximum (line width)
 - Area: Integrated flux (proportional to line strength)
 - R²: How well the Gaussian fits (1.0 = perfect, >0.9 = good)
+- Equivalent Width: Area divided by continuum level
 """
         
         # Create dialog
@@ -1872,3 +2213,203 @@ INTERPRETATION:
         
         dlg.setLayout(layout)
         dlg.exec_()
+
+    def _fit_gaussian_map(self):
+        """Fit Gaussian to all pixels in the cube using the selected boundaries"""
+        from .gaussian_fitter import fit_gaussians_per_pixel
+        from PyQt5.QtWidgets import QProgressDialog
+        from PyQt5.QtCore import Qt
+        
+        # Validation
+        if self.gauss_left_x is None or self.gauss_right_x is None:
+            QMessageBox.warning(
+                self, "Missing Boundaries",
+                "Please select both LEFT and RIGHT boundaries first.\n\n"
+                "1. Click 'Left' button, then click on spectrum\n"
+                "2. Click 'Right' button, then click on spectrum\n"
+                "3. Click 'Fit Gaussian Map'"
+            )
+            return
+        
+        if not hasattr(self, 'cube_data') or self.cube_data is None:
+            QMessageBox.warning(self, "No Data", "Load a data cube first.")
+            return
+        
+        # Get cube dimensions
+        cube = self.cube_data.cube  # 3D array (n_wave, n_y, n_x)
+        wavelength = self.spec_plotter.wavelength
+        
+        if cube is None or wavelength is None:
+            QMessageBox.warning(self, "No Data", "No cube data available.")
+            return
+        
+        n_wave, n_y, n_x = cube.shape
+        total_pixels = n_y * n_x
+        
+        # Confirm with user (this could take time)
+        reply = QMessageBox.question(
+            self, "Fit Gaussian Map",
+            f"This will fit Gaussians to {total_pixels:,} pixels.\n"
+            f"Wavelength range: [{self.gauss_left_x:.4f}, {self.gauss_right_x:.4f}]\n\n"
+            f"This may take a few minutes. Continue?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Create progress dialog
+        progress = QProgressDialog(
+            "Fitting Gaussians to all pixels...", 
+            "Cancel", 0, 100, self
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setWindowTitle("Gaussian Fitting Progress")
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        
+        try:
+            # Perform fitting
+            results = fit_gaussians_per_pixel(
+                cube=cube,
+                wavelength=wavelength,
+                lam_min=min(self.gauss_left_x, self.gauss_right_x),
+                lam_max=max(self.gauss_left_x, self.gauss_right_x)
+            )
+            
+            progress.setValue(100)
+            
+            # Show results in new window
+            self._show_gaussian_map_results(results)
+            
+        except Exception as e:
+            progress.close()
+            QMessageBox.critical(self, "Error", f"Gaussian map fitting error:\n{str(e)}")
+    
+    def _show_gaussian_map_results(self, results: dict):
+        """Display Gaussian parameter maps in a new window"""
+        from PyQt5.QtWidgets import QComboBox
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
+        from matplotlib.figure import Figure
+        import matplotlib.pyplot as plt
+        
+        # Create dialog window
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Gaussian Parameter Maps")
+        dlg.resize(800, 700)
+        
+        layout = QVBoxLayout()
+        
+        # Info label
+        n_success = np.sum(results['success'])
+        n_total = results['success'].size
+        info_label = QLabel(
+            f"Successfully fit {n_success:,} / {n_total:,} pixels "
+            f"({100*n_success/n_total:.1f}%)"
+        )
+        layout.addWidget(info_label)
+        
+        # Parameter selector
+        param_layout = QHBoxLayout()
+        param_layout.addWidget(QLabel("Parameter:"))
+        param_combo = QComboBox()
+        param_combo.addItems([
+            "Area (AUC)", "Amplitude", "Center", "Sigma", 
+            "FWHM", "R² (fit quality)", "Success Mask"
+        ])
+        param_layout.addWidget(param_combo)
+        param_layout.addStretch()
+        layout.addLayout(param_layout)
+        
+        # Create matplotlib figure
+        fig = Figure(figsize=(8, 6))
+        canvas = FigureCanvasQTAgg(fig)
+        toolbar = NavigationToolbar2QT(canvas, dlg)
+        layout.addWidget(toolbar)
+        layout.addWidget(canvas)
+        
+        # Store results for access in update function
+        self._temp_gauss_results = results
+        self._temp_gauss_fig = fig
+        self._temp_gauss_canvas = canvas
+        
+        # Function to update plot
+        def update_plot():
+            fig.clear()
+            ax = fig.add_subplot(111)
+            
+            param_name = param_combo.currentText()
+            
+            # Select data based on parameter
+            if param_name == "Area (AUC)":
+                data = results['area']
+                title = "Integrated Area Under Gaussian (AUC)"
+                cmap = 'viridis'
+            elif param_name == "Amplitude":
+                data = results['amplitude']
+                title = "Gaussian Peak Amplitude"
+                cmap = 'plasma'
+            elif param_name == "Center":
+                data = results['center']
+                title = "Gaussian Center Position"
+                cmap = 'coolwarm'
+            elif param_name == "Sigma":
+                data = results['sigma']
+                title = "Gaussian Width (σ)"
+                cmap = 'cividis'
+            elif param_name == "FWHM":
+                data = results['fwhm']
+                title = "Full Width at Half Maximum"
+                cmap = 'cividis'
+            elif param_name == "R² (fit quality)":
+                data = results['r_squared']
+                title = "R² Goodness of Fit"
+                cmap = 'RdYlGn'
+            elif param_name == "Success Mask":
+                data = results['success'].astype(float)
+                title = "Successful Fits (1=success, 0=failed)"
+                cmap = 'gray'
+            
+            # Plot with NaN handling
+            im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest')
+            ax.set_title(title)
+            ax.set_xlabel("X Pixel")
+            ax.set_ylabel("Y Pixel")
+            
+            # Colorbar
+            cbar = fig.colorbar(im, ax=ax, label=param_name)
+            
+            # Add statistics
+            valid_data = data[~np.isnan(data)]
+            if len(valid_data) > 0:
+                stats_text = (
+                    f"Min: {np.nanmin(data):.4e}\\n"
+                    f"Max: {np.nanmax(data):.4e}\\n"
+                    f"Mean: {np.nanmean(data):.4e}\\n"
+                    f"Median: {np.nanmedian(data):.4e}"
+                )
+                ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+                       verticalalignment='top', bbox=dict(boxstyle='round', 
+                       facecolor='wheat', alpha=0.8), fontsize=9)
+            
+            fig.tight_layout()
+            canvas.draw()
+        
+        # Connect combo box to update function
+        param_combo.currentIndexChanged.connect(update_plot)
+        
+        # Initial plot
+        update_plot()
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+        
+        dlg.setLayout(layout)
+        dlg.exec_()
+        
+        # Clean up temporary storage
+        del self._temp_gauss_results
+        del self._temp_gauss_fig
+        del self._temp_gauss_canvas

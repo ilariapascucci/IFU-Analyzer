@@ -312,3 +312,214 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
     # For emission lines: EW = Area / Continuum
     equivalent_width = fit_result.area / continuum_level
     return equivalent_width
+
+
+def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
+                            lam_min: Optional[float] = None,
+                            lam_max: Optional[float] = None) -> dict:
+    """
+    Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
+    
+    This function performs the same Gaussian fitting process used in fit_gaussian_to_line(),
+    but applies it to every spatial pixel in the cube. For each pixel:
+    1. Extract spectrum within [lam_min, lam_max]
+    2. Calculate linear baseline from endpoints
+    3. Subtract baseline
+    4. Fit Gaussian using same initial guesses and bounds
+    5. Calculate area using analytic formula: A * σ * sqrt(2π)
+    
+    Args:
+        cube: 3D data cube with shape (n_wavelength, n_y, n_x)
+        wavelength: 1D wavelength array with length n_wavelength
+        lam_min: Minimum wavelength for fitting region (default: use full range)
+        lam_max: Maximum wavelength for fitting region (default: use full range)
+    
+    Returns:
+        Dictionary containing 2D parameter maps:
+            'amplitude': Peak amplitude map
+            'center': Center wavelength map
+            'sigma': Width parameter map
+            'fwhm': FWHM map
+            'area': Integrated area under Gaussian (AUC) map
+            'r_squared': R² goodness of fit map
+            'success': Boolean mask of successful fits
+    
+    Notes:
+        - Failed fits store NaN in parameter maps
+        - Uses same estimation and bounds as fit_gaussian_to_line()
+        - Area calculated analytically: A * σ * sqrt(2π)
+    """
+    # Get cube dimensions
+    n_wave, n_y, n_x = cube.shape
+    
+    # Set wavelength range
+    if lam_min is None:
+        lam_min = wavelength[0]
+    if lam_max is None:
+        lam_max = wavelength[-1]
+    
+    # Ensure lam_min < lam_max
+    if lam_min > lam_max:
+        lam_min, lam_max = lam_max, lam_min
+    
+    # Create wavelength mask
+    wave_mask = (wavelength >= lam_min) & (wavelength <= lam_max)
+    x_data = wavelength[wave_mask]
+    
+    if len(x_data) < 4:
+        raise ValueError(f"Not enough wavelength points in range [{lam_min}, {lam_max}] (need at least 4)")
+    
+    # Initialize output maps
+    amplitude_map = np.full((n_y, n_x), np.nan)
+    center_map = np.full((n_y, n_x), np.nan)
+    sigma_map = np.full((n_y, n_x), np.nan)
+    fwhm_map = np.full((n_y, n_x), np.nan)
+    area_map = np.full((n_y, n_x), np.nan)
+    r_squared_map = np.full((n_y, n_x), np.nan)
+    success_map = np.zeros((n_y, n_x), dtype=bool)
+    
+    # Get boundary wavelengths
+    x1 = x_data[0]
+    x2 = x_data[-1]
+    x_range = x2 - x1
+    
+    # Progress tracking
+    total_pixels = n_y * n_x
+    completed = 0
+    
+    print(f"Fitting Gaussians to {total_pixels} pixels in wavelength range [{lam_min:.4f}, {lam_max:.4f}]")
+    
+    # Loop over all spatial pixels
+    for iy in range(n_y):
+        for ix in range(n_x):
+            # Extract spectrum for this pixel
+            spectrum = cube[wave_mask, iy, ix]
+            y_data = spectrum
+            
+            # Get boundary flux values for baseline
+            y1 = y_data[0]
+            y2 = y_data[-1]
+            
+            # Calculate baseline (same as fit_gaussian_to_line)
+            baseline = calculate_baseline(x1, y1, x2, y2, x_data)
+            
+            # Subtract baseline
+            y_corrected = y_data - baseline
+            
+            # Check if there's a meaningful peak
+            if np.max(y_corrected) <= 0:
+                # Skip this pixel - no positive peak
+                continue
+            
+            # Estimate initial parameters (same as fit_gaussian_to_line)
+            try:
+                amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
+            except Exception:
+                # Skip if parameter estimation fails
+                continue
+            
+            # Set up bounds (same as fit_gaussian_to_line)
+            bounds = (
+                [0, x1, 0.001 * x_range],  # Lower bounds
+                [10 * np.max(y_corrected), x2, 2 * x_range]  # Upper bounds
+            )
+            
+            # Attempt fit
+            try:
+                popt, pcov = curve_fit(
+                    gaussian, x_data, y_corrected,
+                    p0=[amp_guess, center_guess, sigma_guess],
+                    bounds=bounds,
+                    maxfev=10000
+                )
+                
+                amplitude, center, sigma = popt
+                
+                # Generate fitted curve
+                y_fit = gaussian(x_data, amplitude, center, sigma)
+                residuals = y_corrected - y_fit
+                
+                # Calculate derived quantities
+                fwhm = 2.355 * sigma  # FWHM = 2*sqrt(2*ln(2)) * sigma
+                
+                # Calculate area using analytic formula (same as fit_gaussian_to_line)
+                area = amplitude * sigma * np.sqrt(2 * np.pi)
+                
+                # Calculate R² goodness of fit
+                ss_res = np.sum(residuals**2)
+                ss_tot = np.sum((y_corrected - np.mean(y_corrected))**2)
+                r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                
+                # Store results
+                amplitude_map[iy, ix] = amplitude
+                center_map[iy, ix] = center
+                sigma_map[iy, ix] = sigma
+                fwhm_map[iy, ix] = fwhm
+                area_map[iy, ix] = area
+                r_squared_map[iy, ix] = r_squared
+                success_map[iy, ix] = True
+                
+            except Exception as e:
+                # Fit failed for this pixel - leave as NaN
+                pass
+            
+            # Progress update every 1000 pixels
+            completed += 1
+            if completed % 1000 == 0:
+                print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
+    
+    # Final summary
+    n_success = np.sum(success_map)
+    print(f"Fitting complete: {n_success}/{total_pixels} pixels successful ({100*n_success/total_pixels:.1f}%)")
+    
+    return {
+        'amplitude': amplitude_map,
+        'center': center_map,
+        'sigma': sigma_map,
+        'fwhm': fwhm_map,
+        'area': area_map,
+        'r_squared': r_squared_map,
+        'success': success_map
+    }
+
+
+'''
+Area (AUC) Map - ⭐ Most Important
+This shows the integrated flux (total energy) from the spectral line at each position:
+
+Bright regions = strong emission from that line
+Dark regions = weak or no emission
+Physical meaning: Maps where your target (star, galaxy, nebula) is emitting that specific spectral line
+Use case: See the spatial distribution of H-alpha emission, [O III], CO lines, etc.
+Amplitude Map
+Shows the peak height of the line at each pixel:
+
+Tells you line intensity, but doesn't account for width
+Bright = tall narrow lines OR tall broad lines
+Less informative than Area for total flux
+Center Map
+Shows the wavelength/velocity at the line center for each pixel:
+
+Physical meaning: Detects kinematic motion (redshift/blueshift)
+Blue regions = material moving toward you (blueshifted)
+Red regions = material moving away (redshifted)
+Use case: See rotation in galaxies, outflows in jets, velocity structure in disks
+Sigma / FWHM Maps
+Shows the line width at each pixel:
+
+Physical meaning: Line broadening from turbulence, temperature, or rotation
+Broad lines (large sigma) = hot gas, turbulent regions, or velocity dispersion
+Narrow lines (small sigma) = cold, ordered gas
+Use case: Find shocked regions, temperature maps, turbulent mixing zones
+R² Map (Fit Quality)
+Shows how well the Gaussian fit worked:
+
+Values near 1.0 (green) = good fit
+Values near 0.5 (yellow) = poor fit, maybe not Gaussian-shaped
+Use case: Quality control - identify pixels where the line is complex (double-peaked, absorption, etc.)
+Success Mask
+Binary map showing which pixels had successful fits:
+
+White = fit succeeded
+Black = fit failed (no line detected, too noisy, etc.)
+'''

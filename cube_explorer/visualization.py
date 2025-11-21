@@ -92,16 +92,10 @@ class SpectrumPlotter:
             self.vline_left = None
             self.vline_right = None
 
-            # Robust normalization to median=1 (positive finite values only)
-            arr = np.asarray(spectrum)
-            valid = arr[np.isfinite(arr) & (arr > 0)]
-            med = np.median(valid) if valid.size > 0 else np.nan
-            if np.isfinite(med) and med > 0:
-                y = arr / med
-                print(f"Global spectrum normalized by median={med:.3e}")
-            else:
-                y = arr.astype(np.float32)
-                print("Global spectrum NOT normalized (median invalid)")
+            # Use raw spectrum data (no automatic normalization)
+            # Normalization is now controlled by user via Normalize button
+            y = np.asarray(spectrum).astype(np.float32)
+            print(f"Global spectrum plotted (no auto-normalization)")
 
             # Plot main spectrum (consistent color)
             self.global_line, = self.ax.plot(x, y, color='blue', label='Total Spectrum', zorder=1)
@@ -116,7 +110,8 @@ class SpectrumPlotter:
             self.ax.set_xlabel(xlabel)
 
             if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
-                ylabel = f"Flux [{self.cube_data.flux_unit}]"
+                from .unit_converter import clean_flux_unit
+                ylabel = f"Flux [{clean_flux_unit(self.cube_data.flux_unit)}]"
             else:
                 if self.wave_unit == "Å":
                     ylabel = "Flux [10⁻²⁰ erg s⁻¹ cm⁻² Å⁻¹]"
@@ -183,19 +178,13 @@ class SpectrumPlotter:
             except Exception:
                 pass
 
-        # Robust normalization by region median (positive finite values)
-        arr = np.asarray(spectrum)
-        valid = arr[np.isfinite(arr) & (arr > 0)]
-        med = np.median(valid) if valid.size > 0 else np.nan
-        if np.isfinite(med) and med > 0:
-            y = arr / med
-            print(f"Region spectrum normalized by median={med:.3e}")
-        else:
-            y = arr.astype(np.float32)
-            print("Region spectrum NOT normalized (median invalid)")
+        # Use raw spectrum data (no automatic normalization)
+        # Normalization is controlled by the Normalize button
+        y = np.asarray(spectrum).astype(np.float32)
+        print(f"Region spectrum plotted (no auto-normalization)")
 
         # Plot region line
-        x = self.wavelength if self.wavelength is not None else np.arange(len(arr))
+        x = self.wavelength if self.wavelength is not None else np.arange(len(spectrum))
         line, = self.ax.plot(x, y, color=color, label=plot_label, zorder=2)
         self.region_lines[plot_label] = line
 
@@ -271,10 +260,23 @@ class SpectrumPlotter:
         )
         self.gauss_fit_artists.append(gauss_line)
         
+        # Fill area under the Gaussian (above baseline)
+        fill = self.ax.fill_between(
+            result.x_data, baseline_norm, baseline_norm + y_fit_norm,
+            color='red', alpha=0.2, label='Integrated Area', zorder=9
+        )
+        self.gauss_fit_artists.append(fill)
+        
         # Add text annotation with key results
+        # Get units from cube_data if available
+        if hasattr(self, 'cube_data') and self.cube_data is not None:
+            wave_unit = getattr(self.cube_data, 'wave_unit', '')
+        else:
+            wave_unit = self.wave_unit if hasattr(self, 'wave_unit') else ''
+        
         text_str = (
-            f"Center: {result.center:.4f} μm\n"
-            f"FWHM: {result.fwhm:.4f} μm\n"
+            f"Center: {result.center:.4f} {wave_unit}\n"
+            f"FWHM: {result.fwhm:.4f} {wave_unit}\n"
             f"R²: {result.r_squared:.3f}"
         )
         text_obj = self.ax.text(
@@ -299,6 +301,32 @@ class SpectrumPlotter:
             ydata = self.global_line.get_ydata()
             self.global_line.set_ydata(ydata / factor)
             self.fig.canvas.draw()
+    
+    def update_spectrum(self, spectrum):
+        """Update the global spectrum with new data (e.g., normalized)."""
+        if hasattr(self, 'global_line') and self.global_line is not None:
+            # Get x values
+            x = self.wavelength if (self.wavelength is not None and len(self.wavelength) == len(spectrum)) else np.arange(len(spectrum))
+            
+            # Update the line data
+            self.global_line.set_data(x, spectrum)
+            
+            # Adjust y-limits based on new data
+            valid_y = spectrum[np.isfinite(spectrum)]
+            if len(valid_y) > 0:
+                ymin, ymax = np.nanpercentile(valid_y, [1, 99])
+                margin = (ymax - ymin) * 0.1
+                self.ax.set_ylim(ymin - margin, ymax + margin)
+                print(f"[DEBUG] Updated spectrum, new ylim: ({ymin - margin:.2e}, {ymax + margin:.2e})")
+            
+            # Force redraw
+            try:
+                self.fig.canvas.draw_idle()
+            except:
+                self.fig.canvas.draw()
+        else:
+            # If no line exists, plot it
+            self.plot_spectrum(spectrum)
 
 
     def update_slice_indicator(self, wavelength_idx, target="left"):

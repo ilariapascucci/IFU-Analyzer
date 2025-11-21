@@ -58,6 +58,10 @@ W7
 - refresh button
 - lines when region
 - hitran upgrade + merge
+- fit gaussian and area under the curve W/m^2, erg/s/cm^2
+- improve units
+- troubleshooting
+- gaussian fit in each pixel
 '''
 '''
 WEEK 7 next steps
@@ -65,9 +69,7 @@ WEEK 7 next steps
 - publish/make executable
 - fits + lsd convert if not the same units (e.g. muse and micron)
 - troubleshooting
-- fit gaussian and area under the curve W/m^2, erg/s/cm^2
 - same order of magnitude (1 or 10)
-- gaussian fit in each pixel.
 '''
 
 """
