@@ -27,6 +27,7 @@ from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .line_catalog import filter_spectral_lines, normalize_species_input, hitran_gui_interface
 from .species_dialog import SpeciesDialog
+from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 
 class CubeExplorer(QWidget):
     def __init__(self):
@@ -237,14 +238,26 @@ class CubeExplorer(QWidget):
         self.set_right_btn = QPushButton("Set Right Slice")
         self.normalize_btn = QPushButton("Normalize")
         self.set_range_btn = QPushButton("Set Range")
+        
+        # Gaussian fitting buttons
+        self.gauss_left_btn = QPushButton("Left")
+        self.gauss_right_btn = QPushButton("Right")
+        self.gauss_fit_btn = QPushButton("Fit Gaussian")
+        
         self.set_left_btn.setCheckable(True)
         self.set_right_btn.setCheckable(True)
         self.normalize_btn.setCheckable(True)
         self.set_range_btn.setCheckable(True)
+        self.gauss_left_btn.setCheckable(True)
+        self.gauss_right_btn.setCheckable(True)
+        
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
         self.normalize_btn.clicked.connect(self.normalize_spectrum)
         self.set_range_btn.clicked.connect(self._activate_range_selector)
+        self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
+        self.gauss_right_btn.clicked.connect(self._activate_gaussian_right)
+        self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
 
         # Wavelength range inputs (hidden until LST loaded)
         self.wavelength_label = QLabel("Wavelength range:")
@@ -451,6 +464,14 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.set_right_btn)
         slice_select_layout.addWidget(self.normalize_btn)
         slice_select_layout.addStretch()
+        
+        # Add Gaussian fitting buttons
+        slice_select_layout.addWidget(QLabel("Gaussian Fit:"))
+        slice_select_layout.addWidget(self.gauss_left_btn)
+        slice_select_layout.addWidget(self.gauss_right_btn)
+        slice_select_layout.addWidget(self.gauss_fit_btn)
+        slice_select_layout.addStretch()
+        
         main_layout.addLayout(slice_select_layout)
 
         # Add spectrum at bottom
@@ -476,6 +497,12 @@ class CubeExplorer(QWidget):
         self.lst_lines = []  # Store LST lines separately
         self.scale_left = 'Linear'
         self.scale_right = 'Linear'
+        
+        # Gaussian fitting state
+        self.gauss_left_x = None
+        self.gauss_right_x = None
+        self.gauss_mode = None  # 'left' or 'right'
+        self.gauss_markers = []  # Store marker artists
 
         # Initialize region selectors
         self.region_selector_left = RegionSelector(
@@ -1098,6 +1125,11 @@ class CubeExplorer(QWidget):
         """Handle clicks on the spectrum display"""
         if event.inaxes != self.spec_plotter.ax:
             return
+        
+        # Handle Gaussian boundary selection first (takes priority)
+        if self.gauss_mode in ['left', 'right'] and event.xdata is not None:
+            self._mark_gaussian_boundary(event.xdata)
+            return
             
         if not self.active_target:
             return
@@ -1674,3 +1706,169 @@ class CubeExplorer(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while fetching HITRAN lines:\n{e}")
+
+    def _activate_gaussian_left(self):
+        """Activate selection mode for left boundary of Gaussian fit"""
+        if self.gauss_left_btn.isChecked():
+            self.gauss_mode = 'left'
+            self.gauss_right_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+
+    def _activate_gaussian_right(self):
+        """Activate selection mode for right boundary of Gaussian fit"""
+        if self.gauss_right_btn.isChecked():
+            self.gauss_mode = 'right'
+            self.gauss_left_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+
+    def _mark_gaussian_boundary(self, x_pos):
+        """Mark a boundary point for Gaussian fitting"""
+        ax = self.spec_plotter.ax
+        
+        if self.gauss_mode == 'left':
+            # Clear previous left marker if exists
+            if hasattr(self, 'gauss_left_marker') and self.gauss_left_marker:
+                try:
+                    self.gauss_left_marker.remove()
+                except:
+                    pass
+            
+            # Draw new left marker (blue vertical line)
+            self.gauss_left_marker = ax.axvline(x_pos, color='blue', linestyle=':', linewidth=2, label='Left')
+            self.gauss_left_x = x_pos
+            self.gauss_left_btn.setChecked(False)
+            self.gauss_mode = None
+            print(f"[DEBUG] Left boundary set at λ = {x_pos:.4f}")
+            
+        elif self.gauss_mode == 'right':
+            # Clear previous right marker if exists
+            if hasattr(self, 'gauss_right_marker') and self.gauss_right_marker:
+                try:
+                    self.gauss_right_marker.remove()
+                except:
+                    pass
+            
+            # Draw new right marker (green vertical line)
+            self.gauss_right_marker = ax.axvline(x_pos, color='green', linestyle=':', linewidth=2, label='Right')
+            self.gauss_right_x = x_pos
+            self.gauss_right_btn.setChecked(False)
+            self.gauss_mode = None
+            print(f"[DEBUG] Right boundary set at λ = {x_pos:.4f}")
+        
+        self.spec_canvas.draw()
+
+    def _fit_gaussian(self):
+        """Perform Gaussian fit to selected spectral line region"""
+        # Validation
+        if self.gauss_left_x is None or self.gauss_right_x is None:
+            QMessageBox.warning(
+                self, "Missing Boundaries",
+                "Please select both LEFT and RIGHT boundaries first.\n\n"
+                "1. Click 'Left' button, then click on spectrum\n"
+                "2. Click 'Right' button, then click on spectrum\n"
+                "3. Click 'Fit Gaussian'"
+            )
+            return
+        
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            QMessageBox.warning(self, "No Data", "Load a data cube first.")
+            return
+        
+        if not hasattr(self, 'cube_data') or self.cube_data is None:
+            QMessageBox.warning(self, "No Data", "Load a data cube first.")
+            return
+        
+        # Get spectrum data from cube_data
+        spectrum_x = self.spec_plotter.wavelength
+        spectrum_y = self.cube_data.spectrum
+        
+        if spectrum_x is None or spectrum_y is None:
+            QMessageBox.warning(self, "No Spectrum", "No spectrum data available.")
+            return
+        
+        if len(spectrum_x) != len(spectrum_y):
+            QMessageBox.warning(self, "Data Mismatch", "Wavelength and flux arrays have different lengths.")
+            return
+        
+        # Perform fit
+        try:
+            result = fit_gaussian_to_line(
+                self.gauss_left_x, self.gauss_right_x,
+                spectrum_x, spectrum_y
+            )
+            
+            if not result.success:
+                QMessageBox.warning(self, "Fit Failed", result.message)
+                return
+            
+            # Display results
+            self._display_gaussian_results(result)
+            
+            # Plot the fit on the spectrum using visualization module
+            self.spec_plotter.plot_gaussian_fit(result)
+            self.spec_canvas.draw_idle()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Gaussian fitting error:\n{str(e)}")
+
+    def _display_gaussian_results(self, result: GaussianFitResult):
+        """Display Gaussian fit results in a dialog"""
+        from PyQt5.QtWidgets import QTextEdit
+        
+        # Format results text
+        results_text = f"""
+GAUSSIAN FIT RESULTS
+{'='*50}
+
+FITTED PARAMETERS:
+  Center (μ):        {result.center:.6f} μm
+  Amplitude (A):     {result.amplitude:.4e} flux units
+  Sigma (σ):         {result.sigma:.6f} μm
+  FWHM:              {result.fwhm:.6f} μm
+
+INTEGRATED QUANTITIES:
+  Gaussian Area:     {result.area:.4e}
+  Equivalent Width:  {result.area/np.mean(result.baseline):.4e} μm
+
+BASELINE:
+  Slope:             {result.baseline_slope:.4e}
+  Left endpoint:     {result.baseline_intercept:.4e}
+
+FIT QUALITY:
+  R² (coefficient):  {result.r_squared:.4f}
+  χ² (chi-squared):  {result.chi_squared:.4e}
+  Data points:       {len(result.x_data)}
+
+STATUS: {result.message}
+{'='*50}
+
+INTERPRETATION:
+- Center: Peak wavelength of the spectral line
+- FWHM: Full Width at Half Maximum (line width)
+- Area: Integrated flux (proportional to line strength)
+- R²: How well the Gaussian fits (1.0 = perfect, >0.9 = good)
+"""
+        
+        # Create dialog
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Gaussian Fit Results")
+        dlg.setMinimumSize(600, 500)
+        
+        layout = QVBoxLayout()
+        
+        # Text display
+        text_edit = QTextEdit()
+        text_edit.setPlainText(results_text)
+        text_edit.setReadOnly(True)
+        text_edit.setFontFamily("Courier")
+        layout.addWidget(text_edit)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+        
+        dlg.setLayout(layout)
+        dlg.exec_()

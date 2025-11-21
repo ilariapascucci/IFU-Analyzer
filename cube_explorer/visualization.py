@@ -208,6 +208,91 @@ class SpectrumPlotter:
         print(f"DEBUG plot_region_spectrum added line, total lines now: {len(self.ax.lines)}")
 
 
+    def plot_gaussian_fit(self, result):
+        """
+        Plot Gaussian fit results on the spectrum.
+        
+        Args:
+            result: GaussianFitResult object containing fit parameters and data
+        """
+        # Clear previous fit lines if any
+        if not hasattr(self, 'gauss_fit_artists'):
+            self.gauss_fit_artists = []
+        
+        for artist in self.gauss_fit_artists:
+            try:
+                artist.remove()
+            except:
+                pass
+        self.gauss_fit_artists = []
+        
+        # Get normalization factor from global spectrum if it was normalized
+        if hasattr(self, 'global_line') and self.global_line is not None:
+            # Check if spectrum was normalized (median should be ~1)
+            global_y = self.global_line.get_ydata()
+            global_median = np.nanmedian(global_y[np.isfinite(global_y)])
+            
+            # If normalized (median close to 1), we need to normalize the fit too
+            if 0.5 < global_median < 2.0:
+                # Calculate normalization factor from the fit region
+                fit_median = np.nanmedian(result.y_data[np.isfinite(result.y_data)])
+                if fit_median > 0:
+                    norm_factor = fit_median
+                    print(f"[DEBUG] Normalizing Gaussian fit by factor {norm_factor:.3e}")
+                else:
+                    norm_factor = 1.0
+            else:
+                norm_factor = 1.0
+        else:
+            norm_factor = 1.0
+        
+        # Normalize baseline and fit
+        baseline_norm = result.baseline / norm_factor
+        y_fit_norm = result.y_fit / norm_factor
+        
+        print(f"[DEBUG] Gaussian fit plotting:")
+        print(f"  x_data range: {result.x_data.min():.4f} to {result.x_data.max():.4f}")
+        print(f"  baseline range: {baseline_norm.min():.4e} to {baseline_norm.max():.4e}")
+        print(f"  y_fit range: {y_fit_norm.min():.4e} to {y_fit_norm.max():.4e}")
+        print(f"  total range: {(baseline_norm + y_fit_norm).min():.4e} to {(baseline_norm + y_fit_norm).max():.4e}")
+        print(f"  Current ax ylim: {self.ax.get_ylim()}")
+        
+        # Plot baseline
+        baseline_line, = self.ax.plot(
+            result.x_data, baseline_norm,
+            'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=10
+        )
+        self.gauss_fit_artists.append(baseline_line)
+        
+        # Plot fitted Gaussian (baseline + gaussian)
+        gauss_line, = self.ax.plot(
+            result.x_data, baseline_norm + y_fit_norm,
+            'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=11
+        )
+        self.gauss_fit_artists.append(gauss_line)
+        
+        # Add text annotation with key results
+        text_str = (
+            f"Center: {result.center:.4f} μm\n"
+            f"FWHM: {result.fwhm:.4f} μm\n"
+            f"R²: {result.r_squared:.3f}"
+        )
+        text_obj = self.ax.text(
+            0.02, 0.98, text_str,
+            transform=self.ax.transAxes,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
+            fontsize=9,
+            zorder=12
+        )
+        self.gauss_fit_artists.append(text_obj)
+        
+        # Update legend
+        self.ax.legend(loc='upper right', fontsize=8)
+        
+        print(f"[DEBUG] Gaussian fit plotted, total lines now: {len(self.ax.lines)}")
+
+
     def normalize_global(self, factor):
         """Normalize the global spectrum line in-place."""
         if hasattr(self, 'global_line'):
