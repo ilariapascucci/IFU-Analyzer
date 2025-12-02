@@ -63,6 +63,7 @@ W7
 - troubleshooting
 - gaussian fit in each pixel
 '''
+
 '''
 WEEK 7 next steps
 - normalizing by the median AKA the middle y is 1 (check picture)
@@ -70,6 +71,14 @@ WEEK 7 next steps
 - fits + lsd convert if not the same units (e.g. muse and micron)
 - troubleshooting
 - same order of magnitude (1 or 10)
+
+WEEK 8-9
+- two cases: 3x std 
+- under 3: noise - create gaussian using new std
+- over 3: it is a peak - done
+- convert data to fits file -> intensity map and residual cube
+- continuum subtracted cube of the wavelength boundaries.
+- cube of residuals (y-fit)/std
 '''
 
 """

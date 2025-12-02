@@ -341,13 +341,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'sigma': Width parameter map
             'fwhm': FWHM map
             'area': Integrated area under Gaussian (AUC) map
-            'r_squared': R² goodness of fit map
+            'r_squared': Reduced chi-squared (χ²_red) fit quality map
             'success': Boolean mask of successful fits
     
     Notes:
         - Failed fits store NaN in parameter maps
         - Uses same estimation and bounds as fit_gaussian_to_line()
         - Area calculated analytically: A * σ * sqrt(2π)
+        - Fit quality: χ²_red ≈ 1 is good, >>1 is poor, <<1 is overfit
     """
     # Get cube dimensions
     n_wave, n_y, n_x = cube.shape
@@ -445,18 +446,37 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 # Calculate area using analytic formula (same as fit_gaussian_to_line)
                 area = amplitude * sigma * np.sqrt(2 * np.pi)
                 
-                # Calculate R² goodness of fit
+                # Calculate fit quality metric - use reduced chi-squared instead of R²
+                # Reduced chi-squared: χ²_red = (1/ν) * Σ(residuals²) / σ_noise²
+                # where ν = degrees of freedom = n_points - n_parameters
+                n_points = len(y_corrected)
+                n_params = 3  # amplitude, center, sigma
+                dof = n_points - n_params
+                
+                # Estimate noise from residuals (robust estimator)
+                noise_estimate = np.std(residuals)
+                if noise_estimate > 0:
+                    chi_squared_red = np.sum(residuals**2) / (dof * noise_estimate**2)
+                else:
+                    chi_squared_red = np.inf
+                
+                # Also calculate SNR (more intuitive)
+                # SNR = peak amplitude / noise level
+                snr = amplitude / noise_estimate if noise_estimate > 0 else 0
+                
+                # For backward compatibility, still calculate R² but store chi²_red
+                # R² can be negative or misleading for baseline-subtracted data
                 ss_res = np.sum(residuals**2)
                 ss_tot = np.sum((y_corrected - np.mean(y_corrected))**2)
                 r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
                 
-                # Store results
+                # Store results - use chi²_red as primary quality metric
                 amplitude_map[iy, ix] = amplitude
                 center_map[iy, ix] = center
                 sigma_map[iy, ix] = sigma
                 fwhm_map[iy, ix] = fwhm
                 area_map[iy, ix] = area
-                r_squared_map[iy, ix] = r_squared
+                r_squared_map[iy, ix] = chi_squared_red  # Store chi²_red instead of R²
                 success_map[iy, ix] = True
                 
             except Exception as e:

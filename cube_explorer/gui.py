@@ -2315,7 +2315,7 @@ INTERPRETATION:
         param_combo = QComboBox()
         param_combo.addItems([
             "Area (AUC)", "Amplitude", "Center", "Sigma", 
-            "FWHM", "R² (fit quality)", "Success Mask"
+            "FWHM", "χ² (fit quality)", "Success Mask"
         ])
         param_layout.addWidget(param_combo)
         param_layout.addStretch()
@@ -2361,10 +2361,10 @@ INTERPRETATION:
                 data = results['fwhm']
                 title = "Full Width at Half Maximum"
                 cmap = 'cividis'
-            elif param_name == "R² (fit quality)":
-                data = results['r_squared']
-                title = "R² Goodness of Fit"
-                cmap = 'RdYlGn'
+            elif param_name == "χ² (fit quality)":
+                data = results['r_squared']  # Actually chi-squared now
+                title = "Reduced χ² (≈1 is good fit)"
+                cmap = 'RdYlGn_r'  # Reversed: green for ~1, red for bad
             elif param_name == "Success Mask":
                 data = results['success'].astype(float)
                 title = "Successful Fits (1=success, 0=failed)"
