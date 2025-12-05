@@ -80,6 +80,9 @@ class SpectrumPlotter:
             return
             
         self.ax.clear()
+        # Reset axis limits and ticks to clear old data artifacts
+        self.ax.set_xlim(auto=True)
+        self.ax.set_ylim(auto=True)
 
         print("DEBUG plot_spectrum cleared axis, lines now:", len(self.ax.lines))
 

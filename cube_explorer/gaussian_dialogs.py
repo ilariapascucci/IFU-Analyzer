@@ -124,34 +124,39 @@ class GaussianMapResultsDialog(QDialog):
             self._export_map_btn.deleteLater()
             self._export_map_btn = None
         
+        # Format wavelength range for titles
+        lam_min = min(self.gauss_left_x, self.gauss_right_x)
+        lam_max = max(self.gauss_left_x, self.gauss_right_x)
+        wave_range = f"({lam_min:.4f} - {lam_max:.4f})"
+        
         # Select data based on parameter
         if param_name == "Area (AUC)":
             data = self.results['area']
-            title = "Integrated Area Under Gaussian (AUC)"
+            title = f"Integrated Area Under Gaussian (AUC) {wave_range}"
             cmap = 'viridis'
         elif param_name == "Amplitude":
             data = self.results['amplitude']
-            title = "Gaussian Peak Amplitude"
+            title = f"Gaussian Peak Amplitude {wave_range}"
             cmap = 'plasma'
         elif param_name == "Center":
             data = self.results['center']
-            title = "Gaussian Center Position"
+            title = f"Gaussian Center Position {wave_range}"
             cmap = 'coolwarm'
         elif param_name == "Sigma":
             data = self.results['sigma']
-            title = "Gaussian Width (σ)"
+            title = f"Gaussian Width (σ) {wave_range}"
             cmap = 'cividis'
         elif param_name == "FWHM":
             data = self.results['fwhm']
-            title = "Full Width at Half Maximum"
+            title = f"Full Width at Half Maximum {wave_range}"
             cmap = 'cividis'
         elif param_name == "χ² (fit quality)":
             data = self.results['r_squared']
-            title = "Reduced χ² (≈1 is good fit)"
+            title = f"Reduced χ² (≈1 is good fit) {wave_range}"
             cmap = 'RdYlGn_r'
         elif param_name == "Success Mask":
             data = self.results['success'].astype(float)
-            title = "Successful Fits (1=success, 0=failed)"
+            title = f"Successful Fits (1=success, 0=failed) {wave_range}"
             cmap = 'gray'
         elif param_name == "Residuals":
             self._handle_residuals_display(ax)
@@ -189,7 +194,12 @@ class GaussianMapResultsDialog(QDialog):
             # Show middle wavelength slice
             mid_idx = residual_cube.shape[0] // 2
             data = residual_cube[mid_idx]
-            title = "Normalized Residuals (Middle Wavelength)"
+            
+            # Format wavelength range
+            lam_min = min(self.gauss_left_x, self.gauss_right_x)
+            lam_max = max(self.gauss_left_x, self.gauss_right_x)
+            wave_range = f"({lam_min:.4f} - {lam_max:.4f})"
+            title = f"Normalized Residuals (Peak Wavelength) {wave_range}"
             cmap = 'seismic'
             
             # Plot
