@@ -73,12 +73,12 @@ WEEK 7 next steps
 - same order of magnitude (1 or 10)
 
 WEEK 8-9
+- cube of residuals (y-fit)/std
 - two cases: 3x std 
 - under 3: noise - create gaussian using new std
 - over 3: it is a peak - done
 - convert data to fits file -> intensity map and residual cube
 - continuum subtracted cube of the wavelength boundaries.
-- cube of residuals (y-fit)/std
 '''
 
 """

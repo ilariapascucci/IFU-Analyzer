@@ -1,3 +1,185 @@
+from astropy.io import fits
+def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
+    """
+    Fit Gaussians per pixel and export a cube of normalized residuals (residual/std) as a FITS file.
+    Each voxel: (y_corrected - y_fit) / std for that pixel.
+    
+    Args:
+        return_cube: If True, return the cube instead of writing to file
+        header: Optional FITS header from original cube to copy metadata
+    """
+    # Use same wavelength mask as fit_gaussians_per_pixel
+    n_wave, n_y, n_x = cube.shape
+    if lam_min is None:
+        lam_min = wavelength[0]
+    if lam_max is None:
+        lam_max = wavelength[-1]
+    wave_mask = (wavelength >= lam_min) & (wavelength <= lam_max)
+    x_data = wavelength[wave_mask]
+    n_wave_sel = len(x_data)
+
+    # Prepare output cube
+    # If provided, use precomputed residual cube to avoid recomputation
+    if precomputed_cube is not None:
+        residual_cube = precomputed_cube.astype(np.float32, copy=False)
+    else:
+        residual_cube = np.full((n_wave_sel, n_y, n_x), np.nan, dtype=np.float32)
+
+    # Fit per pixel (parallel)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    def _fit_residual_row(row_idx):
+        spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
+        row_residuals = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
+        for ix in range(n_x):
+            y_data = spectra_row[:, ix]
+            # Skip pixels with all NaNs
+            if np.all(np.isnan(y_data)):
+                continue
+            # Skip if all NaN
+            if np.all(np.isnan(y_data)):
+                continue
+            y1 = y_data[0]
+            y2 = y_data[-1]
+            baseline = calculate_baseline(x_data[0], y1, x_data[-1], y2, x_data)
+            y_corrected = y_data - baseline
+            mean_val = np.nanmean(y_corrected)
+            std_val = np.nanstd(y_corrected)
+            # Skip if mean or std are NaN
+            if np.isnan(mean_val) or np.isnan(std_val):
+                continue
+            if std_val < 0.5 * abs(mean_val):
+                mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
+                robust_std = 1.4826 * mad
+                sigma_for_fit = robust_std if robust_std > 0 else std_val
+                try:
+                    amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
+                    sigma_guess = sigma_for_fit
+                except Exception:
+                    continue
+            else:
+                try:
+                    amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
+                except Exception:
+                    continue
+            if np.max(y_corrected) <= 0:
+                continue
+            bounds = ([0, x_data[0], 0.001 * (x_data[-1] - x_data[0])],
+                      [10 * np.max(y_corrected), x_data[-1], 2 * (x_data[-1] - x_data[0])])
+            # Clamp initial guesses to be within bounds
+            amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
+            center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
+            sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
+            try:
+                popt, _ = curve_fit(
+                    gaussian, x_data, y_corrected,
+                    p0=[amp_guess, center_guess, sigma_guess],
+                    bounds=bounds,
+                    maxfev=10000
+                )
+                amplitude, center, sigma = popt
+                y_fit = gaussian(x_data, amplitude, center, sigma)
+                # Normalize residuals by std
+                std_for_norm = std_val if std_val > 0 else 1.0
+                norm_residuals = (y_corrected - y_fit) / std_for_norm
+                row_residuals[:, ix] = norm_residuals.astype(np.float32)
+            except Exception:
+                continue
+        return row_idx, row_residuals
+
+    # Determine workers
+    import os
+    if n_jobs is None:
+        try:
+            cpu = os.cpu_count() or 1
+        except Exception:
+            cpu = 1
+        n_jobs = max(1, min(cpu, 8))
+
+    if precomputed_cube is None:
+        with ThreadPoolExecutor(max_workers=n_jobs) as ex:
+            futures = [ex.submit(_fit_residual_row, iy) for iy in range(n_y)]
+            for fut in as_completed(futures):
+                row_idx, row_residuals = fut.result()
+                residual_cube[:, row_idx, :] = row_residuals
+
+    # Return cube or write FITS file
+    if return_cube:
+        return residual_cube
+    else:
+        # Create HDU with header if provided
+        if header is not None:
+            out_header = header.copy()
+        else:
+            out_header = fits.Header()
+
+        # Use instrument from header if present, fallback to hint
+        instr = out_header.get('INSTRUME', '').strip().upper() or instrument_hint or 'UNKNOWN'
+        teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
+        # Update header with detected values
+        if instr != 'UNKNOWN':
+            out_header['INSTRUME'] = instr
+        if teles != 'UNKNOWN':
+            out_header['TELESCOP'] = teles
+        out_header['BUNIT'] = 'Normalized Residuals'
+        out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + ' (Residuals)')
+        out_header['COMMENT'] = 'Gaussian fit residuals: (data - fit) / noise; wavelength-limited'
+
+        # Update NAXIS and axis sizes
+        out_header['NAXIS'] = 3
+        out_header['NAXIS1'] = int(n_x)
+        out_header['NAXIS2'] = int(n_y)
+        out_header['NAXIS3'] = int(n_wave_sel)
+
+        hdu = fits.PrimaryHDU(residual_cube, header=out_header)
+        hdul = fits.HDUList([hdu])
+        hdul.writeto(out_path, overwrite=True)
+        print(f"Residual cube FITS written to {out_path}")
+
+
+def export_gaussian_map_fits(map_data, out_path="gaussian_map.fits", header=None, instrument_hint=None, map_name="Gaussian Map", bunit=None):
+    """
+    Export a 2D Gaussian-derived map (e.g., area/intensity) to a FITS file.
+
+    Args:
+        map_data (np.ndarray): 2D array with shape (n_y, n_x)
+        out_path (str): Destination FITS filename
+        header (fits.Header, optional): Original FITS header to copy metadata from
+        instrument_hint (str, optional): Instrument name fallback
+        map_name (str, optional): Name stored in header keyword OBJECT
+        bunit (str, optional): Units for the map; if None, keep existing or default
+    """
+    if map_data is None:
+        raise ValueError("map_data is required for export")
+
+    if map_data.ndim != 2:
+        raise ValueError(f"map_data must be 2D (n_y, n_x), got shape {map_data.shape}")
+
+    # Prepare header
+    out_header = fits.Header()
+    if header is not None:
+        out_header = header.copy()
+
+    instr = out_header.get('INSTRUME', '').strip().upper() or instrument_hint or 'UNKNOWN'
+    teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
+    if instr != 'UNKNOWN':
+        out_header['INSTRUME'] = instr
+    if teles != 'UNKNOWN':
+        out_header['TELESCOP'] = teles
+
+    # Axis info
+    n_y, n_x = map_data.shape
+    out_header['NAXIS'] = 2
+    out_header['NAXIS1'] = int(n_x)
+    out_header['NAXIS2'] = int(n_y)
+
+    # Metadata
+    out_header['OBJECT'] = (map_name, 'Gaussian-derived map')
+    if bunit:
+        out_header['BUNIT'] = bunit
+
+    hdu = fits.PrimaryHDU(map_data.astype(np.float32, copy=False), header=out_header)
+    fits.HDUList([hdu]).writeto(out_path, overwrite=True)
+    print(f"Gaussian map FITS written to {out_path}")
 """
 Gaussian Fitting Module for Spectral Line Analysis
 
@@ -8,6 +190,8 @@ equivalent width, and integrated flux.
 
 import numpy as np
 from scipy.optimize import curve_fit
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Tuple, Optional
 
@@ -200,7 +384,22 @@ def fit_gaussian_to_line(x1: float, x2: float,
     
     # Subtract baseline
     y_corrected = y_data - baseline
-    
+
+    # Noise/peak logic
+    mean_val = np.nanmean(y_corrected)
+    std_val = np.nanstd(y_corrected)
+    if std_val < 3 * abs(mean_val):
+        # Treat as noise, recalculate std using robust estimator (median absolute deviation)
+        mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
+        robust_std = 1.4826 * mad  # Approximate std from MAD
+        sigma_for_fit = robust_std if robust_std > 0 else std_val
+        # Use robust std for initial guess
+        amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
+        sigma_guess = sigma_for_fit
+    else:
+        # Normal peak, use default estimation
+        amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
+
     # Check if there's a meaningful peak
     if np.max(y_corrected) <= 0:
         return GaussianFitResult(
@@ -214,9 +413,6 @@ def fit_gaussian_to_line(x1: float, x2: float,
             message="Error: No positive peak found after baseline subtraction"
         )
     
-    # Estimate initial parameters
-    amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
-    
     # Set up bounds to constrain fit
     # Amplitude: must be positive, reasonable upper limit
     # Center: must be within selected range
@@ -226,6 +422,11 @@ def fit_gaussian_to_line(x1: float, x2: float,
         [0, x1, 0.001 * x_range],  # Lower bounds
         [10 * np.max(y_corrected), x2, 2 * x_range]  # Upper bounds
     )
+    
+    # Clamp initial guesses to be within bounds (prevents "x0 is infeasible" error)
+    amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
+    center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
+    sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
     
     try:
         # Perform least-squares fit
@@ -316,7 +517,8 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
 
 def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
-                            lam_max: Optional[float] = None) -> dict:
+                            lam_max: Optional[float] = None,
+                            n_jobs: Optional[int] = None) -> dict:
     """
     Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
     
@@ -379,6 +581,10 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     r_squared_map = np.full((n_y, n_x), np.nan)
     success_map = np.zeros((n_y, n_x), dtype=bool)
     
+    # Initialize residuals cube (for caching during fitting)
+    n_wave_sel = np.sum(wave_mask)
+    residuals_cube = np.full((n_wave_sel, n_y, n_x), np.nan, dtype=np.float32)
+    
     # Get boundary wavelengths
     x1 = x_data[0]
     x2 = x_data[-1]
@@ -390,103 +596,147 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     
     print(f"Fitting Gaussians to {total_pixels} pixels in wavelength range [{lam_min:.4f}, {lam_max:.4f}]")
     
-    # Loop over all spatial pixels
-    for iy in range(n_y):
+    def _fit_row(row_idx: int):
+        spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
+        amp_row = np.full(n_x, np.nan)
+        ctr_row = np.full(n_x, np.nan)
+        sig_row = np.full(n_x, np.nan)
+        fwhm_row = np.full(n_x, np.nan)
+        area_row = np.full(n_x, np.nan)
+        qual_row = np.full(n_x, np.nan)
+        succ_row = np.zeros(n_x, dtype=bool)
+        residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
+
         for ix in range(n_x):
-            # Extract spectrum for this pixel
-            spectrum = cube[wave_mask, iy, ix]
-            y_data = spectrum
-            
-            # Get boundary flux values for baseline
+            y_data = spectra_row[:, ix]
+
+            # Baseline from endpoints
             y1 = y_data[0]
             y2 = y_data[-1]
-            
-            # Calculate baseline (same as fit_gaussian_to_line)
             baseline = calculate_baseline(x1, y1, x2, y2, x_data)
-            
-            # Subtract baseline
             y_corrected = y_data - baseline
             
-            # Check if there's a meaningful peak
+            # Require at least 2 finite points to compute stats
+            finite_mask = np.isfinite(y_corrected)
+            if np.count_nonzero(finite_mask) < 2:
+                continue
+            
+            # Noise/peak logic
+            mean_val = np.nanmean(y_corrected)
+            std_val = np.nanstd(y_corrected)
+            if std_val < 0.5 * abs(mean_val):
+                mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
+                robust_std = 1.4826 * mad
+                sigma_for_fit = robust_std if robust_std > 0 else std_val
+                try:
+                    amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
+                    sigma_guess = sigma_for_fit
+                except Exception:
+                    continue
+            else:
+                try:
+                    amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
+                except Exception:
+                    continue
+
+            # Require positive peak
             if np.max(y_corrected) <= 0:
-                # Skip this pixel - no positive peak
                 continue
-            
-            # Estimate initial parameters (same as fit_gaussian_to_line)
-            try:
-                amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
-            except Exception:
-                # Skip if parameter estimation fails
-                continue
-            
-            # Set up bounds (same as fit_gaussian_to_line)
+
             bounds = (
-                [0, x1, 0.001 * x_range],  # Lower bounds
-                [10 * np.max(y_corrected), x2, 2 * x_range]  # Upper bounds
+                [0, x1, 0.001 * x_range],
+                [10 * np.max(y_corrected), x2, 2 * x_range]
             )
-            
-            # Attempt fit
+
+            # Clamp initial guesses to be within bounds
+            amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
+            center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
+            sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
+
             try:
-                popt, pcov = curve_fit(
+                popt, _ = curve_fit(
                     gaussian, x_data, y_corrected,
                     p0=[amp_guess, center_guess, sigma_guess],
                     bounds=bounds,
                     maxfev=10000
                 )
-                
                 amplitude, center, sigma = popt
-                
-                # Generate fitted curve
                 y_fit = gaussian(x_data, amplitude, center, sigma)
                 residuals = y_corrected - y_fit
-                
-                # Calculate derived quantities
-                fwhm = 2.355 * sigma  # FWHM = 2*sqrt(2*ln(2)) * sigma
-                
-                # Calculate area using analytic formula (same as fit_gaussian_to_line)
+
+                fwhm = 2.355 * sigma
                 area = amplitude * sigma * np.sqrt(2 * np.pi)
-                
-                # Calculate fit quality metric - use reduced chi-squared instead of R²
-                # Reduced chi-squared: χ²_red = (1/ν) * Σ(residuals²) / σ_noise²
-                # where ν = degrees of freedom = n_points - n_parameters
+
                 n_points = len(y_corrected)
-                n_params = 3  # amplitude, center, sigma
-                dof = n_points - n_params
-                
-                # Estimate noise from residuals (robust estimator)
-                noise_estimate = np.std(residuals)
+                dof = max(1, n_points - 3)
+                noise_estimate = np.std(residuals, ddof=0)
                 if noise_estimate > 0:
                     chi_squared_red = np.sum(residuals**2) / (dof * noise_estimate**2)
                 else:
                     chi_squared_red = np.inf
+
+                amp_row[ix] = amplitude
+                ctr_row[ix] = center
+                sig_row[ix] = sigma
+                fwhm_row[ix] = fwhm
+                area_row[ix] = area
+                qual_row[ix] = chi_squared_red
+                succ_row[ix] = True
                 
-                # Also calculate SNR (more intuitive)
-                # SNR = peak amplitude / noise level
-                snr = amplitude / noise_estimate if noise_estimate > 0 else 0
-                
-                # For backward compatibility, still calculate R² but store chi²_red
-                # R² can be negative or misleading for baseline-subtracted data
-                ss_res = np.sum(residuals**2)
-                ss_tot = np.sum((y_corrected - np.mean(y_corrected))**2)
-                r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-                
-                # Store results - use chi²_red as primary quality metric
-                amplitude_map[iy, ix] = amplitude
-                center_map[iy, ix] = center
-                sigma_map[iy, ix] = sigma
-                fwhm_map[iy, ix] = fwhm
-                area_map[iy, ix] = area
-                r_squared_map[iy, ix] = chi_squared_red  # Store chi²_red instead of R²
-                success_map[iy, ix] = True
-                
-            except Exception as e:
-                # Fit failed for this pixel - leave as NaN
+                # Cache normalized residuals
+                std_val_for_norm = std_val if std_val > 0 else 1.0
+                normalized_residuals = residuals / std_val_for_norm
+                residuals_row[:, ix] = normalized_residuals.astype(np.float32)
+            except Exception:
+                # leave NaNs/False
                 pass
-            
-            # Progress update every 1000 pixels
-            completed += 1
+
+        return row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row, succ_row, residuals_row
+
+    # Determine workers
+    if n_jobs is None:
+        try:
+            cpu = os.cpu_count() or 1
+        except Exception:
+            cpu = 1
+        n_jobs = max(1, min(cpu, 8))  # cap to avoid oversubscription
+
+    if n_jobs <= 1:
+        # Serial path
+        for iy in range(n_y):
+            _, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, res_row = _fit_row(iy)
+            amplitude_map[iy, :] = amp_row
+            center_map[iy, :] = ctr_row
+            sigma_map[iy, :] = sig_row
+            fwhm_map[iy, :] = f_row
+            area_map[iy, :] = a_row
+            r_squared_map[iy, :] = q_row
+            success_map[iy, :] = s_row
+            residuals_cube[:, iy, :] = res_row
+
+            # Progress per row
+            completed += n_x
             if completed % 1000 == 0:
                 print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
+    else:
+        # Parallel path (threads)
+        print(f"Using {n_jobs} workers for parallel Gaussian fitting")
+        with ThreadPoolExecutor(max_workers=n_jobs) as ex:
+            futures = [ex.submit(_fit_row, iy) for iy in range(n_y)]
+            for fut in as_completed(futures):
+                row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, res_row = fut.result()
+                amplitude_map[row_idx, :] = amp_row
+                center_map[row_idx, :] = ctr_row
+                sigma_map[row_idx, :] = sig_row
+                fwhm_map[row_idx, :] = f_row
+                area_map[row_idx, :] = a_row
+                r_squared_map[row_idx, :] = q_row
+                success_map[row_idx, :] = s_row
+                residuals_cube[:, row_idx, :] = res_row
+
+                completed += n_x
+                if completed % (n_x * 5) == 0:
+                    print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
     
     # Final summary
     n_success = np.sum(success_map)
@@ -499,7 +749,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'fwhm': fwhm_map,
         'area': area_map,
         'r_squared': r_squared_map,
-        'success': success_map
+        'success': success_map,
+        'residuals_cube': residuals_cube  # Cached residuals computed during fitting
     }
 
 

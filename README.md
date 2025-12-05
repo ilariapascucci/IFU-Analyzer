@@ -131,3 +131,8 @@ Common issues and solutions:
 - Week 2: Added dual slice view, coordinate display
 - Week 3: Implemented region selection, improved layout
 - Week 4: Enhanced performance, live updates, layout improvements
+- Week 5: LST files integration
+- Week 6: Hitran implementation
+- Week 7: Added scaling and color options, troubleshooting
+- Week 8: Perform Gaussian fits
+- Week 9: Export FITS files

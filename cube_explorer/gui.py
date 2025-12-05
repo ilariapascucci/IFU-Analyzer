@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox
 )
+from PyQt5.QtCore import QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -29,6 +30,36 @@ from .line_catalog import filter_spectral_lines, normalize_species_input, hitran
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .unit_converter import convert_wavelength, are_units_compatible
+
+
+class GaussianMapWorker(QThread):
+    """Background worker thread for Gaussian map fitting"""
+    finished = pyqtSignal(dict)  # Emits results when done
+    error = pyqtSignal(str)  # Emits error message if failed
+    
+    def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8):
+        super().__init__()
+        self.cube = cube
+        self.wavelength = wavelength
+        self.lam_min = lam_min
+        self.lam_max = lam_max
+        self.n_jobs = n_jobs
+    
+    def run(self):
+        """Execute fitting in background thread"""
+        try:
+            from .gaussian_fitter import fit_gaussians_per_pixel
+            results = fit_gaussians_per_pixel(
+                cube=self.cube,
+                wavelength=self.wavelength,
+                lam_min=self.lam_min,
+                lam_max=self.lam_max,
+                n_jobs=self.n_jobs
+            )
+            self.finished.emit(results)
+        except Exception as e:
+            self.error.emit(str(e))
+
 
 class CubeExplorer(QWidget):
     def __init__(self):
@@ -246,6 +277,9 @@ class CubeExplorer(QWidget):
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
         
+        # Spectrum saving button
+        self.save_spectrum_btn = QPushButton("Save Spectrum")
+        
         self.set_left_btn.setCheckable(True)
         self.set_right_btn.setCheckable(True)
         self.normalize_btn.setCheckable(True)
@@ -262,6 +296,7 @@ class CubeExplorer(QWidget):
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
+        self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
 
         # Wavelength range inputs (hidden until LST loaded)
         self.wavelength_label = QLabel("Wavelength range:")
@@ -482,6 +517,13 @@ class CubeExplorer(QWidget):
         # Add spectrum at bottom
         main_layout.addWidget(self.spec_canvas)
         main_layout.addWidget(self.spec_toolbar)
+        
+        # Add save spectrum button
+        spectrum_button_layout = QHBoxLayout()
+        spectrum_button_layout.addStretch()
+        spectrum_button_layout.addWidget(self.save_spectrum_btn)
+        spectrum_button_layout.addStretch()
+        main_layout.addLayout(spectrum_button_layout)
 
         # Add wavelength range controls under the spectrum
         main_layout.addLayout(self.wavelength_layout)
@@ -2215,8 +2257,7 @@ INTERPRETATION:
         dlg.exec_()
 
     def _fit_gaussian_map(self):
-        """Fit Gaussian to all pixels in the cube using the selected boundaries"""
-        from .gaussian_fitter import fit_gaussians_per_pixel
+        """Fit Gaussian to all pixels in the cube using the selected boundaries (runs in background)"""
         from PyQt5.QtWidgets import QProgressDialog
         from PyQt5.QtCore import Qt
         
@@ -2251,40 +2292,50 @@ INTERPRETATION:
             self, "Fit Gaussian Map",
             f"This will fit Gaussians to {total_pixels:,} pixels.\n"
             f"Wavelength range: [{self.gauss_left_x:.4f}, {self.gauss_right_x:.4f}]\n\n"
-            f"This may take a few minutes. Continue?",
+            f"This will run in the background. You can continue using the program.\n"
+            f"Results will appear when complete (~5-10 minutes). Continue?",
             QMessageBox.Yes | QMessageBox.No
         )
         
         if reply != QMessageBox.Yes:
             return
-        
-        # Create progress dialog
-        progress = QProgressDialog(
-            "Fitting Gaussians to all pixels...", 
-            "Cancel", 0, 100, self
+
+        # Create non-modal progress dialog (allows interaction)
+        self.gauss_progress = QProgressDialog(
+            "Fitting Gaussians in background...\nYou can continue using the program.", 
+            "Hide", 0, 0, self
         )
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setWindowTitle("Gaussian Fitting Progress")
-        progress.setMinimumDuration(0)
-        progress.setValue(0)
+        self.gauss_progress.setWindowModality(Qt.NonModal)
+        self.gauss_progress.setWindowTitle("Gaussian Fitting (Background)")
+        self.gauss_progress.setMinimumDuration(0)
+        self.gauss_progress.setCancelButton(None)  # Can't cancel once started
+        self.gauss_progress.show()
         
-        try:
-            # Perform fitting
-            results = fit_gaussians_per_pixel(
-                cube=cube,
-                wavelength=wavelength,
-                lam_min=min(self.gauss_left_x, self.gauss_right_x),
-                lam_max=max(self.gauss_left_x, self.gauss_right_x)
-            )
-            
-            progress.setValue(100)
-            
-            # Show results in new window
-            self._show_gaussian_map_results(results)
-            
-        except Exception as e:
-            progress.close()
-            QMessageBox.critical(self, "Error", f"Gaussian map fitting error:\n{str(e)}")
+        # Create and start background worker
+        self.gauss_worker = GaussianMapWorker(
+            cube=cube,
+            wavelength=wavelength,
+            lam_min=min(self.gauss_left_x, self.gauss_right_x),
+            lam_max=max(self.gauss_left_x, self.gauss_right_x),
+            n_jobs=8
+        )
+        self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
+        self.gauss_worker.error.connect(self._on_gaussian_map_error)
+        self.gauss_worker.start()
+    
+    def _on_gaussian_map_complete(self, results):
+        """Called when background Gaussian fitting completes"""
+        self.gauss_progress.close()
+        QMessageBox.information(
+            self, "Fitting Complete",
+            "Gaussian map fitting finished successfully!"
+        )
+        self._show_gaussian_map_results(results)
+    
+    def _on_gaussian_map_error(self, error_msg):
+        """Called when background Gaussian fitting fails"""
+        self.gauss_progress.close()
+        QMessageBox.critical(self, "Error", f"Gaussian map fitting error:\n{error_msg}")
     
     def _show_gaussian_map_results(self, results: dict):
         """Display Gaussian parameter maps in a new window"""
@@ -2315,7 +2366,7 @@ INTERPRETATION:
         param_combo = QComboBox()
         param_combo.addItems([
             "Area (AUC)", "Amplitude", "Center", "Sigma", 
-            "FWHM", "χ² (fit quality)", "Success Mask"
+            "FWHM", "χ² (fit quality)", "Success Mask", "Residuals"
         ])
         param_layout.addWidget(param_combo)
         param_layout.addStretch()
@@ -2337,18 +2388,56 @@ INTERPRETATION:
         def update_plot():
             fig.clear()
             ax = fig.add_subplot(111)
-            
+
             param_name = param_combo.currentText()
-            
+
+            # Remove export button if present
+            if hasattr(self, '_export_map_btn') and self._export_map_btn is not None:
+                layout.removeWidget(self._export_map_btn)
+                self._export_map_btn.deleteLater()
+                self._export_map_btn = None
+
             # Select data based on parameter
             if param_name == "Area (AUC)":
                 data = results['area']
                 title = "Integrated Area Under Gaussian (AUC)"
                 cmap = 'viridis'
+                from PyQt5.QtWidgets import QPushButton, QFileDialog
+                self._export_map_btn = QPushButton("Export Intensity Map (FITS)")
+                def export_area_map():
+                    out_path, _ = QFileDialog.getSaveFileName(dlg, "Export Area Map", "gaussian_area_map.fits", "FITS files (*.fits)")
+                    if out_path:
+                        from .gaussian_fitter import export_gaussian_map_fits
+                        export_gaussian_map_fits(
+                            data,
+                            out_path=out_path,
+                            header=self.cube_data.header,
+                            instrument_hint=self.cube_data.instrument,
+                            map_name="Gaussian Area Map",
+                            bunit=self.cube_data.header.get('BUNIT', None) if hasattr(self, 'cube_data') and self.cube_data.header is not None else None
+                        )
+                self._export_map_btn.clicked.connect(export_area_map)
+                layout.addWidget(self._export_map_btn)
             elif param_name == "Amplitude":
                 data = results['amplitude']
                 title = "Gaussian Peak Amplitude"
                 cmap = 'plasma'
+                from PyQt5.QtWidgets import QPushButton, QFileDialog
+                self._export_map_btn = QPushButton("Export Amplitude Map (FITS)")
+                def export_amp_map():
+                    out_path, _ = QFileDialog.getSaveFileName(dlg, "Export Amplitude Map", "gaussian_amplitude_map.fits", "FITS files (*.fits)")
+                    if out_path:
+                        from .gaussian_fitter import export_gaussian_map_fits
+                        export_gaussian_map_fits(
+                            data,
+                            out_path=out_path,
+                            header=self.cube_data.header,
+                            instrument_hint=self.cube_data.instrument,
+                            map_name="Gaussian Amplitude Map",
+                            bunit=self.cube_data.header.get('BUNIT', None) if hasattr(self, 'cube_data') and self.cube_data.header is not None else None
+                        )
+                self._export_map_btn.clicked.connect(export_amp_map)
+                layout.addWidget(self._export_map_btn)
             elif param_name == "Center":
                 data = results['center']
                 title = "Gaussian Center Position"
@@ -2369,29 +2458,63 @@ INTERPRETATION:
                 data = results['success'].astype(float)
                 title = "Successful Fits (1=success, 0=failed)"
                 cmap = 'gray'
-            
+            elif param_name == "Residuals":
+                # Use precomputed residuals from the Gaussian fitting results
+                if 'residuals_cube' in results:
+                    residual_cube = results['residuals_cube']
+                    # Show middle wavelength slice
+                    mid_idx = residual_cube.shape[0] // 2
+                    data = residual_cube[mid_idx]
+                    title = "Normalized Residuals (Middle Wavelength)"
+                    cmap = 'seismic'
+                    # Add export button
+                    from PyQt5.QtWidgets import QPushButton, QFileDialog
+                    self._export_map_btn = QPushButton("Export Residuals Cube")
+                    def export_residuals():
+                        out_path, _ = QFileDialog.getSaveFileName(dlg, "Export Residuals FITS", "residual_cube.fits", "FITS files (*.fits)")
+                        if out_path:
+                            # Export using precomputed cube to avoid recompute
+                            from .gaussian_fitter import export_residual_cube_fits
+                            export_residual_cube_fits(
+                                self.cube_data.cube, 
+                                self.cube_data.wavelength,
+                                min(self.gauss_left_x, self.gauss_right_x),
+                                max(self.gauss_left_x, self.gauss_right_x),
+                                out_path=out_path, 
+                                header=self.cube_data.header,
+                                precomputed_cube=residual_cube,
+                                instrument_hint=self.cube_data.instrument
+                            )
+                    self._export_map_btn.clicked.connect(export_residuals)
+                    layout.addWidget(self._export_map_btn)
+                else:
+                    # Fallback if residuals not in results
+                    data = np.zeros((results['success'].shape[0], results['success'].shape[1]))
+                    title = "Residuals (not computed)"
+                    cmap = 'gray'
+
             # Plot with NaN handling
             im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest')
             ax.set_title(title)
             ax.set_xlabel("X Pixel")
             ax.set_ylabel("Y Pixel")
-            
+
             # Colorbar
             cbar = fig.colorbar(im, ax=ax, label=param_name)
-            
+
             # Add statistics
             valid_data = data[~np.isnan(data)]
             if len(valid_data) > 0:
                 stats_text = (
-                    f"Min: {np.nanmin(data):.4e}\\n"
-                    f"Max: {np.nanmax(data):.4e}\\n"
-                    f"Mean: {np.nanmean(data):.4e}\\n"
+                    f"Min: {np.nanmin(data):.4e}\n"
+                    f"Max: {np.nanmax(data):.4e}\n"
+                    f"Mean: {np.nanmean(data):.4e}\n"
                     f"Median: {np.nanmedian(data):.4e}"
                 )
                 ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
                        verticalalignment='top', bbox=dict(boxstyle='round', 
                        facecolor='wheat', alpha=0.8), fontsize=9)
-            
+
             fig.tight_layout()
             canvas.draw()
         
@@ -2413,3 +2536,61 @@ INTERPRETATION:
         del self._temp_gauss_results
         del self._temp_gauss_fig
         del self._temp_gauss_canvas
+
+    def _save_spectrum_ascii(self):
+        """Save the current spectrum displayed in the bottom panel to ASCII file"""
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            QMessageBox.warning(self, "No Data", "No spectrum loaded to save.")
+            return
+        
+        if self.spec_plotter.wavelength is None:
+            QMessageBox.warning(self, "No Data", "No wavelength data available.")
+            return
+        
+        # Get the current spectrum data (use current plotted spectrum)
+        wavelength = self.spec_plotter.wavelength
+        
+        # Determine which spectrum to save (normalized or original)
+        if self.is_normalized and self.original_spectrum is not None:
+            spectrum = self.spec_plotter.current_spectrum if hasattr(self.spec_plotter, 'current_spectrum') else self.cube_data.spectrum
+            spectrum_type = "normalized"
+        else:
+            spectrum = self.cube_data.spectrum
+            spectrum_type = "original"
+        
+        # Open file dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Save Spectrum as ASCII",
+            "spectrum.txt",
+            "Text files (*.txt);;CSV files (*.csv);;All files (*)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Prepare header
+            wave_unit = self.cube_data.wave_unit if hasattr(self.cube_data, 'wave_unit') else "Unknown"
+            instrument = self.cube_data.instrument if hasattr(self.cube_data, 'instrument') else "Unknown"
+            
+            # Write ASCII file with header
+            with open(file_path, 'w') as f:
+                f.write(f"# Spectrum Export from Cube Explorer\n")
+                f.write(f"# Instrument: {instrument}\n")
+                f.write(f"# Type: {spectrum_type}\n")
+                f.write(f"# Wavelength unit: {wave_unit}\n")
+                f.write(f"# Flux unit: {self.cube_data.header.get('BUNIT', 'Unknown') if hasattr(self.cube_data, 'header') else 'Unknown'}\n")
+                f.write(f"#\n")
+                f.write(f"# Wavelength ({wave_unit})\tFlux\n")
+                
+                # Write data
+                for w, s in zip(wavelength, spectrum):
+                    f.write(f"{w:.6e}\t{s:.6e}\n")
+            
+            QMessageBox.information(self, "Success", f"Spectrum saved to:\n{file_path}")
+            print(f"Spectrum saved to {file_path}")
+        
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save spectrum:\n{str(e)}")
+            print(f"Error saving spectrum: {e}")
