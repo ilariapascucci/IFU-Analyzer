@@ -102,6 +102,12 @@ class CubeData:
                 # Non-ALMA instruments just squeeze safely
                 data = np.squeeze(data)
                 
+            # Handle 2D images (e.g., Gaussian-derived maps) by adding a spectral axis
+            if data.ndim == 2:
+                print(f"Detected 2D image (shape: {data.shape}), converting to single-slice cube")
+                data = data[np.newaxis, :, :]  # Add spectral axis: (1, n_y, n_x)
+                print(f"Converted to 3D: {data.shape}")
+                
             if data.ndim != 3:
                 raise ValueError(f"Expected 3D cube after processing, but got shape {data.shape}")
                 
@@ -216,6 +222,11 @@ class CubeData:
             Returns None, "" if wavelength calculation fails
         """
         try:
+            # Handle 2D images (no spectral axis) - create dummy wavelength
+            if self.cube.shape[0] == 1:
+                print("2D image detected: creating single dummy wavelength point")
+                return np.array([0.0]), "pixel"
+            
             # Get axis type
             ctype3 = self.header.get("CTYPE3", "").strip().upper()
             

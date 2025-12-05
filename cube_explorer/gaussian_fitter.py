@@ -135,51 +135,6 @@ def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jo
         hdul.writeto(out_path, overwrite=True)
         print(f"Residual cube FITS written to {out_path}")
 
-
-def export_gaussian_map_fits(map_data, out_path="gaussian_map.fits", header=None, instrument_hint=None, map_name="Gaussian Map", bunit=None):
-    """
-    Export a 2D Gaussian-derived map (e.g., area/intensity) to a FITS file.
-
-    Args:
-        map_data (np.ndarray): 2D array with shape (n_y, n_x)
-        out_path (str): Destination FITS filename
-        header (fits.Header, optional): Original FITS header to copy metadata from
-        instrument_hint (str, optional): Instrument name fallback
-        map_name (str, optional): Name stored in header keyword OBJECT
-        bunit (str, optional): Units for the map; if None, keep existing or default
-    """
-    if map_data is None:
-        raise ValueError("map_data is required for export")
-
-    if map_data.ndim != 2:
-        raise ValueError(f"map_data must be 2D (n_y, n_x), got shape {map_data.shape}")
-
-    # Prepare header
-    out_header = fits.Header()
-    if header is not None:
-        out_header = header.copy()
-
-    instr = out_header.get('INSTRUME', '').strip().upper() or instrument_hint or 'UNKNOWN'
-    teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
-    if instr != 'UNKNOWN':
-        out_header['INSTRUME'] = instr
-    if teles != 'UNKNOWN':
-        out_header['TELESCOP'] = teles
-
-    # Axis info
-    n_y, n_x = map_data.shape
-    out_header['NAXIS'] = 2
-    out_header['NAXIS1'] = int(n_x)
-    out_header['NAXIS2'] = int(n_y)
-
-    # Metadata
-    out_header['OBJECT'] = (map_name, 'Gaussian-derived map')
-    if bunit:
-        out_header['BUNIT'] = bunit
-
-    hdu = fits.PrimaryHDU(map_data.astype(np.float32, copy=False), header=out_header)
-    fits.HDUList([hdu]).writeto(out_path, overwrite=True)
-    print(f"Gaussian map FITS written to {out_path}")
 """
 Gaussian Fitting Module for Spectral Line Analysis
 
@@ -434,7 +389,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
             gaussian, x_data, y_corrected,
             p0=[amp_guess, center_guess, sigma_guess],
             bounds=bounds,
-            maxfev=10000
+            maxfev=5000  # Reduced from 10000 for faster convergence
         )
         
         amplitude, center, sigma = popt
@@ -658,7 +613,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     gaussian, x_data, y_corrected,
                     p0=[amp_guess, center_guess, sigma_guess],
                     bounds=bounds,
-                    maxfev=10000
+                    maxfev=5000,  # Reduced from 10000 for faster convergence
+                    ftol=1e-4,  # Function tolerance for faster convergence
+                    xtol=1e-4   # Parameter tolerance for faster convergence
                 )
                 amplitude, center, sigma = popt
                 y_fit = gaussian(x_data, amplitude, center, sigma)
@@ -719,9 +676,20 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             if completed % 1000 == 0:
                 print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
     else:
-        # Parallel path (threads)
-        print(f"Using {n_jobs} workers for parallel Gaussian fitting")
-        with ThreadPoolExecutor(max_workers=n_jobs) as ex:
+        # Parallel path - adaptive strategy for better performance
+        # ThreadPool: less overhead, good for small-medium cubes
+        # ProcessPool: better CPU scaling for large cubes (bypasses GIL)
+        use_processes = total_pixels > 50000  # Threshold: 50k pixels
+        
+        if use_processes:
+            print(f"Using {n_jobs} worker processes (large cube: {total_pixels:,} pixels)")
+            from concurrent.futures import ProcessPoolExecutor
+            executor_class = ProcessPoolExecutor
+        else:
+            print(f"Using {n_jobs} worker threads ({total_pixels:,} pixels)")
+            executor_class = ThreadPoolExecutor
+        
+        with executor_class(max_workers=n_jobs) as ex:
             futures = [ex.submit(_fit_row, iy) for iy in range(n_y)]
             for fut in as_completed(futures):
                 row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, res_row = fut.result()
