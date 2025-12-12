@@ -88,6 +88,22 @@ class GaussianMapResultsDialog(QDialog):
             "FWHM", "χ² (fit quality)", "Success Mask", "Residuals"
         ])
         param_layout.addWidget(self.param_combo)
+        
+        # Colormap selector
+        param_layout.addWidget(QLabel("  Colormap:"))
+        self.cmap_combo = QComboBox()
+        self.cmap_combo.addItems([
+            "Default", "viridis", "plasma", "inferno", "magma", "cividis",
+            "coolwarm", "RdYlBu", "RdYlGn", "seismic", "twilight", "jet"
+        ])
+        param_layout.addWidget(self.cmap_combo)
+        
+        # Scale selector
+        param_layout.addWidget(QLabel("  Scale:"))
+        self.scale_combo = QComboBox()
+        self.scale_combo.addItems(["Linear", "Log", "Percentile (2-98%)"])
+        param_layout.addWidget(self.scale_combo)
+        
         param_layout.addStretch()
         layout.addLayout(param_layout)
         
@@ -98,11 +114,18 @@ class GaussianMapResultsDialog(QDialog):
         layout.addWidget(toolbar)
         layout.addWidget(self.canvas)
         
-        # Connect combo box to update function
+        # Connect combo boxes to update function
         self.param_combo.currentIndexChanged.connect(self._update_plot)
+        self.cmap_combo.currentIndexChanged.connect(self._update_plot)
+        self.scale_combo.currentIndexChanged.connect(self._update_plot)
         
         # Initial plot
         self._update_plot()
+        
+        # Export button
+        export_btn = QPushButton("Export Current Parameter")
+        export_btn.clicked.connect(self._export_current_parameter)
+        layout.addWidget(export_btn)
         
         # Close button
         close_btn = QPushButton("Close")
@@ -133,37 +156,68 @@ class GaussianMapResultsDialog(QDialog):
         if param_name == "Area (AUC)":
             data = self.results['area']
             title = f"Integrated Area Under Gaussian (AUC) {wave_range}"
-            cmap = 'viridis'
+            default_cmap = 'viridis'
         elif param_name == "Amplitude":
             data = self.results['amplitude']
             title = f"Gaussian Peak Amplitude {wave_range}"
-            cmap = 'plasma'
+            default_cmap = 'plasma'
         elif param_name == "Center":
             data = self.results['center']
             title = f"Gaussian Center Position {wave_range}"
-            cmap = 'coolwarm'
+            default_cmap = 'twilight'  # Better for showing small variations
         elif param_name == "Sigma":
             data = self.results['sigma']
             title = f"Gaussian Width (σ) {wave_range}"
-            cmap = 'cividis'
+            default_cmap = 'cividis'
         elif param_name == "FWHM":
             data = self.results['fwhm']
             title = f"Full Width at Half Maximum {wave_range}"
-            cmap = 'cividis'
+            default_cmap = 'cividis'
         elif param_name == "χ² (fit quality)":
             data = self.results['r_squared']
             title = f"Reduced χ² (≈1 is good fit) {wave_range}"
-            cmap = 'RdYlGn_r'
+            default_cmap = 'RdYlGn_r'
         elif param_name == "Success Mask":
             data = self.results['success'].astype(float)
             title = f"Successful Fits (1=success, 0=failed) {wave_range}"
-            cmap = 'gray'
+            default_cmap = 'gray'
         elif param_name == "Residuals":
             self._handle_residuals_display(ax)
             return
         
+        # Get selected colormap (use default if "Default" selected)
+        cmap_selection = self.cmap_combo.currentText()
+        cmap = default_cmap if cmap_selection == "Default" else cmap_selection
+        
+        # Apply scaling
+        scale_selection = self.scale_combo.currentText()
+        from matplotlib.colors import LogNorm, Normalize
+        
+        valid_data = data[~np.isnan(data)]
+        if len(valid_data) > 0:
+            if scale_selection == "Log":
+                # Log scale: requires positive values
+                if np.min(valid_data) > 0:
+                    norm = LogNorm(vmin=np.nanmin(valid_data), vmax=np.nanmax(valid_data))
+                else:
+                    # Shift data to make it positive
+                    offset = abs(np.min(valid_data)) + 1e-10
+                    data_shifted = data + offset
+                    norm = LogNorm(vmin=np.nanmin(data_shifted), vmax=np.nanmax(data_shifted))
+                    data = data_shifted
+            elif scale_selection == "Percentile (2-98%)":
+                # Use 2-98 percentile range to enhance contrast
+                vmin = np.nanpercentile(valid_data, 2)
+                vmax = np.nanpercentile(valid_data, 98)
+                norm = Normalize(vmin=vmin, vmax=vmax)
+            else:
+                # Linear (default)
+                norm = None
+        else:
+            norm = None
+        
         # Plot with NaN handling
-        im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest')
+        im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest', norm=norm)
         ax.set_title(title)
         ax.set_xlabel("X Pixel")
         ax.set_ylabel("Y Pixel")
@@ -199,11 +253,42 @@ class GaussianMapResultsDialog(QDialog):
             lam_min = min(self.gauss_left_x, self.gauss_right_x)
             lam_max = max(self.gauss_left_x, self.gauss_right_x)
             wave_range = f"({lam_min:.4f} - {lam_max:.4f})"
-            title = f"Normalized Residuals (Peak Wavelength) {wave_range}"
-            cmap = 'seismic'
+            title = f"Normalized Residuals (Middle Wavelength) {wave_range}"
+            default_cmap = 'seismic'
+            
+            # Get selected colormap (use default if "Default" selected)
+            cmap_selection = self.cmap_combo.currentText()
+            cmap = default_cmap if cmap_selection == "Default" else cmap_selection
+            
+            # Apply scaling
+            scale_selection = self.scale_combo.currentText()
+            from matplotlib.colors import LogNorm, Normalize
+            
+            valid_data = data[~np.isnan(data)]
+            if len(valid_data) > 0:
+                if scale_selection == "Log":
+                    # Log scale: requires positive values
+                    if np.min(valid_data) > 0:
+                        norm = LogNorm(vmin=np.nanmin(valid_data), vmax=np.nanmax(valid_data))
+                    else:
+                        # Shift data to make it positive for residuals (which can be negative)
+                        offset = abs(np.min(valid_data)) + 1e-10
+                        data_shifted = data + offset
+                        norm = LogNorm(vmin=np.nanmin(data_shifted), vmax=np.nanmax(data_shifted))
+                        data = data_shifted
+                elif scale_selection == "Percentile (2-98%)":
+                    # Use 2-98 percentile range to enhance contrast
+                    vmin = np.nanpercentile(valid_data, 2)
+                    vmax = np.nanpercentile(valid_data, 98)
+                    norm = Normalize(vmin=vmin, vmax=vmax)
+                else:
+                    # Linear (default)
+                    norm = None
+            else:
+                norm = None
             
             # Plot
-            im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest')
+            im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest', norm=norm)
             ax.set_title(title)
             ax.set_xlabel("X Pixel")
             ax.set_ylabel("Y Pixel")
@@ -271,3 +356,81 @@ class GaussianMapResultsDialog(QDialog):
                     "Export Error", 
                     f"Failed to export residuals:\n{str(e)}"
                 )
+    
+    def _export_current_parameter(self):
+        """Export the currently displayed parameter as a 2D FITS map"""
+        param_name = self.param_combo.currentText()
+        
+        # Map parameter names to data and filenames
+        param_map = {
+            "Area (AUC)": (self.results['area'], "gaussian_area_map.fits"),
+            "Amplitude": (self.results['amplitude'], "gaussian_amplitude_map.fits"),
+            "Center": (self.results['center'], "gaussian_center_map.fits"),
+            "Sigma": (self.results['sigma'], "gaussian_sigma_map.fits"),
+            "FWHM": (self.results['fwhm'], "gaussian_fwhm_map.fits"),
+            "χ² (fit quality)": (self.results['r_squared'], "gaussian_chi2_map.fits"),
+            "Success Mask": (self.results['success'].astype(float), "gaussian_success_mask.fits"),
+        }
+        
+        if param_name == "Residuals":
+            # Handle residuals separately (already has dedicated export)
+            self._export_residuals()
+            return
+        
+        if param_name not in param_map:
+            QMessageBox.warning(self, "Invalid Parameter", f"Cannot export {param_name}")
+            return
+        
+        data, default_filename = param_map[param_name]
+        
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Export {param_name} Map",
+            default_filename,
+            "FITS files (*.fits)"
+        )
+        
+        if not out_path:
+            return
+        
+        try:
+            from astropy.io import fits
+            
+            # Create primary HDU
+            hdu = fits.PrimaryHDU(data=data)
+            
+            # Copy relevant header information from original cube
+            if self.cube_data.header is not None:
+                # Copy WCS and spatial information
+                for key in ['CRPIX1', 'CRPIX2', 'CRVAL1', 'CRVAL2', 'CDELT1', 'CDELT2',
+                           'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2', 'CROTA2', 'CTYPE1', 'CTYPE2',
+                           'CUNIT1', 'CUNIT2']:
+                    if key in self.cube_data.header:
+                        try:
+                            hdu.header[key] = self.cube_data.header[key]
+                        except Exception:
+                            pass
+            
+            # Add metadata about the Gaussian fit
+            lam_min = min(self.gauss_left_x, self.gauss_right_x)
+            lam_max = max(self.gauss_left_x, self.gauss_right_x)
+            hdu.header['PARAM'] = param_name
+            hdu.header['LAMMIN'] = (lam_min, "Minimum wavelength of fit")
+            hdu.header['LAMMAX'] = (lam_max, "Maximum wavelength of fit")
+            hdu.header['NSUCC'] = (np.sum(self.results['success']), "Number of successful fits")
+            hdu.header['NTOTAL'] = (self.results['success'].size, "Total number of pixels")
+            
+            # Write to file
+            hdu.writeto(out_path, overwrite=True)
+            
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"{param_name} map saved to:\n{out_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"Failed to export {param_name}:\n{str(e)}"
+            )

@@ -72,7 +72,7 @@ pip install numpy matplotlib astropy PyQt5 scipy
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/astro-sophie/IFU-Analyzer.git
+git clone https://github.com/ilariapascucci/IFU-Analyzer.git
 cd IFU-Analyzer
 ```
 
@@ -232,16 +232,8 @@ Common issues and solutions:
 - **Week 5:** LST files integration for spectral lines
 - **Week 6:** HITRAN database integration
 - **Week 7:** Added scaling options (Log, Power), colormap customization
-- **Week 8:** Gaussian fitting implementation (single-pixel and full-cube)
-- **Week 9:** 
-  - Gaussian parameter maps (Area, Amplitude, Center, FWHM, χ², Success)
-  - Normalized residuals cube export with metadata preservation
-  - Background processing for Gaussian mapping (QThread)
-  - Performance optimization (~5x speedup: maxfev reduction, adaptive parallelization)
-  - ASCII spectrum export functionality
-  - 2D FITS image support (intensity maps)
-  - Instrument auto-detection without hardcoding
-  - Bounds clamping to prevent fitting errors
+- **Week 8:** Gaussian fitting implementation and maps (single-pixel and full-cube)
+- **Week 9:** Improved fitting optimization
 
 ## Known Limitations
 

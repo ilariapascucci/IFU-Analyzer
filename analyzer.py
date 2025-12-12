@@ -78,6 +78,15 @@ WEEK 8-9
 - under 3: noise - create gaussian using new std
 - over 3: it is a peak - done
 - convert data to fits file -> intensity map and residual cube
+- export ascii spectrum
+- improve readme
+'''
+
+'''
+Week 10
+- 3std and upper limits
+- manually check colors in maps for differences
+- export fits for all parameters
 '''
 
 '''

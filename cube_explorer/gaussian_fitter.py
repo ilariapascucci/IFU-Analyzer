@@ -676,20 +676,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             if completed % 1000 == 0:
                 print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
     else:
-        # Parallel path - adaptive strategy for better performance
-        # ThreadPool: less overhead, good for small-medium cubes
-        # ProcessPool: better CPU scaling for large cubes (bypasses GIL)
-        use_processes = total_pixels > 50000  # Threshold: 50k pixels
+        # Parallel path using ThreadPoolExecutor
+        # ThreadPoolExecutor works with nested functions (unlike ProcessPoolExecutor)
+        # and provides good performance for Gaussian fitting
+        print(f"Using {n_jobs} worker threads ({total_pixels:,} pixels)")
         
-        if use_processes:
-            print(f"Using {n_jobs} worker processes (large cube: {total_pixels:,} pixels)")
-            from concurrent.futures import ProcessPoolExecutor
-            executor_class = ProcessPoolExecutor
-        else:
-            print(f"Using {n_jobs} worker threads ({total_pixels:,} pixels)")
-            executor_class = ThreadPoolExecutor
-        
-        with executor_class(max_workers=n_jobs) as ex:
+        with ThreadPoolExecutor(max_workers=n_jobs) as ex:
             futures = [ex.submit(_fit_row, iy) for iy in range(n_y)]
             for fut in as_completed(futures):
                 row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, res_row = fut.result()
