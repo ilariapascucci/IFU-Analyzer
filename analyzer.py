@@ -84,13 +84,14 @@ WEEK 8-9
 
 '''
 Week 10
-- 3std and upper limits
-- manually check colors in maps for differences
 - export fits for all parameters
+- have multiple programs simultaneously
 '''
 
 '''
 next steps
+- 3std and upper limits
+- manually check colors in maps for differences
 - continuum subtracted cube of the wavelength boundaries.
 '''
 
@@ -116,6 +117,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QComboBox, QFileDialog, QLabel, QFrame, QMessageBox
 )
+from PyQt5.QtCore import Qt
 
 # Plot libraries
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -137,8 +139,9 @@ TELESCOPE_LOADERS = {
 
 # Cube class -- includes values and UI initialization
 class CubeExplorer(QWidget):
-    def __init__(self):
+    def __init__(self, launcher=None):
         super().__init__()
+        self.launcher = launcher  # Reference to launcher window
         self.setWindowTitle("Cube Explorer")
         self.cube = None  # loaded 3d numpy array
         self.header = None  # fits header
@@ -168,6 +171,12 @@ class CubeExplorer(QWidget):
         plt.close('all')
         gc.collect()
 
+    def _open_new_window(self):
+        """Open a new independent CubeExplorer window"""
+        new_window = CubeExplorer(launcher=self.launcher)
+        new_window.resize(1100, 800)
+        new_window.show()
+
     # INITIALIZE GUI -- LAYOUT AND WIDGETS
     def _init_ui(self):
         # ---------------- FILE CONTROLS ----------------
@@ -176,12 +185,16 @@ class CubeExplorer(QWidget):
         load_btn = QPushButton("Load Cube")
         load_btn.clicked.connect(lambda: (self.free_memory(), self.load_cube()))
         
+        new_window_btn = QPushButton("New Window")
+        new_window_btn.clicked.connect(self._open_new_window)
+        
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
 
         controls = QHBoxLayout()
         controls.addWidget(open_btn)
         controls.addWidget(load_btn)
+        controls.addWidget(new_window_btn)
         controls.addWidget(self.instrument_label)
         controls.addStretch()
 
@@ -1107,7 +1120,7 @@ class CubeExplorer(QWidget):
 # Run script
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    w = CubeExplorer()
+    w = CubeExplorer(launcher=None)
     w.resize(1100, 800)
     w.show()
     sys.exit(app.exec_())

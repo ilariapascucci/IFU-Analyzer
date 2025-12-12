@@ -187,6 +187,11 @@ class CubeExplorer(QWidget):
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.clicked.connect(self.refresh_view)
         self.refresh_btn.setToolTip("Refresh all plots")
+
+        # New Window button: spawn another CubeExplorer window
+        self.new_window_btn = QPushButton("🗗")
+        self.new_window_btn.setToolTip("Open a new Cube Explorer window")
+        self.new_window_btn.clicked.connect(self._open_new_window)
         
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
@@ -200,6 +205,7 @@ class CubeExplorer(QWidget):
         self.controls_layout.addWidget(self.header_btn)
         self.controls_layout.addWidget(self.lst_btn)
         self.controls_layout.addWidget(self.refresh_btn)
+        self.controls_layout.addWidget(self.new_window_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addWidget(self.lst_label)
         self.controls_layout.addStretch()
@@ -527,6 +533,9 @@ class CubeExplorer(QWidget):
         self.is_normalized = False
         self.continuum_line = None  # Store continuum line artist
 
+        # Keep references to spawned child windows to prevent garbage collection
+        self.child_windows = []
+
         # Initialize region selectors
         self.region_selector_left = RegionSelector(
             self.slice1_plotter.ax,
@@ -608,6 +617,17 @@ class CubeExplorer(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
             print(f"Detailed error: {e}")  # For debugging
+
+    def _open_new_window(self):
+        """Open a new independent CubeExplorer window."""
+        try:
+            new_win = CubeExplorer()
+            new_win.resize(self.width(), self.height())
+            new_win.show()
+            # Keep a reference so it isn't garbage collected
+            self.child_windows.append(new_win)
+        except Exception as e:
+            QMessageBox.warning(self, "New Window Error", f"Could not open a new window:\n{e}")
 
 
     def show_header(self):

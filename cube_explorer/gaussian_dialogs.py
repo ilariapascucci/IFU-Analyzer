@@ -396,33 +396,50 @@ class GaussianMapResultsDialog(QDialog):
         try:
             from astropy.io import fits
             
-            # Create primary HDU
-            hdu = fits.PrimaryHDU(data=data)
+            # Reshape 2D data to 3D: (n_y, n_x) -> (1, n_y, n_x)
+            data_3d = data[np.newaxis, :, :]
             
-            # Copy relevant header information from original cube
+            # Start with a copy of the original header (like residuals export does)
             if self.cube_data.header is not None:
-                # Copy WCS and spatial information
-                for key in ['CRPIX1', 'CRPIX2', 'CRVAL1', 'CRVAL2', 'CDELT1', 'CDELT2',
-                           'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2', 'CROTA2', 'CTYPE1', 'CTYPE2',
-                           'CUNIT1', 'CUNIT2']:
-                    if key in self.cube_data.header:
-                        try:
-                            hdu.header[key] = self.cube_data.header[key]
-                        except Exception:
-                            pass
+                out_header = self.cube_data.header.copy()
+            else:
+                out_header = fits.Header()
+            
+            # Get instrument info
+            instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'
+            teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
+            
+            # Update header with detected values
+            if instr != 'UNKNOWN':
+                out_header['INSTRUME'] = instr
+            if teles != 'UNKNOWN':
+                out_header['TELESCOP'] = teles
             
             # Add metadata about the Gaussian fit
             lam_min = min(self.gauss_left_x, self.gauss_right_x)
             lam_max = max(self.gauss_left_x, self.gauss_right_x)
-            hdu.header['PARAM'] = param_name
-            hdu.header['LAMMIN'] = (lam_min, "Minimum wavelength of fit")
-            hdu.header['LAMMAX'] = (lam_max, "Maximum wavelength of fit")
-            hdu.header['NSUCC'] = (np.sum(self.results['success']), "Number of successful fits")
-            hdu.header['NTOTAL'] = (self.results['success'].size, "Total number of pixels")
             
-            # Write to file
-            hdu.writeto(out_path, overwrite=True)
+            out_header['BUNIT'] = param_name
+            out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + f' ({param_name})')
+            out_header['PARAM'] = param_name
+            out_header['LAMMIN'] = (lam_min, "Minimum wavelength of fit")
+            out_header['LAMMAX'] = (lam_max, "Maximum wavelength of fit")
+            out_header['NSUCC'] = (int(np.sum(self.results['success'])), "Number of successful fits")
+            out_header['NTOTAL'] = (int(self.results['success'].size), "Total number of pixels")
+            out_header['COMMENT'] = f'Gaussian fit parameter: {param_name}'
             
+            # Update NAXIS for 3D map (1, n_y, n_x)
+            out_header['NAXIS'] = 3
+            out_header['NAXIS1'] = int(data_3d.shape[2])
+            out_header['NAXIS2'] = int(data_3d.shape[1])
+            out_header['NAXIS3'] = int(data_3d.shape[0])
+            
+            # Create HDU and write
+            hdu = fits.PrimaryHDU(data=data_3d, header=out_header)
+            hdul = fits.HDUList([hdu])
+            hdul.writeto(out_path, overwrite=True)
+            
+            print(f"Parameter map FITS written to {out_path}")
             QMessageBox.information(
                 self,
                 "Export Successful",
