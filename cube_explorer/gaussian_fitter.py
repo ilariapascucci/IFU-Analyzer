@@ -473,7 +473,8 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
 def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
                             lam_max: Optional[float] = None,
-                            n_jobs: Optional[int] = None) -> dict:
+                            n_jobs: Optional[int] = None,
+                            fac_above_stdres: float = 3.0) -> dict:
     """
     Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
     
@@ -483,27 +484,34 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     2. Calculate linear baseline from endpoints
     3. Subtract baseline
     4. Fit Gaussian using same initial guesses and bounds
-    5. Calculate area using analytic formula: A * σ * sqrt(2π)
+    5. Apply SNR-based detection threshold
+    6. Calculate area using analytic formula: A * σ * sqrt(2π)
+    7. Compute 1σ upper limits for non-detections
     
     Args:
         cube: 3D data cube with shape (n_wavelength, n_y, n_x)
         wavelength: 1D wavelength array with length n_wavelength
         lam_min: Minimum wavelength for fitting region (default: use full range)
         lam_max: Maximum wavelength for fitting region (default: use full range)
+        n_jobs: Number of worker threads (default: auto-detect CPUs)
+        fac_above_stdres: Detection threshold in units of noise std (default: 3.0 for 3σ)
     
     Returns:
         Dictionary containing 2D parameter maps:
             'amplitude': Peak amplitude map
             'center': Center wavelength map
             'sigma': Width parameter map
-            'fwhm': FWHM map
+            'fwhm': FWHM map (2.355 * sigma)
             'area': Integrated area under Gaussian (AUC) map
             'r_squared': Reduced chi-squared (χ²_red) fit quality map
             'success': Boolean mask of successful fits
+            'is_detection': Boolean mask indicating true detections (amplitude > fac_above_stdres * noise)
+            'is_upper_limit': Boolean mask indicating upper limits (failed detection threshold)
     
     Notes:
+        - Detections: amplitude >= fac_above_stdres * std_residuals AND fit improves residuals
+        - Upper limits: For non-detections, area = std_residuals * sigma_guess * sqrt(2π) (1σ limit)
         - Failed fits store NaN in parameter maps
-        - Uses same estimation and bounds as fit_gaussian_to_line()
         - Area calculated analytically: A * σ * sqrt(2π)
         - Fit quality: χ²_red ≈ 1 is good, >>1 is poor, <<1 is overfit
     """
@@ -535,6 +543,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     area_map = np.full((n_y, n_x), np.nan)
     r_squared_map = np.full((n_y, n_x), np.nan)
     success_map = np.zeros((n_y, n_x), dtype=bool)
+    is_detection_map = np.zeros((n_y, n_x), dtype=bool)  # True if SNR threshold passed
+    is_upper_limit_map = np.zeros((n_y, n_x), dtype=bool)  # True if upper limit computed
     
     # Initialize residuals cube (for caching during fitting)
     n_wave_sel = np.sum(wave_mask)
@@ -560,6 +570,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         area_row = np.full(n_x, np.nan)
         qual_row = np.full(n_x, np.nan)
         succ_row = np.zeros(n_x, dtype=bool)
+        det_row = np.zeros(n_x, dtype=bool)  # Detection flag
+        uplim_row = np.zeros(n_x, dtype=bool)  # Upper limit flag
         residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
 
         for ix in range(n_x):
@@ -609,7 +621,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
 
             try:
-                popt, _ = curve_fit(
+                popt, pcov = curve_fit(
                     gaussian, x_data, y_corrected,
                     p0=[amp_guess, center_guess, sigma_guess],
                     bounds=bounds,
@@ -624,6 +636,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 fwhm = 2.355 * sigma
                 area = amplitude * sigma * np.sqrt(2 * np.pi)
 
+                # Calculate noise from residuals (std of continuum fit)
                 n_points = len(y_corrected)
                 dof = max(1, n_points - 3)
                 noise_estimate = np.std(residuals, ddof=0)
@@ -632,23 +645,54 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 else:
                     chi_squared_red = np.inf
 
-                amp_row[ix] = amplitude
-                ctr_row[ix] = center
-                sig_row[ix] = sigma
-                fwhm_row[ix] = fwhm
-                area_row[ix] = area
-                qual_row[ix] = chi_squared_red
-                succ_row[ix] = True
+                # SNR-based detection threshold
+                # Check: (1) fit converged, (2) amplitude > threshold, (3) fit improves residuals
+                std_no_fit = np.nanstd(y_corrected)  # std without Gaussian fit
+                std_with_fit = noise_estimate  # std of residuals after fit
+                fit_improves = (pcov is not None) and (std_with_fit < std_no_fit)
                 
-                # Cache normalized residuals
-                std_val_for_norm = std_val if std_val > 0 else 1.0
-                normalized_residuals = residuals / std_val_for_norm
-                residuals_row[:, ix] = normalized_residuals.astype(np.float32)
+                is_detection = (amplitude >= fac_above_stdres * std_val) and fit_improves
+                
+                if is_detection:
+                    # True detection: store fitted parameters
+                    amp_row[ix] = amplitude
+                    ctr_row[ix] = center
+                    sig_row[ix] = sigma
+                    fwhm_row[ix] = fwhm
+                    area_row[ix] = area
+                    qual_row[ix] = chi_squared_red
+                    succ_row[ix] = True
+                    det_row[ix] = True
+                    
+                    # Cache normalized residuals
+                    std_val_for_norm = std_val if std_val > 0 else 1.0
+                    normalized_residuals = residuals / std_val_for_norm
+                    residuals_row[:, ix] = normalized_residuals.astype(np.float32)
+                else:
+                    # Failed detection threshold: compute 1σ upper limit
+                    # Upper limit = 1σ * sigma_guess * sqrt(2π)
+                    upper_limit_area = std_val * sigma_guess * np.sqrt(2 * np.pi)
+                    
+                    amp_row[ix] = np.nan  # or could store std_val as nominal amplitude
+                    ctr_row[ix] = center_guess  # Use guessed center
+                    sig_row[ix] = sigma_guess  # Use guessed width
+                    fwhm_row[ix] = 2.355 * sigma_guess
+                    area_row[ix] = upper_limit_area  # 1σ upper limit
+                    qual_row[ix] = np.nan
+                    succ_row[ix] = False
+                    uplim_row[ix] = True  # Mark as upper limit
+                    
             except Exception:
-                # leave NaNs/False
-                pass
+                # Fit failed completely: compute 1σ upper limit using initial guesses
+                upper_limit_area = std_val * sigma_guess * np.sqrt(2 * np.pi) if 'sigma_guess' in locals() else np.nan
+                
+                area_row[ix] = upper_limit_area
+                ctr_row[ix] = center_guess if 'center_guess' in locals() else np.nan
+                sig_row[ix] = sigma_guess if 'sigma_guess' in locals() else np.nan
+                fwhm_row[ix] = 2.355 * sigma_guess if 'sigma_guess' in locals() else np.nan
+                uplim_row[ix] = True
 
-        return row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row, succ_row, residuals_row
+        return row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row, succ_row, det_row, uplim_row, residuals_row
 
     # Determine workers
     if n_jobs is None:
@@ -661,7 +705,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     if n_jobs <= 1:
         # Serial path
         for iy in range(n_y):
-            _, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, res_row = _fit_row(iy)
+            _, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, d_row, u_row, res_row = _fit_row(iy)
             amplitude_map[iy, :] = amp_row
             center_map[iy, :] = ctr_row
             sigma_map[iy, :] = sig_row
@@ -669,6 +713,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             area_map[iy, :] = a_row
             r_squared_map[iy, :] = q_row
             success_map[iy, :] = s_row
+            is_detection_map[iy, :] = d_row
+            is_upper_limit_map[iy, :] = u_row
             residuals_cube[:, iy, :] = res_row
 
             # Progress per row
@@ -684,7 +730,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         with ThreadPoolExecutor(max_workers=n_jobs) as ex:
             futures = [ex.submit(_fit_row, iy) for iy in range(n_y)]
             for fut in as_completed(futures):
-                row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, res_row = fut.result()
+                row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, d_row, u_row, res_row = fut.result()
                 amplitude_map[row_idx, :] = amp_row
                 center_map[row_idx, :] = ctr_row
                 sigma_map[row_idx, :] = sig_row
@@ -692,6 +738,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 area_map[row_idx, :] = a_row
                 r_squared_map[row_idx, :] = q_row
                 success_map[row_idx, :] = s_row
+                is_detection_map[row_idx, :] = d_row
+                is_upper_limit_map[row_idx, :] = u_row
                 residuals_cube[:, row_idx, :] = res_row
 
                 completed += n_x
@@ -700,7 +748,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     
     # Final summary
     n_success = np.sum(success_map)
-    print(f"Fitting complete: {n_success}/{total_pixels} pixels successful ({100*n_success/total_pixels:.1f}%)")
+    n_detections = np.sum(is_detection_map)
+    n_upper_limits = np.sum(is_upper_limit_map)
+    print(f"Fitting complete: {n_success}/{total_pixels} successful fits ({100*n_success/total_pixels:.1f}%)")
+    print(f"  Detections (>{fac_above_stdres}σ): {n_detections} ({100*n_detections/total_pixels:.1f}%)")
+    print(f"  Upper limits: {n_upper_limits} ({100*n_upper_limits/total_pixels:.1f}%)")
     
     return {
         'amplitude': amplitude_map,
@@ -710,6 +762,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'area': area_map,
         'r_squared': r_squared_map,
         'success': success_map,
+        'is_detection': is_detection_map,  # True detections (passed SNR threshold)
+        'is_upper_limit': is_upper_limit_map,  # Upper limits (failed detection)
         'residuals_cube': residuals_cube  # Cached residuals computed during fitting
     }
 

@@ -2279,11 +2279,30 @@ INTERPRETATION:
         n_wave, n_y, n_x = cube.shape
         total_pixels = n_y * n_x
         
+        # Ask user for sigma threshold
+        fac_above_stdres, ok = QInputDialog.getDouble(
+            self,
+            "Detection Threshold",
+            "Enter detection threshold (standard deviations above noise):\n\n"
+            "Common values:\n"
+            "  • 3σ (standard, ~99.7% confidence)\n"
+            "  • 2σ (more detections, ~95% confidence)\n"
+            "  • 5σ (very conservative, ~99.9999% confidence)",
+            value=3.0,
+            min=0.1,
+            max=10.0,
+            decimals=1
+        )
+        
+        if not ok:
+            return  # User cancelled
+        
         # Confirm with user
         reply = QMessageBox.question(
             self, "Fit Gaussian Map",
             f"This will fit Gaussians to {total_pixels:,} pixels.\n"
-            f"Wavelength range: [{self.gauss_left_x:.4f}, {self.gauss_right_x:.4f}]\n\n"
+            f"Wavelength range: [{self.gauss_left_x:.4f}, {self.gauss_right_x:.4f}]\n"
+            f"Detection threshold: {fac_above_stdres:.1f}σ\n\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No
         )
@@ -2308,7 +2327,8 @@ INTERPRETATION:
             wavelength=wavelength,
             lam_min=min(self.gauss_left_x, self.gauss_right_x),
             lam_max=max(self.gauss_left_x, self.gauss_right_x),
-            n_jobs=8
+            n_jobs=8,
+            fac_above_stdres=fac_above_stdres
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)

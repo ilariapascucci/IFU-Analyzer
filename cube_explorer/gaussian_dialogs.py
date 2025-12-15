@@ -6,6 +6,7 @@ to keep the main GUI file cleaner and more maintainable.
 """
 
 import numpy as np
+import os
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -20,13 +21,14 @@ class GaussianMapWorker(QThread):
     finished = pyqtSignal(dict)  # Emits results when done
     error = pyqtSignal(str)  # Emits error message if failed
     
-    def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8):
+    def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0):
         super().__init__()
         self.cube = cube
         self.wavelength = wavelength
         self.lam_min = lam_min
         self.lam_max = lam_max
         self.n_jobs = n_jobs
+        self.fac_above_stdres = fac_above_stdres
     
     def run(self):
         """Execute fitting in background thread"""
@@ -37,7 +39,8 @@ class GaussianMapWorker(QThread):
                 wavelength=self.wavelength,
                 lam_min=self.lam_min,
                 lam_max=self.lam_max,
-                n_jobs=self.n_jobs
+                n_jobs=self.n_jobs,
+                fac_above_stdres=self.fac_above_stdres
             )
             self.finished.emit(results)
         except Exception as e:
@@ -70,12 +73,15 @@ class GaussianMapResultsDialog(QDialog):
         """Initialize dialog UI components"""
         layout = QVBoxLayout()
         
-        # Info label
+        # Info label with detection stats
         n_success = np.sum(self.results['success'])
+        n_detections = np.sum(self.results.get('is_detection', np.zeros_like(self.results['success'])))
+        n_upper_limits = np.sum(self.results.get('is_upper_limit', np.zeros_like(self.results['success'])))
         n_total = self.results['success'].size
         info_label = QLabel(
             f"Successfully fit {n_success:,} / {n_total:,} pixels "
-            f"({100*n_success/n_total:.1f}%)"
+            f"({100*n_success/n_total:.1f}%)\n"
+            f"Detections: {n_detections:,} | Upper limits: {n_upper_limits:,}"
         )
         layout.addWidget(info_label)
         
@@ -306,12 +312,6 @@ class GaussianMapResultsDialog(QDialog):
                 ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
                        verticalalignment='top', bbox=dict(boxstyle='round', 
                        facecolor='wheat', alpha=0.8), fontsize=9)
-            
-            # Add export button
-            self._export_map_btn = QPushButton("Export Residuals Cube")
-            self._export_map_btn.clicked.connect(self._export_residuals)
-            # Insert before close button
-            self.layout().insertWidget(self.layout().count() - 1, self._export_map_btn)
         else:
             # Fallback if residuals not in results
             data = np.zeros((self.results['success'].shape[0], self.results['success'].shape[1]))
@@ -325,10 +325,17 @@ class GaussianMapResultsDialog(QDialog):
     
     def _export_residuals(self):
         """Export residuals cube to FITS file"""
+        # Generate filename from original cube filename
+        if hasattr(self.cube_data, 'filename') and self.cube_data.filename:
+            base_name = os.path.splitext(os.path.basename(self.cube_data.filename))[0]
+            default_filename = f"{base_name}_residual_cube.fits"
+        else:
+            default_filename = "residual_cube.fits"
+        
         out_path, _ = QFileDialog.getSaveFileName(
             self, 
             "Export Residuals FITS", 
-            "residual_cube.fits", 
+            default_filename, 
             "FITS files (*.fits)"
         )
         if out_path:
@@ -358,24 +365,25 @@ class GaussianMapResultsDialog(QDialog):
                 )
     
     def _export_current_parameter(self):
-        """Export the currently displayed parameter as a 2D FITS map"""
+        """Export the currently displayed parameter as a 3D FITS map"""
         param_name = self.param_combo.currentText()
         
-        # Map parameter names to data and filenames
-        param_map = {
-            "Area (AUC)": (self.results['area'], "gaussian_area_map.fits"),
-            "Amplitude": (self.results['amplitude'], "gaussian_amplitude_map.fits"),
-            "Center": (self.results['center'], "gaussian_center_map.fits"),
-            "Sigma": (self.results['sigma'], "gaussian_sigma_map.fits"),
-            "FWHM": (self.results['fwhm'], "gaussian_fwhm_map.fits"),
-            "χ² (fit quality)": (self.results['r_squared'], "gaussian_chi2_map.fits"),
-            "Success Mask": (self.results['success'].astype(float), "gaussian_success_mask.fits"),
-        }
+        # Generate base filename from original cube filename
+        if hasattr(self.cube_data, 'filename') and self.cube_data.filename:
+            base_name = os.path.splitext(os.path.basename(self.cube_data.filename))[0]
+        else:
+            base_name = "gaussian"
         
-        if param_name == "Residuals":
-            # Handle residuals separately (already has dedicated export)
-            self._export_residuals()
-            return
+        # Map parameter names to data and default filenames
+        param_map = {
+            "Area (AUC)": (self.results['area'], f"{base_name}_gaussian_area_map.fits"),
+            "Amplitude": (self.results['amplitude'], f"{base_name}_gaussian_amplitude_map.fits"),
+            "Center": (self.results['center'], f"{base_name}_gaussian_center_map.fits"),
+            "Sigma": (self.results['sigma'], f"{base_name}_gaussian_sigma_map.fits"),
+            "FWHM": (self.results['fwhm'], f"{base_name}_gaussian_fwhm_map.fits"),
+            "χ² (fit quality)": (self.results['r_squared'], f"{base_name}_gaussian_chi2_map.fits"),
+            "Success Mask": (self.results['success'].astype(float), f"{base_name}_gaussian_success_mask.fits"),
+        }
         
         if param_name not in param_map:
             QMessageBox.warning(self, "Invalid Parameter", f"Cannot export {param_name}")

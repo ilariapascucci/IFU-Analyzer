@@ -85,7 +85,7 @@ WEEK 8-9
 '''
 Week 10
 - export fits for all parameters
-- have multiple programs simultaneously
+- have multiple programs simultaneously (new window)
 '''
 
 '''
