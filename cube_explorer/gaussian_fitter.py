@@ -149,6 +149,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Tuple, Optional
+from sklearn.linear_model import RANSACRegressor
 
 
 @dataclass
@@ -237,6 +238,94 @@ def gaussian(x: np.ndarray, amplitude: float, center: float,
         Gaussian values at each x
     """
     return amplitude * np.exp(-(x - center)**2 / (2 * sigma**2))
+
+
+def fit_gaussian_with_ransac(x_data: np.ndarray, y_data: np.ndarray, 
+                              p0: np.ndarray, bounds: Tuple, 
+                              ransac_thresh: float = 2.0,
+                              ransac_iters: int = 100) -> Tuple[np.ndarray, bool, np.ndarray]:
+    """
+    Fit Gaussian with RANSAC outlier rejection.
+    
+    Uses an iterative approach: fit Gaussian, identify outliers using residuals,
+    refit using only inliers. This provides robust fitting resistant to bad pixels.
+    
+    Args:
+        x_data: Wavelength array
+        y_data: Flux array
+        p0: Initial parameter guess [amplitude, center, sigma]
+        bounds: Parameter bounds for curve_fit
+        ransac_thresh: Threshold for outlier detection (in sigma of residuals)
+        ransac_iters: Maximum iterations for RANSAC refinement
+    
+    Returns:
+        Tuple of (popt, success, inlier_mask)
+            popt: Fitted parameters [amplitude, center, sigma]
+            success: Whether fit converged
+            inlier_mask: Boolean mask of inlier points
+    """
+    # Start with all points as inliers
+    inlier_mask = np.ones(len(x_data), dtype=bool)
+    best_popt = p0
+    best_inlier_count = 0
+    
+    try:
+        # Initial fit with all points
+        popt, pcov = curve_fit(gaussian, x_data, y_data, p0=p0, bounds=bounds, maxfev=5000)
+        y_fit = gaussian(x_data, *popt)
+        residuals = y_data - y_fit
+        residuals_std = np.std(residuals)
+        
+        # Iterative outlier rejection
+        for iteration in range(ransac_iters):
+            # Identify outliers: points > thresh * sigma from fit
+            if residuals_std > 0:
+                outlier_mask = np.abs(residuals) > ransac_thresh * residuals_std
+            else:
+                outlier_mask = np.zeros_like(residuals, dtype=bool)
+            
+            inlier_mask = ~outlier_mask
+            n_inliers = np.sum(inlier_mask)
+            
+            # Track best fit (most inliers)
+            if n_inliers > best_inlier_count:
+                best_inlier_count = n_inliers
+                best_popt = popt.copy()
+            
+            # If all points are inliers, convergence reached
+            if n_inliers == len(x_data):
+                break
+            
+            # Require at least 4 inliers to refit
+            if n_inliers < 4:
+                break
+            
+            # Refit using only inliers
+            try:
+                popt, pcov = curve_fit(gaussian, x_data[inlier_mask], y_data[inlier_mask], 
+                                      p0=popt, bounds=bounds, maxfev=5000)
+                y_fit = gaussian(x_data, *popt)
+                residuals = y_data - y_fit
+                residuals_std = np.std(residuals[inlier_mask])
+            except RuntimeError:
+                # If refit fails, use best found so far
+                popt = best_popt
+                break
+        
+        # Final inlier identification with best fit
+        y_fit_final = gaussian(x_data, *best_popt)
+        residuals_final = y_data - y_fit_final
+        residuals_std_final = np.std(residuals_final)
+        if residuals_std_final > 0:
+            inlier_mask_final = np.abs(residuals_final) <= ransac_thresh * residuals_std_final
+        else:
+            inlier_mask_final = np.ones_like(x_data, dtype=bool)
+        
+        return best_popt, True, inlier_mask_final
+        
+    except Exception as e:
+        # If RANSAC fails, return initial guess with all points as inliers
+        return p0, False, inlier_mask
 
 
 def estimate_gaussian_params(x_data: np.ndarray, 
@@ -384,12 +473,13 @@ def fit_gaussian_to_line(x1: float, x2: float,
     sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
     
     try:
-        # Perform least-squares fit
-        popt, pcov = curve_fit(
-            gaussian, x_data, y_corrected,
+        # Perform RANSAC fit (default for robust outlier rejection)
+        popt, ransac_success, inlier_mask = fit_gaussian_with_ransac(
+            x_data, y_corrected,
             p0=[amp_guess, center_guess, sigma_guess],
             bounds=bounds,
-            maxfev=5000  # Reduced from 10000 for faster convergence
+            ransac_thresh=2.0,
+            ransac_iters=3
         )
         
         amplitude, center, sigma = popt
@@ -495,6 +585,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         lam_max: Maximum wavelength for fitting region (default: use full range)
         n_jobs: Number of worker threads (default: auto-detect CPUs)
         fac_above_stdres: Detection threshold in units of noise std (default: 3.0 for 3σ)
+    
+    Note:
+        RANSAC outlier rejection is always enabled with 3 iterations for robust, fast fitting.
     
     Returns:
         Dictionary containing 2D parameter maps:
@@ -605,6 +698,10 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
                 except Exception:
                     continue
+            
+            # Default to 1-sigma (smaller/conservative) for upper limits
+            # This ensures conservative fitting and smaller intensity estimates
+            sigma_guess = min(sigma_guess, 0.01 * x_range)
 
             # Require positive peak
             if np.max(y_corrected) <= 0:
@@ -621,14 +718,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
 
             try:
-                popt, pcov = curve_fit(
-                    gaussian, x_data, y_corrected,
+                # Always use RANSAC for robust outlier rejection
+                popt, fit_success, inlier_mask = fit_gaussian_with_ransac(
+                    x_data, y_corrected,
                     p0=[amp_guess, center_guess, sigma_guess],
                     bounds=bounds,
-                    maxfev=5000,  # Reduced from 10000 for faster convergence
-                    ftol=1e-4,  # Function tolerance for faster convergence
-                    xtol=1e-4   # Parameter tolerance for faster convergence
+                    ransac_thresh=2.0,  # 2-sigma threshold for outliers
+                    ransac_iters=3  # Fast: 3 iterations is enough for most cases
                 )
+                
                 amplitude, center, sigma = popt
                 y_fit = gaussian(x_data, amplitude, center, sigma)
                 residuals = y_corrected - y_fit
@@ -649,7 +747,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 # Check: (1) fit converged, (2) amplitude > threshold, (3) fit improves residuals
                 std_no_fit = np.nanstd(y_corrected)  # std without Gaussian fit
                 std_with_fit = noise_estimate  # std of residuals after fit
-                fit_improves = (pcov is not None) and (std_with_fit < std_no_fit)
+                fit_improves = fit_success and (std_with_fit < std_no_fit)
                 
                 is_detection = (amplitude >= fac_above_stdres * std_val) and fit_improves
                 
@@ -672,6 +770,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     # Failed detection threshold: compute 1σ upper limit
                     # Upper limit = 1σ * sigma_guess * sqrt(2π)
                     upper_limit_area = std_val * sigma_guess * np.sqrt(2 * np.pi)
+                    
+                    # If upper limit is too small, use edge/baseline values instead
+                    edge_value = np.mean([np.abs(y1), np.abs(y2)])
+                    if upper_limit_area < 0.1 * edge_value or np.isnan(upper_limit_area):
+                        upper_limit_area = edge_value
                     
                     amp_row[ix] = np.nan  # or could store std_val as nominal amplitude
                     ctr_row[ix] = center_guess  # Use guessed center

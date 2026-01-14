@@ -14,7 +14,7 @@ from matplotlib.colors import LogNorm, PowerNorm, Normalize
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox
+    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox, QCheckBox
 )
 from PyQt5.QtCore import QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -2287,7 +2287,8 @@ INTERPRETATION:
             "Common values:\n"
             "  • 3σ (standard, ~99.7% confidence)\n"
             "  • 2σ (more detections, ~95% confidence)\n"
-            "  • 5σ (very conservative, ~99.9999% confidence)",
+            "  • 5σ (very conservative, ~99.9999% confidence)\n\n"
+            "Note: RANSAC outlier rejection is always enabled for robust fitting.",
             value=3.0,
             min=0.1,
             max=10.0,
@@ -2302,7 +2303,8 @@ INTERPRETATION:
             self, "Fit Gaussian Map",
             f"This will fit Gaussians to {total_pixels:,} pixels.\n"
             f"Wavelength range: [{self.gauss_left_x:.4f}, {self.gauss_right_x:.4f}]\n"
-            f"Detection threshold: {fac_above_stdres:.1f}σ\n\n"
+            f"Detection threshold: {fac_above_stdres:.1f}σ\n"
+            f"RANSAC outlier rejection: Enabled (fast mode)\n\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No
         )
