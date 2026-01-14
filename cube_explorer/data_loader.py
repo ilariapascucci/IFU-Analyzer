@@ -35,6 +35,7 @@ class CubeData:
         self.spectrum = None  # Integrated spectrum
         self.wcs = None  # WCS object for coordinate transforms
         self.instrument = None  # Name of instrument
+        self.filename = None  # Path to the loaded FITS file
 
     def load_from_file(self, filename):
         """
@@ -63,6 +64,9 @@ class CubeData:
             Automatically orients spectral axis to index 0 for consistent processing.
         """
         try:
+            # Store the filename for later use
+            self.filename = filename
+            
             # Open file with memory mapping
             self.hdul = fits.open(filename, memmap=True)
             
