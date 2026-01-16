@@ -14,7 +14,7 @@ from matplotlib.colors import LogNorm, PowerNorm, Normalize
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox, QCheckBox
+    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox
 )
 from PyQt5.QtCore import QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -230,6 +230,8 @@ class CubeExplorer(QWidget):
         self.spec_fig = Figure(figsize=(8, 3))
         self.spec_canvas = FigureCanvas(self.spec_fig)
         self.spec_plotter = None  # Will be initialized after loading data
+        for ax in self.spec_fig.axes:
+            ax.set_clip_on(True)
         self.spec_toolbar = NavigationToolbar(self.spec_canvas, self)
         self.spec_canvas.mpl_connect("button_press_event", self._on_spec_click)
         self.spec_canvas.mpl_connect("motion_notify_event", self._on_spec_hover)
@@ -257,7 +259,12 @@ class CubeExplorer(QWidget):
         
         # Spectrum saving button
         self.save_spectrum_btn = QPushButton("Save Spectrum")
-        
+        self.continuum_line_btn = QPushButton("Continuum Line")
+        self.subtract_continuum_btn = QPushButton("Subtract Continuum")
+
+        self.subtract_continuum_btn.setCheckable(True)
+        self.subtract_continuum_btn.setEnabled(False) 
+        self.continuum_line_btn.setCheckable(True)        
         self.set_left_btn.setCheckable(True)
         self.set_right_btn.setCheckable(True)
         self.normalize_btn.setCheckable(True)
@@ -275,6 +282,10 @@ class CubeExplorer(QWidget):
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
         self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
+        self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
+        self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
+
+
 
         # Wavelength range inputs (hidden until LST loaded)
         self.wavelength_label = QLabel("Wavelength range:")
@@ -307,6 +318,7 @@ class CubeExplorer(QWidget):
         wl_layout.addWidget(self.ok_wave_button)
         wl_layout.addWidget(self.show_lst_btn)
         wl_layout.addWidget(self.hitran_btn)
+        
 
         self.wavelength_layout = wl_layout
 
@@ -501,12 +513,173 @@ class CubeExplorer(QWidget):
         spectrum_button_layout.addStretch()
         spectrum_button_layout.addWidget(self.save_spectrum_btn)
         spectrum_button_layout.addStretch()
+        spectrum_button_layout.addWidget(self.continuum_line_btn)
+        spectrum_button_layout.addWidget(self.subtract_continuum_btn)        
         main_layout.addLayout(spectrum_button_layout)
 
         # Add wavelength range controls under the spectrum
         main_layout.addLayout(self.wavelength_layout)
 
         self.setLayout(main_layout)
+
+    def _on_continuum_line_clicked(self):
+        """Handle Continuum Line button toggle - fit and display continuum"""
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            QMessageBox.warning(self, "No Data", "Load a data cube first.")
+            self.continuum_line_btn.setChecked(False)
+            return
+        
+        if not hasattr(self, 'cube_data') or self.cube_data.spectrum is None:
+            QMessageBox.warning(self, "No Spectrum", "No spectrum data available.")
+            self.continuum_line_btn.setChecked(False)
+            return
+        
+        if self.continuum_line_btn.isChecked():
+            # Fit and display continuum
+            self._fit_and_display_continuum()
+        else:
+            # Remove continuum line
+            self._remove_continuum_line()
+
+    def _fit_and_display_continuum(self):
+        """Fit continuum using median filter - follows baseline perfectly"""
+        try:
+            from scipy.ndimage import median_filter
+            from scipy.interpolate import UnivariateSpline
+            
+            # Get spectrum data
+            wavelength = self.spec_plotter.wavelength
+            flux = self.cube_data.spectrum
+            
+            if wavelength is None or flux is None:
+                QMessageBox.warning(self, "No Data", "Spectrum data not available.")
+                self.continuum_line_btn.setChecked(False)
+                return
+            
+            # Remove NaN and infinite values
+            mask = np.isfinite(wavelength) & np.isfinite(flux)
+            wavelength_clean = wavelength[mask]
+            flux_clean = flux[mask]
+            
+            if len(wavelength_clean) < 10:
+                QMessageBox.warning(self, "Insufficient Data", "Not enough valid data points to fit continuum.")
+                self.continuum_line_btn.setChecked(False)
+                return
+            
+            print("[DEBUG] Fitting continuum using median filter method...")
+            
+            # STEP 1: Apply median filter to remove narrow spikes
+            # Window size determines smoothness - larger = smoother
+            # For your data, 51 works well (must be odd number)
+            window_size = 51
+            flux_median_filtered = median_filter(flux_clean, size=window_size, mode='reflect')
+            
+            # STEP 2: Iterative sigma clipping to remove broad emission features
+            continuum = flux_median_filtered.copy()
+            
+            for iteration in range(3):  # 3 iterations of clipping
+                # Calculate residuals
+                residuals = flux_clean - continuum
+                
+                # Calculate sigma (standard deviation) of residuals
+                sigma = np.std(residuals)
+                
+                # Find points that are NOT outliers (within 2 sigma below continuum)
+                # We only clip points ABOVE the continuum (emission lines)
+                good_mask = residuals < (2.0 * sigma)
+                
+                # Apply another median filter only on good points
+                flux_good = flux_clean.copy()
+                flux_good[~good_mask] = np.nan  # Mark bad points as NaN
+                
+                # Interpolate over NaN values
+                nan_mask = np.isnan(flux_good)
+                if np.any(~nan_mask):
+                    flux_good[nan_mask] = np.interp(
+                        wavelength_clean[nan_mask], 
+                        wavelength_clean[~nan_mask], 
+                        flux_good[~nan_mask]
+                    )
+                
+                # Apply median filter again
+                continuum = median_filter(flux_good, size=window_size, mode='reflect')
+            
+            # STEP 3: Smooth the continuum slightly using spline
+            # This removes very high-frequency noise while keeping baseline variations
+            try:
+                # UnivariateSpline with s parameter controls smoothing
+                # s=0 means interpolation (goes through all points)
+                # s>0 means smoothing (larger = more smooth)
+                # For your data, s should be small to follow closely
+                spline = UnivariateSpline(wavelength_clean, continuum, s=len(wavelength_clean)*10, k=3)
+                continuum_smooth = spline(wavelength_clean)
+            except Exception as e:
+                print(f"[DEBUG] Spline smoothing failed, using median filter result: {e}")
+                continuum_smooth = continuum
+            
+            # Create full continuum array matching original wavelength
+            continuum_values = np.full_like(wavelength, np.nan)
+            continuum_values[mask] = continuum_smooth
+            
+            # Store the fitted continuum
+            self.continuum_fitted = continuum_values
+            
+            # Plot the continuum line
+            ax = self.spec_plotter.ax
+            self.continuum_line = ax.plot(wavelength, continuum_values, 
+                                        color='orange', 
+                                        linewidth=2, 
+                                        linestyle='-',  # Solid line
+                                        label='Continuum',
+                                        zorder=10)[0]
+            
+            # Update legend
+            ax.legend(loc='upper right', fontsize=8)
+            self.spec_canvas.draw()
+            
+            print(f"[DEBUG] Continuum fitted successfully using median filter + sigma clipping")
+            self.subtract_continuum_btn.setEnabled(True)
+            
+        except ImportError as ie:
+            QMessageBox.critical(self, "Missing Library", 
+                            f"Required library missing: {str(ie)}\n\n"
+                            "Install with:\n"
+                            "pip install scipy")
+            self.continuum_line_btn.setChecked(False)
+        except Exception as e:
+            QMessageBox.critical(self, "Fitting Error", 
+                            f"Error fitting continuum:\n{str(e)}")
+            self.continuum_line_btn.setChecked(False)
+            print(f"[DEBUG] Continuum fitting error: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Enable subtract button
+        self.subtract_continuum_btn.setEnabled(True)
+
+    def _remove_continuum_line(self):
+        """Remove the continuum line from the spectrum plot"""
+        if self.continuum_line is not None:
+            try:
+                self.continuum_line.remove()
+                print("[DEBUG] Continuum line removed")
+            except Exception as e:
+                print(f"[DEBUG] Error removing continuum line: {e}")
+            self.continuum_line = None
+            self.continuum_fitted = None
+
+
+            
+            # Update legend
+            if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
+                self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+                self.spec_canvas.draw()
+
+            # If spectrum was subtracted, restore it
+            if self.continuum_subtracted:
+                self._restore_original_spectrum_internal()
+            self.subtract_continuum_btn.setEnabled(False)
+            self.subtract_continuum_btn.setChecked(False)
 
     def _init_state(self):
         """Initialize state variables"""
@@ -532,6 +705,14 @@ class CubeExplorer(QWidget):
         # Normalization state
         self.is_normalized = False
         self.continuum_line = None  # Store continuum line artist
+        self.continuum_fitted = None # Continuum subtraction state
+        self.subtract_mode = None  # 'left' or 'right'
+        self.subtract_left_x = None
+        self.subtract_right_x = None
+        self.subtract_markers = []  # Store marker artists
+
+        self.continuum_subtracted = False  # Track if continuum is currently subtracted
+        self.original_spectrum_backup = None
 
         # Keep references to spawned child windows to prevent garbage collection
         self.child_windows = []
@@ -1176,6 +1357,10 @@ class CubeExplorer(QWidget):
         """Handle clicks on the spectrum display"""
         if event.inaxes != self.spec_plotter.ax:
             return
+
+        if hasattr(self, 'subtract_mode') and self.subtract_mode == 'selecting' and event.xdata:
+            self._mark_subtraction_boundary(event.xdata)
+            return
         
         # Handle Gaussian boundary selection first (takes priority)
         if self.gauss_mode in ['left', 'right'] and event.xdata is not None:
@@ -1524,6 +1709,156 @@ class CubeExplorer(QWidget):
                 self.span.disconnect_events()
                 self.span = None
 
+    def _activate_continuum_subtraction(self):
+        """Activate continuum subtraction mode - user selects two points"""
+        # Check if continuum is fitted
+        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+            QMessageBox.warning(self, "No Continuum", 
+                            "Please fit a continuum first (click 'Continuum Line' button).")
+            self.subtract_continuum_btn.setChecked(False)
+            return
+        
+        if self.subtract_continuum_btn.isChecked():
+            # Activate selection mode
+            print("[DEBUG] Continuum subtraction mode activated. Click two points on spectrum.")
+            QMessageBox.information(self, "Select Region", 
+                                "Click TWO points on the spectrum to select the wavelength range for subtraction.\n\n"
+                                "The order doesn't matter - left/right will be determined automatically.")
+            self.subtract_mode = 'selecting'
+        else:
+            # Cancel mode and clear markers
+            self._clear_subtraction_markers()
+            self.subtract_mode = None
+            self.subtract_left_x = None
+            self.subtract_right_x = None
+            print("[DEBUG] Continuum subtraction mode cancelled")
+
+    def _mark_subtraction_boundary(self, xpos):
+        """Mark a boundary point for continuum subtraction"""
+        ax = self.spec_plotter.ax
+        
+        # If we don't have a left point yet, this is the first point
+        if self.subtract_left_x is None and self.subtract_right_x is None:
+            # First point - mark as "Point 1"
+            marker = ax.axvline(xpos, color='red', linestyle='--', linewidth=2, label='Point 1')
+            self.subtract_markers.append(marker)
+            self.subtract_left_x = xpos  # Temporarily store here
+            print(f"[DEBUG] First point marked at {xpos:.4f}")
+            self.spec_canvas.draw()
+            
+        elif self.subtract_right_x is None:
+            # Second point - now determine left/right
+            second_x = xpos
+            first_x = self.subtract_left_x
+            
+            # Determine which is left and which is right
+            if second_x < first_x:
+                # User clicked right-to-left
+                self.subtract_left_x = second_x
+                self.subtract_right_x = first_x
+            else:
+                # User clicked left-to-right
+                self.subtract_right_x = second_x
+                # self.subtract_left_x already set
+            
+            # Remove old markers
+            for marker in self.subtract_markers:
+                try:
+                    marker.remove()
+                except:
+                    pass
+            self.subtract_markers = []
+            
+            # Draw final left/right markers
+            left_marker = ax.axvline(self.subtract_left_x, color='green', linestyle='-', linewidth=2, label='Left')
+            right_marker = ax.axvline(self.subtract_right_x, color='orange', linestyle='-', linewidth=2, label='Right')
+            self.subtract_markers = [left_marker, right_marker]
+            
+            print(f"[DEBUG] Region selected: {self.subtract_left_x:.4f} to {self.subtract_right_x:.4f}")
+            
+            # Update legend
+            ax.legend(loc='upper right', fontsize=8)
+            self.spec_canvas.draw()
+            
+            # Perform the subtraction
+            self.subtract_continuum_btn.setChecked(False)
+            self.subtract_mode = None
+            self._perform_regional_continuum_subtraction()
+
+    def _perform_regional_continuum_subtraction(self):
+        """Subtract continuum in selected range"""
+        try:
+            wavelength = self.spec_plotter.wavelength
+            flux = self.cube_data.spectrum
+            continuum = self.continuum_fitted
+            
+            # Find indices
+            left_idx = np.argmin(np.abs(wavelength - self.subtract_left_x))
+            right_idx = np.argmin(np.abs(wavelength - self.subtract_right_x))
+            
+            # Subtract ONLY in range
+            flux[left_idx:right_idx+1] -= continuum[left_idx:right_idx+1]
+            
+            # Update the spectrum data
+            self.cube_data.spectrum = flux
+            
+            # REPLOT the spectrum (since update_spectrum doesn't exist)
+            ax = self.spec_plotter.ax
+            ax.clear()
+            
+            # Calculate FULL y-range before plotting
+            y_min = np.nanmin(flux)
+            y_max = np.nanmax(flux)
+            y_margin = (y_max - y_min) * 0.05
+            
+            # Plot the spectrum with clipping
+            ax.plot(wavelength, flux, 'b-', label='Total Spectrum', linewidth=1, clip_on=True)
+            
+            # Set fixed limits
+            ax.set_xlim(wavelength.min(), wavelength.max())
+            ax.set_ylim(y_min - y_margin, y_max + y_margin)
+            
+            # Labels and legend
+            ax.set_xlabel(f'Wavelength [{self.cube_data.wave_unit}]')
+            ax.set_ylabel('Flux [MJy sr⁻¹]')
+            ax.legend(loc='upper right', fontsize=8)
+            
+            # Force clipping on all lines
+            for line in ax.get_lines():
+                line.set_clip_on(True)
+            
+            # Redraw
+            self.spec_canvas.draw()
+            
+            print(f"[DEBUG] Subtracted in [{self.subtract_left_x:.4f}, {self.subtract_right_x:.4f}]")
+            print(f"[DEBUG] Y-axis: {y_min:.1f} to {y_max:.1f}")
+            
+            QMessageBox.information(self, "Done", 
+                                f"Continuum subtracted:\n"
+                                f"{self.subtract_left_x:.4f} to {self.subtract_right_x:.4f}\n"
+                                f"Y-range: {y_min:.1f} to {y_max:.1f}")
+            
+            self._clear_subtraction_markers()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed:\n{str(e)}")
+            print(f"[DEBUG] Error: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+
+    def _clear_subtraction_markers(self):
+        """Clear the subtraction boundary markers"""
+        for marker in self.subtract_markers:
+            try:
+                marker.remove()
+            except:
+                pass
+        self.subtract_markers = []
+        if hasattr(self, 'spec_canvas'):
+            self.spec_canvas.draw()
+
     def _init_line_search_controls(self):
         """Initialize the min/max/species inputs and buttons."""
         self.min_wave_input = QLineEdit()
@@ -1737,6 +2072,9 @@ class CubeExplorer(QWidget):
 
     def _on_spec_hover(self, event):
         """Handle hover events over spectrum plot to show line info."""
+
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            return
         if event.inaxes != self.spec_plotter.ax:
             return
         
@@ -2287,8 +2625,7 @@ INTERPRETATION:
             "Common values:\n"
             "  • 3σ (standard, ~99.7% confidence)\n"
             "  • 2σ (more detections, ~95% confidence)\n"
-            "  • 5σ (very conservative, ~99.9999% confidence)\n\n"
-            "Note: RANSAC outlier rejection is always enabled for robust fitting.",
+            "  • 5σ (very conservative, ~99.9999% confidence)",
             value=3.0,
             min=0.1,
             max=10.0,
@@ -2303,8 +2640,7 @@ INTERPRETATION:
             self, "Fit Gaussian Map",
             f"This will fit Gaussians to {total_pixels:,} pixels.\n"
             f"Wavelength range: [{self.gauss_left_x:.4f}, {self.gauss_right_x:.4f}]\n"
-            f"Detection threshold: {fac_above_stdres:.1f}σ\n"
-            f"RANSAC outlier rejection: Enabled (fast mode)\n\n"
+            f"Detection threshold: {fac_above_stdres:.1f}σ\n\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No
         )
@@ -2357,8 +2693,7 @@ INTERPRETATION:
             results, 
             self.cube_data, 
             self.gauss_left_x, 
-            self.gauss_right_x,
-            wavelength=self.cube_data.wavelength if hasattr(self.cube_data, 'wavelength') else None
+            self.gauss_right_x
         )
         dlg.exec_()
 
