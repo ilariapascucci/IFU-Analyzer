@@ -867,7 +867,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'success': success_map,
         'is_detection': is_detection_map,  # True detections (passed SNR threshold)
         'is_upper_limit': is_upper_limit_map,  # Upper limits (failed detection)
-        'residuals_cube': residuals_cube  # Cached residuals computed during fitting
+        'residuals_cube': residuals_cube,  # Cached residuals computed during fitting
+        'fac_above_stdres': fac_above_stdres  # Detection threshold used
     }
 
 

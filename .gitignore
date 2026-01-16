@@ -1,5 +1,6 @@
 # Ignore all FITS files by default
 *.fits
+*.csv
 
 # Ignore any large data folders
 /data/

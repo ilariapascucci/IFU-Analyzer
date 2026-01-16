@@ -55,13 +55,14 @@ class GaussianMapResultsDialog(QDialog):
     with interactive parameter selection and visualization controls.
     """
     
-    def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x):
+    def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None):
         super().__init__(parent)
         self.parent_widget = parent
         self.results = results
         self.cube_data = cube_data
         self.gauss_left_x = gauss_left_x
         self.gauss_right_x = gauss_right_x
+        self.wavelength = wavelength
         self._export_map_btn = None
         
         self.setWindowTitle("Gaussian Parameter Maps")
@@ -128,15 +129,31 @@ class GaussianMapResultsDialog(QDialog):
         # Initial plot
         self._update_plot()
         
+        # Button layout
+        button_layout = QHBoxLayout()
+        
         # Export button
         export_btn = QPushButton("Export Current Parameter")
         export_btn.clicked.connect(self._export_current_parameter)
-        layout.addWidget(export_btn)
+        button_layout.addWidget(export_btn)
+        
+        # Export pixel table button
+        pixel_table_btn = QPushButton("Export Pixel Table")
+        pixel_table_btn.clicked.connect(self._export_pixel_table)
+        button_layout.addWidget(pixel_table_btn)
+        
+        # Diagnostics button
+        if self.wavelength is not None:
+            diag_btn = QPushButton("Inspect Pixel Fits")
+            diag_btn.clicked.connect(self._open_pixel_diagnostics)
+            button_layout.addWidget(diag_btn)
         
         # Close button
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
         
         self.setLayout(layout)
     
@@ -459,3 +476,129 @@ class GaussianMapResultsDialog(QDialog):
                 "Export Error",
                 f"Failed to export {param_name}:\n{str(e)}"
             )
+    
+    def _export_pixel_table(self):
+        """Export pixel-by-pixel Gaussian fit results as CSV table"""
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Pixel Fit Table",
+            "gaussian_fits.csv",
+            "CSV files (*.csv)"
+        )
+        
+        if not out_path:
+            return
+        
+        try:
+            # Get parameters
+            fac_above_stdres = self.results.get('fac_above_stdres', 3.0)
+            lam_min = min(self.gauss_left_x, self.gauss_right_x)
+            lam_max = max(self.gauss_left_x, self.gauss_right_x)
+            
+            # Extract data
+            amplitude_map = self.results['amplitude']
+            center_map = self.results['center']
+            sigma_map = self.results['sigma']
+            fwhm_map = self.results['fwhm']
+            area_map = self.results['area']
+            r_squared_map = self.results['r_squared']
+            success_map = self.results['success']
+            is_detection_map = self.results['is_detection']
+            is_upper_limit_map = self.results['is_upper_limit']
+            
+            n_y, n_x = amplitude_map.shape
+            n_total = n_y * n_x
+            n_success = np.sum(success_map)
+            n_detections = np.sum(is_detection_map)
+            n_upper_limits = np.sum(is_upper_limit_map)
+            n_failed = n_total - n_success - n_upper_limits
+            
+            # Prepare CSV data
+            rows = []
+            rows.append("# Gaussian Fit Results - Pixel Table")
+            rows.append(f"# Detection Threshold: {fac_above_stdres}σ")
+            rows.append(f"# Wavelength Range: {lam_min:.6f} - {lam_max:.6f}")
+            rows.append(f"# Total Pixels: {n_total}")
+            rows.append(f"# Successful Fits: {n_success} ({100*n_success/n_total:.1f}%)")
+            rows.append(f"# Detections: {n_detections} ({100*n_detections/n_total:.1f}%)")
+            rows.append(f"# Upper Limits: {n_upper_limits} ({100*n_upper_limits/n_total:.1f}%)")
+            rows.append(f"# Failed Fits: {n_failed} ({100*n_failed/n_total:.1f}%)")
+            rows.append("#")
+            rows.append("Row,Col,Status,Amplitude,Center,Sigma,FWHM,Area,R_squared")
+            
+            # Iterate through all pixels
+            for iy in range(n_y):
+                for ix in range(n_x):
+                    # Determine status
+                    if is_detection_map[iy, ix]:
+                        status = "DETECTION"
+                    elif is_upper_limit_map[iy, ix]:
+                        status = "UPPER_LIMIT"
+                    elif success_map[iy, ix]:
+                        status = "DETECTION_MARGINAL"
+                    else:
+                        status = "FAILED_FIT"
+                    
+                    # Get values (handle NaN)
+                    amp = amplitude_map[iy, ix]
+                    ctr = center_map[iy, ix]
+                    sig = sigma_map[iy, ix]
+                    fw = fwhm_map[iy, ix]
+                    ar = area_map[iy, ix]
+                    r2 = r_squared_map[iy, ix]
+                    
+                    # Format: use scientific notation for small numbers, handle NaN
+                    def fmt(val):
+                        if np.isnan(val):
+                            return ""
+                        elif abs(val) < 1e-3 or abs(val) > 1e3:
+                            return f"{val:.6e}"
+                        else:
+                            return f"{val:.6f}"
+                    
+                    row_str = f"{iy},{ix},{status},{fmt(amp)},{fmt(ctr)},{fmt(sig)},{fmt(fw)},{fmt(ar)},{fmt(r2)}"
+                    rows.append(row_str)
+            
+            # Write to file
+            with open(out_path, 'w', encoding='utf-8') as f:
+                f.write("\n".join(rows))
+            
+            print(f"Pixel table CSV written to {out_path}")
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Pixel fit table saved to:\n{out_path}\n\n"
+                f"Contains {n_total} pixels:\n"
+                f"  - {n_detections} detections\n"
+                f"  - {n_upper_limits} upper limits\n"
+                f"  - {n_failed} failed fits"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"Failed to export pixel table:\n{str(e)}"
+            )
+    
+    def _open_pixel_diagnostics(self):
+        """Open interactive pixel diagnostics viewer"""
+        if self.wavelength is None:
+            QMessageBox.warning(self, "No Wavelength Data", 
+                               "Wavelength array not available for diagnostics")
+            return
+        
+        from .pixel_diagnostics import PixelDiagnosticsDialog
+        
+        fac_above_stdres = self.results.get('fac_above_stdres', 3.0)
+        
+        diag_dlg = PixelDiagnosticsDialog(
+            self,
+            self.cube_data.cube,
+            self.wavelength,
+            self.gauss_left_x,
+            self.gauss_right_x,
+            self.results,
+            fac_above_stdres=fac_above_stdres
+        )
+        diag_dlg.exec_()
+

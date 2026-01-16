@@ -2357,7 +2357,8 @@ INTERPRETATION:
             results, 
             self.cube_data, 
             self.gauss_left_x, 
-            self.gauss_right_x
+            self.gauss_right_x,
+            wavelength=self.cube_data.wavelength if hasattr(self.cube_data, 'wavelength') else None
         )
         dlg.exec_()
 
