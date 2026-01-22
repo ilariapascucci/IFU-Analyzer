@@ -786,8 +786,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     uplim_row[ix] = True  # Mark as upper limit
                     
             except Exception:
-                # Fit failed completely: compute 1σ upper limit using initial guesses
-                upper_limit_area = std_val * sigma_guess * np.sqrt(2 * np.pi) if 'sigma_guess' in locals() else np.nan
+                # Fit failed completely: compute 3σ upper limit using initial guesses
+                # Per boss spec: case (3) - fit not achieved, assign 3σ upper limit
+                upper_limit_area = 3 * std_val * sigma_guess * np.sqrt(2 * np.pi) if 'sigma_guess' in locals() else np.nan
                 
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = center_guess if 'center_guess' in locals() else np.nan
