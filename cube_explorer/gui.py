@@ -253,6 +253,7 @@ class CubeExplorer(QWidget):
         
         # Gaussian fitting buttons
         self.gauss_left_btn = QPushButton("Left")
+        self.gauss_peak_btn = QPushButton("Peak")
         self.gauss_right_btn = QPushButton("Right")
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
@@ -270,6 +271,7 @@ class CubeExplorer(QWidget):
         self.normalize_btn.setCheckable(True)
         self.set_range_btn.setCheckable(True)
         self.gauss_left_btn.setCheckable(True)
+        self.gauss_peak_btn.setCheckable(True)
         self.gauss_right_btn.setCheckable(True)
         
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
@@ -277,6 +279,7 @@ class CubeExplorer(QWidget):
         self.normalize_btn.clicked.connect(self.normalize_spectrum)
         self.set_range_btn.clicked.connect(self._activate_range_selector)
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
+        self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
         self.gauss_right_btn.clicked.connect(self._activate_gaussian_right)
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
@@ -497,6 +500,7 @@ class CubeExplorer(QWidget):
         # Add Gaussian fitting buttons
         slice_select_layout.addWidget(QLabel("Gaussian Fit:"))
         slice_select_layout.addWidget(self.gauss_left_btn)
+        slice_select_layout.addWidget(self.gauss_peak_btn)
         slice_select_layout.addWidget(self.gauss_right_btn)
         slice_select_layout.addWidget(self.gauss_fit_btn)
         slice_select_layout.addWidget(self.gauss_map_btn)
@@ -698,8 +702,9 @@ class CubeExplorer(QWidget):
         
         # Gaussian fitting state
         self.gauss_left_x = None
+        self.gauss_peak_x = None
         self.gauss_right_x = None
-        self.gauss_mode = None  # 'left' or 'right'
+        self.gauss_mode = None  # 'left', 'peak', or 'right'
         self.gauss_markers = []  # Store marker artists
         
         # Normalization state
@@ -1363,7 +1368,7 @@ class CubeExplorer(QWidget):
             return
         
         # Handle Gaussian boundary selection first (takes priority)
-        if self.gauss_mode in ['left', 'right'] and event.xdata is not None:
+        if self.gauss_mode in ['left', 'peak', 'right'] and event.xdata is not None:
             self._mark_gaussian_boundary(event.xdata)
             return
             
@@ -2157,6 +2162,7 @@ class CubeExplorer(QWidget):
         
         # Reset Gaussian fitting state
         self.gauss_left_x = None
+        self.gauss_peak_x = None
         self.gauss_right_x = None
         self.gauss_mode = None
         if hasattr(self, 'gauss_left_marker') and self.gauss_left_marker:
@@ -2393,6 +2399,16 @@ class CubeExplorer(QWidget):
         """Activate selection mode for left boundary of Gaussian fit"""
         if self.gauss_left_btn.isChecked():
             self.gauss_mode = 'left'
+            self.gauss_peak_btn.setChecked(False)
+            self.gauss_right_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+
+    def _activate_gaussian_peak(self):
+        """Activate selection mode for peak of Gaussian fit"""
+        if self.gauss_peak_btn.isChecked():
+            self.gauss_mode = 'peak'
+            self.gauss_left_btn.setChecked(False)
             self.gauss_right_btn.setChecked(False)
         else:
             self.gauss_mode = None
@@ -2402,6 +2418,7 @@ class CubeExplorer(QWidget):
         if self.gauss_right_btn.isChecked():
             self.gauss_mode = 'right'
             self.gauss_left_btn.setChecked(False)
+            self.gauss_peak_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -2417,12 +2434,27 @@ class CubeExplorer(QWidget):
                 except:
                     pass
             
-            # Draw new left marker (blue vertical line)
-            self.gauss_left_marker = ax.axvline(x_pos, color='blue', linestyle=':', linewidth=2, label='Left')
+            # Draw new left marker (green dashed, thin)
+            self.gauss_left_marker = ax.axvline(x_pos, color='green', linestyle='--', linewidth=1.5, label='Left', alpha=0.7)
             self.gauss_left_x = x_pos
             self.gauss_left_btn.setChecked(False)
             self.gauss_mode = None
             print(f"[DEBUG] Left boundary set at λ = {x_pos:.4f}")
+            
+        elif self.gauss_mode == 'peak':
+            # Clear previous peak marker if exists
+            if hasattr(self, 'gauss_peak_marker') and self.gauss_peak_marker:
+                try:
+                    self.gauss_peak_marker.remove()
+                except:
+                    pass
+            
+            # Draw new peak marker (red dotted, very thin - distinguish from left/right)
+            self.gauss_peak_marker = ax.axvline(x_pos, color='red', linestyle=':', linewidth=1.0, label='Peak', alpha=0.8)
+            self.gauss_peak_x = x_pos
+            self.gauss_peak_btn.setChecked(False)
+            self.gauss_mode = None
+            print(f"[DEBUG] Peak set at λ = {x_pos:.4f}")
             
         elif self.gauss_mode == 'right':
             # Clear previous right marker if exists
@@ -2432,8 +2464,8 @@ class CubeExplorer(QWidget):
                 except:
                     pass
             
-            # Draw new right marker (green vertical line)
-            self.gauss_right_marker = ax.axvline(x_pos, color='green', linestyle=':', linewidth=2, label='Right')
+            # Draw new right marker (purple dashed, thin)
+            self.gauss_right_marker = ax.axvline(x_pos, color='purple', linestyle='--', linewidth=1.5, label='Right', alpha=0.7)
             self.gauss_right_x = x_pos
             self.gauss_right_btn.setChecked(False)
             self.gauss_mode = None
@@ -2449,8 +2481,9 @@ class CubeExplorer(QWidget):
                 self, "Missing Boundaries",
                 "Please select both LEFT and RIGHT boundaries first.\n\n"
                 "1. Click 'Left' button, then click on spectrum\n"
-                "2. Click 'Right' button, then click on spectrum\n"
-                "3. Click 'Fit Gaussian'"
+                "2. (Optional) Click 'Peak' button, then click on peak for better fit\n"
+                "3. Click 'Right' button, then click on spectrum\n"
+                "4. Click 'Fit Gaussian'"
             )
             return
         
@@ -2478,7 +2511,8 @@ class CubeExplorer(QWidget):
         try:
             result = fit_gaussian_to_line(
                 self.gauss_left_x, self.gauss_right_x,
-                spectrum_x, spectrum_y
+                spectrum_x, spectrum_y,
+                peak_x=self.gauss_peak_x  # Pass optional peak for better initial guess
             )
             
             if not result.success:

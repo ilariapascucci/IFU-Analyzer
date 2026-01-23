@@ -221,6 +221,41 @@ def calculate_baseline(x1: float, y1: float, x2: float, y2: float,
     return baseline
 
 
+def calculate_local_baseline(x_data: np.ndarray, y_data: np.ndarray, 
+                             degree: int = 3) -> np.ndarray:
+    """
+    Calculate polynomial baseline using only the outer edges of the spectrum.
+    This avoids emission lines in the middle affecting the continuum fit.
+    
+    Args:
+        x_data: Wavelength array
+        y_data: Flux array
+        degree: Polynomial degree (1=linear, 2=quadratic, 3=cubic)
+    
+    Returns:
+        baseline: Polynomial baseline evaluated at each x_data point
+    """
+    n = len(x_data)
+    if n < 6:
+        # Too few points for edge fitting, fall back to linear
+        return y_data[0] + (y_data[-1] - y_data[0]) * (x_data - x_data[0]) / (x_data[-1] - x_data[0])
+    
+    # Use outer 20% on each side for baseline estimation (more local)
+    n_edge = max(3, n // 5)
+    left_indices = np.arange(n_edge)
+    right_indices = np.arange(n - n_edge, n)
+    edge_indices = np.concatenate([left_indices, right_indices])
+    
+    x_edges = x_data[edge_indices]
+    y_edges = y_data[edge_indices]
+    
+    # Fit polynomial to edges
+    coeffs = np.polyfit(x_edges, y_edges, degree)
+    baseline = np.polyval(coeffs, x_data)
+    
+    return baseline
+
+
 def gaussian(x: np.ndarray, amplitude: float, center: float, 
              sigma: float) -> np.ndarray:
     """
@@ -376,7 +411,8 @@ def estimate_gaussian_params(x_data: np.ndarray,
 
 def fit_gaussian_to_line(x1: float, x2: float, 
                          spectrum_x: np.ndarray, 
-                         spectrum_y: np.ndarray) -> GaussianFitResult:
+                         spectrum_y: np.ndarray,
+                         peak_x: Optional[float] = None) -> GaussianFitResult:
     """
     Fit a Gaussian to a spectral line between two selected points.
     
@@ -392,6 +428,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         x2: Right boundary wavelength
         spectrum_x: Full spectrum wavelength array
         spectrum_y: Full spectrum flux array
+        peak_x: Optional explicit peak wavelength (improves initial guess)
     
     Returns:
         GaussianFitResult object containing all fit information
@@ -422,9 +459,15 @@ def fit_gaussian_to_line(x1: float, x2: float,
     y1 = y_data[0]
     y2 = y_data[-1]
     
-    # Calculate baseline
-    baseline = calculate_baseline(x1, y1, x2, y2, x_data)
-    baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
+    # Calculate baseline: use local polynomial when peak is selected for better continuum fit
+    if peak_x is not None:
+        # When peak is selected, still use simple linear baseline for predictability
+        baseline = calculate_baseline(x1, y1, x2, y2, x_data)
+        baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
+    else:
+        # Use simple linear baseline for automatic fitting
+        baseline = calculate_baseline(x1, y1, x2, y2, x_data)
+        baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
     
     # Subtract baseline
     y_corrected = y_data - baseline
@@ -432,7 +475,25 @@ def fit_gaussian_to_line(x1: float, x2: float,
     # Noise/peak logic
     mean_val = np.nanmean(y_corrected)
     std_val = np.nanstd(y_corrected)
-    if std_val < 3 * abs(mean_val):
+    
+    # If user specified a peak, use it with robust amplitude estimation
+    if peak_x is not None:
+        center_guess = peak_x
+        # Find nearest index to peak
+        peak_idx = np.argmin(np.abs(x_data - peak_x))
+        # Use window around peak (+/- 2 points) to estimate amplitude robustly
+        window_start = max(0, peak_idx - 2)
+        window_end = min(len(y_corrected), peak_idx + 3)
+        amp_guess = np.nanmax(y_corrected[window_start:window_end])
+        # For selected peak: use NARROW sigma based on local window spacing
+        # This keeps Gaussian focused on just the selected peak, not spreading into empty space
+        if window_end - window_start > 1:
+            local_width = x_data[min(window_end-1, len(x_data)-1)] - x_data[window_start]
+            sigma_guess = local_width / 2.0  # Half of the local window width
+        else:
+            sigma_guess = (x2 - x1) / 20.0  # Fallback: very narrow
+        print(f"[DEBUG] Using user-selected peak at λ={peak_x:.4f}, amp from window={amp_guess:.4e}, sigma={sigma_guess:.4e}")
+    elif std_val < 3 * abs(mean_val):
         # Treat as noise, recalculate std using robust estimator (median absolute deviation)
         mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
         robust_std = 1.4826 * mad  # Approximate std from MAD
@@ -462,9 +523,18 @@ def fit_gaussian_to_line(x1: float, x2: float,
     # Center: must be within selected range
     # Sigma: must be positive, not larger than range
     x_range = x2 - x1
+    
+    # If peak is explicitly selected, keep Gaussian narrow and focused
+    if peak_x is not None:
+        sigma_lower = 0.0001 * x_range  # Very tight lower bound
+        sigma_upper = 0.15 * x_range  # Max 15% of range - much tighter focus on the peak
+    else:
+        sigma_lower = 0.001 * x_range
+        sigma_upper = 2 * x_range  # Default: 2x range for auto-detection
+    
     bounds = (
-        [0, x1, 0.001 * x_range],  # Lower bounds
-        [10 * np.max(y_corrected), x2, 2 * x_range]  # Upper bounds
+        [0, x1, sigma_lower],  # Lower bounds
+        [10 * np.max(y_corrected), x2, sigma_upper]  # Upper bounds
     )
     
     # Clamp initial guesses to be within bounds (prevents "x0 is infeasible" error)
@@ -678,7 +748,22 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             
             # Require at least 2 finite points to compute stats
             finite_mask = np.isfinite(y_corrected)
-            if np.count_nonzero(finite_mask) < 2:
+            n_finite = np.count_nonzero(finite_mask)
+            
+            # Case 3: All NaN pixels (outside ROI) - keep as NaN
+            if n_finite == 0:
+                # Leave as NaN (already initialized) - no data in this pixel
+                continue
+            
+            # Case 2/4: Insufficient data but not all NaN - assign upper limit
+            if n_finite < 2:
+                # Assign fac_above_stdres σ upper limit for pixels with insufficient data
+                upper_limit_area = fac_above_stdres * np.nanstd(y_data) * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                area_row[ix] = upper_limit_area
+                ctr_row[ix] = (x1 + x2) / 2
+                sig_row[ix] = x_range / 4.0
+                fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                uplim_row[ix] = True
                 continue
             
             # Noise/peak logic
@@ -692,11 +777,25 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
                     sigma_guess = sigma_for_fit
                 except Exception:
+                    # Assign fac_above_stdres σ upper limit for failed parameter estimation
+                    upper_limit_area = fac_above_stdres * std_val * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    area_row[ix] = upper_limit_area
+                    ctr_row[ix] = (x1 + x2) / 2
+                    sig_row[ix] = x_range / 4.0
+                    fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                    uplim_row[ix] = True
                     continue
             else:
                 try:
                     amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
                 except Exception:
+                    # Assign fac_above_stdres σ upper limit for failed parameter estimation
+                    upper_limit_area = fac_above_stdres * std_val * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    area_row[ix] = upper_limit_area
+                    ctr_row[ix] = (x1 + x2) / 2
+                    sig_row[ix] = x_range / 4.0
+                    fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                    uplim_row[ix] = True
                     continue
             
             # Default to 1-sigma (smaller/conservative) for upper limits
@@ -705,6 +804,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 
             # Require positive peak
             if np.max(y_corrected) <= 0:
+                # Assign fac_above_stdres σ upper limit for pixels with no positive peak
+                upper_limit_area = fac_above_stdres * std_val * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                area_row[ix] = upper_limit_area
+                ctr_row[ix] = (x1 + x2) / 2
+                sig_row[ix] = x_range / 4.0
+                fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                uplim_row[ix] = True
                 continue
 
             bounds = (
@@ -767,9 +873,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     normalized_residuals = residuals / std_val_for_norm
                     residuals_row[:, ix] = normalized_residuals.astype(np.float32)
                 else:
-                    # Failed detection threshold: compute 1σ upper limit
-                    # Upper limit = 1σ * sigma_guess * sqrt(2π)
-                    upper_limit_area = std_val * sigma_guess * np.sqrt(2 * np.pi)
+                    # Failed detection threshold: compute fac_above_stdres σ upper limit
+                    # Upper limit = fac_above_stdres σ * sigma_guess * sqrt(2π)
+                    upper_limit_area = fac_above_stdres * std_val * sigma_guess * np.sqrt(2 * np.pi)
                     
                     # If upper limit is too small, use edge/baseline values instead
                     edge_value = np.mean([np.abs(y1), np.abs(y2)])
@@ -786,9 +892,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     uplim_row[ix] = True  # Mark as upper limit
                     
             except Exception:
-                # Fit failed completely: compute 3σ upper limit using initial guesses
-                # Per boss spec: case (3) - fit not achieved, assign 3σ upper limit
-                upper_limit_area = 3 * std_val * sigma_guess * np.sqrt(2 * np.pi) if 'sigma_guess' in locals() else np.nan
+                # Fit failed completely: compute fac_above_stdres σ upper limit using initial guesses
+                # Per boss spec: case (3) - fit not achieved, assign fac_above_stdres σ upper limit
+                upper_limit_area = fac_above_stdres * std_val * sigma_guess * np.sqrt(2 * np.pi) if 'sigma_guess' in locals() else np.nan
                 
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = center_guess if 'center_guess' in locals() else np.nan
