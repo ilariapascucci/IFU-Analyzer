@@ -830,7 +830,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     p0=[amp_guess, center_guess, sigma_guess],
                     bounds=bounds,
                     ransac_thresh=2.0,  # 2-sigma threshold for outliers
-                    ransac_iters=3  # Fast: 3 iterations is enough for most cases
+                    ransac_iters=2  # Very fast: 2 iterations is enough, minimal outliers in spectral data
                 )
                 
                 amplitude, center, sigma = popt
