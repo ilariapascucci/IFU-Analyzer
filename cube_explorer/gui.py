@@ -141,6 +141,15 @@ class CubeExplorer(QWidget):
         self.normalize_btn.setChecked(False)
         self.set_range_btn.setChecked(False)
         self.active_target = None
+        
+        # Clear Doppler shifted line if it exists
+        if hasattr(self, 'shifted_line') and self.shifted_line is not None:
+            try:
+                self.shifted_line.remove()
+            except:
+                pass
+            self.shifted_line = None
+        
         print("[DEBUG] Unchecking all buttons")
 
         # --- Reset labels ---
@@ -249,6 +258,7 @@ class CubeExplorer(QWidget):
         self.set_left_btn = QPushButton("Set Left Slice")
         self.set_right_btn = QPushButton("Set Right Slice")
         self.normalize_btn = QPushButton("Normalize")
+        self.shift_btn = QPushButton("Shift")
         self.set_range_btn = QPushButton("Set Range")
         
         # Gaussian fitting buttons
@@ -277,6 +287,7 @@ class CubeExplorer(QWidget):
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
         self.normalize_btn.clicked.connect(self.normalize_spectrum)
+        self.shift_btn.clicked.connect(self.apply_doppler_shift)
         self.set_range_btn.clicked.connect(self._activate_range_selector)
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
@@ -495,6 +506,7 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.set_left_btn)
         slice_select_layout.addWidget(self.set_right_btn)
         slice_select_layout.addWidget(self.normalize_btn)
+        slice_select_layout.addWidget(self.shift_btn)
         slice_select_layout.addStretch()
         
         # Add Gaussian fitting buttons
@@ -723,6 +735,9 @@ class CubeExplorer(QWidget):
 
         self.continuum_subtracted = False  # Track if continuum is currently subtracted
         self.original_spectrum_backup = None
+        
+        # Doppler shift state
+        self.shifted_line = None  # Store shifted spectrum line artist
 
         # Keep references to spawned child windows to prevent garbage collection
         self.child_windows = []
@@ -1664,6 +1679,91 @@ class CubeExplorer(QWidget):
         self.is_normalized = False
         
         print("[DEBUG] Normalization removed successfully")
+
+    def apply_doppler_shift(self):
+        """Apply Doppler shift to spectrum based on user-provided velocity."""
+        
+        # Check if spectrum is loaded
+        if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
+            QMessageBox.warning(self, "No Spectrum", "Load a data cube first.")
+            return
+        
+        # Check if wavelength data is available
+        if self.spec_plotter.wavelength is None or len(self.spec_plotter.wavelength) == 0:
+            QMessageBox.warning(self, "No Wavelength Data", 
+                              "Wavelength data is not available for this cube.")
+            return
+        
+        # Ask user for velocity in km/s
+        velocity, ok = QInputDialog.getDouble(
+            self, 
+            "Doppler Shift",
+            "Enter systemic velocity (km/s):",
+            value=0.0,
+            decimals=2
+        )
+        
+        if not ok:
+            return
+        
+        # Constants
+        c = 299792.458  # Speed of light in km/s
+        
+        # Get current wavelength and spectrum
+        wavelength = self.spec_plotter.wavelength
+        
+        # Determine which spectrum to use (normalized or original)
+        if self.is_normalized and hasattr(self, 'continuum'):
+            current_spectrum = self.original_spectrum / self.continuum
+        else:
+            current_spectrum = self.original_spectrum
+        
+        # Calculate shifted wavelength using Doppler formula
+        # (lambda - lambda_0) / lambda_0 = v/c
+        # lambda = lambda_0 * (1 + v/c)
+        # lambda_0 = lambda / (1 + v/c)
+        shifted_wavelength = wavelength / (1 + velocity / c)
+        
+        # Interpolate spectrum to shifted wavelength grid
+        # We want to show what the spectrum would look like at the rest frame
+        from scipy.interpolate import interp1d
+        
+        # Create interpolator for the current spectrum
+        # Use bounds_error=False to handle edge cases
+        interp_func = interp1d(
+            shifted_wavelength, 
+            current_spectrum,
+            kind='linear',
+            bounds_error=False,
+            fill_value=np.nan
+        )
+        
+        # Evaluate at original wavelength grid
+        shifted_spectrum = interp_func(wavelength)
+        
+        # Remove any existing shifted spectrum line
+        if hasattr(self, 'shifted_line') and self.shifted_line is not None:
+            try:
+                self.shifted_line.remove()
+            except:
+                pass
+        
+        # Plot shifted spectrum in red
+        self.shifted_line, = self.spec_plotter.ax.plot(
+            wavelength, 
+            shifted_spectrum,
+            'r-', 
+            linewidth=1.5, 
+            alpha=0.8, 
+            label=f'Shifted (v={velocity:.1f} km/s)',
+            zorder=4
+        )
+        
+        # Update legend and redraw
+        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+        self.spec_canvas.draw()
+        
+        print(f"[DEBUG] Applied Doppler shift with velocity = {velocity} km/s")
 
     def _open_colormap_dialog(self, target):
         dialog = ColorMapDialog(self)
