@@ -277,8 +277,8 @@ def gaussian(x: np.ndarray, amplitude: float, center: float,
 
 def fit_gaussian_with_ransac(x_data: np.ndarray, y_data: np.ndarray, 
                               p0: np.ndarray, bounds: Tuple, 
-                              ransac_thresh: float = 2.0,
-                              ransac_iters: int = 100) -> Tuple[np.ndarray, bool, np.ndarray]:
+                              ransac_thresh: float = 2.5,
+                              ransac_iters: int = 2) -> Tuple[np.ndarray, bool, np.ndarray]:
     """
     Fit Gaussian with RANSAC outlier rejection.
     
@@ -305,13 +305,13 @@ def fit_gaussian_with_ransac(x_data: np.ndarray, y_data: np.ndarray,
     best_inlier_count = 0
     
     try:
-        # Initial fit with all points
-        popt, pcov = curve_fit(gaussian, x_data, y_data, p0=p0, bounds=bounds, maxfev=5000)
+        # Initial fit with all points (reduced maxfev for speed)
+        popt, pcov = curve_fit(gaussian, x_data, y_data, p0=p0, bounds=bounds, maxfev=1000)
         y_fit = gaussian(x_data, *popt)
         residuals = y_data - y_fit
         residuals_std = np.std(residuals)
         
-        # Iterative outlier rejection
+        # Iterative outlier rejection (reduced iterations)
         for iteration in range(ransac_iters):
             # Identify outliers: points > thresh * sigma from fit
             if residuals_std > 0:
@@ -335,10 +335,10 @@ def fit_gaussian_with_ransac(x_data: np.ndarray, y_data: np.ndarray,
             if n_inliers < 4:
                 break
             
-            # Refit using only inliers
+            # Refit using only inliers (reduced maxfev for speed)
             try:
                 popt, pcov = curve_fit(gaussian, x_data[inlier_mask], y_data[inlier_mask], 
-                                      p0=popt, bounds=bounds, maxfev=5000)
+                                      p0=popt, bounds=bounds, maxfev=800)
                 y_fit = gaussian(x_data, *popt)
                 residuals = y_data - y_fit
                 residuals_std = np.std(residuals[inlier_mask])
