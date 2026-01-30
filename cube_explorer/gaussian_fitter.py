@@ -758,7 +758,10 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             # Case 2/4: Insufficient data but not all NaN - assign upper limit
             if n_finite < 2:
                 # Assign fac_above_stdres σ upper limit for pixels with insufficient data
-                upper_limit_area = fac_above_stdres * np.nanstd(y_data) * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                std_temp = np.nanstd(y_data)
+                upper_limit_amplitude = fac_above_stdres * std_temp
+                upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                amp_row[ix] = upper_limit_amplitude
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = (x1 + x2) / 2
                 sig_row[ix] = x_range / 4.0
@@ -778,7 +781,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     sigma_guess = sigma_for_fit
                 except Exception:
                     # Assign fac_above_stdres σ upper limit for failed parameter estimation
-                    upper_limit_area = fac_above_stdres * std_val * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    upper_limit_amplitude = fac_above_stdres * std_val
+                    upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    amp_row[ix] = upper_limit_amplitude
                     area_row[ix] = upper_limit_area
                     ctr_row[ix] = (x1 + x2) / 2
                     sig_row[ix] = x_range / 4.0
@@ -790,7 +795,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
                 except Exception:
                     # Assign fac_above_stdres σ upper limit for failed parameter estimation
-                    upper_limit_area = fac_above_stdres * std_val * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    upper_limit_amplitude = fac_above_stdres * std_val
+                    upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    amp_row[ix] = upper_limit_amplitude
                     area_row[ix] = upper_limit_area
                     ctr_row[ix] = (x1 + x2) / 2
                     sig_row[ix] = x_range / 4.0
@@ -805,7 +812,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             # Require positive peak
             if np.max(y_corrected) <= 0:
                 # Assign fac_above_stdres σ upper limit for pixels with no positive peak
-                upper_limit_area = fac_above_stdres * std_val * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                upper_limit_amplitude = fac_above_stdres * std_val
+                upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                amp_row[ix] = upper_limit_amplitude
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = (x1 + x2) / 2
                 sig_row[ix] = x_range / 4.0
@@ -875,14 +884,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 else:
                     # Failed detection threshold: compute fac_above_stdres σ upper limit
                     # Upper limit = fac_above_stdres σ * sigma_guess * sqrt(2π)
-                    upper_limit_area = fac_above_stdres * std_val * sigma_guess * np.sqrt(2 * np.pi)
+                    upper_limit_amplitude = fac_above_stdres * std_val
+                    upper_limit_area = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
                     
                     # If upper limit is too small, use edge/baseline values instead
                     edge_value = np.mean([np.abs(y1), np.abs(y2)])
                     if upper_limit_area < 0.1 * edge_value or np.isnan(upper_limit_area):
                         upper_limit_area = edge_value
                     
-                    amp_row[ix] = np.nan  # or could store std_val as nominal amplitude
+                    amp_row[ix] = upper_limit_amplitude
                     ctr_row[ix] = center_guess  # Use guessed center
                     sig_row[ix] = sigma_guess  # Use guessed width
                     fwhm_row[ix] = 2.355 * sigma_guess
@@ -894,8 +904,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             except Exception:
                 # Fit failed completely: compute fac_above_stdres σ upper limit using initial guesses
                 # Per boss spec: case (3) - fit not achieved, assign fac_above_stdres σ upper limit
-                upper_limit_area = fac_above_stdres * std_val * sigma_guess * np.sqrt(2 * np.pi) if 'sigma_guess' in locals() else np.nan
+                if 'sigma_guess' in locals():
+                    upper_limit_amplitude = fac_above_stdres * std_val
+                    upper_limit_area = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
+                else:
+                    upper_limit_amplitude = np.nan
+                    upper_limit_area = np.nan
                 
+                amp_row[ix] = upper_limit_amplitude
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = center_guess if 'center_guess' in locals() else np.nan
                 sig_row[ix] = sigma_guess if 'sigma_guess' in locals() else np.nan
