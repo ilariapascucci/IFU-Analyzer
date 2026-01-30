@@ -104,6 +104,7 @@ class PixelDiagnosticsDialog(QDialog):
         # Info label
         self.info_label = QLabel()
         self.info_label.setStyleSheet("font-family: monospace; font-size: 10px;")
+        self.info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         layout.addWidget(self.info_label)
         
         # Create matplotlib figure with subplots
@@ -235,9 +236,17 @@ class PixelDiagnosticsDialog(QDialog):
         self.fig.tight_layout()
         self.canvas.draw()
         
+        # Compute local R² from baseline-corrected data for this pixel
+        if success and np.any(np.isfinite(y_fit)):
+            ss_res = np.nansum((y_corrected - y_fit) ** 2)
+            ss_tot = np.nansum((y_corrected - np.nanmean(y_corrected)) ** 2)
+            r_squared_local = 1 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
+        else:
+            r_squared_local = np.nan
+
         # Update info label with fit details
         info_text = self._format_fit_info(row, col, amplitude, center, sigma, 
-                                         area, r_squared, success, is_detection, 
+                                         area, r_squared_local, success, is_detection, 
                                          is_upper_limit, y_data, y_corrected, 
                                          residuals)
         self.info_label.setText(info_text)

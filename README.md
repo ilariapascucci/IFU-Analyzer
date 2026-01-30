@@ -234,6 +234,8 @@ Common issues and solutions:
 - **Week 7:** Added scaling options (Log, Power), colormap customization
 - **Week 8:** Gaussian fitting implementation and maps (single-pixel and full-cube)
 - **Week 9:** Improved fitting optimization
+- **Week 10:** Pixel by pixel fit
+- **Week 11:** Systemic velocity shifting
 
 ## Known Limitations
 
