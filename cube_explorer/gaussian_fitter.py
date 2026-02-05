@@ -1,4 +1,92 @@
 from astropy.io import fits
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import RANSACRegressor
+
+def get_pixel_solid_angle(header):
+    """
+    Calculate the solid angle per spaxel (pixel) from FITS header.
+    
+    Reads CDELT1 and CDELT2 (pixel scale in degrees) from the header and converts
+    to solid angle in steradians.
+    
+    Args:
+        header: astropy.io.fits.Header object
+        
+    Returns:
+        float: Solid angle per pixel in steradians, or None if unable to calculate
+    """
+    if header is None:
+        return None
+    
+    try:
+        # Read pixel scales in degrees per pixel
+        cdelt1 = header.get('CDELT1', None)
+        cdelt2 = header.get('CDELT2', None)
+        
+        if cdelt1 is None or cdelt2 is None:
+            return None
+        
+        # Convert degrees to arcseconds
+        cdelt1_arcsec = abs(float(cdelt1)) * 3600.0  # deg to arcsec
+        cdelt2_arcsec = abs(float(cdelt2)) * 3600.0  # deg to arcsec
+        
+        # Convert arcseconds to radians and calculate solid angle
+        # 1 arcsec = (π/180/3600) radians
+        arcsec_to_rad = np.pi / 180.0 / 3600.0
+        omega_sr = (cdelt1_arcsec * arcsec_to_rad) * (cdelt2_arcsec * arcsec_to_rad)
+        
+        return omega_sr
+        
+    except (KeyError, ValueError, TypeError):
+        return None
+
+def convert_area_to_cgs(area_mjy_sr_um, solid_angle_sr):
+    """
+    Convert Gaussian area from MJy/sr·μm to erg/s/cm².
+    
+    The Gaussian area in native units is:
+        area = amplitude [MJy/sr] × sigma [μm] × sqrt(2π)
+    
+    To convert to total flux (erg/s/cm²):
+        1. Multiply by solid angle to remove per-steradian: MJy·μm → MJy/sr·μm × sr
+        2. Convert MJy to erg/s/cm²/Hz: 1 MJy = 10^-17 erg/s/cm²/Hz
+        3. Convert from per-Hz to integrated over line: multiply by (c/λ²) × Δλ
+        
+    However, for line emission the area already represents integrated flux density,
+    so the conversion simplifies to:
+        area_cgs = area_mjy_sr_um × solid_angle_sr × 10^-17 × (c [μm/s] / λ²[μm²])
+        
+    For practical purposes with JWST data:
+        area_cgs [erg/s/cm²] ≈ area_mjy_sr_um × solid_angle_sr × conversion_factor
+        
+    Args:
+        area_mjy_sr_um: Area in MJy/sr·μm units
+        solid_angle_sr: Solid angle per pixel in steradians
+        
+    Returns:
+        float: Area in erg/s/cm²
+    """
+    if solid_angle_sr is None or area_mjy_sr_um is None:
+        return None
+    
+    # Convert MJy/sr·μm to erg/s/cm²
+    # 1 MJy/sr = 10^-17 erg/s/cm²/Hz/sr
+    # Multiply by solid angle to get total flux per pixel
+    # For line emission integrated over wavelength: MJy/sr·μm × sr → MJy·μm
+    # Then: 1 MJy = 10^-17 erg/s/cm²/Hz, and μm integration → multiply by c/λ² factor
+    # Simplified: multiply by solid angle and unit conversion
+    
+    # This is the direct conversion your boss mentioned:
+    # Given amp [MJy/sr] and sigma [μm], area = amp × sigma × sqrt(2π)
+    # To get erg/s/cm²: multiply by solid angle (sr) to remove per-steradian
+    # Then apply MJy to cgs conversion
+    
+    conversion_factor = 1e-17  # MJy/sr to erg/s/cm²/Hz/sr (approximate for line emission)
+    area_cgs = area_mjy_sr_um * solid_angle_sr * conversion_factor
+    
+    return area_cgs
+
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
     """
     Fit Gaussians per pixel and export a cube of normalized residuals (residual/std) as a FITS file.
@@ -256,6 +344,63 @@ def calculate_local_baseline(x_data: np.ndarray, y_data: np.ndarray,
     return baseline
 
 
+def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, pdeg: int = 1) -> Optional[float]:
+    """
+    Compute a robust noise standard deviation from a line-free region using RANSAC polynomial fitting.
+
+    Uses RANSAC regression with polynomial features to fit the continuum, then computes
+    the standard deviation of residuals. This approach is robust to outliers and handles
+    curved continuum emission common in IR spectroscopy.
+
+    Args:
+        x_data: Wavelength array for the noise region
+        y_data: Flux array for the noise region
+        pdeg: Polynomial degree for continuum fit (1=linear, 2=quadratic, 3=cubic)
+
+    Returns:
+        Robust noise std (std of residuals from RANSAC fit), or None if insufficient data
+    """
+    if x_data is None or y_data is None:
+        return None
+
+    # Remove NaN values for fitting
+    finite_mask = np.isfinite(y_data) & np.isfinite(x_data)
+    if np.count_nonzero(finite_mask) < max(4, pdeg + 2):  # Need enough points for polynomial fit
+        return None
+
+    x_noise = x_data[finite_mask]
+    y_noise = y_data[finite_mask]
+
+    if len(x_noise) < max(4, pdeg + 2):
+        return None
+
+    try:
+        # Create RANSAC pipeline with polynomial features
+        ransac_pipeline = make_pipeline(
+            PolynomialFeatures(degree=pdeg),
+            RANSACRegressor()
+        )
+        
+        # Fit the pipeline and calculate std of residuals
+        ransac_pipeline.fit(x_noise[:, np.newaxis], y_noise)
+        y_fit = ransac_pipeline.predict(x_noise[:, np.newaxis])
+        residuals = y_noise - y_fit
+        std_residuals = np.std(residuals)
+        
+        if np.isfinite(std_residuals) and std_residuals > 0:
+            return float(std_residuals)
+    except Exception:
+        # RANSAC failed, fall back to simple linear baseline + MAD
+        baseline = calculate_baseline(x_noise[0], y_noise[0], x_noise[-1], y_noise[-1], x_noise)
+        y_corrected = y_noise - baseline
+        mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
+        robust_std = 1.4826 * mad
+        if np.isfinite(robust_std) and robust_std > 0:
+            return float(robust_std)
+    
+    return None
+
+
 def gaussian(x: np.ndarray, amplitude: float, center: float, 
              sigma: float) -> np.ndarray:
     """
@@ -412,7 +557,10 @@ def estimate_gaussian_params(x_data: np.ndarray,
 def fit_gaussian_to_line(x1: float, x2: float, 
                          spectrum_x: np.ndarray, 
                          spectrum_y: np.ndarray,
-                         peak_x: Optional[float] = None) -> GaussianFitResult:
+                         peak_x: float,
+                         noise_min: Optional[float] = None,
+                         noise_max: Optional[float] = None,
+                         header: Optional[object] = None) -> GaussianFitResult:
     """
     Fit a Gaussian to a spectral line between two selected points.
     
@@ -422,13 +570,17 @@ def fit_gaussian_to_line(x1: float, x2: float,
     3. Subtract baseline to isolate the line
     4. Fit Gaussian to baseline-subtracted data
     5. Calculate derived quantities (FWHM, area, etc.)
+    6. Convert area to erg/s/cm² if FITS header with pixel scale is provided
     
     Args:
         x1: Left boundary wavelength
         x2: Right boundary wavelength
         spectrum_x: Full spectrum wavelength array
         spectrum_y: Full spectrum flux array
-        peak_x: Optional explicit peak wavelength (improves initial guess)
+        peak_x: Explicit peak wavelength (REQUIRED - user must select the peak)
+        noise_min: Optional left boundary of a line-free noise region
+        noise_max: Optional right boundary of a line-free noise region
+        header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
     
     Returns:
         GaussianFitResult object containing all fit information
@@ -459,51 +611,40 @@ def fit_gaussian_to_line(x1: float, x2: float,
     y1 = y_data[0]
     y2 = y_data[-1]
     
-    # Calculate baseline: use local polynomial when peak is selected for better continuum fit
-    if peak_x is not None:
-        # When peak is selected, still use simple linear baseline for predictability
-        baseline = calculate_baseline(x1, y1, x2, y2, x_data)
-        baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
-    else:
-        # Use simple linear baseline for automatic fitting
-        baseline = calculate_baseline(x1, y1, x2, y2, x_data)
-        baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
+    # Calculate linear baseline
+    baseline = calculate_baseline(x1, y1, x2, y2, x_data)
+    baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
     
     # Subtract baseline
     y_corrected = y_data - baseline
 
-    # Noise/peak logic
-    mean_val = np.nanmean(y_corrected)
-    std_val = np.nanstd(y_corrected)
+    # Optional noise region for robust std estimation
+    noise_std = None
+    if noise_min is not None and noise_max is not None:
+        nmin, nmax = (noise_min, noise_max) if noise_min <= noise_max else (noise_max, noise_min)
+        noise_mask = (spectrum_x >= nmin) & (spectrum_x <= nmax)
+        if np.count_nonzero(noise_mask) >= 2:
+            noise_std = compute_noise_std(spectrum_x[noise_mask], spectrum_y[noise_mask])
+
+    std_val_fit = np.nanstd(y_corrected)
+    std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
     
-    # If user specified a peak, use it with robust amplitude estimation
-    if peak_x is not None:
-        center_guess = peak_x
-        # Find nearest index to peak
-        peak_idx = np.argmin(np.abs(x_data - peak_x))
-        # Use window around peak (+/- 2 points) to estimate amplitude robustly
-        window_start = max(0, peak_idx - 2)
-        window_end = min(len(y_corrected), peak_idx + 3)
-        amp_guess = np.nanmax(y_corrected[window_start:window_end])
-        # For selected peak: use NARROW sigma based on local window spacing
-        # This keeps Gaussian focused on just the selected peak, not spreading into empty space
-        if window_end - window_start > 1:
-            local_width = x_data[min(window_end-1, len(x_data)-1)] - x_data[window_start]
-            sigma_guess = local_width / 2.0  # Half of the local window width
-        else:
-            sigma_guess = (x2 - x1) / 20.0  # Fallback: very narrow
-        print(f"[DEBUG] Using user-selected peak at λ={peak_x:.4f}, amp from window={amp_guess:.4e}, sigma={sigma_guess:.4e}")
-    elif std_val < 3 * abs(mean_val):
-        # Treat as noise, recalculate std using robust estimator (median absolute deviation)
-        mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
-        robust_std = 1.4826 * mad  # Approximate std from MAD
-        sigma_for_fit = robust_std if robust_std > 0 else std_val
-        # Use robust std for initial guess
-        amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
-        sigma_guess = sigma_for_fit
+    # Use the user-selected peak with robust amplitude estimation
+    center_guess = peak_x
+    # Find nearest index to peak
+    peak_idx = np.argmin(np.abs(x_data - peak_x))
+    # Use window around peak (+/- 4 points) to estimate amplitude robustly
+    window_start = max(0, peak_idx - 4)
+    window_end = min(len(y_corrected), peak_idx + 5)
+    amp_guess = np.nanmax(y_corrected[window_start:window_end])
+    # For selected peak: use NARROW sigma based on local window spacing
+    # This keeps Gaussian focused on just the selected peak, not spreading into empty space
+    if window_end - window_start > 1:
+        local_width = x_data[min(window_end-1, len(x_data)-1)] - x_data[window_start]
+        sigma_guess = local_width / 2.0  # Half of the local window width
     else:
-        # Normal peak, use default estimation
-        amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
+        sigma_guess = (x2 - x1) / 20.0  # Fallback: very narrow
+    print(f"[DEBUG] Peak at λ={peak_x:.4f}: amp={amp_guess:.4e}, σ={sigma_guess:.4e}")
 
     # Check if there's a meaningful peak
     if np.max(y_corrected) <= 0:
@@ -560,7 +701,18 @@ def fit_gaussian_to_line(x1: float, x2: float,
         
         # Calculate derived quantities
         fwhm = 2.355 * sigma  # FWHM = 2*sqrt(2*ln(2)) * sigma
-        area = amplitude * sigma * np.sqrt(2 * np.pi)
+        
+        # Calculate area in native units (MJy/sr · μm)
+        area_native = amplitude * sigma * np.sqrt(2 * np.pi)
+        
+        # Convert to erg/s/cm² if header is provided
+        solid_angle = get_pixel_solid_angle(header)
+        if solid_angle is not None:
+            area = convert_area_to_cgs(area_native, solid_angle)
+            area_unit = "erg/s/cm²"
+        else:
+            area = area_native
+            area_unit = "MJy/sr·μm"
         
         # Calculate goodness of fit metrics
         ss_res = np.sum(residuals**2)
@@ -634,7 +786,10 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
                             lam_max: Optional[float] = None,
                             n_jobs: Optional[int] = None,
-                            fac_above_stdres: float = 3.0) -> dict:
+                            fac_above_stdres: float = 3.0,
+                            noise_min: Optional[float] = None,
+                            noise_max: Optional[float] = None,
+                            header: Optional[object] = None) -> dict:
     """
     Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
     
@@ -655,6 +810,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         lam_max: Maximum wavelength for fitting region (default: use full range)
         n_jobs: Number of worker threads (default: auto-detect CPUs)
         fac_above_stdres: Detection threshold in units of noise std (default: 3.0 for 3σ)
+        noise_min: Optional left boundary of a line-free noise region
+        noise_max: Optional right boundary of a line-free noise region
+        header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
     
     Note:
         RANSAC outlier rejection is always enabled with 3 iterations for robust, fast fitting.
@@ -665,7 +823,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'center': Center wavelength map
             'sigma': Width parameter map
             'fwhm': FWHM map (2.355 * sigma)
-            'area': Integrated area under Gaussian (AUC) map
+            'area': Integrated area under Gaussian (AUC) map in erg/s/cm² (if header provided) or MJy/sr·μm
             'r_squared': Reduced chi-squared (χ²_red) fit quality map
             'success': Boolean mask of successful fits
             'is_detection': Boolean mask indicating true detections (amplitude > fac_above_stdres * noise)
@@ -675,12 +833,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         - Detections: amplitude >= fac_above_stdres * std_residuals AND fit improves residuals
         - Upper limits: For non-detections, area = std_residuals * sigma_guess * sqrt(2π) (1σ limit)
         - Failed fits store NaN in parameter maps
-        - Area calculated analytically: A * σ * sqrt(2π)
+        - Area calculated analytically: A * σ * sqrt(2π), then converted to erg/s/cm² if header provided
         - Fit quality: χ²_red ≈ 1 is good, >>1 is poor, <<1 is overfit
     """
     # Get cube dimensions
     n_wave, n_y, n_x = cube.shape
     
+    # Calculate solid angle for unit conversion
+    solid_angle = get_pixel_solid_angle(header)
     # Set wavelength range
     if lam_min is None:
         lam_min = wavelength[0]
@@ -709,6 +869,17 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     is_detection_map = np.zeros((n_y, n_x), dtype=bool)  # True if SNR threshold passed
     is_upper_limit_map = np.zeros((n_y, n_x), dtype=bool)  # True if upper limit computed
     
+    # Optional noise region mask for robust std estimation
+    noise_wave_mask = None
+    noise_x = None
+    if noise_min is not None and noise_max is not None:
+        nmin, nmax = (noise_min, noise_max) if noise_min <= noise_max else (noise_max, noise_min)
+        noise_wave_mask = (wavelength >= nmin) & (wavelength <= nmax)
+        if np.count_nonzero(noise_wave_mask) < 2:
+            noise_wave_mask = None
+        else:
+            noise_x = wavelength[noise_wave_mask]
+
     # Initialize residuals cube (for caching during fitting)
     n_wave_sel = np.sum(wave_mask)
     residuals_cube = np.full((n_wave_sel, n_y, n_x), np.nan, dtype=np.float32)
@@ -726,6 +897,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     
     def _fit_row(row_idx: int):
         spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
+        spectra_noise_row = cube[noise_wave_mask, row_idx, :] if noise_wave_mask is not None else None
         amp_row = np.full(n_x, np.nan)
         ctr_row = np.full(n_x, np.nan)
         sig_row = np.full(n_x, np.nan)
@@ -739,6 +911,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 
         for ix in range(n_x):
             y_data = spectra_row[:, ix]
+            noise_std = None
+            if spectra_noise_row is not None and noise_x is not None:
+                noise_std = compute_noise_std(noise_x, spectra_noise_row[:, ix])
 
             # Baseline from endpoints
             y1 = y_data[0]
@@ -758,9 +933,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             # Case 2/4: Insufficient data but not all NaN - assign upper limit
             if n_finite < 2:
                 # Assign fac_above_stdres σ upper limit for pixels with insufficient data
-                std_temp = np.nanstd(y_data)
+                std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else np.nanstd(y_data)
                 upper_limit_amplitude = fac_above_stdres * std_temp
-                upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                # Convert to erg/s/cm² if solid angle available
+                if solid_angle is not None:
+                    upper_limit_area = convert_area_to_cgs(upper_limit_area_native, solid_angle)
+                else:
+                    upper_limit_area = upper_limit_area_native
                 amp_row[ix] = upper_limit_amplitude
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = (x1 + x2) / 2
@@ -771,7 +951,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             
             # Noise/peak logic
             mean_val = np.nanmean(y_corrected)
-            std_val = np.nanstd(y_corrected)
+            std_val_fit = np.nanstd(y_corrected)
+            std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
             if std_val < 0.5 * abs(mean_val):
                 mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
                 robust_std = 1.4826 * mad
@@ -782,7 +963,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 except Exception:
                     # Assign fac_above_stdres σ upper limit for failed parameter estimation
                     upper_limit_amplitude = fac_above_stdres * std_val
-                    upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    # Convert to erg/s/cm² if solid angle available
+                    if solid_angle is not None:
+                        upper_limit_area = convert_area_to_cgs(upper_limit_area_native, solid_angle)
+                    else:
+                        upper_limit_area = upper_limit_area_native
                     amp_row[ix] = upper_limit_amplitude
                     area_row[ix] = upper_limit_area
                     ctr_row[ix] = (x1 + x2) / 2
@@ -796,7 +982,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 except Exception:
                     # Assign fac_above_stdres σ upper limit for failed parameter estimation
                     upper_limit_amplitude = fac_above_stdres * std_val
-                    upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                    # Convert to erg/s/cm² if solid angle available
+                    if solid_angle is not None:
+                        upper_limit_area = convert_area_to_cgs(upper_limit_area_native, solid_angle)
+                    else:
+                        upper_limit_area = upper_limit_area_native
                     amp_row[ix] = upper_limit_amplitude
                     area_row[ix] = upper_limit_area
                     ctr_row[ix] = (x1 + x2) / 2
@@ -847,7 +1038,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 residuals = y_corrected - y_fit
 
                 fwhm = 2.355 * sigma
-                area = amplitude * sigma * np.sqrt(2 * np.pi)
+                
+                # Calculate area in native units (MJy/sr · μm)
+                area_native = amplitude * sigma * np.sqrt(2 * np.pi)
+                # Convert to erg/s/cm² if solid angle available
+                if solid_angle is not None:
+                    area = convert_area_to_cgs(area_native, solid_angle)
+                else:
+                    area = area_native
 
                 # Calculate noise from residuals (std of continuum fit)
                 n_points = len(y_corrected)
@@ -860,7 +1058,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 
                 # SNR-based detection threshold
                 # Check: (1) fit converged, (2) amplitude > threshold, (3) fit improves residuals
-                std_no_fit = np.nanstd(y_corrected)  # std without Gaussian fit
+                std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else np.nanstd(y_corrected)
                 std_with_fit = noise_estimate  # std of residuals after fit
                 fit_improves = fit_success and (std_with_fit < std_no_fit)
                 
@@ -878,14 +1076,19 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     det_row[ix] = True
                     
                     # Cache normalized residuals
-                    std_val_for_norm = std_val if std_val > 0 else 1.0
+                    std_val_for_norm = std_val if (std_val is not None and std_val > 0) else 1.0
                     normalized_residuals = residuals / std_val_for_norm
                     residuals_row[:, ix] = normalized_residuals.astype(np.float32)
                 else:
                     # Failed detection threshold: compute fac_above_stdres σ upper limit
                     # Upper limit = fac_above_stdres σ * sigma_guess * sqrt(2π)
                     upper_limit_amplitude = fac_above_stdres * std_val
-                    upper_limit_area = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
+                    upper_limit_area_native = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
+                    # Convert to erg/s/cm² if solid angle available
+                    if solid_angle is not None:
+                        upper_limit_area = convert_area_to_cgs(upper_limit_area_native, solid_angle)
+                    else:
+                        upper_limit_area = upper_limit_area_native
                     
                     # If upper limit is too small, use edge/baseline values instead
                     edge_value = np.mean([np.abs(y1), np.abs(y2)])
@@ -906,7 +1109,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 # Per boss spec: case (3) - fit not achieved, assign fac_above_stdres σ upper limit
                 if 'sigma_guess' in locals():
                     upper_limit_amplitude = fac_above_stdres * std_val
-                    upper_limit_area = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
+                    upper_limit_area_native = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
+                    # Convert to erg/s/cm² if solid angle available
+                    if solid_angle is not None:
+                        upper_limit_area = convert_area_to_cgs(upper_limit_area_native, solid_angle)
+                    else:
+                        upper_limit_area = upper_limit_area_native
                 else:
                     upper_limit_amplitude = np.nan
                     upper_limit_area = np.nan

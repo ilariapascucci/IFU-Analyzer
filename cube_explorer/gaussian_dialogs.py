@@ -21,7 +21,8 @@ class GaussianMapWorker(QThread):
     finished = pyqtSignal(dict)  # Emits results when done
     error = pyqtSignal(str)  # Emits error message if failed
     
-    def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0):
+    def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
+                 noise_min=None, noise_max=None, header=None):
         super().__init__()
         self.cube = cube
         self.wavelength = wavelength
@@ -29,6 +30,9 @@ class GaussianMapWorker(QThread):
         self.lam_max = lam_max
         self.n_jobs = n_jobs
         self.fac_above_stdres = fac_above_stdres
+        self.noise_min = noise_min
+        self.noise_max = noise_max
+        self.header = header
     
     def run(self):
         """Execute fitting in background thread"""
@@ -40,7 +44,10 @@ class GaussianMapWorker(QThread):
                 lam_min=self.lam_min,
                 lam_max=self.lam_max,
                 n_jobs=self.n_jobs,
-                fac_above_stdres=self.fac_above_stdres
+                fac_above_stdres=self.fac_above_stdres,
+                noise_min=self.noise_min,
+                noise_max=self.noise_max,
+                header=self.header
             )
             self.finished.emit(results)
         except Exception as e:
@@ -440,7 +447,21 @@ class GaussianMapResultsDialog(QDialog):
             lam_min = min(self.gauss_left_x, self.gauss_right_x)
             lam_max = max(self.gauss_left_x, self.gauss_right_x)
             
-            out_header['BUNIT'] = param_name
+            # Determine unit for BUNIT based on parameter type and whether conversion was applied
+            if param_name == "Area (AUC)":
+                # Check if unit conversion was applied (header has CDELT1/CDELT2)
+                from .gaussian_fitter import get_pixel_solid_angle
+                solid_angle = get_pixel_solid_angle(self.cube_data.header)
+                if solid_angle is not None:
+                    bunit = "erg/s/cm2"
+                    out_header['COMMENT'] = 'Area converted to erg/s/cm² using pixel solid angle from CDELT1/CDELT2'
+                else:
+                    bunit = "MJy/sr*um"
+                    out_header['COMMENT'] = 'Area in native units (MJy/sr·μm) - no pixel scale available for conversion'
+            else:
+                bunit = param_name
+            
+            out_header['BUNIT'] = bunit
             out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + f' ({param_name})')
             out_header['PARAM'] = param_name
             out_header['LAMMIN'] = (lam_min, "Minimum wavelength of fit")

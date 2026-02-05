@@ -265,6 +265,8 @@ class CubeExplorer(QWidget):
         self.gauss_left_btn = QPushButton("Left")
         self.gauss_peak_btn = QPushButton("Peak")
         self.gauss_right_btn = QPushButton("Right")
+        self.gauss_noise_left_btn = QPushButton("Noise L")
+        self.gauss_noise_right_btn = QPushButton("Noise R")
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
         
@@ -283,6 +285,8 @@ class CubeExplorer(QWidget):
         self.gauss_left_btn.setCheckable(True)
         self.gauss_peak_btn.setCheckable(True)
         self.gauss_right_btn.setCheckable(True)
+        self.gauss_noise_left_btn.setCheckable(True)
+        self.gauss_noise_right_btn.setCheckable(True)
         
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
@@ -292,9 +296,13 @@ class CubeExplorer(QWidget):
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
         self.gauss_right_btn.clicked.connect(self._activate_gaussian_right)
+        self.gauss_noise_left_btn.clicked.connect(self._activate_gaussian_noise_left)
+        self.gauss_noise_right_btn.clicked.connect(self._activate_gaussian_noise_right)
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
+        self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
+        self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
         self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
         self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
         self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
@@ -514,6 +522,9 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.gauss_left_btn)
         slice_select_layout.addWidget(self.gauss_peak_btn)
         slice_select_layout.addWidget(self.gauss_right_btn)
+        slice_select_layout.addWidget(QLabel("Noise:"))
+        slice_select_layout.addWidget(self.gauss_noise_left_btn)
+        slice_select_layout.addWidget(self.gauss_noise_right_btn)
         slice_select_layout.addWidget(self.gauss_fit_btn)
         slice_select_layout.addWidget(self.gauss_map_btn)
         slice_select_layout.addStretch()
@@ -716,13 +727,17 @@ class CubeExplorer(QWidget):
         self.gauss_left_x = None
         self.gauss_peak_x = None
         self.gauss_right_x = None
-        self.gauss_mode = None  # 'left', 'peak', or 'right'
+        self.gauss_noise_left_x = None
+        self.gauss_noise_right_x = None
+        self.gauss_mode = None  # 'left', 'peak', 'right', 'noise_left', or 'noise_right'
         self.gauss_markers = []  # Store marker artists
         
         # Gaussian fitting cache - avoid refitting if wavelength range hasn't changed
         self.gauss_cache = None  # Stores results from last fit
         self.gauss_cache_lam_min = None
         self.gauss_cache_lam_max = None
+        self.gauss_cache_noise_min = None
+        self.gauss_cache_noise_max = None
         
         # Normalization state
         self.is_normalized = False
@@ -1388,7 +1403,7 @@ class CubeExplorer(QWidget):
             return
         
         # Handle Gaussian boundary selection first (takes priority)
-        if self.gauss_mode in ['left', 'peak', 'right'] and event.xdata is not None:
+        if self.gauss_mode in ['left', 'peak', 'right', 'noise_left', 'noise_right'] and event.xdata is not None:
             self._mark_gaussian_boundary(event.xdata)
             return
             
@@ -2269,6 +2284,8 @@ class CubeExplorer(QWidget):
         self.gauss_left_x = None
         self.gauss_peak_x = None
         self.gauss_right_x = None
+        self.gauss_noise_left_x = None
+        self.gauss_noise_right_x = None
         self.gauss_mode = None
         if hasattr(self, 'gauss_left_marker') and self.gauss_left_marker:
             try:
@@ -2280,8 +2297,20 @@ class CubeExplorer(QWidget):
                 self.gauss_right_marker.remove()
             except:
                 pass
+        if hasattr(self, 'gauss_noise_left_marker') and self.gauss_noise_left_marker:
+            try:
+                self.gauss_noise_left_marker.remove()
+            except:
+                pass
+        if hasattr(self, 'gauss_noise_right_marker') and self.gauss_noise_right_marker:
+            try:
+                self.gauss_noise_right_marker.remove()
+            except:
+                pass
         self.gauss_left_marker = None
         self.gauss_right_marker = None
+        self.gauss_noise_left_marker = None
+        self.gauss_noise_right_marker = None
         
         # Reset normalization
         if hasattr(self, 'is_normalized') and self.is_normalized:
@@ -2506,6 +2535,8 @@ class CubeExplorer(QWidget):
             self.gauss_mode = 'left'
             self.gauss_peak_btn.setChecked(False)
             self.gauss_right_btn.setChecked(False)
+            self.gauss_noise_left_btn.setChecked(False)
+            self.gauss_noise_right_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -2515,6 +2546,8 @@ class CubeExplorer(QWidget):
             self.gauss_mode = 'peak'
             self.gauss_left_btn.setChecked(False)
             self.gauss_right_btn.setChecked(False)
+            self.gauss_noise_left_btn.setChecked(False)
+            self.gauss_noise_right_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -2524,6 +2557,30 @@ class CubeExplorer(QWidget):
             self.gauss_mode = 'right'
             self.gauss_left_btn.setChecked(False)
             self.gauss_peak_btn.setChecked(False)
+            self.gauss_noise_left_btn.setChecked(False)
+            self.gauss_noise_right_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+
+    def _activate_gaussian_noise_left(self):
+        """Activate selection mode for left boundary of noise region"""
+        if self.gauss_noise_left_btn.isChecked():
+            self.gauss_mode = 'noise_left'
+            self.gauss_left_btn.setChecked(False)
+            self.gauss_peak_btn.setChecked(False)
+            self.gauss_right_btn.setChecked(False)
+            self.gauss_noise_right_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+
+    def _activate_gaussian_noise_right(self):
+        """Activate selection mode for right boundary of noise region"""
+        if self.gauss_noise_right_btn.isChecked():
+            self.gauss_mode = 'noise_right'
+            self.gauss_left_btn.setChecked(False)
+            self.gauss_peak_btn.setChecked(False)
+            self.gauss_right_btn.setChecked(False)
+            self.gauss_noise_left_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -2575,6 +2632,36 @@ class CubeExplorer(QWidget):
             self.gauss_right_btn.setChecked(False)
             self.gauss_mode = None
             print(f"[DEBUG] Right boundary set at λ = {x_pos:.4f}")
+
+        elif self.gauss_mode == 'noise_left':
+            # Clear previous noise-left marker if exists
+            if hasattr(self, 'gauss_noise_left_marker') and self.gauss_noise_left_marker:
+                try:
+                    self.gauss_noise_left_marker.remove()
+                except:
+                    pass
+
+            # Draw new noise-left marker (orange dashed, thin)
+            self.gauss_noise_left_marker = ax.axvline(x_pos, color='orange', linestyle='--', linewidth=1.3, label='Noise L', alpha=0.7)
+            self.gauss_noise_left_x = x_pos
+            self.gauss_noise_left_btn.setChecked(False)
+            self.gauss_mode = None
+            print(f"[DEBUG] Noise left boundary set at λ = {x_pos:.4f}")
+
+        elif self.gauss_mode == 'noise_right':
+            # Clear previous noise-right marker if exists
+            if hasattr(self, 'gauss_noise_right_marker') and self.gauss_noise_right_marker:
+                try:
+                    self.gauss_noise_right_marker.remove()
+                except:
+                    pass
+
+            # Draw new noise-right marker (brown dashed, thin)
+            self.gauss_noise_right_marker = ax.axvline(x_pos, color='sienna', linestyle='--', linewidth=1.3, label='Noise R', alpha=0.7)
+            self.gauss_noise_right_x = x_pos
+            self.gauss_noise_right_btn.setChecked(False)
+            self.gauss_mode = None
+            print(f"[DEBUG] Noise right boundary set at λ = {x_pos:.4f}")
         
         self.spec_canvas.draw()
 
@@ -2584,11 +2671,23 @@ class CubeExplorer(QWidget):
         if self.gauss_left_x is None or self.gauss_right_x is None:
             QMessageBox.warning(
                 self, "Missing Boundaries",
-                "Please select both LEFT and RIGHT boundaries first.\n\n"
-                "1. Click 'Left' button, then click on spectrum\n"
-                "2. (Optional) Click 'Peak' button, then click on peak for better fit\n"
-                "3. Click 'Right' button, then click on spectrum\n"
+                "Please select LEFT, PEAK, and RIGHT boundaries in order.\n\n"
+                "1. Click 'Left' button, then click on spectrum (left edge)\n"
+                "2. Click 'Peak' button, then click on the peak (REQUIRED)\n"
+                "3. Click 'Right' button, then click on spectrum (right edge)\n"
                 "4. Click 'Fit Gaussian'"
+            )
+            return
+        
+        # REQUIRE peak selection
+        if self.gauss_peak_x is None:
+            QMessageBox.warning(
+                self, "Peak Selection Required",
+                "You MUST select a peak to fit.\n\n"
+                "Please:\n"
+                "1. Click 'Peak' button\n"
+                "2. Click on the peak in the spectrum\n"
+                "3. Then click 'Fit Gaussian'"
             )
             return
         
@@ -2612,12 +2711,50 @@ class CubeExplorer(QWidget):
             QMessageBox.warning(self, "Data Mismatch", "Wavelength and flux arrays have different lengths.")
             return
         
+        # Check how many points are in the fitting range
+        lam_min = min(self.gauss_left_x, self.gauss_right_x)
+        lam_max = max(self.gauss_left_x, self.gauss_right_x)
+        fit_mask = (spectrum_x >= lam_min) & (spectrum_x <= lam_max)
+        n_points_in_fit = np.count_nonzero(fit_mask)
+        
+        # If fitting range has < 10 points, REQUIRE noise region
+        if n_points_in_fit < 10:
+            if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
+                QMessageBox.warning(
+                    self, "Noise Region Required",
+                    f"Your fitting range contains only {n_points_in_fit} data points.\n\n"
+                    "For narrow ranges (<10 points), you MUST also define a noise region "
+                    "to get a reliable noise estimate.\n\n"
+                    "Please:\n"
+                    "1. Click 'Noise L' button, then click on spectrum (line-free region)\n"
+                    "2. Click 'Noise R' button, then click on spectrum\n"
+                    "3. Try fitting again"
+                )
+                return
+        
+        # Noise region validation
+        if (self.gauss_noise_left_x is None) ^ (self.gauss_noise_right_x is None):
+            QMessageBox.warning(
+                self, "Noise Range Incomplete",
+                "Please select BOTH Noise L and Noise R boundaries, or clear them."
+            )
+            return
+
+        noise_min = None
+        noise_max = None
+        if self.gauss_noise_left_x is not None and self.gauss_noise_right_x is not None:
+            noise_min = min(self.gauss_noise_left_x, self.gauss_noise_right_x)
+            noise_max = max(self.gauss_noise_left_x, self.gauss_noise_right_x)
+
         # Perform fit
         try:
             result = fit_gaussian_to_line(
                 self.gauss_left_x, self.gauss_right_x,
                 spectrum_x, spectrum_y,
-                peak_x=self.gauss_peak_x  # Pass optional peak for better initial guess
+                peak_x=self.gauss_peak_x,  # Pass optional peak for better initial guess
+                noise_min=noise_min,
+                noise_max=noise_max,
+                header=self.cube_data.header  # Pass header for unit conversion
             )
             
             if not result.success:
@@ -2760,10 +2897,45 @@ INTERPRETATION:
         lam_min = min(self.gauss_left_x, self.gauss_right_x)
         lam_max = max(self.gauss_left_x, self.gauss_right_x)
         
+        # Check how many points are in the fitting range
+        fit_mask = (wavelength >= lam_min) & (wavelength <= lam_max)
+        n_points_in_fit = np.count_nonzero(fit_mask)
+        
+        # If fitting range has < 10 points, REQUIRE noise region
+        if n_points_in_fit < 10:
+            if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
+                QMessageBox.warning(
+                    self, "Noise Region Required",
+                    f"Your fitting range contains only {n_points_in_fit} data points.\n\n"
+                    "For narrow ranges (<10 points), you MUST also define a noise region "
+                    "to get a reliable noise estimate.\n\n"
+                    "Please:\n"
+                    "1. Click 'Noise L' button, then click on spectrum (line-free region)\n"
+                    "2. Click 'Noise R' button, then click on spectrum\n"
+                    "3. Try fitting the map again"
+                )
+                return
+
+        # Noise region validation
+        if (self.gauss_noise_left_x is None) ^ (self.gauss_noise_right_x is None):
+            QMessageBox.warning(
+                self, "Noise Range Incomplete",
+                "Please select BOTH Noise L and Noise R boundaries, or clear them."
+            )
+            return
+
+        noise_min = None
+        noise_max = None
+        if self.gauss_noise_left_x is not None and self.gauss_noise_right_x is not None:
+            noise_min = min(self.gauss_noise_left_x, self.gauss_noise_right_x)
+            noise_max = max(self.gauss_noise_left_x, self.gauss_noise_right_x)
+        
         # Check if we have cached results for this exact wavelength range
         if (self.gauss_cache is not None and 
             self.gauss_cache_lam_min == lam_min and 
-            self.gauss_cache_lam_max == lam_max):
+            self.gauss_cache_lam_max == lam_max and
+            self.gauss_cache_noise_min == noise_min and
+            self.gauss_cache_noise_max == noise_max):
             # Use cached results - no need to refit
             QMessageBox.information(
                 self, "Using Cached Results",
@@ -2778,10 +2950,12 @@ INTERPRETATION:
         fac_above_stdres = 3.0
         
         # Confirm with user
+        noise_text = "None" if noise_min is None else f"[{noise_min:.4f}, {noise_max:.4f}]"
         reply = QMessageBox.question(
             self, "Fit Gaussian Map",
             f"This will fit Gaussians to {total_pixels:,} pixels.\n"
             f"Wavelength range: [{self.gauss_left_x:.4f}, {self.gauss_right_x:.4f}]\n"
+            f"Noise range: {noise_text}\n"
             f"Detection threshold: {fac_above_stdres:.1f}σ\n\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No
@@ -2808,7 +2982,10 @@ INTERPRETATION:
             lam_min=lam_min,
             lam_max=lam_max,
             n_jobs=8,
-            fac_above_stdres=fac_above_stdres
+            fac_above_stdres=fac_above_stdres,
+            noise_min=noise_min,
+            noise_max=noise_max,
+            header=self.cube_data.header  # Pass header for unit conversion
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)
@@ -2825,6 +3002,12 @@ INTERPRETATION:
         self.gauss_cache = results
         self.gauss_cache_lam_min = min(self.gauss_left_x, self.gauss_right_x)
         self.gauss_cache_lam_max = max(self.gauss_left_x, self.gauss_right_x)
+        if self.gauss_noise_left_x is not None and self.gauss_noise_right_x is not None:
+            self.gauss_cache_noise_min = min(self.gauss_noise_left_x, self.gauss_noise_right_x)
+            self.gauss_cache_noise_max = max(self.gauss_noise_left_x, self.gauss_noise_right_x)
+        else:
+            self.gauss_cache_noise_min = None
+            self.gauss_cache_noise_max = None
         self._show_gaussian_map_results(results)
     
     def _on_gaussian_map_error(self, error_msg):
