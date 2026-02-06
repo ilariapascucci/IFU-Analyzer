@@ -259,6 +259,7 @@ class CubeExplorer(QWidget):
         self.set_right_btn = QPushButton("Set Right Slice")
         self.normalize_btn = QPushButton("Normalize")
         self.shift_btn = QPushButton("Shift")
+        self.shift_lst_btn = QPushButton("Shift (LST)")
         self.set_range_btn = QPushButton("Set Range")
         
         # Gaussian fitting buttons
@@ -292,6 +293,7 @@ class CubeExplorer(QWidget):
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
         self.normalize_btn.clicked.connect(self.normalize_spectrum)
         self.shift_btn.clicked.connect(self.apply_doppler_shift)
+        self.shift_lst_btn.clicked.connect(self.apply_doppler_shift_lst)
         self.set_range_btn.clicked.connect(self._activate_range_selector)
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
@@ -515,6 +517,7 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.set_right_btn)
         slice_select_layout.addWidget(self.normalize_btn)
         slice_select_layout.addWidget(self.shift_btn)
+        slice_select_layout.addWidget(self.shift_lst_btn)
         slice_select_layout.addStretch()
         
         # Add Gaussian fitting buttons
@@ -1696,7 +1699,11 @@ class CubeExplorer(QWidget):
         print("[DEBUG] Normalization removed successfully")
 
     def apply_doppler_shift(self):
-        """Apply Doppler shift to spectrum based on user-provided velocity."""
+        """Apply multiplicative Doppler shift to spectrum based on user-provided velocity.
+        
+        Uses formula: lambda_0 = lambda / (1 + v/c)
+        This scales the entire wavelength array uniformly.
+        """
         
         # Check if spectrum is loaded
         if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
@@ -1712,7 +1719,7 @@ class CubeExplorer(QWidget):
         # Ask user for velocity in km/s
         velocity, ok = QInputDialog.getDouble(
             self, 
-            "Doppler Shift",
+            "Doppler Shift (Multiplicative)",
             "Enter systemic velocity (km/s):",
             value=0.0,
             decimals=2
@@ -1733,18 +1740,12 @@ class CubeExplorer(QWidget):
         else:
             current_spectrum = self.original_spectrum
         
-        # Calculate shifted wavelength using Doppler formula
-        # (lambda - lambda_0) / lambda_0 = v/c
-        # lambda = lambda_0 * (1 + v/c)
+        # MULTIPLICATIVE METHOD: Global wavelength scaling
         # lambda_0 = lambda / (1 + v/c)
         shifted_wavelength = wavelength / (1 + velocity / c)
         
         # Interpolate spectrum to shifted wavelength grid
-        # We want to show what the spectrum would look like at the rest frame
         from scipy.interpolate import interp1d
-        
-        # Create interpolator for the current spectrum
-        # Use bounds_error=False to handle edge cases
         interp_func = interp1d(
             shifted_wavelength, 
             current_spectrum,
@@ -1770,7 +1771,7 @@ class CubeExplorer(QWidget):
             'r-', 
             linewidth=1.5, 
             alpha=0.8, 
-            label=f'Shifted (v={velocity:.1f} km/s)',
+            label=f'Shifted (v={velocity:.1f} km/s, multiplicative)',
             zorder=4
         )
         
@@ -1778,7 +1779,173 @@ class CubeExplorer(QWidget):
         self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw()
         
-        print(f"[DEBUG] Applied Doppler shift with velocity = {velocity} km/s")
+        print(f"[DEBUG] Applied multiplicative Doppler shift: v={velocity} km/s")
+    
+    def apply_doppler_shift_lst(self):
+        """Apply additive Doppler shift using line list reference wavelength.
+        
+        Uses the nearest spectral line from the loaded line list to the Gaussian peak
+        as the reference wavelength (λ₀). Then applies additive shift: Δλ = λ₀ × v/c
+        """
+        
+        # Check if line list is loaded
+        if not hasattr(self, 'lst_lines') or not self.lst_lines or len(self.lst_lines) == 0:
+            QMessageBox.warning(
+                self,
+                "No Line List",
+                "Please load a line list (.LST file) first to use this method."
+            )
+            return
+        
+        # Check if Gaussian peak is set
+        if not hasattr(self, 'gauss_peak_x') or self.gauss_peak_x is None:
+            QMessageBox.warning(
+                self,
+                "No Gaussian Peak",
+                "Please fit a Gaussian peak first.\n\n"
+                "This method uses the nearest spectral line to the peak as reference."
+            )
+            return
+        
+        # Check if spectrum is loaded
+        if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
+            QMessageBox.warning(self, "No Spectrum", "Load a data cube first.")
+            return
+        
+        # Check if wavelength data is available
+        if self.spec_plotter.wavelength is None or len(self.spec_plotter.wavelength) == 0:
+            QMessageBox.warning(self, "No Wavelength Data", 
+                              "Wavelength data is not available for this cube.")
+            return
+        
+        # Ask user for velocity in km/s
+        velocity, ok = QInputDialog.getDouble(
+            self, 
+            "Doppler Shift (Line List Reference)",
+            "Enter systemic velocity (km/s):",
+            value=0.0,
+            decimals=2
+        )
+        
+        if not ok:
+            return
+        
+        # Find nearest line to Gaussian peak
+        lambda_0 = self._find_nearest_line_to_peak()
+        
+        if lambda_0 is None:
+            QMessageBox.warning(
+                self,
+                "No Reference Line",
+                "Could not find a suitable reference line near the Gaussian peak."
+            )
+            return
+        
+        # Constants
+        c = 299792.458  # Speed of light in km/s
+        
+        # Get current wavelength and spectrum
+        wavelength = self.spec_plotter.wavelength
+        
+        # Determine which spectrum to use (normalized or original)
+        if self.is_normalized and hasattr(self, 'continuum'):
+            current_spectrum = self.original_spectrum / self.continuum
+        else:
+            current_spectrum = self.original_spectrum
+        
+        # ADDITIVE METHOD: Shift based on reference line
+        # Calculate additive shift: Δλ = λ₀ × v/c
+        delta_lambda = lambda_0 * velocity / c
+        
+        # Apply uniform additive shift to entire wavelength array
+        shifted_wavelength = wavelength - delta_lambda
+        
+        # Interpolate spectrum to shifted wavelength grid
+        from scipy.interpolate import interp1d
+        interp_func = interp1d(
+            shifted_wavelength, 
+            current_spectrum,
+            kind='linear',
+            bounds_error=False,
+            fill_value=np.nan
+        )
+        
+        # Evaluate at original wavelength grid
+        shifted_spectrum = interp_func(wavelength)
+        
+        # Remove any existing shifted spectrum line
+        if hasattr(self, 'shifted_line') and self.shifted_line is not None:
+            try:
+                self.shifted_line.remove()
+            except:
+                pass
+        
+        # Plot shifted spectrum in red
+        self.shifted_line, = self.spec_plotter.ax.plot(
+            wavelength, 
+            shifted_spectrum,
+            'r-', 
+            linewidth=1.5, 
+            alpha=0.8, 
+            label=f'Shifted (v={velocity:.1f} km/s, λ₀={lambda_0:.4f} µm, additive)',
+            zorder=4
+        )
+        
+        # Update legend and redraw
+        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+        self.spec_canvas.draw()
+        
+        print(f"[DEBUG] Applied additive Doppler shift: λ₀={lambda_0:.4f} µm, v={velocity} km/s, Δλ={delta_lambda:.6f} µm")
+    
+    def _find_nearest_line_to_peak(self):
+        """Find the nearest spectral line from the line list to the Gaussian peak.
+        
+        Returns:
+            float: Wavelength of the nearest line in µm, or None if not found
+        """
+        if not hasattr(self, 'gauss_peak_x') or self.gauss_peak_x is None:
+            return None
+        
+        if not hasattr(self, 'lst_lines') or not self.lst_lines:
+            return None
+        
+        peak_wavelength = self.gauss_peak_x
+        
+        # Extract wavelengths from all lines in the list
+        line_wavelengths = []
+        for row in self.lst_lines:
+            try:
+                # Try different possible keys
+                if 'lambda_micron' in row:
+                    lam = float(row['lambda_micron'])
+                elif 'wavelength' in row:
+                    lam = float(row['wavelength'])
+                else:
+                    continue
+                line_wavelengths.append(lam)
+            except (ValueError, KeyError):
+                continue
+        
+        if not line_wavelengths:
+            return None
+        
+        # Find the closest line to the peak
+        line_wavelengths = np.array(line_wavelengths)
+        closest_idx = np.argmin(np.abs(line_wavelengths - peak_wavelength))
+        lambda_0 = line_wavelengths[closest_idx]
+        
+        # Show user which line was selected
+        distance = abs(lambda_0 - peak_wavelength)
+        QMessageBox.information(
+            self,
+            "Reference Line Selected",
+            f"Using nearest line from line list:\n\n"
+            f"Reference wavelength (λ₀): {lambda_0:.4f} µm\n"
+            f"Gaussian peak: {peak_wavelength:.4f} µm\n"
+            f"Distance: {distance:.4f} µm"
+        )
+        
+        return lambda_0
 
     def _open_colormap_dialog(self, target):
         dialog = ColorMapDialog(self)
@@ -2754,7 +2921,8 @@ class CubeExplorer(QWidget):
                 peak_x=self.gauss_peak_x,  # Pass optional peak for better initial guess
                 noise_min=noise_min,
                 noise_max=noise_max,
-                header=self.cube_data.header  # Pass header for unit conversion
+                header=self.cube_data.header,  # Pass header for unit conversion
+                wave_unit=self.cube_data.wave_unit
             )
             
             if not result.success:
@@ -2985,7 +3153,8 @@ INTERPRETATION:
             fac_above_stdres=fac_above_stdres,
             noise_min=noise_min,
             noise_max=noise_max,
-            header=self.cube_data.header  # Pass header for unit conversion
+            header=self.cube_data.header,  # Pass header for unit conversion
+            wave_unit=self.cube_data.wave_unit
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)

@@ -22,7 +22,7 @@ class GaussianMapWorker(QThread):
     error = pyqtSignal(str)  # Emits error message if failed
     
     def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
-                 noise_min=None, noise_max=None, header=None):
+                 noise_min=None, noise_max=None, header=None, wave_unit=None):
         super().__init__()
         self.cube = cube
         self.wavelength = wavelength
@@ -33,6 +33,7 @@ class GaussianMapWorker(QThread):
         self.noise_min = noise_min
         self.noise_max = noise_max
         self.header = header
+        self.wave_unit = wave_unit
     
     def run(self):
         """Execute fitting in background thread"""
@@ -47,7 +48,8 @@ class GaussianMapWorker(QThread):
                 fac_above_stdres=self.fac_above_stdres,
                 noise_min=self.noise_min,
                 noise_max=self.noise_max,
-                header=self.header
+                header=self.header,
+                wave_unit=self.wave_unit
             )
             self.finished.emit(results)
         except Exception as e:
