@@ -817,7 +817,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             noise_min: Optional[float] = None,
                             noise_max: Optional[float] = None,
                             header: Optional[object] = None,
-                            wave_unit: Optional[str] = None) -> dict:
+                            wave_unit: Optional[str] = None,
+                            lambda_0: Optional[float] = None) -> dict:
     """
     Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
     
@@ -841,6 +842,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         noise_min: Optional left boundary of a line-free noise region
         noise_max: Optional right boundary of a line-free noise region
         header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
+        lambda_0: Optional line-list reference wavelength (µm) to seed global 1D fit
     
     Note:
         RANSAC outlier rejection is always enabled with 3 iterations for robust, fast fitting.
@@ -917,6 +919,58 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     x1 = x_data[0]
     x2 = x_data[-1]
     x_range = x2 - x1
+
+    # --- Global 1D fit on total spectrum for initial estimates ---
+    global_guess = None
+    global_fit_info = None
+    try:
+        total_spectrum = np.nanmean(cube[wave_mask, :, :], axis=(1, 2))
+        finite_mask_total = np.isfinite(total_spectrum) & np.isfinite(x_data)
+        if np.count_nonzero(finite_mask_total) >= 4:
+            x_total = x_data[finite_mask_total]
+            y_total = total_spectrum[finite_mask_total]
+            baseline_total = calculate_baseline(x_total[0], y_total[0], x_total[-1], y_total[-1], x_total)
+            y_total_corrected = y_total - baseline_total
+
+            # Initial guess from total spectrum
+            amp_guess_tot, center_guess_tot, sigma_guess_tot = estimate_gaussian_params(x_total, y_total_corrected)
+            center_source = "total-spectrum"
+            if lambda_0 is not None and x_total[0] <= lambda_0 <= x_total[-1]:
+                center_guess_tot = lambda_0
+                center_source = "line-list"
+
+            bounds_tot = (
+                [0, x1, 0.001 * x_range],
+                [10 * np.nanmax(y_total_corrected), x2, 2 * x_range]
+            )
+
+            # Clamp total-spectrum guesses to bounds
+            amp_guess_tot = np.clip(amp_guess_tot, bounds_tot[0][0], bounds_tot[1][0])
+            center_guess_tot = np.clip(center_guess_tot, bounds_tot[0][1], bounds_tot[1][1])
+            sigma_guess_tot = np.clip(sigma_guess_tot, bounds_tot[0][2], bounds_tot[1][2])
+
+            popt_tot, fit_success_tot, _ = fit_gaussian_with_ransac(
+                x_total, y_total_corrected,
+                p0=[amp_guess_tot, center_guess_tot, sigma_guess_tot],
+                bounds=bounds_tot,
+                ransac_thresh=2.0,
+                ransac_iters=2
+            )
+            if fit_success_tot:
+                global_guess = tuple(popt_tot)
+            else:
+                global_guess = (amp_guess_tot, center_guess_tot, sigma_guess_tot)
+
+            global_fit_info = {
+                "amplitude": float(global_guess[0]),
+                "center": float(global_guess[1]),
+                "sigma": float(global_guess[2]),
+                "center_source": center_source,
+                "success": bool(fit_success_tot)
+            }
+    except Exception:
+        global_guess = None
+        global_fit_info = None
     
     # Progress tracking
     total_pixels = n_y * n_x
@@ -989,62 +1043,65 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             mean_val = np.nanmean(y_corrected)
             std_val_fit = np.nanstd(y_corrected)
             std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
-            if std_val < 0.5 * abs(mean_val):
-                mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
-                robust_std = 1.4826 * mad
-                sigma_for_fit = robust_std if robust_std > 0 else std_val
-                try:
-                    amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
-                    sigma_guess = sigma_for_fit
-                except Exception:
-                    # Assign fac_above_stdres σ upper limit for failed parameter estimation
-                    upper_limit_amplitude = fac_above_stdres * std_val
-                    upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
-                    # Convert to erg/s/cm² if solid angle available
-                    if solid_angle is not None:
-                        area_cgs = convert_area_to_cgs(
-                            upper_limit_amplitude,
-                            x_range / 4.0,
-                            (x1 + x2) / 2,
-                            solid_angle,
-                            unit
-                        )
-                        upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
-                    else:
-                        upper_limit_area = upper_limit_area_native
-                    amp_row[ix] = upper_limit_amplitude
-                    area_row[ix] = upper_limit_area
-                    ctr_row[ix] = (x1 + x2) / 2
-                    sig_row[ix] = x_range / 4.0
-                    fwhm_row[ix] = 2.355 * (x_range / 4.0)
-                    uplim_row[ix] = True
-                    continue
+            if global_guess is not None:
+                amp_guess, center_guess, sigma_guess = global_guess
             else:
-                try:
-                    amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
-                except Exception:
-                    # Assign fac_above_stdres σ upper limit for failed parameter estimation
-                    upper_limit_amplitude = fac_above_stdres * std_val
-                    upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
-                    # Convert to erg/s/cm² if solid angle available
-                    if solid_angle is not None:
-                        area_cgs = convert_area_to_cgs(
-                            upper_limit_amplitude,
-                            x_range / 4.0,
-                            (x1 + x2) / 2,
-                            solid_angle,
-                            unit
-                        )
-                        upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
-                    else:
-                        upper_limit_area = upper_limit_area_native
-                    amp_row[ix] = upper_limit_amplitude
-                    area_row[ix] = upper_limit_area
-                    ctr_row[ix] = (x1 + x2) / 2
-                    sig_row[ix] = x_range / 4.0
-                    fwhm_row[ix] = 2.355 * (x_range / 4.0)
-                    uplim_row[ix] = True
-                    continue
+                if std_val < 0.5 * abs(mean_val):
+                    mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
+                    robust_std = 1.4826 * mad
+                    sigma_for_fit = robust_std if robust_std > 0 else std_val
+                    try:
+                        amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
+                        sigma_guess = sigma_for_fit
+                    except Exception:
+                        # Assign fac_above_stdres σ upper limit for failed parameter estimation
+                        upper_limit_amplitude = fac_above_stdres * std_val
+                        upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                        # Convert to erg/s/cm² if solid angle available
+                        if solid_angle is not None:
+                            area_cgs = convert_area_to_cgs(
+                                upper_limit_amplitude,
+                                x_range / 4.0,
+                                (x1 + x2) / 2,
+                                solid_angle,
+                                unit
+                            )
+                            upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
+                        else:
+                            upper_limit_area = upper_limit_area_native
+                        amp_row[ix] = upper_limit_amplitude
+                        area_row[ix] = upper_limit_area
+                        ctr_row[ix] = (x1 + x2) / 2
+                        sig_row[ix] = x_range / 4.0
+                        fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                        uplim_row[ix] = True
+                        continue
+                else:
+                    try:
+                        amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
+                    except Exception:
+                        # Assign fac_above_stdres σ upper limit for failed parameter estimation
+                        upper_limit_amplitude = fac_above_stdres * std_val
+                        upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                        # Convert to erg/s/cm² if solid angle available
+                        if solid_angle is not None:
+                            area_cgs = convert_area_to_cgs(
+                                upper_limit_amplitude,
+                                x_range / 4.0,
+                                (x1 + x2) / 2,
+                                solid_angle,
+                                unit
+                            )
+                            upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
+                        else:
+                            upper_limit_area = upper_limit_area_native
+                        amp_row[ix] = upper_limit_amplitude
+                        area_row[ix] = upper_limit_area
+                        ctr_row[ix] = (x1 + x2) / 2
+                        sig_row[ix] = x_range / 4.0
+                        fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                        uplim_row[ix] = True
+                        continue
             
             # Default to 1-sigma (smaller/conservative) for upper limits
             # This ensures conservative fitting and smaller intensity estimates
@@ -1063,9 +1120,16 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 uplim_row[ix] = True
                 continue
 
+            sigma_lower = 0.001 * x_range
+            sigma_upper = 2 * x_range
+            if global_guess is not None:
+                _, _, sigma_global = global_guess
+                sigma_lower = max(sigma_lower, 0.25 * sigma_global)
+                sigma_upper = min(sigma_upper, 4.0 * sigma_global)
+
             bounds = (
-                [0, x1, 0.001 * x_range],
-                [10 * np.max(y_corrected), x2, 2 * x_range]
+                [0, x1, sigma_lower],
+                [10 * np.max(y_corrected), x2, sigma_upper]
             )
 
             # Clamp initial guesses to be within bounds
@@ -1264,7 +1328,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'is_detection': is_detection_map,  # True detections (passed SNR threshold)
         'is_upper_limit': is_upper_limit_map,  # Upper limits (failed detection)
         'residuals_cube': residuals_cube,  # Cached residuals computed during fitting
-        'fac_above_stdres': fac_above_stdres  # Detection threshold used
+        'fac_above_stdres': fac_above_stdres,  # Detection threshold used
+        'global_fit': global_fit_info  # Global 1D fit used for initial guesses
     }
 
 

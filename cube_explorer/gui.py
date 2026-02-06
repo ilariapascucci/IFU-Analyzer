@@ -1947,6 +1947,37 @@ class CubeExplorer(QWidget):
         
         return lambda_0
 
+    def _find_nearest_line_in_range(self, lam_min, lam_max):
+        """Find the nearest spectral line within a wavelength range.
+
+        Returns:
+            float: Wavelength of the nearest line in µm, or None if not found
+        """
+        if not hasattr(self, 'lst_lines') or not self.lst_lines:
+            return None
+
+        mid = (lam_min + lam_max) / 2.0
+        line_wavelengths = []
+        for row in self.lst_lines:
+            try:
+                if 'lambda_micron' in row:
+                    lam = float(row['lambda_micron'])
+                elif 'wavelength' in row:
+                    lam = float(row['wavelength'])
+                else:
+                    continue
+                if lam_min <= lam <= lam_max:
+                    line_wavelengths.append(lam)
+            except (ValueError, KeyError):
+                continue
+
+        if not line_wavelengths:
+            return None
+
+        line_wavelengths = np.array(line_wavelengths)
+        closest_idx = np.argmin(np.abs(line_wavelengths - mid))
+        return float(line_wavelengths[closest_idx])
+
     def _open_colormap_dialog(self, target):
         dialog = ColorMapDialog(self)
         if dialog.exec_() == QDialog.Accepted:
@@ -2884,13 +2915,13 @@ class CubeExplorer(QWidget):
         fit_mask = (spectrum_x >= lam_min) & (spectrum_x <= lam_max)
         n_points_in_fit = np.count_nonzero(fit_mask)
         
-        # If fitting range has < 10 points, REQUIRE noise region
-        if n_points_in_fit < 10:
+        # If fitting range has < 15 points, REQUIRE noise region
+        if n_points_in_fit < 15:
             if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
                 QMessageBox.warning(
                     self, "Noise Region Required",
                     f"Your fitting range contains only {n_points_in_fit} data points.\n\n"
-                    "For narrow ranges (<10 points), you MUST also define a noise region "
+                    "For narrow ranges (<15 points), you MUST also define a noise region "
                     "to get a reliable noise estimate.\n\n"
                     "Please:\n"
                     "1. Click 'Noise L' button, then click on spectrum (line-free region)\n"
@@ -2912,6 +2943,11 @@ class CubeExplorer(QWidget):
         if self.gauss_noise_left_x is not None and self.gauss_noise_right_x is not None:
             noise_min = min(self.gauss_noise_left_x, self.gauss_noise_right_x)
             noise_max = max(self.gauss_noise_left_x, self.gauss_noise_right_x)
+
+        # Use line list to set lambda_0 if available
+        self.lambda_0 = None
+        if hasattr(self, 'lst_lines') and self.lst_lines:
+            self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max)
 
         # Perform fit
         try:
@@ -3069,22 +3105,34 @@ INTERPRETATION:
         fit_mask = (wavelength >= lam_min) & (wavelength <= lam_max)
         n_points_in_fit = np.count_nonzero(fit_mask)
         
-        # If fitting range has < 10 points, REQUIRE noise region
-        if n_points_in_fit < 10:
-            if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
-                QMessageBox.warning(
-                    self, "Noise Region Required",
-                    f"Your fitting range contains only {n_points_in_fit} data points.\n\n"
-                    "For narrow ranges (<10 points), you MUST also define a noise region "
-                    "to get a reliable noise estimate.\n\n"
-                    "Please:\n"
-                    "1. Click 'Noise L' button, then click on spectrum (line-free region)\n"
-                    "2. Click 'Noise R' button, then click on spectrum\n"
-                    "3. Try fitting the map again"
-                )
+        # Warn if fit region is very narrow (< 50 points)
+        if n_points_in_fit < 50:
+            reply = QMessageBox.warning(
+                self, "Narrow Fit Region",
+                f"Your fitting range contains only {n_points_in_fit} data points.\n\n"
+                "This is very narrow and lacks continuum context for robust fitting.\n"
+                "For best results, select a wider region that includes line shoulders "
+                "and continuum on both sides (≥50 points recommended).\n\n"
+                "Continue anyway?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
                 return
+        
+        # ALWAYS require noise region for map fitting (for robust noise estimation)
+        if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
+            QMessageBox.warning(
+                self, "Noise Region Required for Map Fitting",
+                "For reliable per-pixel Gaussian fits, you MUST define a noise region\n"
+                "(a line-free area where we can measure the continuum noise level).\n\n"
+                "Please:\n"
+                "1. Click 'Noise L' button, then click on spectrum (line-free region)\n"
+                "2. Click 'Noise R' button, then click on spectrum\n"
+                "3. Try fitting the map again"
+            )
+            return
 
-        # Noise region validation
+        # Noise region validation (both defined or both None)
         if (self.gauss_noise_left_x is None) ^ (self.gauss_noise_right_x is None):
             QMessageBox.warning(
                 self, "Noise Range Incomplete",
@@ -3142,6 +3190,10 @@ INTERPRETATION:
         self.gauss_progress.setMinimumDuration(0)
         self.gauss_progress.setCancelButton(None)  # Can't cancel once started
         self.gauss_progress.show()
+
+        self.lambda_0 = None
+        if hasattr(self, 'lst_lines') and self.lst_lines:
+            self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max)
         
         # Create and start background worker
         self.gauss_worker = GaussianMapWorker(
@@ -3154,7 +3206,8 @@ INTERPRETATION:
             noise_min=noise_min,
             noise_max=noise_max,
             header=self.cube_data.header,  # Pass header for unit conversion
-            wave_unit=self.cube_data.wave_unit
+            wave_unit=self.cube_data.wave_unit,
+            lambda_0=self.lambda_0
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)

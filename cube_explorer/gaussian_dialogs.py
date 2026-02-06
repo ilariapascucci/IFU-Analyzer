@@ -22,7 +22,7 @@ class GaussianMapWorker(QThread):
     error = pyqtSignal(str)  # Emits error message if failed
     
     def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
-                 noise_min=None, noise_max=None, header=None, wave_unit=None):
+                 noise_min=None, noise_max=None, header=None, wave_unit=None, lambda_0=None):
         super().__init__()
         self.cube = cube
         self.wavelength = wavelength
@@ -34,6 +34,7 @@ class GaussianMapWorker(QThread):
         self.noise_max = noise_max
         self.header = header
         self.wave_unit = wave_unit
+        self.lambda_0 = lambda_0
     
     def run(self):
         """Execute fitting in background thread"""
@@ -49,7 +50,8 @@ class GaussianMapWorker(QThread):
                 noise_min=self.noise_min,
                 noise_max=self.noise_max,
                 header=self.header,
-                wave_unit=self.wave_unit
+                wave_unit=self.wave_unit,
+                lambda_0=self.lambda_0
             )
             self.finished.emit(results)
         except Exception as e:
@@ -88,10 +90,23 @@ class GaussianMapResultsDialog(QDialog):
         n_detections = np.sum(self.results.get('is_detection', np.zeros_like(self.results['success'])))
         n_upper_limits = np.sum(self.results.get('is_upper_limit', np.zeros_like(self.results['success'])))
         n_total = self.results['success'].size
+        global_fit = self.results.get('global_fit') or {}
+        if global_fit:
+            center_src = global_fit.get('center_source', 'total-spectrum')
+            global_text = (
+                f"Global 1D fit: A={global_fit.get('amplitude', float('nan')):.4e}, "
+                f"μ={global_fit.get('center', float('nan')):.4f}, "
+                f"σ={global_fit.get('sigma', float('nan')):.4f} "
+                f"(center from {center_src})"
+            )
+        else:
+            global_text = "Global 1D fit: unavailable"
+
         info_label = QLabel(
             f"Successfully fit {n_success:,} / {n_total:,} pixels "
             f"({100*n_success/n_total:.1f}%)\n"
-            f"Detections: {n_detections:,} | Upper limits: {n_upper_limits:,}"
+            f"Detections: {n_detections:,} | Upper limits: {n_upper_limits:,}\n"
+            f"{global_text}"
         )
         layout.addWidget(info_label)
         
