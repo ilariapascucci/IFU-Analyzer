@@ -6,6 +6,7 @@ allowing users to inspect fitting quality and understand the fitting process.
 """
 
 import numpy as np
+from astropy.units import Quantity
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton, 
@@ -18,6 +19,13 @@ from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 
 from .gaussian_fitter import gaussian, calculate_baseline
+
+
+def _extract_wavelength_value(wavelength):
+    """Extract numeric value from wavelength Quantity or return raw value."""
+    if isinstance(wavelength, Quantity):
+        return wavelength.value
+    return wavelength
 
 
 class PixelDiagnosticsDialog(QDialog):
@@ -50,9 +58,10 @@ class PixelDiagnosticsDialog(QDialog):
         self.fit_results = fit_results
         self.fac_above_stdres = fac_above_stdres
         
-        # Get wavelength mask
-        self.wave_mask = (wavelength >= lam_min) & (wavelength <= lam_max)
-        self.x_data = wavelength[self.wave_mask]
+        # Get wavelength mask - extract values if Quantity to avoid comparison errors
+        wavelength_vals = _extract_wavelength_value(wavelength)
+        self.wave_mask = (wavelength_vals >= lam_min) & (wavelength_vals <= lam_max)
+        self.x_data = wavelength_vals[self.wave_mask]
         
         n_wave, n_y, n_x = cube.shape
         self.n_y = n_y

@@ -7,6 +7,7 @@ to keep the main GUI file cleaner and more maintainable.
 
 import numpy as np
 import os
+from astropy.units import Quantity
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -23,6 +24,21 @@ class GaussianMapWorker(QThread):
     
     def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
                  noise_min=None, noise_max=None, header=None, wave_unit=None, lambda_0=None):
+        """
+        Initialize Gaussian map fitting worker.
+        
+        Args:
+            cube: 3D data cube (n_wavelength, n_y, n_x)
+            wavelength: 1D wavelength array (numpy array or astropy Quantity)
+                       If Quantity, it will be automatically handled by fit_gaussians_per_pixel
+            lam_min, lam_max: Wavelength range bounds for fitting (scalars)
+            n_jobs: Number of parallel jobs (default: 8)
+            fac_above_stdres: Detection threshold (default: 3.0)
+            noise_min, noise_max: Optional noise limits
+            header: FITS header for unit/metadata information
+            wave_unit: Wavelength unit string
+            lambda_0: Rest wavelength for velocity calculations
+        """
         super().__init__()
         self.cube = cube
         self.wavelength = wavelength

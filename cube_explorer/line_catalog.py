@@ -7,6 +7,18 @@ import re
 import os
 import numpy as np
 import time
+from astropy.units import Quantity
+
+# -------------------- Helper Functions --------------------
+def _extract_wavelength_value(wavelength):
+    """
+    Extract numeric value from wavelength Quantity or return raw value.
+    Allows division operations to work with both Quantity and raw arrays.
+    """
+    if isinstance(wavelength, Quantity):
+        return wavelength.value
+    return wavelength
+
 
 # -------------------- Species Normalization --------------------
 def normalize_species_input(user_input):
@@ -122,7 +134,8 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
                         include = (priority <= 1)
 
                     if include:
-                        wavenumber = 1e4 / wavelength
+                        wavelength_val = _extract_wavelength_value(wavelength)
+                        wavenumber = 1e4 / wavelength_val
                         model = parts[0]
                         transition = ""
                         a_coeff = 0.0
@@ -251,8 +264,10 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
     M = mol_numbers[molecule]
     I = isotopologue
     # Convert wavelength (μm) to wavenumber (cm⁻¹)
-    wavenum_min = 1e4 / wavelength_max 
-    wavenum_max = 1e4 / wavelength_min
+    wavelength_min_val = _extract_wavelength_value(wavelength_min)
+    wavelength_max_val = _extract_wavelength_value(wavelength_max)
+    wavenum_min = 1e4 / wavelength_max_val
+    wavenum_max = 1e4 / wavelength_min_val
     table_name = f'{molecule}_{M}_{I}_{int(wavenum_min)}_{int(wavenum_max)}'
 
     try:
@@ -314,7 +329,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
         nu = convert_to_numpy(nu)
         A = convert_to_numpy(A)
         elower = convert_to_numpy(elower)
-        wavelength = 1e4 / nu
+        wavelength = 1e4 / nu  # Convert wavenumber to wavelength (already dimensionless)
         # Calculate upper energy level: E_upper = (E_lower + ν) × 1.44 [K]
         eupper = (elower + nu) * 1.44
         species_name = molecule
