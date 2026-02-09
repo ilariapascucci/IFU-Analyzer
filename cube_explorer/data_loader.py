@@ -5,6 +5,7 @@ Data loading and processing functions for different telescopes
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
+import astropy.units as u
 from .utils import TELESCOPE_LOADERS, detect_instrument
 
 class CubeData:
@@ -18,8 +19,8 @@ class CubeData:
     Attributes:
         cube (numpy.ndarray): The 3D data cube, memory mapped when possible
         header (astropy.io.fits.Header): FITS header containing metadata
-        wavelength (numpy.ndarray): Array of wavelength/velocity values
-        wave_unit (str): Unit of the wavelength/velocity axis (Å, µm, or km/s)
+        wavelength (astropy.units.Quantity): Array of wavelength/velocity values with units
+        wave_unit (str): String representation of wavelength/velocity unit (Å, µm, or km/s)
         spec_axis (int): Index of the spectral axis (typically 0)
         spectrum (numpy.ndarray): Full cube spectrum (sum over spatial dimensions)
         wcs (astropy.wcs.WCS): World Coordinate System for coordinate transforms
@@ -29,8 +30,8 @@ class CubeData:
         # Initialize all attributes as None/empty
         self.cube = None  # The main 3D data array
         self.header = None  # FITS header
-        self.wavelength = None  # Spectral coordinate array
-        self.wave_unit = ""  # Units for spectral axis
+        self.wavelength = None  # Spectral coordinate array as astropy Quantity
+        self.wave_unit = ""  # String representation of spectral axis units
         self.spec_axis = 0  # Which axis contains spectral information
         self.spectrum = None  # Integrated spectrum
         self.wcs = None  # WCS object for coordinate transforms
@@ -150,8 +151,9 @@ class CubeData:
                 # After moving spectral axis to front, update spec_axis
                 self.spec_axis = 0
 
-            # Get wavelength information
-            self.wavelength, self.wave_unit = self._get_wavelength()
+            # Get wavelength information (returns Quantity with units)
+            wavelength_with_units, self.wave_unit = self._get_wavelength()
+            self.wavelength = wavelength_with_units
             
             # Handle wavelength array size mismatch
             if self.wavelength is not None and len(self.wavelength) != self.cube.shape[self.spec_axis]:
@@ -206,9 +208,9 @@ class CubeData:
         Calculate wavelength/velocity array from FITS header based on instrument type.
 
         Uses instrument-specific calculations and checks CTYPE3 to determine proper units:
-        - MUSE: Wavelength in Angstroms (Å)
-        - ALMA: Velocity (km/s) or frequency converted to velocity
-        - MIRI/NIRSpec: Wavelength in microns (µm)
+        - MUSE: Wavelength in Angstroms (Å) as astropy Quantity
+        - ALMA: Velocity (km/s) or frequency converted to velocity as astropy Quantity
+        - MIRI/NIRSpec: Wavelength in microns (µm) as astropy Quantity
 
         Uses standard FITS keywords:
         - CTYPE3: Axis type (e.g., WAVE, FREQ, VRAD)
@@ -218,18 +220,18 @@ class CubeData:
         - CUNIT3: Unit specification (if present)
 
         Returns:
-            tuple: (wavelength_array, unit_string)
-                wavelength_array: numpy array of wavelength/velocity values
+            tuple: (wavelength_quantity, unit_string)
+                wavelength_quantity: astropy.units.Quantity with wavelength and attached units
                 unit_string: "Å" for Angstroms, "µm" for microns, or "km/s" for velocity
 
         Note:
-            Returns None, "" if wavelength calculation fails
+            Returns (None, "") if wavelength calculation fails
         """
         try:
             # Handle 2D images (no spectral axis) - create dummy wavelength
             if self.cube.shape[0] == 1:
                 print("2D image detected: creating single dummy wavelength point")
-                return np.array([0.0]), "pixel"
+                return np.array([0.0]) * u.dimensionless_unscaled, "pixel"
             
             # Get axis type
             ctype3 = self.header.get("CTYPE3", "").strip().upper()
@@ -255,7 +257,7 @@ class CubeData:
                     # Store flux units for display
                     self.flux_unit = self.header.get("BUNIT", "")
                     
-                    return wavelengths, "Å"
+                    return wavelengths * u.AA, "Å"
                 else:
                     raise ValueError("Unexpected MUSE wavelength axis configuration")
 
@@ -304,7 +306,7 @@ class CubeData:
                     if self.header.get("CUNIT3", "").strip().upper() == "M/S":
                         velocities /= 1000.0  # convert to km/s
 
-                return velocities, "km/s"
+                return velocities * u.km / u.s, "km/s"
 
             elif self.instrument in ["MIRI", "NIRSpec"]:
                 # Handle JWST IFU data
@@ -347,11 +349,11 @@ class CubeData:
                 # Store aperture position angle for orientation
                 self.pa_aper = float(self.header.get("PA_APER", 0.0))
                 
-                return wavelengths, "µm"
+                return wavelengths * u.um, "µm"
                 
         except Exception as e:
             print(f"Error calculating wavelength array: {e}")
-            return None, ""
+            return None * u.dimensionless_unscaled, ""
 
     def _compute_spectrum(self):
         """
