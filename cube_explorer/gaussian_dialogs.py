@@ -23,7 +23,7 @@ class GaussianMapWorker(QThread):
     error = pyqtSignal(str)  # Emits error message if failed
     
     def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
-                 noise_min=None, noise_max=None, header=None, wave_unit=None, lambda_0=None):
+                 noise_min=None, noise_max=None, header=None, wave_unit=None, flux_unit=None, lambda_0=None):
         """
         Initialize Gaussian map fitting worker.
         
@@ -50,6 +50,7 @@ class GaussianMapWorker(QThread):
         self.noise_max = noise_max
         self.header = header
         self.wave_unit = wave_unit
+        self.flux_unit = flux_unit
         self.lambda_0 = lambda_0
     
     def run(self):
@@ -67,6 +68,7 @@ class GaussianMapWorker(QThread):
                 noise_max=self.noise_max,
                 header=self.header,
                 wave_unit=self.wave_unit,
+                flux_unit=self.flux_unit,
                 lambda_0=self.lambda_0
             )
             self.finished.emit(results)

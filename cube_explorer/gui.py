@@ -2092,7 +2092,13 @@ class CubeExplorer(QWidget):
             
             # Labels and legend
             ax.set_xlabel(f'Wavelength [{self.cube_data.wave_unit}]')
-            ax.set_ylabel('Flux [MJy sr⁻¹]')
+            # Use flux unit from header if available, otherwise generic label
+            if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
+                from .unit_converter import clean_flux_unit
+                ylabel = f"Flux [{clean_flux_unit(self.cube_data.flux_unit)}]"
+            else:
+                ylabel = "Flux [unknown units]"
+            ax.set_ylabel(ylabel)
             ax.legend(loc='upper right', fontsize=8)
             
             # Force clipping on all lines
@@ -3165,6 +3171,7 @@ INTERPRETATION:
             noise_max=noise_max,
             header=self.cube_data.header,  # Pass header for unit conversion
             wave_unit=self.cube_data.wave_unit,
+            flux_unit=self.cube_data.flux_unit,  # Pass flux unit for CGS conversion validation
             lambda_0=self.lambda_0
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)

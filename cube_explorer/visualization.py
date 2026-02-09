@@ -140,14 +140,9 @@ class SpectrumPlotter:
                 from .unit_converter import clean_flux_unit
                 ylabel = f"Flux [{clean_flux_unit(self.cube_data.flux_unit)}]"
             else:
-                if self.wave_unit == "Å":
-                    ylabel = "Flux [10⁻²⁰ erg s⁻¹ cm⁻² Å⁻¹]"
-                elif self.wave_unit == "µm":
-                    ylabel = "Flux [Jy]"
-                elif self.wave_unit == "km/s":
-                    ylabel = "Flux [K]"
-                else:
-                    ylabel = "Flux [arbitrary units]"
+                # No flux_unit available - use generic label instead of guessing
+                # (wavelength alone doesn't determine flux unit: µm could be Jy OR MJy/sr)
+                ylabel = "Flux [units unknown]"
             self.ax.set_ylabel(ylabel)
 
             # Create slice indicator lines spanning current y-limits

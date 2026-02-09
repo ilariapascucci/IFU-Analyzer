@@ -51,12 +51,13 @@ def get_wave_unit(header, fallback: Optional[str] = None) -> Optional[str]:
             return norm
     return _normalize_wave_unit(fallback)
 
-def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_unit: Optional[str]):
+def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_unit: Optional[str], flux_unit_input: Optional[str] = None):
     """
     Convert Gaussian area to erg/s/cm² using FITS header and wavelength-to-frequency conversion.
 
-    Converts integrated Gaussian area from [MJy/sr × μm] to [erg/s/cm²]:
+    Currently supports input flux in [MJy/sr] (MIRI, NIRSpec). For other instruments, returns None.
     
+    For MJy/sr input:
         area_native = amplitude [MJy/sr] × sigma [μm] × sqrt(2π) = [MJy/sr × μm]
         conv = CDELT1 × CDELT2 × 1e6 / (180/π)² [removes /sr and converts MJy→Jy]
         area_jy_micron = area_native × conv = [Jy × μm]
@@ -66,13 +67,18 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
     This converts the integrated flux from wavelength space to frequency space.
 
     Args:
-        amplitude_mjy_sr: Peak amplitude in MJy/sr
+        amplitude_mjy_sr: Peak amplitude in native flux units
         sigma_val: Gaussian sigma in wavelength units (μm or Å)
         center_val: Line center wavelength in wavelength units (μm or Å) [used for wavelength-to-frequency conversion]
         header: FITS header to extract CDELT1, CDELT2 for pixel solid angle calculation
+        wave_unit: Wavelength unit (Å, µm, km/s)
+        flux_unit_input: Flux unit from header (e.g., 'MJy/sr', 'Jy/beam', 'erg/cm²/s/Å'). Only MJy/sr is currently supported for conversion.
 
     Returns:
-        float: Area in erg/s/cm², or None if conversion fails
+        float: Area in erg/s/cm², or None if conversion unsupported or fails
+        
+    NOTE: Currently only converts MIRI/NIRSpec data (MJy/sr). For other instruments,
+    returns None. Use native area_native value (MJy/sr·μm) if CGS conversion unavailable.
     """
     if (header is None or amplitude_mjy_sr is None or
         sigma_val is None or center_val is None or not np.isfinite(center_val)):
@@ -82,6 +88,14 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         unit = _normalize_wave_unit(wave_unit)
         if unit == "KM/S":
             return None  # velocity axis needs rest wavelength to convert
+        
+        # Check input flux unit - only MJy/sr is currently supported for CGS conversion
+        if flux_unit_input is not None:
+            flux_upper = flux_unit_input.upper().replace(' ', '')
+            if "MJY" not in flux_upper or "SR" not in flux_upper:
+                # Input is not MJy/sr (e.g., Jy/beam for ALMA, erg/cm²/s/Å for MUSE)
+                # Cannot reliably convert without more information
+                return None
 
         # Extract CDELT values from header
         cdelt1 = header.get('CDELT1', None)
@@ -751,7 +765,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         # Convert to erg/s/cm² if header is provided
         unit = get_wave_unit(header, wave_unit)
         if header is not None:
-            area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit)
+            area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit_input=None)
             area = area_cgs if area_cgs is not None else area_native
             area_unit = "erg/s/cm²" if area_cgs is not None else "MJy/sr·μm"
         else:
@@ -835,6 +849,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             noise_max: Optional[float] = None,
                             header: Optional[object] = None,
                             wave_unit: Optional[str] = None,
+                            flux_unit: Optional[str] = None,
                             lambda_0: Optional[float] = None,
                             store_wavelength_unit: bool = True) -> dict:
     """
@@ -860,6 +875,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         noise_min: Optional left boundary of a line-free noise region
         noise_max: Optional right boundary of a line-free noise region
         header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
+        flux_unit: Input flux unit (e.g., 'MJy/sr', 'Jy/beam') - used for CGS conversion validation
         lambda_0: Optional line-list reference wavelength (µm) to seed global 1D fit
     
     Note:
@@ -1053,7 +1069,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                         x_range / 4.0,
                         (x1 + x2) / 2,
                         header,
-                        unit
+                        unit,
+                        flux_unit
                     )
                     upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                 else:
@@ -1091,7 +1108,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                                 x_range / 4.0,
                                 (x1 + x2) / 2,
                                 header,
-                                unit
+                                unit,
+                                flux_unit
                             )
                             upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                         else:
@@ -1117,7 +1135,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                                 x_range / 4.0,
                                 (x1 + x2) / 2,
                                 header,
-                                unit
+                                unit,
+                                flux_unit
                             )
                             upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                         else:
@@ -1184,7 +1203,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 area_native = amplitude * sigma * np.sqrt(2 * np.pi)
                 # Convert to erg/s/cm² if header available
                 if header is not None:
-                    area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit)
+                    area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit)
                     area = area_cgs if area_cgs is not None else area_native
                 else:
                     area = area_native
