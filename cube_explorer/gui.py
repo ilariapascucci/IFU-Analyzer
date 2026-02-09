@@ -2834,7 +2834,16 @@ class CubeExplorer(QWidget):
         # Check how many points are in the fitting range
         lam_min = min(self.gauss_left_x, self.gauss_right_x)
         lam_max = max(self.gauss_left_x, self.gauss_right_x)
-        fit_mask = (spectrum_x >= lam_min) & (spectrum_x <= lam_max)
+        
+        # Handle Quantity objects from Phase 1
+        from astropy.units import Quantity
+        if isinstance(spectrum_x, Quantity):
+            # Extract values for comparison
+            spectrum_x_vals = spectrum_x.value
+        else:
+            spectrum_x_vals = spectrum_x
+        
+        fit_mask = (spectrum_x_vals >= lam_min) & (spectrum_x_vals <= lam_max)
         n_points_in_fit = np.count_nonzero(fit_mask)
         
         # If fitting range has < 15 points, REQUIRE noise region

@@ -1,5 +1,6 @@
 from astropy.io import fits
 import astropy.units as u
+from astropy.units import Quantity
 from typing import Optional
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
@@ -84,6 +85,31 @@ def get_pixel_solid_angle(header):
         
     except (KeyError, ValueError, TypeError):
         return None
+
+def _extract_value_from_quantity(value, unit=None):
+    """
+    Extract numeric value from a Quantity object, or return raw value if not a Quantity.
+    
+    This helper ensures all functions can handle both:
+    - Quantity objects with units (e.g., from astropy)
+    - Raw numeric values (for backward compatibility)
+    
+    Args:
+        value: Quantity, scalar, or array
+        unit: Optional - expected unit (for validation/info)
+    
+    Returns:
+        Numeric value with units stripped, or original value if not a Quantity
+    """
+    if isinstance(value, Quantity):
+        return value.value
+    elif isinstance(value, np.ndarray):
+        # Check if array elements are Quantities
+        if len(value) > 0 and isinstance(value.flat[0], Quantity):
+            return np.array([v.value for v in value.flat]).reshape(value.shape)
+        return value
+    else:
+        return value
 
 def _normalize_wave_unit(wave_unit: Optional[str]) -> Optional[str]:
     if not wave_unit:
@@ -639,12 +665,15 @@ def fit_gaussian_to_line(x1: float, x2: float,
     5. Calculate derived quantities (FWHM, area, etc.)
     6. Convert area to erg/s/cm² if FITS header with pixel scale is provided
     
+    Supports both raw numeric arrays and astropy Quantity objects for wavelength.
+    Quantities are automatically converted to raw values for internal calculations.
+    
     Args:
-        x1: Left boundary wavelength
-        x2: Right boundary wavelength
-        spectrum_x: Full spectrum wavelength array
-        spectrum_y: Full spectrum flux array
-        peak_x: Explicit peak wavelength (REQUIRED - user must select the peak)
+        x1: Left boundary wavelength (scalar or Quantity)
+        x2: Right boundary wavelength (scalar or Quantity)
+        spectrum_x: Full spectrum wavelength array (numpy array or Quantity array)
+        spectrum_y: Full spectrum flux array (numpy array)
+        peak_x: Explicit peak wavelength (scalar or Quantity - user must select the peak)
         noise_min: Optional left boundary of a line-free noise region
         noise_max: Optional right boundary of a line-free noise region
         header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
@@ -652,6 +681,15 @@ def fit_gaussian_to_line(x1: float, x2: float,
     Returns:
         GaussianFitResult object containing all fit information
     """
+    # Extract values from Quantities if needed
+    x1 = _extract_value_from_quantity(x1)
+    x2 = _extract_value_from_quantity(x2)
+    peak_x = _extract_value_from_quantity(peak_x)
+    spectrum_x = _extract_value_from_quantity(spectrum_x)
+    spectrum_y = _extract_value_from_quantity(spectrum_y)
+    noise_min = _extract_value_from_quantity(noise_min)
+    noise_max = _extract_value_from_quantity(noise_max)
+    
     # Ensure x1 < x2
     if x1 > x2:
         x1, x2 = x2, x1
@@ -860,7 +898,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             noise_max: Optional[float] = None,
                             header: Optional[object] = None,
                             wave_unit: Optional[str] = None,
-                            lambda_0: Optional[float] = None) -> dict:
+                            lambda_0: Optional[float] = None,
+                            store_wavelength_unit: bool = True) -> dict:
     """
     Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
     
@@ -907,6 +946,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         - Failed fits store NaN in parameter maps
         - Area calculated analytically: A * σ * sqrt(2π), then converted to erg/s/cm² if header provided
         - Fit quality: χ²_red ≈ 1 is good, >>1 is poor, <<1 is overfit
+        - Supports astropy Quantity objects for wavelength (automatically extracts values)
     """
     # Get cube dimensions
     n_wave, n_y, n_x = cube.shape
@@ -914,19 +954,28 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     # Calculate solid angle for unit conversion
     solid_angle = get_pixel_solid_angle(header)
     unit = get_wave_unit(header, wave_unit)
+    
+    # Extract values from Quantity if needed (handle both raw arrays and Quantities)
+    wavelength_values = _extract_value_from_quantity(wavelength)
+    lam_min_orig = _extract_value_from_quantity(lam_min)
+    lam_max_orig = _extract_value_from_quantity(lam_max)
+    noise_min_orig = _extract_value_from_quantity(noise_min)
+    noise_max_orig = _extract_value_from_quantity(noise_max)
+    lambda_0_orig = _extract_value_from_quantity(lambda_0)
+    
     # Set wavelength range
-    if lam_min is None:
-        lam_min = wavelength[0]
-    if lam_max is None:
-        lam_max = wavelength[-1]
+    if lam_min_orig is None:
+        lam_min_orig = wavelength_values[0]
+    if lam_max_orig is None:
+        lam_max_orig = wavelength_values[-1]
     
     # Ensure lam_min < lam_max
-    if lam_min > lam_max:
-        lam_min, lam_max = lam_max, lam_min
+    if lam_min_orig > lam_max_orig:
+        lam_min_orig, lam_max_orig = lam_max_orig, lam_min_orig
     
     # Create wavelength mask
-    wave_mask = (wavelength >= lam_min) & (wavelength <= lam_max)
-    x_data = wavelength[wave_mask]
+    wave_mask = (wavelength_values >= lam_min_orig) & (wavelength_values <= lam_max_orig)
+    x_data = wavelength_values[wave_mask]
     
     if len(x_data) < 4:
         raise ValueError(f"Not enough wavelength points in range [{lam_min}, {lam_max}] (need at least 4)")
@@ -945,13 +994,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     # Optional noise region mask for robust std estimation
     noise_wave_mask = None
     noise_x = None
-    if noise_min is not None and noise_max is not None:
-        nmin, nmax = (noise_min, noise_max) if noise_min <= noise_max else (noise_max, noise_min)
-        noise_wave_mask = (wavelength >= nmin) & (wavelength <= nmax)
+    if noise_min_orig is not None and noise_max_orig is not None:
+        nmin, nmax = (noise_min_orig, noise_max_orig) if noise_min_orig <= noise_max_orig else (noise_max_orig, noise_min_orig)
+        noise_wave_mask = (wavelength_values >= nmin) & (wavelength_values <= nmax)
         if np.count_nonzero(noise_wave_mask) < 2:
             noise_wave_mask = None
         else:
-            noise_x = wavelength[noise_wave_mask]
+            noise_x = wavelength_values[noise_wave_mask]
 
     # Initialize residuals cube (for caching during fitting)
     n_wave_sel = np.sum(wave_mask)
@@ -977,8 +1026,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             # Initial guess from total spectrum
             amp_guess_tot, center_guess_tot, sigma_guess_tot = estimate_gaussian_params(x_total, y_total_corrected)
             center_source = "total-spectrum"
-            if lambda_0 is not None and x_total[0] <= lambda_0 <= x_total[-1]:
-                center_guess_tot = lambda_0
+            if lambda_0_orig is not None and x_total[0] <= lambda_0_orig <= x_total[-1]:
+                center_guess_tot = lambda_0_orig
                 center_source = "line-list"
 
             bounds_tot = (
@@ -1371,6 +1420,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'is_upper_limit': is_upper_limit_map,  # Upper limits (failed detection)
         'residuals_cube': residuals_cube,  # Cached residuals computed during fitting
         'fac_above_stdres': fac_above_stdres,  # Detection threshold used
+        'wavelength_unit': wavelength.unit.to_string() if isinstance(wavelength, Quantity) else 'unknown',  # Store original wavelength unit
         'global_fit': global_fit_info  # Global 1D fit used for initial guesses
     }
 
