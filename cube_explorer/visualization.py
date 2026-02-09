@@ -124,8 +124,8 @@ class SpectrumPlotter:
             y = np.asarray(spectrum).astype(np.float32)
             print(f"Global spectrum plotted (no auto-normalization)")
 
-            # Plot main spectrum (consistent color)
-            self.global_line, = self.ax.plot(x, y, color='blue', label='Total Spectrum', zorder=1)
+            # Plot main spectrum as steps (discrete wavelength bins)
+            self.global_line, = self.ax.step(x, y, where='mid', color='blue', label='Total Spectrum', zorder=1)
 
             # Axis labels
             if self.wave_unit in ["Å", "µm"]:
@@ -210,12 +210,12 @@ class SpectrumPlotter:
         y = np.asarray(spectrum).astype(np.float32)
         print(f"Region spectrum plotted (no auto-normalization)")
 
-        # Plot region line - extract values for plotting
+        # Plot region line as steps (discrete wavelength bins)
         if self.wavelength is not None:
             x = _extract_wavelength_values(self.wavelength)
         else:
             x = np.arange(len(spectrum))
-        line, = self.ax.plot(x, y, color=color, label=plot_label, zorder=2)
+        line, = self.ax.step(x, y, where='mid', color=color, label=plot_label, zorder=2)
         self.region_lines[plot_label] = line
 
         # Update legend to include slice vlines and selection lines
@@ -276,14 +276,14 @@ class SpectrumPlotter:
         print(f"  total range: {(baseline_norm + y_fit_norm).min():.4e} to {(baseline_norm + y_fit_norm).max():.4e}")
         print(f"  Current ax ylim: {self.ax.get_ylim()}")
         
-        # Plot baseline
+        # Plot baseline as smooth curve (mathematical function, not discrete data)
         baseline_line, = self.ax.plot(
             result.x_data, baseline_norm,
             'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=10
         )
         self.gauss_fit_artists.append(baseline_line)
         
-        # Plot fitted Gaussian (baseline + gaussian)
+        # Plot fitted Gaussian as smooth curve (mathematical function, not discrete data)
         gauss_line, = self.ax.plot(
             result.x_data, baseline_norm + y_fit_norm,
             'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=11
