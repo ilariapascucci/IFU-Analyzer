@@ -6,86 +6,6 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import RANSACRegressor
 
-"""
-The Unit Problem
-When you extract a spectrum at pixel (y, x), the flux values are in MJy/sr (megajansky per steradian).
-
-The /sr (per steradian) is key—it means "flux per unit solid angle on the sky."
-
-When you fit a Gaussian:
-
-Amplitude = peak flux in MJy/sr
-Sigma = width in µm
-Area = A × σ × √(2π) = [MJy/sr] × [µm] = MJy·µm/sr
-The area still has that /sr in it—it's "flux-per-wavelength-per-steradian."
-
-Why Solid Angle Matters
-A solid angle describes the angular size of your pixel on the sky (in steradians).
-
-Example:
-
-FITS header says CDELT1 = 0.1 arcsec/pixel, CDELT2 = 0.1 arcsec/pixel
-That pixel covers: 0.1 × 0.1 = 0.01 square arcseconds
-Convert to steradians: ~2.4×10⁻¹¹ steradians
-To get the actual flux from this pixel:
-
-The /sr cancels out. Now you have total integrated flux from that specific pixel.
-
-Flux (MJy·µm) = Area (MJy·µm/sr) × Solid Angle (sr)
-              = [MJy·µm/sr] × [sr] 
-              = [MJy·µm]
-
-Without Solid Angle
-You'd have a result in MJy·µm/sr—which is technically correct but incomplete.
-It's a flux density, not an absolute quantity.
-You wouldn't know if the pixel is 0.01" or 1" across on the sky, so the numbers are meaningless for comparison.
-"""
-
-def get_pixel_solid_angle(header):
-    """
-    Calculate the solid angle per spaxel (pixel) from FITS header.
-    
-    This is essential for converting flux density (per steradian) to absolute flux.
-    The pixel solid angle Ω tells us \"how big is this pixel on the sky?\"
-    Example: A pixel that's 0.1 arcsec × 0.1 arcsec covers ~2.4e-11 steradians.
-    
-    Reads CDELT1 and CDELT2 (pixel scale in degrees) from the header and converts
-    to solid angle in steradians: Ω = (CDELT1 rad) × (CDELT2 rad)
-    
-    Args:
-        header: astropy.io.fits.Header object
-        
-    Returns:
-        float: Solid angle per pixel in steradians, or None if unable to calculate
-    """
-    if header is None:
-        return None
-    
-    try:
-        # Read pixel scales in degrees per pixel from FITS header
-        # CDELT1 = pixel width in degrees, CDELT2 = pixel height in degrees
-        cdelt1 = header.get('CDELT1', None)
-        cdelt2 = header.get('CDELT2', None)
-        
-        if cdelt1 is None or cdelt2 is None:
-            return None
-        
-        # Convert degrees to arcseconds
-        cdelt1_arcsec = abs(float(cdelt1)) * 3600.0  # deg to arcsec
-        cdelt2_arcsec = abs(float(cdelt2)) * 3600.0  # deg to arcsec
-        
-        # Convert arcseconds to radians and calculate solid angle
-        # 1 arcsec = (π/180/3600) radians
-        arcsec_to_rad = np.pi / 180.0 / 3600.0
-
-        # pixel width * pixel height = area in steradians
-        omega_sr = (cdelt1_arcsec * arcsec_to_rad) * (cdelt2_arcsec * arcsec_to_rad)
-        
-        return omega_sr
-        
-    except (KeyError, ValueError, TypeError):
-        return None
-
 def _extract_value_from_quantity(value, unit=None):
     """
     Extract numeric value from a Quantity object, or return raw value if not a Quantity.
@@ -131,27 +51,30 @@ def get_wave_unit(header, fallback: Optional[str] = None) -> Optional[str]:
             return norm
     return _normalize_wave_unit(fallback)
 
-def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, solid_angle_sr, wave_unit: Optional[str]):
+def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_unit: Optional[str]):
     """
-    Convert Gaussian area to erg/s/cm² using astropy.units.
+    Convert Gaussian area to erg/s/cm² using FITS header and wavelength-to-frequency conversion.
 
-    This treats the amplitude as a flux density per frequency (MJy/sr) and
-    converts it to per-wavelength using the spectral_density equivalency at
-    the line center, then integrates over wavelength:
-
-        area = (F_lambda [erg/s/cm²/μm/sr]) × (sigma [μm]) × sqrt(2π)
-        area_total = area × solid_angle [sr]
+    Converts integrated Gaussian area from [MJy/sr × μm] to [erg/s/cm²]:
+    
+        area_native = amplitude [MJy/sr] × sigma [μm] × sqrt(2π) = [MJy/sr × μm]
+        conv = CDELT1 × CDELT2 × 1e6 / (180/π)² [removes /sr and converts MJy→Jy]
+        area_jy_micron = area_native × conv = [Jy × μm]
+        area_erg_s_cm2 = area_jy_micron × (c / λ_c²) × 1e-23 = [erg/s/cm²]
+    
+    The wavelength-to-frequency conversion uses: F_ν = F_λ × (c / λ²)
+    This converts the integrated flux from wavelength space to frequency space.
 
     Args:
         amplitude_mjy_sr: Peak amplitude in MJy/sr
-        sigma_um: Gaussian sigma in μm
-        center_um: Line center wavelength in μm
-        solid_angle_sr: Solid angle per pixel in steradians
+        sigma_val: Gaussian sigma in wavelength units (μm or Å)
+        center_val: Line center wavelength in wavelength units (μm or Å) [used for wavelength-to-frequency conversion]
+        header: FITS header to extract CDELT1, CDELT2 for pixel solid angle calculation
 
     Returns:
         float: Area in erg/s/cm², or None if conversion fails
     """
-    if (solid_angle_sr is None or amplitude_mjy_sr is None or
+    if (header is None or amplitude_mjy_sr is None or
         sigma_val is None or center_val is None or not np.isfinite(center_val)):
         return None
 
@@ -160,22 +83,37 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, solid_angle_sr,
         if unit == "KM/S":
             return None  # velocity axis needs rest wavelength to convert
 
-        amp = amplitude_mjy_sr * (u.MJy / u.sr)
-
+        # Extract CDELT values from header
+        cdelt1 = header.get('CDELT1', None)
+        cdelt2 = header.get('CDELT2', None)
+        
+        if cdelt1 is None or cdelt2 is None:
+            return None
+        
+        # Convert sigma and center to microns if needed
         if unit == "ANGSTROM":
-            center = (center_val * u.AA).to(u.um)
-            sigma = (sigma_val * u.AA).to(u.um)
+            sigma = (sigma_val * u.AA).to(u.um).value
+            center = (center_val * u.AA).to(u.um).value
         else:
-            center = center_val * u.um
-            sigma = sigma_val * u.um
+            sigma = sigma_val
+            center = center_val
 
-        amp_flam = amp.to(u.erg / u.s / u.cm**2 / u.um / u.sr,
-                          equivalencies=u.spectral_density(center))
-
-        area = amp_flam * sigma * np.sqrt(2 * np.pi)
-        area_total = area * (solid_angle_sr * u.sr)
-
-        return area_total.to_value(u.erg / u.s / u.cm**2)
+        # Calculate area: A × σ × sqrt(2π) [MJy/sr × μm]
+        area_native = amplitude_mjy_sr * sigma * np.sqrt(2 * np.pi)
+        
+        # Calculate conversion factor: CDELT1 × CDELT2 × 1e6 / (180/π)²
+        # This converts [MJy/sr × μm] to [Jy × μm] by applying pixel solid angle and MJy→Jy scale
+        cdelt1_abs = abs(float(cdelt1))
+        cdelt2_abs = abs(float(cdelt2))
+        conv = cdelt1_abs * cdelt2_abs * 1e6 / (180.0 / np.pi)**2
+        area_jy_micron = area_native * conv
+        
+        # Convert [Jy × μm] to [erg/s/cm²] using wavelength-to-frequency conversion
+        # F_ν = F_λ × (c / λ²), so: [Jy × μm] × (c / λ_c²) × [1e-23 erg/s/cm²/Hz per Jy] = [erg/s/cm²]
+        c_micron_per_s = 3e14  # speed of light in μm/s
+        area_erg_s_cm2 = area_jy_micron * (c_micron_per_s / (center**2)) * 1e-23
+        
+        return area_erg_s_cm2
     except Exception:
         return None
 
@@ -811,10 +749,9 @@ def fit_gaussian_to_line(x1: float, x2: float,
         area_native = amplitude * sigma * np.sqrt(2 * np.pi)
         
         # Convert to erg/s/cm² if header is provided
-        solid_angle = get_pixel_solid_angle(header)
         unit = get_wave_unit(header, wave_unit)
-        if solid_angle is not None:
-            area_cgs = convert_area_to_cgs(amplitude, sigma, center, solid_angle, unit)
+        if header is not None:
+            area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit)
             area = area_cgs if area_cgs is not None else area_native
             area_unit = "erg/s/cm²" if area_cgs is not None else "MJy/sr·μm"
         else:
@@ -951,8 +888,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     # Get cube dimensions
     n_wave, n_y, n_x = cube.shape
     
-    # Calculate solid angle for unit conversion
-    solid_angle = get_pixel_solid_angle(header)
+    # Get wavelength unit
     unit = get_wave_unit(header, wave_unit)
     
     # Extract values from Quantity if needed (handle both raw arrays and Quantities)
@@ -1110,13 +1046,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else np.nanstd(y_data)
                 upper_limit_amplitude = fac_above_stdres * std_temp
                 upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
-                # Convert to erg/s/cm² if solid angle available
-                if solid_angle is not None:
+                # Convert to erg/s/cm² if header available
+                if header is not None:
                     area_cgs = convert_area_to_cgs(
                         upper_limit_amplitude,
                         x_range / 4.0,
                         (x1 + x2) / 2,
-                        solid_angle,
+                        header,
                         unit
                     )
                     upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
@@ -1148,13 +1084,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                         # Assign fac_above_stdres σ upper limit for failed parameter estimation
                         upper_limit_amplitude = fac_above_stdres * std_val
                         upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
-                        # Convert to erg/s/cm² if solid angle available
-                        if solid_angle is not None:
+                        # Convert to erg/s/cm² if header available
+                        if header is not None:
                             area_cgs = convert_area_to_cgs(
                                 upper_limit_amplitude,
                                 x_range / 4.0,
                                 (x1 + x2) / 2,
-                                solid_angle,
+                                header,
                                 unit
                             )
                             upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
@@ -1174,13 +1110,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                         # Assign fac_above_stdres σ upper limit for failed parameter estimation
                         upper_limit_amplitude = fac_above_stdres * std_val
                         upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
-                        # Convert to erg/s/cm² if solid angle available
-                        if solid_angle is not None:
+                        # Convert to erg/s/cm² if header available
+                        if header is not None:
                             area_cgs = convert_area_to_cgs(
                                 upper_limit_amplitude,
                                 x_range / 4.0,
                                 (x1 + x2) / 2,
-                                solid_angle,
+                                header,
                                 unit
                             )
                             upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
@@ -1246,9 +1182,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 
                 # Calculate area in native units (MJy/sr · μm)
                 area_native = amplitude * sigma * np.sqrt(2 * np.pi)
-                # Convert to erg/s/cm² if solid angle available
-                if solid_angle is not None:
-                    area_cgs = convert_area_to_cgs(amplitude, sigma, center, solid_angle, unit)
+                # Convert to erg/s/cm² if header available
+                if header is not None:
+                    area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit)
                     area = area_cgs if area_cgs is not None else area_native
                 else:
                     area = area_native
@@ -1290,13 +1226,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     # Upper limit = fac_above_stdres σ * sigma_guess * sqrt(2π)
                     upper_limit_amplitude = fac_above_stdres * std_val
                     upper_limit_area_native = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
-                    # Convert to erg/s/cm² if solid angle available
-                    if solid_angle is not None:
+                    # Convert to erg/s/cm² if header available
+                    if header is not None:
                         area_cgs = convert_area_to_cgs(
                             upper_limit_amplitude,
                             sigma_guess,
                             center_guess if 'center_guess' in locals() else (x1 + x2) / 2,
-                            solid_angle,
+                            header,
                             unit
                         )
                         upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
@@ -1323,13 +1259,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 if 'sigma_guess' in locals():
                     upper_limit_amplitude = fac_above_stdres * std_val
                     upper_limit_area_native = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
-                    # Convert to erg/s/cm² if solid angle available
-                    if solid_angle is not None:
+                    # Convert to erg/s/cm² if header available
+                    if header is not None:
                         area_cgs = convert_area_to_cgs(
                             upper_limit_amplitude,
                             sigma_guess,
                             center_guess if 'center_guess' in locals() else (x1 + x2) / 2,
-                            solid_angle,
+                            header,
                             unit
                         )
                         upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
@@ -1407,7 +1343,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     print(f"Fitting complete: {n_success}/{total_pixels} successful fits ({100*n_success/total_pixels:.1f}%)")
     print(f"  Detections (>{fac_above_stdres}σ): {n_detections} ({100*n_detections/total_pixels:.1f}%)")
     print(f"  Upper limits: {n_upper_limits} ({100*n_upper_limits/total_pixels:.1f}%)")
-    
+
     return {
         'amplitude': amplitude_map,
         'center': center_map,
@@ -1423,7 +1359,6 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'wavelength_unit': wavelength.unit.to_string() if isinstance(wavelength, Quantity) else 'unknown',  # Store original wavelength unit
         'global_fit': global_fit_info  # Global 1D fit used for initial guesses
     }
-
 
 '''
 Area (AUC) Map - ⭐ Most Important
