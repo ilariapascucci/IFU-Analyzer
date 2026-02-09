@@ -178,6 +178,7 @@ class CubeExplorer(QWidget):
         self.shifted_spectrum_data = None
         self.shifted_wavelength_data = None
         self.shifted_velocity = None
+        self.is_spectrum_shifted = False
         if hasattr(self, 'apply_shift_btn'):
             self.apply_shift_btn.setEnabled(False)
         
@@ -288,7 +289,6 @@ class CubeExplorer(QWidget):
         # Slice selection buttons
         self.set_left_btn = QPushButton("Set Left Slice")
         self.set_right_btn = QPushButton("Set Right Slice")
-        self.normalize_btn = QPushButton("Normalize")
         self.shift_btn = QPushButton("Shift")
         self.apply_shift_btn = QPushButton("Apply Shift")
         self.set_range_btn = QPushButton("Set Range")
@@ -312,7 +312,6 @@ class CubeExplorer(QWidget):
         self.continuum_line_btn.setCheckable(True)        
         self.set_left_btn.setCheckable(True)
         self.set_right_btn.setCheckable(True)
-        self.normalize_btn.setCheckable(True)
         self.set_range_btn.setCheckable(True)
         self.gauss_left_btn.setCheckable(True)
         self.gauss_peak_btn.setCheckable(True)
@@ -322,7 +321,6 @@ class CubeExplorer(QWidget):
         
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
-        self.normalize_btn.clicked.connect(self.normalize_spectrum)
         self.shift_btn.clicked.connect(self.apply_doppler_shift)
         self.apply_shift_btn.clicked.connect(self._apply_shift)
         self.apply_shift_btn.setEnabled(False)
@@ -548,7 +546,6 @@ class CubeExplorer(QWidget):
         slice_select_layout = QHBoxLayout()
         slice_select_layout.addWidget(self.set_left_btn)
         slice_select_layout.addWidget(self.set_right_btn)
-        slice_select_layout.addWidget(self.normalize_btn)
         slice_select_layout.addWidget(self.shift_btn)
         slice_select_layout.addWidget(self.apply_shift_btn)
         slice_select_layout.addStretch()
@@ -775,8 +772,7 @@ class CubeExplorer(QWidget):
         self.gauss_cache_noise_min = None
         self.gauss_cache_noise_max = None
         
-        # Normalization state
-        self.is_normalized = False
+        # Continuum line state
         self.continuum_line = None  # Store continuum line artist
         self.continuum_fitted = None # Continuum subtraction state
         self.subtract_mode = None  # 'left' or 'right'
@@ -792,6 +788,7 @@ class CubeExplorer(QWidget):
         self.shifted_spectrum_data = None  # Store shifted spectrum data for application
         self.shifted_wavelength_data = None  # Store shifted wavelength data for application
         self.shifted_velocity = None  # Store the velocity used for shifting
+        self.is_spectrum_shifted = False  # Track if current spectrum is a shifted version
 
         # Keep references to spawned child windows to prevent garbage collection
         self.child_windows = []
@@ -840,7 +837,7 @@ class CubeExplorer(QWidget):
                 QMessageBox.warning(self, "Data Error", "Failed to compute spectrum from the data")
                 return
 
-            # Copy spectrum for normalization
+            # Copy spectrum
             self.original_spectrum = self.cube_data.spectrum.copy()
 
             # Update instrument label
@@ -1574,167 +1571,7 @@ class CubeExplorer(QWidget):
             except Exception:
                 pass
 
-    def normalize_spectrum(self):
-        """Toggle continuum normalization of spectra."""
-        
-        # Check if spectrum is loaded
-        if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
-            QMessageBox.warning(self, "No Spectrum", "Load a data cube first.")
-            self.normalize_btn.setChecked(False)
-            return
-        
-        # Toggle normalization
-        if self.normalize_btn.isChecked():
-            self._apply_normalization()
-        else:
-            self._remove_normalization()
-    
-    def _apply_normalization(self):
-        """Apply continuum normalization to all spectra."""
-        
-        # Check if at least one region is selected
-        has_region = (self.last_selection_left is not None or 
-                     self.last_selection_right is not None)
-        
-        if not has_region:
-            QMessageBox.warning(
-                self, "No Region Selected",
-                "Please select at least one region (left or right) before normalizing.\n\n"
-                "The selected region will be used to estimate the continuum."
-            )
-            self.normalize_btn.setChecked(False)
-            return
-        
-        # Get the selected region spectrum for continuum estimation
-        if self.last_selection_left is not None:
-            region_spec = self.cube_data.compute_region_spectrum(
-                self.last_selection_left["mask"]
-            )
-        else:
-            region_spec = self.cube_data.compute_region_spectrum(
-                self.last_selection_right["mask"]
-            )
-        
-        if region_spec is None:
-            QMessageBox.warning(self, "Error", "Could not compute region spectrum.")
-            self.normalize_btn.setChecked(False)
-            return
-        
-        # Estimate continuum using percentile filtering (removes emission lines)
-        # Use 50th percentile in sliding window - robust to outliers
-        from scipy.ndimage import percentile_filter
-        window_size = max(5, len(region_spec) // 20)  # Adaptive window
-        if window_size % 2 == 0:
-            window_size += 1  # Must be odd
-        
-        continuum = percentile_filter(region_spec, 50, size=window_size)
-        
-        # Smooth the continuum to avoid artifacts
-        from scipy.ndimage import uniform_filter1d
-        continuum = uniform_filter1d(continuum, size=max(3, window_size // 3))
-        
-        # Avoid division by zero
-        continuum[continuum <= 0] = np.nanmedian(continuum[continuum > 0])
-        
-        # Store continuum for later
-        self.continuum = continuum
-        
-        # Normalize global spectrum
-        normalized_global = self.original_spectrum / continuum
-        self.spec_plotter.update_spectrum(normalized_global)
-        
-        # Plot the actual continuum curve (before normalization) for reference
-        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-        if self.continuum_line is not None:
-            try:
-                self.continuum_line.remove()
-            except:
-                pass
-        
-        # Plot the continuum curve itself (not normalized)
-        # This shows what baseline was used for normalization
-        self.continuum_line, = self.spec_plotter.ax.plot(
-            wavelength, continuum,
-            'g--', linewidth=2, alpha=0.7, label='Continuum (fit)', zorder=5
-        )
-        
-        # Update region spectra if they exist
-        for side, attr, color, label in [
-            ('left', 'left_region_spectrum', 'cyan', 'Left Selection'),
-            ('right', 'right_region_spectrum', 'magenta', 'Right Selection')
-        ]:
-            selected = getattr(self, f'last_selection_{side}', None)
-            if selected is not None:
-                # Recompute and plot normalized region spectrum
-                mask = selected.get("mask")
-                if mask is not None:
-                    region_spec = self.cube_data.compute_region_spectrum(mask)
-                    if region_spec is not None:
-                        normalized_region = region_spec / continuum
-                        self.spec_plotter.plot_region_spectrum(
-                            normalized_region,
-                            color=color,
-                            label=label
-                        )
-        
-        # Update legend and redraw
-        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-        self.spec_canvas.draw()
-        self.is_normalized = True
-        
-        print("[DEBUG] Continuum normalization applied")
-    
-    def _remove_normalization(self):
-        """Remove normalization and restore original spectra."""
-        
-        print("[DEBUG] Removing normalization...")
-        
-        # Remove continuum line
-        if self.continuum_line is not None:
-            try:
-                self.continuum_line.remove()
-                print("[DEBUG] Removed continuum line")
-            except Exception as e:
-                print(f"[DEBUG] Error removing continuum line: {e}")
-            self.continuum_line = None
-        
-        # Clear existing region lines to prevent duplicates
-        if hasattr(self.spec_plotter, 'region_lines'):
-            for label, line in list(self.spec_plotter.region_lines.items()):
-                try:
-                    line.remove()
-                except:
-                    pass
-            self.spec_plotter.region_lines = {}
-        
-        # Restore original global spectrum
-        print(f"[DEBUG] Restoring spectrum, shape: {self.original_spectrum.shape}")
-        self.spec_plotter.update_spectrum(self.original_spectrum)
-        
-        # Restore region spectra if they exist
-        for side, color, label in [
-            ('left', 'cyan', 'Left Selection'),
-            ('right', 'magenta', 'Right Selection')
-        ]:
-            selected = getattr(self, f'last_selection_{side}', None)
-            if selected is not None:
-                mask = selected.get("mask")
-                if mask is not None:
-                    region_spec = self.cube_data.compute_region_spectrum(mask)
-                    if region_spec is not None:
-                        print(f"[DEBUG] Restoring {side} region spectrum")
-                        self.spec_plotter.plot_region_spectrum(
-                            region_spec,
-                            color=color,
-                            label=label
-                        )
-        
-        # Update legend and redraw
-        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-        self.spec_canvas.draw_idle()
-        self.is_normalized = False
-        
-        print("[DEBUG] Normalization removed successfully")
+
 
     def apply_doppler_shift(self):
         """Apply multiplicative Doppler shift to spectrum based on user-provided velocity.
@@ -1773,11 +1610,8 @@ class CubeExplorer(QWidget):
         # Get current wavelength and spectrum
         wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
         
-        # Determine which spectrum to use (normalized or original)
-        if self.is_normalized and hasattr(self, 'continuum'):
-            current_spectrum = self.original_spectrum / self.continuum
-        else:
-            current_spectrum = self.original_spectrum
+        # Use current spectrum
+        current_spectrum = self.original_spectrum
         
         # MULTIPLICATIVE METHOD: Global wavelength scaling
         # lambda_0 = lambda / (1 + v/c)
@@ -1797,6 +1631,8 @@ class CubeExplorer(QWidget):
         self.shifted_spectrum_data = shifted_spectrum.copy()
         self.shifted_wavelength_data = shifted_wavelength.copy()
         self.shifted_velocity = velocity
+        # Reset the shifted flag since this is a preview
+        self.is_spectrum_shifted = False
         
         # Get current y-axis ticks and limits before plotting
         y_ticks = self.spec_plotter.ax.get_yticks()
@@ -1831,7 +1667,7 @@ class CubeExplorer(QWidget):
         
         This replaces the original spectrum with the shifted one, allowing
         the user to fit Gaussians to the shifted spectrum without the original
-        overlay.
+        overlay. Preserves y-axis limits and changes spectrum color to purple.
         """
         
         # Check if a shift has been applied
@@ -1856,6 +1692,13 @@ class CubeExplorer(QWidget):
             if reply != QMessageBox.Yes:
                 return
         
+        # Preserve current axis limits and ticks before updating spectrum
+        y_limits = self.spec_plotter.ax.get_ylim()
+        y_ticks = self.spec_plotter.ax.get_yticks()
+        x_limits = self.spec_plotter.ax.get_xlim()
+        x_ticks = self.spec_plotter.ax.get_xticks()
+        velocity = self.shifted_velocity  # Store velocity before clearing it
+        
         # Replace original spectrum with shifted spectrum
         self.original_spectrum = self.shifted_spectrum_data.copy()
         
@@ -1877,11 +1720,36 @@ class CubeExplorer(QWidget):
         self.shifted_wavelength_data = None
         self.shifted_velocity = None
         
+        # Mark that current spectrum is shifted
+        self.is_spectrum_shifted = True
+        
         # Disable the Apply Shift button
         self.apply_shift_btn.setEnabled(False)
         
         # Update the spectrum display (replot the new original)
         self.spec_plotter.update_spectrum(self.original_spectrum)
+        
+        # Adjust x-limits to account for the wavelength shift
+        # Since wavelength was shifted by: wavelength / (1 + v/c)
+        # We need to apply the same shift to the x-axis limits
+        c = 299792.458  # Speed of light in km/s
+        shift_factor = 1 / (1 + velocity / c)
+        adjusted_x_min = x_limits[0] * shift_factor
+        adjusted_x_max = x_limits[1] * shift_factor
+        
+        # Restore axis limits and ticks after update
+        self.spec_plotter.ax.set_ylim(y_limits)
+        self.spec_plotter.ax.set_yticks(y_ticks)
+        self.spec_plotter.ax.set_xlim(adjusted_x_min, adjusted_x_max)
+        self.spec_plotter.ax.set_xticks(x_ticks)
+        
+        # Change the spectrum line color to purple to indicate it's shifted
+        if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
+            self.spec_plotter.global_line.set_color('purple')
+        
+        # Update legend label to indicate this is a shifted spectrum
+        if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
+            self.spec_plotter.global_line.set_label('Shifted Spectrum')
         
         # Update legend and redraw
         self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
@@ -2465,10 +2333,7 @@ class CubeExplorer(QWidget):
         self.gauss_noise_left_marker = None
         self.gauss_noise_right_marker = None
         
-        # Reset normalization
-        if hasattr(self, 'is_normalized') and self.is_normalized:
-            self.normalize_btn.setChecked(False)
-            self.is_normalized = False
+        # Clear any plotted continuum line
         if hasattr(self, 'continuum_line') and self.continuum_line:
             try:
                 self.continuum_line.remove()
@@ -3227,13 +3092,9 @@ INTERPRETATION:
         # Get the current spectrum data (use current plotted spectrum)
         wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
         
-        # Determine which spectrum to save (normalized or original)
-        if self.is_normalized and self.original_spectrum is not None:
-            spectrum = self.spec_plotter.current_spectrum if hasattr(self.spec_plotter, 'current_spectrum') else self.cube_data.spectrum
-            spectrum_type = "normalized"
-        else:
-            spectrum = self.cube_data.spectrum
-            spectrum_type = "original"
+        # Use current spectrum from plotter
+        spectrum = self.spec_plotter.current_spectrum if hasattr(self.spec_plotter, 'current_spectrum') else self.cube_data.spectrum
+        spectrum_type = "original"
         
         # Open file dialog
         file_path, _ = QFileDialog.getSaveFileName(
