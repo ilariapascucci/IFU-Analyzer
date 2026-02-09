@@ -31,6 +31,30 @@ from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
 from .unit_converter import convert_wavelength, are_units_compatible
+from astropy.units import Quantity
+
+
+def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
+    """
+    Extract numeric value from wavelength Quantity or array.
+    
+    Args:
+        wavelength_quantity_or_array: Wavelength (Quantity, scalar, or array)
+        index: Optional index for array access
+    
+    Returns:
+        Numeric value (units stripped if Quantity)
+    """
+    if isinstance(wavelength_quantity_or_array, Quantity):
+        if index is not None:
+            return wavelength_quantity_or_array[index].value
+        else:
+            return wavelength_quantity_or_array.value
+    else:
+        if index is not None:
+            return wavelength_quantity_or_array[index]
+        else:
+            return wavelength_quantity_or_array
 
 
 class CubeExplorer(QWidget):
@@ -587,7 +611,7 @@ class CubeExplorer(QWidget):
             from scipy.interpolate import UnivariateSpline
             
             # Get spectrum data
-            wavelength = self.spec_plotter.wavelength
+            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
             flux = self.cube_data.spectrum
             
             if wavelength is None or flux is None:
@@ -1007,7 +1031,8 @@ class CubeExplorer(QWidget):
 
         # Title with spectral value
         if hasattr(self.cube_data, 'wavelength') and self.cube_data.wavelength is not None:
-            wave = self.cube_data.wavelength[idx]
+            # Extract wavelength value, handling Quantity objects
+            wave = _extract_wavelength_value(self.cube_data.wavelength, idx)
             if self.cube_data.wave_unit == "Å":
                 title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.1f} Å"
             elif self.cube_data.wave_unit == "µm":
@@ -1330,7 +1355,8 @@ class CubeExplorer(QWidget):
                     ])
                     
                 if self.cube_data.wavelength is not None:
-                    wave = self.cube_data.wavelength[idx]
+                    # Extract wavelength value, handling Quantity objects
+                    wave = _extract_wavelength_value(self.cube_data.wavelength, idx)
                     if self.cube_data.wave_unit == "Å":
                         stats_text.append(f"λ={wave:.2f} Å")
                     elif self.cube_data.wave_unit == "µm":
@@ -1433,7 +1459,7 @@ class CubeExplorer(QWidget):
             return
 
         # Find nearest wavelength index
-        wavelength = self.cube_data.wavelength
+        wavelength = _extract_wavelength_value(self.cube_data.wavelength)
         if wavelength is None:
             idx = int(click_x)
         else:
@@ -1618,7 +1644,7 @@ class CubeExplorer(QWidget):
         self.spec_plotter.update_spectrum(normalized_global)
         
         # Plot the actual continuum curve (before normalization) for reference
-        wavelength = self.spec_plotter.wavelength
+        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
         if self.continuum_line is not None:
             try:
                 self.continuum_line.remove()
@@ -1723,7 +1749,8 @@ class CubeExplorer(QWidget):
             return
         
         # Check if wavelength data is available
-        if self.spec_plotter.wavelength is None or len(self.spec_plotter.wavelength) == 0:
+        wavelength_values = _extract_wavelength_value(self.spec_plotter.wavelength)
+        if wavelength_values is None or len(wavelength_values) == 0:
             QMessageBox.warning(self, "No Wavelength Data", 
                               "Wavelength data is not available for this cube.")
             return
@@ -1744,7 +1771,7 @@ class CubeExplorer(QWidget):
         c = 299792.458  # Speed of light in km/s
         
         # Get current wavelength and spectrum
-        wavelength = self.spec_plotter.wavelength
+        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
         
         # Determine which spectrum to use (normalized or original)
         if self.is_normalized and hasattr(self, 'continuum'):
@@ -2033,7 +2060,7 @@ class CubeExplorer(QWidget):
     def _perform_regional_continuum_subtraction(self):
         """Subtract continuum in selected range"""
         try:
-            wavelength = self.spec_plotter.wavelength
+            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
             flux = self.cube_data.spectrum
             continuum = self.continuum_fitted
             
@@ -2820,7 +2847,7 @@ class CubeExplorer(QWidget):
             return
         
         # Get spectrum data from cube_data
-        spectrum_x = self.spec_plotter.wavelength
+        spectrum_x = _extract_wavelength_value(self.spec_plotter.wavelength)
         spectrum_y = self.cube_data.spectrum
         
         if spectrum_x is None or spectrum_y is None:
@@ -3019,7 +3046,7 @@ INTERPRETATION:
         
         # Get cube dimensions
         cube = self.cube_data.cube  # 3D array (n_wave, n_y, n_x)
-        wavelength = self.spec_plotter.wavelength
+        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
         
         if cube is None or wavelength is None:
             QMessageBox.warning(self, "No Data", "No cube data available.")
@@ -3186,12 +3213,12 @@ INTERPRETATION:
             QMessageBox.warning(self, "No Data", "No spectrum loaded to save.")
             return
         
-        if self.spec_plotter.wavelength is None:
+        if _extract_wavelength_value(self.spec_plotter.wavelength) is None:
             QMessageBox.warning(self, "No Data", "No wavelength data available.")
             return
         
         # Get the current spectrum data (use current plotted spectrum)
-        wavelength = self.spec_plotter.wavelength
+        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
         
         # Determine which spectrum to save (normalized or original)
         if self.is_normalized and self.original_spectrum is not None:

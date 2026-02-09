@@ -1,5 +1,8 @@
 """
 Visualization functions for spectrum and slice plotting
+
+Supports both raw numeric arrays and astropy Quantity objects for wavelength.
+Quantities are automatically handled for proper plotting and display.
 """
 
 import numpy as np
@@ -8,6 +11,24 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm, PowerNorm, Normalize
+from astropy.units import Quantity
+from astropy.units import Quantity
+
+
+def _extract_wavelength_values(wavelength):
+    """
+    Extract numeric values from wavelength array, handling both Quantity and raw arrays.
+    
+    Args:
+        wavelength: Wavelength array (Quantity or numpy array)
+    
+    Returns:
+        numpy array of wavelength values (units stripped if Quantity)
+    """
+    if isinstance(wavelength, Quantity):
+        return wavelength.value
+    else:
+        return wavelength
 
 
 class SpectrumPlotter:
@@ -87,8 +108,11 @@ class SpectrumPlotter:
         print("DEBUG plot_spectrum cleared axis, lines now:", len(self.ax.lines))
 
         try:
-            # X-axis values
-            x = self.wavelength if (self.wavelength is not None and len(self.wavelength) == len(spectrum)) else np.arange(len(spectrum))
+            # X-axis values - extract from Quantity if needed
+            if self.wavelength is not None and len(self.wavelength) == len(spectrum):
+                x = _extract_wavelength_values(self.wavelength)
+            else:
+                x = np.arange(len(spectrum))
 
             # Reset line registries
             self.region_lines = {}
@@ -186,8 +210,11 @@ class SpectrumPlotter:
         y = np.asarray(spectrum).astype(np.float32)
         print(f"Region spectrum plotted (no auto-normalization)")
 
-        # Plot region line
-        x = self.wavelength if self.wavelength is not None else np.arange(len(spectrum))
+        # Plot region line - extract values for plotting
+        if self.wavelength is not None:
+            x = _extract_wavelength_values(self.wavelength)
+        else:
+            x = np.arange(len(spectrum))
         line, = self.ax.plot(x, y, color=color, label=plot_label, zorder=2)
         self.region_lines[plot_label] = line
 
@@ -308,8 +335,11 @@ class SpectrumPlotter:
     def update_spectrum(self, spectrum):
         """Update the global spectrum with new data (e.g., normalized)."""
         if hasattr(self, 'global_line') and self.global_line is not None:
-            # Get x values
-            x = self.wavelength if (self.wavelength is not None and len(self.wavelength) == len(spectrum)) else np.arange(len(spectrum))
+            # Get x values - extract from Quantity if needed
+            if self.wavelength is not None and len(self.wavelength) == len(spectrum):
+                x = _extract_wavelength_values(self.wavelength)
+            else:
+                x = np.arange(len(spectrum))
             
             # Update the line data
             self.global_line.set_data(x, spectrum)
@@ -349,13 +379,15 @@ class SpectrumPlotter:
             - Creates new line if one doesn't exist
             - Color codes lines by side (red=left, blue=right)
             - Safe to call if lines haven't been created yet
+            - Handles both Quantity and raw wavelength arrays
         """
         if self.wavelength is None:
             return
             
         try:
-            # Get the wavelength value
-            wave = self.wavelength[wavelength_idx]
+            # Extract wavelength value - handle Quantity objecs
+            wavelength_vals = _extract_wavelength_values(self.wavelength)
+            wave = wavelength_vals[wavelength_idx]
             
             # Get current y-axis limits
             ymin, ymax = self.ax.get_ylim()
