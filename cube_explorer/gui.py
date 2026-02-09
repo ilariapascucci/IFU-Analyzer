@@ -150,6 +150,13 @@ class CubeExplorer(QWidget):
                 pass
             self.shifted_line = None
         
+        # Reset Doppler shift state
+        self.shifted_spectrum_data = None
+        self.shifted_wavelength_data = None
+        self.shifted_velocity = None
+        if hasattr(self, 'apply_shift_btn'):
+            self.apply_shift_btn.setEnabled(False)
+        
         print("[DEBUG] Unchecking all buttons")
 
         # --- Reset labels ---
@@ -259,7 +266,7 @@ class CubeExplorer(QWidget):
         self.set_right_btn = QPushButton("Set Right Slice")
         self.normalize_btn = QPushButton("Normalize")
         self.shift_btn = QPushButton("Shift")
-        self.shift_lst_btn = QPushButton("Shift (LST)")
+        self.apply_shift_btn = QPushButton("Apply Shift")
         self.set_range_btn = QPushButton("Set Range")
         
         # Gaussian fitting buttons
@@ -293,7 +300,9 @@ class CubeExplorer(QWidget):
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
         self.normalize_btn.clicked.connect(self.normalize_spectrum)
         self.shift_btn.clicked.connect(self.apply_doppler_shift)
-        self.shift_lst_btn.clicked.connect(self.apply_doppler_shift_lst)
+        self.apply_shift_btn.clicked.connect(self._apply_shift)
+        self.apply_shift_btn.setEnabled(False)
+        self.apply_shift_btn.setToolTip("Replace original spectrum with the shifted version")
         self.set_range_btn.clicked.connect(self._activate_range_selector)
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
@@ -517,7 +526,7 @@ class CubeExplorer(QWidget):
         slice_select_layout.addWidget(self.set_right_btn)
         slice_select_layout.addWidget(self.normalize_btn)
         slice_select_layout.addWidget(self.shift_btn)
-        slice_select_layout.addWidget(self.shift_lst_btn)
+        slice_select_layout.addWidget(self.apply_shift_btn)
         slice_select_layout.addStretch()
         
         # Add Gaussian fitting buttons
@@ -756,6 +765,9 @@ class CubeExplorer(QWidget):
         
         # Doppler shift state
         self.shifted_line = None  # Store shifted spectrum line artist
+        self.shifted_spectrum_data = None  # Store shifted spectrum data for application
+        self.shifted_wavelength_data = None  # Store shifted wavelength data for application
+        self.shifted_velocity = None  # Store the velocity used for shifting
 
         # Keep references to spawned child windows to prevent garbage collection
         self.child_windows = []
@@ -1744,18 +1756,8 @@ class CubeExplorer(QWidget):
         # lambda_0 = lambda / (1 + v/c)
         shifted_wavelength = wavelength / (1 + velocity / c)
         
-        # Interpolate spectrum to shifted wavelength grid
-        from scipy.interpolate import interp1d
-        interp_func = interp1d(
-            shifted_wavelength, 
-            current_spectrum,
-            kind='linear',
-            bounds_error=False,
-            fill_value=np.nan
-        )
-        
-        # Evaluate at original wavelength grid
-        shifted_spectrum = interp_func(wavelength)
+        # Use current spectrum (shifted spectrum will be at shifted wavelength positions)
+        shifted_spectrum = current_spectrum
         
         # Remove any existing shifted spectrum line
         if hasattr(self, 'shifted_line') and self.shifted_line is not None:
@@ -1764,16 +1766,32 @@ class CubeExplorer(QWidget):
             except:
                 pass
         
-        # Plot shifted spectrum in red
+        # Store the shifted spectrum data and wavelength for later application
+        self.shifted_spectrum_data = shifted_spectrum.copy()
+        self.shifted_wavelength_data = shifted_wavelength.copy()
+        self.shifted_velocity = velocity
+        
+        # Get current y-axis ticks and limits before plotting
+        y_ticks = self.spec_plotter.ax.get_yticks()
+        y_limits = self.spec_plotter.ax.get_ylim()
+        
+        # Plot shifted spectrum in purple at shifted wavelength positions
         self.shifted_line, = self.spec_plotter.ax.plot(
-            wavelength, 
+            shifted_wavelength, 
             shifted_spectrum,
-            'r-', 
+            'purple', 
             linewidth=1.5, 
             alpha=0.8, 
-            label=f'Shifted (v={velocity:.1f} km/s, multiplicative)',
+            label=f'Shifted (v={velocity:.1f} km/s)',
             zorder=4
         )
+        
+        # Explicitly set y-axis ticks and limits to original values
+        self.spec_plotter.ax.set_yticks(y_ticks)
+        self.spec_plotter.ax.set_ylim(y_limits)
+        
+        # Enable the Apply Shift button
+        self.apply_shift_btn.setEnabled(True)
         
         # Update legend and redraw
         self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
@@ -1781,172 +1799,76 @@ class CubeExplorer(QWidget):
         
         print(f"[DEBUG] Applied multiplicative Doppler shift: v={velocity} km/s")
     
-    def apply_doppler_shift_lst(self):
-        """Apply additive Doppler shift using line list reference wavelength.
+    def _apply_shift(self):
+        """Apply the shifted spectrum as the new original spectrum.
         
-        Uses the nearest spectral line from the loaded line list to the Gaussian peak
-        as the reference wavelength (λ₀). Then applies additive shift: Δλ = λ₀ × v/c
+        This replaces the original spectrum with the shifted one, allowing
+        the user to fit Gaussians to the shifted spectrum without the original
+        overlay.
         """
         
-        # Check if line list is loaded
-        if not hasattr(self, 'lst_lines') or not self.lst_lines or len(self.lst_lines) == 0:
+        # Check if a shift has been applied
+        if not hasattr(self, 'shifted_spectrum_data') or self.shifted_spectrum_data is None:
             QMessageBox.warning(
-                self,
-                "No Line List",
-                "Please load a line list (.LST file) first to use this method."
+                self, 
+                "No Shift Applied",
+                "Please apply a Doppler shift first using the 'Shift' button."
             )
             return
         
-        # Check if Gaussian peak is set
-        if not hasattr(self, 'gauss_peak_x') or self.gauss_peak_x is None:
-            QMessageBox.warning(
+        # Confirm with user
+        if self.shifted_velocity is not None:
+            reply = QMessageBox.question(
                 self,
-                "No Gaussian Peak",
-                "Please fit a Gaussian peak first.\n\n"
-                "This method uses the nearest spectral line to the peak as reference."
+                "Apply Shift",
+                f"Replace original spectrum with shifted version (v={self.shifted_velocity:.1f} km/s)?\n\n"
+                "The original spectrum will be replaced and the shift will be permanent.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
             )
-            return
+            if reply != QMessageBox.Yes:
+                return
         
-        # Check if spectrum is loaded
-        if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
-            QMessageBox.warning(self, "No Spectrum", "Load a data cube first.")
-            return
+        # Replace original spectrum with shifted spectrum
+        self.original_spectrum = self.shifted_spectrum_data.copy()
         
-        # Check if wavelength data is available
-        if self.spec_plotter.wavelength is None or len(self.spec_plotter.wavelength) == 0:
-            QMessageBox.warning(self, "No Wavelength Data", 
-                              "Wavelength data is not available for this cube.")
-            return
+        # Also update the wavelength array to the shifted wavelength
+        if hasattr(self, 'shifted_wavelength_data') and self.shifted_wavelength_data is not None:
+            self.cube_data.wavelength = self.shifted_wavelength_data.copy()
+            self.spec_plotter.wavelength = self.shifted_wavelength_data.copy()
         
-        # Ask user for velocity in km/s
-        velocity, ok = QInputDialog.getDouble(
-            self, 
-            "Doppler Shift (Line List Reference)",
-            "Enter systemic velocity (km/s):",
-            value=0.0,
-            decimals=2
-        )
-        
-        if not ok:
-            return
-        
-        # Find nearest line to Gaussian peak
-        lambda_0 = self._find_nearest_line_to_peak()
-        
-        if lambda_0 is None:
-            QMessageBox.warning(
-                self,
-                "No Reference Line",
-                "Could not find a suitable reference line near the Gaussian peak."
-            )
-            return
-        
-        # Constants
-        c = 299792.458  # Speed of light in km/s
-        
-        # Get current wavelength and spectrum
-        wavelength = self.spec_plotter.wavelength
-        
-        # Determine which spectrum to use (normalized or original)
-        if self.is_normalized and hasattr(self, 'continuum'):
-            current_spectrum = self.original_spectrum / self.continuum
-        else:
-            current_spectrum = self.original_spectrum
-        
-        # ADDITIVE METHOD: Shift based on reference line
-        # Calculate additive shift: Δλ = λ₀ × v/c
-        delta_lambda = lambda_0 * velocity / c
-        
-        # Apply uniform additive shift to entire wavelength array
-        shifted_wavelength = wavelength - delta_lambda
-        
-        # Interpolate spectrum to shifted wavelength grid
-        from scipy.interpolate import interp1d
-        interp_func = interp1d(
-            shifted_wavelength, 
-            current_spectrum,
-            kind='linear',
-            bounds_error=False,
-            fill_value=np.nan
-        )
-        
-        # Evaluate at original wavelength grid
-        shifted_spectrum = interp_func(wavelength)
-        
-        # Remove any existing shifted spectrum line
+        # Remove the shifted spectrum line from the plot
         if hasattr(self, 'shifted_line') and self.shifted_line is not None:
             try:
                 self.shifted_line.remove()
             except:
                 pass
+            self.shifted_line = None
         
-        # Plot shifted spectrum in red
-        self.shifted_line, = self.spec_plotter.ax.plot(
-            wavelength, 
-            shifted_spectrum,
-            'r-', 
-            linewidth=1.5, 
-            alpha=0.8, 
-            label=f'Shifted (v={velocity:.1f} km/s, λ₀={lambda_0:.4f} µm, additive)',
-            zorder=4
-        )
+        # Clear shifted spectrum data
+        self.shifted_spectrum_data = None
+        self.shifted_wavelength_data = None
+        self.shifted_velocity = None
+        
+        # Disable the Apply Shift button
+        self.apply_shift_btn.setEnabled(False)
+        
+        # Update the spectrum display (replot the new original)
+        self.spec_plotter.update_spectrum(self.original_spectrum)
         
         # Update legend and redraw
         self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw()
         
-        print(f"[DEBUG] Applied additive Doppler shift: λ₀={lambda_0:.4f} µm, v={velocity} km/s, Δλ={delta_lambda:.6f} µm")
-    
-    def _find_nearest_line_to_peak(self):
-        """Find the nearest spectral line from the line list to the Gaussian peak.
-        
-        Returns:
-            float: Wavelength of the nearest line in µm, or None if not found
-        """
-        if not hasattr(self, 'gauss_peak_x') or self.gauss_peak_x is None:
-            return None
-        
-        if not hasattr(self, 'lst_lines') or not self.lst_lines:
-            return None
-        
-        peak_wavelength = self.gauss_peak_x
-        
-        # Extract wavelengths from all lines in the list
-        line_wavelengths = []
-        for row in self.lst_lines:
-            try:
-                # Try different possible keys
-                if 'lambda_micron' in row:
-                    lam = float(row['lambda_micron'])
-                elif 'wavelength' in row:
-                    lam = float(row['wavelength'])
-                else:
-                    continue
-                line_wavelengths.append(lam)
-            except (ValueError, KeyError):
-                continue
-        
-        if not line_wavelengths:
-            return None
-        
-        # Find the closest line to the peak
-        line_wavelengths = np.array(line_wavelengths)
-        closest_idx = np.argmin(np.abs(line_wavelengths - peak_wavelength))
-        lambda_0 = line_wavelengths[closest_idx]
-        
-        # Show user which line was selected
-        distance = abs(lambda_0 - peak_wavelength)
         QMessageBox.information(
             self,
-            "Reference Line Selected",
-            f"Using nearest line from line list:\n\n"
-            f"Reference wavelength (λ₀): {lambda_0:.4f} µm\n"
-            f"Gaussian peak: {peak_wavelength:.4f} µm\n"
-            f"Distance: {distance:.4f} µm"
+            "Shift Applied",
+            "Original spectrum has been replaced with the shifted version.\n"
+            "You can now fit Gaussians to the shifted spectrum."
         )
         
-        return lambda_0
-
+        print(f"[DEBUG] Shift applied - original spectrum replaced with shifted spectrum")
+    
     def _find_nearest_line_in_range(self, lam_min, lam_max):
         """Find the nearest spectral line within a wavelength range.
 

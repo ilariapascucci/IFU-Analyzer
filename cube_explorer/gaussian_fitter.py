@@ -5,12 +5,51 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import RANSACRegressor
 
+"""
+The Unit Problem
+When you extract a spectrum at pixel (y, x), the flux values are in MJy/sr (megajansky per steradian).
+
+The /sr (per steradian) is key—it means "flux per unit solid angle on the sky."
+
+When you fit a Gaussian:
+
+Amplitude = peak flux in MJy/sr
+Sigma = width in µm
+Area = A × σ × √(2π) = [MJy/sr] × [µm] = MJy·µm/sr
+The area still has that /sr in it—it's "flux-per-wavelength-per-steradian."
+
+Why Solid Angle Matters
+A solid angle describes the angular size of your pixel on the sky (in steradians).
+
+Example:
+
+FITS header says CDELT1 = 0.1 arcsec/pixel, CDELT2 = 0.1 arcsec/pixel
+That pixel covers: 0.1 × 0.1 = 0.01 square arcseconds
+Convert to steradians: ~2.4×10⁻¹¹ steradians
+To get the actual flux from this pixel:
+
+The /sr cancels out. Now you have total integrated flux from that specific pixel.
+
+Flux (MJy·µm) = Area (MJy·µm/sr) × Solid Angle (sr)
+              = [MJy·µm/sr] × [sr] 
+              = [MJy·µm]
+
+Without Solid Angle
+You'd have a result in MJy·µm/sr—which is technically correct but incomplete.
+It's a flux density, not an absolute quantity.
+You wouldn't know if the pixel is 0.01" or 1" across on the sky, so the numbers are meaningless for comparison.
+"""
+
 def get_pixel_solid_angle(header):
     """
     Calculate the solid angle per spaxel (pixel) from FITS header.
     
+    This is essential for converting flux density (per steradian) to absolute flux.
+    The pixel solid angle Ω tells us \"how big is this pixel on the sky?\"
+    Example: A pixel that's 0.1 arcsec × 0.1 arcsec covers ~2.4e-11 steradians.
+    
     Reads CDELT1 and CDELT2 (pixel scale in degrees) from the header and converts
-    to solid angle in steradians.
+    to solid angle in steradians: Ω = (CDELT1 rad) × (CDELT2 rad)
     
     Args:
         header: astropy.io.fits.Header object
@@ -22,7 +61,8 @@ def get_pixel_solid_angle(header):
         return None
     
     try:
-        # Read pixel scales in degrees per pixel
+        # Read pixel scales in degrees per pixel from FITS header
+        # CDELT1 = pixel width in degrees, CDELT2 = pixel height in degrees
         cdelt1 = header.get('CDELT1', None)
         cdelt2 = header.get('CDELT2', None)
         
@@ -36,6 +76,8 @@ def get_pixel_solid_angle(header):
         # Convert arcseconds to radians and calculate solid angle
         # 1 arcsec = (π/180/3600) radians
         arcsec_to_rad = np.pi / 180.0 / 3600.0
+
+        # pixel width * pixel height = area in steradians
         omega_sr = (cdelt1_arcsec * arcsec_to_rad) * (cdelt2_arcsec * arcsec_to_rad)
         
         return omega_sr
