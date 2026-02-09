@@ -162,7 +162,6 @@ class CubeExplorer(QWidget):
                 btn.setChecked(False)
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
-        self.normalize_btn.setChecked(False)
         self.set_range_btn.setChecked(False)
         self.active_target = None
         
@@ -1743,6 +1742,9 @@ class CubeExplorer(QWidget):
         self.spec_plotter.ax.set_xlim(adjusted_x_min, adjusted_x_max)
         self.spec_plotter.ax.set_xticks(x_ticks)
         
+        # Shift all plot elements (Gaussian fit, slice indicators) by the same factor
+        self.spec_plotter.shift_plot_elements(shift_factor)
+        
         # Change the spectrum line color to purple to indicate it's shifted
         if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
             self.spec_plotter.global_line.set_color('purple')
@@ -2344,7 +2346,6 @@ class CubeExplorer(QWidget):
         # Uncheck all buttons
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
-        self.normalize_btn.setChecked(False)
         self.gauss_left_btn.setChecked(False)
         self.gauss_right_btn.setChecked(False)
         

@@ -402,6 +402,68 @@ class SpectrumPlotter:
         except (IndexError, AttributeError) as e:
             print(f"Error updating slice indicator: {e}")
 
+    def shift_plot_elements(self, shift_factor):
+        """
+        Shift all plot elements (Gaussian fit, slice indicators, vertical line markers) by the wavelength shift factor.
+        
+        This is called when a Doppler shift is applied to ensure all graphics move with the spectrum.
+        
+        Args:
+            shift_factor (float): The wavelength shift factor (e.g., 1 / (1 + v/c))
+        """
+        # Shift Gaussian fit artists if they exist
+        if hasattr(self, 'gauss_fit_artists') and self.gauss_fit_artists:
+            for artist in self.gauss_fit_artists:
+                try:
+                    # Handle line objects (baseline and gaussian fit lines)
+                    if hasattr(artist, 'get_xdata') and hasattr(artist, 'set_xdata'):
+                        xdata = artist.get_xdata()
+                        shifted_xdata = xdata * shift_factor
+                        artist.set_xdata(shifted_xdata)
+                    # Handle fill_between (PolyCollection)
+                    elif hasattr(artist, 'get_paths'):
+                        # For fill_between, we need to scale the vertices
+                        for path in artist.get_paths():
+                            vertices = path.vertices
+                            vertices[:, 0] *= shift_factor
+                            path.vertices = vertices
+                except Exception as e:
+                    print(f"[DEBUG] Could not shift artist: {e}")
+        
+        # Shift left slice indicator
+        if self.vline_left:
+            try:
+                xdata = self.vline_left.get_xdata()
+                shifted_xdata = xdata * shift_factor
+                self.vline_left.set_xdata(shifted_xdata)
+            except Exception as e:
+                print(f"[DEBUG] Could not shift vline_left: {e}")
+        
+        # Shift right slice indicator
+        if self.vline_right:
+            try:
+                xdata = self.vline_right.get_xdata()
+                shifted_xdata = xdata * shift_factor
+                self.vline_right.set_xdata(shifted_xdata)
+            except Exception as e:
+                print(f"[DEBUG] Could not shift vline_right: {e}")
+        
+        # Shift all vertical lines on the axis (Gaussian markers, LST lines, region markers, etc.)
+        try:
+            for line in self.ax.get_lines():
+                # Check if it's a vertical line by looking at its xdata
+                xdata = line.get_xdata()
+                if len(xdata) == 2 and xdata[0] == xdata[1]:
+                    # This is a vertical line (both x coordinates are the same)
+                    shifted_x = xdata[0] * shift_factor
+                    line.set_xdata([shifted_x, shifted_x])
+                    print(f"[DEBUG] Shifted vertical line from {xdata[0]:.4f} to {shifted_x:.4f}")
+        except Exception as e:
+            print(f"[DEBUG] Could not process lines on axis: {e}")
+        
+        print(f"[DEBUG] Shifted all plot elements by factor {shift_factor}")
+
+
 
 class SlicePlotter:
     """
