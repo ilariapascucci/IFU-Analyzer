@@ -813,15 +813,13 @@ class CubeExplorer(QWidget):
         
         # Create collapsible button layout
         collapsible_layout = QHBoxLayout()
-        collapsible_layout.setSpacing(5)
+        collapsible_layout.setSpacing(0)
         collapsible_layout.setContentsMargins(0, 0, 0, 0)
         
         # Group 1: Slice Selection
         self.slice_group = CollapsibleButtonGroup("Slice Selection")
         self.slice_group.add_button(self.set_left_btn)
         self.slice_group.add_button(self.set_right_btn)
-        self.slice_group.add_button(self.shift_btn)
-        self.slice_group.add_button(self.apply_shift_btn)
         collapsible_layout.addWidget(self.slice_group)
         
         # Group 2: Gaussian Fit
@@ -850,6 +848,13 @@ class CubeExplorer(QWidget):
         self.hitran_group.add_button(self.show_lst_btn)
         self.hitran_group.add_button(self.hitran_btn)
         collapsible_layout.addWidget(self.hitran_group)
+        
+        # Group 5: Shifting
+        self.shifting_group = CollapsibleButtonGroup("Shifting")
+        self.shifting_group.add_button(self.shift_btn)
+        self.shifting_group.add_button(self.apply_shift_btn)
+        collapsible_layout.addWidget(self.shifting_group)
+        
         collapsible_layout.addStretch()
         
         main_layout.addLayout(collapsible_layout)
