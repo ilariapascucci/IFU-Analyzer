@@ -675,7 +675,7 @@ class CubeExplorer(QWidget):
         top_layout.addLayout(left_half, 1)
         top_layout.addLayout(right_half, 1)
 
-        main_layout.addLayout(top_layout)
+        main_layout.addLayout(top_layout, 1)
 
         # Add slice selection buttons under the top layout
         slice_select_layout = QHBoxLayout()
@@ -699,8 +699,8 @@ class CubeExplorer(QWidget):
         
         main_layout.addLayout(slice_select_layout)
 
-        # Add spectrum at bottom
-        main_layout.addWidget(self.spec_canvas)
+        # Add spectrum at bottom with expanded vertical space
+        main_layout.addWidget(self.spec_canvas, 2)
         main_layout.addWidget(self.spec_toolbar)
         
         # Add save spectrum button
