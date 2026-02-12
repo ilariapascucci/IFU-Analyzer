@@ -148,6 +148,17 @@ class CubeExplorer(QWidget):
     def _clear_all_displays(self):
         """Clear all plots, selections, and stats when loading a new cube."""
         print("=== CLEAR ALL DISPLAYS START ===")
+        
+        # Disconnect interactive patches before clearing axes
+        if hasattr(self, 'region_selector_left') and self.region_selector_left.interactive_patch is not None:
+            print("[DEBUG] Disconnecting left interactive patch")
+            self.region_selector_left.interactive_patch.disconnect()
+            self.region_selector_left.interactive_patch = None
+        
+        if hasattr(self, 'region_selector_right') and self.region_selector_right.interactive_patch is not None:
+            print("[DEBUG] Disconnecting right interactive patch")
+            self.region_selector_right.interactive_patch.disconnect()
+            self.region_selector_right.interactive_patch = None
 
         # --- Slice 1 ---
         if hasattr(self, 'slice1_plotter'):
@@ -1656,6 +1667,14 @@ class CubeExplorer(QWidget):
             self.slice1_canvas.draw()
         else:
             self.slice2_canvas.draw()
+        
+        # Deselect the shape button and deactivate the selector
+        self.active_shape = None
+        self.active_target = None
+        for side in ["left", "right"]:
+            for btn in self.shape_buttons[side].values():
+                btn.setChecked(False)
+        selector.activate_selector(None)
 
         # Compute stats for the selected area and update label
         selected_area = image[full_mask]
@@ -1722,8 +1741,17 @@ class CubeExplorer(QWidget):
                 pass
             try:
                 self.spec_canvas.draw()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[DEBUG] Error updating spectrum canvas: {e}")
+        
+        # Ensure the slice canvas is redrawn to show handles (use draw() for live updates)
+        try:
+            if target == "left":
+                self.slice1_canvas.draw()
+            else:
+                self.slice2_canvas.draw()
+        except Exception as e:
+            print(f"[DEBUG] Error updating slice canvas: {e}")
 
     def copy_selection(self, source, target):
         """Copy region selection from one side to the other"""
