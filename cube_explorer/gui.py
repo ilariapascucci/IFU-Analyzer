@@ -19,7 +19,8 @@ matplotlib.rcParams['path.simplify'] = True
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox
+    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
+    QListWidget, QListWidgetItem, QSplitter
 )
 from PyQt5.QtCore import QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -1231,29 +1232,89 @@ class CubeExplorer(QWidget):
 
 
     def show_header(self):
-        if not hasattr(self.cube_data, 'header') or self.cube_data.header is None:
+        """Display FITS headers with HDU selection dialog"""
+        if not hasattr(self.cube_data, 'hdul') or self.cube_data.hdul is None:
             QMessageBox.warning(self, "No file loaded", "Please load a FITS file first.")
             return
 
-        header = self.cube_data.header
-        header_text = "\n".join(
-            f"{k:8} = {v!r} / {header.comments[k]}" if k in header.comments else f"{k:8} = {v!r}" 
-            for k, v in header.items()
-        )
-
-        # Keep reference to prevent garbage collection
-        self.header_window = QWidget()
-        self.header_window.setWindowTitle("FITS Header")
-        self.header_window.setMinimumSize(600, 400)
-
+        # Create header selection dialog
+        hdul = self.cube_data.hdul
+        hdu_names = []
+        
+        # Build list of HDU names
+        for i, hdu in enumerate(hdul):
+            hdu_name = getattr(hdu, 'name', f"HDU {i}")
+            hdu_type = type(hdu).__name__
+            if hdu_name.strip():
+                hdu_names.append(f"HDU {i}: {hdu_name} ({hdu_type})")
+            else:
+                hdu_names.append(f"HDU {i}: ({hdu_type})")
+        
+        # Create selection dialog
+        self.header_selection_dialog = QDialog(self)
+        self.header_selection_dialog.setWindowTitle("Select FITS Header to View")
+        self.header_selection_dialog.setMinimumSize(400, 300)
+        
         layout = QVBoxLayout()
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
-        text_edit.setText(header_text)
-        layout.addWidget(text_edit)
-
-        self.header_window.setLayout(layout)
-        self.header_window.show()
+        layout.addWidget(QLabel("Available HDUs. Click to select:"))
+        
+        # Create list widget for HDU selection
+        list_widget = QListWidget()
+        for i, name in enumerate(hdu_names):
+            item = QListWidgetItem(name)
+            list_widget.addItem(item)
+        
+        # Pre-select the first HDU
+        list_widget.setCurrentRow(0)
+        layout.addWidget(list_widget)
+        
+        # Add buttons
+        button_layout = QHBoxLayout()
+        view_btn = QPushButton("View Header")
+        close_btn = QPushButton("Close")
+        
+        def view_selected_header():
+            selected_idx = list_widget.currentRow()
+            if selected_idx >= 0:
+                self._display_header(selected_idx, hdul, hdu_names[selected_idx])
+                
+        view_btn.clicked.connect(view_selected_header)
+        close_btn.clicked.connect(self.header_selection_dialog.close)
+        
+        button_layout.addWidget(view_btn)
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+        
+        self.header_selection_dialog.setLayout(layout)
+        self.header_selection_dialog.show()
+    
+    def _display_header(self, hdu_index, hdul, hdu_name):
+        """Display the header for a specific HDU"""
+        try:
+            header = hdul[hdu_index].header
+            header_text = "\n".join(
+                f"{k:8} = {v!r} / {header.comments[k]}" if k in header.comments else f"{k:8} = {v!r}" 
+                for k, v in header.items()
+            )
+            
+            # Keep reference to prevent garbage collection
+            self.header_window = QWidget()
+            self.header_window.setWindowTitle(f"FITS Header - {hdu_name}")
+            self.header_window.setMinimumSize(700, 500)
+            
+            layout = QVBoxLayout()
+            layout.addWidget(QLabel(f"<b>{hdu_name}</b>"))
+            
+            text_edit = QTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setFont(text_edit.font())  # Use monospace for better formatting
+            text_edit.setText(header_text)
+            layout.addWidget(text_edit)
+            
+            self.header_window.setLayout(layout)
+            self.header_window.show()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to display header: {str(e)}")
 
     def select_lst(self):
         """Open dialog to load .LST line list file"""
