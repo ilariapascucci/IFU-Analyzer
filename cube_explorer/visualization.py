@@ -500,7 +500,7 @@ class SlicePlotter:
         self.fig.clear()
         # Create new axes with specific position
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_position([0.1, 0.1, 0.8, 0.8])  # Adjust to leave room for colorbar
+        self.ax.set_position([0.08, 0.1, 0.70, 0.8])  # Adjust to leave room for colorbar and label
         self.im = None
         self.cbar = None
         self.pixel_marker = None
@@ -509,7 +509,7 @@ class SlicePlotter:
         self.ax.set_yticks([])
         self.fig.canvas.draw()
 
-    def plot_slice(self, image, title="", cmap=None, scale='Linear'):
+    def plot_slice(self, image, title="", cmap=None, scale='Linear', flux_unit=""):
         """
         Plot a 2D slice image with colorbar.
 
@@ -518,6 +518,7 @@ class SlicePlotter:
             title (str, optional): Title for the plot
             cmap (str, optional): Colormap name
             scale (str, optional): Intensity scaling - 'Linear', 'Log', 'Sqrt', or 'Power (γ=2)'
+            flux_unit (str, optional): Unit string for the flux/intensity values
 
         Note:
             - Uses 'magma' colormap for visualization by default
@@ -526,6 +527,7 @@ class SlicePlotter:
             - Creates or updates colorbar as needed
             - Maintains consistent colorbar size and position
             - Supports multiple scaling options for intensity
+            - Displays flux units on colorbar if provided
         """
         # If axes are empty (or cleared), reset self.im
         if self.im is None or not self.ax.has_data():
@@ -576,7 +578,11 @@ class SlicePlotter:
             cax = divider.append_axes("right", size="5%", pad=0.05)
             try:
                 self.cbar = self.fig.colorbar(self.im, cax=cax)
-                self.cbar.set_label("Flux / Intensity")
+                # Set colorbar label with units if provided
+                if flux_unit:
+                    self.cbar.set_label(f"Flux / Intensity\n[{flux_unit}]")
+                else:
+                    self.cbar.set_label("Flux / Intensity")
             except Exception as e:
                 print(f"Warning: Could not create colorbar: {e}")
                 self.cbar = None

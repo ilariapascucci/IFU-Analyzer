@@ -37,6 +37,7 @@ class CubeData:
         self.wcs = None  # WCS object for coordinate transforms
         self.instrument = None  # Name of instrument
         self.filename = None  # Path to the loaded FITS file
+        self.flux_unit = ""  # String representation of flux unit from BUNIT header
 
     def load_from_file(self, filename):
         """

@@ -1521,7 +1521,11 @@ class CubeExplorer(QWidget):
         # Update plot using stored colormap preference per slice if available
         cmap = getattr(self, 'slice1_cmap' if target == 'left' else 'slice2_cmap', None)
         scale = self.scale_left if target == 'left' else self.scale_right
-        plotter.plot_slice(image, title, cmap=cmap, scale=scale)
+        # Get the flux unit for colorbar display
+        from .unit_converter import clean_flux_unit
+        flux_unit_raw = getattr(self.cube_data, "flux_unit", "")
+        flux_unit_clean = clean_flux_unit(flux_unit_raw) if flux_unit_raw else ""
+        plotter.plot_slice(image, title, cmap=cmap, scale=scale, flux_unit=flux_unit_clean)
         
         # Intensity stats with units
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
