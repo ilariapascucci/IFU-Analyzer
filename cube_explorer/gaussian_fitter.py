@@ -1135,11 +1135,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                 else:
                     upper_limit_area = upper_limit_area_native
-                amp_row[ix] = upper_limit_amplitude
+                # For upper limit: only store area, set other parameters to NaN (no fit achieved)
+                amp_row[ix] = np.nan
                 area_row[ix] = upper_limit_area
-                ctr_row[ix] = (x1 + x2) / 2
-                sig_row[ix] = x_range / 4.0
-                fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                ctr_row[ix] = np.nan
+                sig_row[ix] = np.nan
+                fwhm_row[ix] = np.nan
                 uplim_row[ix] = True
                 continue
             
@@ -1174,11 +1175,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                         else:
                             upper_limit_area = upper_limit_area_native
-                        amp_row[ix] = upper_limit_amplitude
+                        # For upper limit: only store area, set other parameters to NaN
+                        amp_row[ix] = np.nan
                         area_row[ix] = upper_limit_area
-                        ctr_row[ix] = (x1 + x2) / 2
-                        sig_row[ix] = x_range / 4.0
-                        fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                        ctr_row[ix] = np.nan
+                        sig_row[ix] = np.nan
+                        fwhm_row[ix] = np.nan
                         uplim_row[ix] = True
                         continue
                 else:
@@ -1231,11 +1233,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                 else:
                     upper_limit_area = upper_limit_area_native
-                amp_row[ix] = upper_limit_amplitude
+                # For upper limit: only store area, set other parameters to NaN
+                amp_row[ix] = np.nan
                 area_row[ix] = upper_limit_area
-                ctr_row[ix] = (x1 + x2) / 2
-                sig_row[ix] = x_range / 4.0
-                fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                ctr_row[ix] = np.nan
+                sig_row[ix] = np.nan
+                fwhm_row[ix] = np.nan
                 uplim_row[ix] = True
                 continue
 
@@ -1332,10 +1335,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     else:
                         upper_limit_area = upper_limit_area_native
                     
-                    amp_row[ix] = upper_limit_amplitude
-                    ctr_row[ix] = center_guess  # Use guessed center
-                    sig_row[ix] = sigma_guess  # Use guessed width
-                    fwhm_row[ix] = 2.355 * sigma_guess
+                    # For upper limit: only store area, set other parameters to NaN
+                    amp_row[ix] = np.nan
+                    ctr_row[ix] = np.nan
+                    sig_row[ix] = np.nan
+                    fwhm_row[ix] = np.nan
                     area_row[ix] = upper_limit_area  # fac_above_stdres σ upper limit
                     qual_row[ix] = np.nan
                     succ_row[ix] = False
@@ -1364,11 +1368,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     upper_limit_amplitude = np.nan
                     upper_limit_area = np.nan
                 
-                amp_row[ix] = upper_limit_amplitude
+                amp_row[ix] = np.nan
                 area_row[ix] = upper_limit_area
-                ctr_row[ix] = center_guess if 'center_guess' in locals() else np.nan
-                sig_row[ix] = sigma_guess if 'sigma_guess' in locals() else np.nan
-                fwhm_row[ix] = 2.355 * sigma_guess if 'sigma_guess' in locals() else np.nan
+                ctr_row[ix] = np.nan
+                sig_row[ix] = np.nan
+                fwhm_row[ix] = np.nan
                 uplim_row[ix] = True
 
         return row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row, succ_row, det_row, uplim_row, residuals_row
