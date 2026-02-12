@@ -69,7 +69,6 @@ class CubeExplorer(QWidget):
         super().__init__()
         self.setWindowTitle("Cube Explorer")
         self.cube_data = CubeData()
-        self.selected_file = None
         self.lst_file = None
         self._init_ui()
 
@@ -265,10 +264,7 @@ class CubeExplorer(QWidget):
     def _init_file_controls(self):
         """Initialize file control buttons and labels"""
         self.open_btn = QPushButton("Open FITS")
-        self.open_btn.clicked.connect(self.select_file)
-        
-        self.load_btn = QPushButton("Load Cube")
-        self.load_btn.clicked.connect(self.load_cube)
+        self.open_btn.clicked.connect(self.load_cube)
 
         self.header_btn = QPushButton("Header")
         self.header_btn.clicked.connect(self.show_header)
@@ -293,7 +289,6 @@ class CubeExplorer(QWidget):
 
         self.controls_layout = QHBoxLayout()
         self.controls_layout.addWidget(self.open_btn)
-        self.controls_layout.addWidget(self.load_btn)
         self.controls_layout.addWidget(self.header_btn)
         self.controls_layout.addWidget(self.lst_btn)
         self.controls_layout.addWidget(self.refresh_btn)
@@ -1138,18 +1133,11 @@ class CubeExplorer(QWidget):
             lambda mask, patch, coords: self._handle_region_select(mask, patch, coords, "right")
         )
 
-    def select_file(self):
-        """Open file dialog to select a FITS file"""
+    def load_cube(self):
+        """Open file dialog and load the selected FITS file"""
         fname, _ = QFileDialog.getOpenFileName(
             self, "Open FITS", filter="FITS files (*.fits *.fz *.fit)")
-        if fname:
-            self.selected_file = fname
-            QMessageBox.information(self, "File Selected", f"Selected: {fname}")
-
-    def load_cube(self):
-        """Load the selected FITS file"""
-        if not hasattr(self, "selected_file"):
-            QMessageBox.warning(self, "No File", "Please open a FITS file first.")
+        if not fname:
             return
 
         try:
@@ -1161,7 +1149,7 @@ class CubeExplorer(QWidget):
                 self.cube_data.free_memory()
 
             # Load the data
-            success = self.cube_data.load_from_file(self.selected_file)
+            success = self.cube_data.load_from_file(fname)
             if not success:
                 QMessageBox.warning(self, "Load Error", "Failed to load the FITS file")
                 return
@@ -1173,8 +1161,9 @@ class CubeExplorer(QWidget):
             # Copy spectrum
             self.original_spectrum = self.cube_data.spectrum.copy()
 
-            # Update instrument label
-            self.instrument_label.setText(f"Instrument: {self.cube_data.instrument}")
+            # Update instrument label with filename
+            filename = os.path.basename(self.cube_data.filename)
+            self.instrument_label.setText(f"Instrument: {self.cube_data.instrument} [{filename}]")
 
             # Initialize the spectrum plotter with wavelength information
             self.spec_plotter = SpectrumPlotter(
