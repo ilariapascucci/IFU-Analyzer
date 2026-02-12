@@ -219,6 +219,8 @@ class CubeExplorer(QWidget):
         self.cube_data = CubeData()
         self.lst_file = None
         self._init_ui()
+        # Load default LST file on startup
+        self.load_default_lst()
 
     def closeEvent(self, event):
         try:
@@ -611,7 +613,6 @@ class CubeExplorer(QWidget):
         self.set_left_btn.setToolTip("Click on the left slice to set the wavelength from that pixel")
         self.set_right_btn.setToolTip("Click on the right slice to set the wavelength from that pixel")
         self.shift_btn.setToolTip("Apply Doppler shift to the spectrum based on velocity")
-        self.set_range_btn.setToolTip("Click and drag on the spectrum to select a wavelength range")
         self.gauss_left_btn.setToolTip("Click on spectrum to set left boundary of Gaussian fit")
         self.gauss_peak_btn.setToolTip("Click on spectrum to set peak center of Gaussian fit")
         self.gauss_right_btn.setToolTip("Click on spectrum to set right boundary of Gaussian fit")
@@ -626,8 +627,7 @@ class CubeExplorer(QWidget):
 
 
 
-        # Wavelength range inputs (hidden until LST loaded)
-        self.wavelength_label = QLabel("Wavelength range:")
+        # Wavelength range inputs (now part of HITRAN collapsible group)
         self.min_wave_input = QLineEdit(self)
         self.min_wave_input.setPlaceholderText("Min λ")
         self.max_wave_input = QLineEdit(self)
@@ -642,24 +642,6 @@ class CubeExplorer(QWidget):
         self.hitran_btn = QPushButton("HITRAN")
         self.hitran_btn.setToolTip("Fetch HITRAN lines for current wavelength range")
         self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
-
-        # Hide until LST is loaded
-        for w in [self.wavelength_label, self.min_wave_input, self.max_wave_input,
-                  self.species_input, self.ok_wave_button, self.show_lst_btn, self.hitran_btn]:
-            w.hide()
-
-        # Layout for wavelength input
-        wl_layout = QHBoxLayout()
-        wl_layout.addWidget(self.wavelength_label)
-        wl_layout.addWidget(self.min_wave_input)
-        wl_layout.addWidget(self.max_wave_input)
-        wl_layout.addWidget(self.species_input)
-        wl_layout.addWidget(self.ok_wave_button)
-        wl_layout.addWidget(self.show_lst_btn)
-        wl_layout.addWidget(self.hitran_btn)
-        
-
-        self.wavelength_layout = wl_layout
 
     def _init_shape_controls(self):
         """Initialize shape selection buttons"""
@@ -858,6 +840,16 @@ class CubeExplorer(QWidget):
         self.continuum_group.add_button(self.auto_continuum_toggle)
         self.continuum_group.add_button(self.custom_continuum_toggle)
         collapsible_layout.addWidget(self.continuum_group)
+        
+        # Group 4: HITRAN
+        self.hitran_group = CollapsibleButtonGroup("HITRAN")
+        self.hitran_group.add_button(self.min_wave_input)
+        self.hitran_group.add_button(self.max_wave_input)
+        self.hitran_group.add_button(self.species_input)
+        self.hitran_group.add_button(self.ok_wave_button)
+        self.hitran_group.add_button(self.show_lst_btn)
+        self.hitran_group.add_button(self.hitran_btn)
+        collapsible_layout.addWidget(self.hitran_group)
         collapsible_layout.addStretch()
         
         main_layout.addLayout(collapsible_layout)
@@ -878,9 +870,6 @@ class CubeExplorer(QWidget):
         self.continuum_action_layout.addWidget(self.save_spectrum_btn)
         self.continuum_action_layout.addStretch()
         main_layout.addLayout(self.continuum_action_layout)
-
-        # Add wavelength range controls under the spectrum
-        main_layout.addLayout(self.wavelength_layout)
 
         self.setLayout(main_layout)
 
@@ -1783,14 +1772,23 @@ class CubeExplorer(QWidget):
             QMessageBox.information(self, "LST Loaded",
                                     f"Imported line list:\n{fname}")
 
-            # Reveal wavelength controls and OK button
-            self.wavelength_label.show()
-            self.min_wave_input.show()
-            self.max_wave_input.show()
-            self.species_input.show()
-            self.ok_wave_button.show()
-            self.show_lst_btn.show()
-            self.hitran_btn.show()
+    def load_default_lst(self):
+        """Load default LST file from cube_explorer folder"""
+        default_lst_path = os.path.join(os.path.dirname(__file__), "publis20240406.lst")
+        
+        if os.path.exists(default_lst_path):
+            try:
+                with open(default_lst_path, "r") as f:
+                    self.lst_data = f.read().splitlines()
+                
+                self.lst_file = default_lst_path
+                self.lst_label.setText(f".LST: LOADED (publis20240406.lst)")
+                
+                print(f"[DEBUG] Loaded default LST file: {default_lst_path}")
+            except Exception as e:
+                print(f"[WARNING] Failed to load default LST file: {e}")
+        else:
+            print(f"[WARNING] Default LST file not found at: {default_lst_path}")
 
     def apply_wavelength_range(self):
         """Triggered when user confirms wavelength range and species"""
