@@ -94,10 +94,74 @@ class GaussianMapResultsDialog(QDialog):
         self.wavelength = wavelength
         self._export_map_btn = None
         
+        # Extract units from data
+        self.wave_unit = self._get_wavelength_unit()
+        self.flux_unit = self._get_flux_unit()
+        
         self.setWindowTitle("Gaussian Parameter Maps")
         self.resize(800, 700)
         
         self._setup_ui()
+    
+    def _get_wavelength_unit(self):
+        """Extract wavelength unit from cube_data or results"""
+        # Prioritize cube_data since it has the actual unit used for fitting
+        if hasattr(self.cube_data, 'wave_unit') and self.cube_data.wave_unit:
+            return self.cube_data.wave_unit
+        # Fall back to results if available
+        if 'wavelength_unit' in self.results and self.results['wavelength_unit'] and self.results['wavelength_unit'] != 'unknown':
+            return self.results['wavelength_unit']
+        return 'µm'  # Default fallback
+    
+    def _get_flux_unit(self):
+        """Extract flux unit from cube_data"""
+        if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
+            return self.cube_data.flux_unit
+        return 'native'  # Default fallback
+    
+    def _get_parameter_units(self):
+        """
+        Determine unit strings for all parameters based on instrument/data.
+        
+        Returns dict with parameter -> (unit_label, colormap) pairs
+        """
+        wave = self.wave_unit.upper() if isinstance(self.wave_unit, str) else str(self.wave_unit).upper()
+        flux = self.flux_unit.upper() if isinstance(self.flux_unit, str) else str(self.flux_unit).upper()
+        
+        # Normalize wavelength unit for display
+        if 'ANGSTROM' in wave or 'AA' in wave:
+            wave_display = 'Å'
+        elif 'MICRON' in wave or 'UM' in wave:
+            wave_display = 'µm'
+        elif 'NM' in wave:
+            wave_display = 'nm'
+        elif 'KM/S' in wave or 'M/S' in wave:
+            wave_display = 'km/s'
+        else:
+            wave_display = wave
+        
+        # Determine flux unit display and whether we have CGS conversion
+        has_cgs = 'MJY' in flux and 'SR' in flux  # Only MJy/sr is converted to CGS
+        
+        if has_cgs:
+            # Data was converted from MJy/sr to CGS units
+            amp_unit = 'erg/(s·cm²·sr)'
+            area_unit = 'erg/(s·cm²)'
+        else:
+            # Native units (not converted)
+            flux_clean = flux.replace(' ', '')
+            amp_unit = flux_clean
+            area_unit = f'{flux_clean}·{wave_display}'
+        
+        return {
+            'Area (AUC)': (f'Area [{area_unit}]', 'viridis'),
+            'Amplitude': (f'Amplitude [{amp_unit}]', 'plasma'),
+            'Center': (f'Center [{wave_display}]', 'twilight'),
+            'Sigma': (f'Sigma [{wave_display}]', 'cividis'),
+            'FWHM': (f'FWHM [{wave_display}]', 'cividis'),
+            'χ² (fit quality)': ('χ² [dimensionless]', 'RdYlGn_r'),
+            'Success Mask': ('Success [1=yes, 0=no]', 'gray'),
+        }
     
     def _setup_ui(self):
         """Initialize dialog UI components"""
@@ -213,35 +277,38 @@ class GaussianMapResultsDialog(QDialog):
         lam_max = max(self.gauss_left_x, self.gauss_right_x)
         wave_range = f"({lam_min:.4f} - {lam_max:.4f})"
         
+        # Get dynamic units for all parameters
+        param_units = self._get_parameter_units()
+        
         # Select data based on parameter
         if param_name == "Area (AUC)":
             data = self.results['area']
             title = f"Integrated Area Under Gaussian (AUC) {wave_range}"
-            default_cmap = 'viridis'
+            unit_label, default_cmap = param_units['Area (AUC)']
         elif param_name == "Amplitude":
             data = self.results['amplitude']
             title = f"Gaussian Peak Amplitude {wave_range}"
-            default_cmap = 'plasma'
+            unit_label, default_cmap = param_units['Amplitude']
         elif param_name == "Center":
             data = self.results['center']
             title = f"Gaussian Center Position {wave_range}"
-            default_cmap = 'twilight'  # Better for showing small variations
+            unit_label, default_cmap = param_units['Center']
         elif param_name == "Sigma":
             data = self.results['sigma']
             title = f"Gaussian Width (σ) {wave_range}"
-            default_cmap = 'cividis'
+            unit_label, default_cmap = param_units['Sigma']
         elif param_name == "FWHM":
             data = self.results['fwhm']
             title = f"Full Width at Half Maximum {wave_range}"
-            default_cmap = 'cividis'
+            unit_label, default_cmap = param_units['FWHM']
         elif param_name == "χ² (fit quality)":
             data = self.results['r_squared']
             title = f"Reduced χ² (≈1 is good fit) {wave_range}"
-            default_cmap = 'RdYlGn_r'
+            unit_label, default_cmap = param_units['χ² (fit quality)']
         elif param_name == "Success Mask":
             data = self.results['success'].astype(float)
             title = f"Successful Fits (1=success, 0=failed) {wave_range}"
-            default_cmap = 'gray'
+            unit_label, default_cmap = param_units['Success Mask']
         elif param_name == "Residuals":
             self._handle_residuals_display(ax)
             return
@@ -283,8 +350,8 @@ class GaussianMapResultsDialog(QDialog):
         ax.set_xlabel("X Pixel")
         ax.set_ylabel("Y Pixel")
         
-        # Colorbar
-        self.fig.colorbar(im, ax=ax, label=param_name)
+        # Colorbar with units
+        self.fig.colorbar(im, ax=ax, label=unit_label)
         
         # Add statistics
         valid_data = data[~np.isnan(data)]

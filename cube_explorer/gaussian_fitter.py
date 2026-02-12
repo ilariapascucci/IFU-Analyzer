@@ -131,6 +131,66 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
     except Exception:
         return None
 
+def convert_amplitude_to_cgs(amplitude_mjy_sr, center_val, header, wave_unit: Optional[str], flux_unit_input: Optional[str] = None):
+    """
+    Convert Gaussian amplitude from MJy/sr to CGS units (erg/s/cm²/sr or erg/s/cm²/Hz/sr).
+
+    For MJy/sr input:
+        amplitude_cgs = amplitude [MJy/sr] × conv × (c / λ²) × 1e-23
+        where conv = CDELT1 × CDELT2 × 1e6 / (180/π)²
+
+    Args:
+        amplitude_mjy_sr: Peak amplitude in MJy/sr
+        center_val: Line center wavelength in wavelength units (μm or Å) [used for wavelength-to-frequency conversion]
+        header: FITS header to extract CDELT1, CDELT2
+        wave_unit: Wavelength unit (Å, µm, km/s)
+        flux_unit_input: Flux unit from header (only MJy/sr supported)
+
+    Returns:
+        float: Amplitude in CGS units (erg/s/cm²/sr), or None if conversion unsupported or fails
+    """
+    if (header is None or amplitude_mjy_sr is None or
+        center_val is None or not np.isfinite(center_val)):
+        return None
+
+    try:
+        unit = _normalize_wave_unit(wave_unit)
+        if unit == "KM/S":
+            return None  # velocity axis needs rest wavelength
+
+        # Check input flux unit
+        if flux_unit_input is not None:
+            flux_upper = flux_unit_input.upper().replace(' ', '')
+            if "MJY" not in flux_upper or "SR" not in flux_upper:
+                return None
+
+        # Extract CDELT values
+        cdelt1 = header.get('CDELT1', None)
+        cdelt2 = header.get('CDELT2', None)
+        
+        if cdelt1 is None or cdelt2 is None:
+            return None
+
+        # Convert center to microns if needed
+        if unit == "ANGSTROM":
+            center = (center_val * u.AA).to(u.um).value
+        else:
+            center = center_val
+
+        # Calculate conversion factor: CDELT1 × CDELT2 × 1e6 / (180/π)²
+        cdelt1_abs = abs(float(cdelt1))
+        cdelt2_abs = abs(float(cdelt2))
+        conv = cdelt1_abs * cdelt2_abs * 1e6 / (180.0 / np.pi)**2
+
+        # Convert [MJy/sr] to [erg/s/cm²/sr] using wavelength-to-frequency conversion
+        # F_ν = F_λ × (c / λ²), so: [MJy/sr] × conv × (c / λ²) × [1e-23 erg/s/cm²/Hz per Jy] = [erg/s/cm²/sr]
+        c_micron_per_s = 3e14  # speed of light in μm/s
+        amp_erg_s_cm2_sr = amplitude_mjy_sr * conv * (c_micron_per_s / (center**2)) * 1e-23
+
+        return amp_erg_s_cm2_sr
+    except Exception:
+        return None
+
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
     """
     Fit Gaussians per pixel and export a cube of normalized residuals (residual/std) as a FITS file.
@@ -1157,7 +1217,20 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             if np.max(y_corrected) <= 0:
                 # Assign fac_above_stdres σ upper limit for pixels with no positive peak
                 upper_limit_amplitude = fac_above_stdres * std_val
-                upper_limit_area = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
+                # Convert to erg/s/cm² if header available
+                if header is not None:
+                    area_cgs = convert_area_to_cgs(
+                        upper_limit_amplitude,
+                        x_range / 4.0,
+                        (x1 + x2) / 2,
+                        header,
+                        unit,
+                        flux_unit
+                    )
+                    upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
+                else:
+                    upper_limit_area = upper_limit_area_native
                 amp_row[ix] = upper_limit_amplitude
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = (x1 + x2) / 2
@@ -1252,22 +1325,18 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             sigma_guess,
                             center_guess if 'center_guess' in locals() else (x1 + x2) / 2,
                             header,
-                            unit
+                            unit,
+                            flux_unit
                         )
                         upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                     else:
                         upper_limit_area = upper_limit_area_native
                     
-                    # If upper limit is too small, use edge/baseline values instead
-                    edge_value = np.mean([np.abs(y1), np.abs(y2)])
-                    if upper_limit_area < 0.1 * edge_value or np.isnan(upper_limit_area):
-                        upper_limit_area = edge_value
-                    
                     amp_row[ix] = upper_limit_amplitude
                     ctr_row[ix] = center_guess  # Use guessed center
                     sig_row[ix] = sigma_guess  # Use guessed width
                     fwhm_row[ix] = 2.355 * sigma_guess
-                    area_row[ix] = upper_limit_area  # 1σ upper limit
+                    area_row[ix] = upper_limit_area  # fac_above_stdres σ upper limit
                     qual_row[ix] = np.nan
                     succ_row[ix] = False
                     uplim_row[ix] = True  # Mark as upper limit
@@ -1285,7 +1354,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             sigma_guess,
                             center_guess if 'center_guess' in locals() else (x1 + x2) / 2,
                             header,
-                            unit
+                            unit,
+                            flux_unit
                         )
                         upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                     else:
@@ -1363,8 +1433,20 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     print(f"  Detections (>{fac_above_stdres}σ): {n_detections} ({100*n_detections/total_pixels:.1f}%)")
     print(f"  Upper limits: {n_upper_limits} ({100*n_upper_limits/total_pixels:.1f}%)")
 
+    # Convert amplitude to CGS if header available (MJy/sr -> erg/s/cm²/sr)
+    amplitude_map_cgs = amplitude_map.copy()
+    if header is not None:
+        for iy in range(n_y):
+            for ix in range(n_x):
+                amp_val = amplitude_map[iy, ix]
+                center_val = center_map[iy, ix]
+                if np.isfinite(amp_val) and np.isfinite(center_val):
+                    amp_cgs = convert_amplitude_to_cgs(amp_val, center_val, header, unit, flux_unit)
+                    if amp_cgs is not None:
+                        amplitude_map_cgs[iy, ix] = amp_cgs
+
     return {
-        'amplitude': amplitude_map,
+        'amplitude': amplitude_map_cgs,  # CGS units (erg/s/cm²/sr) if available, else native (MJy/sr)
         'center': center_map,
         'sigma': sigma_map,
         'fwhm': fwhm_map,
