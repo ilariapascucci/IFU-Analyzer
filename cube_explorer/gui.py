@@ -970,6 +970,11 @@ class CubeExplorer(QWidget):
                 self.continuum_line_btn.setChecked(False)
                 return
             
+            # Back up original spectrum for home button to restore
+            if self.original_spectrum_backup is None:
+                self.original_spectrum_backup = cube.spectrum.copy()
+                print("[DEBUG] Backed up original spectrum for continuum fitting")
+            
             # Remove NaN and infinite values
             mask = np.isfinite(wavelength) & np.isfinite(flux)
             wavelength_clean = wavelength[mask]
@@ -1191,6 +1196,11 @@ class CubeExplorer(QWidget):
 
             # DON'T turn off Continuum Line button - keep it visible during point selection!
             # This is KEY: user needs to see the continuum while placing points
+
+            # Back up original spectrum for home button to restore
+            if self.original_spectrum_backup is None:
+                self.original_spectrum_backup = self.cube_data.spectrum.copy()
+                print("[DEBUG] Backed up original spectrum for custom continuum fitting")
 
             # Create or reset selector with current spectrum data
             # FIXED: Disable Enter key by NOT passing on_finalize callback
@@ -3761,8 +3771,12 @@ INTERPRETATION:
             print(f"[DEBUG] Error clearing Gaussian fit: {e}")
 
     def _spectrum_home_reset(self):
-        """Custom home action for spectrum: zoom out AND clear Gaussian fit overlay"""
-        print("[DEBUG] Spectrum home button clicked - resetting view and clearing Gaussian")
+        """Custom home action for spectrum: show original spectrum and clear overlays"""
+        print("[DEBUG] Spectrum home button clicked - restoring original spectrum")
+        
+        # Restore original spectrum if it has been modified
+        if self.original_spectrum_backup is not None:
+            self._restore_original_spectrum()
         
         # Call the original NavigationToolbar home method to reset zoom
         # Temporarily unset the custom action to avoid recursion
