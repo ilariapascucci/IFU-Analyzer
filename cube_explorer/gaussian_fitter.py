@@ -1540,6 +1540,9 @@ If data is noisy, use median absolute deviation (MAD): robust_std = 1.4826 × MA
 Use that for sigma instead of RMS
 Step 3: Define Bounds (Constraints)
 Prevents unphysical fits:
+Amplitude:  [0, 10×max(y_corrected)]
+Center:     [λ_min, λ_max]           ← must be in fitting region
+Sigma:      [0.001×(λ_max-λ_min), 2×(λ_max-λ_min)]  ← reasonable width
 
 Step 4: Fit with RANSAC Outlier Rejection
 Uses iterative refinement:
