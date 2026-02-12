@@ -265,12 +265,15 @@ class CubeExplorer(QWidget):
         """Initialize file control buttons and labels"""
         self.open_btn = QPushButton("Open FITS")
         self.open_btn.clicked.connect(self.load_cube)
+        self.open_btn.setToolTip("Browse and load a FITS cube file")
 
         self.header_btn = QPushButton("Header")
         self.header_btn.clicked.connect(self.show_header)
+        self.header_btn.setToolTip("Display the FITS header information")
 
         self.lst_btn = QPushButton("Import LST")
         self.lst_btn.clicked.connect(self.select_lst)
+        self.lst_btn.setToolTip("Load a line list (LST) file for spectral line identification")
         
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.clicked.connect(self.refresh_view)
@@ -381,14 +384,27 @@ class CubeExplorer(QWidget):
         self.gauss_noise_right_btn.clicked.connect(self._activate_gaussian_noise_right)
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
-        self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
-        self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
-        self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
         self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
         self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
         self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
         self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
-        self.custom_subtract_btn.setToolTip("Manually select continuum points and fit a spline")
+        
+        # Set tooltips for all buttons
+        self.set_left_btn.setToolTip("Click on the left slice to set the wavelength from that pixel")
+        self.set_right_btn.setToolTip("Click on the right slice to set the wavelength from that pixel")
+        self.shift_btn.setToolTip("Apply Doppler shift to the spectrum based on velocity")
+        self.set_range_btn.setToolTip("Click and drag on the spectrum to select a wavelength range")
+        self.gauss_left_btn.setToolTip("Click on spectrum to set left boundary of Gaussian fit")
+        self.gauss_peak_btn.setToolTip("Click on spectrum to set peak center of Gaussian fit")
+        self.gauss_right_btn.setToolTip("Click on spectrum to set right boundary of Gaussian fit")
+        self.gauss_fit_btn.setToolTip("Fit a Gaussian to the selected line")
+        self.save_spectrum_btn.setToolTip("Save the current spectrum to an ASCII file")
+        self.continuum_line_btn.setToolTip("Toggle continuum subtraction mode")
+        self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
+        self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
+        self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
+        self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
+        self.custom_subtract_btn.setToolTip("Manually select continuum points")
 
 
 
@@ -433,20 +449,8 @@ class CubeExplorer(QWidget):
         def make_shape_button(symbol, target, callback=None):
             btn = QPushButton(symbol)
             btn.setCheckable(True)
-            btn.setFixedSize(36, 36)
-            btn.setStyleSheet("""
-                QPushButton {
-                    font-size: 18pt;
-                    border: 1px solid #888;
-                    border-radius: 6px;
-                    background-color: #f0f0f0;
-                }
-                QPushButton:checked {
-                    background-color: #4a90e2;
-                    color: white;
-                    border: 2px solid #2d73c5;
-                }
-            """)
+            btn.setFixedSize(40, 40)
+            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
             if callback is None:
                 btn.clicked.connect(lambda _, s=symbol: self._set_shape(s, target=target))
             else:
@@ -455,14 +459,25 @@ class CubeExplorer(QWidget):
 
         # Create left and right shape buttons
         shapes = ["*", "▭", "◯", "⬭", "✏"]
+        shape_tooltips = {
+            "*": "Point selection",
+            "▭": "Rectangle selection",
+            "◯": "Circle selection",
+            "⬭": "Polygon selection",
+            "✏": "Freehand drawing"
+        }
         self.shape_buttons = {
             "left": {shape: make_shape_button(shape, "left") for shape in shapes},
             "right": {shape: make_shape_button(shape, "right") for shape in shapes}
         }
+        # Add tooltips to shape buttons
+        for side in ["left", "right"]:
+            for shape, tooltip in shape_tooltips.items():
+                self.shape_buttons[side][shape].setToolTip(tooltip)
 
         # Colormap (color scale) buttons (non-shape, open dialog)
         self.color_btn_left = QPushButton("🌈")
-        self.color_btn_left.setFixedSize(36, 36)
+        self.color_btn_left.setFixedSize(40, 40)
         self.color_btn_left.setToolTip("Change left slice color scale")
         self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
 
@@ -473,12 +488,12 @@ class CubeExplorer(QWidget):
 
         # Copy colormap buttons
         self.copy_color_btn_l = QPushButton("⎘🌈")
-        self.copy_color_btn_l.setFixedSize(42, 36)
+        self.copy_color_btn_l.setFixedSize(40, 40)
         self.copy_color_btn_l.setToolTip("Copy right slice colormap to left slice")
         self.copy_color_btn_l.clicked.connect(lambda: self.copy_colormap('right','left'))
 
         self.copy_color_btn_r = QPushButton("⎘🌈")
-        self.copy_color_btn_r.setFixedSize(42, 36)
+        self.copy_color_btn_r.setFixedSize(40, 40)
         self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
         self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left','right'))
 
@@ -498,15 +513,21 @@ class CubeExplorer(QWidget):
         # Add copy buttons
         self.copy_btn_l = make_shape_button("⎘", "left", 
             callback=lambda: self.copy_selection(source="right", target="left"))
+        self.copy_btn_l.setToolTip("Copy selection from right slice")
         self.copy_btn_r = make_shape_button("⎘", "right",
             callback=lambda: self.copy_selection(source="left", target="right"))
+        self.copy_btn_r.setToolTip("Copy selection from left slice")
         # Erase (clear) selection buttons
         self.erase_btn_l = QPushButton("✖")
-        self.erase_btn_l.setFixedSize(36, 36)
+        self.erase_btn_l.setFixedSize(40, 40)
+        self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.erase_btn_l.setToolTip("Clear selection on left slice")
         self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
 
         self.erase_btn_r = QPushButton("✖")
-        self.erase_btn_r.setFixedSize(36, 36)
+        self.erase_btn_r.setFixedSize(40, 40)
+        self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.erase_btn_r.setToolTip("Clear selection on right slice")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
 
     def _setup_main_layout(self):
