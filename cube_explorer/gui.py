@@ -3270,13 +3270,11 @@ class CubeExplorer(QWidget):
                 )
                 return
         
-        # Noise region validation
+        # Noise region validation: require BOTH boundaries or NEITHER
+        # If only one is set, treat as if neither are set
         if (self.gauss_noise_left_x is None) ^ (self.gauss_noise_right_x is None):
-            QMessageBox.warning(
-                self, "Noise Range Incomplete",
-                "Please select BOTH Noise L and Noise R boundaries, or clear them."
-            )
-            return
+            self.gauss_noise_left_x = None
+            self.gauss_noise_right_x = None
 
         noise_min = None
         noise_max = None
@@ -3544,13 +3542,11 @@ INTERPRETATION:
             )
             return
 
-        # Noise region validation (both defined or both None)
+        # Noise region validation: require BOTH boundaries or NEITHER
+        # If only one is set, treat as if neither are set
         if (self.gauss_noise_left_x is None) ^ (self.gauss_noise_right_x is None):
-            QMessageBox.warning(
-                self, "Noise Range Incomplete",
-                "Please select BOTH Noise L and Noise R boundaries, or clear them."
-            )
-            return
+            self.gauss_noise_left_x = None
+            self.gauss_noise_right_x = None
 
         noise_min = None
         noise_max = None
