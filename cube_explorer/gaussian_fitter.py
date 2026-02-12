@@ -1510,3 +1510,154 @@ Binary map showing which pixels had successful fits:
 - White = fit succeeded
 - Black = fit failed (no line detected, too noisy, etc.)
 '''
+
+'''
+The Fitting Process for Each Pixel
+For each spatial pixel (y, x) in your image, here's what happens:
+
+Step 1: Extract & Baseline Subtraction
+Extract the spectrum at that pixel within your wavelength range [λ_min, λ_max]
+Calculate a linear baseline connecting the two endpoints (edges of your fitting region)
+Subtract baseline: y_corrected = y_data - baseline
+This isolates the emission/absorption line from the continuum.
+
+Step 2: Estimate Initial Parameters
+Three strategies create starting guesses:
+
+Method A - Global 1D fit (seed all pixels):
+
+Stack all spectra in the cube into one average spectrum
+Fit a Gaussian to that
+Use as initial guess for every pixel (faster convergence)
+Method B - Per-pixel from spectrum shape:
+
+Find the peak: amplitude_guess = max(y_corrected)
+Peak location: center_guess = wavelength[argmax(y_corrected)]
+Width estimate: Find points above half-max, measure their spread, convert: sigma_guess = FWHM / 2.355
+Method C - Robust when noisy:
+
+If data is noisy, use median absolute deviation (MAD): robust_std = 1.4826 × MAD(y_corrected)
+Use that for sigma instead of RMS
+Step 3: Define Bounds (Constraints)
+Prevents unphysical fits:
+
+Step 4: Fit with RANSAC Outlier Rejection
+Uses iterative refinement:
+
+Initial fit: Use scipy's curve_fit() with all points
+Find outliers: Points where |residual| > 2σ_residual are bad pixels
+Refit: Use only inlier points
+Repeat 2-3 times until convergence
+This handles cosmic rays, bad pixels, and noise robustly.
+
+Step 5: Calculate Fitted Parameters
+The Gaussian function:
+G(λ)=A⋅exp⁡(−(λ−μ)^2/2σ^2)
+
+From curve_fit() you get: A (amplitude), μ (center), σ (sigma)
+
+Then derive:
+FWHM=2.355×σ
+Area/AUC (integrated flux under the Gaussian):
+Area =∫−∞;∞ G(λ)dλ=A×σ×sqrt(2π)
+
+This is the total flux contained in the line.
+
+The Five Parameter Maps
+1️⃣ Amplitude Map
+What it is: Peak height of the Gaussian at each pixel
+Units: MJy/sr (or erg/s/cm²/sr if converted)
+Calculation: Direct output from curve_fit, called A
+Meaning: Says line intensity but ignores width—a narrow tall line and broad short line can have same area but different amplitudes
+2️⃣ Center Map
+What it is: The wavelength μ where the Gaussian is centered
+Units: μm or Å
+Calculation: Direct output from curve_fit, called μ
+Physical meaning:
+Detects motion/velocity shifts (Doppler shift)
+Bluer values = object moving toward you
+Redder values = object moving away
+Use case: See rotation in galaxies, measure wind outflows, find shock waves
+3️⃣ Sigma Map
+What it is: The width parameter σ of the Gaussian
+Units: Same as wavelength (μm or Å)
+Calculation: Direct output from curve_fit, called σ
+Physical meaning:
+Temperature: Hotter gas = more thermal broadening = larger σ
+Turbulence: Chaotic motion broadens lines
+Rotation: If there's velocity structure, lines broaden
+Use case: Find temperature maps, locate shock regions, detect turbulence
+4️⃣ FWHM (Full Width at Half Maximum) Map
+What it is: Line width at 50% of peak height
+Units: Same as wavelength (μm or Å)
+Formula: FWHM=2.355×σ
+Relationship to sigma: Always exactly 2.355× wider
+Use case: Equivalent to sigma but more intuitive (FWHM is what you measure from line profile plots)
+5️⃣ Area Map ⭐ Most Important
+What it is: Total flux integrated over the entire Gaussian profile
+Formula: Area=A×σ×sqrt(2π) 
+Units:
+Native: MJy/sr·μm
+Converted: erg/s/cm² (if FITS header provided)
+Calculation steps:
+Compute A × σ × sqrt(2π) in native units
+If FITS header has CDELT1, CDELT2 (pixel scales):
+Convert pixel solid angle: conv = CDELT1 × CDELT2 × 1e6 / (180/π)²
+Convert frequency: c / λ² wavelength-to-frequency conversion
+Result: area = area_native × conv × (c/λ²) × 1e-23 ← erg/s/cm²
+
+Bright vs Dark in Area Map:
+🟦 White/Bright: Strong emission from that line → lots of total energy
+⬛ Black/Dark: Weak/no emission → little energy
+This shows the spatial distribution of your emission
+
+Handling Detections vs Upper Limits
+Not every pixel has a detected line. Your code applies two flags:
+
+Detection: If amplitude ≥ fac_above_stdres × noise_std AND fit improves residuals
+
+Stores full parameters (amplitude, center, sigma, fwhm, area)
+✅ Marked as detection
+Upper Limit: If amplitude below threshold
+
+Only stores area (as 3σ upper limit): area_upper_limit = (3×std) × σ_guess × √(2π)
+Other parameters set to NaN
+⚠️ Marked as upper limit
+Use case: In weak sources, you can still constrain maximum possible flux
+The Conversion to CGS (erg/s/cm²)
+This is handled by gaussian_fitter.py:66:
+
+For MIRI/NIRSpec data in MJy/sr:
+
+Native area: A × σ × √(2π) → MJy/sr·μm
+
+Pixel solid angle:
+
+Convert angular pixels to steradians: conv = CDELT1 × CDELT2 × 1e6 / (180/π)²
+Result: Jy·μm
+Flux calibration:
+
+Wavelength-to-frequency conversion: F_ν = F_λ × (c / λ²)
+Jansky to CGS: 1 Jy = 1e-23 erg/s/cm²/Hz
+Final: erg/s/cm²
+For other instruments (ALMA Jy/beam, MUSE erg/cm²/s/Å):
+
+Returns None—uses native units instead since conversion is ambiguous
+Quality Metrics (R² Map)
+Chi-squared (reduced):
+χ_red^2=∑(residuals^2)/(degrees of freedom)×σ_noise^2
+
+Interpretation:
+
+~1.0 (green): Perfect fit
+0.5-0.8 (yellow): Acceptable fit
+>2 (red): Poor fit—line may be non-Gaussian (double-peaked, absorption artifact, etc.)
+
+Summary: One Map, What It Shows
+Map	        Gives You	            How It's Calculated
+Amplitude	Line strength	        Peak of fitted Gaussian (A)
+Center	    Doppler shift/velocity	Center of fitted Gaussian (μ)
+Sigma	    Line broadening	        Width parameter of fitted Gaussian (σ)
+FWHM	    Intuitive line width	2.355 × σ
+Area        Total flux spatially    A × σ × √(2π) → CGS via wavelength-frequency conversion
+'''
