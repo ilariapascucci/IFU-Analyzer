@@ -10,24 +10,20 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.colors import LogNorm, PowerNorm, Normalize
 
-import matplotlib
-matplotlib.rcParams['lines.antialiased'] = True
-matplotlib.rcParams['lines.linewidth'] = 1.5
-matplotlib.rcParams['path.simplify'] = True
-
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter
+    QListWidget, QListWidgetItem, QSplitter, QFrame
 )
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from matplotlib.widgets import SpanSelector
 
+from PyQt5.QtWidgets import QApplication
 from .data_loader import CubeData
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
@@ -63,7 +59,95 @@ def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
             return wavelength_quantity_or_array[index]
         else:
             return wavelength_quantity_or_array
-
+        
+class CollapsibleButtonGroup(QWidget):
+    """
+    A collapsible button group that expands/collapses with animation.
+    Uses snake_case for all method and variable names.
+    """
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        self.is_expanded = False
+        self.init_ui(title)
+    
+    def init_ui(self, title):
+        """Initialize the UI components"""
+        # Main horizontal layout
+        self.main_layout = QHBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)  # Tighter spacing
+        
+        # Toggle button (always visible)
+        self.toggle_btn = QPushButton(f"▶ {title}")
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setFixedWidth(150)  # Wider to fit "Continuum Tools"
+        self.toggle_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4a90e2;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px;
+                font-weight: bold;
+                text-align: left;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #357abd;
+            }
+            QPushButton:checked {
+                background-color: #2d73c5;
+            }
+        """)
+        self.toggle_btn.clicked.connect(self.toggle)
+        self.main_layout.addWidget(self.toggle_btn)
+        
+        # Container for child buttons (collapsible)
+        self.button_container = QFrame()
+        self.button_layout = QHBoxLayout(self.button_container)
+        self.button_layout.setContentsMargins(2, 0, 0, 0)
+        self.button_layout.setSpacing(2)  # Buttons closer together
+        
+        # Initially hidden
+        self.button_container.setMaximumWidth(0)
+        self.button_container.setStyleSheet("QFrame { background-color: transparent; }")
+        self.main_layout.addWidget(self.button_container)
+        
+        # Animation for smooth expand/collapse
+        self.animation = QPropertyAnimation(self.button_container, b"maximumWidth")
+        self.animation.setDuration(300)
+        self.animation.setEasingCurve(QEasingCurve.InOutQuad)
+    
+    def add_button(self, button):
+        """Add a button to this collapsible group"""
+        self.button_layout.addWidget(button)
+    
+    def toggle(self):
+        """Toggle expand/collapse with animation"""
+        if self.toggle_btn.isChecked():
+            # Expand
+            self.is_expanded = True
+            self.toggle_btn.setText(self.toggle_btn.text().replace("▶", "▼"))
+            
+            # Calculate target width
+            target_width = sum(
+                self.button_layout.itemAt(i).widget().sizeHint().width() 
+                for i in range(self.button_layout.count())
+            )
+            target_width += self.button_layout.spacing() * (self.button_layout.count() - 1)
+            target_width += 4
+            
+            self.animation.setStartValue(0)
+            self.animation.setEndValue(target_width)
+            self.animation.start()
+        else:
+            # Collapse
+            self.is_expanded = False
+            self.toggle_btn.setText(self.toggle_btn.text().replace("▼", "▶"))
+            
+            self.animation.setStartValue(self.button_container.maximumWidth())
+            self.animation.setEndValue(0)
+            self.animation.start()
 
 class CustomNavigationToolbar(NavigationToolbar):
     """
@@ -274,11 +358,15 @@ class CubeExplorer(QWidget):
         self.subtract_left_x = None
         self.subtract_right_x = None
 
-        # Uncheck continuum buttons
-        if hasattr(self, 'continuum_line_btn'):
-            self.continuum_line_btn.setChecked(False)
-        if hasattr(self, 'subtract_continuum_btn'):
-            self.subtract_continuum_btn.setChecked(False)
+        # Reset continuum toggles
+        if hasattr(self, 'auto_continuum_toggle'):
+            self.auto_continuum_toggle.setChecked(False)
+        if hasattr(self, 'custom_continuum_toggle'):
+            self.custom_continuum_toggle.setChecked(False)
+
+        # Hide action buttons
+        if hasattr(self, 'hide_all_action_buttons'):
+            self.hide_all_action_buttons()
 
         print("[DEBUG] Continuum data cleared successfully")
 
@@ -288,7 +376,7 @@ class CubeExplorer(QWidget):
                 btn.setChecked(False)
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
-        self.set_range_btn.setChecked(False)
+        
         self.active_target = None
         
         # Clear Doppler shifted line if it exists
@@ -378,21 +466,21 @@ class CubeExplorer(QWidget):
     def _init_plots(self):
         """Initialize matplotlib figures and canvases"""
         # Left slice
-        self.slice1_fig = Figure(figsize=(4, 4), dpi= 100)
+        self.slice1_fig = Figure(figsize=(4, 4), dpi=100)
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
         self.slice1_plotter = SlicePlotter(self.slice1_fig)
         self.slice1_toolbar = CustomNavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "left"))
         
         # Right slice
-        self.slice2_fig = Figure(figsize=(4, 4), dpi = 100)
+        self.slice2_fig = Figure(figsize=(4, 4), dpi=100)
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
         self.slice2_plotter = SlicePlotter(self.slice2_fig)
         self.slice2_toolbar = CustomNavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "right"))
 
         # Spectrum
-        self.spec_fig = Figure(figsize=(8, 3), dpi = 100)
+        self.spec_fig = Figure(figsize=(8, 3), dpi=100)
         self.spec_canvas = FigureCanvas(self.spec_fig)
         self.spec_plotter = None  # Will be initialized after loading data
         for ax in self.spec_fig.axes:
@@ -415,7 +503,7 @@ class CubeExplorer(QWidget):
         self.set_right_btn = QPushButton("Set Right Slice")
         self.shift_btn = QPushButton("Shift")
         self.apply_shift_btn = QPushButton("Apply Shift")
-        self.set_range_btn = QPushButton("Set Range")
+        
         
         # Gaussian fitting buttons
         self.gauss_left_btn = QPushButton("Left")
@@ -426,19 +514,75 @@ class CubeExplorer(QWidget):
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
         
-        # Spectrum saving button
-        self.save_spectrum_btn = QPushButton("Save Spectrum")
+        self.auto_continuum_toggle = QPushButton("Automatic Continuum")
+        self.custom_continuum_toggle = QPushButton("Custom Continuum")
+
+        self.auto_continuum_toggle.setCheckable(True)
+        self.custom_continuum_toggle.setCheckable(True)
+
+        # Style for toggle buttons
+        toggle_style = """
+            QPushButton {
+                background-color: #e0e0e0;
+                border: 2px solid #888;
+                border-radius: 4px;
+                padding: 6px;
+                font-weight: bold;
+            }
+            QPushButton:checked {
+                background-color: #4a90e2;
+                color: white;
+                border: 2px solid #2d73c5;
+            }
+            QPushButton:hover {
+                border: 2px solid #4a90e2;
+            }
+        """
+        self.auto_continuum_toggle.setStyleSheet(toggle_style)
+        self.custom_continuum_toggle.setStyleSheet(toggle_style)
+
+        # Action buttons (initially hidden)
         self.continuum_line_btn = QPushButton("Continuum Line")
         self.subtract_continuum_btn = QPushButton("Subtract Continuum")
         self.custom_subtract_btn = QPushButton("Custom Subtract")
+        self.custom_ok_btn = QPushButton("OK")
+
+        self.save_spectrum_btn = QPushButton("Save Spectrum")
+
+        # Make action buttons checkable
+        self.continuum_line_btn.setCheckable(True)
+        self.subtract_continuum_btn.setCheckable(True)
+        self.custom_subtract_btn.setCheckable(True)
+
+        # Connect toggle buttons
+        self.auto_continuum_toggle.clicked.connect(self.on_auto_continuum_toggle)
+        self.custom_continuum_toggle.clicked.connect(self.on_custom_continuum_toggle)
+
+        # Connect action buttons (keep existing connections)
+        self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
+        self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
+        self.custom_ok_btn.clicked.connect(self.on_custom_ok_clicked)
+
+        # Hide all action buttons initially
+        self.continuum_line_btn.hide()
+        self.subtract_continuum_btn.hide()
+        self.custom_subtract_btn.hide()
+        self.custom_ok_btn.hide()
+
+        # Tooltips
+        self.auto_continuum_toggle.setToolTip("Toggle automatic continuum fitting mode")
+        self.custom_continuum_toggle.setToolTip("Toggle custom continuum point selection mode")
+        self.continuum_line_btn.setToolTip("Fit and display continuum line")
+        self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum")
+        self.custom_subtract_btn.setToolTip("Manually select continuum points and fit")
+        self.custom_ok_btn.setToolTip("Calculate and apply custom continuum")
+        self.save_spectrum_btn.setToolTip("Save current spectrum to file")
 
         self.subtract_continuum_btn.setCheckable(True)
-        self.subtract_continuum_btn.setEnabled(False) 
         self.continuum_line_btn.setCheckable(True)
         self.custom_subtract_btn.setCheckable(True)      
         self.set_left_btn.setCheckable(True)
-        self.set_right_btn.setCheckable(True)
-        self.set_range_btn.setCheckable(True)
+        self.set_right_btn.setCheckable(True)        
         self.gauss_left_btn.setCheckable(True)
         self.gauss_peak_btn.setCheckable(True)
         self.gauss_right_btn.setCheckable(True)
@@ -451,7 +595,6 @@ class CubeExplorer(QWidget):
         self.apply_shift_btn.clicked.connect(self._apply_shift)
         self.apply_shift_btn.setEnabled(False)
         self.apply_shift_btn.setToolTip("Replace original spectrum with the shifted version")
-        self.set_range_btn.clicked.connect(self._activate_range_selector)
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
         self.gauss_right_btn.clicked.connect(self._activate_gaussian_right)
@@ -631,9 +774,7 @@ class CubeExplorer(QWidget):
 
         # Left sidebar (shape buttons / copy / erase)
         left_sidebar = QVBoxLayout()
-        # Add color button at top
         left_sidebar.addWidget(self.color_btn_left)
-        # Add scale dropdown
         left_sidebar.addWidget(QLabel("Scale:"))
         left_sidebar.addWidget(self.scale_combo_left)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
@@ -643,11 +784,9 @@ class CubeExplorer(QWidget):
         left_sidebar.addWidget(self.erase_btn_l)
         left_sidebar.addStretch()
 
-        # assemble left combined region: slice (4) + sidebar (1)
         left_combined.addLayout(left_slice_layout, 4)
         left_combined.addLayout(left_sidebar, 1)
 
-        # Wrap left half into a layout that enforces stats:combined = 1:3
         left_half = QHBoxLayout()
         left_half.addLayout(left_stats_layout, 1)
         left_half.addLayout(left_combined, 3)
@@ -661,7 +800,6 @@ class CubeExplorer(QWidget):
 
         right_sidebar = QVBoxLayout()
         right_sidebar.addWidget(self.color_btn_right)
-        # Add scale dropdown
         right_sidebar.addWidget(QLabel("Scale:"))
         right_sidebar.addWidget(self.scale_combo_right)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
@@ -682,52 +820,70 @@ class CubeExplorer(QWidget):
         right_half.addLayout(right_stats_layout, 1)
         right_half.addLayout(right_combined, 3)
 
-        # Add halves to top_layout equally
         top_layout.addLayout(left_half, 1)
         top_layout.addLayout(right_half, 1)
 
         main_layout.addLayout(top_layout, 1)
 
-        # Add slice selection buttons under the top layout
-        slice_select_layout = QHBoxLayout()
-        slice_select_layout.addWidget(self.set_left_btn)
-        slice_select_layout.addWidget(self.set_right_btn)
-        slice_select_layout.addWidget(self.shift_btn)
-        slice_select_layout.addWidget(self.apply_shift_btn)
-        slice_select_layout.addStretch()
+        # ===================================================================
+        # COLLAPSIBLE BUTTON GROUPS (snake_case)
+        # ===================================================================
         
-        # Add Gaussian fitting buttons
-        slice_select_layout.addWidget(QLabel("Gaussian Fit:"))
-        slice_select_layout.addWidget(self.gauss_left_btn)
-        slice_select_layout.addWidget(self.gauss_peak_btn)
-        slice_select_layout.addWidget(self.gauss_right_btn)
-        slice_select_layout.addWidget(QLabel("Noise:"))
-        slice_select_layout.addWidget(self.gauss_noise_left_btn)
-        slice_select_layout.addWidget(self.gauss_noise_right_btn)
-        slice_select_layout.addWidget(self.gauss_fit_btn)
-        slice_select_layout.addWidget(self.gauss_map_btn)
-        slice_select_layout.addStretch()
+        # Create collapsible button layout
+        collapsible_layout = QHBoxLayout()
+        collapsible_layout.setSpacing(5)
+        collapsible_layout.setContentsMargins(0, 0, 0, 0)
         
-        main_layout.addLayout(slice_select_layout)
+        # Group 1: Slice Selection
+        self.slice_group = CollapsibleButtonGroup("Slice Selection")
+        self.slice_group.add_button(self.set_left_btn)
+        self.slice_group.add_button(self.set_right_btn)
+        self.slice_group.add_button(self.shift_btn)
+        self.slice_group.add_button(self.apply_shift_btn)
+        collapsible_layout.addWidget(self.slice_group)
+        
+        # Group 2: Gaussian Fit
+        self.gaussian_group = CollapsibleButtonGroup("Gaussian Fit")
+        self.gaussian_group.add_button(self.gauss_left_btn)
+        self.gaussian_group.add_button(self.gauss_peak_btn)
+        self.gaussian_group.add_button(self.gauss_right_btn)
+        self.gaussian_group.add_button(self.gauss_noise_left_btn)
+        self.gaussian_group.add_button(self.gauss_noise_right_btn)
+        self.gaussian_group.add_button(self.gauss_fit_btn)
+        self.gaussian_group.add_button(self.gauss_map_btn)
+        collapsible_layout.addWidget(self.gaussian_group)
+        
+        # Group 3: Continuum Tools
+        self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
+        self.continuum_group.add_button(self.auto_continuum_toggle)
+        self.continuum_group.add_button(self.custom_continuum_toggle)
+        collapsible_layout.addWidget(self.continuum_group)
+        collapsible_layout.addStretch()
+        
+        main_layout.addLayout(collapsible_layout)
+        
+        # ===================================================================
 
         # Add spectrum at bottom with expanded vertical space
         main_layout.addWidget(self.spec_canvas, 2)
         main_layout.addWidget(self.spec_toolbar)
         
-        # Add save spectrum button
-        spectrum_button_layout = QHBoxLayout()
-        spectrum_button_layout.addStretch()
-        spectrum_button_layout.addWidget(self.save_spectrum_btn)
-        spectrum_button_layout.addStretch()
-        spectrum_button_layout.addWidget(self.continuum_line_btn)
-        spectrum_button_layout.addWidget(self.subtract_continuum_btn) 
-        spectrum_button_layout.addWidget(self.custom_subtract_btn)       
-        main_layout.addLayout(spectrum_button_layout)
+        # Add save spectrum button separately
+        self.continuum_action_layout = QHBoxLayout()
+        self.continuum_action_layout.addStretch()
+        self.continuum_action_layout.addWidget(self.continuum_line_btn)
+        self.continuum_action_layout.addWidget(self.subtract_continuum_btn)
+        self.continuum_action_layout.addWidget(self.custom_subtract_btn)
+        self.continuum_action_layout.addWidget(self.custom_ok_btn)
+        self.continuum_action_layout.addWidget(self.save_spectrum_btn)
+        self.continuum_action_layout.addStretch()
+        main_layout.addLayout(self.continuum_action_layout)
 
         # Add wavelength range controls under the spectrum
         main_layout.addLayout(self.wavelength_layout)
 
         self.setLayout(main_layout)
+
 
     def _on_continuum_line_clicked(self):
         """Handle Continuum Line button toggle - show parameter dialog then fit and display continuum"""
@@ -736,7 +892,14 @@ class CubeExplorer(QWidget):
             self.continuum_line_btn.setChecked(False)
             return
 
-        if not hasattr(self, 'cube_data') or self.cube_data.spectrum is None:
+        # FIXED: Check BOTH possible attribute names
+        cube = None
+        if hasattr(self, 'cube_data'):
+            cube = self.cube_data
+        elif hasattr(self, 'cubedata'):
+            cube = self.cubedata
+
+        if cube is None or cube.spectrum is None:
             QMessageBox.warning(self, "No Spectrum", "No spectrum data available.")
             self.continuum_line_btn.setChecked(False)
             return
@@ -744,7 +907,7 @@ class CubeExplorer(QWidget):
         if self.continuum_line_btn.isChecked():
             # If Subtract Continuum is active, turn it off first and restore original
             if self.subtract_continuum_btn.isChecked():
-                self._restore_original_spectrum()
+                self.restore_original_spectrum()
                 self.subtract_continuum_btn.setChecked(False)
 
             # Show parameter dialog
@@ -758,8 +921,27 @@ class CubeExplorer(QWidget):
                 # User cancelled, uncheck the button
                 self.continuum_line_btn.setChecked(False)
         else:
-            # Remove continuum line
-            self._remove_continuum_line()
+            # Unchecking - remove continuum line
+            if hasattr(self, 'continuum_line') and self.continuum_line is not None:
+                try:
+                    self.continuum_line.remove()
+                    print("[DEBUG] Continuum line visual removed")
+                except Exception as e:
+                    print(f"[DEBUG] Error removing continuum line: {e}")
+                self.continuum_line = None
+
+            # Only remove visual, keep continuum_fitted
+            if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
+                self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+                self.spec_canvas.draw()
+
+            # Update Subtract Continuum button state
+            if hasattr(self, 'continuum_subtracted') and self.continuum_subtracted:
+                if hasattr(self, 'restore_original_spectrum_internal'):
+                    self.restore_original_spectrum_internal()
+                if hasattr(self, 'subtract_continuum_btn'):
+                    self.subtract_continuum_btn.setEnabled(False)
+                    self.subtract_continuum_btn.setChecked(False)
 
     def _fit_and_display_continuum(self, params = None):
         """Fit continuum using peak detection and median filter - improved accuracy"""
@@ -780,7 +962,14 @@ class CubeExplorer(QWidget):
             
             # Get spectrum data
             wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-            flux = self.cube_data.spectrum
+
+            # Get correct cube data object
+            cube = getattr(self, 'cube_data', None) or getattr(self, 'cubedata', None)
+            if cube is None:
+                QMessageBox.warning(self, "No Data", "Cube data not available.")
+                self.continuum_line_btn.setChecked(False)
+                return
+            flux = cube.spectrum
             
             if wavelength is None or flux is None:
                 QMessageBox.warning(self, "No Data", "Spectrum data not available.")
@@ -928,30 +1117,37 @@ class CubeExplorer(QWidget):
             print(f"[DEBUG] Continuum fitting error: {e}")
             import traceback
             traceback.print_exc()
-        self.subtract_continuum_btn.setEnabled(True)
+        if hasattr(self, 'subtract_continuum_btn'):
+            self.subtract_continuum_btn.setEnabled(True)
+            print("[DEBUG] Continuum fitted successfully - Subtract button enabled")
+        
+
     def _remove_continuum_line(self):
         """Remove the continuum line from the spectrum plot"""
         if self.continuum_line is not None:
             try:
                 self.continuum_line.remove()
-                print("[DEBUG] Continuum line removed")
+                print("DEBUG: Continuum line removed")
             except Exception as e:
-                print(f"[DEBUG] Error removing continuum line: {e}")
+                print(f"DEBUG: Error removing continuum line: {e}")
             self.continuum_line = None
-            self.continuum_fitted = None            
-            # Update legend
-            if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
-                self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-                self.spec_canvas.draw()
+            # DO NOT clear continuum_fitted here - we need it for subtraction!
+            # self.continuum_fitted = None  # REMOVED THIS LINE
 
-            # If spectrum was subtracted, restore it
-            if self.continuum_subtracted:
-                self._restore_original_spectrum_internal()
-            self.subtract_continuum_btn.setEnabled(False)
+        # Update legend
+        if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
+            self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+            self.spec_canvas.draw()
+
+        # If spectrum was subtracted, restore it
+        if self.continuum_subtracted:
+            self._restore_original_spectrum_internal()            
             self.subtract_continuum_btn.setChecked(False)
 
     def _activate_custom_continuum_subtraction(self):
-        """Activate custom continuum subtraction mode"""
+        """
+        Activate or deactivate custom continuum subtraction with proper toggle behavior
+        """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
             self.custom_subtract_btn.setChecked(False)
@@ -963,16 +1159,47 @@ class CubeExplorer(QWidget):
             return
 
         if self.custom_subtract_btn.isChecked():
-            # Turn off other continuum modes
-            if self.continuum_line_btn.isChecked():
-                self._remove_continuum_line()
-                self.continuum_line_btn.setChecked(False)
+            # ==================== ACTIVATION MODE ====================
 
+            # Check if spectrum is already custom-subtracted
+            if self.continuum_subtracted and hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+                # Already subtracted, clicking again should RESTORE
+                print("DEBUG: Custom subtract already applied, restoring original")
+                self._restore_from_custom_subtract()
+                self.custom_subtract_btn.setChecked(False)
+                return
+
+            # Check if continuum line exists first (ALWAYS check)
+            if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+                QMessageBox.warning(
+                    self, 
+                    "No Continuum Line Set",
+                    "Please create the continuum line first using the 'Continuum Line' button.\n\n"
+                    "Steps:\n"
+                    "1. Click 'Continuum Line' button to auto-fit the continuum\n"
+                    "2. Then click 'Custom Subtract' to refine it with manual points\n\n"
+                    "The continuum line will be your starting reference for custom subtraction."
+                )
+                self.custom_subtract_btn.setChecked(False)
+                return
+
+            print("DEBUG: Continuum line detected - activating custom subtraction")
+
+            # If already subtracted via regular subtract, restore first
+            if self.continuum_subtracted and self.original_spectrum_backup is not None:
+                self.cube_data.spectrum = self.original_spectrum_backup.copy()
+                self.continuum_subtracted = False
+                print("DEBUG: Restored original spectrum for custom refinement")
+
+            # Turn off Subtract Continuum button if active
             if self.subtract_continuum_btn.isChecked():
-                self._restore_original_spectrum()
                 self.subtract_continuum_btn.setChecked(False)
 
-            # Initialize custom continuum selector if needed
+            # DON'T turn off Continuum Line button - keep it visible during point selection!
+            # This is KEY: user needs to see the continuum while placing points
+
+            # Create or reset selector with current spectrum data
+            # FIXED: Disable Enter key by NOT passing on_finalize callback
             if self.custom_continuum_selector is None:
                 self.custom_continuum_selector = CustomContinuumSelector(
                     ax=self.spec_plotter.ax,
@@ -980,101 +1207,173 @@ class CubeExplorer(QWidget):
                     wavelength=_extract_wavelength_value(self.spec_plotter.wavelength),
                     flux=self.cube_data.spectrum,
                     parent_widget=self
+                    # NOTE: NOT passing on_finalize parameter - Enter key disabled
                 )
+            else:
+                # Update with current spectrum data (important after zoom/pan)
+                self.custom_continuum_selector.flux = self.cube_data.spectrum
+                self.custom_continuum_selector.wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
 
-            # Activate it
+            # Activate it (WITHOUT Enter key functionality)
             self.custom_continuum_selector.activate()
             self.custom_continuum_active = True
-            print("[DEBUG] Custom continuum subtraction activated")
-        else:
-            # Deactivate
-            if self.custom_continuum_selector is not None:
-                self.custom_continuum_selector.deactivate()
-                self.custom_continuum_active = False
-            print("[DEBUG] Custom continuum subtraction deactivated")
+            print("DEBUG: Custom continuum selector activated - click on the blue spectrum to add points")
+            print("DEBUG: Points will SNAP to nearest spectrum data point")
+            print("DEBUG: Recommended: ~20 points for best results")
+            print("DEBUG: Press OK button (NOT Enter) to fit and subtract, ESC to cancel")
 
-    def _finalize_custom_continuum(self):
-        """Finalize custom continuum: fit spline and subtract"""
-        if self.custom_continuum_selector is None:
+        else:
+            # ==================== DEACTIVATION MODE ====================
+
+            # Check if custom subtract was applied
+            if self.continuum_subtracted and hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+                # Restore original spectrum
+                print("DEBUG: Deactivating - restoring original spectrum")
+                self._restore_from_custom_subtract()
+            else:
+                # Just deactivate selector without restoration
+                if self.custom_continuum_selector is not None:
+                    self.custom_continuum_selector.deactivate()
+                self.custom_continuum_active = False
+                print("DEBUG: Custom continuum subtraction deactivated")
+
+    def _restore_from_custom_subtract(self):
+        """
+        Restore the original spectrum from custom subtract
+        """
+        if self.original_spectrum_backup is None:
+            print("DEBUG: No backup to restore")
             return
 
-        # Fit the continuum
-        continuum = self.custom_continuum_selector.fit_continuum()
-        if continuum is None:
-            return  # Fitting failed or cancelled
+        try:
+            # Restore original spectrum
+            self.cube_data.spectrum = self.original_spectrum_backup.copy()
 
-        # Show the fitted line
-        self.custom_continuum_selector.show_fitted_line()
+            # Replot
+            self.spec_plotter.plot_spectrum(self.cube_data.spectrum)
 
-        # Ask user if they want to subtract
-        reply = QMessageBox.question(
-            self,
-            "Subtract Continuum?",
-            "Continuum fitted successfully!\n\n"
-            "Do you want to subtract this continuum from the spectrum?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            # Restore continuum line if continuum_fitted exists and button should be on
+            if self.continuum_fitted is not None and self.continuum_line_btn.isChecked():
+                wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+                ax = self.spec_plotter.ax
+                self.continuum_line = ax.plot(
+                    wavelength, 
+                    self.continuum_fitted,
+                    color='orange',
+                    linewidth=2,
+                    linestyle='-',
+                    label='Continuum',
+                    zorder=10
+                )[0]
 
-        if reply == QMessageBox.Yes:
-            # Perform subtraction
-            self._perform_custom_subtraction(continuum)
+            # Update legend and redraw
+            self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+            self.spec_canvas.draw()
 
-        # Deactivate the selector
-        self.custom_continuum_selector.deactivate()
-        self.custom_subtract_btn.setChecked(False)
-        self.custom_continuum_active = False
-    
+            # Reset flags
+            self.continuum_subtracted = False
+            self.custom_continuum_applied = False
+
+            print("DEBUG: Original spectrum restored from custom subtract")
+
+            QMessageBox.information(
+                self,
+                "Restored",
+                "Original spectrum has been restored."
+            )
+
+        except Exception as e:
+            print(f"DEBUG: Error restoring spectrum: {e}")
+
+
+
     def _perform_global_continuum_subtraction(self):
-        """Subtract the fitted continuum from the entire spectrum with robust scaling."""
+        """
+        Subtract the fitted continuum from the entire spectrum with robust scaling.
+        """
         try:
             # Backup original spectrum if not already done
             if self.original_spectrum_backup is None:
                 self.original_spectrum_backup = self.cube_data.spectrum.copy()
-            
+                print("DEBUG: Backed up original spectrum")
+
             # Extract numeric values safely
             wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
             flux = self.original_spectrum_backup.copy()
             continuum = self.continuum_fitted
-            
-            # Check for NoneType before accessing .shape to prevent your original error
+
+            # Check for NoneType before accessing .shape
             if continuum is None:
                 QMessageBox.warning(self, "Error", "No continuum data found. Fit a continuum first.")
+                self.subtract_continuum_btn.setChecked(False)
+                return
+
+            print(f"DEBUG: flux shape {flux.shape}, continuum shape {continuum.shape}")
+
+            if flux.shape != continuum.shape:
+                QMessageBox.critical(
+                    self, 
+                    "Shape Mismatch",
+                    f"Cannot subtract: flux shape {flux.shape} != continuum shape {continuum.shape}.\n\n"
+                    f"Please refit the continuum."
+                )
+                self.subtract_continuum_btn.setChecked(False)
                 return
 
             # Perform subtraction
             flux_subtracted = flux - continuum
             self.cube_data.spectrum = flux_subtracted
-            
+
             # Replot the spectrum
             ax = self.spec_plotter.ax
             ax.clear()
-            
-            # Plot subtracted spectrum with improved linewidth
-            ax.plot(wavelength, flux_subtracted, 'b-', label='Subtracted Spectrum', linewidth=1.2 , zorder=5)
-            
-            # Add a zero reference line
-            ax.axhline(0, color='red', linestyle='--', linewidth=1, alpha=0.7, label='Zero Level', zorder=3)
-            
-            # --- ROBUST PERCENTILE SCALING (From gui2.py) ---
-            # This ignores the top/bottom 1% of data to prevent noise from squashing the graph
+
+            # Plot subtracted spectrum
+            ax.plot(wavelength, flux_subtracted, 'b-', label='Continuum-Subtracted Spectrum', 
+                    linewidth=1, clip_on=True)
+
+            # *** ADD ZERO REFERENCE LINE (light grey dotted) ***
+            ax.axhline(0, color='lightgrey', linestyle=':', linewidth=1.5, 
+                    alpha=0.8, label='Zero Level', zorder=3)
+
+            # Calculate robust y-limits using percentiles
             valid_flux = flux_subtracted[np.isfinite(flux_subtracted)]
             if len(valid_flux) > 0:
-                y_min = np.percentile(valid_flux, 1)  
-                y_max = np.percentile(valid_flux, 99) 
-                margin = (y_max - y_min) * 0.10      # 10% breathing room
+                y_min = np.percentile(valid_flux, 1)
+                y_max = np.percentile(valid_flux, 99)
+                margin = (y_max - y_min) * 0.10
                 ax.set_ylim(y_min - margin, y_max + margin)
-            
-            # Apply clean styling
+
+            # Set limits
             ax.set_xlim(wavelength.min(), wavelength.max())
-            ax.grid(True, alpha=0.3, linestyle=':')
+
+            # Labels
+            wave_unit = getattr(self.cube_data, 'wave_unit', 'µm')
+            flux_unit = getattr(self.cube_data, 'flux_unit', 'MJy/sr')
+            ax.set_xlabel(f'Wavelength ({wave_unit})')
+            ax.set_ylabel(f'Flux ({flux_unit})')
             ax.legend(loc='upper right', fontsize=8)
-            
+            ax.grid(True, alpha=0.3)
+
+            # Force clipping
+            for line in ax.get_lines():
+                line.set_clip_on(True)
+
+            # Redraw
             self.spec_canvas.draw()
+            QApplication.processEvents()
+
+            # Set flags
             self.continuum_subtracted = True
-            
+            self.global_continuum_applied = True  # NEW FLAG
+
+            print("DEBUG: Global continuum subtraction complete")
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Subtraction failed: {str(e)}")
+            self.subtract_continuum_btn.setChecked(False)
+            import traceback
+            traceback.print_exc()
 
     def _cancel_custom_continuum(self):
         """Cancel custom continuum selection"""
@@ -1093,12 +1392,14 @@ class CubeExplorer(QWidget):
         print("[DEBUG] Custom continuum cancelled")
 
     def _perform_custom_subtraction(self, continuum):
-        """Subtract custom fitted continuum from spectrum"""
+        """
+        Subtract custom fitted continuum from spectrum and display with zero line
+        """
         try:
             # Backup original if not already done
             if self.original_spectrum_backup is None:
                 self.original_spectrum_backup = self.cube_data.spectrum.copy()
-                print("[DEBUG] Backed up original spectrum")
+                print("DEBUG: Backed up original spectrum")
 
             # Perform subtraction
             subtracted = self.original_spectrum_backup - continuum
@@ -1106,20 +1407,64 @@ class CubeExplorer(QWidget):
             # Update the spectrum
             self.cube_data.spectrum = subtracted
 
-            # Replot
-            self.spec_plotter.plot_spectrum(subtracted)
+            # Get wavelength for plotting
+            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+
+            # Replot with custom styling
+            ax = self.spec_plotter.ax
+            ax.clear()
+
+            # Plot subtracted spectrum
+            ax.plot(wavelength, subtracted, color='blue', linewidth=1.5, 
+                    label='Custom Continuum-Subtracted Spectrum', clip_on=True, zorder=5, antialiased=True)
+
+            # *** ADD ZERO REFERENCE LINE (light grey dotted) ***
+            ax.axhline(0, color='lightgrey', linestyle=':', linewidth=1.5, 
+                    alpha=0.8, label='Zero Level', zorder=3)
+
+            # Calculate robust y-limits
+            valid_flux = subtracted[np.isfinite(subtracted)]
+            if len(valid_flux) > 0:
+                y_min = np.percentile(valid_flux, 1)
+                y_max = np.percentile(valid_flux, 99)
+                margin = (y_max - y_min) * 0.10
+                ax.set_ylim(y_min - margin, y_max + margin)
+
+            # Set x-limits
+            ax.set_xlim(wavelength.min(), wavelength.max())
+
+            # Labels
+            wave_unit = getattr(self.cube_data, 'wave_unit', 'µm')
+            flux_unit = getattr(self.cube_data, 'flux_unit', 'MJy/sr')
+            ax.set_xlabel(f'Wavelength ({wave_unit})', fontsize=11, fontweight='bold')
+            ax.set_ylabel(f'Relative Flux ({flux_unit})', fontsize=11, fontweight='bold')
+            ax.set_title('Custom Continuum Subtraction Result', fontsize=12, fontweight='bold', pad=10)
+
+            # Grid and legend
+            ax.grid(True, alpha=0.3, linestyle=':')
+            ax.legend(loc='upper right', fontsize=8)
+
+            # Force clipping
+            for line in ax.get_lines():
+                line.set_clip_on(True)
+
+            # Redraw
             self.spec_canvas.draw()
 
+            # Mark as subtracted with custom continuum
             self.continuum_subtracted = True
+            self.custom_continuum_applied = True  # NEW FLAG
+
+            print("DEBUG: Custom continuum subtraction complete")
+            print(f"DEBUG: Subtracted flux range: {np.nanmin(subtracted):.3e} to {np.nanmax(subtracted):.3e}")
 
             QMessageBox.information(
                 self,
                 "Subtraction Complete",
                 f"Custom continuum subtracted successfully!\n\n"
-                f"Result: I_subtracted(λ) = I_observed(λ) - I_continuum(λ)"
+                f"Result: I_subtracted(λ) = I_observed(λ) - I_continuum(λ)\n\n"
+                f"Click 'Custom Subtract' again to restore original spectrum."
             )
-
-            print("[DEBUG] Custom continuum subtraction complete")
 
         except Exception as e:
             QMessageBox.critical(
@@ -1127,14 +1472,17 @@ class CubeExplorer(QWidget):
                 "Subtraction Error",
                 f"Error subtracting continuum:\n{str(e)}"
             )
-            print(f"[DEBUG] Subtraction error: {e}")
+            print(f"DEBUG: Subtraction error: {e}")
             import traceback
             traceback.print_exc()
 
+
     def _restore_original_spectrum(self):
-        """Restore the original spectrum before continuum subtraction"""
+        """
+        Restore the original spectrum before continuum subtraction
+        """
         if self.original_spectrum_backup is None:
-            print("[DEBUG] No backup to restore")
+            print("DEBUG: No backup to restore")
             return
 
         try:
@@ -1144,24 +1492,41 @@ class CubeExplorer(QWidget):
             # Replot
             self.spec_plotter.plot_spectrum(self.cube_data.spectrum)
 
-            # Remove continuum line if showing
-            if self.continuum_line is not None:
+            # Restore continuum line if continuum_fitted exists and button should be on
+            if self.continuum_fitted is not None and self.continuum_line_btn.isChecked():
+                wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+                ax = self.spec_plotter.ax
+                self.continuum_line = ax.plot(
+                    wavelength, 
+                    self.continuum_fitted,
+                    color='orange',
+                    linewidth=2,
+                    linestyle='-',
+                    label='Continuum',
+                    zorder=10
+                )[0]
+
+            # Remove continuum line visual if button is not checked
+            if self.continuum_line is not None and not self.continuum_line_btn.isChecked():
                 try:
                     self.continuum_line.remove()
-                    print("[DEBUG] Removed continuum line")
+                    print("DEBUG: Removed continuum line visual during restore")
                 except Exception as e:
-                    print(f"[DEBUG] Error removing continuum line: {e}")
+                    print(f"DEBUG: Error removing continuum line: {e}")
                 self.continuum_line = None
 
             # Update legend and redraw
             self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
             self.spec_canvas.draw()
 
+            # Reset flags
             self.continuum_subtracted = False
-            print("[DEBUG] Original spectrum restored")
+            self.global_continuum_applied = False  # Reset flag
+
+            print("DEBUG: Original spectrum restored")
 
         except Exception as e:
-            print(f"[DEBUG] Error restoring spectrum: {e}")
+            print(f"DEBUG: Error restoring spectrum: {e}")
 
     def _init_state(self):
         """Initialize state variables"""
@@ -1204,6 +1569,8 @@ class CubeExplorer(QWidget):
         # Continuum line state
         self.continuum_line = None  # Store continuum line artist
         self.continuum_fitted = None # Continuum subtraction state
+        self.global_continuum_applied = False # Track if global continuum subtraction was applied
+        self.custom_continuum_applied = False # Track if custom continuum was applied
         self.custom_continuum_selector = None
         self.custom_continuum_active = False
         self.subtract_mode = None  # 'left' or 'right'
@@ -2345,177 +2712,105 @@ class CubeExplorer(QWidget):
             idx = self.last_idx_left if target == 'left' else self.last_idx_right
             self._display_slice(idx, target)
 
-    def _activate_range_selector(self):
-        if self.set_range_btn.isChecked():
-            self.active_target = "range"
-            if hasattr(self, 'spec_plotter') and self.spec_plotter:
-                self.span = SpanSelector(
-                    self.spec_plotter.ax,
-                    self.on_span_selected,
-                    "horizontal",
-                    useblit=True,
-                    props=dict(alpha=0.3, facecolor='orange')
-                )
-        else:
-            if hasattr(self, 'span'):
-                self.span.disconnect_events()
-                self.span = None
-
     def _activate_continuum_subtraction(self):
-        """Activate continuum subtraction mode - user selects two points"""
-        # Check if continuum is fitted
-        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
-            QMessageBox.warning(self, "No Continuum", 
-                            "Please fit a continuum first (click 'Continuum Line' button).")
+        """
+        Toggle continuum subtraction for the entire spectrum (AUTOMATIC - no point selection)
+        Now works as a proper toggle button with continuum line check every time
+        """
+        print("\n" + "="*80)
+        print("[DEBUG] _activate_continuum_subtraction CALLED")
+        print("="*80)
+
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            print("[DEBUG] No spec_plotter")
+            QMessageBox.warning(self, "No Data", "Load a data cube first.")
             self.subtract_continuum_btn.setChecked(False)
             return
-        
-        if self.subtract_continuum_btn.isChecked():
-            # Activate selection mode
-            print("[DEBUG] Continuum subtraction mode activated. Click two points on spectrum.")
-            QMessageBox.information(self, "Select Region", 
-                                "Click TWO points on the spectrum to select the wavelength range for subtraction.\n\n"
-                                "The order doesn't matter - left/right will be determined automatically.")
-            self.subtract_mode = 'selecting'
-        else:
-            # Cancel mode and clear markers
-            self._clear_subtraction_markers()
-            self.subtract_mode = None
-            self.subtract_left_x = None
-            self.subtract_right_x = None
-            print("[DEBUG] Continuum subtraction mode cancelled")
 
-    def _mark_subtraction_boundary(self, xpos):
-        """Mark a boundary point for continuum subtraction"""
-        ax = self.spec_plotter.ax
-        
-        # If we don't have a left point yet, this is the first point
-        if self.subtract_left_x is None and self.subtract_right_x is None:
-            # First point - mark as "Point 1"
-            marker = ax.axvline(xpos, color='red', linestyle='--', linewidth=2, label='Point 1')
-            self.subtract_markers.append(marker)
-            self.subtract_left_x = xpos  # Temporarily store here
-            print(f"[DEBUG] First point marked at {xpos:.4f}")
-            self.spec_canvas.draw()
-            
-        elif self.subtract_right_x is None:
-            # Second point - now determine left/right
-            second_x = xpos
-            first_x = self.subtract_left_x
-            
-            # Determine which is left and which is right
-            if second_x < first_x:
-                # User clicked right-to-left
-                self.subtract_left_x = second_x
-                self.subtract_right_x = first_x
-            else:
-                # User clicked left-to-right
-                self.subtract_right_x = second_x
-                # self.subtract_left_x already set
-            
-            # Remove old markers
-            for marker in self.subtract_markers:
-                try:
-                    marker.remove()
-                except:
-                    pass
-            self.subtract_markers = []
-            
-            # Draw final left/right markers
-            left_marker = ax.axvline(self.subtract_left_x, color='green', linestyle='-', linewidth=2, label='Left')
-            right_marker = ax.axvline(self.subtract_right_x, color='orange', linestyle='-', linewidth=2, label='Right')
-            self.subtract_markers = [left_marker, right_marker]
-            
-            print(f"[DEBUG] Region selected: {self.subtract_left_x:.4f} to {self.subtract_right_x:.4f}")
-            
-            # Update legend
-            ax.legend(loc='upper right', fontsize=8)
-            self.spec_canvas.draw()
-            
-            # Perform the subtraction
+        if not hasattr(self, 'cube_data') or self.cube_data.spectrum is None:
+            print("[DEBUG] No cube_data or spectrum")
+            QMessageBox.warning(self, "No Spectrum", "No spectrum data available.")
             self.subtract_continuum_btn.setChecked(False)
-            self.subtract_mode = None
-            self._perform_regional_continuum_subtraction()
+            return
 
-    def _perform_regional_continuum_subtraction(self):
-        """Subtract continuum in selected range"""
-        try:
-            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-            flux = self.cube_data.spectrum
-            continuum = self.continuum_fitted
-            
-            # Find indices
-            left_idx = np.argmin(np.abs(wavelength - self.subtract_left_x))
-            right_idx = np.argmin(np.abs(wavelength - self.subtract_right_x))
-            
-            # Subtract ONLY in range
-            flux[left_idx:right_idx+1] -= continuum[left_idx:right_idx+1]
-            
-            # Update the spectrum data
-            self.cube_data.spectrum = flux
-            
-            # REPLOT the spectrum (since update_spectrum doesn't exist)
-            ax = self.spec_plotter.ax
-            ax.clear()
-            
-            # Calculate FULL y-range before plotting
-            y_min = np.nanmin(flux)
-            y_max = np.nanmax(flux)
-            y_margin = (y_max - y_min) * 0.05
-            
-            # Plot the spectrum with clipping
-            ax.plot(wavelength, flux, 'b-', label='Total Spectrum', linewidth=1, clip_on=True)
-            
-            # Set fixed limits
-            ax.set_xlim(wavelength.min(), wavelength.max())
-            ax.set_ylim(y_min - y_margin, y_max + y_margin)
-            
-            # Labels and legend
-            ax.set_xlabel(f'Wavelength [{self.cube_data.wave_unit}]')
-            # Use flux unit from header if available, otherwise generic label
-            if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
-                from .unit_converter import clean_flux_unit
-                ylabel = f"Flux [{clean_flux_unit(self.cube_data.flux_unit)}]"
-            else:
-                ylabel = "Flux [unknown units]"
-            ax.set_ylabel(ylabel)
-            ax.legend(loc='upper right', fontsize=8)
-            
-            # Force clipping on all lines
-            for line in ax.get_lines():
-                line.set_clip_on(True)
-            
-            # Redraw
-            self.spec_canvas.draw()
-            
-            print(f"[DEBUG] Subtracted in [{self.subtract_left_x:.4f}, {self.subtract_right_x:.4f}]")
-            print(f"[DEBUG] Y-axis: {y_min:.1f} to {y_max:.1f}")
-            
-            QMessageBox.information(self, "Done", 
-                                f"Continuum subtracted:\n"
-                                f"{self.subtract_left_x:.4f} to {self.subtract_right_x:.4f}\n"
-                                f"Y-range: {y_min:.1f} to {y_max:.1f}")
-            
-            self._clear_subtraction_markers()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed:\n{str(e)}")
-            print(f"[DEBUG] Error: {e}")
-            import traceback
-            traceback.print_exc()
+        print(f"[DEBUG] Button isChecked: {self.subtract_continuum_btn.isChecked()}")
 
+        if self.subtract_continuum_btn.isChecked():
+            print("[DEBUG] ACTIVATION MODE - Attempting subtraction")
 
+            # CRITICAL: ALWAYS check if continuum line exists first (EVERY TIME)
+            print(f"[DEBUG] hasattr continuum_fitted: {hasattr(self, 'continuum_fitted')}")
+            if hasattr(self, 'continuum_fitted'):
+                print(f"[DEBUG] continuum_fitted is None: {self.continuum_fitted is None}")
+                if self.continuum_fitted is not None:
+                    print(f"[DEBUG] continuum_fitted shape: {self.continuum_fitted.shape}")
 
-    def _clear_subtraction_markers(self):
-        """Clear the subtraction boundary markers"""
-        for marker in self.subtract_markers:
-            try:
-                marker.remove()
-            except:
-                pass
-        self.subtract_markers = []
-        if hasattr(self, 'spec_canvas'):
-            self.spec_canvas.draw()
+            if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+                print("[DEBUG] No continuum fitted - showing warning")
+                QMessageBox.warning(
+                    self,
+                    "No Continuum Line Set",
+                    "Please create the continuum line first using the 'Continuum Line' button.\n\n"
+                    "Steps:\n"
+                    "1. Click 'Continuum Line' button to fit the continuum\n"
+                    "2. Then click 'Subtract Continuum' to subtract it\n\n"
+                    "The continuum must be fitted before subtraction."
+                )
+                self.subtract_continuum_btn.setChecked(False)
+                return
+
+            print("[DEBUG] Continuum line found - proceeding with subtraction")
+
+            # Check if already subtracted (toggle to restore)
+            print(f"[DEBUG] continuum_subtracted: {hasattr(self, 'continuum_subtracted') and self.continuum_subtracted}")
+            if self.continuum_subtracted and hasattr(self, 'global_continuum_applied') and self.global_continuum_applied:
+                print("[DEBUG] Already subtracted, restoring original")
+                self._restore_original_spectrum()
+                self.subtract_continuum_btn.setChecked(False)
+                return
+
+            # Check if custom subtract is active or applied
+            if self.custom_subtract_btn.isChecked() or (hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied):
+                print("[DEBUG] Custom subtract active - asking user")
+                reply = QMessageBox.question(
+                    self,
+                    "Custom Subtract Active",
+                    "Using automatic subtraction will remove your custom subtraction progress.\n\n"
+                    "Are you sure you want to continue?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    print("[DEBUG] User cancelled")
+                    self.subtract_continuum_btn.setChecked(False)
+                    return
+                else:
+                    # User confirmed, restore and proceed
+                    if hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+                        self._restore_from_custom_subtract()
+                    self.custom_subtract_btn.setChecked(False)
+
+            # DON'T turn off the continuum line button - let it stay visible
+            print("[DEBUG] About to call _perform_global_continuum_subtraction()")
+
+            # Perform the automatic global subtraction
+            self._perform_global_continuum_subtraction()
+
+            print("[DEBUG] Returned from _perform_global_continuum_subtraction()")
+            print(f"[DEBUG] continuum_subtracted should now be True")
+
+            # Button stays checked after subtraction
+            self.subtract_continuum_btn.setChecked(True)
+            print("[DEBUG] Subtraction complete")
+
+        else:
+            # DEACTIVATION MODE (RESTORE)
+            print("[DEBUG] DEACTIVATION MODE - Restoring original")
+            self._restore_original_spectrum()
+
+        print("="*80)
+        print("[DEBUG] _activate_continuum_subtraction FINISHED")
+        print("="*80 + "\n")
 
     def _init_line_search_controls(self):
         """Initialize the min/max/species inputs and buttons."""
@@ -3711,3 +4006,266 @@ INTERPRETATION:
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save spectrum:\n{str(e)}")
             print(f"Error saving spectrum: {e}")
+
+    def on_auto_continuum_toggle(self):
+        """Handle Automatic Continuum toggle button"""
+        if self.auto_continuum_toggle.isChecked():
+            # Check if custom continuum is active with progress
+            if self.custom_continuum_toggle.isChecked():
+                if self.has_custom_progress():
+                    reply = QMessageBox.question(
+                        self, 
+                        "Switch Mode?",
+                        "Switching to Automatic Continuum will clear your Custom Continuum progress. Continue?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        self.auto_continuum_toggle.setChecked(False)
+                        return
+                    else:
+                        self.clear_custom_progress()
+
+                # Uncheck custom toggle
+                self.custom_continuum_toggle.setChecked(False)
+
+            # Show automatic continuum buttons
+            self.show_automatic_buttons()
+        else:
+            # Check if there's progress before turning off
+            if self.has_automatic_progress():
+                reply = QMessageBox.question(
+                    self,
+                    "Turn Off?",
+                    "Turning off Automatic Continuum will clear your progress. Continue?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    self.auto_continuum_toggle.setChecked(True)
+                    return
+                else:
+                    self.clear_automatic_progress()
+
+            # Hide automatic buttons
+            self.hide_all_action_buttons()
+
+
+    def on_custom_continuum_toggle(self):
+        """Handle Custom Continuum toggle button"""
+        if self.custom_continuum_toggle.isChecked():
+            # Check if automatic continuum is active with progress
+            if self.auto_continuum_toggle.isChecked():
+                if self.has_automatic_progress():
+                    reply = QMessageBox.question(
+                        self,
+                        "Switch Mode?",
+                        "Switching to Custom Continuum will clear your Automatic Continuum progress. Continue?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        self.custom_continuum_toggle.setChecked(False)
+                        return
+                    else:
+                        self.clear_automatic_progress()
+
+                # Uncheck automatic toggle
+                self.auto_continuum_toggle.setChecked(False)
+
+            # Show custom continuum buttons
+            self.show_custom_buttons()
+        else:
+            # Check if there's progress before turning off
+            if self.has_custom_progress():
+                reply = QMessageBox.question(
+                    self,
+                    "Turn Off?",
+                    "Turning off Custom Continuum will clear your progress. Continue?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    self.custom_continuum_toggle.setChecked(True)
+                    return
+                else:
+                    self.clear_custom_progress()
+
+            # Hide custom buttons
+            self.hide_all_action_buttons()
+
+
+    def show_automatic_buttons(self):
+        """Show only automatic continuum action buttons"""
+        self.hide_all_action_buttons()
+        self.continuum_line_btn.show()
+        self.subtract_continuum_btn.show()
+
+
+    def show_custom_buttons(self):
+        """Show only custom continuum action buttons"""
+        self.hide_all_action_buttons()
+        self.continuum_line_btn.show()  # Also in custom mode
+        self.custom_subtract_btn.show()
+        self.custom_ok_btn.show()
+
+
+    def hide_all_action_buttons(self):
+        """Hide all continuum action buttons"""
+        self.continuum_line_btn.hide()
+        self.subtract_continuum_btn.hide()
+        self.custom_subtract_btn.hide()
+        self.custom_ok_btn.hide()
+
+
+    def has_automatic_progress(self):
+        """Check if there's any automatic continuum progress"""
+        has_progress = (
+            self.continuum_line_btn.isChecked() or
+            self.subtract_continuum_btn.isChecked() or
+            (hasattr(self, 'continuum_fitted') and self.continuum_fitted is not None) or
+            (hasattr(self, 'continuum_subtracted') and self.continuum_subtracted)
+        )
+        return has_progress
+
+
+    def has_custom_progress(self):
+        """Check if there's any custom continuum progress"""
+        has_progress = (
+            self.custom_subtract_btn.isChecked() or
+            (hasattr(self, 'custom_continuum_active') and self.custom_continuum_active) or
+            (hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied)
+        )
+        return has_progress
+
+
+    def clear_automatic_progress(self):
+        """Clear all automatic continuum progress"""
+        try:
+            # Uncheck buttons
+            self.continuum_line_btn.setChecked(False)
+            self.subtract_continuum_btn.setChecked(False)
+
+            # Remove continuum line visual
+            if hasattr(self, 'continuum_line') and self.continuum_line is not None:
+                try:
+                    self.continuum_line.remove()
+                except:
+                    pass
+                self.continuum_line = None
+
+            # Restore original spectrum if subtracted
+            if hasattr(self, 'continuum_subtracted') and self.continuum_subtracted:
+                self.restore_original_spectrum()
+
+            # Clear fitted continuum
+            self.continuum_fitted = None
+            self.continuum_subtracted = False
+
+            if hasattr(self, 'global_continuum_applied'):
+                self.global_continuum_applied = False
+
+            print("[DEBUG] Automatic continuum progress cleared")
+        except Exception as e:
+            print(f"[DEBUG] Error clearing automatic progress: {e}")
+
+
+    def clear_custom_progress(self):
+        """Clear all custom continuum progress"""
+        try:
+            # Uncheck button
+            self.custom_subtract_btn.setChecked(False)
+
+            # Deactivate custom continuum selector
+            if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
+                self.custom_continuum_selector.clear_all()
+                self.custom_continuum_selector.deactivate()
+
+            # Restore original spectrum if applied
+            if hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+                self.restore_from_custom_subtract()
+
+            self.custom_continuum_active = False
+            self.custom_continuum_applied = False
+
+            print("[DEBUG] Custom continuum progress cleared")
+        except Exception as e:
+            print(f"[DEBUG] Error clearing custom progress: {e}")
+
+
+    def on_custom_ok_clicked(self):
+        """Handle OK button click in custom continuum mode"""
+        if not self.custom_continuum_active:
+            QMessageBox.warning(self, "Not Active", "Custom continuum is not active. Click 'Custom Subtract' first.")
+            return
+
+        if not hasattr(self, 'custom_continuum_selector') or self.custom_continuum_selector is None:
+            QMessageBox.warning(self, "No Selector", "Custom continuum selector not initialized.")
+            return
+
+        # DIAGNOSTIC: Check what attributes the selector actually has
+        print(f"[DEBUG] CustomContinuumSelector attributes: {dir(self.custom_continuum_selector)}")
+
+        # Try different possible attribute names
+        num_points = 0
+        if hasattr(self.custom_continuum_selector, 'points'):
+            num_points = len(self.custom_continuum_selector.points)
+            print(f"[DEBUG] Found 'points' attribute with {num_points} points")
+        elif hasattr(self.custom_continuum_selector, 'selected_points'):
+            num_points = len(self.custom_continuum_selector.selected_points)
+            print(f"[DEBUG] Found 'selected_points' attribute with {num_points} points")
+        elif hasattr(self.custom_continuum_selector, 'continuum_points'):
+            num_points = len(self.custom_continuum_selector.continuum_points)
+            print(f"[DEBUG] Found 'continuum_points' attribute with {num_points} points")
+        elif hasattr(self.custom_continuum_selector, '_points'):
+            num_points = len(self.custom_continuum_selector._points)
+            print(f"[DEBUG] Found '_points' attribute with {num_points} points")
+        else:
+            # Last resort: check all list-like attributes
+            for attr_name in dir(self.custom_continuum_selector):
+                if not attr_name.startswith('_'):
+                    attr = getattr(self.custom_continuum_selector, attr_name)
+                    if isinstance(attr, (list, tuple)) and len(attr) > 0:
+                        print(f"[DEBUG] Found possible points list: {attr_name} with {len(attr)} items")
+                        num_points = len(attr)
+                        break
+
+            if num_points == 0:
+                QMessageBox.critical(
+                    self,
+                    "Attribute Error",
+                    "CustomContinuumSelector does not have a valid points attribute.\n\n"
+                    f"Available attributes:\n{', '.join([a for a in dir(self.custom_continuum_selector) if not a.startswith('_')])}"
+                )
+                return
+
+        if num_points < 3:
+            QMessageBox.warning(
+                self,
+                "Not Enough Points",
+                f"You need at least 3 points to fit a continuum. You have {num_points} point(s).\n\n"
+                "Click on the spectrum to add continuum points, then click OK."
+            )
+            return
+
+        print(f"[DEBUG] OK button: Fitting custom continuum with {num_points} points")
+
+        # Fit and apply the custom continuum
+        try:
+            continuum = self.custom_continuum_selector.fit_continuum()
+            if continuum is not None:
+                self._perform_custom_subtraction(continuum)
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Custom continuum calculated and applied using {num_points} points."
+                )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to apply custom continuum: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return
+
+        # Deactivate the selector
+        self.custom_continuum_selector.deactivate()
+        self.custom_continuum_active = False
