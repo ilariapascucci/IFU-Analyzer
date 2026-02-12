@@ -747,8 +747,6 @@ class CubeExplorer(QWidget):
         self.slice_group = CollapsibleButtonGroup("Slice Selection")
         self.slice_group.add_button(self.set_left_btn)
         self.slice_group.add_button(self.set_right_btn)
-        self.slice_group.add_button(self.shift_btn)
-        self.slice_group.add_button(self.apply_shift_btn)
         collapsible_layout.addWidget(self.slice_group)
         
         # Group 2: Gaussian Fit
@@ -767,6 +765,10 @@ class CubeExplorer(QWidget):
         self.continuum_group.add_button(self.auto_continuum_toggle)
         self.continuum_group.add_button(self.custom_continuum_toggle)
         collapsible_layout.addWidget(self.continuum_group)
+
+        collapsible_layout.addWidget(self.shift_btn)
+        collapsible_layout.addWidget(self.apply_shift_btn)
+        
         collapsible_layout.addStretch()
         
         main_layout.addLayout(collapsible_layout)
