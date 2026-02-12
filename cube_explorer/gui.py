@@ -65,6 +65,69 @@ def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
             return wavelength_quantity_or_array
 
 
+class CustomNavigationToolbar(NavigationToolbar):
+    """
+    Custom matplotlib toolbar with customizable button behavior.
+    
+    Allows overriding default button actions by setting custom callbacks.
+    To customize button behavior, set callback functions like:
+        toolbar.custom_home_action = my_custom_function
+    """
+    
+    def __init__(self, canvas, parent=None, coordinates=True):
+        super().__init__(canvas, parent, coordinates)
+        # Initialize custom action callbacks
+        self.custom_home_action = None
+        self.custom_back_action = None
+        self.custom_forward_action = None
+        self.custom_pan_action = None
+        self.custom_zoom_action = None
+        self.custom_save_action = None
+    
+    def home(self, *args):
+        """Override home button - calls custom action if set, otherwise default"""
+        if self.custom_home_action is not None:
+            self.custom_home_action(*args)
+        else:
+            super().home(*args)
+    
+    def back(self, *args):
+        """Override back button - calls custom action if set, otherwise default"""
+        if self.custom_back_action is not None:
+            self.custom_back_action(*args)
+        else:
+            super().back(*args)
+    
+    def forward(self, *args):
+        """Override forward button - calls custom action if set, otherwise default"""
+        if self.custom_forward_action is not None:
+            self.custom_forward_action(*args)
+        else:
+            super().forward(*args)
+    
+    def pan(self, *args):
+        """Override pan button - calls custom action if set, otherwise default"""
+        if self.custom_pan_action is not None:
+            self.custom_pan_action(*args)
+        else:
+            super().pan(*args)
+    
+    def zoom(self, *args):
+        """Override zoom button - calls custom action if set, otherwise default"""
+        if self.custom_zoom_action is not None:
+            self.custom_zoom_action(*args)
+        else:
+            super().zoom(*args)
+    
+    def save_figure(self, *args):
+        """Override save button - calls custom action if set, otherwise default"""
+        if self.custom_save_action is not None:
+            self.custom_save_action(*args)
+        else:
+            super().save_figure(*args)
+
+
+
 class CubeExplorer(QWidget):
     def __init__(self):
         super().__init__()
@@ -307,14 +370,14 @@ class CubeExplorer(QWidget):
         self.slice1_fig = Figure(figsize=(4, 4), dpi= 100)
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
         self.slice1_plotter = SlicePlotter(self.slice1_fig)
-        self.slice1_toolbar = NavigationToolbar(self.slice1_canvas, self)
+        self.slice1_toolbar = CustomNavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "left"))
         
         # Right slice
         self.slice2_fig = Figure(figsize=(4, 4), dpi = 100)
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
         self.slice2_plotter = SlicePlotter(self.slice2_fig)
-        self.slice2_toolbar = NavigationToolbar(self.slice2_canvas, self)
+        self.slice2_toolbar = CustomNavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "right"))
 
         # Spectrum
@@ -323,7 +386,7 @@ class CubeExplorer(QWidget):
         self.spec_plotter = None  # Will be initialized after loading data
         for ax in self.spec_fig.axes:
             ax.set_clip_on(True)
-        self.spec_toolbar = NavigationToolbar(self.spec_canvas, self)
+        self.spec_toolbar = CustomNavigationToolbar(self.spec_canvas, self)
         self.spec_canvas.mpl_connect("button_press_event", self._on_spec_click)
         self.spec_canvas.mpl_connect("motion_notify_event", self._on_spec_hover)
 
@@ -1113,6 +1176,13 @@ class CubeExplorer(QWidget):
         self.gauss_mode = None  # 'left', 'peak', 'right', 'noise_left', or 'noise_right'
         self.gauss_markers = []  # Store marker artists
         
+        # Gaussian boundary marker lines (vertical lines)
+        self.gauss_left_marker = None
+        self.gauss_peak_marker = None
+        self.gauss_right_marker = None
+        self.gauss_noise_left_marker = None
+        self.gauss_noise_right_marker = None
+        
         # Gaussian fitting cache - avoid refitting if wavelength range hasn't changed
         self.gauss_cache = None  # Stores results from last fit
         self.gauss_cache_lam_min = None
@@ -1194,6 +1264,9 @@ class CubeExplorer(QWidget):
                 self.cube_data.wave_unit
             )
             self.spec_plotter.cube_data = self.cube_data  # Set cube_data for unit handling
+            
+            # Set custom home button action: zoom out AND clear Gaussian fit
+            self.spec_toolbar.custom_home_action = self._spectrum_home_reset
             
             try:
                 # Plot the spectrum
@@ -3300,6 +3373,78 @@ INTERPRETATION:
         
         dlg.setLayout(layout)
         dlg.exec_()
+
+    def clear_gaussian_fit(self):
+        """Clear all Gaussian fit visualization elements from the spectrum"""
+        try:
+            # Remove Gaussian fit artists (baseline, fit line, fill, text)
+            if hasattr(self.spec_plotter, 'gauss_fit_artists'):
+                for artist in self.spec_plotter.gauss_fit_artists:
+                    try:
+                        artist.remove()
+                    except:
+                        pass
+                self.spec_plotter.gauss_fit_artists = []
+                print("[DEBUG] Cleared Gaussian fit artists")
+            
+            # Remove individual Gaussian boundary markers (vertical lines)
+            marker_attrs = ['gauss_left_marker', 'gauss_peak_marker', 'gauss_right_marker', 
+                           'gauss_noise_left_marker', 'gauss_noise_right_marker']
+            for attr in marker_attrs:
+                if hasattr(self, attr):
+                    marker = getattr(self, attr)
+                    if marker is not None:
+                        try:
+                            marker.remove()
+                        except:
+                            pass
+                    setattr(self, attr, None)
+            print("[DEBUG] Cleared Gaussian boundary markers (vertical lines)")
+            
+            # Remove markers from list (for compatibility)
+            for marker in self.gauss_markers:
+                try:
+                    marker.remove()
+                except:
+                    pass
+            self.gauss_markers = []
+            print("[DEBUG] Cleared Gaussian marker list")
+            
+            # Reset Gaussian state variables
+            self.gauss_left_x = None
+            self.gauss_peak_x = None
+            self.gauss_right_x = None
+            self.gauss_noise_left_x = None
+            self.gauss_noise_right_x = None
+            print("[DEBUG] Reset Gaussian state variables")
+            
+            # Uncheck all Gaussian buttons
+            self.gauss_left_btn.setChecked(False)
+            self.gauss_peak_btn.setChecked(False)
+            self.gauss_right_btn.setChecked(False)
+            self.gauss_noise_left_btn.setChecked(False)
+            self.gauss_noise_right_btn.setChecked(False)
+            
+            # Update legend and redraw
+            self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
+            self.spec_canvas.draw()
+            
+        except Exception as e:
+            print(f"[DEBUG] Error clearing Gaussian fit: {e}")
+
+    def _spectrum_home_reset(self):
+        """Custom home action for spectrum: zoom out AND clear Gaussian fit overlay"""
+        print("[DEBUG] Spectrum home button clicked - resetting view and clearing Gaussian")
+        
+        # Call the original NavigationToolbar home method to reset zoom
+        # Temporarily unset the custom action to avoid recursion
+        saved_action = self.spec_toolbar.custom_home_action
+        self.spec_toolbar.custom_home_action = None
+        self.spec_toolbar.home()
+        self.spec_toolbar.custom_home_action = saved_action
+        
+        # Also clear Gaussian fit visualization
+        self.clear_gaussian_fit()
 
     def _fit_gaussian_map(self):
         """Fit Gaussian to all pixels in the cube using the selected boundaries (runs in background)"""
