@@ -505,6 +505,30 @@ def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, pdeg: int = 1) -> 
     return None
 
 
+def safe_nanstd(arr: np.ndarray, fallback: float = 0.0) -> float:
+    """
+    Safely compute nanstd without triggering "Degrees of freedom <= 0" warnings.
+    
+    Uses ddof=0 (population std) to avoid Bessel's correction issues with small arrays.
+    Returns fallback value if array has fewer than 2 finite values.
+    
+    Args:
+        arr: Input array (may contain NaNs)
+        fallback: Value to return if insufficient finite values
+    
+    Returns:
+        Standard deviation, or fallback if too few finite values
+    """
+    finite_mask = np.isfinite(arr)
+    n_finite = np.count_nonzero(finite_mask)
+    
+    if n_finite < 2:
+        return fallback
+    
+    # Use ddof=0 (population std) to avoid Bessel's correction warnings
+    return float(np.nanstd(arr, ddof=0))
+
+
 def gaussian(x: np.ndarray, amplitude: float, center: float, 
              sigma: float) -> np.ndarray:
     """
@@ -706,7 +730,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
     if x1 > x2:
         x1, x2 = x2, x1
     
-    # Extract data within selected region
+    # ========== STEP 1: EXTRACT & BASELINE SUBTRACTION ==========
+    # Extract data within selected region [x1, x2]
     mask = (spectrum_x >= x1) & (spectrum_x <= x2)
     x_data = spectrum_x[mask]
     y_data = spectrum_y[mask]
@@ -728,11 +753,13 @@ def fit_gaussian_to_line(x1: float, x2: float,
     y1 = y_data[0]
     y2 = y_data[-1]
     
-    # Calculate linear baseline
+    # STEP 1a: Calculate linear baseline connecting endpoints
+    # Baseline = y1 + slope*(x - x1), isolates emission line by removing continuum
     baseline = calculate_baseline(x1, y1, x2, y2, x_data)
     baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
     
-    # Subtract baseline
+    # STEP 1b: Subtract baseline to isolate the spectral line
+    # y_corrected = y_data - baseline, ready for Gaussian fitting
     y_corrected = y_data - baseline
 
     # Optional noise region for robust std estimation
@@ -743,9 +770,11 @@ def fit_gaussian_to_line(x1: float, x2: float,
         if np.count_nonzero(noise_mask) >= 2:
             noise_std = compute_noise_std(spectrum_x[noise_mask], spectrum_y[noise_mask])
 
-    std_val_fit = np.nanstd(y_corrected)
+    std_val_fit = safe_nanstd(y_corrected, fallback=1.0)
     std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
     
+    # ========== STEP 2: ESTIMATE INITIAL PARAMETERS ==========
+    # For single-pixel mode: use METHOD B (per-pixel from spectrum shape)
     # Use the user-selected peak with robust amplitude estimation
     center_guess = peak_x
     # Find nearest index to peak
@@ -763,6 +792,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         sigma_guess = (x2 - x1) / 20.0  # Fallback: very narrow
     print(f"[DEBUG] Peak at λ={peak_x:.4f}: amp={amp_guess:.4e}, σ={sigma_guess:.4e}")
 
+    # STEP 2b: Validate that a positive peak exists for fitting
     # Check if there's a meaningful peak
     if np.max(y_corrected) <= 0:
         return GaussianFitResult(
@@ -776,10 +806,11 @@ def fit_gaussian_to_line(x1: float, x2: float,
             message="Error: No positive peak found after baseline subtraction"
         )
     
-    # Set up bounds to constrain fit
-    # Amplitude: must be positive, reasonable upper limit
-    # Center: must be within selected range
-    # Sigma: must be positive, not larger than range
+    # ========== STEP 3: DEFINE BOUNDS (CONSTRAINTS) ==========
+    # Set up bounds to constrain fit and prevent unphysical solutions
+    # Amplitude: [0, 10×max(y_corrected)] - must be positive, reasonable upper limit
+    # Center: [λ_min, λ_max] - must be within selected range
+    # Sigma: [reasonable_min, reasonable_max] - must be positive, not too large
     x_range = x2 - x1
     
     # If peak is explicitly selected, keep Gaussian narrow and focused
@@ -795,13 +826,15 @@ def fit_gaussian_to_line(x1: float, x2: float,
         [10 * np.max(y_corrected), x2, sigma_upper]  # Upper bounds
     )
     
-    # Clamp initial guesses to be within bounds (prevents "x0 is infeasible" error)
+    # STEP 3b: Clamp initial guesses to bounds (prevents "x0 is infeasible" error from curve_fit)
     amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
     center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
     sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
     
+    # ========== STEP 4: FIT GAUSSIAN WITH RANSAC OUTLIER REJECTION ==========
     try:
-        # Perform RANSAC fit (default for robust outlier rejection)
+        # STEP 4a: Use RANSAC to iteratively fit Gaussian and reject outliers (cosmic rays, bad pixels)
+        # Returns best-fit parameters [amplitude, center, sigma] and inlier mask
         popt, ransac_success, inlier_mask = fit_gaussian_with_ransac(
             x_data, y_corrected,
             p0=[amp_guess, center_guess, sigma_guess],
@@ -812,17 +845,21 @@ def fit_gaussian_to_line(x1: float, x2: float,
         
         amplitude, center, sigma = popt
         
-        # Generate fitted curve
+        # ========== STEP 5: CALCULATE FITTED PARAMETERS & DERIVED QUANTITIES ==========
+        # STEP 5a: Generate fitted Gaussian curve at all wavelengths
+        # y_fit = A × exp(-(λ - μ)² / (2σ²))
         y_fit = gaussian(x_data, amplitude, center, sigma)
         residuals = y_corrected - y_fit
         
-        # Calculate derived quantities
+        # STEP 5b: Calculate derived quantities from fitted parameters
+        # FWHM = 2.355 × σ (Full Width at Half Maximum)
         fwhm = 2.355 * sigma  # FWHM = 2*sqrt(2*ln(2)) * sigma
         
-        # Calculate area in native units (MJy/sr · μm)
+        # STEP 5c: Calculate integrated area (AUC) - total flux under the Gaussian
+        # Area = A × σ × √(2π) [integrated line flux formula]
         area_native = amplitude * sigma * np.sqrt(2 * np.pi)
         
-        # Convert to erg/s/cm² if header is provided
+        # STEP 5d: Convert area to CGS units (erg/s/cm²) if FITS header provided with pixel scales
         unit = get_wave_unit(header, wave_unit)
         if header is not None:
             area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit_input=None)
@@ -832,10 +869,12 @@ def fit_gaussian_to_line(x1: float, x2: float,
             area = area_native
             area_unit = "MJy/sr·μm"
         
-        # Calculate goodness of fit metrics
+        # STEP 5e: Calculate goodness-of-fit metrics (quality indicators)
+        # R² = 1 - (SS_residuals / SS_total) - measures variance explained by fit
         ss_res = np.sum(residuals**2)
         ss_tot = np.sum((y_corrected - np.mean(y_corrected))**2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+        # χ² = sum of squared residuals / N_points
         chi_squared = ss_res / len(x_data)
         
         # Check fit quality
@@ -904,7 +943,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
                             lam_max: Optional[float] = None,
                             n_jobs: Optional[int] = None,
-                            fac_above_stdres: float = 3.0,
+                            fac_above_stdres: float = 2.0,
                             noise_min: Optional[float] = None,
                             noise_max: Optional[float] = None,
                             header: Optional[object] = None,
@@ -931,7 +970,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         lam_min: Minimum wavelength for fitting region (default: use full range)
         lam_max: Maximum wavelength for fitting region (default: use full range)
         n_jobs: Number of worker threads (default: auto-detect CPUs)
-        fac_above_stdres: Detection threshold in units of noise std (default: 3.0 for 3σ)
+        fac_above_stdres: Detection threshold in units of noise std (default: 2.0 for 2σ)
         noise_min: Optional left boundary of a line-free noise region
         noise_max: Optional right boundary of a line-free noise region
         header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
@@ -961,6 +1000,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         - Fit quality: χ²_red ≈ 1 is good, >>1 is poor, <<1 is overfit
         - Supports astropy Quantity objects for wavelength (automatically extracts values)
     """
+    # ========== PER-PIXEL GAUSSIAN FITTING SETUP ==========
     # Get cube dimensions
     n_wave, n_y, n_x = cube.shape
     
@@ -1023,35 +1063,44 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     x2 = x_data[-1]
     x_range = x2 - x1
 
-    # --- Global 1D fit on total spectrum for initial estimates ---
+    # ========== STEP 2 GLOBAL: METHOD A - Global 1D Fit (seed all pixels) ==========
+    # Fit a Gaussian to the stacked/averaged spectrum to get initial guesses for all pixels
+    # This provides consistent, fast starting parameters for per-pixel fitting
     global_guess = None
     global_fit_info = None
     try:
+        # STEP 2 GLOBAL-a: Stack all spatial pixels into one average spectrum
         total_spectrum = np.nanmean(cube[wave_mask, :, :], axis=(1, 2))
         finite_mask_total = np.isfinite(total_spectrum) & np.isfinite(x_data)
         if np.count_nonzero(finite_mask_total) >= 4:
             x_total = x_data[finite_mask_total]
             y_total = total_spectrum[finite_mask_total]
+            # STEP 1 GLOBAL: Extract baseline from total spectrum endpoints
             baseline_total = calculate_baseline(x_total[0], y_total[0], x_total[-1], y_total[-1], x_total)
+            # STEP 1 GLOBAL: Subtract baseline from total spectrum
             y_total_corrected = y_total - baseline_total
 
-            # Initial guess from total spectrum
+            # STEP 2 GLOBAL-b: Estimate initial Gaussian parameters from total spectrum (METHOD B)
+            # Find peak, center at peak wavelength, estimate sigma from half-width
             amp_guess_tot, center_guess_tot, sigma_guess_tot = estimate_gaussian_params(x_total, y_total_corrected)
             center_source = "total-spectrum"
+            # STEP 2 GLOBAL-c: Optionally override center with line-list wavelength (METHOD A variant)
             if lambda_0_orig is not None and x_total[0] <= lambda_0_orig <= x_total[-1]:
                 center_guess_tot = lambda_0_orig
                 center_source = "line-list"
 
+            # STEP 3 GLOBAL: Define bounds for global fit
             bounds_tot = (
                 [0, x1, 0.001 * x_range],
                 [10 * np.nanmax(y_total_corrected), x2, 2 * x_range]
             )
 
-            # Clamp total-spectrum guesses to bounds
+            # STEP 3 GLOBAL-b: Clamp guesses to bounds
             amp_guess_tot = np.clip(amp_guess_tot, bounds_tot[0][0], bounds_tot[1][0])
             center_guess_tot = np.clip(center_guess_tot, bounds_tot[0][1], bounds_tot[1][1])
             sigma_guess_tot = np.clip(sigma_guess_tot, bounds_tot[0][2], bounds_tot[1][2])
 
+            # STEP 4 GLOBAL: Fit Gaussian to total spectrum with RANSAC outlier rejection
             popt_tot, fit_success_tot, _ = fit_gaussian_with_ransac(
                 x_total, y_total_corrected,
                 p0=[amp_guess_tot, center_guess_tot, sigma_guess_tot],
@@ -1059,6 +1108,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 ransac_thresh=2.0,
                 ransac_iters=2
             )
+            # STEP 5 GLOBAL: Extract final global guess for seeding all pixels
             if fit_success_tot:
                 global_guess = tuple(popt_tot)
             else:
@@ -1072,6 +1122,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 "success": bool(fit_success_tot)
             }
     except Exception:
+        # Global fit failed - will fall back to per-pixel METHOD B or C
         global_guess = None
         global_fit_info = None
     
@@ -1081,7 +1132,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     
     print(f"Fitting Gaussians to {total_pixels} pixels in wavelength range [{lam_min:.4f}, {lam_max:.4f}]")
     
+    # ========== MAIN PER-PIXEL FITTING LOOP ==========
     def _fit_row(row_idx: int):
+        """Fit Gaussian to all pixels in one row (y=const) of the cube."""
         spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
         spectra_noise_row = cube[noise_wave_mask, row_idx, :] if noise_wave_mask is not None else None
         amp_row = np.full(n_x, np.nan)
@@ -1096,33 +1149,33 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
 
         for ix in range(n_x):
+            # ===== PIXEL (row_idx, ix) FITTING START =====
             y_data = spectra_row[:, ix]
             noise_std = None
             if spectra_noise_row is not None and noise_x is not None:
+                # Compute robust noise estimate from line-free region (if provided)
                 noise_std = compute_noise_std(noise_x, spectra_noise_row[:, ix])
 
-            # Baseline from endpoints
+            # ===== STEP 1: EXTRACT & BASELINE SUBTRACTION =====
+            # Get boundary flux values for this pixel's spectrum
             y1 = y_data[0]
             y2 = y_data[-1]
+            # STEP 1a: Calculate linear baseline from endpoints
             baseline = calculate_baseline(x1, y1, x2, y2, x_data)
+            # STEP 1b: Subtract baseline to isolate the spectral line
             y_corrected = y_data - baseline
             
-            # Require at least 2 finite points to compute stats
+            # ===== DATA VALIDATION: Require minimum 5 finite points =====
+            # Skip pixels with too many NaNs or masked values (prevents R² calculation warnings)
             finite_mask = np.isfinite(y_corrected)
             n_finite = np.count_nonzero(finite_mask)
             
-            # Case 3: All NaN pixels (outside ROI) - keep as NaN
-            if n_finite == 0:
-                # Leave as NaN (already initialized) - no data in this pixel
-                continue
-            
-            # Case 2/4: Insufficient data but not all NaN - assign upper limit
-            if n_finite < 2:
-                # Assign fac_above_stdres σ upper limit for pixels with insufficient data
-                std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else np.nanstd(y_data)
+            if n_finite < 5:
+                # Insufficient data: assign upper limit without fitting
+                # (prevents meaningless R² computations on near-empty spectra)
+                std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else safe_nanstd(y_data, fallback=1.0)
                 upper_limit_amplitude = fac_above_stdres * std_temp
                 upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
-                # Convert to erg/s/cm² if header available
                 if header is not None:
                     area_cgs = convert_area_to_cgs(
                         upper_limit_amplitude,
@@ -1135,7 +1188,6 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                 else:
                     upper_limit_area = upper_limit_area_native
-                # For upper limit: only store area, set other parameters to NaN (no fit achieved)
                 amp_row[ix] = np.nan
                 area_row[ix] = upper_limit_area
                 ctr_row[ix] = np.nan
@@ -1143,20 +1195,29 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 fwhm_row[ix] = np.nan
                 uplim_row[ix] = True
                 continue
-            
-            # Noise/peak logic
+
+            # ===== STEP 2: ESTIMATE INITIAL PARAMETERS =====
+            # Compute noise level and peak statistics for parameter estimation strategy
             mean_val = np.nanmean(y_corrected)
-            std_val_fit = np.nanstd(y_corrected)
+            std_val_fit = safe_nanstd(y_corrected, fallback=1.0)
             std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
+            
+            # STEP 2 Decision: Use METHOD A (global), B (shape), or C (robust MAD)?
             if global_guess is not None:
+                # Use METHOD A: Global fit parameters for all pixels (fastest)
                 amp_guess, center_guess, sigma_guess = global_guess
             else:
+                # Low noise case: signal dominates noise
                 if std_val < 0.5 * abs(mean_val):
+                    # Use METHOD C: Robust MAD for sigma (outlier-resistant)
+                    # MAD = Median Absolute Deviation, robust to cosmic rays
                     mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
-                    robust_std = 1.4826 * mad
+                    robust_std = 1.4826 * mad  # Convert MAD to sigma-equivalent
                     sigma_for_fit = robust_std if robust_std > 0 else std_val
                     try:
+                        # Use METHOD B: Estimate amplitude and center from peak/shape
                         amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
+                        # Override sigma with robust MAD estimate
                         sigma_guess = sigma_for_fit
                     except Exception:
                         # Assign fac_above_stdres σ upper limit for failed parameter estimation
@@ -1184,6 +1245,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                         uplim_row[ix] = True
                         continue
                 else:
+                    # High noise case: noise comparable to signal
+                    # Use METHOD B only: shape-based parameter estimation (simple, stable)
                     try:
                         amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
                     except Exception:
@@ -1211,10 +1274,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                         uplim_row[ix] = True
                         continue
             
-            # Default to 1-sigma (smaller/conservative) for upper limits
+            # STEP 2c: Constrain sigma estimate to be conservative
+            # Default to 1-sigma (smaller/conservative) for upper limits in weak detections
             # This ensures conservative fitting and smaller intensity estimates
             sigma_guess = min(sigma_guess, 0.01 * x_range)
 
+            # STEP 2d: Validate that a positive peak exists
             # Require positive peak
             if np.max(y_corrected) <= 0:
                 # Assign fac_above_stdres σ upper limit for pixels with no positive peak
@@ -1242,9 +1307,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 uplim_row[ix] = True
                 continue
 
+            # ===== STEP 3: DEFINE BOUNDS (CONSTRAINTS) =====
+            # Set reasonable bounds to prevent unphysical fit solutions
             sigma_lower = 0.001 * x_range
             sigma_upper = 2 * x_range
             if global_guess is not None:
+                # Refine bounds based on global fit sigma estimate
                 _, _, sigma_global = global_guess
                 sigma_lower = max(sigma_lower, 0.25 * sigma_global)
                 sigma_upper = min(sigma_upper, 4.0 * sigma_global)
@@ -1254,12 +1322,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 [10 * np.max(y_corrected), x2, sigma_upper]
             )
 
-            # Clamp initial guesses to be within bounds
+            # STEP 3b: Clamp all initial guesses to be within bounds
+            # Prevents "x0 is infeasible" error from scipy.optimize.curve_fit
             amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
             center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
             sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
 
+            # ===== STEP 4: FIT GAUSSIAN WITH RANSAC OUTLIER REJECTION =====
             try:
+                # STEP 4a: Use RANSAC to fit Gaussian and reject bad pixels (2-iteration, fast)
                 # Always use RANSAC for robust outlier rejection
                 popt, fit_success, inlier_mask = fit_gaussian_with_ransac(
                     x_data, y_corrected,
@@ -1270,21 +1341,29 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 )
                 
                 amplitude, center, sigma = popt
+                
+                # ===== STEP 5: CALCULATE FITTED PARAMETERS & DERIVED QUANTITIES =====
+                # STEP 5a: Generate fitted Gaussian curve
+                # y_fit = A × exp(-(λ - μ)² / (2σ²))
                 y_fit = gaussian(x_data, amplitude, center, sigma)
                 residuals = y_corrected - y_fit
 
+                # STEP 5b: Calculate FWHM (Full Width at Half Maximum)
+                # FWHM = 2.355 × σ (standard Gaussian relationship)
                 fwhm = 2.355 * sigma
                 
-                # Calculate area in native units (MJy/sr · μm)
+                # STEP 5c: Calculate integrated area (AUC) - total flux under Gaussian
+                # Area = A × σ × √(2π) [analytical integral of Gaussian]
                 area_native = amplitude * sigma * np.sqrt(2 * np.pi)
-                # Convert to erg/s/cm² if header available
+                # STEP 5d: Convert area to CGS units (erg/s/cm²) if FITS header provided
                 if header is not None:
                     area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit)
                     area = area_cgs if area_cgs is not None else area_native
                 else:
                     area = area_native
 
-                # Calculate noise from residuals (std of continuum fit)
+                # STEP 5e: Calculate goodness-of-fit metrics
+                # χ²_red = ∑(residuals²) / (degrees_of_freedom × σ_noise²)
                 n_points = len(y_corrected)
                 dof = max(1, n_points - 3)
                 noise_estimate = np.std(residuals, ddof=0)
@@ -1293,16 +1372,29 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 else:
                     chi_squared_red = np.inf
 
-                # SNR-based detection threshold
-                # Check: (1) fit converged, (2) amplitude > threshold, (3) fit improves residuals
-                std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else np.nanstd(y_corrected)
+                # ===== STEP 6: APPLY DETECTION THRESHOLD =====
+                # Determine if this is a true detection or upper limit
+                # Check: (1) fit converged, (2) amplitude > SNR threshold, (3) fit improves residuals
+                std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else safe_nanstd(y_corrected, fallback=1.0)
                 std_with_fit = noise_estimate  # std of residuals after fit
                 fit_improves = fit_success and (std_with_fit < std_no_fit)
                 
-                is_detection = (amplitude >= fac_above_stdres * std_val) and fit_improves
+                # HYBRID DETECTION CRITERION: Combine SNR threshold with fit quality (χ²_red)
+                # Strategy: Accept detections by two criteria:
+                #   (A) High SNR: amplitude >= fac_above_stdres*std AND fit improves [strict detection]
+                #   (B) Good fit + moderate SNR: χ²_red near 1 AND amplitude > 0.5σ [catches weak real lines]
+                snr_passes_threshold = amplitude >= fac_above_stdres * std_val
+                
+                # For quality-based pathway: χ²_red should be reasonable (0.5-2.5)
+                # Wider window allows weak but real signals in noisy data
+                chi_sq_good = (0.5 <= chi_squared_red <= 2.5)  # Reasonable fit window
+                amplitude_weak = amplitude > 0.5 * std_val  # Even weak signals (0.5σ) accepted if fit is good
+                
+                # Detection via SNR pathway (strict) OR via quality+weak signal pathway
+                is_detection = (snr_passes_threshold and fit_improves) or (fit_success and chi_sq_good and amplitude_weak)
                 
                 if is_detection:
-                    # True detection: store fitted parameters
+                    # ===== DETECTION: Store full fitted parameters =====
                     amp_row[ix] = amplitude
                     ctr_row[ix] = center
                     sig_row[ix] = sigma
@@ -1312,12 +1404,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     succ_row[ix] = True
                     det_row[ix] = True
                     
-                    # Cache normalized residuals
+                    # Cache normalized residuals (residual/std) for later analysis
                     std_val_for_norm = std_val if (std_val is not None and std_val > 0) else 1.0
                     normalized_residuals = residuals / std_val_for_norm
                     residuals_row[:, ix] = normalized_residuals.astype(np.float32)
                 else:
-                    # Failed detection threshold: compute fac_above_stdres σ upper limit
+                    # ===== UPPER LIMIT: Amplitude below detection threshold =====
+                    # Compute fac_above_stdres σ upper limit when detection fails
                     # Upper limit = fac_above_stdres σ * sigma_guess * sqrt(2π)
                     upper_limit_amplitude = fac_above_stdres * std_val
                     upper_limit_area_native = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
@@ -1346,8 +1439,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     uplim_row[ix] = True  # Mark as upper limit
                     
             except Exception:
-                # Fit failed completely: compute fac_above_stdres σ upper limit using initial guesses
-                # case (3) - fit not achieved, assign fac_above_stdres σ upper limit
+                # ===== EXCEPTION: Fitting algorithm failed =====
+                # Compute fac_above_stdres σ upper limit using initial guesses
+                # Case: Fit not converged - assign conservative upper limit
                 if 'sigma_guess' in locals():
                     upper_limit_amplitude = fac_above_stdres * std_val
                     upper_limit_area_native = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
@@ -1511,6 +1605,11 @@ Binary map showing which pixels had successful fits:
 - Black = fit failed (no line detected, too noisy, etc.)
 '''
 
+
+
+
+
+
 '''
 The Fitting Process for Each Pixel
 For each spatial pixel (y, x) in your image, here's what happens:
@@ -1524,25 +1623,45 @@ This isolates the emission/absorption line from the continuum.
 Step 2: Estimate Initial Parameters
 Three strategies create starting guesses:
 
-Method A - Global 1D fit (seed all pixels):
+┌─ Check if Global 1D Fit succeeded?
+│  ├─ YES → Use global guess for ALL pixels ✓
+│  │        (Methods B & C skipped)
+│  │
+│  └─ NO → Check pixel noise level
+│     ├─ LOW noise (std < 0.5*|mean|)
+│     │  → Use Method C (MAD robust) + Part of Method B
+│     │
+│     └─ HIGH noise
+│        → Use Method B (per-pixel shape only)
 
+Method A - Global 1D fit (seed all pixels):
 Stack all spectra in the cube into one average spectrum
 Fit a Gaussian to that
 Use as initial guess for every pixel (faster convergence)
-Method B - Per-pixel from spectrum shape:
 
+Method B - Per-pixel from spectrum shape:
 Find the peak: amplitude_guess = max(y_corrected)
 Peak location: center_guess = wavelength[argmax(y_corrected)]
 Width estimate: Find points above half-max, measure their spread, convert: sigma_guess = FWHM / 2.355
-Method C - Robust when noisy:
 
-If data is noisy, use median absolute deviation (MAD): robust_std = 1.4826 × MAD(y_corrected)
+Method C - Robust when noisy:
+If data is noisy, use median absolute deviation (MAD): robust_std = 1.4826 * MAD(y_corrected)
 Use that for sigma instead of RMS
+
+Scenario	                    What's Used	                            Why
+Global fit worked	            Method A only	                        Fast, consistent, one fit guides all pixels
+Global fit failed + low noise	Method C (σ) + Method B (A, center)     Robust sigma from noise, amplitudes from peaks
+Global fit failed + high noise	Method B only	                        Noise too high to estimate robust std
+
 Step 3: Define Bounds (Constraints)
 Prevents unphysical fits:
-Amplitude:  [0, 10×max(y_corrected)]
+Amplitude:  [0, 10*max(y_corrected)]
 Center:     [λ_min, λ_max]           ← must be in fitting region
-Sigma:      [0.001×(λ_max-λ_min), 2×(λ_max-λ_min)]  ← reasonable width
+Sigma:      [0.001*(λ_max-λ_min), 2*(λ_max-λ_min)]  ← reasonable width
+
+STEP 3b: Conservative sigma constraint
+After estimating initial sigma, apply: sigma_guess = min(sigma_guess, 0.01*(λ_max-λ_min))
+This keeps weak detections conservative, avoiding overestimated line widths
 
 Step 4: Fit with RANSAC Outlier Rejection
 Uses iterative refinement:
@@ -1555,24 +1674,48 @@ This handles cosmic rays, bad pixels, and noise robustly.
 
 Step 5: Calculate Fitted Parameters
 The Gaussian function:
-G(λ)=A⋅exp⁡(−(λ−μ)^2/2σ^2)
+G(λ)=A⋅exp(-(λ−μ)^2/2σ^2)
 
 From curve_fit() you get: A (amplitude), μ (center), σ (sigma)
 
 Then derive:
-FWHM=2.355×σ
+FWHM=2.355*σ
 Area/AUC (integrated flux under the Gaussian):
-Area =∫−∞;∞ G(λ)dλ=A×σ×sqrt(2π)
+Area =∫−∞;∞ G(λ)dλ=A*σ*sqrt(2π)
 
 This is the total flux contained in the line.
 
+Step 6: Apply Detection Threshold (HYBRID CRITERION)
+⚠️ UPDATED: Uses TWO independent pathways (either pathway marks as detection):
+
+PATHWAY A - High SNR detection (strict):
+✓ amplitude >= fac_above_stdres * std_noise (default 2.0σ)  AND
+✓ fit_improves = std_residuals < std_before_fit
+Both conditions must be TRUE
+
+PATHWAY B - Quality-based weak signal detection (allows lower SNR):
+✓ χ²_red ∈ [0.5, 2.5] (fit quality near 1.0)  AND
+✓ amplitude > 0.5 * std_noise (weak but real signals)
+Catches lines that are statistically weak but clearly detected in excellent fits
+
+DETECTION = PATHWAY A OR PATHWAY B
+
+Example:
+- Clean data, strong line (SNR=5σ) → both pathways triggered → DETECTED
+- Noisy data, barely visible line (SNR=10mσ, χ²_red=0.8) → pathway B triggers → DETECTED
+- Flat noise, random spike (SNR=1.5σ, χ²_red=10) → no pathway triggers → UPPER LIMIT
+
+Why two pathways? Because good fits (χ²_red ~ 1) with moderate amplitude are physically real even if SNR < 2σ.
+This captures weak emission lines in noisy data while avoiding random noise artifacts.
+
 The Five Parameter Maps
-1️⃣ Amplitude Map
+1. Amplitude Map
 What it is: Peak height of the Gaussian at each pixel
 Units: MJy/sr (or erg/s/cm²/sr if converted)
 Calculation: Direct output from curve_fit, called A
 Meaning: Says line intensity but ignores width—a narrow tall line and broad short line can have same area but different amplitudes
-2️⃣ Center Map
+
+2. Center Map
 What it is: The wavelength μ where the Gaussian is centered
 Units: μm or Å
 Calculation: Direct output from curve_fit, called μ
@@ -1581,7 +1724,8 @@ Detects motion/velocity shifts (Doppler shift)
 Bluer values = object moving toward you
 Redder values = object moving away
 Use case: See rotation in galaxies, measure wind outflows, find shock waves
-3️⃣ Sigma Map
+
+3. Sigma Map
 What it is: The width parameter σ of the Gaussian
 Units: Same as wavelength (μm or Å)
 Calculation: Direct output from curve_fit, called σ
@@ -1590,24 +1734,26 @@ Temperature: Hotter gas = more thermal broadening = larger σ
 Turbulence: Chaotic motion broadens lines
 Rotation: If there's velocity structure, lines broaden
 Use case: Find temperature maps, locate shock regions, detect turbulence
-4️⃣ FWHM (Full Width at Half Maximum) Map
+
+4. FWHM (Full Width at Half Maximum) Map
 What it is: Line width at 50% of peak height
 Units: Same as wavelength (μm or Å)
-Formula: FWHM=2.355×σ
-Relationship to sigma: Always exactly 2.355× wider
+Formula: FWHM=2.355*σ
+Relationship to sigma: Always exactly 2.355 times wider
 Use case: Equivalent to sigma but more intuitive (FWHM is what you measure from line profile plots)
-5️⃣ Area Map ⭐ Most Important
+
+5. Area Map (Most Important)
 What it is: Total flux integrated over the entire Gaussian profile
 Formula: Area=A×σ×sqrt(2π) 
 Units:
 Native: MJy/sr·μm
 Converted: erg/s/cm² (if FITS header provided)
 Calculation steps:
-Compute A × σ × sqrt(2π) in native units
+Compute A*σ*sqrt(2π) in native units
 If FITS header has CDELT1, CDELT2 (pixel scales):
-Convert pixel solid angle: conv = CDELT1 × CDELT2 × 1e6 / (180/π)²
+Convert pixel solid angle: conv = CDELT1*CDELT2*1e6/(180/π)²
 Convert frequency: c / λ² wavelength-to-frequency conversion
-Result: area = area_native × conv × (c/λ²) × 1e-23 ← erg/s/cm²
+Result: area = area_native*conv*(c/λ²)*1e-23 ← erg/s/cm²
 
 Bright vs Dark in Area Map:
 🟦 White/Bright: Strong emission from that line → lots of total energy
@@ -1617,41 +1763,65 @@ This shows the spatial distribution of your emission
 Handling Detections vs Upper Limits
 Not every pixel has a detected line. Your code applies two flags:
 
-Detection: If amplitude ≥ fac_above_stdres × noise_std AND fit improves residuals
+✅ DETECTION (amplitude > threshold OR fit quality good):
+If EITHER pathway A OR pathway B triggers:
+Stores full parameters: amplitude, center, sigma, fwhm, area, χ²_red
+Marked as: is_detection = True
 
-Stores full parameters (amplitude, center, sigma, fwhm, area)
-✅ Marked as detection
-Upper Limit: If amplitude below threshold
+⚠️ UPPER LIMIT (amplitude below threshold AND fit quality poor):
+If NEITHER pathway A NOR pathway B triggers:
+Computes 2σ upper limit: area_upper_limit = (fac_above_stdres*std) * sigma_guess * sqrt(2π)
+(default: 2σ upper limit using initial sigma estimate)
+Other parameters stored as NaN (no true fit achieved)
+Marked as: is_upper_limit = True
 
-Only stores area (as 3σ upper limit): area_upper_limit = (3×std) × σ_guess × √(2π)
-Other parameters set to NaN
-⚠️ Marked as upper limit
+📊 DATA VALIDATION:
+Pixels with <5 finite data points (too many NaNs/masked regions):
+Automatically assigned upper limits WITHOUT attempting fit
+Prevents meaningless χ²/R² calculations on near-empty spectra
+Still provides magnitude limits for incomplete data
+
 Use case: In weak sources, you can still constrain maximum possible flux
 The Conversion to CGS (erg/s/cm²)
 This is handled by gaussian_fitter.py:66:
 
 For MIRI/NIRSpec data in MJy/sr:
 
-Native area: A × σ × √(2π) → MJy/sr·μm
+Native area: A*σ*sqrt(2π) → MJy/sr·μm
 
 Pixel solid angle:
-
-Convert angular pixels to steradians: conv = CDELT1 × CDELT2 × 1e6 / (180/π)²
+Convert angular pixels to steradians: conv = CDELT1*CDELT2*1e6/(180/π)²
 Result: Jy·μm
-Flux calibration:
 
-Wavelength-to-frequency conversion: F_ν = F_λ × (c / λ²)
+Flux calibration:
+Wavelength-to-frequency conversion: F_ν = F_λ*(c / λ²)
 Jansky to CGS: 1 Jy = 1e-23 erg/s/cm²/Hz
 Final: erg/s/cm²
-For other instruments (ALMA Jy/beam, MUSE erg/cm²/s/Å):
 
+For other instruments (ALMA Jy/beam, MUSE erg/cm²/s/Å):
 Returns None—uses native units instead since conversion is ambiguous
+
+Implementation Notes
+
+safe_nanstd() function:
+Safely computes standard deviation without triggering "Degrees of freedom <= 0" warnings.
+Uses ddof=0 (population std, not sample std) to avoid Bessel's correction issues.
+Returns fallback value (default 1.0) if array has fewer than 2 finite values.
+Applied throughout per-pixel fitting to handle sparse/masked data gracefully.
+
+Robust noise estimation:
+1. If line-free noise region provided: Uses compute_noise_std() with RANSAC polynomial fitting
+2. If not provided: Falls back to safe_nanstd(y_corrected) with conservative estimates
+3. Handles cases where std < 0.5*|mean| using Median Absolute Deviation (MAD):
+   robust_std = 1.4826 * MAD(y_corrected)
+   More resistant to outliers/cosmic rays than simple RMS
+
 Quality Metrics (R² Map)
+
 Chi-squared (reduced):
-χ_red^2=∑(residuals^2)/(degrees of freedom)×σ_noise^2
+χ_red^2=∑(residuals^2)/(degrees of freedom)*σ_noise^2
 
 Interpretation:
-
 ~1.0 (green): Perfect fit
 0.5-0.8 (yellow): Acceptable fit
 >2 (red): Poor fit—line may be non-Gaussian (double-peaked, absorption artifact, etc.)
@@ -1661,6 +1831,6 @@ Map	        Gives You	            How It's Calculated
 Amplitude	Line strength	        Peak of fitted Gaussian (A)
 Center	    Doppler shift/velocity	Center of fitted Gaussian (μ)
 Sigma	    Line broadening	        Width parameter of fitted Gaussian (σ)
-FWHM	    Intuitive line width	2.355 × σ
-Area        Total flux spatially    A × σ × √(2π) → CGS via wavelength-frequency conversion
+FWHM	    Intuitive line width	2.355*σ
+Area        Total flux spatially    A*σ*sqrt(2π) → CGS via wavelength-frequency conversion
 '''
