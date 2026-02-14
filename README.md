@@ -65,7 +65,7 @@ An interactive Python tool for visualizing and analyzing Integral Field Unit (IF
 
 ```bash
 # Install required Python packages
-pip install numpy matplotlib astropy PyQt5 scipy
+pip install numpy matplotlib astropy PyQt5 scipy scikit-learn
 ```
 
 ### Setup
