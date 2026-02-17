@@ -529,6 +529,12 @@ class RegionSelector:
             - Made interactive with dragging and resizing
         """
         xmin, xmax, ymin, ymax = coords
+        # Convert to integers to handle decimal pixel coordinates
+        xmin, xmax, ymin, ymax = int(xmin), int(xmax), int(ymin), int(ymax)
+        # Ensure proper ordering
+        xmin, xmax = min(xmin, xmax), max(xmin, xmax)
+        ymin, ymax = min(ymin, ymax), max(ymin, ymax)
+        
         # dimensions of the bounding box
         height = ymax - ymin + 1
         width = xmax - xmin + 1
@@ -659,6 +665,10 @@ class RegionSelector:
         xmin, ymin = np.min(verts, axis=0)
         xmax, ymax = np.max(verts, axis=0)
         
+        # Convert to integers to handle decimal pixel coordinates
+        xmin, ymin = int(xmin), int(ymin)
+        xmax, ymax = int(xmax), int(ymax)
+        
         nx = int(xmax - xmin + 1)
         ny = int(ymax - ymin + 1)
         x, y = np.meshgrid(np.arange(nx), np.arange(ny))
@@ -668,6 +678,8 @@ class RegionSelector:
         mask = path.contains_points(coords).reshape(ny, nx)
         
         patch = Polygon(verts, edgecolor='cyan', facecolor='none', lw=1.5)
+        # Store vertices on the patch so they can be accessed when copying
+        patch.lasso_verts = verts
         
         self.on_select_callback(mask, patch, (xmin, xmax, ymin, ymax))
         

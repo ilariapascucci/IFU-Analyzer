@@ -712,11 +712,11 @@ class CubeExplorer(QWidget):
 
         # Add copy buttons
         self.copy_btn_l = make_shape_button("⎘", "left", 
-            callback=lambda: self.copy_selection(source="right", target="left"))
-        self.copy_btn_l.setToolTip("Copy selection from right slice")
-        self.copy_btn_r = make_shape_button("⎘", "right",
             callback=lambda: self.copy_selection(source="left", target="right"))
-        self.copy_btn_r.setToolTip("Copy selection from left slice")
+        self.copy_btn_l.setToolTip("Copy selection from left slice to right")
+        self.copy_btn_r = make_shape_button("⎘", "right",
+            callback=lambda: self.copy_selection(source="right", target="left"))
+        self.copy_btn_r.setToolTip("Copy selection from right slice to left")
         # Erase (clear) selection buttons
         self.erase_btn_l = QPushButton("✖")
         self.erase_btn_l.setFixedSize(40, 40)
@@ -1999,7 +1999,8 @@ class CubeExplorer(QWidget):
             "shape": self.active_shape,
             "coords": coords,
             "mask": full_mask,
-            "label": f'{target.capitalize()} Selection'
+            "label": f'{target.capitalize()} Selection',
+            "patch": patch  # Store patch for lasso recreation
         }
         if target == "left":
             self.last_selection_left = selection
@@ -2145,13 +2146,37 @@ class CubeExplorer(QWidget):
             # Handle pixel selection
             x, y = source_selection["coords"]
             self._handle_pixel_click(x, y, target)
+        elif source_selection["shape"] == "✏":
+            # Handle lasso selection - need to recreate from vertices
+            if "patch" in source_selection and hasattr(source_selection["patch"], "lasso_verts"):
+                verts = source_selection["patch"].lasso_verts
+                selector = (
+                    self.region_selector_left if target == "left" else self.region_selector_right
+                )
+                selector.active_shape = "✏"
+                # Call on_lasso_select directly with the stored vertices
+                selector.on_lasso_select(verts)
+            else:
+                # Fallback: try to create from bounding box if vertices not available
+                selector = (
+                    self.region_selector_left if target == "left" else self.region_selector_right
+                )
+                selector.active_shape = source_selection["shape"]
+                try:
+                    # Convert coords to integers for safety
+                    coords = tuple(int(c) for c in source_selection["coords"])
+                    selector.create_region(coords)
+                except Exception as e:
+                    print(f"[DEBUG] Error copying lasso: {e}")
         else:
-            # Handle region selection
+            # Handle regular region selection (rectangle, circle, ellipse)
             selector = (
                 self.region_selector_left if target == "left" else self.region_selector_right
             )
             selector.active_shape = source_selection["shape"]
-            selector.create_region(source_selection["coords"])
+            # Convert coords to integers for safety
+            coords = tuple(int(c) for c in source_selection["coords"])
+            selector.create_region(coords)
 
     def clear_region(self, target):
         """Clear the current region selection and remove overlays for a side"""
