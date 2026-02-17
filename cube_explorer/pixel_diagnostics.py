@@ -200,7 +200,8 @@ class PixelDiagnosticsDialog(QDialog):
         # Calculate baseline from endpoints
         y1 = y_data[0]
         y2 = y_data[-1]
-        baseline = calculate_baseline(self.x_data[0], y1, self.x_data[-1], y2, self.x_data)
+        #NBedit: added y_data to be consistent with new calculate_baseline function
+        baseline = calculate_baseline(self.x_data[0], y1, self.x_data[-1], y2, self.x_data, y_data)
         y_corrected = y_data - baseline
         
         # Generate fitted curve

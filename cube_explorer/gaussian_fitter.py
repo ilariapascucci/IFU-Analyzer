@@ -232,7 +232,8 @@ def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jo
                 continue
             y1 = y_data[0]
             y2 = y_data[-1]
-            baseline = calculate_baseline(x_data[0], y1, x_data[-1], y2, x_data)
+            #NBedit: Added y_data to the calculate_baseline function
+            baseline = calculate_baseline(x_data[0], y1, x_data[-1], y2, x_data, y_data)
             y_corrected = y_data - baseline
             mean_val = np.nanmean(y_corrected)
             std_val = np.nanstd(y_corrected)
@@ -387,9 +388,9 @@ class GaussianFitResult:
             f"  Status:         {self.message}"
         )
 
-
+#NBedit: Added baseline calculation for cases where y1 and y2 are NaN (happens at the edge of IFU)
 def calculate_baseline(x1: float, y1: float, x2: float, y2: float, 
-                       x_data: np.ndarray) -> np.ndarray:
+                       x_data: np.ndarray, y_data: np.ndarray) -> np.ndarray:
     """
     Calculate linear baseline between two points.
     
@@ -404,10 +405,29 @@ def calculate_baseline(x1: float, y1: float, x2: float, y2: float,
     Returns:
         baseline: Array of baseline values at each x_data point
     """
+        
+    finite_indices = np.flatnonzero(np.isfinite(y_data))
+
+    if finite_indices.size == 0:
+        return np.zeros_like(x_data)
+    
+    # if the new y1 and y2 go completely crazy, we could just return a flat baseline at the median of the finite y values
+    # If y1 is NaN → replace with lowest x having finite y
+    if np.isnan(y1):
+        first_idx = finite_indices[0]
+        x1 = x_data[first_idx]
+        y1 = y_data[first_idx]
+
+    # If y2 is NaN → replace with largest x having finite y
+    if np.isnan(y2):
+        last_idx = finite_indices[-1]
+        x2 = x_data[last_idx]
+        y2 = y_data[last_idx]
+    
     if x2 == x1:
         # Avoid division by zero - return constant baseline
         return np.full_like(x_data, y1)
-    
+
     slope = (y2 - y1) / (x2 - x1)
     baseline = y1 + slope * (x_data - x1)
     return baseline
@@ -495,7 +515,8 @@ def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, pdeg: int = 1) -> 
             return float(std_residuals)
     except Exception:
         # RANSAC failed, fall back to simple linear baseline + MAD
-        baseline = calculate_baseline(x_noise[0], y_noise[0], x_noise[-1], y_noise[-1], x_noise)
+        # NBedit: Added y_noise to the calculate_baseline function
+        baseline = calculate_baseline(x_noise[0], y_noise[0], x_noise[-1], y_noise[-1], x_noise, y_noise)
         y_corrected = y_noise - baseline
         mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
         robust_std = 1.4826 * mad
@@ -755,7 +776,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
     
     # STEP 1a: Calculate linear baseline connecting endpoints
     # Baseline = y1 + slope*(x - x1), isolates emission line by removing continuum
-    baseline = calculate_baseline(x1, y1, x2, y2, x_data)
+    #NBedit: Added y_data to the calculate_baseline function
+    baseline = calculate_baseline(x1, y1, x2, y2, x_data, y_data)
     baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
     
     # STEP 1b: Subtract baseline to isolate the spectral line
@@ -1070,13 +1092,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     global_fit_info = None
     try:
         # STEP 2 GLOBAL-a: Stack all spatial pixels into one average spectrum
-        total_spectrum = np.nanmean(cube[wave_mask, :, :], axis=(1, 2))
+        #NBedit: Using sum instead of mean to preserve total flux for better peak detection
+        total_spectrum = np.nansum(cube[wave_mask, :, :], axis=(1, 2))
         finite_mask_total = np.isfinite(total_spectrum) & np.isfinite(x_data)
         if np.count_nonzero(finite_mask_total) >= 4:
             x_total = x_data[finite_mask_total]
             y_total = total_spectrum[finite_mask_total]
             # STEP 1 GLOBAL: Extract baseline from total spectrum endpoints
-            baseline_total = calculate_baseline(x_total[0], y_total[0], x_total[-1], y_total[-1], x_total)
+            #NBedit: Added y_total to the calculate_baseline function
+            baseline_total = calculate_baseline(x_total[0], y_total[0], x_total[-1], y_total[-1], x_total, y_total)
             # STEP 1 GLOBAL: Subtract baseline from total spectrum
             y_total_corrected = y_total - baseline_total
 
@@ -1161,7 +1185,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             y1 = y_data[0]
             y2 = y_data[-1]
             # STEP 1a: Calculate linear baseline from endpoints
-            baseline = calculate_baseline(x1, y1, x2, y2, x_data)
+            #NBedit: Added y_data to the calculate_baseline function
+            baseline = calculate_baseline(x1, y1, x2, y2, x_data, y_data)
             # STEP 1b: Subtract baseline to isolate the spectral line
             y_corrected = y_data - baseline
             
@@ -1309,24 +1334,36 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 
             # ===== STEP 3: DEFINE BOUNDS (CONSTRAINTS) =====
             # Set reasonable bounds to prevent unphysical fit solutions
-            sigma_lower = 0.001 * x_range
+            #NBedit: updated sigma_lower as it should not depend on x_range and center bounds they should use the global fit info
+            sigma_lower = 0
             sigma_upper = 2 * x_range
+            center_lower = x1
+            center_upper = x2
+            x_space = x_range / len(x_data)  # Average wavelength spacing
             if global_guess is not None:
                 # Refine bounds based on global fit sigma estimate
-                _, _, sigma_global = global_guess
+                _, center_global, sigma_global = global_guess
                 sigma_lower = max(sigma_lower, 0.25 * sigma_global)
                 sigma_upper = min(sigma_upper, 4.0 * sigma_global)
+                center_lower = max(x1, center_global - 3 * x_space)
+                center_upper = min(x2, center_global + 3 * x_space)
 
             bounds = (
-                [0, x1, sigma_lower],
-                [10 * np.max(y_corrected), x2, sigma_upper]
+                [0.5 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_lower, sigma_lower],
+                [2 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_upper, sigma_upper]
             )
 
             # STEP 3b: Clamp all initial guesses to be within bounds
             # Prevents "x0 is infeasible" error from scipy.optimize.curve_fit
+            #NBedit: Updated center and sigma guesses to be informed by global fit if available
             amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
             center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
             sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
+            if global_guess is not None:
+                # Further refine center guess to be near global fit center
+                amp_guess = np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)])  # Peak in local window
+                center_guess = center_global
+                sigma_guess = sigma_global
 
             # ===== STEP 4: FIT GAUSSIAN WITH RANSAC OUTLIER REJECTION =====
             try:
