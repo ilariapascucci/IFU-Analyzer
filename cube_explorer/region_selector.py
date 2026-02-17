@@ -98,6 +98,9 @@ class InteractivePatch:
             scatter_collection = self.ax.scatter(xs, ys, s=200, c='red', marker='o', 
                                               zorder=1000, edgecolors='darkred', linewidths=2)
             scatter_collection.handle_positions = positions
+            # Mark this as a handle collection for later identification
+            scatter_collection._is_handle_collection = True
+            scatter_collection._associated_patch = self.patch
             self.handles = [scatter_collection]
             print(f"[DEBUG] Successfully created scatter collection with {len(positions)} points")
         except Exception as e:

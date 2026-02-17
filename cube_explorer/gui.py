@@ -2027,6 +2027,15 @@ class CubeExplorer(QWidget):
                     pass
         plotter.ax.area_artists = []
 
+        # Remove all handle scatter collections so they don't linger
+        for collection in list(plotter.ax.collections):
+            try:
+                if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
+                    collection.remove()
+                    print(f"[DEBUG] Removed lingering handle collection")
+            except Exception as e:
+                print(f"[DEBUG] Error removing lingering handle collection: {e}")
+
         # Add the new patch and record it
         plotter.ax.add_patch(patch)
         plotter.ax.area_artists.append(patch)
@@ -2199,6 +2208,15 @@ class CubeExplorer(QWidget):
                     pass
             plotter.ax.area_artists = []
 
+        # Remove all handle scatter collections associated with patches
+        for collection in list(plotter.ax.collections):
+            try:
+                if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
+                    collection.remove()
+                    print(f"[DEBUG] Removed handle scatter collection")
+            except Exception as e:
+                print(f"[DEBUG] Error removing handle collection: {e}")
+
         # Remove region spectrum line from the spectrum plotter (side-specific label)
         try:
             label = sel.get('label') if isinstance(sel, dict) else None
@@ -2287,6 +2305,14 @@ class CubeExplorer(QWidget):
                         except Exception:
                             pass
                     plotter.ax.area_artists = []
+
+                # Remove all handle scatter collections
+                for collection in list(plotter.ax.collections):
+                    try:
+                        if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
+                            collection.remove()
+                    except Exception:
+                        pass
 
                 # Clear existing pixel markers
                 if hasattr(plotter.ax, 'pixel_marker'):
@@ -2457,6 +2483,14 @@ class CubeExplorer(QWidget):
             for artist in plotter.ax.area_artists:
                 artist.remove()
             plotter.ax.area_artists = []
+
+        # Remove all handle scatter collections
+        for collection in list(plotter.ax.collections):
+            try:
+                if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
+                    collection.remove()
+            except Exception:
+                pass
         
         # Add new patch
         plotter.ax.add_patch(patch)
@@ -3240,6 +3274,13 @@ class CubeExplorer(QWidget):
                     except:
                         pass
                 self.slice1_plotter.ax.area_artists = []
+            # Remove handle scatter collections
+            for collection in list(self.slice1_plotter.ax.collections):
+                try:
+                    if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
+                        collection.remove()
+                except:
+                    pass
             if hasattr(self.slice1_plotter.ax, 'pixel_marker'):
                 for marker in self.slice1_plotter.ax.pixel_marker:
                     try:
@@ -3259,6 +3300,13 @@ class CubeExplorer(QWidget):
                     except:
                         pass
                 self.slice2_plotter.ax.area_artists = []
+            # Remove handle scatter collections
+            for collection in list(self.slice2_plotter.ax.collections):
+                try:
+                    if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
+                        collection.remove()
+                except:
+                    pass
             if hasattr(self.slice2_plotter.ax, 'pixel_marker'):
                 for marker in self.slice2_plotter.ax.pixel_marker:
                     try:
