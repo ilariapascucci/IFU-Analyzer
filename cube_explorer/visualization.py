@@ -646,3 +646,156 @@ class SlicePlotter:
         # Add new marker
         marker = self.ax.plot(x, y, 'r+', markersize=8, markeredgewidth=1.5)[0]
         self.ax.pixel_marker = [marker]  # Store only the new marker
+
+
+# ================== CO Flux Extraction Visualization ==================
+
+def plot_fit_residuals(wavelength, spectrum_flux, model_flux, title="Multi-Gaussian Fit Diagnostics"):
+    """
+    Create diagnostic plot comparing observed spectrum to fitted model.
+    
+    Parameters
+    ----------
+    wavelength : array-like
+        Wavelength values
+    spectrum_flux : array-like
+        Observed spectrum flux
+    model_flux : array-like
+        Best-fit model flux
+    title : str
+        Plot title
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure with 3 panels: observed, model, residuals
+    """
+    fig, axes = plt.subplots(3, 1, figsize=(12, 8))
+    
+    # Observed spectrum
+    axes[0].step(wavelength, spectrum_flux, where='mid', color='steelblue', label='Observed')
+    axes[0].set_ylabel('Flux')
+    axes[0].set_title(title)
+    axes[0].legend(loc='upper right')
+    axes[0].grid(True, alpha=0.3)
+    
+    # Model (fit)
+    axes[1].step(wavelength, spectrum_flux, where='mid', color='steelblue', alpha=0.5, label='Observed')
+    axes[1].plot(wavelength, model_flux, color='orange', linewidth=2, label='Model', drawstyle='steps')
+    axes[1].set_ylabel('Flux')
+    axes[1].set_title('Fitted Model')
+    axes[1].legend(loc='upper right')
+    axes[1].grid(True, alpha=0.3)
+    
+    # Residuals (observed - model)
+    residuals = spectrum_flux - model_flux
+    axes[2].plot(wavelength, residuals, color='grey', linewidth=1, drawstyle='steps')
+    axes[2].axhline(0, color='red', linestyle='--', linewidth=1)
+    axes[2].fill_between(wavelength, residuals, 0, color='grey', alpha=0.3)
+    axes[2].set_xlabel('Wavelength')
+    axes[2].set_ylabel('Residuals')
+    axes[2].set_title('Residuals (Observed - Model)')
+    axes[2].grid(True, alpha=0.3)
+    
+    fig.tight_layout()
+    return fig
+
+
+def plot_line_decomposition(wavelength, spectrum_flux, model_flux, continuum_flux, 
+                             line_components, line_names=None):
+    """
+    Create plot showing individual line decomposition of multi-Gaussian fit.
+    
+    Parameters
+    ----------
+    wavelength : array-like
+        Wavelength values
+    spectrum_flux : array-like
+        Observed spectrum
+    model_flux : array-like
+        Total fitted model
+    continuum_flux : array-like
+        Fitted continuum
+    line_components : list of array-like
+        Individual Gaussian components (not including continuum)
+    line_names : list of str, optional
+        Names for each line (e.g., ["CO P(4)", "CO P(5)"])
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure with spectrum and individual line decomposition
+    """
+    if line_names is None:
+        line_names = [f"Line {i}" for i in range(len(line_components))]
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Plot observed spectrum
+    ax.step(wavelength, spectrum_flux, where='mid', color='black', linewidth=2, 
+            label='Observed', zorder=10)
+    
+    # Plot continuum
+    ax.plot(wavelength, continuum_flux, 'k--', linewidth=2, label='Continuum', zorder=9)
+    
+    # Plot individual line components
+    colors = plt.cm.tab10(np.linspace(0, 1, len(line_components)))
+    for i, (component, color, name) in enumerate(zip(line_components, colors, line_names)):
+        ax.fill_between(wavelength, continuum_flux, continuum_flux + component, 
+                        alpha=0.3, color=color, label=name, zorder=8-i)
+    
+    ax.set_xlabel('Wavelength (μm)')
+    ax.set_ylabel('Flux')
+    ax.set_title('Multi-Gaussian Line Decomposition')
+    ax.legend(loc='upper right', ncol=2, fontsize=9)
+    ax.grid(True, alpha=0.3)
+    
+    fig.tight_layout()
+    return fig
+
+
+def plot_flux_map_diagnostics(flux_map, detection_map, error_map=None):
+    """
+    Create diagnostic plots for CO flux extraction map results.
+    
+    Parameters
+    ----------
+    flux_map : array-like
+        2D map of integrated CO flux
+    detection_map : array-like
+        2D map of detection counts (lines per pixel)
+    error_map : array-like, optional
+        2D map of flux uncertainties
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure with 2-3 panels showing flux, detections, and errors
+    """
+    n_panels = 3 if error_map is not None else 2
+    fig, axes = plt.subplots(1, n_panels, figsize=(15, 5))
+    
+    # Flux map
+    im0 = axes[0].imshow(flux_map, origin='lower', cmap='viridis')
+    axes[0].set_title('CO Flux Map')
+    axes[0].set_xlabel('X [pixels]')
+    axes[0].set_ylabel('Y [pixels]')
+    plt.colorbar(im0, ax=axes[0], label='Flux')
+    
+    # Detection map
+    im1 = axes[1].imshow(detection_map, origin='lower', cmap='plasma')
+    axes[1].set_title('Line Detection Count')
+    axes[1].set_xlabel('X [pixels]')
+    axes[1].set_ylabel('Y [pixels]')
+    plt.colorbar(im1, ax=axes[1], label='# Lines')
+    
+    # Error map (if provided)
+    if error_map is not None:
+        im2 = axes[2].imshow(error_map, origin='lower', cmap='RdYlGn_r')
+        axes[2].set_title('Uncertainty/Error Map')
+        axes[2].set_xlabel('X [pixels]')
+        axes[2].set_ylabel('Y [pixels]')
+        plt.colorbar(im2, ax=axes[2], label='Error')
+    
+    fig.tight_layout()
+    return fig

@@ -5,6 +5,7 @@ Main GUI class for the Cube Explorer application
 import os
 import gc
 import warnings
+import traceback
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -15,26 +16,32 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFrame
+    QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog
 )
-from PyQt5.QtCore import QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import Qt, QPoint, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from matplotlib.widgets import SpanSelector
 
 from PyQt5.QtWidgets import QApplication
+
+from scipy.ndimage import median_filter
+from scipy.interpolate import UnivariateSpline
+from scipy.signal import find_peaks  # NEW: Import find_peaks
+
 from .data_loader import CubeData
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
-from .line_catalog import filter_spectral_lines, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
+from .line_catalog import get_available_molecules, filter_spectral_lines, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
-from .unit_converter import convert_wavelength, are_units_compatible
+from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
+from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit
 from astropy.units import Quantity
 
 
@@ -235,7 +242,6 @@ class CubeExplorer(QWidget):
 
     def _load_CO_catalogs(self):
         """Load CO line catalogs at GUI startup."""
-        import os
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         CO_path = os.path.join(base_path, 'data', 'CO', 'CO_comprehensive_linelist_with_g.ecsv')
         contam_path = os.path.join(base_path, 'data', 'CO', 'ContaminatingLines.csv')
@@ -423,7 +429,6 @@ class CubeExplorer(QWidget):
         print("[DEBUG] Resetting instrument and LST labels")
 
         # --- Force garbage collection ---
-        import gc
         gc.collect()
 
         print("=== CLEAR ALL DISPLAYS END ===")
@@ -533,6 +538,7 @@ class CubeExplorer(QWidget):
         self.gauss_noise_right_btn = QPushButton("Noise R")
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
+        self.co_flux_map_btn = QPushButton("CO Flux Map")
         
         self.auto_continuum_toggle = QPushButton("Automatic Continuum")
         self.custom_continuum_toggle = QPushButton("Custom Continuum")
@@ -622,6 +628,7 @@ class CubeExplorer(QWidget):
         self.gauss_noise_right_btn.clicked.connect(self._activate_gaussian_noise_right)
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
+        self.co_flux_map_btn.clicked.connect(self._extract_co_flux_map)
         self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
         self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
         self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
@@ -642,7 +649,7 @@ class CubeExplorer(QWidget):
         self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
         self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
         self.custom_subtract_btn.setToolTip("Manually select continuum points")
-
+        self.co_flux_map_btn.setToolTip("Fit multiple lines and and creat an integrated flux map")
 
 
         # Wavelength range inputs (now part of HITRAN collapsible group)
@@ -849,6 +856,7 @@ class CubeExplorer(QWidget):
         self.gaussian_group.add_button(self.gauss_noise_right_btn)
         self.gaussian_group.add_button(self.gauss_fit_btn)
         self.gaussian_group.add_button(self.gauss_map_btn)
+        self.gaussian_group.add_button(self.co_flux_map_btn)
         collapsible_layout.addWidget(self.gaussian_group)
         
         # Group 3: Continuum Tools
@@ -967,11 +975,7 @@ class CubeExplorer(QWidget):
                 'iterations': 2,
                 'smoothing_factor': 5
             }
-        try:
-            from scipy.ndimage import median_filter
-            from scipy.interpolate import UnivariateSpline
-            from scipy.signal import find_peaks  # NEW: Import find_peaks
-            
+        try:            
             # Get spectrum data
             wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
 
@@ -1132,7 +1136,6 @@ class CubeExplorer(QWidget):
                             f"Error fitting continuum:\n{str(e)}")
             self.continuum_line_btn.setChecked(False)
             print(f"[DEBUG] Continuum fitting error: {e}")
-            import traceback
             traceback.print_exc()
         if hasattr(self, 'subtract_continuum_btn'):
             self.subtract_continuum_btn.setEnabled(True)
@@ -1394,7 +1397,6 @@ class CubeExplorer(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Subtraction failed: {str(e)}")
             self.subtract_continuum_btn.setChecked(False)
-            import traceback
             traceback.print_exc()
 
     def _cancel_custom_continuum(self):
@@ -1495,7 +1497,6 @@ class CubeExplorer(QWidget):
                 f"Error subtracting continuum:\n{str(e)}"
             )
             print(f"DEBUG: Subtraction error: {e}")
-            import traceback
             traceback.print_exc()
 
 
@@ -1931,14 +1932,12 @@ class CubeExplorer(QWidget):
         cmap = getattr(self, 'slice1_cmap' if target == 'left' else 'slice2_cmap', None)
         scale = self.scale_left if target == 'left' else self.scale_right
         # Get the flux unit for colorbar display
-        from .unit_converter import clean_flux_unit
         flux_unit_raw = getattr(self.cube_data, "flux_unit", "")
         flux_unit_clean = clean_flux_unit(flux_unit_raw) if flux_unit_raw else ""
         plotter.plot_slice(image, title, cmap=cmap, scale=scale, flux_unit=flux_unit_clean)
         
         # Intensity stats with units
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
-        from .unit_converter import clean_flux_unit
         unit_raw = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
         unit = clean_flux_unit(unit_raw)
         stats_label.setText(
@@ -2100,7 +2099,6 @@ class CubeExplorer(QWidget):
             slice_stats = [line for line in current_text if line.startswith("Intensity:")]
             
             # Get cleaned flux unit
-            from .unit_converter import clean_flux_unit
             unit_raw = getattr(self.cube_data, "flux_unit", "")
             unit = clean_flux_unit(unit_raw) if unit_raw else ""
             unit_str = f" [{unit}]" if unit else ""
@@ -3172,7 +3170,6 @@ class CubeExplorer(QWidget):
             )
             
             # Use QToolTip for floating box - convert matplotlib event coords to global screen coords
-            from PyQt5.QtCore import QPoint
             cursor_pos = self.spec_canvas.mapToGlobal(QPoint(int(event.x), int(self.spec_canvas.height() - event.y)))
             QToolTip.showText(cursor_pos, tooltip_text, self.spec_canvas)
         else:
@@ -3369,14 +3366,7 @@ class CubeExplorer(QWidget):
             if wavelength_min >= wavelength_max:
                 QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
                 return
-
-            # Molecule selection from known HITRAN list
-            try:
-                from .line_catalog import get_available_molecules, hitran_gui_interface
-            except Exception:
-                # Fallback absolute import
-                from cube_explorer.line_catalog import get_available_molecules, hitran_gui_interface
-
+            
             mol_map = get_available_molecules()
             molecules = sorted(mol_map.keys())
             molecule, ok = QInputDialog.getItem(
@@ -3644,7 +3634,6 @@ class CubeExplorer(QWidget):
         lam_max = max(self.gauss_left_x, self.gauss_right_x)
         
         # Handle Quantity objects from Phase 1
-        from astropy.units import Quantity
         if isinstance(spectrum_x, Quantity):
             # Extract values for comparison
             spectrum_x_vals = spectrum_x.value
@@ -3713,10 +3702,7 @@ class CubeExplorer(QWidget):
             QMessageBox.critical(self, "Error", f"Gaussian fitting error:\n{str(e)}")
 
     def _display_gaussian_results(self, result: GaussianFitResult):
-        """Display Gaussian fit results in a dialog"""
-        from PyQt5.QtWidgets import QTextEdit
-        from .unit_converter import clean_wave_unit, clean_flux_unit
-        
+        """Display Gaussian fit results in a dialog"""        
         # Get units from cube data
         wave_unit_raw = getattr(self.cube_data, 'wave_unit', 'spectral units')
         flux_unit_raw = getattr(self.cube_data, 'flux_unit', 'flux units')
@@ -3880,10 +3866,7 @@ INTERPRETATION:
         self.clear_gaussian_fit()
 
     def _fit_gaussian_map(self):
-        """Fit Gaussian to all pixels in the cube using the selected boundaries (runs in background)"""
-        from PyQt5.QtWidgets import QProgressDialog
-        from PyQt5.QtCore import Qt
-        
+        """Fit Gaussian to all pixels in the cube using the selected boundaries (runs in background)"""        
         # Validation
         if self.gauss_left_x is None or self.gauss_right_x is None:
             QMessageBox.warning(
@@ -4370,10 +4353,77 @@ INTERPRETATION:
                 )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply custom continuum: {str(e)}")
-            import traceback
             traceback.print_exc()
             return
 
         # Deactivate the selector
         self.custom_continuum_selector.deactivate()
         self.custom_continuum_active = False
+
+    # ================== CO Flux Extraction Methods ==================
+    
+    def _extract_co_flux_map(self):
+        """Extract CO rovibrational flux from entire cube."""
+        # Validate cube
+        if not hasattr(self, 'cube_data') or self.cube_data is None or self.cube_data.cube is None:
+            QMessageBox.warning(self, "No Data", "Load a FITS cube first")
+            return
+        
+        # Validate catalogs
+        if not hasattr(self, 'CO_lines') or self.CO_lines is None or \
+           not hasattr(self, 'contam_lines') or self.contam_lines is None:
+            QMessageBox.warning(self, "Missing Catalogs", "CO catalogs not loaded")
+            return
+        
+        # Use default settings
+        n_jobs = 4  # Default parallel workers
+        
+        # Create and start worker
+        self.co_flux_worker = COFluxMapWorker(
+            self.cube_data,
+            self.CO_lines,
+            self.contam_lines,
+            n_jobs=n_jobs
+        )
+        
+        # Create progress dialog
+        self.co_flux_progress = QProgressDialog(
+            "Extracting CO flux from all pixels...", None, 0, 0, self
+        )
+        self.co_flux_progress.setWindowModality(Qt.WindowModal)
+        self.co_flux_progress.setCancelButton(None)
+        
+        # Connect signals
+        self.co_flux_worker.progress.connect(self._update_co_flux_progress)
+        self.co_flux_worker.finished.connect(self._on_co_flux_map_complete)
+        self.co_flux_worker.error.connect(self._on_co_flux_map_error)
+        
+        self.co_flux_worker.start()
+    
+    def _update_co_flux_progress(self, current, total):
+        """Update progress."""
+        self.co_flux_progress.setMaximum(total)
+        self.co_flux_progress.setValue(current)
+        self.co_flux_progress.setLabelText(f"Extracting CO flux: {current}/{total} pixels")
+    
+    def _on_co_flux_map_complete(self, result):
+        """Handle successful extraction."""
+        self.co_flux_progress.close()
+        
+        # Show results with export option
+        results_dialog = COFluxMapResultsDialog(
+            result['flux_map'],
+            result['error_map'],
+            result['detection_map'],
+            self
+        )
+        results_dialog.exec_()
+    
+    def _on_co_flux_map_error(self, error_msg):
+        """Handle extraction error."""
+        self.co_flux_progress.close()
+        QMessageBox.critical(self, "Extraction Error", error_msg)
+    
+    def _show_co_flux_map_results(self, result):
+        """Display results (called from _on_co_flux_map_complete)."""
+        pass  # Handled in _on_co_flux_map_complete directly

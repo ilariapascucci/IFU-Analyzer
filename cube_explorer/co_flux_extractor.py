@@ -192,12 +192,14 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
 
 # ================== Multi-Gaussian Fitting ==================
 
-def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lines, sigma):
+def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lines):
     """
     Fit multiple Gaussians + continuum in wavelength chunks, extracting CO and contaminant fluxes.
     
     For each wavelength range, fits all detected CO lines + contaminating lines simultaneously,
     then sums the areas of CO lines only to get total CO flux in that chunk.
+    
+    Note: Gaussian sigma is estimated from data for each spectrum (not user-provided).
     
     Parameters
     ----------
@@ -211,8 +213,6 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         Detected CO lines (disposition=1)
     detcontaminating_lines : pd.DataFrame
         Detected contaminating lines (disposition=1)
-    sigma : float
-        Initial guess for Gaussian sigma (wavelength units)
     
     Returns
     -------
@@ -261,23 +261,22 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         # First, remove continuum for better parameter estimation
         y_corrected = yflux[idx_xwave] - np.min(yflux[idx_xwave])
         
+        # Estimate sigma from the spectrum's FWHM
+        try:
+            _, _, sigma_fit = estimate_gaussian_params(xwave[idx_xwave], y_corrected)
+        except:
+            # Fallback: use small fraction of wavelength range
+            sigma_fit = 0.005
+        
+        print("DEBUG: sigma " + sigma_fit)
+
         # Create the NumPy array with input params: [amp0, cen0, sig0, amp1, cen1, sig1, ...]
         p0_params = []
         for line_idx in range(len(filtered_lines)):
-            # Use gaussian_fitter's robust parameter estimation
-            try:
-                amp_guess, cen_guess, sig_guess = estimate_gaussian_params(
-                    xwave[idx_xwave], y_corrected
-                )
-                # Use catalog values as fallback/override
-                amp_guess = filtered_lines['max_amplitude'].iloc[line_idx]
-                cen_guess = filtered_lines['line'].iloc[line_idx]
-                sig_guess = sigma
-            except:
-                # Fallback to simple estimation
-                amp_guess = filtered_lines['max_amplitude'].iloc[line_idx]
-                cen_guess = filtered_lines['line'].iloc[line_idx]
-                sig_guess = sigma
+            # Use catalog values for amplitude and center
+            amp_guess = filtered_lines['max_amplitude'].iloc[line_idx]
+            cen_guess = filtered_lines['line'].iloc[line_idx]
+            sig_guess = sigma_fit  # Use estimated sigma from spectrum
             
             p0_params.extend([amp_guess, cen_guess, sig_guess])
         
@@ -303,16 +302,16 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         # Create NumPy arrays with lower and upper bounds
         lower_bounds_2d = np.column_stack((
             [0.0] * len(filtered_lines),
-            filtered_lines['line'] - sigma,
-            [0.5 * sigma] * len(filtered_lines)
+            filtered_lines['line'] - sigma_fit,
+            [0.5 * sigma_fit] * len(filtered_lines)
         ))
         lower_bounds = np.ravel(lower_bounds_2d)
         lower_bounds = np.insert(lower_bounds, [0, 0], [p0base - 2 * np.abs(p0slope), -2 * np.abs(p0slope)])
         
         upper_bounds_2d = np.column_stack((
             filtered_lines['max_amplitude'].astype(float) * 1.1,
-            filtered_lines['line'] + sigma,
-            [2 * sigma] * len(filtered_lines)
+            filtered_lines['line'] + sigma_fit,
+            [2 * sigma_fit] * len(filtered_lines)
         ))
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
@@ -379,7 +378,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 # ================== High-Level Extraction ==================
 
 def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog, 
-                                   sigma=0.005, wave_boundaries=None, do_duplicate_removal=True):
+                                   wave_boundaries=None, do_duplicate_removal=True):
     """
     Extract total CO flux from a single spectrum by fitting all CO lines.
     
@@ -393,8 +392,6 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         CO line catalog (columns: line_wave_um, species, ...)
     contam_catalog : pd.DataFrame
         Contaminating lines catalog (columns: line_wave_um, ...)
-    sigma : float
-        Initial Gaussian sigma guess (wavelength units)
     wave_boundaries : array-like, optional
         Wavelength boundaries for fitting chunks. If None, uses 10-20 chunks.
     do_duplicate_removal : bool
@@ -417,20 +414,44 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         remove_duplicate='True' if do_duplicate_removal else 'False'
     )
     
+    if detected_lines is None or len(detected_lines) == 0:
+        # No lines detected at all
+        return {
+            'co_flux': 0,
+            'contam_flux': 0,
+            'mean_continuum': np.nanmedian(spectrum_flux),
+            'detected_lines': pd.DataFrame(),
+            'residuals': pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)})
+        }
+    
     # Identify detected CO and contaminating lines in this spectrum
-    detected_co = detected_lines[
-        (detected_lines['disposition'] == 1) & 
-        (detected_lines['species'] == '12C16O')
-    ]
-    detected_contam = contam_catalog[
-        contam_catalog['line_wave_um'].isin(detected_lines.loc[detected_lines['disposition'] == 1, 'line'])
-    ]
+    try:
+        detected_co = detected_lines[
+            (detected_lines['disposition'] == 1) & 
+            (detected_lines['species'] == '12C16O')
+        ]
+    except KeyError as e:
+        print(f"  Error: detected_lines missing column - columns are: {detected_lines.columns.tolist()}")
+        print(f"  detected_lines head:\n{detected_lines.head()}")
+        raise
+    
+    # Filter contam_catalog to only include detected lines
+    if len(detected_lines) > 0 and 'line' in detected_lines.columns:
+        detected_wavelengths = detected_lines.loc[detected_lines['disposition'] == 1, 'line'].values
+        if len(detected_wavelengths) > 0 and 'line_wave_um' in contam_catalog.columns:
+            detected_contam = contam_catalog[
+                contam_catalog['line_wave_um'].isin(detected_wavelengths)
+            ]
+        else:
+            detected_contam = pd.DataFrame()
+    else:
+        detected_contam = pd.DataFrame()
     
     # Fit if any lines detected
     if len(detected_co) > 0 or len(detected_contam) > 0:
         co_flux, contam_flux, mean_cont, residuals = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
-            detected_co, detected_contam, sigma
+            detected_co, detected_contam
         )
     else:
         co_flux, contam_flux, mean_cont = 0, 0, np.nanmedian(spectrum_flux)
@@ -447,9 +468,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
 # ================== Full Cube Processing ==================
 
-def create_co_flux_map(cube_data, CO_catalog, contam_catalog, 
-                       wave_range=None, sigma=0.005, n_jobs=4, 
-                       progress_callback=None):
+def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress_callback=None):
     """
     Create 2D map of total CO rovibrational flux by processing all spatial pixels.
     
@@ -467,10 +486,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog,
         CO line catalog (columns: line_wave_um, species, ...)
     contam_catalog : pd.DataFrame
         Contaminating lines catalog (columns: line_wave_um, ...)
-    wave_range : tuple, optional
-        (wave_min, wave_max) to restrict processing. If None, uses full cube range.
-    sigma : float
-        Initial Gaussian sigma guess for line fitting
     n_jobs : int
         Number of parallel jobs for processing rows
     progress_callback : callable, optional
@@ -491,6 +506,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog,
     - Uses ThreadPoolExecutor for parallel processing (row-wise)
     - Skips pixels with all NaN spectra
     - Returns NaN for failed fits or edge cases
+    - Gaussian sigma is estimated from each spectrum's data
     - Processing time: ~1-2 minutes per 512×512 image with 100 wavelength elements
     """
     
@@ -502,11 +518,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog,
     n_wave, n_y, n_x = cube_data.cube.shape
     wavelength = cube_data.wavelength
     
-    # Determine wavelength range
-    if wave_range is None:
-        wave_min, wave_max = wavelength[0], wavelength[-1]
-    else:
-        wave_min, wave_max = wave_range
+    # Always process full wavelength range
+    wave_min, wave_max = wavelength[0], wavelength[-1]
     
     # Create output maps
     flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
@@ -514,9 +527,32 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog,
     detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
     
     print(f">>> Creating CO flux map: {n_y}×{n_x} pixels, {n_wave} wavelength elements")
-    print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f}")
+    print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+    print(f"    Testing first pixel for diagnostics...")
     
     start_time = time.time()
+    
+    # DEBUG: Test extraction on first pixel
+    try:
+        test_spectrum = cube_data.get_pixel_spectrum(0, 0)
+        if test_spectrum is not None and not np.all(np.isnan(test_spectrum)):
+            print(f"    Test spectrum shape: {test_spectrum.shape}, min={np.nanmin(test_spectrum):.4e}, max={np.nanmax(test_spectrum):.4e}")
+            test_result = extract_co_flux_from_spectrum(
+                wavelength, test_spectrum, CO_catalog, contam_catalog,
+                wave_boundaries=wave_boundaries, do_duplicate_removal=True
+            )
+            if test_result:
+                print(f"    Test result: co_flux={test_result['co_flux']:.4e}, {len(test_result['detected_lines'])} detected lines")
+                n_co_detected = len(test_result['detected_lines'][test_result['detected_lines']['disposition'] == 1])
+                print(f"    CO lines detected: {n_co_detected}")
+            else:
+                print(f"    Test result was None!")
+        else:
+            print(f"    Test spectrum is None or all NaN")
+    except Exception as e:
+        import traceback
+        print(f"    Error testing first pixel: {e}")
+        traceback.print_exc()
     
     # Define auto wavelength boundaries for fitting (10-20 chunks)
     n_chunks = max(10, n_wave // 50)
@@ -539,7 +575,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog,
                 # Step 2: Extract CO flux [FUNCTION: extract_co_flux_from_spectrum]
                 result = extract_co_flux_from_spectrum(
                     wavelength, spectrum_flux, CO_catalog, contam_catalog,
-                    sigma=sigma, wave_boundaries=wave_boundaries,
+                    wave_boundaries=wave_boundaries,
                     do_duplicate_removal=True
                 )
                 
@@ -560,7 +596,11 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog,
                     row_detections[x_idx] = n_detected
             
             except Exception as e:
-                # Skip this pixel on error
+                # Log error for debugging
+                if y_idx == 0 and x_idx < 3:  # Only log first few pixels to avoid spam
+                    import traceback
+                    print(f"  Warning: Extraction failed at pixel ({x_idx}, {y_idx}): {str(e)}")
+                    traceback.print_exc()
                 continue
         
         return y_idx, row_fluxes, row_errors, row_detections
