@@ -30,7 +30,7 @@ from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
-from .line_catalog import filter_spectral_lines, normalize_species_input, hitran_gui_interface
+from .line_catalog import filter_spectral_lines, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
@@ -221,6 +221,8 @@ class CubeExplorer(QWidget):
         self._init_ui()
         # Load default LST file on startup
         self.load_default_lst()
+        # Load CO line catalogs on startup
+        self._load_CO_catalogs()
 
     def closeEvent(self, event):
         try:
@@ -231,6 +233,22 @@ class CubeExplorer(QWidget):
         gc.collect()
         event.accept()
 
+    def _load_CO_catalogs(self):
+        """Load CO line catalogs at GUI startup."""
+        import os
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        CO_path = os.path.join(base_path, 'data', 'CO', 'CO_comprehensive_linelist_with_g.ecsv')
+        contam_path = os.path.join(base_path, 'data', 'CO', 'ContaminatingLines.csv')
+        
+        print('\n>>> Loading CO Catalogues...')
+        self.CO_lines = load_CO_line_catalog(CO_path)
+        self.contam_lines = load_contaminating_lines_catalog(contam_path)
+        
+        if self.CO_lines is not None and self.contam_lines is not None:
+            print(f'✓ CO lines: {len(self.CO_lines)} entries')
+            print(f'✓ Contaminating lines: {len(self.contam_lines)} entries\n')
+        else:
+            print('⚠️  Warning: Failed to load one or more catalogs\n')
     def _clear_all_displays(self):
         """Clear all plots, selections, and stats when loading a new cube."""
         print("=== CLEAR ALL DISPLAYS START ===")

@@ -6,8 +6,10 @@ Extracts molecular spectroscopy data from HITRAN database or local line lists
 import re
 import os
 import numpy as np
+import pandas as pd
 import time
 from astropy.units import Quantity
+from astropy.io import ascii
 
 # -------------------- Helper Functions --------------------
 def _extract_wavelength_value(wavelength):
@@ -433,3 +435,60 @@ def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=
 
 # Example GUI integration point (to be connected to the main GUI application):
 # Functions above are designed to be imported and used by the GUI; no CLI entry point here.
+
+# -------------------- CO Catalog Loading --------------------
+def load_CO_line_catalog(filepath):
+    """
+    Load CO rovibrational line catalog from ECSV format.
+    
+    Parameters
+    ----------
+    filepath : str
+        Path to the ECSV file (e.g., 'data/CO/CO_comprehensive_linelist_with_g.ecsv')
+    
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with columns: trans_id, species, line_wave_um, a, transition, eupper(K), 
+        highv, highj, lowv, lowj, gp, nu-err, nu-ref
+    """
+    try:
+        if not os.path.exists(filepath):
+            print(f"❌ Error: File '{filepath}' not found.")
+            return None
+        
+        print(f">>> Loading CO line catalog from {filepath}...")
+        CO_lines = ascii.read(filepath)
+        CO_lines = CO_lines.to_pandas()
+        print(f"✓ Loaded {len(CO_lines)} CO lines")
+        return CO_lines
+    except Exception as e:
+        print(f"❌ Error loading CO catalog: {e}")
+        return None
+
+def load_contaminating_lines_catalog(filepath):
+    """
+    Load contaminating lines catalog from CSV format.
+    
+    Parameters
+    ----------
+    filepath : str
+        Path to the CSV file (e.g., 'data/CO/ContaminatingLines.csv')
+    
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with columns: species, line_wave_um, wavenumber_cm-1, a, gp, Elow_cm-1, eupper(K), Notes
+    """
+    try:
+        if not os.path.exists(filepath):
+            print(f"❌ Error: File '{filepath}' not found.")
+            return None
+        
+        print(f">>> Loading contaminating lines catalog from {filepath}...")
+        contam_lines = pd.read_csv(filepath)
+        print(f"✓ Loaded {len(contam_lines)} contaminating lines")
+        return contam_lines
+    except Exception as e:
+        print(f"❌ Error loading contaminating lines catalog: {e}")
+        return None
