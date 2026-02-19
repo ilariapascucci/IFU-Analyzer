@@ -71,10 +71,17 @@ class CollapsibleButtonGroup(QWidget):
     """
     A collapsible button group that expands/collapses with animation.
     Uses snake_case for all method and variable names.
+    Supports accordion behavior - only one group can be expanded at a time.
     """
+    # Class-level list to track all instances for accordion behavior
+    _all_groups = []
+    
     def __init__(self, title, parent=None):
         super().__init__(parent)
         self.is_expanded = False
+        self.title = title
+        # Register this instance globally
+        CollapsibleButtonGroup._all_groups.append(self)
         self.init_ui(title)
     
     def init_ui(self, title):
@@ -129,9 +136,24 @@ class CollapsibleButtonGroup(QWidget):
         """Add a button to this collapsible group"""
         self.button_layout.addWidget(button)
     
+    def close_other_groups(self):
+        """Close all other collapsible groups (accordion behavior)"""
+        for group in CollapsibleButtonGroup._all_groups:
+            if group is not self and group.is_expanded:
+                group.close()
+    
+    def close(self):
+        """Close/collapse this group"""
+        if self.is_expanded:
+            self.toggle_btn.setChecked(False)
+            self.toggle()
+    
     def toggle(self):
         """Toggle expand/collapse with animation"""
         if self.toggle_btn.isChecked():
+            # close other groups when expanding (accordion behavior)
+            self.close_other_groups()
+            
             # Expand
             self.is_expanded = True
             self.toggle_btn.setText(self.toggle_btn.text().replace("▶", "▼"))
