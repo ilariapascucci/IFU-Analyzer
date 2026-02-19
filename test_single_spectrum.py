@@ -38,10 +38,15 @@ print(f"✓ Spectrum shape: {spectrum_flux.shape}")
 print(f"  Valid values: {np.sum(~np.isnan(spectrum_flux))}")
 print(f"  Min/Max flux: {np.nanmin(spectrum_flux):.4e} / {np.nanmax(spectrum_flux):.4e}")
 
-# Extract CO flux
+# Extract CO flux with wavelength constraints
 print("\nExtracting CO flux...")
+wave_min = CO_lines['line_wave_um'].min()
+wave_max = CO_lines['line_wave_um'].max()
+print(f"CO lines wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+
 result = extract_co_flux_from_spectrum(
     spectrum_wave, spectrum_flux, CO_lines, contam_lines,
+    wave_min=wave_min, wave_max=wave_max,
     do_duplicate_removal=True
 )
 

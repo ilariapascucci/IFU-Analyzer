@@ -346,10 +346,35 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
         
-        # Perform the fit
-        par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0, 
-                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
-        
+        # === TESTING === NOT FROM ORIGINAL FUNCTION
+        # Validate bounds before fitting
+        try:
+            # Check for NaN or Inf in bounds
+            if np.any(~np.isfinite(lower_bounds)) or np.any(~np.isfinite(upper_bounds)):
+                raise ValueError("Bounds contain NaN or Inf")
+            # Check that lower <= upper
+            if np.any(lower_bounds > upper_bounds):
+                raise ValueError("Lower bounds exceed upper bounds")
+            # Check that p0 is within bounds
+            if np.any(p0 < lower_bounds) or np.any(p0 > upper_bounds):
+                raise ValueError("Initial guess p0 is outside bounds")
+            
+            # Perform the fit
+            par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0, 
+                                 bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
+        except (ValueError, RuntimeError) as e:
+            # Bounds are invalid or fit failed - use 3-sigma fallback
+            print(f"  curve_fit failed ({str(e)}), using 3-sigma upper limit")
+            continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1, show='False')
+            current_sum_contaminating = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
+            current_sum_CO = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
+            a = np.nanmedian(continuum)
+            sum_CO_area = sum_CO_area + current_sum_CO
+            sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
+            mean_cont = mean_cont + a
+            continue
+        # === TESTING === ENDS
+
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
         par = par[2:]  # Extracts which parameters relate to the Gaussians
         
@@ -391,7 +416,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 # ================== High-Level Extraction ==================
 
 def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog, 
-                                   wave_boundaries=None, do_duplicate_removal=True):
+                                   wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True):
     """
     Extract total CO flux from a single spectrum by fitting all CO lines.
     
@@ -406,7 +431,11 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     contam_catalog : pd.DataFrame
         Contaminating lines catalog (columns: line_wave_um, ...)
     wave_boundaries : array-like, optional
-        Wavelength boundaries for fitting chunks. If None, uses 10-20 chunks.
+        Wavelength boundaries for fitting chunks. If None, auto-calculated from wave_min/wave_max.
+    wave_min : float, optional
+        Minimum wavelength to fit. If None, uses min of CO_catalog line_wave_um.
+    wave_max : float, optional
+        Maximum wavelength to fit. If None, uses max of CO_catalog line_wave_um.
     do_duplicate_removal : bool
         Whether to remove duplicate line detections
     
@@ -415,10 +444,19 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     dict
         Keys: 'co_flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals'
     """
+    # Auto-determine wavelength range if not provided
+    if wave_min is None:
+        wave_min = CO_catalog['line_wave_um'].min()
+    if wave_max is None:
+        wave_max = CO_catalog['line_wave_um'].max()
+    
+    print(f"  Extracting CO flux in wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+    
     # Auto-determine boundaries if not provided
     if wave_boundaries is None:
-        n_chunks = max(4, len(spectrum_wave) // 500)  # Reduced from //200 for speed
-        wave_boundaries = np.linspace(spectrum_wave[0], spectrum_wave[-1], n_chunks)
+        n_chunks = max(4, int((wave_max - wave_min) * 200))  # ~1 chunk per 0.005 microns of range
+        n_chunks = max(2, min(n_chunks, 10))  # Clamp between 2-10 chunks
+        wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
     
     # Find detected lines
     detected_lines = find_lines(
@@ -566,8 +604,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     if hasattr(wavelength, 'unit'):
         wavelength = wavelength.value
     
-    # Always process full wavelength range - MUST define BEFORE using below
-    wave_min, wave_max = wavelength[0], wavelength[-1]
+    # Calculate wavelength range from CO catalog (not full spectrum) for efficiency
+    wave_min = CO_catalog['line_wave_um'].min()
+    wave_max = CO_catalog['line_wave_um'].max()
     
     # DIAGNOSTIC: Check line catalogs
     print(f"    CO catalog: {len(CO_catalog)} lines")
@@ -606,10 +645,16 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     
     start_time = time.time()
     
+    # Thread-safe pixel counter for per-pixel progress updates
+    from threading import Lock
+    pixel_counter = {'count': 0, 'lock': Lock()}
+    total_pixels = n_y * n_x
+    
     # Define auto wavelength boundaries for fitting (fewer chunks for speed)
     # CO lines are sparse enough that 4-6 chunks covers most cases
     # Reduce from n_wave//50 to n_wave//500 for 5x speedup
-    n_chunks = max(4, n_wave // 500)  # Reduced from n_wave//200
+    n_chunks = max(4, int((wave_max - wave_min) * 200))  # ~1 chunk per 0.005 microns of range
+    n_chunks = max(2, min(n_chunks, 10))  # Clamp between 2-10 chunks
     wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
     
     # DEBUG: Test extraction on first few pixels
@@ -658,7 +703,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             sys.stdout.flush()  # Force flush
             test_result = extract_co_flux_from_spectrum(
                 wavelength, test_spectrum, CO_catalog, contam_catalog,
-                wave_boundaries=wave_boundaries, do_duplicate_removal=True
+                wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
+                do_duplicate_removal=True
             )
             if test_result:
                 print(f"      Result: co_flux={test_result['co_flux']:.4e}, detected_lines shape={len(test_result['detected_lines'])}")
@@ -689,11 +735,10 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         num_failures = 0
         num_skipped = 0
         
-        # DIAGNOSTIC: Show what we're processing in middle row where data should be valid
-        # if y_idx == n_y // 2:
-        #     print(f"    Processing middle row {y_idx}...")
-        
         for x_idx in range(n_x):
+            # Update pixel counter for progress reporting
+            with pixel_counter['lock']:
+                pixel_counter['count'] += 1
             try:
                 # Step 1: Extract spectrum from cube for this pixel [REUSED: data_loader.get_pixel_spectrum]
                 spectrum_flux = cube_data.get_pixel_spectrum(x_idx, y_idx)
@@ -705,7 +750,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 # Step 2: Extract CO flux [FUNCTION: extract_co_flux_from_spectrum]
                 result = extract_co_flux_from_spectrum(
                     wavelength, spectrum_flux, CO_catalog, contam_catalog,
-                    wave_boundaries=wave_boundaries,
+                    wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
                     do_duplicate_removal=True
                 )
                 
@@ -739,10 +784,10 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 traceback.print_exc()
                 num_failures += 1
                 continue
-        
-        # Print row summary only occasionally (reduce I/O overhead)
-        if y_idx % max(1, n_y // 10) == 0:  # Print every 10% of rows instead of 5%
-            print(f"    Row {y_idx}: {num_success} success, {num_failures} failures, {num_skipped} skipped")
+            
+            # Print pixel-level progress inside row (every 10 pixels)
+            if (x_idx + 1) % max(1, n_x // 5) == 0:
+                print(f"    Row {y_idx}: {x_idx + 1}/{n_x} pixels...")
         
         return y_idx, row_fluxes, row_errors, row_detections
     
@@ -762,12 +807,19 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             error_map[y_idx, :] = row_errors
             detection_map[y_idx, :] = row_detections
             
+            # Report actual pixel progress
             if progress_callback:
-                progress_callback(i + 1, n_y)
+                with pixel_counter['lock']:
+                    pixels_done = pixel_counter['count']
+                progress_callback(pixels_done, total_pixels)
             
+            # Print progress every 10% of rows, but show total pixels processed
             if (i + 1) % max(1, n_y // 10) == 0:
                 elapsed = time.time() - start_time
-                print(f"  Progress: {i + 1}/{n_y} rows processed ({elapsed:.1f}s)")
+                total_pixels_done = (i + 1) * n_x
+                total_pixels = n_y * n_x
+                percent = 100 * total_pixels_done / total_pixels
+                print(f"  Progress: {total_pixels_done}/{total_pixels} pixels ({percent:.1f}%) in {elapsed:.1f}s")
     
     end_time = time.time()
     print(f"\n>>> CO flux map creation complete ({end_time - start_time:.1f}s)")
