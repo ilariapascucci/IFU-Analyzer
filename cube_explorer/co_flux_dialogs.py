@@ -29,10 +29,15 @@ class COFluxMapWorker(QThread):
         self.CO_catalog = CO_catalog
         self.contam_catalog = contam_catalog
         self.n_jobs = n_jobs
+        self.cancelled = False  # Flag to stop processing
     
     def run(self):
         """Execute extraction"""
         try:
+            if self.cancelled:
+                self.error.emit("Extraction cancelled by user")
+                return
+            
             from .co_flux_extractor import create_co_flux_map
             
             results = create_co_flux_map(
@@ -40,9 +45,14 @@ class COFluxMapWorker(QThread):
                 CO_catalog=self.CO_catalog,
                 contam_catalog=self.contam_catalog,
                 n_jobs=self.n_jobs,
-                progress_callback=self._emit_progress
+                progress_callback=self._emit_progress,
+                cancel_flag=self  # Pass self so extraction can check cancelled flag
             )
-            self.finished.emit(results)
+            
+            if self.cancelled:
+                self.error.emit("Extraction cancelled by user")
+            else:
+                self.finished.emit(results)
         except Exception as e:
             import traceback
             error_msg = f"{str(e)}\n{traceback.format_exc()}"
@@ -50,6 +60,10 @@ class COFluxMapWorker(QThread):
     
     def _emit_progress(self, current, total):
         self.progress.emit(current, total)
+    
+    def request_cancel(self):
+        """Request cancellation"""
+        self.cancelled = True
 
 
 class COFluxMapResultsDialog(QDialog):

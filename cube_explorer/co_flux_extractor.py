@@ -22,6 +22,11 @@ from scipy.ndimage import gaussian_filter1d
 from astropy.io import fits
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# RANSAC for continuum fitting (from Pascucci)
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import make_pipeline
+from sklearn.linear_model import RANSACRegressor
+
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import estimate_gaussian_params, calculate_baseline, compute_noise_std
 
@@ -121,7 +126,8 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
     pd.DataFrame
         Lines with columns: line, species, disposition (0/1), max_amplitude, line_flux
     """
-    print('>>> Finding lines and removing duplicates...')
+    # Suppress repetitive output (called for every pixel)
+    # print('>>> Finding lines and removing duplicates...')
     xres = np.nanmean(np.diff(xwave))
     
     # at start all lines are assumed to be non-detections and assigned NAN for max_amplitude
@@ -142,7 +148,7 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         cflux = yflux[max(0, idx_cline - 2):min(len(yflux), idx_cline + 3)]
         
         cflux_min, cflux_max = np.nanmin(cflux), np.nanmax(cflux)
-        cflux_idx_max = np.nanargmax(cflux)
+        cflux_idx_max = np.argmax(cflux)
         
         if (cflux_max > cflux_min) and (cwave[cflux_idx_max] <= cline + xres) and (cwave[cflux_idx_max] >= cline - xres):
             if isinstance(contaminating_lines, pd.DataFrame):
@@ -190,35 +196,92 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
     return lines_dispositions
 
 
-# ================== Multi-Gaussian Fitting ==================
+# ================== Continuum Fitting (RANSAC) ==================
 
-def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lines):
+def cont_fit_ransac(x, y, pdeg, show='False', return_params=False, exclude_wavelength_ranges=None):
     """
-    Fit multiple Gaussians + continuum in wavelength chunks, extracting CO and contaminant fluxes.
+    Fit continuum using RANSAC polynomial regression (from Pascucci).
     
-    For each wavelength range, fits all detected CO lines + contaminating lines simultaneously,
-    then sums the areas of CO lines only to get total CO flux in that chunk.
-    
-    Note: Gaussian sigma is estimated from data for each spectrum (not user-provided).
+    Robust to outliers, useful when fitting continuum through noisy data.
     
     Parameters
     ----------
-    xwave : array-like
-        Full wavelength array
-    yflux : array-like
-        Full flux array
-    list_wboundaries : array-like
-        Wavelength boundaries defining chunks (e.g., [4.5, 4.7, 4.9, 5.1])
-    detco_lines : pd.DataFrame
-        Detected CO lines (disposition=1)
-    detcontaminating_lines : pd.DataFrame
-        Detected contaminating lines (disposition=1)
+    x : array-like
+        Wavelength values
+    y : array-like
+        Flux values
+    pdeg : int
+        Polynomial degree (1=linear, 2=quadratic, etc.)
+    show : str
+        'True' to plot result, 'False' otherwise
+    return_params : bool
+        If True, return polynomial coefficients; if False, return continuum array
+    exclude_wavelength_ranges : list of tuples, optional
+        Wavelength ranges to exclude from fitting
     
     Returns
     -------
-    tuple
-        (sum_CO_area, sum_contaminating_area, mean_cont, df_residual)
-        where area = amplitude × σ × √(2π) [units: input flux units × wavelength units]
+    continuum : array-like
+        Fitted continuum values (or coefficients if return_params=True)
+    std_residuals : float
+        Standard deviation of residuals
+    """
+    # Combine x and y into a single array
+    data = np.column_stack((x, y))
+    # Remove rows with NaN values for fitting
+    valid_data = data[~np.isnan(data).any(axis=1)]
+    # Separate the input variables and target variable for fitting
+    xfit = valid_data[:, 0]
+    yfit = valid_data[:, 1]
+    if exclude_wavelength_ranges is not None:
+        # Filter data to exclude points within the specified wavelength ranges
+        for exclude_range in exclude_wavelength_ranges:
+            mask = ~((xfit >= exclude_range[0]) & (xfit <= exclude_range[1]))
+            xfit = xfit[mask]
+            yfit = yfit[mask]
+
+    # Create a pipeline with polynomial feature transformation and RANSACRegressor
+    ransac_pipeline = make_pipeline(
+        PolynomialFeatures(degree=pdeg),
+        RANSACRegressor()
+    )
+    # Fit the pipeline on the valid data and calculate the stddev of the residuals
+    ransac_pipeline.fit(xfit[:, np.newaxis], yfit)
+    std_residuals = np.std(yfit - ransac_pipeline.predict(xfit[:, np.newaxis]))
+    # Predict y-values for all x-values (including NaNs)
+    yfit_all = ransac_pipeline.predict(x[:, np.newaxis])
+    # Replace predicted values corresponding to NaN x-values with NaN
+    yfit_all[np.isnan(x)] = np.nan
+    
+    if show == 'True':
+        import matplotlib.pyplot as plt
+        plt.plot(x, y, color='steelblue', drawstyle='steps')
+        plt.plot(x, yfit_all, color='orange')
+        plt.ylim(np.nanmin(y), np.nanmax(y))
+        plt.xlim(np.nanmin(x), np.nanmax(x))
+        plt.xlabel('Wavelength [micron]')
+        plt.show()
+    
+    if return_params:
+        best_fit_params = ransac_pipeline.named_steps['ransacregressor'].estimator_.coef_
+        return best_fit_params, std_residuals
+    else:
+        return yfit_all, std_residuals
+
+
+# ================== Multi-Gaussian Fitting ====================
+
+def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lines, sigma):
+    """
+    Fit simultaneously many Gaussians and the underlying continuum in given
+    chunks of wavelengths (given in list_wboundaries).
+    
+    Returns:
+        1. the sum of the areas of the CO Gaussians (sum_CO_area)
+        2. the sum of the areas of the contaminating lines Gaussians (sum_contaminating_area)
+        3. the mean of the continuum (mean_cont)
+        4. a pandas dataframe with the residual which is good to check the results (df_residual)
+    
     """
     sum_CO_area, sum_contaminating_area, mean_cont = 0, 0, 0
     df_residual = pd.DataFrame({
@@ -232,8 +295,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     for ii in range(len(list_wboundaries) - 1):
         xwave_min, xwave_max = list_wboundaries[ii], list_wboundaries[ii + 1]
         idx_xwave = (xwave >= xwave_min) & (xwave <= xwave_max)
-        
-        print(f'> Fitting wave range {np.around(xwave_min, decimals=1)} - {np.around(xwave_max, decimals=1)}')
+        print('> Fitting wave range ', np.around(xwave_min, decimals=1), np.around(xwave_max, decimals=1))
         
         # Filtering the DataFrame based on the disposition and the wavelength range: CO and contaminating lines
         filtered_colines = detco_lines[
@@ -249,7 +311,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         
         # Find number of contaminating lines for Gauss fit and store
         ncont_lines = filtered_contaminatinglines.shape[0]
-
+        
         # Append contaminating lines at the end of the CO lines
         filtered_lines = pd.concat([filtered_colines, filtered_contaminatinglines], ignore_index=True)
         
@@ -257,120 +319,71 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             print('  No lines to fit in this range')
             continue
         
-        # Build initial parameter guesses [IMPROVED: Using gaussian_fitter helpers]
-        # First, remove continuum for better parameter estimation
-        y_corrected = yflux[idx_xwave] - np.min(yflux[idx_xwave])
-        
-        # Estimate sigma from the spectrum's FWHM
-        try:
-            _, _, sigma_fit = estimate_gaussian_params(xwave[idx_xwave], y_corrected)
-        except:
-            # Fallback: use small fraction of wavelength range
-            sigma_fit = 0.005
-        
-        print("DEBUG: sigma " + sigma_fit)
-
-        # Create the NumPy array with input params: [amp0, cen0, sig0, amp1, cen1, sig1, ...]
-        p0_params = []
-        for line_idx in range(len(filtered_lines)):
-            # Use catalog values for amplitude and center
-            amp_guess = filtered_lines['max_amplitude'].iloc[line_idx]
-            cen_guess = filtered_lines['line'].iloc[line_idx]
-            sig_guess = sigma_fit  # Use estimated sigma from spectrum
-            
-            p0_params.extend([amp_guess, cen_guess, sig_guess])
-        
-        p0 = np.array(p0_params)  # Convert to 1D array
-        
-        # Continuum initial guesses [IMPROVED: Using gaussian_fitter.calculate_baseline]
-        y_chunk = yflux[idx_xwave]
-        x_chunk = xwave[idx_xwave]
-        
-        if len(x_chunk) > 1:
-            # Use gaussian_fitter's baseline calculation
-            baseline_est = calculate_baseline(
-                x_chunk[0], y_chunk[0], x_chunk[-1], y_chunk[-1],
-                x_chunk, y_chunk
-            )
-            p0base = np.nanmin(baseline_est)
-            p0slope = (y_chunk[-1] - y_chunk[0]) / (x_chunk[-1] - x_chunk[0])
-        else:
-            p0base = np.min(y_chunk)
-            p0slope = 0
+        # Create the NumPy array with input params
+        p0_2d = np.column_stack((
+            filtered_lines['max_amplitude'].astype(float),
+            filtered_lines['line'],
+            [sigma] * len(filtered_lines)
+        ))
+        p0 = np.ravel(p0_2d)  # 1d array
+        p0base, p0slope = np.min(yflux), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
         p0 = np.insert(p0, [0, 0], [p0base, p0slope])
         
         # Create NumPy arrays with lower and upper bounds
         lower_bounds_2d = np.column_stack((
             [0.0] * len(filtered_lines),
-            filtered_lines['line'] - sigma_fit,
-            [0.5 * sigma_fit] * len(filtered_lines)
+            filtered_lines['line'] - sigma,
+            [0.5 * sigma] * len(filtered_lines)
         ))
         lower_bounds = np.ravel(lower_bounds_2d)
         lower_bounds = np.insert(lower_bounds, [0, 0], [p0base - 2 * np.abs(p0slope), -2 * np.abs(p0slope)])
         
         upper_bounds_2d = np.column_stack((
             filtered_lines['max_amplitude'].astype(float) * 1.1,
-            filtered_lines['line'] + sigma_fit,
-            [2 * sigma_fit] * len(filtered_lines)
+            filtered_lines['line'] + sigma,
+            [2 * sigma] * len(filtered_lines)
         ))
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
         
-        # Fit the model (Performs the fit)
+        # Perform the fit
+        par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0, 
+                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
+        
+        a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
+        par = par[2:]  # Extracts which parameters relate to the Gaussians
+        
         try:
-            par, cov = curve_fit(
-                many_gaussians_list,
-                xwave[idx_xwave],
-                yflux[idx_xwave],
-                p0=p0,
-                bounds=(lower_bounds, upper_bounds),
-                method='trf',
-                ftol=1e-5,
-                maxfev=10000
-            )
-            
-            # Extract continuum parameters (a and b in a + b*x)
-            a, b = par[0], par[1]
-            # Extract Gaussian parameters (amp, cen, sig for each line)
-            par = par[2:]
-            
-            # Calculate best fit model
             bfit = many_gaussians_list(xwave[idx_xwave], a, b, *par)
             df_residual.loc[idx_xwave, 'residual'] = yflux[idx_xwave] - bfit
             
-            # Calculate integrated flux areas: amplitude × σ × √(2π)
             # Different approach in case there are contaminating lines
             if ncont_lines > 0:
-                # CO lines are first (0 to len(par) - 3*ncont_lines), contaminants are at the end
                 current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
                                     for jj in range(0, len(par) - 3 * ncont_lines, 3))
                 current_sum_contaminating = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
                                                for jj in range(len(par) - 3 * ncont_lines, len(par), 3))
             else:
-                # No contaminating lines in this wavelength range
-                current_sum_contaminating = 0
+                current_sum_contaminating = 0  # there are no contaminating lines in this wave range!
                 current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
                                     for jj in range(0, len(par), 3))
-            
-            sum_CO_area += current_sum_CO
-            sum_contaminating_area += current_sum_contaminating
-            mean_cont += a
-            
+        
         except RuntimeError as e:
-            print(f"  ⚠️  curve_fit did not converge: {e}")
-            # Assign zero flux for this chunk when fit fails
-            current_sum_CO = 0
-            current_sum_contaminating = 0
-            sum_CO_area += current_sum_CO
-            sum_contaminating_area += current_sum_contaminating
-            mean_cont += np.nanmedian(yflux[idx_xwave])
+            print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
+            continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1, show='False')
+            current_sum_contaminating = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
+            current_sum_CO = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
+            a = np.nanmedian(continuum)
+        
+        sum_CO_area = sum_CO_area + current_sum_CO
+        sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
+        mean_cont = mean_cont + a
     
     end_time = time.time()
     print(f"Fitting took {np.around(end_time - start_time, decimals=1)} seconds")
     print('===== End fitting')
     
-    if len(list_wboundaries) > 1:
-        mean_cont = mean_cont / (len(list_wboundaries) - 1)
+    mean_cont = mean_cont / (len(list_wboundaries) - 1)
     
     return sum_CO_area, sum_contaminating_area, mean_cont, df_residual
 
@@ -404,7 +417,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     """
     # Auto-determine boundaries if not provided
     if wave_boundaries is None:
-        n_chunks = max(10, len(spectrum_wave) // 50)
+        n_chunks = max(4, len(spectrum_wave) // 500)  # Reduced from //200 for speed
         wave_boundaries = np.linspace(spectrum_wave[0], spectrum_wave[-1], n_chunks)
     
     # Find detected lines
@@ -435,27 +448,59 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         print(f"  detected_lines head:\n{detected_lines.head()}")
         raise
     
+    # DEBUG: Show how many CO lines were detected
+    n_co_detected = len(detected_co)
+    # print(f"  extract_co_flux: Found {n_co_detected} CO lines in this spectrum")
+    
     # Filter contam_catalog to only include detected lines
     if len(detected_lines) > 0 and 'line' in detected_lines.columns:
         detected_wavelengths = detected_lines.loc[detected_lines['disposition'] == 1, 'line'].values
         if len(detected_wavelengths) > 0 and 'line_wave_um' in contam_catalog.columns:
             detected_contam = contam_catalog[
                 contam_catalog['line_wave_um'].isin(detected_wavelengths)
-            ]
+            ].copy()
         else:
             detected_contam = pd.DataFrame()
     else:
         detected_contam = pd.DataFrame()
     
+    # CRITICAL: Normalize detected_contam to match detected_co structure
+    if len(detected_contam) > 0:
+        # Rename 'line_wave_um' to 'line' if needed
+        if 'line_wave_um' in detected_contam.columns and 'line' not in detected_contam.columns:
+            detected_contam = detected_contam.rename(columns={'line_wave_um': 'line'})
+        # Add 'disposition' column if missing
+        if 'disposition' not in detected_contam.columns:
+            detected_contam['disposition'] = 1
+        # Add 'max_amplitude' column if missing (estimate from local spectrum)
+        if 'max_amplitude' not in detected_contam.columns:
+            detected_contam['max_amplitude'] = np.nanmax(spectrum_flux) - np.nanmin(spectrum_flux)
+    else:
+        # Empty DataFrame - still needs the right columns for fit_glines
+        detected_contam = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'species'])
+    
     # Fit if any lines detected
     if len(detected_co) > 0 or len(detected_contam) > 0:
+        # This is the line width in wavelength units, typically 1-2 pixels worth
+        try:
+            y_for_sigma = spectrum_flux - np.nanmin(spectrum_flux)  # Remove baseline
+            _, _, sigma = estimate_gaussian_params(spectrum_wave, y_for_sigma)
+            # Ensure sigma is reasonable (between 0.001 and 0.1 microns for typical NIRSpec)
+            if sigma is None or not np.isfinite(sigma) or sigma < 0.0001 or sigma > 0.1:
+                sigma = 0.005  # Reasonable default for NIRSpec at 5 microns
+        except Exception as e:
+            # print(f"  Warning: sigma estimation failed ({e}), using default 0.005")
+            sigma = 0.005
+        
         co_flux, contam_flux, mean_cont, residuals = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
-            detected_co, detected_contam
+            detected_co, detected_contam, sigma
         )
+        # print(f"  fit_glines returned: co_flux={co_flux}, type={type(co_flux)}, is_finite={np.isfinite(co_flux)}")
     else:
         co_flux, contam_flux, mean_cont = 0, 0, np.nanmedian(spectrum_flux)
         residuals = pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)})
+        # print(f"  No lines to fit, returning 0")
     
     return {
         'co_flux': co_flux,
@@ -468,7 +513,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
 # ================== Full Cube Processing ==================
 
-def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress_callback=None):
+def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None):
     """
     Create 2D map of total CO rovibrational flux by processing all spatial pixels.
     
@@ -507,7 +552,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress
     - Skips pixels with all NaN spectra
     - Returns NaN for failed fits or edge cases
     - Gaussian sigma is estimated from each spectrum's data
-    - Processing time: ~1-2 minutes per 512×512 image with 100 wavelength elements
     """
     
     if cube_data.cube is None:
@@ -518,8 +562,27 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress
     n_wave, n_y, n_x = cube_data.cube.shape
     wavelength = cube_data.wavelength
     
-    # Always process full wavelength range
+    # Strip units from wavelength if it's an astropy Quantity (convert to plain numpy array)
+    if hasattr(wavelength, 'unit'):
+        wavelength = wavelength.value
+    
+    # Always process full wavelength range - MUST define BEFORE using below
     wave_min, wave_max = wavelength[0], wavelength[-1]
+    
+    # DIAGNOSTIC: Check line catalogs
+    print(f"    CO catalog: {len(CO_catalog)} lines")
+    if len(CO_catalog) > 0:
+        print(f"      Wavelength range: {CO_catalog['line_wave_um'].min():.4f} - {CO_catalog['line_wave_um'].max():.4f}")
+    print(f"    Contaminating catalog: {len(contam_catalog)} lines")
+    if len(contam_catalog) > 0:
+        print(f"      Wavelength range: {contam_catalog['line_wave_um'].min():.4f} - {contam_catalog['line_wave_um'].max():.4f}")
+    
+    # DIAGNOSTIC: Check if line wavelengths overlap cube data wavelengths
+    co_overlap = (CO_catalog['line_wave_um'] >= wave_min) & (CO_catalog['line_wave_um'] <= wave_max)
+    print(f"    CO lines in data wavelength range: {np.sum(co_overlap)}/{len(CO_catalog)}")
+    
+    import sys
+    sys.stdout.flush()
     
     # Create output maps
     flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
@@ -528,35 +591,92 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress
     
     print(f">>> Creating CO flux map: {n_y}×{n_x} pixels, {n_wave} wavelength elements")
     print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
-    print(f"    Testing first pixel for diagnostics...")
+    
+    # DIAGNOSTIC: Print cube metadata
+    print(f"    === CUBE DIAGNOSTICS ===")
+    print(f"    Cube shape: {cube_data.cube.shape}")
+    print(f"    Cube dtype: {cube_data.cube.dtype}")
+    print(f"    Cube min/max: {np.nanmin(cube_data.cube):.4e} / {np.nanmax(cube_data.cube):.4e}")
+    print(f"    Cube % NaN: {100 * np.sum(np.isnan(cube_data.cube)) / cube_data.cube.size:.2f}%")
+    print(f"    Wavelength shape: {wavelength.shape}")
+    print(f"    Wavelength min/max: {wavelength[0]:.6f} / {wavelength[-1]:.6f}")
+    print(f"    Spectral axis: {cube_data.spec_axis}")
+    import sys
+    sys.stdout.flush()
     
     start_time = time.time()
     
-    # DEBUG: Test extraction on first pixel
+    # Define auto wavelength boundaries for fitting (fewer chunks for speed)
+    # CO lines are sparse enough that 4-6 chunks covers most cases
+    # Reduce from n_wave//50 to n_wave//500 for 5x speedup
+    n_chunks = max(4, n_wave // 500)  # Reduced from n_wave//200
+    wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
+    
+    # DEBUG: Test extraction on first few pixels
+    print(f"    Testing pixel extraction...")
     try:
+        # Try multiple pixels to find one with data
+        found_valid = False
+        for test_y in range(min(3, n_y)):
+            for test_x in range(min(3, n_x)):
+                test_spectrum = cube_data.get_pixel_spectrum(test_x, test_y)
+                if test_spectrum is not None:
+                    n_valid = np.sum(~np.isnan(test_spectrum))
+                    print(f"      Pixel ({test_x}, {test_y}): {n_valid}/{len(test_spectrum)} valid values")
+                    if n_valid > 0:
+                        print(f"        Min/max: {np.nanmin(test_spectrum):.4e} / {np.nanmax(test_spectrum):.4e}")
+                        found_valid = True
+                else:
+                    print(f"      Pixel ({test_x}, {test_y}): returned None")
+        
+        if not found_valid:
+            print(f"    ⚠️  WARNING: No valid pixels found in sample!")
+            # Try sampling middle of cube instead of edges
+            print(f"    Trying middle pixels...")
+            mid_y, mid_x = n_y // 2, n_x // 2
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    try_y, try_x = mid_y + dy, mid_x + dx
+                    test_spectrum = cube_data.get_pixel_spectrum(try_x, try_y)
+                    if test_spectrum is not None:
+                        n_valid = np.sum(~np.isnan(test_spectrum))
+                        print(f"      Pixel ({try_x}, {try_y}): {n_valid}/{len(test_spectrum)} valid values")
+                        if n_valid > 0:
+                            print(f"        Min/max: {np.nanmin(test_spectrum):.4e} / {np.nanmax(test_spectrum):.4e}")
+                            found_valid = True
+        
+        if found_valid:
+            print(f"    ✓ Found valid pixels in center region")
+        
+        sys.stdout.flush()
+        
+        # Now extract from first pixel
         test_spectrum = cube_data.get_pixel_spectrum(0, 0)
         if test_spectrum is not None and not np.all(np.isnan(test_spectrum)):
-            print(f"    Test spectrum shape: {test_spectrum.shape}, min={np.nanmin(test_spectrum):.4e}, max={np.nanmax(test_spectrum):.4e}")
+            print(f"      Spectrum: shape={test_spectrum.shape}, min={np.nanmin(test_spectrum):.4e}, max={np.nanmax(test_spectrum):.4e}")
+            import sys
+            sys.stdout.flush()  # Force flush
             test_result = extract_co_flux_from_spectrum(
                 wavelength, test_spectrum, CO_catalog, contam_catalog,
                 wave_boundaries=wave_boundaries, do_duplicate_removal=True
             )
             if test_result:
-                print(f"    Test result: co_flux={test_result['co_flux']:.4e}, {len(test_result['detected_lines'])} detected lines")
-                n_co_detected = len(test_result['detected_lines'][test_result['detected_lines']['disposition'] == 1])
-                print(f"    CO lines detected: {n_co_detected}")
+                print(f"      Result: co_flux={test_result['co_flux']:.4e}, detected_lines shape={len(test_result['detected_lines'])}")
+                if len(test_result['detected_lines']) > 0:
+                    n_co_detected = len(test_result['detected_lines'][test_result['detected_lines']['disposition'] == 1])
+                    print(f"      CO lines with disposition=1: {n_co_detected}")
+                sys.stdout.flush()
             else:
-                print(f"    Test result was None!")
+                print(f"      Result was None!")
+                sys.stdout.flush()
         else:
-            print(f"    Test spectrum is None or all NaN")
+            print(f"      Test spectrum is None or all NaN")
     except Exception as e:
-        import traceback
-        print(f"    Error testing first pixel: {e}")
+        import traceback, sys
+        print(f"      Error: {e}")
         traceback.print_exc()
-    
-    # Define auto wavelength boundaries for fitting (10-20 chunks)
-    n_chunks = max(10, n_wave // 50)
-    wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
+        sys.stdout.flush()
+
     
     # Worker function for processing a single row
     def process_row(y_idx):
@@ -564,12 +684,22 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress
         row_errors = np.full(n_x, np.nan, dtype=np.float32)
         row_detections = np.full(n_x, 0, dtype=np.int32)
         
+        # DIAGNOSTIC: Count successes and failures
+        num_success = 0
+        num_failures = 0
+        num_skipped = 0
+        
+        # DIAGNOSTIC: Show what we're processing in middle row where data should be valid
+        # if y_idx == n_y // 2:
+        #     print(f"    Processing middle row {y_idx}...")
+        
         for x_idx in range(n_x):
             try:
                 # Step 1: Extract spectrum from cube for this pixel [REUSED: data_loader.get_pixel_spectrum]
                 spectrum_flux = cube_data.get_pixel_spectrum(x_idx, y_idx)
                 
                 if spectrum_flux is None or np.all(np.isnan(spectrum_flux)):
+                    num_skipped += 1
                     continue  # Skip pixels with no data
                 
                 # Step 2: Extract CO flux [FUNCTION: extract_co_flux_from_spectrum]
@@ -580,8 +710,11 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress
                 )
                 
                 if result is not None:
+                    # Check if flux value is actually valid
+                    co_flux_val = result['co_flux']
+                    
                     # Step 3: Store results in maps
-                    row_fluxes[x_idx] = result['co_flux']
+                    row_fluxes[x_idx] = co_flux_val
                     
                     # Calculate error as std of residuals [IMPROVED: Using gaussian_fitter.compute_noise_std]
                     residuals = result['residuals']['residual'].values
@@ -594,14 +727,22 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress
                     # Count detected CO lines
                     n_detected = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
                     row_detections[x_idx] = n_detected
+                    
+                    num_success += 1
+                else:
+                    num_failures += 1
             
             except Exception as e:
-                # Log error for debugging
-                if y_idx == 0 and x_idx < 3:  # Only log first few pixels to avoid spam
-                    import traceback
-                    print(f"  Warning: Extraction failed at pixel ({x_idx}, {y_idx}): {str(e)}")
-                    traceback.print_exc()
+                # Log error for debugging - CRITICAL: need to see what's failing
+                import traceback
+                print(f"  ❌ Extraction failed at pixel ({x_idx}, {y_idx}): {str(e)}")
+                traceback.print_exc()
+                num_failures += 1
                 continue
+        
+        # Print row summary only occasionally (reduce I/O overhead)
+        if y_idx % max(1, n_y // 10) == 0:  # Print every 10% of rows instead of 5%
+            print(f"    Row {y_idx}: {num_success} success, {num_failures} failures, {num_skipped} skipped")
         
         return y_idx, row_fluxes, row_errors, row_detections
     
@@ -610,6 +751,12 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=4, progress
         futures = [executor.submit(process_row, y) for y in range(n_y)]
         
         for i, future in enumerate(as_completed(futures)):
+            # Check if cancellation was requested
+            if cancel_flag and cancel_flag.cancelled:
+                print("⚠️  Extraction cancelled by user")
+                executor.shutdown(wait=False)
+                break
+            
             y_idx, row_fluxes, row_errors, row_detections = future.result()
             flux_map[y_idx, :] = row_fluxes
             error_map[y_idx, :] = row_errors

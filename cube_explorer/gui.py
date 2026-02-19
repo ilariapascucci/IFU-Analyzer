@@ -4376,7 +4376,13 @@ INTERPRETATION:
             return
         
         # Use default settings
-        n_jobs = 4  # Default parallel workers
+        # Determine optimal workers (use more for faster extraction, capped at CPU count)
+        import os
+        try:
+            cpu_count = os.cpu_count() or 8
+            n_jobs = min(cpu_count - 1, 8)  # Use all but one CPU, max 8
+        except:
+            n_jobs = 8  # Default to 8 if detection fails
         
         # Create and start worker
         self.co_flux_worker = COFluxMapWorker(
@@ -4388,10 +4394,10 @@ INTERPRETATION:
         
         # Create progress dialog
         self.co_flux_progress = QProgressDialog(
-            "Extracting CO flux from all pixels...", None, 0, 0, self
+            "Extracting CO flux from all pixels...", "Cancel", 0, 0, self
         )
         self.co_flux_progress.setWindowModality(Qt.WindowModal)
-        self.co_flux_progress.setCancelButton(None)
+        self.co_flux_progress.canceled.connect(self._cancel_co_flux_extraction)
         
         # Connect signals
         self.co_flux_worker.progress.connect(self._update_co_flux_progress)
@@ -4422,7 +4428,16 @@ INTERPRETATION:
     def _on_co_flux_map_error(self, error_msg):
         """Handle extraction error."""
         self.co_flux_progress.close()
-        QMessageBox.critical(self, "Extraction Error", error_msg)
+        if "cancelled" not in error_msg.lower():
+            QMessageBox.critical(self, "Extraction Error", error_msg)
+        else:
+            QMessageBox.information(self, "Extraction Cancelled", "CO flux extraction was cancelled")
+    
+    def _cancel_co_flux_extraction(self):
+        """Cancel the ongoing extraction."""
+        if hasattr(self, 'co_flux_worker') and self.co_flux_worker:
+            self.co_flux_worker.request_cancel()
+            self.co_flux_progress.setLabelText("Cancelling extraction...")
     
     def _show_co_flux_map_results(self, result):
         """Display results (called from _on_co_flux_map_complete)."""
