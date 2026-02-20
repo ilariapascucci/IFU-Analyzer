@@ -20,6 +20,7 @@ import time
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
 from astropy.io import fits
+from astropy import units as u
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # RANSAC for continuum fitting (from Pascucci)
@@ -29,6 +30,30 @@ from sklearn.linear_model import RANSACRegressor
 
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import estimate_gaussian_params, calculate_baseline, compute_noise_std
+
+
+# ================== Unit Utilities ==================
+
+def extract_units(data):
+    """
+    Extract value and unit from astropy Quantity or numpy array.
+    
+    Parameters
+    ----------
+    data : Quantity or array-like
+        Data that may have units
+    
+    Returns
+    -------
+    tuple
+        (values, unit_str) where values is numpy array and unit_str is string representation
+    """
+    if hasattr(data, 'unit'):
+        # It's an astropy Quantity
+        return data.value, str(data.unit)
+    else:
+        # Plain numpy array or list
+        return np.asarray(data), None
 
 
 # ================== Gaussian Functions ==================
@@ -422,10 +447,10 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     
     Parameters
     ----------
-    spectrum_wave : array-like
-        Wavelength array for the spectrum
-    spectrum_flux : array-like
-        Flux array for the spectrum
+    spectrum_wave : array-like or Quantity
+        Wavelength array for the spectrum (can have astropy units)
+    spectrum_flux : array-like or Quantity
+        Flux array for the spectrum (can have astropy units)
     CO_catalog : pd.DataFrame
         CO line catalog (columns: line_wave_um, species, ...)
     contam_catalog : pd.DataFrame
@@ -444,6 +469,10 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     dict
         Keys: 'co_flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals'
     """
+    # Extract values and units from Quantities if needed
+    spectrum_wave, wave_unit = extract_units(spectrum_wave)
+    spectrum_flux, flux_unit = extract_units(spectrum_flux)
+    
     # Auto-determine wavelength range if not provided
     if wave_min is None:
         wave_min = CO_catalog['line_wave_um'].min()
@@ -451,6 +480,10 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         wave_max = CO_catalog['line_wave_um'].max()
     
     print(f"  Extracting CO flux in wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+    if wave_unit:
+        print(f"  Wavelength unit: {wave_unit}")
+    if flux_unit:
+        print(f"  Flux unit: {flux_unit}")
     
     # Auto-determine boundaries if not provided
     if wave_boundaries is None:
@@ -601,8 +634,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     wavelength = cube_data.wavelength
     
     # Strip units from wavelength if it's an astropy Quantity (convert to plain numpy array)
-    if hasattr(wavelength, 'unit'):
-        wavelength = wavelength.value
+    wavelength, wave_unit = extract_units(wavelength)
+    if wave_unit:
+        print(f"    Wavelength unit: {wave_unit}")
     
     # Calculate wavelength range from CO catalog (not full spectrum) for efficiency
     wave_min = CO_catalog['line_wave_um'].min()
