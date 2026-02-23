@@ -3,6 +3,7 @@ Main GUI class for the Cube Explorer application
 """
 
 import os
+import re
 import gc
 import warnings
 import traceback
@@ -674,21 +675,26 @@ class CubeExplorer(QWidget):
         self.co_flux_map_btn.setToolTip("Fit multiple lines and and creat an integrated flux map")
 
 
-        # Wavelength range inputs (now part of HITRAN collapsible group)
+        # Wavelength range inputs (for line search)
         self.min_wave_input = QLineEdit(self)
         self.min_wave_input.setPlaceholderText("Min λ")
         self.max_wave_input = QLineEdit(self)
         self.max_wave_input.setPlaceholderText("Max λ")
-        self.species_input = QLineEdit(self)
-        self.species_input.setPlaceholderText("Species (optional)")
         self.ok_wave_button = QPushButton("OK")
         self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
-        self.show_lst_btn = QPushButton("SPECIES")
-        self.show_lst_btn.setToolTip("Open list of lines within current range (optional species filter)")
-        self.show_lst_btn.clicked.connect(self.show_filtered_lines)
+        
+        # HITRAN collapsible group buttons
         self.hitran_btn = QPushButton("HITRAN")
-        self.hitran_btn.setToolTip("Fetch HITRAN lines for current wavelength range")
+        self.hitran_btn.setToolTip("Fetch HITRAN lines with transition level filtering")
         self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
+        
+        self.show_lst_btn = QPushButton("LST")
+        self.show_lst_btn.setToolTip("Open list of LST lines within current range")
+        self.show_lst_btn.clicked.connect(self.show_filtered_lines)
+        
+        self.show_species_btn = QPushButton("SPECIES")
+        self.show_species_btn.setToolTip("Show HITRAN and LST species combination (or HITRAN only if LST not loaded)")
+        self.show_species_btn.clicked.connect(self.show_available_species)
 
     def _init_shape_controls(self):
         """Initialize shape selection buttons"""
@@ -887,14 +893,13 @@ class CubeExplorer(QWidget):
         self.continuum_group.add_button(self.custom_continuum_toggle)
         collapsible_layout.addWidget(self.continuum_group)
         
-        # Group 4: HITRAN
+        # Group 4: HITRAN (wavelength inputs + action buttons)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(self.max_wave_input)
-        self.hitran_group.add_button(self.species_input)
-        self.hitran_group.add_button(self.ok_wave_button)
-        self.hitran_group.add_button(self.show_lst_btn)
         self.hitran_group.add_button(self.hitran_btn)
+        self.hitran_group.add_button(self.show_lst_btn)
+        self.hitran_group.add_button(self.show_species_btn)
         collapsible_layout.addWidget(self.hitran_group)
         
         # Group 5: Shifting
@@ -1847,7 +1852,7 @@ class CubeExplorer(QWidget):
             print(f"[WARNING] Default LST file not found at: {default_lst_path}")
 
     def apply_wavelength_range(self):
-        """Triggered when user confirms wavelength range and species"""
+        """Triggered when user confirms wavelength range (OK button - currently not visible)"""
         if not hasattr(self, "lst_file") or not self.lst_file:
             QMessageBox.warning(self, "No LST File", "Please load a .LST file first.")
             return
@@ -1864,20 +1869,11 @@ class CubeExplorer(QWidget):
             QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than max wavelength.")
             return
 
-        # Read species (optional)
-        species_txt = self.species_input.text().strip()
-        species = normalize_species_input(species_txt) if species_txt else None
-
-        if species == "":
-            species = None  # plot all if empty
-
-        # Don't plot lines automatically - wait for user to click SPECIES button
-        # and select which rows to plot in the dialog
+        # Confirm range is set
         QMessageBox.information(
             self, "Range Set", 
-            f"Wavelength range set to {min_wave:.3f} - {max_wave:.3f} µm\n"
-            f"Species: {species or 'All'}\n\n"
-            "Click the SPECIES button to view and select lines to plot."
+            f"Wavelength range set to {min_wave:.3f} - {max_wave:.3f} µm\n\n"
+            "Click the LST button to view and select lines to plot."
         )
 
 
@@ -2923,36 +2919,10 @@ class CubeExplorer(QWidget):
         print("="*80 + "\n")
 
     def _init_line_search_controls(self):
-        """Initialize the min/max/species inputs and buttons."""
-        self.min_wave_input = QLineEdit()
-        self.max_wave_input = QLineEdit()
-        self.species_input = QLineEdit()
-        
-        self.min_wave_input.setPlaceholderText("Min λ (µm)")
-        self.max_wave_input.setPlaceholderText("Max λ (µm)")
-        self.species_input.setPlaceholderText("Species")
-
-        self.ok_wave_button = QPushButton("OK")
-        self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
-
-        self.show_lst_btn = QPushButton("SPECIES")
-        self.show_lst_btn.clicked.connect(self.show_filtered_lines)
-
-        # HITRAN fetch button
-        self.hitran_btn = QPushButton("HITRAN")
-        self.hitran_btn.setToolTip("Fetch spectral lines from HITRAN database")
-        self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
-
-        layout = QHBoxLayout()
-        layout.addWidget(QLabel("Wavelength range:"))
-        layout.addWidget(self.min_wave_input)
-        layout.addWidget(self.max_wave_input)
-        layout.addWidget(self.species_input)
-        layout.addWidget(self.ok_wave_button)
-        layout.addWidget(self.show_lst_btn)
-        layout.addWidget(self.hitran_btn)
-
-        self.line_search_layout = layout
+        """Initialize the min/max inputs and buttons (for legacy support)."""
+        # Note: These are also created in _init_plots and used in the HITRAN collapsible group
+        # This method is kept for compatibility but the layout is not currently used
+        pass
 
     def enable_wavelength_selector(self):
         def on_select(xmin, xmax):
@@ -3010,56 +2980,80 @@ class CubeExplorer(QWidget):
 
 
     def show_filtered_lines(self):
-        # 1. Filter LST lines
-        species_text = self.species_input.text().strip()
-        species = normalize_species_input(species_text) if species_text else None
+        """Show LST lines for the wavelength range (separate from HITRAN)."""
+        # Get wavelength range from GUI inputs
+        try:
+            min_wave = float(self.min_wave_input.text())
+            max_wave = float(self.max_wave_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
+            return
 
-        # Use self.lst_file (file path) instead of self.lst_data (file contents)
+        # Filter LST lines by wavelength (all species)
         lst_lines, _ = filter_spectral_lines(self.lst_file,
-                                         float(self.min_wave_input.text()),
-                                         float(self.max_wave_input.text()), species)
+                                         min_wave,
+                                         max_wave, None)
 
         # Mark LST lines with source
         for line in lst_lines:
             line['source'] = 'LST'
         
-        # Store LST lines for future reference
+        # Store LST lines for future reference (for SPECIES button to use)
         self.lst_lines = lst_lines
-
-        # 2. Filter HITRAN lines to current wavelength range
-        min_wave = float(self.min_wave_input.text())
-        max_wave = float(self.max_wave_input.text())
-        filtered_hitran = []
-        for line in self.hitran_lines:
-            wave = float(line.get('lambda_micron') or line.get('wavelength') or 0.0)
-            if min_wave <= wave <= max_wave:
-                filtered_hitran.append(line)
         
-        # 3. Merge with filtered HITRAN lines
-        all_lines = lst_lines + filtered_hitran
-        
-        # Sort by wavelength (ascending)
-        all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
-        
-        if not all_lines:
-            QMessageBox.information(self, "No Matches", "No spectral lines found.")
+        if not lst_lines:
+            QMessageBox.information(self, "No Matches", "No LST lines found in this wavelength range.")
             return
 
-        # 4. If this is the first time (nothing plotted yet), plot all lines first
-        if not self.lst_plotted_lines:
-            self.plot_selected_lines(all_lines)
+        # Sort by wavelength (ascending)
+        lst_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
 
-        # 5. Show merged dialog
-        dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.lst_plotted_lines)
+        # Show selection dialog for LST lines only
+        dlg = SpeciesDialog(lst_lines, parent=self, plotted_rows=self.lst_plotted_lines)
         result = dlg.exec_()
 
-        # 6. Get selected rows and plot only those
+        # Get selected rows and plot
         if result == QDialog.Accepted:
             selected_rows = dlg.get_selected_rows()
             if not selected_rows:
                 QMessageBox.information(self, "No Selection", "No lines selected.")
                 return
 
+            self.plot_selected_lines(selected_rows)
+
+    def show_available_species(self):
+        """
+        Show HITRAN and LST species combination (or HITRAN only if LST not loaded).
+        This is the main species viewing button.
+        """
+        # Check if HITRAN data exists
+        if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
+            QMessageBox.warning(self, "No HITRAN Data", "Click the HITRAN button first to fetch HITRAN lines.")
+            return
+        
+        # Start with HITRAN lines
+        all_lines = list(self.hitran_lines)
+        
+        # If LST data is loaded, combine with HITRAN
+        if hasattr(self, 'lst_lines') and self.lst_lines:
+            all_lines = self.lst_lines + all_lines
+        
+        if not all_lines:
+            QMessageBox.information(self, "No Data", "No spectral lines available.")
+            return
+        
+        # Sort by wavelength
+        all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
+        
+        # Show selection dialog
+        dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.lst_plotted_lines)
+        result = dlg.exec_()
+        
+        if result == QDialog.Accepted:
+            selected_rows = dlg.get_selected_rows()
+            if not selected_rows:
+                QMessageBox.information(self, "No Selection", "No lines selected.")
+                return
             self.plot_selected_lines(selected_rows)
 
     def on_species_button_clicked(self):
@@ -3375,6 +3369,7 @@ class CubeExplorer(QWidget):
     def fetch_hitran_lines(self):
         """
         Fetch HITRAN lines based on user input from the GUI.
+        Now includes transition level (vibrational quantum number) filtering.
         """
         try:
             # Get wavelength range from GUI inputs
@@ -3422,6 +3417,32 @@ class CubeExplorer(QWidget):
             if not ok:
                 return
 
+            # Transition level - upper vibrational quantum number
+            v_upper, ok = QInputDialog.getInt(
+                self,
+                "Transition Level - Upper",
+                "Enter upper vibrational quantum number (v'):\n(e.g., 1 for v'=1)",
+                1,
+                0,
+                100,
+                1
+            )
+            if not ok:
+                return
+
+            # Transition level - lower vibrational quantum number
+            v_lower, ok = QInputDialog.getInt(
+                self,
+                "Transition Level - Lower",
+                "Enter lower vibrational quantum number (v''):\n(e.g., 0 for v''=0)",
+                0,
+                0,
+                100,
+                1
+            )
+            if not ok:
+                return
+
             # Cache refresh option
             refresh_cache = QMessageBox.question(
                 self,
@@ -3440,25 +3461,49 @@ class CubeExplorer(QWidget):
                 QMessageBox.information(self, "No Matches", "No HITRAN lines found in this range.")
                 return
 
-            # Mark HITRAN lines with source
+            # Filter by transition level (v values)
+            filtered_results = []
             for line in results:
+                transition = line.get('transition', '')
+                # Parse v values from transition string like "v=1->0, J=23->22"
+                if transition and '->' in transition:
+                    try:
+                        # Extract v values from format "v=X->Y"
+                        v_match = re.search(r'v=(\d+)->(\d+)', transition)
+                        if v_match:
+                            line_v_upper = int(v_match.group(1))
+                            line_v_lower = int(v_match.group(2))
+                            
+                            # Keep line if v values match the requested ones
+                            if line_v_upper == v_upper and line_v_lower == v_lower:
+                                filtered_results.append(line)
+                    except (ValueError, AttributeError):
+                        # If parsing fails, keep the line anyway
+                        filtered_results.append(line)
+                else:
+                    # If no transition info, keep the line
+                    filtered_results.append(line)
+            
+            if not filtered_results:
+                QMessageBox.information(
+                    self, 
+                    "No Matches", 
+                    f"No HITRAN lines found with v={v_upper}->{v_lower} transition."
+                )
+                return
+
+            # Mark HITRAN lines with source
+            for line in filtered_results:
                 line['source'] = 'HITRAN'
             
-            # Store HITRAN lines (append to existing if any)
-            self.hitran_lines = results
+            # Store HITRAN lines
+            self.hitran_lines = filtered_results
 
-            # Merge with LST lines for display
-            all_lines = self.lst_lines + self.hitran_lines
-            
             # Sort by wavelength (ascending)
-            all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
+            filtered_results.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
 
-            # If this is the first time (nothing plotted yet), plot all lines first
-            if not self.lst_plotted_lines:
-                self.plot_selected_lines(all_lines)
-
-            # Show merged selection dialog
-            dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.lst_plotted_lines)
+            # Show HITRAN results in selection dialog
+            dlg = SpeciesDialog(filtered_results, parent=self, plotted_rows=self.lst_plotted_lines)
             if dlg.exec_() == QDialog.Accepted:
                 selected_rows = dlg.get_selected_rows()
                 if not selected_rows:

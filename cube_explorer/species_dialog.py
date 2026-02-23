@@ -63,15 +63,22 @@ class SpeciesDialog(QDialog):
             default_checked = True  # First time: select all
         self.populate_table(rows, default_checked=default_checked)
 
-        # Buttons for selecting/unselecting all rows
+        # Buttons for selecting/unselecting all rows and filtering by source
         btn_layout2 = QHBoxLayout()
         self.select_all_btn = QPushButton("Select All")
         self.select_all_btn.clicked.connect(self.select_all_rows)
         self.unselect_all_btn = QPushButton("Unselect All")
         self.unselect_all_btn.clicked.connect(self.unselect_all_rows)
+        
+        self.hitran_only_btn = QPushButton("HITRAN Only")
+        self.hitran_only_btn.clicked.connect(self.select_hitran_only)
+        self.lst_only_btn = QPushButton("LST Only")
+        self.lst_only_btn.clicked.connect(self.select_lst_only)
 
         btn_layout2.addWidget(self.select_all_btn)
         btn_layout2.addWidget(self.unselect_all_btn)
+        btn_layout2.addWidget(self.hitran_only_btn)
+        btn_layout2.addWidget(self.lst_only_btn)
         layout.addLayout(btn_layout2)
 
         # ---- OK / Cancel Buttons ----
@@ -204,3 +211,25 @@ class SpeciesDialog(QDialog):
                 continue
             cb = widget.layout().itemAt(0).widget()
             cb.setChecked(False)
+
+    def select_hitran_only(self):
+        """Uncheck all LST rows, keep HITRAN rows checked."""
+        for i in range(self.table.rowCount()):
+            widget = self.table.cellWidget(i, 0)
+            if widget is None:
+                continue
+            cb = widget.layout().itemAt(0).widget()
+            # Check if this row is HITRAN
+            is_hitran = self.rows[i].get('source') == 'HITRAN'
+            cb.setChecked(is_hitran)
+
+    def select_lst_only(self):
+        """Uncheck all HITRAN rows, keep LST rows checked."""
+        for i in range(self.table.rowCount()):
+            widget = self.table.cellWidget(i, 0)
+            if widget is None:
+                continue
+            cb = widget.layout().itemAt(0).widget()
+            # Check if this row is NOT HITRAN (i.e., LST)
+            is_lst = self.rows[i].get('source') != 'HITRAN'
+            cb.setChecked(is_lst)
