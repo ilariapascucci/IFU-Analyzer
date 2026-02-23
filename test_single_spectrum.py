@@ -59,11 +59,11 @@ print("\n" + "="*60)
 print("RESULTS:")
 print("="*60)
 print(f"CO Flux: {result['co_flux']:.6e} {flux_unit}")
-print(f"Contaminent Flux: {result['contam_flux']:.6e} {flux_unit}")
-print(f"Mean Continuum: {result['mean_continuum']:.6e} {bunit}")
-print(f"Detected lines: {len(result['detected_lines'])}")
-n_co = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
-print(f"Detected CO lines (disposition=1): {n_co}")
+#print(f"Contaminent Flux: {result['contam_flux']:.6e} {flux_unit}")
+#print(f"Mean Continuum: {result['mean_continuum']:.6e} {bunit}")
+#print(f"Detected lines: {len(result['detected_lines'])}")
+#n_co = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
+#print(f"Detected CO lines (disposition=1): {n_co}")
 #residuals = result['residuals']['residual'].values
 #print(f"Residuals std: {np.std(residuals):.4e}")
 #print(f"Residuals mean: {np.mean(residuals):.4e}")
@@ -100,8 +100,8 @@ if use_plot:
     ax1.set_ylabel(f'Flux ({bunit})', fontsize=11, fontweight='bold')
     ax1.set_title(
         f'CO Rovibrational Flux Extraction\nPixel ({pixel_x}, {pixel_y}) | '
-        f'CO Flux: {result["co_flux"]:.4e} {flux_unit} | '
-        f'{n_co} lines detected',
+        f'CO Flux: {result["co_flux"]:.4e} {flux_unit} | ',
+        #f'{n_co} lines detected',
         fontsize=13, fontweight='bold'
     )
     ax1.legend(loc='upper right', fontsize=10)
