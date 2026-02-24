@@ -392,6 +392,7 @@ class CubeExplorer(QWidget):
 
         # Reset subtraction state
         self.continuum_subtracted = False
+        self.auto_continuum_subtracted = False
 
         # Clear subtraction markers
         if hasattr(self, 'subtract_markers'):
@@ -884,7 +885,6 @@ class CubeExplorer(QWidget):
         self.gaussian_group.add_button(self.gauss_noise_right_btn)
         self.gaussian_group.add_button(self.gauss_fit_btn)
         self.gaussian_group.add_button(self.gauss_map_btn)
-        self.gaussian_group.add_button(self.co_flux_map_btn)
         collapsible_layout.addWidget(self.gaussian_group)
         
         # Group 3: Continuum Tools
@@ -893,13 +893,14 @@ class CubeExplorer(QWidget):
         self.continuum_group.add_button(self.custom_continuum_toggle)
         collapsible_layout.addWidget(self.continuum_group)
         
-        # Group 4: HITRAN (wavelength inputs + action buttons)
+        # Group 4: HITRAN (wavelength inputs + action buttons + CO flux map)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(self.max_wave_input)
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.show_lst_btn)
         self.hitran_group.add_button(self.show_species_btn)
+        self.hitran_group.add_button(self.co_flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
         
         # Group 5: Shifting
@@ -1418,6 +1419,7 @@ class CubeExplorer(QWidget):
             # Set flags
             self.continuum_subtracted = True
             self.global_continuum_applied = True  # NEW FLAG
+            self.auto_continuum_subtracted = True  # Flag for CO Flux Map check
 
             print("DEBUG: Global continuum subtraction complete")
 
@@ -4430,7 +4432,10 @@ INTERPRETATION:
     # ================== CO Flux Extraction Methods ==================
     
     def _extract_co_flux_map(self):
-        """Extract CO rovibrational flux from entire cube."""
+        """
+        Extract CO rovibrational flux from entire cube.
+        Includes validation checks and preview before processing.
+        """
         # Validate cube
         if not hasattr(self, 'cube_data') or self.cube_data is None or self.cube_data.cube is None:
             QMessageBox.warning(self, "No Data", "Load a FITS cube first")
@@ -4442,36 +4447,276 @@ INTERPRETATION:
             QMessageBox.warning(self, "Missing Catalogs", "CO catalogs not loaded")
             return
         
-        # Use default settings
-        # Determine optimal workers (use more for faster extraction, capped at CPU count)
+        # Step 1: Check if automatic continuum was done
+        if not hasattr(self, 'auto_continuum_subtracted') or not self.auto_continuum_subtracted:
+            reply = QMessageBox.question(
+                self,
+                "Automatic Continuum Not Applied",
+                "For best results, automatic continuum subtraction is recommended.\n\n"
+                "Have you performed automatic continuum subtraction?\n"
+                "(Use 'Continuum Tools > Automatic Continuum' if not)\n\n"
+                "Click Yes to proceed without continuum subtraction\n"
+                "Click No to cancel and apply continuum first",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+        else:
+            reply = QMessageBox.information(
+                self,
+                "Continuum Status",
+                "✓ Automatic continuum has been applied.\n\n"
+                "CO Flux Map will use the same continuum fitting method\n"
+                "(median filter + peak detection) for each pixel before\n"
+                "fitting gaussians.",
+                QMessageBox.Ok
+            )
+        
+        # Step 2: Get wavelength range from GUI
+        try:
+            wave_min = float(self.min_wave_input.text())
+            wave_max = float(self.max_wave_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Wavelength", "Enter valid min/max wavelength values.")
+            return
+        
+        if wave_min >= wave_max:
+            QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
+            return
+        
+        # Step 3: Get HITRAN lines for the wavelength range
+        if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
+            QMessageBox.warning(
+                self,
+                "No HITRAN Data",
+                "Click the HITRAN button first to fetch HITRAN lines for the wavelength range."
+            )
+            return
+        
+        # Filter HITRAN lines by wavelength range
+        hitran_in_range = [
+            line for line in self.hitran_lines
+            if wave_min <= float(line.get('wavelength', 0)) <= wave_max
+        ]
+        
+        if not hitran_in_range:
+            QMessageBox.warning(
+                self,
+                "No HITRAN Lines",
+                f"No HITRAN lines found in wavelength range {wave_min:.4f} - {wave_max:.4f} μm"
+            )
+            return
+        
+        print(f"✓ Found {len(hitran_in_range)} HITRAN lines in range {wave_min:.4f} - {wave_max:.4f} μm")
+        
+        # Step 4: Filter lines for quality
+        # a. Keep only HITRAN lines (ignore contaminants already done)
+        # b. Remove close duplicates (keep highest peak)
+        # c. Remove lines with no peak
+        filtered_lines = self._filter_co_flux_lines(hitran_in_range)
+        
+        if not filtered_lines:
+            QMessageBox.warning(self, "No Lines", "No valid lines after filtering.")
+            return
+        
+        print(f"✓ After filtering: {len(filtered_lines)} lines")
+        
+        # Step 5: Show preview from a representative pixel (center pixel)
+        cube_shape = self.cube_data.cube.shape
+        center_y = cube_shape[1] // 2
+        center_x = cube_shape[2] // 2
+        
+        print(f"  Showing preview from center pixel ({center_x}, {center_y})...")
+        
+        # Get spectrum from center pixel
+        spectrum_flux = self.cube_data.get_pixel_spectrum(center_x, center_y)
+        spectrum_wave = self.cube_data.wavelength
+        if hasattr(spectrum_wave, 'unit'):
+            spectrum_wave = spectrum_wave.value
+        
+        # Step 6: Ask for confirmation with preview
+        confirmation = self._show_co_flux_confirmation(
+            filtered_lines, spectrum_wave, spectrum_flux, center_x, center_y
+        )
+        
+        if confirmation != QMessageBox.Yes:
+            print("CO Flux Map extraction cancelled by user")
+            return
+        
+        # Step 7: Proceed with full extraction
         import os
         try:
             cpu_count = os.cpu_count() or 8
-            n_jobs = min(cpu_count - 1, 8)  # Use all but one CPU, max 8
+            n_jobs = min(cpu_count - 1, 8)
         except:
-            n_jobs = 8  # Default to 8 if detection fails
+            n_jobs = 8
         
-        # Create and start worker
+        # Use continuum subtraction if automatic continuum was applied
+        use_continuum_subtraction = hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted
+        
         self.co_flux_worker = COFluxMapWorker(
             self.cube_data,
             self.CO_lines,
             self.contam_lines,
-            n_jobs=n_jobs
+            n_jobs=n_jobs,
+            subtract_continuum=use_continuum_subtraction,
+            continuum_poly_deg=3  # RANSAC polynomial degree
         )
         
-        # Create progress dialog
         self.co_flux_progress = QProgressDialog(
             "Extracting CO flux from all pixels...", "Cancel", 0, 0, self
         )
         self.co_flux_progress.setWindowModality(Qt.WindowModal)
         self.co_flux_progress.canceled.connect(self._cancel_co_flux_extraction)
         
-        # Connect signals
         self.co_flux_worker.progress.connect(self._update_co_flux_progress)
         self.co_flux_worker.finished.connect(self._on_co_flux_map_complete)
         self.co_flux_worker.error.connect(self._on_co_flux_map_error)
         
         self.co_flux_worker.start()
+    
+    def _filter_co_flux_lines(self, lines):
+        """
+        Filter CO lines for quality:
+        - Remove duplicates (keep only highest peak among close lines)
+        - Remove lines with no peak
+        - Keep only HITRAN lines
+        """
+        filtered = []
+        distance_threshold = 0.002  # 0.002 μm as close threshold
+        
+        # Sort by wavelength
+        sorted_lines = sorted(lines, key=lambda x: float(x.get('wavelength', 0)))
+        
+        skip_indices = set()
+        for i, line in enumerate(sorted_lines):
+            if i in skip_indices:
+                continue
+            
+            wave = float(line.get('wavelength', 0))
+            peak = line.get('a_coeff') or line.get('intensity')  # Various peak metrics
+            
+            # Filter c: Skip lines with no peak
+            if not peak or peak == 0:
+                print(f"  Skipping line at {wave:.6f} μm (no peak)")
+                continue
+            
+            # Filter b: Check for close neighbors and keep only highest
+            neighbors = []
+            for j in range(i + 1, len(sorted_lines)):
+                neighbor_wave = float(sorted_lines[j].get('wavelength', 0))
+                if abs(neighbor_wave - wave) > distance_threshold:
+                    break
+                neighbor_peak = sorted_lines[j].get('a_coeff') or sorted_lines[j].get('intensity')
+                if neighbor_peak:
+                    neighbors.append((j, neighbor_peak))
+            
+            # Keep only if this is the highest peak among neighbors
+            is_highest = True
+            if neighbors:
+                max_neighbor_peak = max(n[1] for n in neighbors)
+                if peak < max_neighbor_peak:
+                    is_highest = False
+                    skip_indices.update(n[0] for n in neighbors)
+                else:
+                    # Mark neighbors to skip
+                    skip_indices.update(n[0] for n in neighbors)
+            
+            if is_highest:
+                filtered.append(line)
+        
+        return filtered
+    
+    def _show_co_flux_confirmation(self, lines, spectrum_wave, spectrum_flux, pixel_x, pixel_y):
+        """
+        Show preview of gaussians on a representative pixel and ask for confirmation.
+        """
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        
+        # Apply continuum subtraction if enabled (same as extraction will do)
+        use_continuum_subtraction = hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted
+        preview_flux = spectrum_flux.copy()
+        
+        if use_continuum_subtraction:
+            try:
+                from .co_flux_extractor import fit_continuum_median_peaks
+                continuum = fit_continuum_median_peaks(spectrum_wave, preview_flux)
+                if continuum is not None and not np.all(np.isnan(continuum)):
+                    preview_flux = preview_flux - continuum
+            except Exception:
+                pass  # Use original flux if continuum fit fails
+        
+        # Create dialog
+        dlg = QDialog(self)
+        dlg.setWindowTitle("CO Flux Map Preview")
+        dlg.setGeometry(100, 100, 1000, 600)
+        
+        layout = QVBoxLayout()
+        
+        # Title
+        title = QLabel(
+            f"<b>CO Flux Map Preview</b><br>"
+            f"Pixel ({pixel_x}, {pixel_y}) | "
+            f"{len(lines)} filtered lines | "
+            f"Wavelength range: {float(self.min_wave_input.text()):.4f} - {float(self.max_wave_input.text()):.4f} μm"
+        )
+        layout.addWidget(title)
+        
+        # Create matplotlib figure for preview
+        fig = Figure(figsize=(10, 4), dpi=100)
+        ax = fig.add_subplot(111)
+        
+        spectrum_label = 'Continuum-Subtracted Spectrum' if use_continuum_subtraction else 'Spectrum'
+        ax.plot(spectrum_wave, preview_flux, 'k-', linewidth=1.2, label=spectrum_label, alpha=0.8)
+        
+        # Mark detected lines
+        wave_min = float(self.min_wave_input.text())
+        wave_max = float(self.max_wave_input.text())
+        
+        for line in lines:
+            wave = float(line.get('wavelength', 0))
+            if wave_min <= wave <= wave_max:
+                ax.axvline(wave, color='red', alpha=0.3, linewidth=1)
+        
+        ax.set_xlabel('Wavelength (μm)')
+        ax.set_ylabel('Flux')
+        ax.set_title(f'CO Line Positions ({len(lines)} lines)')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        canvas = FigureCanvas(fig)
+        layout.addWidget(canvas)
+        
+        # Info text
+        info_text = QLabel(
+            f"<b>Filtered Lines Summary:</b><br>"
+            f"• Total Lines: {len(lines)}<br>"
+            f"• Filters Applied: HITRAN only, highest peak among close lines, no zero-peak lines<br><br>"
+            f"<b>Next Steps:</b><br>"
+            f"1. Gaussians will be fitted to each line at each pixel<br>"
+            f"2. Integrated flux map will be calculated<br>"
+            f"3. Results will be displayed<br><br>"
+            f"<b>Proceed with extraction?</b>"
+        )
+        layout.addWidget(info_text)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        yes_btn = QPushButton("YES - Extract Map")
+        no_btn = QPushButton("NO - Cancel")
+        yes_btn.clicked.connect(dlg.accept)
+        no_btn.clicked.connect(dlg.reject)
+        btn_layout.addStretch()
+        btn_layout.addWidget(yes_btn)
+        btn_layout.addWidget(no_btn)
+        layout.addLayout(btn_layout)
+        
+        dlg.setLayout(layout)
+        
+        result = dlg.exec_()
+        return QMessageBox.Yes if result == QDialog.Accepted else QMessageBox.No
     
     def _update_co_flux_progress(self, current, total):
         """Update progress."""

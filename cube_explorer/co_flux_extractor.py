@@ -56,6 +56,144 @@ def extract_units(data):
         return np.asarray(data), None
 
 
+def fit_continuum_median_peaks(wavelength, flux, window_size=51, sigma_threshold=2.0,
+                                peak_width=1, peak_distance=3, peak_exclusion=3,
+                                iterations=2, smoothing_factor=5):
+    """
+    Fit continuum using peak detection and median filter method.
+    
+    This is the same method used by the GUI's Automatic Continuum button.
+    It finds emission peaks, excludes them, and fits a smooth continuum through
+    the remaining points using median filtering and spline smoothing.
+    
+    Parameters
+    ----------
+    wavelength : array-like
+        Wavelength array
+    flux : array-like
+        Flux array
+    window_size : int
+        Size of median filter window (must be odd), default 51
+    sigma_threshold : float
+        Prominence threshold for peak detection in units of sigma, default 2.0
+    peak_width : int
+        Minimum width of peaks in pixels, default 1
+    peak_distance : int  
+        Minimum distance between peaks in pixels, default 3
+    peak_exclusion : int
+        Number of pixels to exclude on each side of peak, default 3
+    iterations : int
+        Number of iterative sigma clipping iterations, default 2
+    smoothing_factor : float
+        Spline smoothing parameter divisor, default 5
+        
+    Returns
+    -------
+    continuum : array-like
+        Fitted continuum values matching input wavelength array
+        
+    Notes
+    -----
+    Returns array of NaN if fitting fails or insufficient data
+    """
+    from scipy.ndimage import median_filter
+    from scipy.signal import find_peaks
+    from scipy.interpolate import UnivariateSpline
+    
+    try:
+        # Remove NaN and infinite values
+        mask = np.isfinite(wavelength) & np.isfinite(flux)
+        wavelength_clean = wavelength[mask]
+        flux_clean = flux[mask]
+        
+        if len(wavelength_clean) < 10:
+            return np.full_like(wavelength, np.nan)
+        
+        # STEP 1: Initial median filter to smooth noise
+        flux_smoothed = median_filter(flux_clean, size=window_size, mode='reflect')
+        
+        # STEP 2: Find peaks (emission lines) in the spectrum
+        peaks, properties = find_peaks(
+            flux_clean,
+            prominence=np.std(flux_clean) * sigma_threshold,
+            width=peak_width,
+            distance=peak_distance
+        )
+        
+        # STEP 3: Create mask to exclude peaks and surrounding region
+        exclude_mask = np.zeros(len(flux_clean), dtype=bool)
+        for peak_idx in peaks:
+            left_edge = max(0, peak_idx - peak_exclusion)
+            right_edge = min(len(flux_clean), peak_idx + peak_exclusion + 1)
+            exclude_mask[left_edge:right_edge] = True
+        
+        # STEP 4: Fit continuum using only non-peak regions
+        good_indices = np.where(~exclude_mask)[0]
+        if len(good_indices) < 10:
+            # Fallback if too many peaks excluded
+            exclude_mask = np.zeros(len(flux_clean), dtype=bool)
+        
+        # Apply median filter to good (non-peak) regions
+        flux_good = flux_clean.copy()
+        flux_good[exclude_mask] = np.nan
+        
+        # Interpolate over NaN (peak) regions
+        if np.any(exclude_mask):
+            flux_good[exclude_mask] = np.interp(
+                wavelength_clean[exclude_mask],
+                wavelength_clean[~exclude_mask],
+                flux_clean[~exclude_mask]
+            )
+        
+        # Apply median filter to the interpolated data
+        continuum = median_filter(flux_good, size=window_size, mode='reflect')
+        
+        # STEP 5: Iterative sigma clipping for fine-tuning
+        for iteration in range(iterations):
+            residuals = flux_clean - continuum
+            sigma = np.std(residuals[~exclude_mask])
+            
+            # Only clip points ABOVE continuum (emission) that weren't already excluded
+            outliers = (residuals > 2.0 * sigma) & (~exclude_mask)
+            
+            if np.sum(outliers) == 0:
+                break  # No more outliers found
+            
+            # Update mask
+            exclude_mask |= outliers
+            
+            # Re-interpolate and filter
+            flux_good = flux_clean.copy()
+            flux_good[exclude_mask] = np.interp(
+                wavelength_clean[exclude_mask],
+                wavelength_clean[~exclude_mask],
+                flux_clean[~exclude_mask]
+            )
+            continuum = median_filter(flux_good, size=window_size, mode='reflect')
+        
+        # STEP 6: Final smoothing with spline
+        try:
+            spline = UnivariateSpline(
+                wavelength_clean[~exclude_mask], 
+                continuum[~exclude_mask], 
+                s=len(wavelength_clean) / smoothing_factor,
+                k=3
+            )
+            continuum_smooth = spline(wavelength_clean)
+        except Exception:
+            continuum_smooth = continuum
+        
+        # Create full continuum array matching original wavelength
+        continuum_values = np.full_like(wavelength, np.nan)
+        continuum_values[mask] = continuum_smooth
+        
+        return continuum_values
+        
+    except Exception as e:
+        # Return NaN array if anything fails
+        return np.full_like(wavelength, np.nan)
+
+
 # ================== Gaussian Functions ==================
 
 def gaussian(x, amp, cen, sig, cont_base=None, cont_slope=None):
@@ -441,7 +579,8 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 # ================== High-Level Extraction ==================
 
 def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog, 
-                                   wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True):
+                                   wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
+                                   subtract_continuum=False, continuum_poly_deg=3):
     """
     Extract total CO flux from a single spectrum by fitting all CO lines.
     
@@ -463,6 +602,11 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         Maximum wavelength to fit. If None, uses max of CO_catalog line_wave_um.
     do_duplicate_removal : bool
         Whether to remove duplicate line detections
+    subtract_continuum : bool
+        Whether to subtract continuum before fitting lines using median filter + peak
+        detection method (same as GUI's Automatic Continuum) (default: False)
+    continuum_poly_deg : int
+        Unused parameter (kept for backward compatibility)
     
     Returns
     -------
@@ -472,6 +616,28 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     # Extract values and units from Quantities if needed
     spectrum_wave, wave_unit = extract_units(spectrum_wave)
     spectrum_flux, flux_unit = extract_units(spectrum_flux)
+    
+    # Apply continuum subtraction if requested (BEFORE line detection)
+    # Uses the same median filter + peak detection method as the GUI's Automatic Continuum
+    continuum_model = None
+    if subtract_continuum:
+        try:
+            # Use the same continuum fitting method as the GUI
+            continuum_model = fit_continuum_median_peaks(
+                spectrum_wave, spectrum_flux,
+                window_size=51, sigma_threshold=2.0,
+                peak_width=1, peak_distance=3, peak_exclusion=3,
+                iterations=2, smoothing_factor=5
+            )
+            # Subtract continuum from flux
+            if continuum_model is not None and not np.all(np.isnan(continuum_model)):
+                spectrum_flux = spectrum_flux - continuum_model
+                # print(f"  Applied median+peaks continuum subtraction")
+            else:
+                print(f"  Warning: Continuum fitting returned NaN, using original spectrum")
+        except Exception as e:
+            print(f"  Warning: Continuum subtraction failed ({e}), using original spectrum")
+            continuum_model = None
     
     # Auto-determine wavelength range if not provided
     if wave_min is None:
@@ -584,7 +750,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
 # ================== Full Cube Processing ==================
 
-def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None):
+def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None,
+                       subtract_continuum=False, continuum_poly_deg=3):
     """
     Create 2D map of total CO rovibrational flux by processing all spatial pixels.
     
@@ -606,6 +773,11 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         Number of parallel jobs for processing rows
     progress_callback : callable, optional
         Callback function to report progress: progress_callback(current, total)
+    subtract_continuum : bool
+        Whether to subtract continuum from each pixel using median filter + peak
+        detection method (same as GUI's Automatic Continuum) before fitting lines
+    continuum_poly_deg : int
+        Unused parameter (kept for backward compatibility)
     
     Returns
     -------
@@ -623,6 +795,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     - Skips pixels with all NaN spectra
     - Returns NaN for failed fits or edge cases
     - Gaussian sigma is estimated from each spectrum's data
+    - If subtract_continuum=True, applies median filter + peak detection continuum fit to each pixel
     """
     
     if cube_data.cube is None:
@@ -738,7 +911,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             test_result = extract_co_flux_from_spectrum(
                 wavelength, test_spectrum, CO_catalog, contam_catalog,
                 wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
-                do_duplicate_removal=True
+                do_duplicate_removal=True,
+                subtract_continuum=subtract_continuum,
+                continuum_poly_deg=continuum_poly_deg
             )
             if test_result:
                 print(f"      Result: co_flux={test_result['co_flux']:.4e}, detected_lines shape={len(test_result['detected_lines'])}")
@@ -785,7 +960,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 result = extract_co_flux_from_spectrum(
                     wavelength, spectrum_flux, CO_catalog, contam_catalog,
                     wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
-                    do_duplicate_removal=True
+                    do_duplicate_removal=True,
+                    subtract_continuum=subtract_continuum,
+                    continuum_poly_deg=continuum_poly_deg
                 )
                 
                 if result is not None:
