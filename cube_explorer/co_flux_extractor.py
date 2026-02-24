@@ -17,6 +17,7 @@ This architecture ensures consistency across the codebase and avoids code duplic
 import numpy as np
 import pandas as pd
 import time
+import warnings
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter1d
 from astropy.io import fits
@@ -27,6 +28,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import RANSACRegressor
+
+# Suppress specific warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning, message='.*All-NaN slice encountered.*')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*DataFrame concatenation with empty or all-NA entries.*')
 
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import estimate_gaussian_params, calculate_baseline, compute_noise_std
@@ -474,7 +479,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     for ii in range(len(list_wboundaries) - 1):
         xwave_min, xwave_max = list_wboundaries[ii], list_wboundaries[ii + 1]
         idx_xwave = (xwave >= xwave_min) & (xwave <= xwave_max)
-        print('> Fitting wave range ', np.around(xwave_min, decimals=1), np.around(xwave_max, decimals=1))
+        print('> Fitting wave range ', np.around(xwave_min, decimals=4), np.around(xwave_max, decimals=4))
         
         # Filtering the DataFrame based on the disposition and the wavelength range: CO and contaminating lines
         filtered_colines = detco_lines[
@@ -526,8 +531,10 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
         
         # === TESTING === NOT FROM ORIGINAL FUNCTION
+        
         # Validate bounds before fitting
         try:
+            '''
             # Check for NaN or Inf in bounds
             if np.any(~np.isfinite(lower_bounds)) or np.any(~np.isfinite(upper_bounds)):
                 raise ValueError("Bounds contain NaN or Inf")
@@ -537,7 +544,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             # Check that p0 is within bounds
             if np.any(p0 < lower_bounds) or np.any(p0 > upper_bounds):
                 raise ValueError("Initial guess p0 is outside bounds")
-            
+            '''
             # Perform the fit
             par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0, 
                                  bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
@@ -669,8 +676,9 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     
     # Auto-determine boundaries if not provided
     if wave_boundaries is None:
-        n_chunks = max(4, int((wave_max - wave_min) * 200))  # ~1 chunk per 0.005 microns of range
-        n_chunks = max(2, min(n_chunks, 10))  # Clamp between 2-10 chunks
+        # Use constant 0.1 micron chunks for consistent fitting resolution
+        chunk_size = 0.1  # microns
+        n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
         wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
     
     # Find detected lines
@@ -767,7 +775,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 # ================== Full Cube Processing ==================
 
 def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None,
-                       subtract_continuum=False, continuum_poly_deg=3):
+                       subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None):
     """
     Create 2D map of total CO rovibrational flux by processing all spatial pixels.
     
@@ -794,6 +802,10 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         detection method (same as GUI's Automatic Continuum) before fitting lines
     continuum_poly_deg : int
         Unused parameter (kept for backward compatibility)
+    wave_min : float, optional
+        Minimum wavelength to fit (μm). If None, uses min of CO_catalog.
+    wave_max : float, optional
+        Maximum wavelength to fit (μm). If None, uses max of CO_catalog.
     
     Returns
     -------
@@ -828,8 +840,10 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         print(f"    Wavelength unit: {wave_unit}")
     
     # Calculate wavelength range from CO catalog (not full spectrum) for efficiency
-    wave_min = CO_catalog['line_wave_um'].min()
-    wave_max = CO_catalog['line_wave_um'].max()
+    if wave_min is None:
+        wave_min = CO_catalog['line_wave_um'].min()
+    if wave_max is None:
+        wave_max = CO_catalog['line_wave_um'].max()
     
     # DIAGNOSTIC: Check line catalogs
     print(f"    CO catalog: {len(CO_catalog)} lines")
@@ -873,11 +887,10 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     pixel_counter = {'count': 0, 'lock': Lock()}
     total_pixels = n_y * n_x
     
-    # Define auto wavelength boundaries for fitting (fewer chunks for speed)
-    # CO lines are sparse enough that 4-6 chunks covers most cases
-    # Reduce from n_wave//50 to n_wave//500 for 5x speedup
-    n_chunks = max(4, int((wave_max - wave_min) * 200))  # ~1 chunk per 0.005 microns of range
-    n_chunks = max(2, min(n_chunks, 10))  # Clamp between 2-10 chunks
+    # Define auto wavelength boundaries for fitting
+    # Use constant 0.1 micron chunks for consistent, predictable fitting resolution
+    chunk_size = 0.1  # microns
+    n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
     wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
     
     # DEBUG: Test extraction on first few pixels
@@ -980,6 +993,13 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     subtract_continuum=subtract_continuum,
                     continuum_poly_deg=continuum_poly_deg
                 )
+                
+                # Filter detected lines by wavelength range
+                if result is not None and len(result['detected_lines']) > 0:
+                    result['detected_lines'] = result['detected_lines'][
+                        (result['detected_lines']['line'] >= wave_min) & 
+                        (result['detected_lines']['line'] <= wave_max)
+                    ]
                 
                 if result is not None:
                     # Check if flux value is actually valid
@@ -1110,14 +1130,28 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         else:
             out_header = fits.Header()
         
+        # Extract BUNIT from original header and create flux unit with wavelength
+        try:
+            bunit_str = out_header.get('BUNIT', 'MJy/sr')
+            # Try to parse as astropy unit
+            try:
+                base_unit = u.Unit(bunit_str)
+                flux_unit = base_unit * u.um
+                flux_unit_str = f"{base_unit} um"
+            except (ValueError, TypeError):
+                # Fallback to string concatenation if not a valid unit
+                flux_unit_str = f"{bunit_str} um"
+        except Exception:
+            flux_unit_str = "MJy/sr um"
+        
         # Update header with new information
         out_header['NAXIS'] = 2
         out_header['NAXIS1'] = flux_map.shape[1]
         out_header['NAXIS2'] = flux_map.shape[0]
         out_header['MAPTYPE'] = (map_type, 'Type of flux map')
-        out_header['WAVEMIN'] = (wave_range[0], 'Minimum wavelength used [μm]')
-        out_header['WAVEMAX'] = (wave_range[1], 'Maximum wavelength used [μm]')
-        out_header['BUNIT'] = 'Integrated Flux'
+        out_header['WAVEMIN'] = (wave_range[0], 'Minimum wavelength used (um)')
+        out_header['WAVEMAX'] = (wave_range[1], 'Maximum wavelength used (um)')
+        out_header['BUNIT'] = flux_unit_str
         out_header['COMMENT'] = f'CO Rovibrational {map_type} Map'
         out_header['COMMENT'] = 'Flux extracted by simultaneous multi-Gaussian fitting'
         out_header['COMMENT'] = 'Values are amplitude × σ × √(2π) integrated from all detected CO lines'
@@ -1127,12 +1161,16 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         
         # Create error map extension
         error_hdu = fits.ImageHDU(error_map.astype(np.float32), name='ERROR')
-        error_hdu.header['BUNIT'] = 'Standard Deviation'
+        try:
+            bunit_str = header.get('BUNIT', 'MJy/sr') if header else 'MJy/sr'
+            error_hdu.header['BUNIT'] = bunit_str
+        except Exception:
+            error_hdu.header['BUNIT'] = 'MJy/sr'
         error_hdu.header['COMMENT'] = 'Noise/uncertainty per pixel from fit residuals'
         
         # Create detection map extension
         detection_hdu = fits.ImageHDU(detection_map.astype(np.int32), name='DETECTION')
-        detection_hdu.header['BUNIT'] = 'Lines Detected'
+        detection_hdu.header['BUNIT'] = 'count'
         detection_hdu.header['COMMENT'] = 'Number of CO lines detected and fit in each pixel'
         
         # Create HDU list and write

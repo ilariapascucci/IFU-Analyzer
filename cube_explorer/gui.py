@@ -4485,6 +4485,43 @@ INTERPRETATION:
             QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
             return
         
+        # Check if we have cached results with the same parameters
+        if hasattr(self, 'co_flux_result_cache') and hasattr(self, 'co_flux_params_cache'):
+            # Check if parameters match
+            params_match = (
+                self.co_flux_params_cache.get('wave_min') == wave_min and
+                self.co_flux_params_cache.get('wave_max') == wave_max and
+                self.co_flux_params_cache.get('subtract_continuum') == (hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted)
+            )
+            # Check if HITRAN lines match
+            hitran_match = (
+                hasattr(self, 'co_flux_hitran_cache') and
+                len(self.co_flux_hitran_cache) == len(self.hitran_lines)
+            )
+            
+            if params_match and hitran_match:
+                # Use cached results
+                reply = QMessageBox.question(
+                    self,
+                    "Cached Results Available",
+                    "Results from the last extraction with these parameters are cached.\n\n"
+                    "Click 'Yes' to reopen the cached results (instant)\n"
+                    "Click 'No' to re-extract with current data",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                if reply == QMessageBox.Yes:
+                    results_dialog = COFluxMapResultsDialog(
+                        self.co_flux_result_cache['flux_map'],
+                        self.co_flux_result_cache['error_map'],
+                        self.co_flux_result_cache['detection_map'],
+                        header=self.co_flux_result_cache.get('header'),
+                        wave_range=self.co_flux_result_cache.get('wave_range'),
+                        parent=self
+                    )
+                    results_dialog.exec_()
+                    return
+        
         # Step 3: Get HITRAN lines for the wavelength range
         if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
             QMessageBox.warning(
@@ -4561,7 +4598,9 @@ INTERPRETATION:
             self.contam_lines,
             n_jobs=n_jobs,
             subtract_continuum=use_continuum_subtraction,
-            continuum_poly_deg=3  # RANSAC polynomial degree
+            continuum_poly_deg=3,  # RANSAC polynomial degree
+            wave_min=wave_min,
+            wave_max=wave_max
         )
         
         self.co_flux_progress = QProgressDialog(
@@ -4728,12 +4767,23 @@ INTERPRETATION:
         """Handle successful extraction."""
         self.co_flux_progress.close()
         
+        # Cache the results for later reopening
+        self.co_flux_result_cache = result
+        self.co_flux_hitran_cache = self.hitran_lines.copy() if hasattr(self, 'hitran_lines') else []
+        self.co_flux_params_cache = {
+            'wave_min': float(self.min_wave_input.text()),
+            'wave_max': float(self.max_wave_input.text()),
+            'subtract_continuum': hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted,
+        }
+        
         # Show results with export option
         results_dialog = COFluxMapResultsDialog(
             result['flux_map'],
             result['error_map'],
             result['detection_map'],
-            self
+            header=result.get('header'),
+            wave_range=result.get('wave_range'),
+            parent=self
         )
         results_dialog.exec_()
     

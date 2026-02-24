@@ -7,7 +7,7 @@ Simplified: no parameter dialog, automatic processing of entire spectrum.
 
 import numpy as np
 import os
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFileDialog, QMessageBox, QComboBox
@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 import matplotlib.cm as cm
+from astropy import units as u
 
 
 class COFluxMapWorker(QThread):
@@ -23,7 +24,7 @@ class COFluxMapWorker(QThread):
     finished = pyqtSignal(dict)       # Results dict
     error = pyqtSignal(str)           # Error message
     
-    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, subtract_continuum=False, continuum_poly_deg=3):
+    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None):
         super().__init__()
         self.cube_data = cube_data
         self.CO_catalog = CO_catalog
@@ -31,6 +32,8 @@ class COFluxMapWorker(QThread):
         self.n_jobs = n_jobs
         self.subtract_continuum = subtract_continuum
         self.continuum_poly_deg = continuum_poly_deg
+        self.wave_min = wave_min
+        self.wave_max = wave_max
         self.cancelled = False  # Flag to stop processing
     
     def run(self):
@@ -50,7 +53,9 @@ class COFluxMapWorker(QThread):
                 progress_callback=self._emit_progress,
                 cancel_flag=self,  # Pass self so extraction can check cancelled flag
                 subtract_continuum=self.subtract_continuum,
-                continuum_poly_deg=self.continuum_poly_deg
+                continuum_poly_deg=self.continuum_poly_deg,
+                wave_min=self.wave_min,
+                wave_max=self.wave_max
             )
             
             if self.cancelled:
@@ -73,11 +78,38 @@ class COFluxMapWorker(QThread):
 class COFluxMapResultsDialog(QDialog):
     """Display CO flux extraction results with interactive viewer"""
     
-    def __init__(self, flux_map, error_map, detection_map, parent=None):
+    def __init__(self, flux_map, error_map, detection_map, header=None, wave_range=None, parent=None):
         super().__init__(parent)
         self.flux_map = flux_map
         self.error_map = error_map
         self.detection_map = detection_map
+        self.header = header
+        self.wave_range = wave_range
+        
+        # Extract units from FITS header using astropy units
+        try:
+            bunit_str = header.get('BUNIT', 'MJy/sr') if header else 'MJy/sr'
+            # Try to parse as astropy unit, fallback to string if it fails
+            try:
+                self.flux_unit_base = u.Unit(bunit_str)
+            except (ValueError, TypeError):
+                # If it's not a valid astropy unit, use it as-is for display
+                self.flux_unit_base = bunit_str
+            
+            # CO flux unit is base flux unit per wavelength
+            if isinstance(self.flux_unit_base, u.UnitBase):
+                self.flux_unit = self.flux_unit_base * u.um
+                self.flux_unit_str = f"{self.flux_unit_base} um"
+                self.bunit_str = f"{self.flux_unit_base}"
+            else:
+                self.flux_unit_str = f"{self.flux_unit_base} um"
+                self.bunit_str = self.flux_unit_base
+        except Exception:
+            # Fallback if header parsing fails
+            self.flux_unit_str = "MJy/sr um"
+            self.bunit_str = "MJy/sr"
+            self.flux_unit_base = u.MJy / u.sr
+            self.flux_unit = self.flux_unit_base * u.um
         
         self.setWindowTitle("CO Flux Map Results")
         self.resize(1200, 700)
@@ -89,18 +121,21 @@ class COFluxMapResultsDialog(QDialog):
         # Info section
         n_valid = np.sum(~np.isnan(self.flux_map))
         n_total = self.flux_map.size
+        valid_fluxes = self.flux_map[~np.isnan(self.flux_map)]
         mean_flux = np.nanmean(self.flux_map) if n_valid > 0 else 0
+        sum_flux = np.nansum(self.flux_map) if n_valid > 0 else 0
         max_flux = np.nanmax(self.flux_map) if n_valid > 0 else 0
         detect_with_lines = self.detection_map[self.detection_map > 0]
         mean_detections = np.mean(detect_with_lines) if len(detect_with_lines) > 0 else 0
         
         info_text = (
             f"Valid pixels: {n_valid:,} / {n_total:,} ({100*n_valid/n_total:.1f}%) | "
-            f"Mean CO flux: {mean_flux:.4e} | Max flux: {max_flux:.4e} | "
+            f"Total CO flux: {sum_flux:.4e} | Mean: {mean_flux:.4e} | Max: {max_flux:.4e} | "
             f"Mean detections: {mean_detections:.1f} lines/pixel"
         )
         info_label = QLabel(info_text)
         info_label.setStyleSheet("background-color: #f0f0f0; padding: 6px; border-radius: 3px;")
+        info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         layout.addWidget(info_label)
         
         # Controls
@@ -165,16 +200,19 @@ class COFluxMapResultsDialog(QDialog):
         cmap = self.cmap_combo.currentText()
         scale = self.scale_combo.currentText()
         
-        # Select data
+        # Select data and units
         if param == "CO Flux":
             data = self.flux_map
             title = "CO Rovibrational Flux"
+            cbar_label = f"Integrated CO Flux ({self.flux_unit_str})"
         elif param == "Error":
             data = self.error_map
-            title = "Uncertainty"
+            title = "Uncertainty (σ)"
+            cbar_label = f"Noise Std ({self.bunit_str})"
         else:
             data = self.detection_map.astype(float)
-            title = "Detection Count"
+            title = "CO Lines Detected"
+            cbar_label = "Number of Lines"
         
         # Handle NaN
         plot_data = np.nan_to_num(data, nan=0.0)
@@ -195,7 +233,7 @@ class COFluxMapResultsDialog(QDialog):
         ax.set_xlabel("X [pixels]")
         ax.set_ylabel("Y [pixels]")
         cbar = self.fig.colorbar(im, ax=ax)
-        cbar.set_label("Value")
+        cbar.set_label(cbar_label)
         
         self.fig.tight_layout()
         self.canvas.draw()
@@ -218,14 +256,18 @@ class COFluxMapResultsDialog(QDialog):
                 # Flux HDU
                 hdu = fits.PrimaryHDU(data=self.flux_map)
                 hdu.header['EXTNAME'] = 'FLUX'
-                hdu.header['BUNIT'] = 'erg/(s cm2)'
-                hdu.header['DESC'] = 'CO rovibrational flux'
+                hdu.header['BUNIT'] = self.flux_unit_str
+                hdu.header['DESC'] = 'CO rovibrational flux: Integrated area under CO line gaussians'
+                if self.wave_range:
+                    hdu.header['WAVEMIN'] = (self.wave_range[0], 'Min wavelength used (um)')
+                    hdu.header['WAVEMAX'] = (self.wave_range[1], 'Max wavelength used (um)')
                 hdul.append(hdu)
                 
                 # Error HDU
                 hdu = fits.ImageHDU(data=self.error_map)
                 hdu.header['EXTNAME'] = 'ERROR'
-                hdu.header['BUNIT'] = 'erg/(s cm2)'
+                hdu.header['BUNIT'] = self.bunit_str
+                hdu.header['DESC'] = 'Noise standard deviation per pixel'
                 hdul.append(hdu)
                 
                 # Detection HDU
@@ -255,11 +297,13 @@ class COFluxMapResultsDialog(QDialog):
             if len(valid) > 0:
                 stats += f"{name}:\n"
                 stats += f"  Count: {len(valid):,}\n"
+                stats += f"  Sum: {np.sum(valid):.4e}\n"
                 stats += f"  Mean: {np.mean(valid):.4e}\n"
                 stats += f"  Min/Max: {np.min(valid):.4e} / {np.max(valid):.4e}\n\n"
         
         label = QLabel(stats)
         label.setStyleSheet("font-family: monospace;")
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         layout.addWidget(label)
         
         close_btn = QPushButton("Close")
