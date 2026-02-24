@@ -36,9 +36,9 @@ V_UPPER = 1  # Transition upper vibrational level
 V_LOWER = 0  # Transition lower vibrational level
 
 # Default cube file (can override with command line)
-DEFAULT_CUBE = r"data/MIRI_CITau/Level3_ch2-long_s3d.fits"
-PIXEL_X = 15
-PIXEL_Y = 15
+DEFAULT_CUBE = r"data\NIRSpec\jw01621-o001_t001_nirspec_g395h-f290lp_s3d.fits"
+PIXEL_X = 20
+PIXEL_Y = 20
 
 # =============================================================================
 # STEP 1: LOAD CUBE
@@ -63,7 +63,7 @@ print(f"  Molecule: {MOLECULE} (ISO {ISO_ID})")
 print(f"  Transition filter: v={V_UPPER}→{V_LOWER}")
 
 try:
-    from hapi import fetch, tableList, getColumns, ISO_ID as HAPI_ISO_ID
+    from hapi import fetch, tableList, getColumns
     
     # Determine molecule ID (CO = 5)
     M_ID = 5
@@ -84,18 +84,19 @@ try:
         nu_max
     )
     
-    # Load fetched data
+    # Load fetched data - getColumns returns a list of arrays when multiple columns requested
     data = getColumns(table_name, ['molec_id', 'local_iso_id', 'nu', 'sw', 'gamma_air', 'elower'])
+    molec_id, local_iso_id, nu, sw, gamma_air, elower = data
     
     # Convert to pandas DataFrame
     CO_lines_hitran = pd.DataFrame({
-        'molec_id': data['molec_id'],
-        'local_iso_id': data['local_iso_id'],
-        'nu': data['nu'],  # cm⁻¹
-        'line_wave_um': 1e4 / data['nu'],  # Convert to μm
-        'sw': data['sw'],
-        'gamma_air': data['gamma_air'],
-        'elower': data['elower'],
+        'molec_id': molec_id,
+        'local_iso_id': local_iso_id,
+        'nu': nu,  # cm⁻¹
+        'line_wave_um': 1e4 / nu,  # Convert to μm
+        'sw': sw,
+        'gamma_air': gamma_air,
+        'elower': elower,
         'species': '12C16O'
     })
     
@@ -187,22 +188,74 @@ bunit = cube_data.header.get('BUNIT', 'MJy/sr')
 flux_unit = f"{bunit} × μm"
 
 # =============================================================================
-# STEP 6: PRINT RESULTS
+# STEP 6: ANALYZE RESULTS
+# =============================================================================
+detected_lines = result['detected_lines']
+n_total_detected = len(detected_lines)
+n_co_detected = 0
+n_contam_detected = 0
+
+# Calculate noise level for comparison
+from cube_explorer.gaussian_fitter import compute_noise_std
+if continuum_applied:
+    noise_std = compute_noise_std(spectrum_wave, spectrum_flux_subtracted, pdeg=1)
+else:
+    noise_std = compute_noise_std(spectrum_wave, spectrum_flux, pdeg=1)
+if noise_std is None or not np.isfinite(noise_std):
+    noise_std = np.nanmedian(np.abs(spectrum_flux - np.nanmedian(spectrum_flux))) * 1.4826
+
+if len(detected_lines) > 0:
+    # Count CO lines (disposition=1 and species='12C16O')
+    co_mask = (detected_lines['disposition'] == 1) & (detected_lines['species'] == '12C16O')
+    n_co_detected = np.sum(co_mask)
+    
+    # Check for contaminating lines
+    if 'species' in detected_lines.columns:
+        contam_mask = (detected_lines['disposition'] == 1) & (detected_lines['species'] != '12C16O')
+        n_contam_detected = np.sum(contam_mask)
+
+print(f"\n[DEBUG] Line Detection Summary:")
+print(f"  Noise level (std): {noise_std:.4e} {bunit}")
+print(f"  SNR threshold: 3.0 sigma")
+print(f"  Detection threshold: {3.0 * noise_std:.4e} {bunit}")
+print(f"  Total lines detected: {n_total_detected}")
+print(f"  CO lines (12C16O): {n_co_detected}")
+print(f"  Contaminating lines: {n_contam_detected}")
+
+# Check contaminating lines in wavelength range
+if len(contam_lines) > 0 and 'line_wave_um' in contam_lines.columns:
+    contam_in_range = contam_lines[
+        (contam_lines['line_wave_um'] >= WAVE_MIN) & 
+        (contam_lines['line_wave_um'] <= WAVE_MAX)
+    ]
+    print(f"  Contaminating lines in range ({WAVE_MIN}-{WAVE_MAX} μm): {len(contam_in_range)}")
+else:
+    print(f"  No contaminating line catalog loaded")
+
+# =============================================================================
+# STEP 7: PRINT RESULTS
 # =============================================================================
 print("\n" + "="*70)
 print("RESULTS")
 print("="*70)
 print(f"CO Flux:            {result['co_flux']:.6e} {flux_unit}")
 print(f"Contaminant Flux:   {result['contam_flux']:.6e} {flux_unit}")
+
+# Check if fluxes are identical (suspicious)
+if abs(result['co_flux'] - result['contam_flux']) < 1e-10:
+    print("  ⚠️  WARNING: CO and Contaminant fluxes are identical!")
+    print("  → This likely means no contaminating lines were fitted")
+
 print(f"Mean Continuum:     {result['mean_continuum']:.6e} {bunit}")
 
-detected_lines = result['detected_lines']
-if len(detected_lines) > 0:
-    n_co = len(detected_lines[detected_lines['disposition'] == 1])
-    print(f"Detected CO Lines:  {n_co}")
+if n_co_detected > 0:
+    print(f"Detected CO Lines:  {n_co_detected}")
 else:
     print(f"Detected CO Lines:  0")
 
+if n_contam_detected > 0:
+    print(f"Detected Contam:    {n_contam_detected}")
+    
 print(f"Continuum Applied:  {'✓ Yes' if continuum_applied else '✗ No'}")
 print("="*70)
 

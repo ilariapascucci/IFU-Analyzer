@@ -264,7 +264,7 @@ def many_gaussians_list(xl, a, b, *params):
 
 # ================== Line Detection ==================
 
-def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate='False'):
+def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate='False', snr_threshold=3.0):
     """
     Identify which spectral lines are detected in a spectrum and assign a starting max_amplitude.
     
@@ -283,6 +283,8 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         DataFrame with column 'line_wave_um' for lines to avoid
     remove_duplicate : str
         'True' to remove duplicate detections (keep strongest line in close groups)
+    snr_threshold : float
+        Signal-to-noise threshold for line detection (default: 3.0 sigma)
     
     Returns
     -------
@@ -292,6 +294,16 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
     # Suppress repetitive output (called for every pixel)
     # print('>>> Finding lines and removing duplicates...')
     xres = np.nanmean(np.diff(xwave))
+    
+    # Estimate noise level for significance testing
+    try:
+        noise_std = compute_noise_std(xwave, yflux, pdeg=1)
+        if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
+            # Fallback: use median absolute deviation as noise estimate
+            noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
+    except Exception:
+        # Fallback: use median absolute deviation as noise estimate
+        noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
     
     # at start all lines are assumed to be non-detections and assigned NAN for max_amplitude
     data = {
@@ -312,21 +324,25 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         
         cflux_min, cflux_max = np.nanmin(cflux), np.nanmax(cflux)
         cflux_idx_max = np.argmax(cflux)
+        peak_amplitude = cflux_max - cflux_min
         
+        # Check if peak exists, is at right location, and is statistically significant
         if (cflux_max > cflux_min) and (cwave[cflux_idx_max] <= cline + xres) and (cwave[cflux_idx_max] >= cline - xres):
-            if isinstance(contaminating_lines, pd.DataFrame):
-                # Check if peak is away from contaminating lines
-                if all(np.abs(cwave[cflux_idx_max] - iline) > xres for iline in contaminating_lines['line_wave_um']):
+            # Apply SNR threshold: peak must be significant above noise
+            if peak_amplitude > snr_threshold * noise_std:
+                if isinstance(contaminating_lines, pd.DataFrame):
+                    # Check if peak is away from contaminating lines
+                    if all(np.abs(cwave[cflux_idx_max] - iline) > xres for iline in contaminating_lines['line_wave_um']):
+                        lines_dispositions.loc[ii, 'disposition'] = 1
+                        lines_dispositions.loc[ii, 'max_amplitude'] = peak_amplitude
+                        lines_dispositions.loc[ii, 'line_flux'] = yflux[idx_cline]
+                        potential_lines.append((ii, yflux[idx_cline]))
+                else:
+                    # No need to check for contaminating lines
                     lines_dispositions.loc[ii, 'disposition'] = 1
-                    lines_dispositions.loc[ii, 'max_amplitude'] = cflux_max - cflux_min
+                    lines_dispositions.loc[ii, 'max_amplitude'] = peak_amplitude
                     lines_dispositions.loc[ii, 'line_flux'] = yflux[idx_cline]
                     potential_lines.append((ii, yflux[idx_cline]))
-            else:
-                # No need to check for contaminating lines
-                lines_dispositions.loc[ii, 'disposition'] = 1
-                lines_dispositions.loc[ii, 'max_amplitude'] = cflux_max - cflux_min
-                lines_dispositions.loc[ii, 'line_flux'] = yflux[idx_cline]
-                potential_lines.append((ii, yflux[idx_cline]))
     
     # Remove duplicates: keep strongest line in each close group
     if remove_duplicate == 'True':
