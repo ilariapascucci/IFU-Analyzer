@@ -10,7 +10,7 @@ import os
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QFileDialog, QMessageBox, QComboBox
+    QFileDialog, QMessageBox, QComboBox, QTabWidget, QWidget
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
@@ -78,13 +78,21 @@ class COFluxMapWorker(QThread):
 class COFluxMapResultsDialog(QDialog):
     """Display CO flux extraction results with interactive viewer"""
     
-    def __init__(self, flux_map, error_map, detection_map, header=None, wave_range=None, parent=None):
+    def __init__(self, flux_map, error_map, detection_map, header=None, wave_range=None, 
+                 wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
+                 subtract_continuum=False, parent=None):
         super().__init__(parent)
         self.flux_map = flux_map
         self.error_map = error_map
         self.detection_map = detection_map
         self.header = header
         self.wave_range = wave_range
+        self.wavelength = wavelength
+        self.cube_data = cube_data
+        self.CO_catalog = CO_catalog
+        self.contam_catalog = contam_catalog
+        self.subtract_continuum = subtract_continuum
+        self.selected_pixel = None  # For pixel inspection mode
         
         # Extract units from FITS header using astropy units
         try:
@@ -116,6 +124,7 @@ class COFluxMapResultsDialog(QDialog):
         self._setup_ui()
     
     def _setup_ui(self):
+        from PyQt5.QtWidgets import QTabWidget
         layout = QVBoxLayout()
         
         # Info section
@@ -138,9 +147,15 @@ class COFluxMapResultsDialog(QDialog):
         info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         layout.addWidget(info_label)
         
-        # Controls
-        ctrl_layout = QHBoxLayout()
+        # Create tabs for different views
+        tabs = QTabWidget()
         
+        # Tab 1: Flux Map
+        map_widget = QWidget()
+        map_layout = QVBoxLayout()
+        
+        # Controls for map
+        ctrl_layout = QHBoxLayout()
         ctrl_layout.addWidget(QLabel("Display:"))
         self.param_combo = QComboBox()
         self.param_combo.addItems(["CO Flux", "Error", "Detection Count"])
@@ -159,17 +174,21 @@ class COFluxMapResultsDialog(QDialog):
         self.scale_combo.currentIndexChanged.connect(self._update_plot)
         ctrl_layout.addWidget(self.scale_combo)
         
+        ctrl_layout.addWidget(QLabel("  ℹ️ Click a pixel to inspect its spectrum"))
         ctrl_layout.addStretch()
-        layout.addLayout(ctrl_layout)
+        map_layout.addLayout(ctrl_layout)
         
-        # Plot area
+        # Plot area for map
         self.fig = Figure(figsize=(12, 6))
         self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas.mpl_connect('button_press_event', self._on_canvas_click)
         toolbar = NavigationToolbar2QT(self.canvas, self)
-        layout.addWidget(toolbar)
-        layout.addWidget(self.canvas)
+        map_layout.addWidget(toolbar)
+        map_layout.addWidget(self.canvas)
+        map_widget.setLayout(map_layout)
+        tabs.addTab(map_widget, "Flux Map")
         
-        self._update_plot()
+        layout.addWidget(tabs)
         
         # Buttons
         btn_layout = QHBoxLayout()
@@ -190,6 +209,117 @@ class COFluxMapResultsDialog(QDialog):
         
         layout.addLayout(btn_layout)
         self.setLayout(layout)
+        
+        self._update_plot()
+    
+    def _on_canvas_click(self, event):
+        """Handle click on flux map to inspect pixel spectrum"""
+        if event.inaxes is None or self.cube_data is None or self.wavelength is None:
+            return
+        
+        # Get pixel coordinates from click
+        x = int(np.round(event.xdata))
+        y = int(np.round(event.ydata))
+        
+        # Validate coordinates
+        if 0 <= x < self.flux_map.shape[1] and 0 <= y < self.flux_map.shape[0]:
+            self._show_pixel_spectrum(x, y)
+    
+    def _show_pixel_spectrum(self, x, y):
+        """Extract and display spectrum for a clicked pixel with fitted Gaussians"""
+        try:
+            from .co_flux_extractor import extract_co_flux_from_spectrum
+            
+            # Extract spectrum for this pixel
+            spectrum = self.cube_data.get_pixel_spectrum(x, y)
+            
+            if spectrum is None or np.all(np.isnan(spectrum)):
+                QMessageBox.warning(self, "No Data", f"Pixel ({x}, {y}) has no valid data")
+                return
+            
+            # Re-extract CO flux for this pixel to get fit info
+            if self.CO_catalog is not None and self.contam_catalog is not None:
+                result = extract_co_flux_from_spectrum(
+                    self.wavelength, spectrum, self.CO_catalog, self.contam_catalog,
+                    wave_min=self.wave_range[0] if self.wave_range else None,
+                    wave_max=self.wave_range[1] if self.wave_range else None,
+                    subtract_continuum=self.subtract_continuum
+                )
+                
+                # Create inspection dialog
+                dlg = QDialog(self)
+                dlg.setWindowTitle(f"Pixel ({x}, {y}) Spectrum")
+                dlg.resize(1000, 600)
+                
+                layout = QVBoxLayout()
+                
+                # Info
+                flux_val = self.flux_map[y, x] if 0 <= x < self.flux_map.shape[1] and 0 <= y < self.flux_map.shape[0] else 0
+                n_lines = self.detection_map[y, x] if 0 <= x < self.detection_map.shape[1] and 0 <= y < self.detection_map.shape[0] else 0
+                info = QLabel(
+                    f"<b>Pixel ({x}, {y})</b> | "
+                    f"CO Flux: {flux_val:.4e} {self.flux_unit_str} | "
+                    f"Lines Detected: {n_lines}"
+                )
+                info.setStyleSheet("background-color: #f0f0f0; padding: 4px; border-radius: 3px;")
+                layout.addWidget(info)
+                
+                # Plot spectrum with fit
+                fig = Figure(figsize=(10, 5))
+                ax = fig.add_subplot(111)
+                
+                # Plot spectrum
+                ax.plot(self.wavelength, spectrum, 'k-', label='Spectrum', linewidth=1.2, alpha=0.8)
+                
+                # Plot continuum if subtracted
+                if self.subtract_continuum and result.get('mean_continuum'):
+                    ax.axhline(result['mean_continuum'], color='orange', linestyle='--', label='Continuum', alpha=0.7)
+                
+                # Mark detected CO lines with disposition=1
+                detected = result.get('detected_lines')
+                if detected is not None:
+                    try:
+                        import pandas as pd
+                        if isinstance(detected, pd.DataFrame):
+                            # DataFrame format - filter by disposition and wavelength range
+                            detected_co = detected[
+                                (detected['disposition'] == 1) & 
+                                (detected['line'] >= self.wave_range[0]) & 
+                                (detected['line'] <= self.wave_range[1])
+                            ]
+                            for idx, line_row in detected_co.iterrows():
+                                line_wave = float(line_row['line'])
+                                ax.axvline(line_wave, color='red', alpha=0.5, linewidth=1.5, label='CO Lines' if idx == detected_co.index[0] else '')
+                    except Exception as e:
+                        pass  # Silently skip line marking if it fails
+                
+                ax.set_xlabel('Wavelength (μm)')
+                ax.set_ylabel(f'Flux ({self.bunit_str})')
+                ax.set_title(f'Pixel ({x}, {y}) Spectrum', fontweight='bold')
+                ax.grid(True, alpha=0.3)
+                ax.legend()
+                
+                canvas = FigureCanvasQTAgg(fig)
+                toolbar = NavigationToolbar2QT(canvas, dlg)
+                plot_layout = QVBoxLayout()
+                plot_layout.addWidget(toolbar)
+                plot_layout.addWidget(canvas)
+                plot_widget = QWidget()
+                plot_widget.setLayout(plot_layout)
+                layout.addWidget(plot_widget)
+                
+                # Close button
+                close_btn = QPushButton("Close")
+                close_btn.clicked.connect(dlg.accept)
+                layout.addWidget(close_btn)
+                
+                dlg.setLayout(layout)
+                dlg.exec_()
+            else:
+                QMessageBox.warning(self, "No Catalog", "Line catalogs not available for spectrum inspection")
+        
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to inspect pixel:\n{str(e)}")
     
     def _update_plot(self):
         """Update visualization"""
@@ -254,33 +384,47 @@ class COFluxMapResultsDialog(QDialog):
                 hdul = fits.HDUList()
                 
                 # Flux HDU
-                hdu = fits.PrimaryHDU(data=self.flux_map)
+                hdu = fits.PrimaryHDU(data=self.flux_map.astype(np.float32))
                 hdu.header['EXTNAME'] = 'FLUX'
                 hdu.header['BUNIT'] = self.flux_unit_str
                 hdu.header['DESC'] = 'CO rovibrational flux: Integrated area under CO line gaussians'
                 if self.wave_range:
                     hdu.header['WAVEMIN'] = (self.wave_range[0], 'Min wavelength used (um)')
                     hdu.header['WAVEMAX'] = (self.wave_range[1], 'Max wavelength used (um)')
+                
+                # Remove problematic WCS keywords if present
+                wcs_keywords = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2', 
+                               'CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2', 'CRPIX1', 'CRPIX2',
+                               'CRVAL1', 'CRVAL2', 'CDELT1', 'CDELT2', 'CMATRIX',
+                               'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2']
+                for kw in wcs_keywords:
+                    if kw in hdu.header:
+                        del hdu.header[kw]
+                
                 hdul.append(hdu)
                 
                 # Error HDU
-                hdu = fits.ImageHDU(data=self.error_map)
+                hdu = fits.ImageHDU(data=self.error_map.astype(np.float32))
                 hdu.header['EXTNAME'] = 'ERROR'
                 hdu.header['BUNIT'] = self.bunit_str
                 hdu.header['DESC'] = 'Noise standard deviation per pixel'
                 hdul.append(hdu)
                 
                 # Detection HDU
-                hdu = fits.ImageHDU(data=self.detection_map)
+                hdu = fits.ImageHDU(data=self.detection_map.astype(np.int32))
                 hdu.header['EXTNAME'] = 'DETECTION'
                 hdu.header['BUNIT'] = 'count'
+                hdu.header['DESC'] = 'Number of CO lines detected per pixel'
                 hdul.append(hdu)
                 
-                hdul.writeto(path, overwrite=True)
+                # Write with warnings suppressed for missing instrument keywords
+                hdul.writeto(path, overwrite=True, output_verify='warn')
                 
                 QMessageBox.information(self, "Success", f"Saved to:\n{path}")
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to export:\n{str(e)}")
+                import traceback
+                error_msg = f"Failed to export:\n{str(e)}\n\n{traceback.format_exc()}"
+                QMessageBox.critical(self, "Error", error_msg)
     
     def _show_statistics(self):
         """Show detailed statistics"""

@@ -3423,7 +3423,7 @@ class CubeExplorer(QWidget):
             v_upper, ok = QInputDialog.getInt(
                 self,
                 "Transition Level - Upper",
-                "Enter upper vibrational quantum number (v'):\n(e.g., 1 for v'=1)",
+                "Enter upper vibrational level:\n(e.g., 1 for v=1->0)",
                 1,
                 0,
                 100,
@@ -3436,7 +3436,7 @@ class CubeExplorer(QWidget):
             v_lower, ok = QInputDialog.getInt(
                 self,
                 "Transition Level - Lower",
-                "Enter lower vibrational quantum number (v''):\n(e.g., 0 for v''=0)",
+                "Enter lower vibrational level:\n(e.g., 0 for v=1->0)",
                 0,
                 0,
                 100,
@@ -4517,6 +4517,11 @@ INTERPRETATION:
                         self.co_flux_result_cache['detection_map'],
                         header=self.co_flux_result_cache.get('header'),
                         wave_range=self.co_flux_result_cache.get('wave_range'),
+                        wavelength=getattr(self, 'co_flux_wavelength', None),
+                        cube_data=self.cube_data,
+                        CO_catalog=getattr(self, 'co_flux_catalog', None),
+                        contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
+                        subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
                         parent=self
                     )
                     results_dialog.exec_()
@@ -4589,8 +4594,16 @@ INTERPRETATION:
         except:
             n_jobs = 8
         
+        # Store parameters for later use in result dialog
+        self.co_flux_wavelength = self.cube_data.wavelength
+        self.co_flux_catalog = self.CO_lines
+        self.co_flux_contam_catalog = self.contam_lines
+        self.co_flux_wave_min = wave_min
+        self.co_flux_wave_max = wave_max
+        
         # Use continuum subtraction if automatic continuum was applied
         use_continuum_subtraction = hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted
+        self.co_flux_subtract_continuum = use_continuum_subtraction
         
         self.co_flux_worker = COFluxMapWorker(
             self.cube_data,
@@ -4726,7 +4739,17 @@ INTERPRETATION:
         ax.legend()
         
         canvas = FigureCanvas(fig)
-        layout.addWidget(canvas)
+        
+        # Create plot layout with toolbar for zoom/pan interaction
+        plot_layout = QVBoxLayout()
+        toolbar = NavigationToolbar(canvas, dlg)
+        plot_layout.addWidget(toolbar)
+        plot_layout.addWidget(canvas)
+        
+        # Add plot to main layout
+        plot_widget = QWidget()
+        plot_widget.setLayout(plot_layout)
+        layout.addWidget(plot_widget)
         
         # Info text
         info_text = QLabel(
@@ -4783,6 +4806,11 @@ INTERPRETATION:
             result['detection_map'],
             header=result.get('header'),
             wave_range=result.get('wave_range'),
+            wavelength=getattr(self, 'co_flux_wavelength', None),
+            cube_data=self.cube_data,
+            CO_catalog=getattr(self, 'co_flux_catalog', None),
+            contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
+            subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
             parent=self
         )
         results_dialog.exec_()
