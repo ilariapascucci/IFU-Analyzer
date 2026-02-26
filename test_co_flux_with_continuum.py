@@ -26,6 +26,75 @@ from cube_explorer.data_loader import CubeData
 from cube_explorer.co_flux_extractor import fit_continuum_median_peaks, extract_co_flux_from_spectrum
 
 # =============================================================================
+# DIAGNOSTICS FUNCTION
+# =============================================================================
+def diagnose_pixel_extraction(spectrum_wave, spectrum_flux, spectrum_subtracted, continuum, 
+                              co_lines, contam_lines, detected_result, noise_std,
+                              wave_min, wave_max, verbose=True):
+    """Detailed diagnostics of what happened during extraction"""
+    from scipy.signal import find_peaks
+    
+    if not verbose:
+        return
+    
+    print("\n" + "="*70)
+    print("DETAILED PEAK DETECTION DIAGNOSTICS")
+    print("="*70)
+    
+    # Extract wavelength range of interest
+    mask = (spectrum_wave >= wave_min) & (spectrum_wave <= wave_max)
+    wave_roi = spectrum_wave[mask]
+    flux_roi = spectrum_subtracted[mask]
+    
+    # Find all local peaks in the residuals
+    peaks_idx, peaks_props = find_peaks(flux_roi, height=noise_std * 1.0, distance=3)
+    
+    print(f"\nPeak Detection:")
+    print(f"  Noise std: {noise_std:.4e}")
+    print(f"  Detection threshold (1σ): {1.0 * noise_std:.4e}")
+    print(f"  Detection threshold (2σ): {2.0 * noise_std:.4e}")
+    print(f"  Detection threshold (3σ): {3.0 * noise_std:.4e}")
+    print(f"  Local peaks found (>1σ): {len(peaks_idx)}")
+    
+    # Find peaks at 3σ threshold
+    peaks_idx_3sig, _ = find_peaks(flux_roi, height=noise_std * 3.0, distance=3)
+    print(f"  Peaks above 3σ: {len(peaks_idx_3sig)}")
+    
+    if len(peaks_idx) > 0:
+        print(f"\n  All detected peaks ({len(peaks_idx)} total):")
+        print(f"  {'#':<4} {'Wave (μm)':<12} {'Height':<12} {'σ (noise)':<12} {'Match CO':<10}")
+        print(f"  {'-'*62}")
+        
+        for i, pidx in enumerate(peaks_idx):
+            peak_wave = wave_roi[pidx]
+            peak_height = flux_roi[pidx]
+            peak_sigma = peak_height / noise_std if noise_std > 0 else 0
+            
+            # Check if matches any CO line
+            co_matches = co_lines[np.abs(co_lines['line_wave_um'] - peak_wave) < 0.0005]
+            match_str = f"[YES] {len(co_matches)}" if len(co_matches) > 0 else "[NO]"
+            
+            print(f"  {i:<4} {peak_wave:<12.5f} {peak_height:<12.4e} {peak_sigma:<12.2f} {match_str:<10}")
+    
+    # Show what was detected by the extraction
+    detected = detected_result['detected_lines']
+    print(f"\nExtraction Results:")
+    print(f"  Total lines detected: {len(detected)}")
+    if len(detected) > 0:
+        co_detected = detected[(detected['disposition'] == 1) & (detected['species'] == '12C16O')]
+        print(f"  CO lines detected: {len(co_detected)}")
+        if len(co_detected) > 0:
+            print(f"\n  Detected CO lines table:")
+            print(f"  {'Wave (μm)':<12} {'Max Amp':<14} {'Line Flux':<14} {'Disposition':<12}")
+            print(f"  {'-'*52}")
+            for _, row in co_detected.iterrows():
+                wave = row['line'] if 'line' in row else row.get('line_wave_um', np.nan)
+                amp = row.get('max_amplitude', np.nan)
+                flx = row.get('line_flux', np.nan)
+                disp = row.get('disposition', 0)
+                print(f"  {wave:<12.5f} {amp:<14.4e} {flx:<14.4e} {disp:<12}")
+
+# =============================================================================
 # PRESET PARAMETERS
 # =============================================================================
 WAVE_MIN = 4.7  # μm
@@ -39,10 +108,13 @@ V_LOWER = 0  # Transition lower vibrational level
 DEFAULT_CUBE = r"data\NIRSpec\jw01621-o001_t001_nirspec_g395h-f290lp_s3d.fits"
 
 # Region to test
-X_MIN = 20
-X_MAX = 25
-Y_MIN = 20
-Y_MAX = 25
+X_MIN = 0
+X_MAX = 50
+Y_MIN = 0
+Y_MAX = 50
+
+# Enable detailed diagnostics
+VERBOSE_DIAGNOSTICS = True
 
 # =============================================================================
 # STEP 1: LOAD CUBE
@@ -56,7 +128,7 @@ print(f"\nLoading cube: {cube_file}")
 
 cube_data = CubeData()
 cube_data.load_from_file(cube_file)
-print(f"✓ Cube loaded: {cube_data.cube.shape} (spectral, y, x)")
+print(f"[OK] Cube loaded: {cube_data.cube.shape} (spectral, y, x)")
 
 # =============================================================================
 # STEP 2: FETCH HITRAN CO LINES
@@ -104,13 +176,13 @@ try:
         'species': '12C16O'
     })
     
-    print(f"✓ Fetched {len(CO_lines_hitran)} CO lines from HITRAN")
+    print(f"[OK] Fetched {len(CO_lines_hitran)} CO lines from HITRAN")
     
     # Load contaminating lines catalog
     contam_file = r"data/CO/ContaminatingLines.csv"
     try:
         contam_lines = pd.read_csv(contam_file)
-        print(f"✓ Loaded {len(contam_lines)} contaminating lines")
+        print(f"[OK] Loaded {len(contam_lines)} contaminating lines")
     except FileNotFoundError:
         print("  Warning: Contaminating lines file not found, using empty catalog")
         contam_lines = pd.DataFrame(columns=['line_wave_um'])
@@ -125,7 +197,7 @@ except ImportError:
         (CO_lines_hitran['line_wave_um'] <= WAVE_MAX)
     ]
     contam_lines = pd.DataFrame(columns=['line_wave_um'])
-    print(f"✓ Loaded {len(CO_lines_hitran)} CO lines from local catalog")
+    print(f"[OK] Loaded {len(CO_lines_hitran)} CO lines from local catalog")
 
 # =============================================================================
 # STEP 3: PROCESS PIXEL REGION
@@ -177,7 +249,7 @@ for iy, py in enumerate(range(Y_MIN, Y_MAX + 1)):
             n_detected = np.sum(result['detected_lines']['disposition'] == 1)
             detected_lines_map[iy, ix] = n_detected
 
-print(f"✓ Processed {n_x * n_y} pixels")
+print(f"[OK] Processed {n_x * n_y} pixels")
 
 # Compute statistics
 valid_mask = np.isfinite(co_flux_map) & (co_flux_map > 0)
@@ -230,7 +302,7 @@ continuum = fit_continuum_median_peaks(
 
 if continuum is not None and not np.all(np.isnan(continuum)):
     spectrum_flux_subtracted = spectrum_flux - continuum
-    print(f"  ✓ Continuum fitted (mean: {np.nanmean(continuum):.4e})")
+    print(f"  [OK] Continuum fitted (mean: {np.nanmean(continuum):.4e})")
     continuum_applied = True
 else:
     spectrum_flux_subtracted = spectrum_flux
@@ -307,7 +379,7 @@ print(f"Contaminant Flux:   {result['contam_flux']:.6e} {flux_unit}")
 
 # Check if fluxes are identical (suspicious)
 if abs(result['co_flux'] - result['contam_flux']) < 1e-10:
-    print("  ⚠️  WARNING: CO and Contaminant fluxes are identical!")
+    print("  [WARN] WARNING: CO and Contaminant fluxes are identical!")
     print("  → This likely means no contaminating lines were fitted")
 
 print(f"Mean Continuum:     {result['mean_continuum']:.6e} {bunit}")
@@ -320,16 +392,24 @@ else:
 if n_contam_detected > 0:
     print(f"Detected Contam:    {n_contam_detected}")
     
-print(f"Continuum Applied:  {'✓ Yes' if continuum_applied else '✗ No'}")
+print(f"Continuum Applied:  {'[YES]' if continuum_applied else '[NO]'}")
 print("="*70)
 
 # Validation
 if np.isfinite(result['co_flux']) and result['co_flux'] > 0:
-    print("\n✓ SUCCESS: Valid positive CO flux extracted!")
+    print("\n[OK] SUCCESS: Valid positive CO flux extracted!")
 elif result['co_flux'] == 0:
-    print("\n⚠ WARNING: CO flux is exactly 0 (no lines detected/fitted)")
+    print("\n[WARN] WARNING: CO flux is exactly 0 (no lines detected/fitted)")
 else:
-    print(f"\n❌ ERROR: Invalid CO flux: {result['co_flux']}")
+    print(f"\n[ERR] ERROR: Invalid CO flux: {result['co_flux']}")
+
+# Run detailed diagnostics
+if VERBOSE_DIAGNOSTICS:
+    diagnose_pixel_extraction(
+        spectrum_wave, spectrum_flux, spectrum_flux_subtracted, continuum,
+        CO_lines_hitran, contam_lines, result, noise_std,
+        WAVE_MIN, WAVE_MAX, verbose=True
+    )
 
 # =============================================================================
 # STEP 7: VISUALIZATION
@@ -438,7 +518,7 @@ ax3.set_xlim(WAVE_MIN, WAVE_MAX)
 
 plt.tight_layout()
 plt.savefig('co_flux_region_test.png', dpi=150, bbox_inches='tight')
-print("✓ Saved plot: co_flux_region_test.png")
+print("[OK] Saved plot: co_flux_region_test.png")
 
 plt.show()
 

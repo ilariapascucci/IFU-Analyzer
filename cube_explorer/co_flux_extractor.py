@@ -530,22 +530,8 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
         
-        # === TESTING === NOT FROM ORIGINAL FUNCTION
-        
-        # Validate bounds before fitting
+        # Perform the fit
         try:
-            '''
-            # Check for NaN or Inf in bounds
-            if np.any(~np.isfinite(lower_bounds)) or np.any(~np.isfinite(upper_bounds)):
-                raise ValueError("Bounds contain NaN or Inf")
-            # Check that lower <= upper
-            if np.any(lower_bounds > upper_bounds):
-                raise ValueError("Lower bounds exceed upper bounds")
-            # Check that p0 is within bounds
-            if np.any(p0 < lower_bounds) or np.any(p0 > upper_bounds):
-                raise ValueError("Initial guess p0 is outside bounds")
-            '''
-            # Perform the fit
             par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0, 
                                  bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
         except (ValueError, RuntimeError) as e:
@@ -559,7 +545,6 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
             mean_cont = mean_cont + a
             continue
-        # === TESTING === ENDS
 
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
         par = par[2:]  # Extracts which parameters relate to the Gaussians
@@ -655,7 +640,6 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             # Subtract continuum from flux
             if continuum_model is not None and not np.all(np.isnan(continuum_model)):
                 spectrum_flux = spectrum_flux - continuum_model
-                # print(f"  Applied median+peaks continuum subtraction")
             else:
                 print(f"  Warning: Continuum fitting returned NaN, using original spectrum")
         except Exception as e:
@@ -867,6 +851,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     
     print(f">>> Creating CO flux map: {n_y}×{n_x} pixels, {n_wave} wavelength elements")
     print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+    print(f"    Continuum subtraction: {'ENABLED' if subtract_continuum else 'DISABLED'}")
     
     # DIAGNOSTIC: Print cube metadata
     print(f"    === CUBE DIAGNOSTICS ===")
@@ -974,6 +959,11 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         num_skipped = 0
         
         for x_idx in range(n_x):
+            # Check cancellation flag at each pixel
+            if cancel_flag and cancel_flag.cancelled:
+                print(f"    Row {y_idx}: Cancellation requested, stopping pixel processing")
+                break
+            
             # Update pixel counter for progress reporting
             with pixel_counter['lock']:
                 pixel_counter['count'] += 1
@@ -1039,34 +1029,50 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         return y_idx, row_fluxes, row_errors, row_detections
     
     # Process rows in parallel
-    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-        futures = [executor.submit(process_row, y) for y in range(n_y)]
-        
-        for i, future in enumerate(as_completed(futures)):
-            # Check if cancellation was requested
-            if cancel_flag and cancel_flag.cancelled:
-                print("⚠️  Extraction cancelled by user")
-                executor.shutdown(wait=False)
-                break
+    try:
+        with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+            futures = [executor.submit(process_row, y) for y in range(n_y)]
             
-            y_idx, row_fluxes, row_errors, row_detections = future.result()
-            flux_map[y_idx, :] = row_fluxes
-            error_map[y_idx, :] = row_errors
-            detection_map[y_idx, :] = row_detections
-            
-            # Report actual pixel progress
-            if progress_callback:
+            for i, future in enumerate(as_completed(futures)):
+                # Check if cancellation was requested
+                if cancel_flag and cancel_flag.cancelled:
+                    print("⚠️  Extraction cancelled by user - stopping all remaining tasks")
+                    # Cancel remaining futures
+                    for f in futures:
+                        f.cancel()
+                    # Force shutdown immediately
+                    executor.shutdown(wait=False)
+                    break
+                
+                try:
+                    y_idx, row_fluxes, row_errors, row_detections = future.result()
+                    flux_map[y_idx, :] = row_fluxes
+                    error_map[y_idx, :] = row_errors
+                    detection_map[y_idx, :] = row_detections
+                except:
+                    # Skip this row if cancelled or failed
+                    pass
+                
+                # Report actual pixel progress after each row
+                if progress_callback:
+                    with pixel_counter['lock']:
+                        pixels_done = pixel_counter['count']
+                    progress_callback(pixels_done, total_pixels)
+                    
+                # Print progress EVERY row (not just 10%)
                 with pixel_counter['lock']:
                     pixels_done = pixel_counter['count']
-                progress_callback(pixels_done, total_pixels)
-            
-            # Print progress every 10% of rows, but show total pixels processed
-            if (i + 1) % max(1, n_y // 10) == 0:
+                percent = 100 * pixels_done / total_pixels
                 elapsed = time.time() - start_time
-                total_pixels_done = (i + 1) * n_x
-                total_pixels = n_y * n_x
-                percent = 100 * total_pixels_done / total_pixels
-                print(f"  Progress: {total_pixels_done}/{total_pixels} pixels ({percent:.1f}%) in {elapsed:.1f}s")
+                rate = pixels_done / elapsed if elapsed > 0 else 0
+                eta_sec = (total_pixels - pixels_done) / rate if rate > 0 else 0
+                print(f"    Row {i+1}/{n_y}: {percent:.1f}% ({pixels_done}/{total_pixels}) in {elapsed:.1f}s, ETA {eta_sec:.1f}s")
+                import sys
+                sys.stdout.flush()
+    except Exception as e:
+        print(f"❌ Error during CO flux extraction: {e}")
+        import traceback
+        traceback.print_exc()
     
     end_time = time.time()
     print(f"\n>>> CO flux map creation complete ({end_time - start_time:.1f}s)")

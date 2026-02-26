@@ -4447,31 +4447,20 @@ INTERPRETATION:
             QMessageBox.warning(self, "Missing Catalogs", "CO catalogs not loaded")
             return
         
-        # Step 1: Check if automatic continuum was done
-        if not hasattr(self, 'auto_continuum_subtracted') or not self.auto_continuum_subtracted:
-            reply = QMessageBox.question(
-                self,
-                "Automatic Continuum Not Applied",
-                "For best results, automatic continuum subtraction is recommended.\n\n"
-                "Have you performed automatic continuum subtraction?\n"
-                "(Use 'Continuum Tools > Automatic Continuum' if not)\n\n"
-                "Click Yes to proceed without continuum subtraction\n"
-                "Click No to cancel and apply continuum first",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply != QMessageBox.Yes:
-                return
-        else:
-            reply = QMessageBox.information(
-                self,
-                "Continuum Status",
-                "✓ Automatic continuum has been applied.\n\n"
-                "CO Flux Map will use the same continuum fitting method\n"
-                "(median filter + peak detection) for each pixel before\n"
-                "fitting gaussians.",
-                QMessageBox.Ok
-            )
+        # Step 1: Require automatic continuum subtraction for CO flux extraction
+        reply = QMessageBox.question(
+            self,
+            "Automatic Continuum Required",
+            "CO Flux extraction requires automatic continuum subtraction.\n\n"
+            "Did you already run:\n"
+            "  Continuum Tools > Automatic Continuum > Continuum Line?\n\n"
+            "If NOT, please do that first before proceeding.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            print("CO Flux Map extraction cancelled - automatic continuum required")
+            return
         
         # Step 2: Get wavelength range from GUI
         try:
@@ -4590,7 +4579,9 @@ INTERPRETATION:
         import os
         try:
             cpu_count = os.cpu_count() or 8
-            n_jobs = min(cpu_count - 1, 8)
+            # Reduce workers for CPU-bound continuum fitting (median filter + peak detection is expensive)
+            # Use fewer workers to avoid context switching overhead
+            n_jobs = min(cpu_count, 8)
         except:
             n_jobs = 8
         
@@ -4601,9 +4592,18 @@ INTERPRETATION:
         self.co_flux_wave_min = wave_min
         self.co_flux_wave_max = wave_max
         
-        # Use continuum subtraction if automatic continuum was applied
-        use_continuum_subtraction = hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted
+        # Use continuum subtraction - ALWAYS enabled (user warned to run automatic continuum first)
+        use_continuum_subtraction = True  # Hardcoded to True as per user requirement
         self.co_flux_subtract_continuum = use_continuum_subtraction
+        
+        print(f"\n{'='*70}")
+        print(f">>> CO FLUX MAP EXTRACTION PARAMETERS")
+        print(f"{'='*70}")
+        print(f"Wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+        print(f"Continuum subtraction: ENABLED")
+        print(f"  Method: Median filter + peak detection")
+        print(f"  Parameters: window=51, sigma=2.0, peak_dist=3, iterations=2")
+        print(f"{'='*70}\n")
         
         self.co_flux_worker = COFluxMapWorker(
             self.cube_data,

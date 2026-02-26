@@ -11,8 +11,8 @@ from cube_explorer.co_flux_extractor import extract_co_flux_from_spectrum
 
 # Get cube file and pixel from command line
 cube_file = sys.argv[1] if len(sys.argv) > 1 else r"data/NIRSpec/jw01621-o001_t001_nirspec_g395h-f290lp_s3d.fits"
-pixel_x = int(sys.argv[2]) if len(sys.argv) > 2 else 20
-pixel_y = int(sys.argv[3]) if len(sys.argv) > 3 else 20
+pixel_x = int(sys.argv[2]) if len(sys.argv) > 2 else 19
+pixel_y = int(sys.argv[3]) if len(sys.argv) > 3 else 19
 use_plot = not (len(sys.argv) > 4 and sys.argv[4] == '--no-plot')
 
 # Load cube

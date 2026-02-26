@@ -93,6 +93,7 @@ class COFluxMapResultsDialog(QDialog):
         self.contam_catalog = contam_catalog
         self.subtract_continuum = subtract_continuum
         self.selected_pixel = None  # For pixel inspection mode
+        self.pixel_selection_enabled = True  # Toggle for pixel clicking
         
         # Extract units from FITS header using astropy units
         try:
@@ -174,7 +175,15 @@ class COFluxMapResultsDialog(QDialog):
         self.scale_combo.currentIndexChanged.connect(self._update_plot)
         ctrl_layout.addWidget(self.scale_combo)
         
-        ctrl_layout.addWidget(QLabel("  ℹ️ Click a pixel to inspect its spectrum"))
+        # Toggle button for pixel selection mode
+        self.pixel_select_btn = QPushButton("✓ Pixel Select ON")
+        self.pixel_select_btn.setCheckable(True)
+        self.pixel_select_btn.setChecked(True)
+        self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
+        self.pixel_select_btn.clicked.connect(self._toggle_pixel_selection)
+        ctrl_layout.addWidget(self.pixel_select_btn)
+        ctrl_layout.addWidget(QLabel("  (Turn OFF to zoom/pan freely)"))
+        
         ctrl_layout.addStretch()
         map_layout.addLayout(ctrl_layout)
         
@@ -212,8 +221,22 @@ class COFluxMapResultsDialog(QDialog):
         
         self._update_plot()
     
+    def _toggle_pixel_selection(self):
+        """Toggle pixel selection mode on/off"""
+        self.pixel_selection_enabled = self.pixel_select_btn.isChecked()
+        if self.pixel_selection_enabled:
+            self.pixel_select_btn.setText("✓ Pixel Select ON")
+            self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
+        else:
+            self.pixel_select_btn.setText("✗ Pixel Select OFF")
+            self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
+    
     def _on_canvas_click(self, event):
         """Handle click on flux map to inspect pixel spectrum"""
+        # Only process clicks if pixel selection is enabled
+        if not self.pixel_selection_enabled:
+            return
+        
         if event.inaxes is None or self.cube_data is None or self.wavelength is None:
             return
         
@@ -281,16 +304,25 @@ class COFluxMapResultsDialog(QDialog):
                     try:
                         import pandas as pd
                         if isinstance(detected, pd.DataFrame):
-                            # DataFrame format - filter by disposition and wavelength range
-                            detected_co = detected[
-                                (detected['disposition'] == 1) & 
-                                (detected['line'] >= self.wave_range[0]) & 
-                                (detected['line'] <= self.wave_range[1])
-                            ]
-                            for idx, line_row in detected_co.iterrows():
-                                line_wave = float(line_row['line'])
-                                ax.axvline(line_wave, color='red', alpha=0.5, linewidth=1.5, label='CO Lines' if idx == detected_co.index[0] else '')
+                            # DEBUG: Check what columns and rows we have
+                            print(f"DEBUG: detected_lines shape={detected.shape}, columns={detected.columns.tolist()}")
+                            
+                            # Filter by disposition and wavelength range
+                            if len(detected) > 0:
+                                detected_co = detected[
+                                    (detected['disposition'] == 1) & 
+                                    (detected['line'] >= self.wave_range[0]) & 
+                                    (detected['line'] <= self.wave_range[1])
+                                ]
+                                print(f"DEBUG: After filtering: {len(detected_co)} lines out of {len(detected)}")
+                                
+                                for idx, line_row in detected_co.iterrows():
+                                    line_wave = float(line_row['line'])
+                                    ax.axvline(line_wave, color='red', alpha=0.5, linewidth=1.5, label='CO Lines' if idx == detected_co.index[0] else '')
                     except Exception as e:
+                        import traceback
+                        # DEBUG: Print error
+                        print(f"DEBUG: Error marking lines: {e}\n{traceback.format_exc()}")
                         pass  # Silently skip line marking if it fails
                 
                 ax.set_xlabel('Wavelength (μm)')
@@ -381,27 +413,32 @@ class COFluxMapResultsDialog(QDialog):
             try:
                 from astropy.io import fits
                 
-                hdul = fits.HDUList()
-                
-                # Flux HDU
+                # Flux HDU (Primary) - include original header if available
                 hdu = fits.PrimaryHDU(data=self.flux_map.astype(np.float32))
-                hdu.header['EXTNAME'] = 'FLUX'
+                
+                # Copy instrument/origin info from original header if available
+                if self.header is not None:
+                    # Copy essential metadata from original cube header
+                    instrument_keywords = ['INSTRUME', 'TELESCOP', 'OBSERVER', 'OBJECT', 'DATE-OBS', 'EXPTIME']
+                    for kw in instrument_keywords:
+                        if kw in self.header:
+                            hdu.header[kw] = self.header[kw]
+                
                 hdu.header['BUNIT'] = self.flux_unit_str
                 hdu.header['DESC'] = 'CO rovibrational flux: Integrated area under CO line gaussians'
                 if self.wave_range:
                     hdu.header['WAVEMIN'] = (self.wave_range[0], 'Min wavelength used (um)')
                     hdu.header['WAVEMAX'] = (self.wave_range[1], 'Max wavelength used (um)')
                 
-                # Remove problematic WCS keywords if present
-                wcs_keywords = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2', 
-                               'CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2', 'CRPIX1', 'CRPIX2',
+                # Remove only problematic WCS coordinate keywords (not structural FITS keywords)
+                wcs_keywords = ['CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2', 'CRPIX1', 'CRPIX2',
                                'CRVAL1', 'CRVAL2', 'CDELT1', 'CDELT2', 'CMATRIX',
                                'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2']
                 for kw in wcs_keywords:
                     if kw in hdu.header:
                         del hdu.header[kw]
                 
-                hdul.append(hdu)
+                hdul = fits.HDUList([hdu])
                 
                 # Error HDU
                 hdu = fits.ImageHDU(data=self.error_map.astype(np.float32))
@@ -430,23 +467,43 @@ class COFluxMapResultsDialog(QDialog):
         """Show detailed statistics"""
         dlg = QDialog(self)
         dlg.setWindowTitle("Statistics")
-        dlg.resize(400, 300)
+        dlg.resize(500, 350)
         
         layout = QVBoxLayout()
         
-        stats = "CO FLUX MAP STATISTICS\n" + "="*40 + "\n\n"
+        stats = "CO FLUX MAP STATISTICS\n" + "="*50 + "\n\n"
         
-        for name, data in [("Flux", self.flux_map), ("Error", self.error_map), ("Detection", self.detection_map)]:
-            valid = data[~np.isnan(data)]
-            if len(valid) > 0:
-                stats += f"{name}:\n"
-                stats += f"  Count: {len(valid):,}\n"
-                stats += f"  Sum: {np.sum(valid):.4e}\n"
-                stats += f"  Mean: {np.mean(valid):.4e}\n"
-                stats += f"  Min/Max: {np.min(valid):.4e} / {np.max(valid):.4e}\n\n"
+        # Flux statistics with correct units
+        flux_valid = self.flux_map[~np.isnan(self.flux_map)]
+        if len(flux_valid) > 0:
+            stats += f"FLUX ({self.flux_unit_str}):\n"
+            stats += f"  Count: {len(flux_valid):,}\n"
+            stats += f"  Sum:   {np.sum(flux_valid):.4e}\n"
+            stats += f"  Mean:  {np.mean(flux_valid):.4e}\n"
+            stats += f"  Std:   {np.std(flux_valid):.4e}\n"
+            stats += f"  Min/Max: {np.min(flux_valid):.4e} / {np.max(flux_valid):.4e}\n\n"
+        
+        # Error statistics with correct units
+        error_valid = self.error_map[~np.isnan(self.error_map)]
+        if len(error_valid) > 0:
+            stats += f"ERROR / NOISE ({self.bunit_str}):\n"
+            stats += f"  Count: {len(error_valid):,}\n"
+            stats += f"  Sum:   {np.sum(error_valid):.4e}\n"
+            stats += f"  Mean:  {np.mean(error_valid):.4e}\n"
+            stats += f"  Std:   {np.std(error_valid):.4e}\n"
+            stats += f"  Min/Max: {np.min(error_valid):.4e} / {np.max(error_valid):.4e}\n\n"
+        
+        # Detection statistics (unitless count)
+        detection_valid = self.detection_map[self.detection_map > 0]
+        if len(detection_valid) > 0:
+            stats += f"DETECTION COUNT (lines/pixel):\n"
+            stats += f"  Pixels with lines: {len(detection_valid):,}\n"
+            stats += f"  Sum:   {np.sum(detection_valid):.0f}\n"
+            stats += f"  Mean:  {np.mean(detection_valid):.2f}\n"
+            stats += f"  Min/Max: {np.min(detection_valid)} / {np.max(detection_valid)}\n"
         
         label = QLabel(stats)
-        label.setStyleSheet("font-family: monospace;")
+        label.setStyleSheet("font-family: monospace; white-space: pre;")
         label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         layout.addWidget(label)
         
