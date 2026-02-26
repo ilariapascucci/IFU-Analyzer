@@ -796,7 +796,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     dict
         Keys:
         - 'flux_map': 2D array of CO flux for each pixel [counts or flux units × wavelength units]
-        - 'error_map': 2D array of uncertainties (std of residuals)
         - 'detection_map': 2D array with number of detected CO lines per pixel
         - 'wavelength': 1D wavelength array used
         - 'header': FITS header from original cube
@@ -846,7 +845,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     
     # Create output maps
     flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
-    error_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
     
     print(f">>> Creating CO flux map: {n_y}×{n_x} pixels, {n_wave} wavelength elements")
@@ -950,7 +948,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     # Worker function for processing a single row
     def process_row(y_idx):
         row_fluxes = np.full(n_x, np.nan, dtype=np.float32)
-        row_errors = np.full(n_x, np.nan, dtype=np.float32)
         row_detections = np.full(n_x, 0, dtype=np.int32)
         
         # DIAGNOSTIC: Count successes and failures
@@ -998,14 +995,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     # Step 3: Store results in maps
                     row_fluxes[x_idx] = co_flux_val
                     
-                    # Calculate error as std of residuals [IMPROVED: Using gaussian_fitter.compute_noise_std]
-                    residuals = result['residuals']['residual'].values
-                    # Use robust noise estimation
-                    noise_std = compute_noise_std(
-                        wavelength, spectrum_flux, pdeg=1
-                    )
-                    row_errors[x_idx] = noise_std if noise_std is not None else np.nanstd(residuals)
-                    
                     # Count detected CO lines
                     n_detected = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
                     row_detections[x_idx] = n_detected
@@ -1026,7 +1015,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             if (x_idx + 1) % max(1, n_x // 5) == 0:
                 print(f"    Row {y_idx}: {x_idx + 1}/{n_x} pixels...")
         
-        return y_idx, row_fluxes, row_errors, row_detections
+        return y_idx, row_fluxes, row_detections
     
     # Process rows in parallel
     try:
@@ -1045,9 +1034,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     break
                 
                 try:
-                    y_idx, row_fluxes, row_errors, row_detections = future.result()
+                    y_idx, row_fluxes, row_detections = future.result()
                     flux_map[y_idx, :] = row_fluxes
-                    error_map[y_idx, :] = row_errors
                     detection_map[y_idx, :] = row_detections
                 except:
                     # Skip this row if cancelled or failed
@@ -1082,7 +1070,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     
     return {
         'flux_map': flux_map,
-        'error_map': error_map,
         'detection_map': detection_map,
         'wavelength': wavelength,
         'header': cube_data.header,
@@ -1099,7 +1086,6 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
     flux_map_data : dict
         Output dictionary from create_co_flux_map() containing:
         - 'flux_map': 2D array of flux values
-        - 'error_map': 2D array of uncertainties
         - 'detection_map': 2D array of line counts
         - 'wavelength': 1D wavelength array (for reference)
         - 'header': Original FITS header
@@ -1116,15 +1102,13 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
     
     Notes
     -----
-    Creates a FITS file with 3 HDUs:
+    Creates a FITS file with 2 HDUs:
     1. PRIMARY: CO flux map (main data)
-    2. ERROR: Error/uncertainty map
-    3. DETECTION: Number of detected lines per pixel
+    2. DETECTION: Number of detected lines per pixel
     """
     
     try:
         flux_map = flux_map_data['flux_map']
-        error_map = flux_map_data['error_map']
         detection_map = flux_map_data['detection_map']
         wavelength = flux_map_data['wavelength']
         header = flux_map_data.get('header', fits.Header())
@@ -1165,22 +1149,13 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         # Create primary HDU with flux map
         primary_hdu = fits.PrimaryHDU(flux_map.astype(np.float32), header=out_header)
         
-        # Create error map extension
-        error_hdu = fits.ImageHDU(error_map.astype(np.float32), name='ERROR')
-        try:
-            bunit_str = header.get('BUNIT', 'MJy/sr') if header else 'MJy/sr'
-            error_hdu.header['BUNIT'] = bunit_str
-        except Exception:
-            error_hdu.header['BUNIT'] = 'MJy/sr'
-        error_hdu.header['COMMENT'] = 'Noise/uncertainty per pixel from fit residuals'
-        
         # Create detection map extension
         detection_hdu = fits.ImageHDU(detection_map.astype(np.int32), name='DETECTION')
         detection_hdu.header['BUNIT'] = 'count'
         detection_hdu.header['COMMENT'] = 'Number of CO lines detected and fit in each pixel'
         
         # Create HDU list and write
-        hdul = fits.HDUList([primary_hdu, error_hdu, detection_hdu])
+        hdul = fits.HDUList([primary_hdu, detection_hdu])
         hdul.writeto(output_path, overwrite=True)
         
         print(f"✓ Flux map saved to {output_path}")

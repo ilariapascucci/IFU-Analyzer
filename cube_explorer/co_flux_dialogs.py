@@ -78,12 +78,11 @@ class COFluxMapWorker(QThread):
 class COFluxMapResultsDialog(QDialog):
     """Display CO flux extraction results with interactive viewer"""
     
-    def __init__(self, flux_map, error_map, detection_map, header=None, wave_range=None, 
+    def __init__(self, flux_map, detection_map, header=None, wave_range=None, 
                  wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
                  subtract_continuum=False, parent=None):
         super().__init__(parent)
         self.flux_map = flux_map
-        self.error_map = error_map
         self.detection_map = detection_map
         self.header = header
         self.wave_range = wave_range
@@ -159,7 +158,7 @@ class COFluxMapResultsDialog(QDialog):
         ctrl_layout = QHBoxLayout()
         ctrl_layout.addWidget(QLabel("Display:"))
         self.param_combo = QComboBox()
-        self.param_combo.addItems(["CO Flux", "Error", "Detection Count"])
+        self.param_combo.addItems(["CO Flux", "Detection Count"])
         self.param_combo.currentIndexChanged.connect(self._update_plot)
         ctrl_layout.addWidget(self.param_combo)
         
@@ -367,10 +366,6 @@ class COFluxMapResultsDialog(QDialog):
             data = self.flux_map
             title = "CO Rovibrational Flux"
             cbar_label = f"Integrated CO Flux ({self.flux_unit_str})"
-        elif param == "Error":
-            data = self.error_map
-            title = "Uncertainty (σ)"
-            cbar_label = f"Noise Std ({self.bunit_str})"
         else:
             data = self.detection_map.astype(float)
             title = "CO Lines Detected"
@@ -440,13 +435,6 @@ class COFluxMapResultsDialog(QDialog):
                 
                 hdul = fits.HDUList([hdu])
                 
-                # Error HDU
-                hdu = fits.ImageHDU(data=self.error_map.astype(np.float32))
-                hdu.header['EXTNAME'] = 'ERROR'
-                hdu.header['BUNIT'] = self.bunit_str
-                hdu.header['DESC'] = 'Noise standard deviation per pixel'
-                hdul.append(hdu)
-                
                 # Detection HDU
                 hdu = fits.ImageHDU(data=self.detection_map.astype(np.int32))
                 hdu.header['EXTNAME'] = 'DETECTION'
@@ -482,16 +470,6 @@ class COFluxMapResultsDialog(QDialog):
             stats += f"  Mean:  {np.mean(flux_valid):.4e}\n"
             stats += f"  Std:   {np.std(flux_valid):.4e}\n"
             stats += f"  Min/Max: {np.min(flux_valid):.4e} / {np.max(flux_valid):.4e}\n\n"
-        
-        # Error statistics with correct units
-        error_valid = self.error_map[~np.isnan(self.error_map)]
-        if len(error_valid) > 0:
-            stats += f"ERROR / NOISE ({self.bunit_str}):\n"
-            stats += f"  Count: {len(error_valid):,}\n"
-            stats += f"  Sum:   {np.sum(error_valid):.4e}\n"
-            stats += f"  Mean:  {np.mean(error_valid):.4e}\n"
-            stats += f"  Std:   {np.std(error_valid):.4e}\n"
-            stats += f"  Min/Max: {np.min(error_valid):.4e} / {np.max(error_valid):.4e}\n\n"
         
         # Detection statistics (unitless count)
         detection_valid = self.detection_map[self.detection_map > 0]

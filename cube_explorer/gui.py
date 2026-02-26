@@ -4502,7 +4502,6 @@ INTERPRETATION:
                 if reply == QMessageBox.Yes:
                     results_dialog = COFluxMapResultsDialog(
                         self.co_flux_result_cache['flux_map'],
-                        self.co_flux_result_cache['error_map'],
                         self.co_flux_result_cache['detection_map'],
                         header=self.co_flux_result_cache.get('header'),
                         wave_range=self.co_flux_result_cache.get('wave_range'),
@@ -4802,7 +4801,6 @@ INTERPRETATION:
         # Show results with export option
         results_dialog = COFluxMapResultsDialog(
             result['flux_map'],
-            result['error_map'],
             result['detection_map'],
             header=result.get('header'),
             wave_range=result.get('wave_range'),
