@@ -833,7 +833,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     if len(CO_catalog) > 0:
         print(f"      Wavelength range: {CO_catalog['line_wave_um'].min():.4f} - {CO_catalog['line_wave_um'].max():.4f}")
     print(f"    Contaminating catalog: {len(contam_catalog)} lines")
-    if len(contam_catalog) > 0:
+    if len(contam_catalog) > 0 and 'line_wave_um' in contam_catalog.columns:
         print(f"      Wavelength range: {contam_catalog['line_wave_um'].min():.4f} - {contam_catalog['line_wave_um'].max():.4f}")
     
     # DIAGNOSTIC: Check if line wavelengths overlap cube data wavelengths

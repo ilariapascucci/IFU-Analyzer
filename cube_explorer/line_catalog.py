@@ -487,6 +487,9 @@ def load_contaminating_lines_catalog(filepath):
         
         print(f">>> Loading contaminating lines catalog from {filepath}...")
         contam_lines = pd.read_csv(filepath)
+        # Rename 'wavelength' column to 'line_wave_um' for consistency with CO catalog
+        if 'wavelength' in contam_lines.columns:
+            contam_lines = contam_lines.rename(columns={'wavelength': 'line_wave_um'})
         print(f"✓ Loaded {len(contam_lines)} contaminating lines")
         return contam_lines
     except Exception as e:
