@@ -588,7 +588,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
 def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog, 
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
-                                   subtract_continuum=False, continuum_poly_deg=3):
+                                   subtract_continuum=False, continuum_poly_deg=3, excluded_wavelengths=None):
     """
     Extract total CO flux from a single spectrum by fitting all CO lines.
     
@@ -615,6 +615,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         detection method (same as GUI's Automatic Continuum) (default: False)
     continuum_poly_deg : int
         Unused parameter (kept for backward compatibility)
+    excluded_wavelengths : set or list, optional
+        Set of wavelengths to exclude from CO flux calculation
     
     Returns
     -------
@@ -665,9 +667,22 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
         wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
     
+    # Filter out excluded wavelengths from CO catalog
+    CO_catalog_for_fit = CO_catalog
+    if excluded_wavelengths and len(excluded_wavelengths) > 0:
+        excluded_set = set(excluded_wavelengths) if not isinstance(excluded_wavelengths, set) else excluded_wavelengths
+        # Remove lines within 0.001 micron tolerance of excluded wavelengths
+        mask = ~CO_catalog['line_wave_um'].apply(
+            lambda w: any(abs(w - ew) < 0.001 for ew in excluded_set)
+        )
+        CO_catalog_for_fit = CO_catalog[mask].copy()
+        n_excluded = len(CO_catalog) - len(CO_catalog_for_fit)
+        if n_excluded > 0:
+            print(f"  Excluding {n_excluded} CO lines from extraction")
+    
     # Find detected lines
     detected_lines = find_lines(
-        spectrum_wave, spectrum_flux, CO_catalog,
+        spectrum_wave, spectrum_flux, CO_catalog_for_fit,
         contaminating_lines=contam_catalog,
         remove_duplicate='True' if do_duplicate_removal else 'False'
     )
@@ -759,7 +774,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 # ================== Full Cube Processing ==================
 
 def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None,
-                       subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None):
+                       subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None):
     """
     Create 2D map of total CO rovibrational flux by processing all spatial pixels.
     
@@ -790,6 +805,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         Minimum wavelength to fit (μm). If None, uses min of CO_catalog.
     wave_max : float, optional
         Maximum wavelength to fit (μm). If None, uses max of CO_catalog.
+    excluded_wavelengths : set or list, optional
+        Set of CO wavelengths to exclude from flux calculation
     
     Returns
     -------
@@ -978,7 +995,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
                     do_duplicate_removal=True,
                     subtract_continuum=subtract_continuum,
-                    continuum_poly_deg=continuum_poly_deg
+                    continuum_poly_deg=continuum_poly_deg,
+                    excluded_wavelengths=excluded_wavelengths
                 )
                 
                 # Filter detected lines by wavelength range

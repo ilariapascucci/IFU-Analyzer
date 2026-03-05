@@ -2412,6 +2412,42 @@ class CubeExplorer(QWidget):
         if event.inaxes != self.spec_plotter.ax:
             return
 
+        # LEFT CLICK: Check if clicking near a plotted spectral line to deselect it
+        if event.button == 1 and hasattr(self, 'lst_plotted_lines') and self.lst_plotted_lines:
+            hover_threshold = 0.01  # wavelength units tolerance
+            mouse_x = event.xdata
+            if mouse_x is not None:
+                # Find nearest line within threshold
+                nearest_row = None
+                min_dist = float('inf')
+                
+                for row in self.lst_plotted_lines:
+                    from .species_dialog import SpeciesDialog
+                    λ = SpeciesDialog.get_row_wavelength(row)
+                    dist = abs(λ - mouse_x)
+                    if dist < hover_threshold and dist < min_dist:
+                        min_dist = dist
+                        nearest_row = row
+                
+                if nearest_row:
+                    # Found a line to deselect
+                    line_wave = SpeciesDialog.get_row_wavelength(nearest_row)
+                    species = nearest_row.get('species', 'Unknown')
+                    print(f"✓ Deselected: {species} at {line_wave:.6f} μm")
+                    
+                    # Remove from plotted lines
+                    self.lst_plotted_lines = [r for r in self.lst_plotted_lines if r != nearest_row]
+                    
+                    # Track excluded wavelength for CO flux
+                    if not hasattr(self, 'co_flux_excluded_wavelengths'):
+                        self.co_flux_excluded_wavelengths = set()
+                    self.co_flux_excluded_wavelengths.add(line_wave)
+                    print(f"  Excluded from CO flux: {line_wave:.6f} μm")
+                    
+                    # Replot without this line
+                    self.plot_selected_lines(self.lst_plotted_lines)
+                    return
+
         if hasattr(self, 'subtract_mode') and self.subtract_mode == 'selecting' and event.xdata:
             self._mark_subtraction_boundary(event.xdata)
             return
@@ -4510,7 +4546,8 @@ INTERPRETATION:
                         CO_catalog=getattr(self, 'co_flux_catalog', None),
                         contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
                         subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
-                        parent=self
+                        parent=self,
+                        excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set())
                     )
                     results_dialog.exec_()
                     return
@@ -4612,7 +4649,8 @@ INTERPRETATION:
             subtract_continuum=use_continuum_subtraction,
             continuum_poly_deg=3,  # RANSAC polynomial degree
             wave_min=wave_min,
-            wave_max=wave_max
+            wave_max=wave_max,
+            excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set())
         )
         
         self.co_flux_progress = QProgressDialog(
@@ -4809,7 +4847,8 @@ INTERPRETATION:
             CO_catalog=getattr(self, 'co_flux_catalog', None),
             contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
             subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
-            parent=self
+            parent=self,
+            excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set())
         )
         results_dialog.exec_()
     

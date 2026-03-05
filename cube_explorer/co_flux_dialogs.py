@@ -24,7 +24,7 @@ class COFluxMapWorker(QThread):
     finished = pyqtSignal(dict)       # Results dict
     error = pyqtSignal(str)           # Error message
     
-    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None):
+    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None):
         super().__init__()
         self.cube_data = cube_data
         self.CO_catalog = CO_catalog
@@ -34,6 +34,7 @@ class COFluxMapWorker(QThread):
         self.continuum_poly_deg = continuum_poly_deg
         self.wave_min = wave_min
         self.wave_max = wave_max
+        self.excluded_wavelengths = excluded_wavelengths
         self.cancelled = False  # Flag to stop processing
     
     def run(self):
@@ -55,7 +56,8 @@ class COFluxMapWorker(QThread):
                 subtract_continuum=self.subtract_continuum,
                 continuum_poly_deg=self.continuum_poly_deg,
                 wave_min=self.wave_min,
-                wave_max=self.wave_max
+                wave_max=self.wave_max,
+                excluded_wavelengths=self.excluded_wavelengths
             )
             
             if self.cancelled:
@@ -80,7 +82,7 @@ class COFluxMapResultsDialog(QDialog):
     
     def __init__(self, flux_map, detection_map, header=None, wave_range=None, 
                  wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
-                 subtract_continuum=False, parent=None):
+                 subtract_continuum=False, parent=None, excluded_wavelengths=None):
         super().__init__(parent)
         self.flux_map = flux_map
         self.detection_map = detection_map
@@ -93,6 +95,8 @@ class COFluxMapResultsDialog(QDialog):
         self.subtract_continuum = subtract_continuum
         self.selected_pixel = None  # For pixel inspection mode
         self.pixel_selection_enabled = True  # Toggle for pixel clicking
+        self.excluded_wavelengths = set(excluded_wavelengths) if excluded_wavelengths else set()  # Track excluded lines
+        self.parent_gui = parent  # Reference to parent GUI for syncing species dialog
         
         # Extract units from FITS header using astropy units
         try:
@@ -290,12 +294,19 @@ class COFluxMapResultsDialog(QDialog):
                 fig = Figure(figsize=(10, 5))
                 ax = fig.add_subplot(111)
                 
+                # Create canvas FIRST so figure has a canvas for events
+                canvas = FigureCanvasQTAgg(fig)
+                
                 # Plot spectrum
                 ax.plot(self.wavelength, spectrum, 'k-', label='Spectrum', linewidth=1.2, alpha=0.8)
                 
                 # Plot continuum if subtracted
                 if self.subtract_continuum and result.get('mean_continuum'):
                     ax.axhline(result['mean_continuum'], color='orange', linestyle='--', label='Continuum', alpha=0.7)
+                
+                # Initialize line tracking dicts
+                self.detected_lines_dict = {}  # Maps wavelength to line info
+                self.line_artists = {}  # Maps wavelength to matplotlib line artist
                 
                 # Mark detected CO lines with disposition=1
                 detected = result.get('detected_lines')
@@ -317,7 +328,18 @@ class COFluxMapResultsDialog(QDialog):
                                 
                                 for idx, line_row in detected_co.iterrows():
                                     line_wave = float(line_row['line'])
-                                    ax.axvline(line_wave, color='red', alpha=0.5, linewidth=1.5, label='CO Lines' if idx == detected_co.index[0] else '')
+                                    self.detected_lines_dict[line_wave] = line_row
+                                    
+                                    # Determine color based on exclusion status
+                                    is_excluded = any(abs(line_wave - ew) < 0.001 for ew in self.excluded_wavelengths)
+                                    color = 'gray' if is_excluded else 'red'
+                                    alpha = 0.3 if is_excluded else 0.5
+                                    
+                                    # Create line with picker enabled
+                                    line_artist = ax.axvline(line_wave, color=color, alpha=alpha, linewidth=1.5, 
+                                                            label='CO Lines' if idx == detected_co.index[0] else '', picker=5)
+                                    print(f"DEBUG: Created line at {line_wave:.6f} μm, artist={line_artist}, picker enabled")
+                                    self.line_artists[line_wave] = line_artist
                     except Exception as e:
                         import traceback
                         # DEBUG: Print error
@@ -330,7 +352,10 @@ class COFluxMapResultsDialog(QDialog):
                 ax.grid(True, alpha=0.3)
                 ax.legend()
                 
-                canvas = FigureCanvasQTAgg(fig)
+                # Draw the figure NOW so all lines exist before connecting pick event
+                canvas.draw()
+                
+                # Canvas already created above for pick event support
                 toolbar = NavigationToolbar2QT(canvas, dlg)
                 plot_layout = QVBoxLayout()
                 plot_layout.addWidget(toolbar)
@@ -338,6 +363,34 @@ class COFluxMapResultsDialog(QDialog):
                 plot_widget = QWidget()
                 plot_widget.setLayout(plot_layout)
                 layout.addWidget(plot_widget)
+                
+                # IMPORTANT: Set up click event handler AFTER drawing so all lines exist
+                def on_click(event):
+                    if event.inaxes != ax:
+                        return
+                    
+                    click_wavelength = event.xdata
+                    print(f"DEBUG: Click at wavelength {click_wavelength:.6f} μm")
+                    
+                    # Find nearest line within tolerance
+                    tolerance = 0.01  # μm
+                    best_match = None
+                    best_distance = tolerance
+                    
+                    for line_wave in self.line_artists.keys():
+                        distance = abs(line_wave - click_wavelength)
+                        if distance < best_distance:
+                            best_distance = distance
+                            best_match = line_wave
+                    
+                    if best_match is not None:
+                        print(f"DEBUG: Found matching line at {best_match:.6f} μm (distance: {best_distance:.6f} μm)")
+                        self._toggle_line_exclusion(best_match, fig, canvas)
+                    else:
+                        print(f"DEBUG: No line found within {tolerance} μm tolerance")
+                
+                print(f"DEBUG: Connecting click_event handler. {len(self.line_artists)} lines available for clicking")
+                canvas.mpl_connect('button_press_event', on_click)
                 
                 # Close button
                 close_btn = QPushButton("Close")
@@ -351,6 +404,28 @@ class COFluxMapResultsDialog(QDialog):
         
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to inspect pixel:\n{str(e)}")
+    
+    def _toggle_line_exclusion(self, line_wave, fig, canvas):
+        """Toggle exclusion status of a CO line and update visualization"""
+        # Toggle the line in excluded set
+        if any(abs(line_wave - ew) < 0.001 for ew in self.excluded_wavelengths):
+            # Line is currently excluded, remove it
+            self.excluded_wavelengths = {ew for ew in self.excluded_wavelengths if abs(ew - line_wave) >= 0.001}
+            print(f"  Re-enabled CO line at {line_wave:.6f} μm")
+        else:
+            # Line is not excluded, add it
+            self.excluded_wavelengths.add(line_wave)
+            print(f"  Excluded CO line at {line_wave:.6f} μm")
+        
+        # Update line color and alpha
+        if line_wave in self.line_artists:
+            is_excluded = any(abs(line_wave - ew) < 0.001 for ew in self.excluded_wavelengths)
+            line = self.line_artists[line_wave]
+            line.set_color('gray' if is_excluded else 'red')
+            line.set_alpha(0.3 if is_excluded else 0.5)
+        
+        # Redraw
+        canvas.draw_idle()
     
     def _update_plot(self):
         """Update visualization"""
