@@ -676,6 +676,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             lambda w: any(abs(w - ew) < 0.001 for ew in excluded_set)
         )
         CO_catalog_for_fit = CO_catalog[mask].copy()
+        # IMPORTANT: Reset index so positions match indices (0, 1, 2, ... not original indices like 0, 5, 10, 220, ...)
+        CO_catalog_for_fit = CO_catalog_for_fit.reset_index(drop=True)
         n_excluded = len(CO_catalog) - len(CO_catalog_for_fit)
         if n_excluded > 0:
             print(f"  Excluding {n_excluded} CO lines from extraction")
