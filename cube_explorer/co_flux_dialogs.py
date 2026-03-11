@@ -264,7 +264,7 @@ class COFluxMapResultsDialog(QDialog):
                 return
             
             # Re-extract CO flux for this pixel to get fit info
-            if self.CO_catalog is not None and self.contam_catalog is not None:
+            if self.CO_catalog is not None:
                 result = extract_co_flux_from_spectrum(
                     self.wavelength, spectrum, self.CO_catalog, self.contam_catalog,
                     wave_min=self.wave_range[0] if self.wave_range else None,

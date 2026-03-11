@@ -682,7 +682,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         if n_excluded > 0:
             print(f"  Excluding {n_excluded} CO lines from extraction")
     
-    # Find detected lines
+    # Find detected lines (contam_catalog can be None if user didn't upload contaminating lines)
     detected_lines = find_lines(
         spectrum_wave, spectrum_flux, CO_catalog_for_fit,
         contaminating_lines=contam_catalog,
@@ -717,7 +717,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     # Filter contam_catalog to only include detected lines
     if len(detected_lines) > 0 and 'line' in detected_lines.columns:
         detected_wavelengths = detected_lines.loc[detected_lines['disposition'] == 1, 'line'].values
-        if len(detected_wavelengths) > 0 and 'line_wave_um' in contam_catalog.columns:
+        if len(detected_wavelengths) > 0 and contam_catalog is not None and 'line_wave_um' in contam_catalog.columns:
             detected_contam = contam_catalog[
                 contam_catalog['line_wave_um'].isin(detected_wavelengths)
             ].copy()
@@ -851,9 +851,12 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     print(f"    CO catalog: {len(CO_catalog)} lines")
     if len(CO_catalog) > 0:
         print(f"      Wavelength range: {CO_catalog['line_wave_um'].min():.4f} - {CO_catalog['line_wave_um'].max():.4f}")
-    print(f"    Contaminating catalog: {len(contam_catalog)} lines")
-    if len(contam_catalog) > 0 and 'line_wave_um' in contam_catalog.columns:
-        print(f"      Wavelength range: {contam_catalog['line_wave_um'].min():.4f} - {contam_catalog['line_wave_um'].max():.4f}")
+    if contam_catalog is not None:
+        print(f"    Contaminating catalog: {len(contam_catalog)} lines")
+        if len(contam_catalog) > 0 and 'line_wave_um' in contam_catalog.columns:
+            print(f"      Wavelength range: {contam_catalog['line_wave_um'].min():.4f} - {contam_catalog['line_wave_um'].max():.4f}")
+    else:
+        print(f"    Contaminating catalog: None (user did not upload contaminating lines)")
     
     # DIAGNOSTIC: Check if line wavelengths overlap cube data wavelengths
     co_overlap = (CO_catalog['line_wave_um'] >= wave_min) & (CO_catalog['line_wave_um'] <= wave_max)

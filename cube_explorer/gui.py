@@ -37,7 +37,7 @@ from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
-from .line_catalog import get_available_molecules, filter_spectral_lines, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
+from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
@@ -247,10 +247,7 @@ class CubeExplorer(QWidget):
         super().__init__()
         self.setWindowTitle("Cube Explorer")
         self.cube_data = CubeData()
-        self.lst_file = None
         self._init_ui()
-        # Load default LST file on startup
-        self.load_default_lst()
         # Load CO line catalogs on startup
         self._load_CO_catalogs()
 
@@ -449,8 +446,7 @@ class CubeExplorer(QWidget):
 
         # --- Reset labels ---
         self.instrument_label.setText("Instrument: -")
-        self.lst_label.setText("LST Loaded: -")
-        print("[DEBUG] Resetting instrument and LST labels")
+        print("[DEBUG] Resetting instrument label")
 
         # --- Force garbage collection ---
         gc.collect()
@@ -483,10 +479,6 @@ class CubeExplorer(QWidget):
         self.header_btn.clicked.connect(self.show_header)
         self.header_btn.setToolTip("Display the FITS header information")
 
-        self.lst_btn = QPushButton("Import LST")
-        self.lst_btn.clicked.connect(self.select_lst)
-        self.lst_btn.setToolTip("Load a line list (LST) file for spectral line identification")
-        
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.clicked.connect(self.refresh_view)
         self.refresh_btn.setToolTip("Refresh all plots")
@@ -499,17 +491,12 @@ class CubeExplorer(QWidget):
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
 
-        self.lst_label = QLabel("LST loaded: -")
-        self.lst_label.setStyleSheet("font-weight: bold;")
-
         self.controls_layout = QHBoxLayout()
         self.controls_layout.addWidget(self.open_btn)
         self.controls_layout.addWidget(self.header_btn)
-        self.controls_layout.addWidget(self.lst_btn)
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
         self.controls_layout.addWidget(self.instrument_label)
-        self.controls_layout.addWidget(self.lst_label)
         self.controls_layout.addStretch()
 
     def _init_plots(self):
@@ -693,12 +680,8 @@ class CubeExplorer(QWidget):
         self.load_contam_btn.setToolTip("(Optional) Load CSV file with contaminating lines")
         self.load_contam_btn.clicked.connect(self._load_contaminating_lines_dialog)
         
-        self.show_lst_btn = QPushButton("LST")
-        self.show_lst_btn.setToolTip("Open list of LST lines within current range")
-        self.show_lst_btn.clicked.connect(self.show_filtered_lines)
-        
         self.show_species_btn = QPushButton("SPECIES")
-        self.show_species_btn.setToolTip("Show HITRAN and LST species combination (or HITRAN only if LST not loaded)")
+        self.show_species_btn.setToolTip("Show available HITRAN species")
         self.show_species_btn.clicked.connect(self.show_available_species)
 
     def _init_shape_controls(self):
@@ -903,7 +886,6 @@ class CubeExplorer(QWidget):
         self.hitran_group.add_button(self.max_wave_input)
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.load_contam_btn)
-        self.hitran_group.add_button(self.show_lst_btn)
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.co_flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
@@ -1593,10 +1575,9 @@ class CubeExplorer(QWidget):
         self.last_idx_right = 0
         self.last_selection_left = None
         self.last_selection_right = None
-        self.lst_plotted_lines = []
-        self.lst_plotted_artists = []
         self.hitran_lines = []  # Store HITRAN lines separately
-        self.lst_lines = []  # Store LST lines separately
+        self.plotted_lines = []  # Store currently plotted spectral lines
+        self.plotted_artists = []  # Store matplotlib artist objects for plotted lines
         self.scale_left = 'Linear'
         self.scale_right = 'Linear'
         
@@ -1824,46 +1805,8 @@ class CubeExplorer(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display header: {str(e)}")
 
-    def select_lst(self):
-        """Open dialog to load .LST line list file"""
-        fname, _ = QFileDialog.getOpenFileName(
-            self, "Open Line List", filter="Line List (*.lst *.txt)"
-        )
-        if fname:
-            # Read file safely
-            with open(fname, "r") as f:
-                self.lst_data = f.read().splitlines()
-
-            self.lst_file = fname
-            self.lst_label.setText(f".LST: LOADED ({os.path.basename(fname)})")
-
-            QMessageBox.information(self, "LST Loaded",
-                                    f"Imported line list:\n{fname}")
-
-    def load_default_lst(self):
-        """Load default LST file from cube_explorer folder"""
-        default_lst_path = os.path.join(os.path.dirname(__file__), "publis20240406.lst")
-        
-        if os.path.exists(default_lst_path):
-            try:
-                with open(default_lst_path, "r") as f:
-                    self.lst_data = f.read().splitlines()
-                
-                self.lst_file = default_lst_path
-                self.lst_label.setText(f".LST: LOADED (publis20240406.lst)")
-                
-                print(f"[DEBUG] Loaded default LST file: {default_lst_path}")
-            except Exception as e:
-                print(f"[WARNING] Failed to load default LST file: {e}")
-        else:
-            print(f"[WARNING] Default LST file not found at: {default_lst_path}")
-
     def apply_wavelength_range(self):
         """Triggered when user confirms wavelength range (OK button - currently not visible)"""
-        if not hasattr(self, "lst_file") or not self.lst_file:
-            QMessageBox.warning(self, "No LST File", "Please load a .LST file first.")
-            return
-
         # Read min/max wavelength
         try:
             min_wave = float(self.min_wave_input.text())
@@ -1880,51 +1823,9 @@ class CubeExplorer(QWidget):
         QMessageBox.information(
             self, "Range Set", 
             f"Wavelength range set to {min_wave:.3f} - {max_wave:.3f} µm\n\n"
-            "Click the LST button to view and select lines to plot."
+            "Use HITRAN button to fetch spectral lines."
         )
 
-
-    def plot_lst_lines(self, min_wave, max_wave, species=None):
-        """Plot vertical lines from LST file within a wavelength range and optional species"""
-        if not hasattr(self, "lst_file") or not self.lst_file:
-            print("No LST file loaded")
-            return
-
-        # Filter spectral lines
-        results, species_counts = filter_spectral_lines(
-            self.lst_data, min_wave, max_wave, species
-        )
-
-        # Debug prints
-        print(f"Filtering for species: '{species}' in range {min_wave}-{max_wave}")
-        print(f"Available species in this range: {list(species_counts.keys())}")
-        print(f"Number of matched lines: {len(results)}")
-
-        if not results:
-            QMessageBox.information(
-                self, "No Matches",
-                f"No spectral lines found for '{species or 'all'}' in this range."
-            )
-            return
-
-        # Use spectrum axis
-        ax = self.spec_plotter.ax
-
-        # Remove previous LST lines
-        for line in ax.lines[:]:
-            if getattr(line, "_from_lst", False):
-                line.remove()
-
-        # Plot new lines (no text labels)
-        for row in results:
-            try:
-                wavelength = SpeciesDialog.get_row_wavelength(row)
-                vline = ax.axvline(wavelength, color="red", linestyle="--", alpha=0.6)
-                vline._from_lst = True
-            except Exception:
-                continue
-
-        self.spec_canvas.draw_idle()
 
     def on_span_selected(self, xmin, xmax):
         self.min_wave_input.setText(f"{xmin:.3f}")
@@ -2418,7 +2319,7 @@ class CubeExplorer(QWidget):
             return
 
         # LEFT CLICK: Check if clicking near a plotted spectral line to deselect it
-        if event.button == 1 and hasattr(self, 'lst_plotted_lines') and self.lst_plotted_lines:
+        if event.button == 1 and hasattr(self, 'plotted_lines') and self.plotted_lines:
             hover_threshold = 0.01  # wavelength units tolerance
             mouse_x = event.xdata
             if mouse_x is not None:
@@ -2426,7 +2327,7 @@ class CubeExplorer(QWidget):
                 nearest_row = None
                 min_dist = float('inf')
                 
-                for row in self.lst_plotted_lines:
+                for row in self.plotted_lines:
                     from .species_dialog import SpeciesDialog
                     λ = SpeciesDialog.get_row_wavelength(row)
                     dist = abs(λ - mouse_x)
@@ -2441,7 +2342,7 @@ class CubeExplorer(QWidget):
                     print(f"✓ Deselected: {species} at {line_wave:.6f} μm")
                     
                     # Remove from plotted lines
-                    self.lst_plotted_lines = [r for r in self.lst_plotted_lines if r != nearest_row]
+                    self.plotted_lines = [r for r in self.plotted_lines if r != nearest_row]
                     
                     # Track excluded wavelength for CO flux
                     if not hasattr(self, 'co_flux_excluded_wavelengths'):
@@ -2450,7 +2351,7 @@ class CubeExplorer(QWidget):
                     print(f"  Excluded from CO flux: {line_wave:.6f} μm")
                     
                     # Replot without this line
-                    self.plot_selected_lines(self.lst_plotted_lines)
+                    self.plot_selected_lines(self.plotted_lines)
                     return
 
         if hasattr(self, 'subtract_mode') and self.subtract_mode == 'selecting' and event.xdata:
@@ -2794,16 +2695,17 @@ class CubeExplorer(QWidget):
     
     def _find_nearest_line_in_range(self, lam_min, lam_max):
         """Find the nearest spectral line within a wavelength range.
-
+        
         Returns:
             float: Wavelength of the nearest line in µm, or None if not found
         """
-        if not hasattr(self, 'lst_lines') or not self.lst_lines:
+        # Optional: Can return a HITRAN line if available, but not required for Gaussian fitting
+        if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
             return None
 
         mid = (lam_min + lam_max) / 2.0
         line_wavelengths = []
-        for row in self.lst_lines:
+        for row in self.hitran_lines:
             try:
                 if 'lambda_micron' in row:
                     lam = float(row['lambda_micron'])
@@ -2967,106 +2869,9 @@ class CubeExplorer(QWidget):
         # This method is kept for compatibility but the layout is not currently used
         pass
 
-    def enable_wavelength_selector(self):
-        def on_select(xmin, xmax):
-            self.find_spectral_lines(xmin, xmax)
-        self.span = SpanSelector(
-            self.spec_plotter.ax, on_select, "horizontal",
-            useblit=True, props=dict(alpha=0.3, facecolor='orange')
-        )
-
-    def on_spectrum_region_selected(self, start_lambda, end_lambda):
-        lines, species_counts = filter_spectral_lines(start_lambda, end_lambda)
-        print(f"Found {len(lines)} lines between {start_lambda} and {end_lambda}")
-
-        # Plot lines on top of spectrum
-        for row in lines:
-            self.spec_plotter.ax.axvline(SpeciesDialog.get_row_wavelength(row), color="red", linestyle="--", alpha=0.4)
-            self.spec_plotter.ax.text(SpeciesDialog.get_row_wavelength(row), 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
-        self.spec_canvas.draw()
-
-    def find_spectral_lines(self, wavelength_min=None, wavelength_max=None):
-        """Search and overlay spectral lines within a wavelength range."""
-        if not hasattr(self, "lst_file"):
-            QMessageBox.warning(self, "No LST File", "Please import an LST file first.")
-            return
-
-        # Get input wavelengths if not passed from SpanSelector
-        if wavelength_min is None or wavelength_max is None:
-            try:
-                wavelength_min = float(self.lambda_min_input.text())
-                wavelength_max = float(self.lambda_max_input.text())
-            except ValueError:
-                QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
-                return
-
-        # Ask user for a species (optional)
-        species, ok = QInputDialog.getText(self, "Select Species", "Enter species (e.g., H2, [Fe II]):")
-        if not ok:
-            return
-
-        # Search lines
-        lines, _ = filter_spectral_lines(self.lst_data, wavelength_min, wavelength_max, species)
-
-        if not lines:
-            QMessageBox.information(self, "No Matches", "No lines found in this range.")
-            return
-
-        # Plot vertical markers
-        ax = self.spec_plotter.ax
-        for row in lines:
-            λ = SpeciesDialog.get_row_wavelength(row)
-            ax.axvline(λ, color="red", linestyle="--", alpha=0.4)
-            ax.text(λ, 1.02, row["species"], rotation=90, va="bottom", ha="center", fontsize=7, color="orange")
-
-        self.spec_canvas.draw()
-
-
-    def show_filtered_lines(self):
-        """Show LST lines for the wavelength range (separate from HITRAN)."""
-        # Get wavelength range from GUI inputs
-        try:
-            min_wave = float(self.min_wave_input.text())
-            max_wave = float(self.max_wave_input.text())
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
-            return
-
-        # Filter LST lines by wavelength (all species)
-        lst_lines, _ = filter_spectral_lines(self.lst_file,
-                                         min_wave,
-                                         max_wave, None)
-
-        # Mark LST lines with source
-        for line in lst_lines:
-            line['source'] = 'LST'
-        
-        # Store LST lines for future reference (for SPECIES button to use)
-        self.lst_lines = lst_lines
-        
-        if not lst_lines:
-            QMessageBox.information(self, "No Matches", "No LST lines found in this wavelength range.")
-            return
-
-        # Sort by wavelength (ascending)
-        lst_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
-
-        # Show selection dialog for LST lines only
-        dlg = SpeciesDialog(lst_lines, parent=self, plotted_rows=self.lst_plotted_lines)
-        result = dlg.exec_()
-
-        # Get selected rows and plot
-        if result == QDialog.Accepted:
-            selected_rows = dlg.get_selected_rows()
-            if not selected_rows:
-                QMessageBox.information(self, "No Selection", "No lines selected.")
-                return
-
-            self.plot_selected_lines(selected_rows)
-
     def show_available_species(self):
         """
-        Show HITRAN and LST species combination (or HITRAN only if LST not loaded).
+        Show available HITRAN species.
         This is the main species viewing button.
         """
         # Check if HITRAN data exists
@@ -3074,12 +2879,8 @@ class CubeExplorer(QWidget):
             QMessageBox.warning(self, "No HITRAN Data", "Click the HITRAN button first to fetch HITRAN lines.")
             return
         
-        # Start with HITRAN lines
+        # Use only HITRAN lines
         all_lines = list(self.hitran_lines)
-        
-        # If LST data is loaded, combine with HITRAN
-        if hasattr(self, 'lst_lines') and self.lst_lines:
-            all_lines = self.lst_lines + all_lines
         
         if not all_lines:
             QMessageBox.information(self, "No Data", "No spectral lines available.")
@@ -3089,7 +2890,7 @@ class CubeExplorer(QWidget):
         all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
         
         # Show selection dialog
-        dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.lst_plotted_lines)
+        dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=[])
         result = dlg.exec_()
         
         if result == QDialog.Accepted:
@@ -3108,7 +2909,7 @@ class CubeExplorer(QWidget):
         lines = self.catalog.filter_species_wavelength(species, lam_min, lam_max)
 
         # Create dialog
-        dlg = SpeciesDialog(lines, parent=self, plotted_rows=self.lst_plotted_lines)
+        dlg = SpeciesDialog(lines, parent=self, plotted_rows=self.plotted_lines)
         result = dlg.exec_()
 
         if result == QDialog.Accepted:
@@ -3123,15 +2924,15 @@ class CubeExplorer(QWidget):
         ax = self.spec_plotter.ax
 
         # Remove old lines/text
-        for artist in self.lst_plotted_artists:
+        for artist in self.plotted_artists:
             try:
                 artist.remove()
             except Exception as e:
                 print("DEBUG: could not remove artist", e)
-        self.lst_plotted_artists = []
+        self.plotted_artists = []
 
         # Update currently plotted rows
-        self.lst_plotted_lines = rows.copy()
+        self.plotted_lines = rows.copy()
         
         # Get cube wavelength unit
         cube_unit = getattr(self.cube_data, 'wave_unit', 'µm') if hasattr(self, 'cube_data') else 'µm'
@@ -3140,9 +2941,8 @@ class CubeExplorer(QWidget):
         for row in rows:
             λ = SpeciesDialog.get_row_wavelength(row)
             
-            # Determine source unit (LST files are typically in µm, HITRAN varies)
-            is_hitran = row.get('source') == 'HITRAN'
-            source_unit = row.get('wavelength_unit', 'µm')  # Default to µm for LST
+            # Determine source unit (HITRAN)
+            source_unit = row.get('wavelength_unit', 'µm')
             
             # Convert wavelength to cube units if needed
             try:
@@ -3154,11 +2954,8 @@ class CubeExplorer(QWidget):
                 print(f"[DEBUG] Unit conversion failed for {row.get('species', 'Unknown')}: {e}")
                 # Use original wavelength if conversion fails
             
-            # Use darker red for HITRAN lines, regular red for LST lines
-            line_color = "darkred" if is_hitran else "red"
-            line_alpha = 0.6 if is_hitran else 0.4
-            
-            line = ax.axvline(λ, color=line_color, linestyle="--", alpha=line_alpha, picker=5)
+            # Use HITRAN color (darkred)
+            line = ax.axvline(λ, color="darkred", linestyle="--", alpha=0.6, picker=5)
             # Store row data in the line for hover access
             line.row_data = row
             text = ax.text(
@@ -3166,7 +2963,7 @@ class CubeExplorer(QWidget):
                 row["species"], rotation=90, va="bottom", ha="center",
                 fontsize=7, color="orange"
             )
-            self.lst_plotted_artists.extend([line, text])
+            self.plotted_artists.extend([line, text])
 
         self.spec_canvas.draw()
 
@@ -3178,7 +2975,7 @@ class CubeExplorer(QWidget):
         if event.inaxes != self.spec_plotter.ax:
             return
         
-        if not hasattr(self, 'lst_plotted_lines') or not self.lst_plotted_lines:
+        if not hasattr(self, 'plotted_lines') or not self.plotted_lines:
             return
         
         # Check if hovering near any plotted lines
@@ -3191,7 +2988,7 @@ class CubeExplorer(QWidget):
         nearest_row = None
         min_dist = float('inf')
         
-        for row in self.lst_plotted_lines:
+        for row in self.plotted_lines:
             λ = SpeciesDialog.get_row_wavelength(row)
             dist = abs(λ - mouse_x)
             if dist < hover_threshold and dist < min_dist:
@@ -3300,15 +3097,15 @@ class CubeExplorer(QWidget):
         self.gauss_left_btn.setChecked(False)
         self.gauss_right_btn.setChecked(False)
         
-        # Clear all plotted lines (LST, HITRAN)
-        if hasattr(self, 'lst_plotted_artists'):
-            for artist in self.lst_plotted_artists:
+        # Clear all plotted lines (HITRAN)
+        if hasattr(self, 'plotted_artists'):
+            for artist in self.plotted_artists:
                 try:
                     artist.remove()
                 except:
                     pass
-            self.lst_plotted_artists = []
-            self.lst_plotted_lines = []
+            self.plotted_artists = []
+            self.plotted_lines = []
         
         # Clear spectrum plot and reload
         if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
@@ -3546,7 +3343,7 @@ class CubeExplorer(QWidget):
             filtered_results.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
 
             # Show HITRAN results in selection dialog
-            dlg = SpeciesDialog(filtered_results, parent=self, plotted_rows=self.lst_plotted_lines)
+            dlg = SpeciesDialog(filtered_results, parent=self, plotted_rows=self.plotted_lines)
             if dlg.exec_() == QDialog.Accepted:
                 selected_rows = dlg.get_selected_rows()
                 if not selected_rows:
@@ -3842,9 +3639,9 @@ class CubeExplorer(QWidget):
             noise_min = min(self.gauss_noise_left_x, self.gauss_noise_right_x)
             noise_max = max(self.gauss_noise_left_x, self.gauss_noise_right_x)
 
-        # Use line list to set lambda_0 if available
+        # Use HITRAN line to set lambda_0 if available
         self.lambda_0 = None
-        if hasattr(self, 'lst_lines') and self.lst_lines:
+        if hasattr(self, 'hitran_lines') and self.hitran_lines:
             self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max)
 
         # Perform fit
@@ -4158,7 +3955,7 @@ INTERPRETATION:
         self.gauss_progress.show()
 
         self.lambda_0 = None
-        if hasattr(self, 'lst_lines') and self.lst_lines:
+        if hasattr(self, 'hitran_lines') and self.hitran_lines:
             self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max)
         
         # Create and start background worker
