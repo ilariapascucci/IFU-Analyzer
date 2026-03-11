@@ -478,7 +478,13 @@ def load_contaminating_lines_catalog(filepath):
     Returns
     -------
     pandas.DataFrame
-        DataFrame with columns: species, line_wave_um, wavenumber_cm-1, a, gp, Elow_cm-1, eupper(K), Notes
+        DataFrame with columns: wavelength (required), species, and other optional columns.
+        The 'wavelength' column is internally renamed to 'line_wave_um' for consistency.
+        
+    Raises
+    ------
+    ValueError
+        If the CSV file does not contain a 'wavelength' column.
     """
     try:
         if not os.path.exists(filepath):
@@ -487,9 +493,18 @@ def load_contaminating_lines_catalog(filepath):
         
         print(f">>> Loading contaminating lines catalog from {filepath}...")
         contam_lines = pd.read_csv(filepath)
+        
+        # VALIDATE: 'wavelength' column MUST exist
+        if 'wavelength' not in contam_lines.columns:
+            error_msg = (
+                f"❌ CSV file is missing required 'wavelength' column.\n"
+                f"Columns found: {', '.join(contam_lines.columns.tolist())}"
+            )
+            print(error_msg)
+            raise ValueError(error_msg)
+        
         # Rename 'wavelength' column to 'line_wave_um' for consistency with CO catalog
-        if 'wavelength' in contam_lines.columns:
-            contam_lines = contam_lines.rename(columns={'wavelength': 'line_wave_um'})
+        contam_lines = contam_lines.rename(columns={'wavelength': 'line_wave_um'})
         print(f"✓ Loaded {len(contam_lines)} contaminating lines")
         return contam_lines
     except Exception as e:

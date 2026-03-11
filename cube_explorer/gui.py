@@ -267,17 +267,17 @@ class CubeExplorer(QWidget):
         """Load CO line catalogs at GUI startup."""
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         CO_path = os.path.join(base_path, 'data', 'CO', 'CO_comprehensive_linelist_with_g.ecsv')
-        contam_path = os.path.join(base_path, 'data', 'CO', 'ContaminatingLines.csv')
         
         print('\n>>> Loading CO Catalogues...')
         self.CO_lines = load_CO_line_catalog(CO_path)
-        self.contam_lines = load_contaminating_lines_catalog(contam_path)
+        # Contaminating lines are now optional - users can load them separately after HITRAN parameters are set
+        self.contam_lines = None
         
-        if self.CO_lines is not None and self.contam_lines is not None:
+        if self.CO_lines is not None:
             print(f'✓ CO lines: {len(self.CO_lines)} entries')
-            print(f'✓ Contaminating lines: {len(self.contam_lines)} entries\n')
+            print(f'✓ Contaminating lines: OPTIONAL (can be loaded later)\n')
         else:
-            print('⚠️  Warning: Failed to load one or more catalogs\n')
+            print('⚠️  Warning: Failed to load CO lines catalog\n')
     def _clear_all_displays(self):
         """Clear all plots, selections, and stats when loading a new cube."""
         print("=== CLEAR ALL DISPLAYS START ===")
@@ -689,6 +689,10 @@ class CubeExplorer(QWidget):
         self.hitran_btn.setToolTip("Fetch HITRAN lines with transition level filtering")
         self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
         
+        self.load_contam_btn = QPushButton("Load Contaminating Lines")
+        self.load_contam_btn.setToolTip("(Optional) Load CSV file with contaminating lines")
+        self.load_contam_btn.clicked.connect(self._load_contaminating_lines_dialog)
+        
         self.show_lst_btn = QPushButton("LST")
         self.show_lst_btn.setToolTip("Open list of LST lines within current range")
         self.show_lst_btn.clicked.connect(self.show_filtered_lines)
@@ -898,6 +902,7 @@ class CubeExplorer(QWidget):
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(self.max_wave_input)
         self.hitran_group.add_button(self.hitran_btn)
+        self.hitran_group.add_button(self.load_contam_btn)
         self.hitran_group.add_button(self.show_lst_btn)
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.co_flux_map_btn)
@@ -3552,6 +3557,68 @@ class CubeExplorer(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while fetching HITRAN lines:\n{e}")
 
+    def _load_contaminating_lines_dialog(self):
+        """
+        Allow user to load an optional contaminating lines CSV file.
+        This should be done AFTER setting wavelength range and loading HITRAN.
+        """
+        # Suggest default location
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        default_path = os.path.join(base_path, 'data', 'CO')
+        
+        # Open file browser
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Contaminating Lines CSV",
+            default_path,
+            "CSV Files (*.csv);;All Files (*.*)"
+        )
+        
+        if not file_path:
+            return  # User cancelled
+        
+        try:
+            # Load the contaminating lines catalog
+            self.contam_lines = load_contaminating_lines_catalog(file_path)
+            
+            if self.contam_lines is not None and len(self.contam_lines) > 0:
+                # Validate that loading succeeded (the CSV had the required 'wavelength' column)
+                if 'line_wave_um' not in self.contam_lines.columns:
+                    QMessageBox.critical(
+                        self,
+                        "Invalid CSV Format",
+                        "❌ The contaminating lines CSV file is missing the required 'wavelength' column.\n\n"
+                        "The CSV MUST have a column named 'wavelength' (case-sensitive)."
+                    )
+                    self.contam_lines = None
+                    return
+                
+                print(f"✓ Loaded {len(self.contam_lines)} contaminating lines from {os.path.basename(file_path)}")
+                
+                # Show wavelength range of loaded lines
+                min_wave = self.contam_lines['line_wave_um'].min()
+                max_wave = self.contam_lines['line_wave_um'].max()
+                print(f"  Wavelength range: {min_wave:.4f} - {max_wave:.4f} μm")
+                
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"✓ Loaded {len(self.contam_lines)} contaminating lines\n\n"
+                    f"Wavelength range: {min_wave:.4f} - {max_wave:.4f} μm\n\n"
+                    f"These lines will be used when extracting CO flux."
+                )
+            else:
+                QMessageBox.warning(self, "Empty File", "The CSV file is empty or has no valid lines.")
+                self.contam_lines = None
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Loading File",
+                f"Failed to load contaminating lines:\n{e}"
+            )
+            self.contam_lines = None
+
     def _activate_gaussian_left(self):
         """Activate selection mode for left boundary of Gaussian fit"""
         if self.gauss_left_btn.isChecked():
@@ -4478,10 +4545,13 @@ INTERPRETATION:
             return
         
         # Validate catalogs
-        if not hasattr(self, 'CO_lines') or self.CO_lines is None or \
-           not hasattr(self, 'contam_lines') or self.contam_lines is None:
-            QMessageBox.warning(self, "Missing Catalogs", "CO catalogs not loaded")
+        if not hasattr(self, 'CO_lines') or self.CO_lines is None:
+            QMessageBox.warning(self, "Missing Catalog", "CO line catalog not loaded")
             return
+        
+        # Contaminating lines are optional - user can load them or skip
+        if not hasattr(self, 'contam_lines'):
+            self.contam_lines = None
         
         # Step 1: Require automatic continuum subtraction for CO flux extraction
         reply = QMessageBox.question(
