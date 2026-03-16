@@ -488,6 +488,10 @@ class CubeExplorer(QWidget):
         self.new_window_btn = QPushButton("🗗")
         self.new_window_btn.setToolTip("Open a new Cube Explorer window")
         self.new_window_btn.clicked.connect(self._open_new_window)
+
+        self.two_d_btn = QPushButton("2D")
+        self.two_d_btn.setToolTip("Open a 2D FITS analyzer window")
+        self.two_d_btn.clicked.connect(self.open_2d_window)
         
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
@@ -497,6 +501,7 @@ class CubeExplorer(QWidget):
         self.controls_layout.addWidget(self.header_btn)
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
+        self.controls_layout.addWidget(self.two_d_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
@@ -587,6 +592,7 @@ class CubeExplorer(QWidget):
         self.custom_ok_btn = QPushButton("OK")
 
         self.save_spectrum_btn = QPushButton("Save Spectrum")
+        self.save_continuum_btn = QPushButton("Save Continuum")
 
         # Make action buttons checkable
         self.continuum_line_btn.setCheckable(True)
@@ -644,6 +650,7 @@ class CubeExplorer(QWidget):
         self.multi_gauss_fit_btn.clicked.connect(self._fit_multi_gaussian)
         self.co_flux_map_btn.clicked.connect(self._extract_co_flux_map)
         self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
+        self.save_continuum_btn.clicked.connect(self._save_continuum_ascii)
         self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
         self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
         self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
@@ -657,6 +664,7 @@ class CubeExplorer(QWidget):
         self.gauss_right_btn.setToolTip("Click on spectrum to set right boundary of Gaussian fit")
         self.gauss_fit_btn.setToolTip("Fit a Gaussian to the selected line")
         self.save_spectrum_btn.setToolTip("Save the current spectrum to an ASCII file")
+        self.save_continuum_btn.setToolTip("Save the fitted continuum to an ASCII file")
         self.continuum_line_btn.setToolTip("Toggle continuum subtraction mode")
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
@@ -919,6 +927,7 @@ class CubeExplorer(QWidget):
         self.continuum_action_layout.addWidget(self.custom_subtract_btn)
         self.continuum_action_layout.addWidget(self.custom_ok_btn)
         self.continuum_action_layout.addWidget(self.save_spectrum_btn)
+        self.continuum_action_layout.addWidget(self.save_continuum_btn)
         self.continuum_action_layout.addStretch()
         main_layout.addLayout(self.continuum_action_layout)
 
@@ -947,7 +956,7 @@ class CubeExplorer(QWidget):
         if self.continuum_line_btn.isChecked():
             # If Subtract Continuum is active, turn it off first and restore original
             if self.subtract_continuum_btn.isChecked():
-                self.restore_original_spectrum()
+                self._restore_original_spectrum()
                 self.subtract_continuum_btn.setChecked(False)
 
             # Show parameter dialog
@@ -978,7 +987,7 @@ class CubeExplorer(QWidget):
             # Update Subtract Continuum button state
             if hasattr(self, 'continuum_subtracted') and self.continuum_subtracted:
                 if hasattr(self, 'restore_original_spectrum_internal'):
-                    self.restore_original_spectrum_internal()
+                    self._restore_original_spectrum_internal()
                 if hasattr(self, 'subtract_continuum_btn'):
                     self.subtract_continuum_btn.setEnabled(False)
                     self.subtract_continuum_btn.setChecked(False)
@@ -1209,21 +1218,7 @@ class CubeExplorer(QWidget):
                 self.custom_subtract_btn.setChecked(False)
                 return
 
-            # Check if continuum line exists first (ALWAYS check)
-            if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
-                QMessageBox.warning(
-                    self, 
-                    "No Continuum Line Set",
-                    "Please create the continuum line first using the 'Continuum Line' button.\n\n"
-                    "Steps:\n"
-                    "1. Click 'Continuum Line' button to auto-fit the continuum\n"
-                    "2. Then click 'Custom Subtract' to refine it with manual points\n\n"
-                    "The continuum line will be your starting reference for custom subtraction."
-                )
-                self.custom_subtract_btn.setChecked(False)
-                return
-
-            print("DEBUG: Continuum line detected - activating custom subtraction")
+            print("DEBUG: Activating custom subtraction")
 
             # If already subtracted via regular subtract, restore first
             if self.continuum_subtracted and self.original_spectrum_backup is not None:
@@ -1451,6 +1446,8 @@ class CubeExplorer(QWidget):
 
             # Update the spectrum
             self.cube_data.spectrum = subtracted
+
+            self.continuum_fitted = continuum
 
             # Get wavelength for plotting
             wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
@@ -4447,6 +4444,60 @@ Red shaded areas are now visible on the spectrum for all lines.
             QMessageBox.critical(self, "Error", f"Failed to save spectrum:\n{str(e)}")
             print(f"Error saving spectrum: {e}")
 
+    def _save_continuum_ascii(self):
+        """Save the fitted continuum to an ASCII file"""
+        # Ensure a continuum has actually been fitted
+        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+            QMessageBox.warning(self, "No Data", "No continuum has been fitted yet. Please fit a continuum first.")
+            return
+
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            QMessageBox.warning(self, "No Data", "No spectrum loaded.")
+            return
+        
+        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+        if wavelength is None:
+            QMessageBox.warning(self, "No Data", "No wavelength data available.")
+            return
+        
+        # Open file dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Save Continuum as ASCII",
+            "continuum.txt",
+            "Text files (*.txt);;CSV files (*.csv);;All files (*)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Prepare header
+            wave_unit = self.cube_data.wave_unit if hasattr(self.cube_data, 'wave_unit') else "Unknown"
+            instrument = self.cube_data.instrument if hasattr(self.cube_data, 'instrument') else "Unknown"
+            
+            # Write ASCII file with header
+            with open(file_path, 'w') as f:
+                f.write(f"# Continuum Export from Cube Explorer\n")
+                f.write(f"# Instrument: {instrument}\n")
+                f.write(f"# Type: fitted_continuum\n")
+                f.write(f"# Wavelength unit: {wave_unit}\n")
+                f.write(f"# Flux unit: {self.cube_data.header.get('BUNIT', 'Unknown') if hasattr(self.cube_data, 'header') else 'Unknown'}\n")
+                f.write(f"#\n")
+                f.write(f"# Wavelength ({wave_unit})\tContinuum Flux\n")
+                
+                # Write data (skipping any NaN values)
+                for w, c in zip(wavelength, self.continuum_fitted):
+                    if np.isfinite(c):
+                        f.write(f"{w:.6e}\t{c:.6e}\n")
+            
+            QMessageBox.information(self, "Success", f"Continuum saved to:\n{file_path}")
+            print(f"Continuum saved to {file_path}")
+        
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save continuum:\n{str(e)}")
+            print(f"Error saving continuum: {e}")
+
     def on_auto_continuum_toggle(self):
         """Handle Automatic Continuum toggle button"""
         if self.auto_continuum_toggle.isChecked():
@@ -4596,7 +4647,7 @@ Red shaded areas are now visible on the spectrum for all lines.
 
             # Restore original spectrum if subtracted
             if hasattr(self, 'continuum_subtracted') and self.continuum_subtracted:
-                self.restore_original_spectrum()
+                self._restore_original_spectrum()
 
             # Clear fitted continuum
             self.continuum_fitted = None
@@ -5131,3 +5182,20 @@ Red shaded areas are now visible on the spectrum for all lines.
     def _show_co_flux_map_results(self, result):
         """Display results (called from _on_co_flux_map_complete)."""
         pass  # Handled in _on_co_flux_map_complete directly
+
+    def open_2d_window(self):
+        try:
+            from .ifu_analyzer_2d import Ifu_analyzer_2d_window  # new file/module
+
+            two_d_window = Ifu_analyzer_2d_window()
+            two_d_window.resize(self.width(), self.height())
+            two_d_window.show()
+
+            if not hasattr(self, "childwindows") or self.childwindows is None:
+                self.childwindows = []
+            self.childwindows.append(two_d_window)
+
+        except Exception as e:
+            QMessageBox.warning(self, "2D Window Error", f"Could not open 2D window:\n{e}")
+
+

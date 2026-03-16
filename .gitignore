@@ -1,7 +1,9 @@
 # Ignore all FITS files by default
 *.fits
 *.csv
+*.pyc
 
 # Ignore any large data folders
 /data/
-/hitran_local
+/hitran_local/
+/cube_explorer/__pycache__/
