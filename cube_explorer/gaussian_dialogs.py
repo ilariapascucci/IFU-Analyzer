@@ -8,11 +8,12 @@ to keep the main GUI file cleaner and more maintainable.
 import numpy as np
 import os
 from astropy.units import Quantity
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QComboBox, QFileDialog, QMessageBox
+    QComboBox, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem
 )
+from PyQt5.QtGui import QColor, QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 
@@ -618,4 +619,153 @@ class GaussianMapResultsDialog(QDialog):
             fac_above_stdres=fac_above_stdres
         )
         diag_dlg.exec_()
+
+
+class HITRANGaussianResultsDialog(QDialog):
+    """
+    Dialog for displaying multi-Gaussian fit results for HITRAN lines.
+    
+    Shows a searchable, sortable table with results for each fitted line:
+    - Wavelength, Species, Transition
+    - Amplitude, Sigma, FWHM
+    - Area (native and/or CGS units)
+    - R² and fit status
+    """
+    
+    def __init__(self, parent, results, wave_unit='µm', flux_unit=''):
+        super().__init__(parent)
+        self.setWindowTitle("HITRAN Gaussian Fit Results")
+        self.setMinimumSize(1000, 600)
+        
+        self.results = results
+        self.wave_unit = wave_unit
+        self.flux_unit = flux_unit
+        
+        layout = QVBoxLayout()
+        
+        # Summary statistics
+        summary_layout = QHBoxLayout()
+        
+        n_total = len(results)
+        n_success = sum(1 for r in results if r.get('success', False))
+        
+        summary_text = QLabel(
+            f"<b>Summary:</b> {n_success} of {n_total} lines successfully fitted"
+        )
+        summary_layout.addWidget(summary_text)
+        summary_layout.addStretch()
+        
+        layout.addLayout(summary_layout)
+        
+        # Results table
+        self.table = QTableWidget()
+        self.table.setColumnCount(11)
+        self.table.setHorizontalHeaderLabels([
+            "λ (" + wave_unit + ")",
+            "Species",
+            "Transition",
+            "Amplitude",
+            "σ (" + wave_unit + ")",
+            "FWHM (" + wave_unit + ")",
+            "Area (native)",
+            "Area (CGS)",
+            "R²",
+            "Status",
+            "Message"
+        ])
+        
+        self.table.setRowCount(len(results))
+        self.table.setAlternatingRowColors(True)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        
+        # Populate table
+        for row_idx, result in enumerate(results):
+            items = [
+                QTableWidgetItem(f"{result.get('wavelength', 0):.6f}"),
+                QTableWidgetItem(result.get('species', '')),
+                QTableWidgetItem(result.get('transition', '')),
+                QTableWidgetItem(f"{result.get('amplitude', 0):.4e}"),
+                QTableWidgetItem(f"{result.get('sigma', 0):.6f}"),
+                QTableWidgetItem(f"{result.get('fwhm', 0):.6f}"),
+                QTableWidgetItem(f"{result.get('area_native', 0):.4e}"),
+                QTableWidgetItem(f"{result.get('area', 0):.4e}"),
+                QTableWidgetItem(f"{result.get('r_squared', 0):.4f}"),
+                QTableWidgetItem("✓" if result.get('success', False) else "✗"),
+                QTableWidgetItem(result.get('message', ''))
+            ]
+            
+            for col_idx, item in enumerate(items):
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                
+                # Color code based on success
+                if col_idx == 9:  # Status column
+                    if result.get('success', False):
+                        item.setForeground(QColor('green'))
+                        font = QFont()
+                        font.setBold(True)
+                        item.setFont(font)
+                    else:
+                        item.setForeground(QColor('red'))
+                
+                self.table.setItem(row_idx, col_idx, item)
+        
+        # Auto-resize columns
+        self.table.resizeColumnsToContents()
+        layout.addWidget(self.table)
+        
+        # Export button
+        button_layout = QHBoxLayout()
+        
+        export_csv_btn = QPushButton("Export to CSV")
+        export_csv_btn.clicked.connect(self._export_to_csv)
+        button_layout.addWidget(export_csv_btn)
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+    
+    def _export_to_csv(self):
+        """Export results to CSV file"""
+        from PyQt5.QtWidgets import QFileDialog
+        import csv
+        
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export HITRAN Results to CSV",
+            "hitran_fit_results.csv",
+            "CSV Files (*.csv)"
+        )
+        
+        if not out_path:
+            return
+        
+        try:
+            with open(out_path, 'w', newline='') as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=[
+                        'wavelength', 'species', 'transition',
+                        'amplitude', 'sigma', 'fwhm',
+                        'area_native', 'area', 'r_squared',
+                        'success', 'message'
+                    ]
+                )
+                writer.writeheader()
+                writer.writerows(self.results)
+            
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Results exported to:\n{out_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"Failed to export results:\n{str(e)}"
+            )
 

@@ -933,6 +933,289 @@ def fit_gaussian_to_line(x1: float, x2: float,
         )
 
 
+
+def auto_detect_boundaries(peak_x: float, spectrum_x: np.ndarray, spectrum_y: np.ndarray, 
+                           continuum_y: Optional[np.ndarray] = None, threshold_percent: float = 30.0) -> tuple:
+    """
+    Auto-detect LEFT and RIGHT boundaries for a line around a peak.
+    
+    Finds the wavelengths where the spectrum drops to threshold_percent of peak height.
+    
+    Args:
+        peak_x: Line center wavelength (peak location)
+        spectrum_x: Full wavelength array
+        spectrum_y: Full flux array
+        continuum_y: Optional continuum array (will subtract before analysis)
+        threshold_percent: Height threshold in percent of peak (default 30%)
+    
+    Returns:
+        (left_boundary, right_boundary) tuple
+    """
+    # Use continuum-subtracted if provided
+    if continuum_y is not None:
+        spectrum_to_analyze = spectrum_y - continuum_y
+    else:
+        spectrum_to_analyze = spectrum_y
+    
+    # Find index nearest to peak
+    peak_idx = np.argmin(np.abs(spectrum_x - peak_x))
+    
+    # Get peak height
+    peak_height = spectrum_to_analyze[peak_idx]
+    
+    if peak_height <= 0:
+        # Peak is below baseline, use fixed width
+        window = 0.03
+        return peak_x - window, peak_x + window
+    
+    # Threshold for edge detection
+    threshold = (threshold_percent / 100.0) * peak_height
+    
+    # Search LEFT: go backwards from peak until below threshold
+    left_idx = peak_idx
+    for i in range(peak_idx - 1, -1, -1):
+        if spectrum_to_analyze[i] < threshold:
+            left_idx = i
+            break
+    else:
+        left_idx = 0
+    
+    # Search RIGHT: go forwards from peak until below threshold
+    right_idx = peak_idx
+    for i in range(peak_idx + 1, len(spectrum_x)):
+        if spectrum_to_analyze[i] < threshold:
+            right_idx = i
+            break
+    else:
+        right_idx = len(spectrum_x) - 1
+    
+    # Get wavelength values
+    left_boundary = spectrum_x[left_idx]
+    right_boundary = spectrum_x[right_idx]
+    
+    # Ensure we have at least some width
+    min_width = 0.01
+    if right_boundary - left_boundary < min_width:
+        center = peak_x
+        left_boundary = center - min_width / 2
+        right_boundary = center + min_width / 2
+    
+    return left_boundary, right_boundary
+
+
+def fit_hitran_lines(spectrum_x: np.ndarray,
+                     spectrum_y: np.ndarray,
+                     hitran_lines: list,
+                     header: Optional[object] = None,
+                     wave_unit: Optional[str] = None) -> list:
+    """
+    Fit Gaussians to multiple HITRAN lines simultaneously.
+    
+    For each line in the HITRAN catalog:
+    1. Use line wavelength as center guess
+    2. Auto-estimate width from line prominence
+    3. Fit Gaussian to that component
+    4. Calculate area using analytic formula: A * σ * sqrt(2π)
+    5. Optionally convert area to CGS units
+    
+    Args:
+        spectrum_x: Full spectrum wavelength array (1D)
+        spectrum_y: Full spectrum flux array (1D)
+        hitran_lines: List of dicts with keys:
+                     - 'lambda_micron' or 'wavelength' (float, line center in µm)
+                     - 'species' (str, molecule name)
+                     - 'transition' (str, transition info)
+        header: Optional FITS header for CGS unit conversion
+        wave_unit: Wavelength unit string (for header validation)
+    
+    Returns:
+        List of dicts with fit results for each line:
+        {
+            'wavelength': float,
+            'species': str,
+            'transition': str,
+            'amplitude': float,
+            'sigma': float,
+            'fwhm': float,
+            'area': float,
+            'area_native': float,
+            'r_squared': float,
+            'success': bool,
+            'message': str
+        }
+    """
+    results = []
+    
+    if not hitran_lines or len(spectrum_x) < 4:
+        return results
+    
+    # Extract values from potential Quantity objects
+    spectrum_x = _extract_value_from_quantity(spectrum_x)
+    spectrum_y = _extract_value_from_quantity(spectrum_y)
+    
+    # Estimate noise level from whole spectrum
+    std_spectrum = np.nanstd(spectrum_y)
+    
+    for line in hitran_lines:
+        try:
+            # Extract line center wavelength
+            line_center = line.get('lambda_micron') or line.get('wavelength')
+            if line_center is None:
+                results.append({
+                    'wavelength': None,
+                    'species': line.get('species', 'Unknown'),
+                    'transition': line.get('transition', 'N/A'),
+                    'amplitude': 0,
+                    'sigma': 0,
+                    'fwhm': 0,
+                    'area': 0,
+                    'area_native': 0,
+                    'r_squared': 0,
+                    'success': False,
+                    'message': 'Missing wavelength'
+                })
+                continue
+            
+            line_center = float(line_center)
+            
+            # Define fitting window around the line (±0.5 µm or ±10 pixels, whichever is larger)
+            pixel_width = (spectrum_x[-1] - spectrum_x[0]) / len(spectrum_x)
+            window_width = max(0.5, 10 * pixel_width)
+            lam_min = line_center - window_width / 2
+            lam_max = line_center + window_width / 2
+            
+            # Extract data in fitting window
+            mask = (spectrum_x >= lam_min) & (spectrum_x <= lam_max)
+            x_data = spectrum_x[mask]
+            y_data = spectrum_y[mask]
+            
+            if len(x_data) < 4:
+                results.append({
+                    'wavelength': line_center,
+                    'species': line.get('species', 'Unknown'),
+                    'transition': line.get('transition', 'N/A'),
+                    'amplitude': 0,
+                    'sigma': 0,
+                    'fwhm': 0,
+                    'area': 0,
+                    'area_native': 0,
+                    'r_squared': 0,
+                    'success': False,
+                    'message': 'Not enough points in window'
+                })
+                continue
+            
+            # Baseline from endpoints
+            y1 = y_data[0]
+            y2 = y_data[-1]
+            baseline = calculate_baseline(lam_min, y1, lam_max, y2, x_data, y_data)
+            y_corrected = y_data - baseline
+            
+            # Initial parameter guesses
+            peak_idx = np.argmin(np.abs(x_data - line_center))
+            amplitude_guess = np.nanmax(y_corrected)
+            
+            # If no clear peak, skip this line
+            if amplitude_guess <= std_spectrum:
+                results.append({
+                    'wavelength': line_center,
+                    'species': line.get('species', 'Unknown'),
+                    'transition': line.get('transition', 'N/A'),
+                    'amplitude': 0,
+                    'sigma': 0,
+                    'fwhm': 0,
+                    'area': 0,
+                    'area_native': 0,
+                    'r_squared': 0,
+                    'success': False,
+                    'message': 'No significant peak'
+                })
+                continue
+            
+            # Estimate sigma from FWHM ~ 0.3 × window_width
+            sigma_guess = window_width / 5.0
+            
+            # Set bounds
+            x_range = lam_max - lam_min
+            bounds = (
+                [0, lam_min, 0.001 * x_range],
+                [10 * amplitude_guess, lam_max, 0.2 * x_range]
+            )
+            
+            # Fit Gaussian with RANSAC
+            try:
+                popt, ransac_success, _ = fit_gaussian_with_ransac(
+                    x_data, y_corrected,
+                    p0=[amplitude_guess, line_center, sigma_guess],
+                    bounds=bounds,
+                    ransac_thresh=2.0,
+                    ransac_iters=3
+                )
+                
+                amplitude, center, sigma = popt
+                
+                # Calculate derived quantities
+                fwhm = 2.355 * sigma
+                area_native = amplitude * sigma * np.sqrt(2 * np.pi)
+                
+                # Try CGS conversion
+                unit = get_wave_unit(header, wave_unit)
+                area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit_input=None) if header else None
+                area = area_cgs if area_cgs is not None else area_native
+                
+                # R² calculation
+                y_fit = gaussian(x_data, amplitude, center, sigma)
+                ss_res = np.sum((y_corrected - y_fit)**2)
+                ss_tot = np.sum((y_corrected - np.mean(y_corrected))**2)
+                r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+                
+                results.append({
+                    'wavelength': center,
+                    'species': line.get('species', 'Unknown'),
+                    'transition': line.get('transition', 'N/A'),
+                    'amplitude': amplitude,
+                    'sigma': sigma,
+                    'fwhm': fwhm,
+                    'area': area,
+                    'area_native': area_native,
+                    'r_squared': r_squared,
+                    'success': True,
+                    'message': 'Success'
+                })
+                
+            except Exception as e:
+                results.append({
+                    'wavelength': line_center,
+                    'species': line.get('species', 'Unknown'),
+                    'transition': line.get('transition', 'N/A'),
+                    'amplitude': 0,
+                    'sigma': 0,
+                    'fwhm': 0,
+                    'area': 0,
+                    'area_native': 0,
+                    'r_squared': 0,
+                    'success': False,
+                    'message': f'Fit error: {str(e)}'
+                })
+        
+        except Exception as e:
+            results.append({
+                'wavelength': line.get('wavelength', 0),
+                'species': line.get('species', 'Unknown'),
+                'transition': line.get('transition', 'N/A'),
+                'amplitude': 0,
+                'sigma': 0,
+                'fwhm': 0,
+                'area': 0,
+                'area_native': 0,
+                'r_squared': 0,
+                'success': False,
+                'message': f'Error: {str(e)}'
+            })
+    
+    return results
+
+
 def calculate_equivalent_width(fit_result: GaussianFitResult, 
                                continuum_level: Optional[float] = None) -> float:
     """

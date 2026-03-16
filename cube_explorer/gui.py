@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog
 )
 from PyQt5.QtCore import Qt, QPoint, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
+from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -39,7 +40,7 @@ from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
 from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
 from .species_dialog import SpeciesDialog
-from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
+from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, auto_detect_boundaries
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
 from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
 from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit
@@ -549,6 +550,7 @@ class CubeExplorer(QWidget):
         self.gauss_noise_right_btn = QPushButton("Noise R")
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
+        self.multi_gauss_fit_btn = QPushButton("Multi-Gaussian Fit")
         self.co_flux_map_btn = QPushButton("CO Flux Map")
         
         self.auto_continuum_toggle = QPushButton("Automatic Continuum")
@@ -639,6 +641,7 @@ class CubeExplorer(QWidget):
         self.gauss_noise_right_btn.clicked.connect(self._activate_gaussian_noise_right)
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
+        self.multi_gauss_fit_btn.clicked.connect(self._fit_multi_gaussian)
         self.co_flux_map_btn.clicked.connect(self._extract_co_flux_map)
         self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
         self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
@@ -657,6 +660,7 @@ class CubeExplorer(QWidget):
         self.continuum_line_btn.setToolTip("Toggle continuum subtraction mode")
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
+        self.multi_gauss_fit_btn.setToolTip("Fit Gaussians to all selected HITRAN lines using current continuum")
         self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
         self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
         self.custom_subtract_btn.setToolTip("Manually select continuum points")
@@ -886,6 +890,7 @@ class CubeExplorer(QWidget):
         self.hitran_group.add_button(self.max_wave_input)
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.load_contam_btn)
+        self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.co_flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
@@ -2340,9 +2345,21 @@ class CubeExplorer(QWidget):
                     line_wave = SpeciesDialog.get_row_wavelength(nearest_row)
                     species = nearest_row.get('species', 'Unknown')
                     print(f"✓ Deselected: {species} at {line_wave:.6f} μm")
+                    print(f"[DEBUG] plotted_lines BEFORE deselect: {len(self.plotted_lines)} lines")
+                    for r in self.plotted_lines:
+                        rwave = SpeciesDialog.get_row_wavelength(r)
+                        print(f"  - {r.get('species', 'Unknown')}: {rwave:.6f}")
                     
-                    # Remove from plotted lines
-                    self.plotted_lines = [r for r in self.plotted_lines if r != nearest_row]
+                    # Remove from plotted lines by wavelength comparison (more reliable than object equality)
+                    self.plotted_lines = [
+                        r for r in self.plotted_lines 
+                        if abs(SpeciesDialog.get_row_wavelength(r) - line_wave) > 1e-6
+                    ]
+                    
+                    print(f"[DEBUG] plotted_lines AFTER deselect: {len(self.plotted_lines)} lines")
+                    for r in self.plotted_lines:
+                        rwave = SpeciesDialog.get_row_wavelength(r)
+                        print(f"  - {r.get('species', 'Unknown')}: {rwave:.6f}")
                     
                     # Track excluded wavelength for CO flux
                     if not hasattr(self, 'co_flux_excluded_wavelengths'):
@@ -2350,8 +2367,19 @@ class CubeExplorer(QWidget):
                     self.co_flux_excluded_wavelengths.add(line_wave)
                     print(f"  Excluded from CO flux: {line_wave:.6f} μm")
                     
-                    # Replot without this line
+                    # Replot spectrum without this line
                     self.plot_selected_lines(self.plotted_lines)
+                    
+                    # Remove its Gaussian fit if present
+                    if hasattr(self, 'multi_gauss_results'):
+                        self.multi_gauss_results = [
+                            fit_info for fit_info in self.multi_gauss_results
+                            if abs(SpeciesDialog.get_row_wavelength(fit_info['line']) - line_wave) > 1e-6
+                        ]
+                        # Replot remaining Gaussian fits
+                        if self.multi_gauss_results:
+                            self._plot_multi_gaussian_on_spectrum(self.multi_gauss_results)
+                    
                     return
 
         if hasattr(self, 'subtract_mode') and self.subtract_mode == 'selecting' and event.xdata:
@@ -2908,17 +2936,15 @@ class CubeExplorer(QWidget):
         # Get filtered rows from catalog
         lines = self.catalog.filter_species_wavelength(species, lam_min, lam_max)
 
-        # Create dialog
+        # Create dialog, passing currently plotted lines for checkbox sync
         dlg = SpeciesDialog(lines, parent=self, plotted_rows=self.plotted_lines)
         result = dlg.exec_()
 
         if result == QDialog.Accepted:
             selected_rows = dlg.get_selected_rows()
-
-            # Extract wavelengths for plotting
-            wavelengths = [row["wavelength"] for row in selected_rows]
-
-            self.display.draw_vertical_lines(wavelengths)
+            
+            # Update the spectrum plot with selected lines
+            self.plot_selected_lines(selected_rows)
 
     def plot_selected_lines(self, rows):
         ax = self.spec_plotter.ax
@@ -3809,6 +3835,18 @@ INTERPRETATION:
             self.gauss_noise_left_btn.setChecked(False)
             self.gauss_noise_right_btn.setChecked(False)
             
+            # Clear multi-Gaussian fits if present
+            if hasattr(self, 'multi_gauss_artists'):
+                for artist in self.multi_gauss_artists:
+                    try:
+                        artist.remove()
+                    except:
+                        pass
+                self.multi_gauss_artists = []
+                print("[DEBUG] Cleared multi-Gaussian artists")
+            
+            self.multi_gauss_results = None
+            
             # Update legend and redraw
             self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
             self.spec_canvas.draw()
@@ -3833,6 +3871,346 @@ INTERPRETATION:
         
         # Also clear Gaussian fit visualization
         self.clear_gaussian_fit()
+
+    def _fit_multi_gaussian(self):
+        """
+        Fit Gaussians to each selected HITRAN line individually.
+        Same process as single Gaussian, but repeat for each line.
+        Uses the pre-computed automatic continuum as baseline.
+        """
+        # Validation: lines selected
+        if not hasattr(self, 'plotted_lines') or not self.plotted_lines:
+            QMessageBox.warning(
+                self,
+                "No Lines Selected",
+                "Please first select HITRAN lines to fit."
+            )
+            return
+        
+        # Validation: data loaded
+        if not hasattr(self, 'cube_data') or self.cube_data is None:
+            QMessageBox.warning(self, "No Data", "Load a data cube first.")
+            return
+        
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            QMessageBox.warning(self, "No Data", "Load a data cube first.")
+            return
+        
+        # Validation: continuum computed
+        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+            QMessageBox.warning(
+                self,
+                "No Continuum",
+                "Please compute the continuum first before fitting lines."
+            )
+            return
+        
+        # Get spectrum data
+        spectrum_x = _extract_wavelength_value(self.spec_plotter.wavelength)
+        spectrum_y = self.cube_data.spectrum
+        continuum_y = self.continuum_fitted
+        
+        if spectrum_x is None or spectrum_y is None:
+            QMessageBox.warning(self, "No Spectrum", "No spectrum data available.")
+            return
+        
+        if len(spectrum_x) != len(spectrum_y) or len(spectrum_x) != len(continuum_y):
+            QMessageBox.warning(self, "Data Mismatch", "Wavelength, flux, and continuum arrays have different lengths.")
+            return
+        
+        # Fit each HITRAN line individually
+        fit_results = []
+        
+        for line in self.plotted_lines:
+            try:
+                # Get line center wavelength
+                line_center = line.get('lambda_micron') or line.get('wavelength')
+                if line_center is None:
+                    continue
+                
+                line_center = float(line_center)
+                
+                # Auto-detect boundaries: find where signal drops below ~30% of peak
+                x1, x2 = auto_detect_boundaries(
+                    line_center, spectrum_x, spectrum_y,
+                    continuum_y=continuum_y,
+                    threshold_percent=30.0
+                )
+                
+                # Get indices for this region
+                region_mask = (spectrum_x >= x1) & (spectrum_x <= x2)
+                continuum_region = continuum_y[region_mask]
+                
+                # Subtract the auto-continuum to get line-only data
+                spectrum_region = spectrum_y[region_mask]
+                spectrum_line_only = spectrum_region - continuum_region
+                spectrum_x_region = spectrum_x[region_mask]
+                
+                # Fit Gaussian to continuum-subtracted spectrum
+                # The baseline will naturally be ~0 (the continuum level was subtracted)
+                result = fit_gaussian_to_line(
+                    x1, x2,
+                    spectrum_x_region, spectrum_line_only,  # Use continuum-subtracted data
+                    peak_x=line_center,
+                    noise_min=None,
+                    noise_max=None,
+                    header=self.cube_data.header,
+                    wave_unit=self.cube_data.wave_unit
+                )
+                
+                if result.success:
+                    # Replace the linear baseline with the actual auto-continuum array
+                    # so the baseline in plots and calculations reflects the true continuum
+                    result.baseline = continuum_region.copy()
+                    
+                    fit_results.append({
+                        'line': line,
+                        'result': result
+                    })
+            
+            except Exception as e:
+                print(f"Error fitting line {line.get('species', 'Unknown')}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        if not fit_results:
+            QMessageBox.warning(
+                self,
+                "Fit Failed",
+                "Could not fit any HITRAN lines. Check their positions and wavelength ranges."
+            )
+            return
+        
+        print(f"[DEBUG] Successfully fitted {len(fit_results)} lines with auto-continuum baseline")
+        
+        # Store results for later use
+        self.multi_gauss_results = fit_results
+        
+        # Plot all fits on spectrum and show results
+        self._plot_multi_gaussian_on_spectrum(fit_results)
+        self._show_multi_gaussian_results(fit_results)
+
+    def _plot_multi_gaussian_on_spectrum(self, fit_results):
+        """
+        Plot each fitted Gaussian on the spectrum.
+        Plot all 10 at once, don't call plot_gaussian_fit repeatedly (it clears each time).
+        fit_results is a list of {'line': line_dict, 'result': GaussianFitResult}
+        """
+        ax = self.spec_plotter.ax
+        
+        # Store artists for later clearing  
+        if not hasattr(self, 'multi_gauss_artists'):
+            self.multi_gauss_artists = []
+        
+        # Clear old artists if any
+        for artist in self.multi_gauss_artists:
+            try:
+                artist.remove()
+            except:
+                pass
+        self.multi_gauss_artists = []
+        
+        # Normalize if needed (same logic as single Gaussian)
+        if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
+            global_y = self.spec_plotter.global_line.get_ydata()
+            global_median = np.nanmedian(global_y[np.isfinite(global_y)])
+            if 0.5 < global_median < 2.0:
+                fit_median = np.nanmedian(np.concatenate([fit['result'].y_data for fit in fit_results]))
+                norm_factor = fit_median if fit_median > 0 else 1.0
+            else:
+                norm_factor = 1.0
+        else:
+            norm_factor = 1.0
+        
+        # Plot each fitted Gaussian
+        for idx, fit_info in enumerate(fit_results):
+            result = fit_info['result']
+            
+            # Normalize
+            baseline_norm = result.baseline / norm_factor
+            y_fit_norm = result.y_fit / norm_factor
+            
+            # Plot baseline as dashed line (only for first fit to avoid legend clutter)
+            if idx == 0:
+                baseline_line, = ax.plot(
+                    result.x_data, baseline_norm,
+                    'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=10
+                )
+                self.multi_gauss_artists.append(baseline_line)
+            
+            # Plot fitted Gaussian as red line
+            gauss_line, = ax.plot(
+                result.x_data, baseline_norm + y_fit_norm,
+                'r-', linewidth=3, alpha=0.9, label='Gaussian Fit' if idx == 0 else '', zorder=11
+            )
+            self.multi_gauss_artists.append(gauss_line)
+            
+            # Shade area under Gaussian
+            fill = ax.fill_between(
+                result.x_data, baseline_norm, baseline_norm + y_fit_norm,
+                color='red', alpha=0.2, zorder=9
+            )
+            self.multi_gauss_artists.append(fill)
+        
+        # Update legend and redraw
+        ax.legend(loc='upper right', fontsize=8)
+        self.spec_canvas.draw_idle()
+        print(f"[DEBUG] Plotted {len(fit_results)} Gaussian fits on spectrum")
+
+    def _show_multi_gaussian_results(self, fit_results):
+        """
+        Show results dialog with statistics for all fitted lines.
+        fit_results is a list of {'line': line_dict, 'result': GaussianFitResult}
+        """
+        # Get units from cube data
+        wave_unit_raw = getattr(self.cube_data, 'wave_unit', 'µm')
+        flux_unit_raw = getattr(self.cube_data, 'flux_unit', 'MJy/sr')
+        
+        # Clean units for display
+        wave_unit = clean_wave_unit(wave_unit_raw)
+        flux_unit = clean_flux_unit(flux_unit_raw)
+        
+        # Area unit: flux integrated over wavelength
+        area_unit = f"{flux_unit}·{wave_unit}"
+        
+        # Build results text with all fitted lines
+        results_text = f"""
+MULTI-GAUSSIAN FIT RESULTS
+{'='*70}
+
+Successfully fitted {len(fit_results)} lines
+
+FITTED LINES:
+{'='*70}
+"""
+        
+        for idx, fit_info in enumerate(fit_results, 1):
+            result = fit_info['result']
+            line = fit_info['line']
+            species = line.get('species', 'Unknown')
+            
+            results_text += f"""
+Line {idx}: {species}
+  Center (λ):            {result.center:.6f} {wave_unit}
+  Amplitude:             {result.amplitude:.4e} {flux_unit}
+  Sigma (σ):             {result.sigma:.6f} {wave_unit}
+  FWHM:                  {result.fwhm:.6f} {wave_unit}
+  Integrated Area:       {result.area:.4e} {area_unit}
+  R²:                    {result.r_squared:.4f}
+  {'─'*60}
+"""
+        
+        results_text += f"""
+OVERALL:
+  Total lines fitted:    {len(fit_results)}
+  
+Note: Each line was fitted individually using the standard Gaussian fitting process.
+Red shaded areas are now visible on the spectrum for all lines.
+"""
+        
+        # Create dialog
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Multi-Gaussian Fit Results")
+        dlg.setMinimumSize(750, 600)
+        
+        layout = QVBoxLayout()
+        
+        # Text display with scrollbar
+        text_display = QTextEdit()
+        text_display.setPlainText(results_text)
+        text_display.setReadOnly(True)
+        text_display.setFont(QFont('Courier', 9))
+        layout.addWidget(text_display)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(lambda: dlg.accept())
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        dlg.setLayout(layout)
+        dlg.exec_()
+        """
+        Show results dialog with statistics for all fitted lines.
+        fit_results is a list of {'line': line_dict, 'result': GaussianFitResult}
+        """
+        # Get units from cube data
+        wave_unit_raw = getattr(self.cube_data, 'wave_unit', 'µm')
+        flux_unit_raw = getattr(self.cube_data, 'flux_unit', 'MJy/sr')
+        
+        # Clean units for display
+        wave_unit = clean_wave_unit(wave_unit_raw)
+        flux_unit = clean_flux_unit(flux_unit_raw)
+        
+        # Area unit: flux integrated over wavelength
+        area_unit = f"{flux_unit}·{wave_unit}"
+        
+        # Build results text with all fitted lines
+        results_text = f"""
+MULTI-GAUSSIAN FIT RESULTS
+{'='*70}
+
+Successfully fitted {len(fit_results)} lines
+
+FITTED LINES:
+{'='*70}
+"""
+        
+        for idx, fit_info in enumerate(fit_results, 1):
+            result = fit_info['result']
+            line = fit_info['line']
+            species = line.get('species', 'Unknown')
+            
+            results_text += f"""
+Line {idx}: {species}
+  Center (λ):            {result.center:.6f} {wave_unit}
+  Amplitude:             {result.amplitude:.4e} {flux_unit}
+  Sigma (σ):             {result.sigma:.6f} {wave_unit}
+  FWHM:                  {result.fwhm:.6f} {wave_unit}
+  Integrated Area:       {result.area:.4e} {area_unit}
+  R²:                    {result.r_squared:.4f}
+  {'─'*60}
+"""
+        
+        results_text += f"""
+OVERALL:
+  Total lines fitted:    {len(fit_results)}
+  
+Note: Each line was fitted individually using the standard Gaussian fitting process.
+Red shaded areas are now visible on the spectrum for all lines.
+"""
+        
+        # Create dialog
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Multi-Gaussian Fit Results")
+        dlg.setMinimumSize(750, 600)
+        
+        layout = QVBoxLayout()
+        
+        # Text display with scrollbar
+        text_display = QTextEdit()
+        text_display.setPlainText(results_text)
+        text_display.setReadOnly(True)
+        text_display.setFont(QFont('Courier', 9))
+        layout.addWidget(text_display)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(lambda: dlg.accept())
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        dlg.setLayout(layout)
+        dlg.exec_()
 
     def _fit_gaussian_map(self):
         """Fit Gaussian to all pixels in the cube using the selected boundaries (runs in background)"""        
@@ -4488,9 +4866,23 @@ INTERPRETATION:
         except:
             n_jobs = 8
         
+        # CRITICAL: Use the filtered HITRAN lines if available, NOT the static CO catalog
+        # When user clicks HITRAN, we get isotopologue-filtered lines in self.hitran_lines
+        # Use those instead of the full CO_lines catalog which has all isotopologues
+        if hasattr(self, 'hitran_lines') and self.hitran_lines:
+            # Convert HITRAN data format (list of dicts) to DataFrame with 'line_wave_um' column
+            import pandas as pd
+            hitran_df = pd.DataFrame(self.hitran_lines)
+            # Rename 'wavelength' to 'line_wave_um' if needed
+            if 'wavelength' in hitran_df.columns and 'line_wave_um' not in hitran_df.columns:
+                hitran_df = hitran_df.rename(columns={'wavelength': 'line_wave_um'})
+            use_catalog = hitran_df
+        else:
+            use_catalog = self.CO_lines
+        
         # Store parameters for later use in result dialog
         self.co_flux_wavelength = self.cube_data.wavelength
-        self.co_flux_catalog = self.CO_lines
+        self.co_flux_catalog = use_catalog
         self.co_flux_contam_catalog = self.contam_lines
         self.co_flux_wave_min = wave_min
         self.co_flux_wave_max = wave_max
@@ -4503,6 +4895,7 @@ INTERPRETATION:
         print(f">>> CO FLUX MAP EXTRACTION PARAMETERS")
         print(f"{'='*70}")
         print(f"Wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+        print(f"CO line catalog: {len(use_catalog)} lines")
         print(f"Continuum subtraction: ENABLED")
         print(f"  Method: Median filter + peak detection")
         print(f"  Parameters: window=51, sigma=2.0, peak_dist=3, iterations=2")
@@ -4510,7 +4903,7 @@ INTERPRETATION:
         
         self.co_flux_worker = COFluxMapWorker(
             self.cube_data,
-            self.CO_lines,
+            use_catalog,
             self.contam_lines,
             n_jobs=n_jobs,
             subtract_continuum=use_continuum_subtraction,

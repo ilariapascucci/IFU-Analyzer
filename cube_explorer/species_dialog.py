@@ -34,7 +34,9 @@ class SpeciesDialog(QDialog):
             except Exception:
                 pass
         
-        print(f"[DEBUG] SpeciesDialog: {len(self.plotted_rows)} plotted rows, {len(self.plotted_waves)} wavelengths")
+        print(f"[DEBUG] SpeciesDialog init: {len(self.plotted_rows)} plotted rows")
+        print(f"[DEBUG] Plotted wavelengths (set): {sorted(self.plotted_waves)}")
+        print(f"[DEBUG] Dialog showing {len(rows)} available rows")
 
         layout = QVBoxLayout(self)
 
@@ -104,9 +106,16 @@ class SpeciesDialog(QDialog):
                 checkbox.setChecked(False)
             else:  # default_checked is None -> reflect plotted_rows membership
                 wave = float(row.get('lambda_micron') or row.get('wavelength') or 0.0)
-                # Check with small tolerance for floating point comparison
-                is_plotted = any(abs(wave - pw) < 1e-9 for pw in self.plotted_waves)
+                # Check with tolerance for floating point comparison (same as deselect uses: 1e-6)
+                is_plotted = any(abs(wave - pw) < 1e-6 for pw in self.plotted_waves)
                 checkbox.setChecked(is_plotted)
+                
+                # Debug output for mismatches
+                species = row.get('species', 'Unknown')
+                if i < 5:  # Only print first 5 rows to avoid spam
+                    print(f"[DEBUG] Row {i}: {species} @ {wave:.9f} -> is_plotted={is_plotted}")
+                    if self.plotted_waves and i < 5:
+                        print(f"  vs plotted: {sorted(self.plotted_waves)}")
 
             layout = QHBoxLayout()
             layout.addWidget(checkbox)
