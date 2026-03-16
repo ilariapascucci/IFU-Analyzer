@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
+
 class SpeciesDialog(QDialog):
     """
     Dialog that shows a table of filtered spectral lines with
@@ -24,7 +25,6 @@ class SpeciesDialog(QDialog):
         self.plotted_rows = plotted_rows or []
 
         # Build a set of wavelengths for quick membership checks
-        # Use the same logic as get_row_wavelength to extract wavelengths
         self.plotted_waves = set()
         for r in self.plotted_rows:
             try:
@@ -33,10 +33,6 @@ class SpeciesDialog(QDialog):
                     self.plotted_waves.add(wave)
             except Exception:
                 pass
-        
-        print(f"[DEBUG] SpeciesDialog init: {len(self.plotted_rows)} plotted rows")
-        print(f"[DEBUG] Plotted wavelengths (set): {sorted(self.plotted_waves)}")
-        print(f"[DEBUG] Dialog showing {len(rows)} available rows")
 
         layout = QVBoxLayout(self)
 
@@ -106,16 +102,9 @@ class SpeciesDialog(QDialog):
                 checkbox.setChecked(False)
             else:  # default_checked is None -> reflect plotted_rows membership
                 wave = float(row.get('lambda_micron') or row.get('wavelength') or 0.0)
-                # Check with tolerance for floating point comparison (same as deselect uses: 1e-6)
+                # Check with tolerance for floating point comparison
                 is_plotted = any(abs(wave - pw) < 1e-6 for pw in self.plotted_waves)
                 checkbox.setChecked(is_plotted)
-                
-                # Debug output for mismatches
-                species = row.get('species', 'Unknown')
-                if i < 5:  # Only print first 5 rows to avoid spam
-                    print(f"[DEBUG] Row {i}: {species} @ {wave:.9f} -> is_plotted={is_plotted}")
-                    if self.plotted_waves and i < 5:
-                        print(f"  vs plotted: {sorted(self.plotted_waves)}")
 
             layout = QHBoxLayout()
             layout.addWidget(checkbox)

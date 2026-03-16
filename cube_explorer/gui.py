@@ -2345,27 +2345,17 @@ class CubeExplorer(QWidget):
                     line_wave = SpeciesDialog.get_row_wavelength(nearest_row)
                     species = nearest_row.get('species', 'Unknown')
                     print(f"✓ Deselected: {species} at {line_wave:.6f} μm")
-                    print(f"[DEBUG] plotted_lines BEFORE deselect: {len(self.plotted_lines)} lines")
-                    for r in self.plotted_lines:
-                        rwave = SpeciesDialog.get_row_wavelength(r)
-                        print(f"  - {r.get('species', 'Unknown')}: {rwave:.6f}")
                     
-                    # Remove from plotted lines by wavelength comparison (more reliable than object equality)
+                    # Remove from plotted lines by wavelength comparison with tolerance
                     self.plotted_lines = [
                         r for r in self.plotted_lines 
                         if abs(SpeciesDialog.get_row_wavelength(r) - line_wave) > 1e-6
                     ]
                     
-                    print(f"[DEBUG] plotted_lines AFTER deselect: {len(self.plotted_lines)} lines")
-                    for r in self.plotted_lines:
-                        rwave = SpeciesDialog.get_row_wavelength(r)
-                        print(f"  - {r.get('species', 'Unknown')}: {rwave:.6f}")
-                    
                     # Track excluded wavelength for CO flux
                     if not hasattr(self, 'co_flux_excluded_wavelengths'):
                         self.co_flux_excluded_wavelengths = set()
                     self.co_flux_excluded_wavelengths.add(line_wave)
-                    print(f"  Excluded from CO flux: {line_wave:.6f} μm")
                     
                     # Replot spectrum without this line
                     self.plot_selected_lines(self.plotted_lines)
@@ -2918,7 +2908,7 @@ class CubeExplorer(QWidget):
         all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
         
         # Show selection dialog
-        dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=[])
+        dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.plotted_lines)
         result = dlg.exec_()
         
         if result == QDialog.Accepted:
@@ -2959,6 +2949,18 @@ class CubeExplorer(QWidget):
 
         # Update currently plotted rows
         self.plotted_lines = rows.copy()
+        
+        # Sync the excluded wavelengths set:
+        # Remove any wavelengths from excluded that are now being plotted (re-selection)
+        if hasattr(self, 'co_flux_excluded_wavelengths') and self.co_flux_excluded_wavelengths:
+            plotted_wavelengths = set(
+                SpeciesDialog.get_row_wavelength(r) for r in rows
+            )
+            # Remove from excluded any that are now plotted
+            self.co_flux_excluded_wavelengths = {
+                w for w in self.co_flux_excluded_wavelengths 
+                if not any(abs(w - pw) < 1e-6 for pw in plotted_wavelengths)
+            }
         
         # Get cube wavelength unit
         cube_unit = getattr(self.cube_data, 'wave_unit', 'µm') if hasattr(self, 'cube_data') else 'µm'
