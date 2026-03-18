@@ -50,6 +50,7 @@ class CustomContinuumSelector:
         
         # Active state
         self.is_active = False
+        self.delete_mode = False
         
         # Point requirements
         self.min_points = 5
@@ -149,6 +150,9 @@ class CustomContinuumSelector:
             
         if event.button != 1:
             return
+        
+        if self.delete_mode:
+            return
             
         # Check if toolbar is active (zoom/pan)
         toolbar = self.canvas.toolbar
@@ -175,12 +179,16 @@ class CustomContinuumSelector:
         
     def _on_pick(self, event):
         """Handle pick events (clicking on existing points to remove them)"""
-        if event.mouseevent.button != 3:
+        # Delete if it's a right-click (3), OR if it's a left-click (1) and delete_mode is ON
+        is_right_click = event.mouseevent.button == 3
+        is_left_click_delete = event.mouseevent.button == 1 and self.delete_mode
+        
+        if not (is_right_click or is_left_click_delete):
             return
             
         if hasattr(event.artist, 'custom_continuum_point'):
             self._remove_point(event.artist)
-        
+            
     def _add_point(self, x, y):
         """Add a continuum point at (x, y)"""
         # Check if point already exists at this x location
@@ -224,6 +232,14 @@ class CustomContinuumSelector:
             print(f"[DEBUG] ✓ Minimum points reached ({self.min_points})")
         elif len(self.continuum_points) == self.recommended_points:
             print(f"[DEBUG] ✓✓ Recommended points reached ({self.recommended_points})")
+    
+    def set_delete_mode(self, state):
+        """Toggle left-click delete mode"""
+        self.delete_mode = state
+        if state:
+            print("[DEBUG] Custom continuum: Delete mode ON (left-click to remove)")
+        else:
+            print("[DEBUG] Custom continuum: Delete mode OFF (left-click to add)")
 
             
     def _remove_point(self, artist):

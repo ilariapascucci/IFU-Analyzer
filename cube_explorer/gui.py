@@ -375,6 +375,7 @@ class CubeExplorer(QWidget):
         if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
             self.custom_continuum_selector.clear_all()
             self.custom_continuum_selector.deactivate()
+            self.custom_continuum_selector = None
             self.custom_continuum_active = False
 
         # Uncheck custom subtract button
@@ -600,6 +601,7 @@ class CubeExplorer(QWidget):
         self.continuum_line_btn = QPushButton("Continuum Line")
         self.subtract_continuum_btn = QPushButton("Subtract Continuum")
         self.custom_subtract_btn = QPushButton("Custom Subtract")
+        self.custom_delete_btn = QPushButton("Delete Point")
         self.custom_ok_btn = QPushButton("OK")
 
         self.save_spectrum_btn = QPushButton("Save Spectrum")
@@ -609,9 +611,11 @@ class CubeExplorer(QWidget):
         self.continuum_line_btn.setCheckable(True)
         self.subtract_continuum_btn.setCheckable(True)
         self.custom_subtract_btn.setCheckable(True)
+        self.custom_delete_btn.setCheckable(True)
 
         # Connect toggle buttons
         self.auto_continuum_toggle.clicked.connect(self.on_auto_continuum_toggle)
+        self.custom_delete_btn.clicked.connect(self._on_custom_delete_toggled)
         self.custom_continuum_toggle.clicked.connect(self.on_custom_continuum_toggle)
 
         # Connect action buttons (keep existing connections)
@@ -622,6 +626,7 @@ class CubeExplorer(QWidget):
         # Hide all action buttons initially
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
+        self.custom_delete_btn.hide()
         self.custom_subtract_btn.hide()
         self.custom_ok_btn.hide()
 
@@ -631,6 +636,7 @@ class CubeExplorer(QWidget):
         self.continuum_line_btn.setToolTip("Fit and display continuum line")
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum")
         self.custom_subtract_btn.setToolTip("Manually select continuum points and fit")
+        self.custom_delete_btn.setToolTip("Toggle to delete points with left-click")
         self.custom_ok_btn.setToolTip("Calculate and apply custom continuum")
         self.save_spectrum_btn.setToolTip("Save current spectrum to file")
 
@@ -933,6 +939,7 @@ class CubeExplorer(QWidget):
         self.continuum_action_layout.addWidget(self.continuum_line_btn)
         self.continuum_action_layout.addWidget(self.subtract_continuum_btn)
         self.continuum_action_layout.addWidget(self.custom_subtract_btn)
+        self.continuum_action_layout.addWidget(self.custom_delete_btn)
         self.continuum_action_layout.addWidget(self.custom_ok_btn)
         self.continuum_action_layout.addWidget(self.save_spectrum_btn)
         self.continuum_action_layout.addWidget(self.save_continuum_btn)
@@ -1261,10 +1268,14 @@ class CubeExplorer(QWidget):
                 # Update with current spectrum data (important after zoom/pan)
                 self.custom_continuum_selector.flux = self.cube_data.spectrum
                 self.custom_continuum_selector.wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+                self.custom_continuum_selector.ax = self.spec_plotter.ax
 
             # Activate it (WITHOUT Enter key functionality)
             self.custom_continuum_selector.activate()
             self.custom_continuum_active = True
+
+            self.custom_delete_btn.setChecked(False)
+            self.custom_continuum_selector.set_delete_mode(False)
             print("DEBUG: Custom continuum selector activated - click on the blue spectrum to add points")
             print("DEBUG: Points will SNAP to nearest spectrum data point")
             print("DEBUG: Recommended: ~20 points for best results")
@@ -1284,6 +1295,11 @@ class CubeExplorer(QWidget):
                     self.custom_continuum_selector.deactivate()
                 self.custom_continuum_active = False
                 print("DEBUG: Custom continuum subtraction deactivated")
+
+    def _on_custom_delete_toggled(self, checked):
+        """Tell the continuum selector whether delete mode is active"""
+        if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
+            self.custom_continuum_selector.set_delete_mode(checked)
 
     def _restore_from_custom_subtract(self):
         """
@@ -4317,6 +4333,7 @@ INTERPRETATION:
         """Show only custom continuum action buttons"""
         self.hide_all_action_buttons()
         self.custom_subtract_btn.show()
+        self.custom_delete_btn.show()
         self.custom_ok_btn.show()
 
 
@@ -4325,6 +4342,7 @@ INTERPRETATION:
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
+        self.custom_delete_btn.hide()
         self.custom_ok_btn.hide()
 
 
@@ -4385,6 +4403,7 @@ INTERPRETATION:
         try:
             # Uncheck button
             self.custom_subtract_btn.setChecked(False)
+            self.custom_delete_btn.setChecked(False)
 
             # Deactivate custom continuum selector
             if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
