@@ -16,7 +16,7 @@ from scipy.ndimage import rotate
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit, QFrame
+    QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit, QFrame, QInputDialog
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -56,11 +56,15 @@ class Ifu_analyzer_2d_window(QWidget):
         self.active_target = None
         self.last_selection_left = None
         self.last_selection_right = None
+        self.last_contour_right_wcs = None
+        self.last_contour_right_level = None
         self.scale_left = 'Linear'
         self.scale_right = 'Linear'
         self.slice1_cmap = 'magma'
         self.slice2_cmap = 'magma'
         
+        self.wcs_left = None
+        self.wcs_right = None
         self.base_image_left = None
         self.base_header_left = None
         self.cum_angle_left = 0.0
@@ -90,6 +94,16 @@ class Ifu_analyzer_2d_window(QWidget):
         self.stats2_label.setWordWrap(True)
         self.stats2_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
 
+        self.hover1_label = QLabel("Cursor Info:\n-")
+        self.hover1_label.setMinimumWidth(150)
+        self.hover1_label.setWordWrap(True)
+        self.hover1_label.setStyleSheet("font-size: 10pt; color: #333;")
+        
+        self.hover2_label = QLabel("Cursor Info:\n-")
+        self.hover2_label.setMinimumWidth(150)
+        self.hover2_label.setWordWrap(True)
+        self.hover2_label.setStyleSheet("font-size: 10pt; color: #333;")
+
         self._init_plots()
         self._init_shape_controls()
         self._setup_main_layout()
@@ -100,12 +114,14 @@ class Ifu_analyzer_2d_window(QWidget):
         self.slice1_plotter = SlicePlotter(self.slice1_fig)
         self.slice1_toolbar = NavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "left"))
+        self.slice1_canvas.mpl_connect("motion_notify_event", lambda e: self._on_mouse_hover(e, "left"))
         
         self.slice2_fig = Figure(figsize=(5, 5), dpi=100)
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
         self.slice2_plotter = SlicePlotter(self.slice2_fig)
         self.slice2_toolbar = NavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "right"))
+        self.slice2_canvas.mpl_connect("motion_notify_event", lambda e: self._on_mouse_hover(e, "right"))
 
         self.region_selector_left = RegionSelector(
             self.slice1_plotter.ax,
@@ -196,6 +212,14 @@ class Ifu_analyzer_2d_window(QWidget):
         self.save_contour_btn.setStyleSheet(btn_style)
         self.save_contour_btn.clicked.connect(self._prompt_and_save_contour)
 
+        self.load_contour_btn = QPushButton("Load Saved Contour")
+        self.load_contour_btn.setStyleSheet(btn_style)
+        self.load_contour_btn.clicked.connect(self._prompt_and_load_contour)
+
+        self.clear_contour_btn = QPushButton("Clear Contours")
+        self.clear_contour_btn.setStyleSheet(btn_style)
+        self.clear_contour_btn.clicked.connect(self._prompt_and_clear_contours)
+
     def _prompt_and_rotate(self):
         msg = QMessageBox(self)
         msg.setWindowTitle("Select Target")
@@ -227,11 +251,12 @@ class Ifu_analyzer_2d_window(QWidget):
             self.save_fits("right")
 
     def _prompt_and_contour(self):
-        """Dialog to fetch contour parameters and trigger the plot"""
+        """Dialog to fetch contour parameters (Target, Source, Sigma, Levels) and trigger the plot"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Plot Contour")
-        layout = QVBoxLayout()
+        dialog.setWindowTitle("Plot WCS Contour")
+        layout = QVBoxLayout(dialog)
         
+        # 1. Target Slice
         target_layout = QHBoxLayout()
         target_layout.addWidget(QLabel("Plot contour ON:"))
         target_combo = QComboBox()
@@ -239,22 +264,36 @@ class Ifu_analyzer_2d_window(QWidget):
         target_layout.addWidget(target_combo)
         layout.addLayout(target_layout)
         
+        # 2. Source Image
         source_layout = QHBoxLayout()
         source_layout.addWidget(QLabel("Generate contour FROM:"))
         source_combo = QComboBox()
         source_combo.addItems(["Same Slice (Self)", "Other Slice (Match WCS)"])
         source_layout.addWidget(source_combo)
         layout.addLayout(source_layout)
+
+        # 3. Sigma Value (Noise Threshold)
+        sigma_layout = QHBoxLayout()
+        sigma_layout.addWidget(QLabel("Base Sigma Threshold (x Noise):"))
+        sigma_spin = QDoubleSpinBox()
+        sigma_spin.setDecimals(1)
+        sigma_spin.setRange(0.0, 50.0)
+        sigma_spin.setValue(3.0)  # Default to standard 3-sigma
+        sigma_spin.setSingleStep(0.5)
+        sigma_layout.addWidget(sigma_spin)
+        layout.addLayout(sigma_layout)
         
+        # 4. Levels
         level_layout = QHBoxLayout()
         level_layout.addWidget(QLabel("Number of Levels:"))
         level_spin = QDoubleSpinBox()
         level_spin.setDecimals(0)
-        level_spin.setRange(1, 20)
+        level_spin.setRange(1, 50)
         level_spin.setValue(5)
         level_layout.addWidget(level_spin)
         layout.addLayout(level_layout)
         
+        # 5. Color
         color_layout = QHBoxLayout()
         color_layout.addWidget(QLabel("Contour Color:"))
         color_combo = QComboBox()
@@ -262,6 +301,7 @@ class Ifu_analyzer_2d_window(QWidget):
         color_layout.addWidget(color_combo)
         layout.addLayout(color_layout)
         
+        # Buttons
         btn_layout = QHBoxLayout()
         ok_btn = QPushButton("Plot")
         ok_btn.clicked.connect(dialog.accept)
@@ -271,25 +311,36 @@ class Ifu_analyzer_2d_window(QWidget):
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
         
-        dialog.setLayout(layout)
-        
         if dialog.exec_() == QDialog.Accepted:
             target = "left" if target_combo.currentIndex() == 0 else "right"
             source = "self" if source_combo.currentIndex() == 0 else "other"
+            sigma_val = sigma_spin.value()
             levels = int(level_spin.value())
             color = color_combo.currentText()
-            self._apply_contour(target, source, levels, color)
+            
+            self._apply_contour(target, source, sigma_val, levels, color)
 
-    def _apply_contour(self, target, source, levels, color):
+    def _apply_contour(self, target, source, sigma_val, levels, color):
+        """Generates the contours, calculates the sigma levels, and projects the WCS"""
         target_plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
-        target_wcs = WCS(self.header_left) if target == 'left' else WCS(self.header_right)
+        
+        # Helper function to aggressively force ANY WCS to exactly 2 dimensions
+        def get_2d_wcs(header):
+            if header is None: return None
+            w = WCS(header)
+            # Forcibly drop the 3rd axis (index 2) as long as there are more than 2 dimensions
+            while w.pixel_n_dim > 2:
+                w = w.dropaxis(2)
+            return w
+
+        target_wcs = get_2d_wcs(self.header_left) if target == 'left' else get_2d_wcs(self.header_right)
         
         if source == 'self':
             source_img = self.image_left if target == 'left' else self.image_right
             source_wcs = target_wcs
         else:
             source_img = self.image_right if target == 'left' else self.image_left
-            source_wcs = WCS(self.header_right) if target == 'left' else WCS(self.header_left)
+            source_wcs = get_2d_wcs(self.header_right) if target == 'left' else get_2d_wcs(self.header_left)
 
         if source_img is None:
             QMessageBox.warning(self, "Missing Data", "The source image for the contour is not loaded.")
@@ -301,7 +352,7 @@ class Ifu_analyzer_2d_window(QWidget):
 
         ax = target_plotter.ax
         
-        # Store contour source info for saving later
+        # Store contour source info for saving masks later
         if target == 'left':
             self.last_contour_left_img = source_img
             self.last_contour_left_wcs = source_wcs
@@ -309,32 +360,40 @@ class Ifu_analyzer_2d_window(QWidget):
             self.last_contour_right_img = source_img
             self.last_contour_right_wcs = source_wcs
 
-        # Clear existing contours (compatible with Matplotlib 3.8+)
-        if hasattr(target_plotter, 'current_contour') and target_plotter.current_contour:
-            if hasattr(target_plotter.current_contour, 'collections'):
-                for c in target_plotter.current_contour.collections:
-                    try: c.remove()
-                    except: pass
-            else:
-                try: target_plotter.current_contour.remove()
-                except: pass
+        # Clear existing contours safely
+        if not hasattr(target_plotter, 'contours'):
+            target_plotter.contours = []
         
-        # Ignore NaNs when determining contour boundaries
+        # Identify valid data for noise calculation
         valid_data = source_img[np.isfinite(source_img)]
         if valid_data.size == 0: return
         
-        vmin, vmax = np.percentile(valid_data, [5, 95])
+        # --- Calculate Sigma Threshold Levels ---
+        median_val = np.median(valid_data)
+        std_val = np.std(valid_data)
+        
+        vmin = median_val + (sigma_val * std_val)
+        vmax = np.percentile(valid_data, 99.5)
+        
+        # Fallback if image is entirely flat or vmin exceeds vmax
+        if vmin >= vmax or std_val == 0:
+            vmin, vmax = np.percentile(valid_data, [5, 95])
+            
         level_vals = np.linspace(vmin, vmax, levels)
         
         kwargs = {'colors': color, 'levels': level_vals, 'alpha': 0.8, 'linewidths': 1.5}
         
         try:
             if source == 'other':
+                # Map using the strictly 2D WCS
                 transform = ax.get_transform(source_wcs)
                 kwargs['transform'] = transform
                 
-            target_plotter.current_contour = ax.contour(source_img, **kwargs)
+            contour_set = ax.contour(source_img, **kwargs)
+            target_plotter.contours.append(contour_set)
+            target_plotter.current_contour = contour_set
             
+            # Store the base level for mask saving logic
             if target == 'left':
                 self.last_contour_left_level = level_vals[0]
             else:
@@ -345,6 +404,7 @@ class Ifu_analyzer_2d_window(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Contour Error", f"Could not map coordinate systems:\n{str(e)}")
+            import traceback
             traceback.print_exc()
 
     def _prompt_and_save_contour(self):
@@ -387,6 +447,94 @@ class Ifu_analyzer_2d_window(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save contour mask:\n{str(e)}")
 
+    def _prompt_and_load_contour(self):
+        """Prompt user for target slice, mask file, and color to overlay a saved contour."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Load Saved Contour")
+        msg.setText("Which slice would you like to plot the loaded contour ON?")
+        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
+        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
+        msg.addButton("Cancel", QMessageBox.RejectRole)
+        
+        msg.exec_()
+        
+        if msg.clickedButton() == btn_left:
+            target = "left"
+        elif msg.clickedButton() == btn_right:
+            target = "right"
+        else:
+            return
+            
+        # Open file dialog
+        fname, _ = QFileDialog.getOpenFileName(
+            self, "Open Contour Mask FITS", filter="FITS files (*.fits *.fz *.fit)"
+        )
+        if not fname:
+            return
+            
+        # Ask for contour color
+        colors = ["white", "red", "green", "cyan", "magenta", "yellow", "black"]
+        color, ok = QInputDialog.getItem(
+            self, "Contour Color", "Select contour line color:", colors, 0, False
+        )
+        
+        if ok and color:
+            self._apply_loaded_contour(target, fname, color)
+
+    def _apply_loaded_contour(self, target, fname, color):
+        """Loads a saved binary mask and plots it using WCS mapping."""
+        target_plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
+        target_img = self.image_left if target == 'left' else self.image_right
+        
+        if target_img is None:
+            QMessageBox.warning(self, "No Target Image", f"Load an image in the {target} panel first.")
+            return
+
+        # Helper to force 2D WCS safely
+        def get_2d_wcs(header):
+            if header is None: return None
+            w = WCS(header)
+            while w.pixel_n_dim > 2:
+                w = w.dropaxis(2)
+            return w
+            
+        try:
+            # Load the mask data and header
+            with fits.open(fname) as hdul:
+                mask_data = hdul[0].data
+                mask_header = hdul[0].header
+                
+            mask_data = np.squeeze(mask_data)
+            mask_wcs = get_2d_wcs(mask_header)
+            target_wcs = get_2d_wcs(self.header_left if target == 'left' else self.header_right)
+            
+            ax = target_plotter.ax
+
+            # Clear existing contours safely
+            if not hasattr(target_plotter, 'contours'):
+                target_plotter.contours = []
+            
+            # Since the saved mask is binary (0s and 1s), we plot the boundary at 0.5
+            kwargs = {'colors': color, 'levels': [0.5], 'alpha': 0.8, 'linewidths': 2.0}
+            
+            # Map coordinates using WCS transformation
+            if mask_wcs is not None and target_wcs is not None:
+                transform = ax.get_transform(mask_wcs)
+                kwargs['transform'] = transform
+                
+            contour_set = ax.contour(mask_data, **kwargs)
+            target_plotter.contours.append(contour_set)
+            target_plotter.current_contour = contour_set
+            
+            # Redraw canvas
+            if target == 'left': self.slice1_canvas.draw()
+            else: self.slice2_canvas.draw()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to plot saved contour:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
     def _setup_main_layout(self):
         """Set up the main application layout with a fully modular, future-proof bottom panel"""
         main_layout = QVBoxLayout()
@@ -406,6 +554,8 @@ class Ifu_analyzer_2d_window(QWidget):
         left_stats_layout.addWidget(self.open_left_btn)
         left_stats_layout.addWidget(self.header_left_btn)
         left_stats_layout.addWidget(self.stats1_label)
+        left_stats_layout.addSpacing(15) 
+        left_stats_layout.addWidget(self.hover1_label)
         left_stats_layout.addStretch()
         
         left_stats_widget = QWidget()
@@ -452,6 +602,8 @@ class Ifu_analyzer_2d_window(QWidget):
         right_stats_layout.addWidget(self.open_right_btn)
         right_stats_layout.addWidget(self.header_right_btn)
         right_stats_layout.addWidget(self.stats2_label)
+        right_stats_layout.addSpacing(15)
+        right_stats_layout.addWidget(self.hover2_label)
         right_stats_layout.addStretch()
         
         right_stats_widget = QWidget()
@@ -514,6 +666,8 @@ class Ifu_analyzer_2d_window(QWidget):
         contour_layout.addWidget(contour_lbl)
         contour_layout.addWidget(self.contour_btn)
         contour_layout.addWidget(self.save_contour_btn)
+        contour_layout.addWidget(self.load_contour_btn)
+        contour_layout.addWidget(self.clear_contour_btn)
 
         # Middle controls (Save FITS)
         save_widget = QWidget()
@@ -581,12 +735,17 @@ class Ifu_analyzer_2d_window(QWidget):
 
             try:
                 wcs_in = WCS(header)
+                if target == 'left': self.wcs_left = wcs_in
+                else: self.wcs_right = wcs_in
+                
                 if wcs_in.has_celestial:
                     wcs2d = wcs_in.celestial if wcs_in.pixel_n_dim > 2 else wcs_in
                     plotter.ax = plotter.fig.add_axes(ax_rect, projection=wcs2d)
                 else:
                     plotter.ax = plotter.fig.add_axes(ax_rect)
             except Exception:
+                if target == 'left': self.wcs_left = None
+                else: self.wcs_right = None
                 plotter.ax = plotter.fig.add_axes(ax_rect)
 
             plotter.cbar_ax = plotter.fig.add_axes(cbar_rect)
@@ -827,15 +986,20 @@ class Ifu_analyzer_2d_window(QWidget):
             try:
                 wcs = WCS(header)
                 if wcs.has_celestial:
-                    ra  = ax.coords[0]
-                    dec = ax.coords[1]
-                    ra.set_axislabel('Right Ascension', minpad=0.5)
-                    dec.set_axislabel('Declination',    minpad=0.5)
-                    ra.set_ticklabel(rotation=45, pad=5, exclude_overlapping=True)
-                    dec.set_ticklabel(exclude_overlapping=True)
-                    ax.set_xlabel('')
-                    ax.set_ylabel('')
-                    ax.grid(color='white', alpha=0.1, linestyle='dotted')
+                    # Draw actual astropy WCS grids 
+                    ax.coords.grid(color='white', alpha=0.4, linestyle='solid')
+                    
+                    # Properly label the RA and Dec axes
+                    ax.coords[0].set_axislabel('Right Ascension', minpad=0.5)
+                    ax.coords[1].set_axislabel('Declination', minpad=0.5)
+                    
+                    # Force tick format so the grid shows meaningful units (hours/degrees)
+                    ax.coords[0].set_major_formatter('hh:mm:ss')
+                    ax.coords[1].set_major_formatter('dd:mm:ss')
+                    
+                    # Ensure they aren't accidentally hidden by standard matplotlib clearing
+                    ax.coords[0].set_ticklabel_visible(True)
+                    ax.coords[1].set_ticklabel_visible(True)
             except Exception:
                 pass
 
@@ -847,6 +1011,10 @@ class Ifu_analyzer_2d_window(QWidget):
 
         cbar = plotter.fig.colorbar(im, cax=plotter.cbar_ax)
         cbar.ax.tick_params(labelsize=7)
+
+        if header is not None and 'BUNIT' in header:
+            cbar.set_label(header['BUNIT'], size=9, weight='bold', labelpad=5)
+            
         plotter.cbar = cbar
 
         mn   = np.nanmin(image)
@@ -863,6 +1031,50 @@ class Ifu_analyzer_2d_window(QWidget):
             self.slice1_canvas.draw()
         else:
             self.slice2_canvas.draw()
+
+    def _on_mouse_hover(self, event, target):
+        """Handle dynamic updates of mouse coordinate position and value mapping"""
+        plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
+        image = self.image_left if target == 'left' else self.image_right
+        header = self.header_left if target == 'left' else self.header_right
+        hover_label = self.hover1_label if target == 'left' else self.hover2_label
+
+        if image is None or event.inaxes != plotter.ax:
+            return
+
+        x, y = event.xdata, event.ydata
+        if x is None or y is None:
+            return
+
+        ix, iy = int(round(x)), int(round(y))
+        
+        # Pull actual intensity level
+        if 0 <= iy < image.shape[0] and 0 <= ix < image.shape[1]:
+            val = float(image[iy, ix])
+        else:
+            val = float('nan')
+
+        # Translate Matplotlib X,Y coordinate to World Coordinate RA/DEC
+        wcs_str = ""
+        wcs_obj = self.wcs_left if target == 'left' else self.wcs_right
+        
+        if wcs_obj is not None and wcs_obj.has_celestial:
+            try:
+                wcs2d = wcs_obj.celestial if wcs_obj.pixel_n_dim > 2 else wcs_obj
+                world = wcs2d.pixel_to_world(x, y)
+                ra = world.ra.to_string(unit='hour', sep='hms', precision=2, pad=True)
+                dec = world.dec.to_string(unit='deg', sep='dms', precision=1, alwayssign=True, pad=True)
+                wcs_str = f"RA: {ra}\nDec: {dec}\n"
+            except Exception:
+                pass
+
+        unit_str = ""
+        if header is not None and 'BUNIT' in header:
+            unit_str = f" [{header['BUNIT']}]"
+
+        # Update the live UI label directly
+        text = f"Cursor Info:\nPixel: {ix}, {iy}\n{wcs_str}Val: {val:.4e}{unit_str}"
+        hover_label.setText(text)
 
     def _set_shape(self, shape, target):
         if self.active_shape == shape and self.active_target == target:
@@ -1061,3 +1273,55 @@ class Ifu_analyzer_2d_window(QWidget):
         else:
             self.scale_right = scale_type
             if self.image_right is not None: self.display_image('right')
+
+    def _prompt_and_clear_contours(self):
+        """Prompt user to select which slice's contours to clear."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Clear Contours")
+        msg.setText("Which slice's contours would you like to completely remove?")
+        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
+        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
+        msg.addButton("Cancel", QMessageBox.RejectRole)
+        
+        msg.exec_()
+        
+        if msg.clickedButton() == btn_left:
+            self.clear_contours("left")
+        elif msg.clickedButton() == btn_right:
+            self.clear_contours("right")
+
+    def clear_contours(self, target):
+        """Removes all stacked contours from a specific slice."""
+        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
+        
+        # Clear the stacked contour list
+        if hasattr(plotter, 'contours'):
+            for contour_set in plotter.contours:
+                if hasattr(contour_set, 'collections'):
+                    for c in contour_set.collections:
+                        try: c.remove()
+                        except: pass
+                else:
+                    try: contour_set.remove()
+                    except: pass
+            plotter.contours = []
+            
+        # Clear the legacy reference
+        if hasattr(plotter, 'current_contour') and plotter.current_contour:
+            if hasattr(plotter.current_contour, 'collections'):
+                for c in plotter.current_contour.collections:
+                    try: c.remove()
+                    except: pass
+            else:
+                try: plotter.current_contour.remove()
+                except: pass
+            plotter.current_contour = None
+            
+        if target == "left":
+            self.slice1_canvas.draw()
+            self.last_contour_left_img = None
+            self.last_contour_left_level = None
+        else:
+            self.slice2_canvas.draw()
+            self.last_contour_right_img = None
+            self.last_contour_right_level = None
