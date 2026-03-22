@@ -2,6 +2,7 @@
 *.fits
 *.csv
 *.pyc
+*.ipynb
 
 # Ignore any large data folders
 /data/
