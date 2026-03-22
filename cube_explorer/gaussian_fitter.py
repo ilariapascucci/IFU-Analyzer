@@ -2,6 +2,7 @@ from astropy.io import fits
 import astropy.units as u
 from astropy.units import Quantity
 from typing import Optional
+import numpy as np
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import RANSACRegressor
@@ -336,7 +337,6 @@ after baseline subtraction. Used for measuring line properties like FWHM,
 equivalent width, and integrated flux.
 """
 
-import numpy as np
 from scipy.optimize import curve_fit
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1255,7 +1255,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             wave_unit: Optional[str] = None,
                             flux_unit: Optional[str] = None,
                             lambda_0: Optional[float] = None,
-                            store_wavelength_unit: bool = True) -> dict:
+                            store_wavelength_unit: bool = True,
+                            progress_callback: Optional[callable] = None) -> dict:
     """
     Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
     
@@ -1279,8 +1280,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         noise_min: Optional left boundary of a line-free noise region
         noise_max: Optional right boundary of a line-free noise region
         header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
+        wave_unit: Wavelength unit string
         flux_unit: Input flux unit (e.g., 'MJy/sr', 'Jy/beam') - used for CGS conversion validation
         lambda_0: Optional line-list reference wavelength (µm) to seed global 1D fit
+        store_wavelength_unit: Whether to store wavelength unit in results (default: True)
+        progress_callback: Optional callback function with signature progress_callback(current, total) for progress reporting
     
     Note:
         RANSAC outlier rejection is always enabled with 3 iterations for robust, fast fitting.
@@ -1818,6 +1822,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             completed += n_x
             if completed % 1000 == 0:
                 print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
+                if progress_callback:
+                    progress_callback(completed, total_pixels)
     else:
         # Parallel path using ThreadPoolExecutor
         # ThreadPoolExecutor works with nested functions (unlike ProcessPoolExecutor)
@@ -1842,6 +1848,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 completed += n_x
                 if completed % (n_x * 5) == 0:
                     print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
+                    if progress_callback:
+                        progress_callback(completed, total_pixels)
     
     # Final summary
     n_success = np.sum(success_map)

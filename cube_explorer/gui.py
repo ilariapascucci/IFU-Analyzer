@@ -4323,7 +4323,7 @@ Red shaded areas are now visible on the spectrum for all lines.
         # Create non-modal progress dialog (allows interaction)
         self.gauss_progress = QProgressDialog(
             "Fitting Gaussians...", 
-            "Hide", 0, 0, self
+            "Hide", 0, 100, self
         )
         self.gauss_progress.setWindowModality(Qt.NonModal)
         self.gauss_progress.setWindowTitle("Gaussian Fitting (Background)")
@@ -4352,6 +4352,7 @@ Red shaded areas are now visible on the spectrum for all lines.
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)
+        self.gauss_worker.progress.connect(self._on_gaussian_map_progress)
         self.gauss_worker.start()
     
     def _on_gaussian_map_complete(self, results):
@@ -4377,6 +4378,14 @@ Red shaded areas are now visible on the spectrum for all lines.
         """Called when background Gaussian fitting fails"""
         self.gauss_progress.close()
         QMessageBox.critical(self, "Error", f"Gaussian map fitting error:\n{error_msg}")
+    
+    def _on_gaussian_map_progress(self, current, total):
+        """Update progress dialog during Gaussian fitting"""
+        if total > 0:
+            percentage = int(100 * current / total)
+            self.gauss_progress.setMaximum(100)
+            self.gauss_progress.setValue(percentage)
+            self.gauss_progress.setLabelText(f"Fitting Gaussians... {percentage}%")
     
     def _show_gaussian_map_results(self, results: dict):
         """Display Gaussian parameter maps in a new window"""

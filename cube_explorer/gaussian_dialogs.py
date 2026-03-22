@@ -22,6 +22,7 @@ class GaussianMapWorker(QThread):
     """Background worker thread for Gaussian map fitting"""
     finished = pyqtSignal(dict)  # Emits results when done
     error = pyqtSignal(str)  # Emits error message if failed
+    progress = pyqtSignal(int, int)  # (current, total) - emits progress updates
     
     def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
                  noise_min=None, noise_max=None, header=None, wave_unit=None, flux_unit=None, lambda_0=None):
@@ -70,11 +71,16 @@ class GaussianMapWorker(QThread):
                 header=self.header,
                 wave_unit=self.wave_unit,
                 flux_unit=self.flux_unit,
-                lambda_0=self.lambda_0
+                lambda_0=self.lambda_0,
+                progress_callback=self._emit_progress
             )
             self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
+    
+    def _emit_progress(self, current, total):
+        """Emit progress signal"""
+        self.progress.emit(current, total)
 
 
 class GaussianMapResultsDialog(QDialog):
@@ -94,6 +100,7 @@ class GaussianMapResultsDialog(QDialog):
         self.gauss_right_x = gauss_right_x
         self.wavelength = wavelength
         self._export_map_btn = None
+        self._current_unit_label = None  # Store the actual displayed unit label
         
         # Extract units from data
         self.wave_unit = self._get_wavelength_unit()
@@ -112,7 +119,7 @@ class GaussianMapResultsDialog(QDialog):
         # Fall back to results if available
         if 'wavelength_unit' in self.results and self.results['wavelength_unit'] and self.results['wavelength_unit'] != 'unknown':
             return self.results['wavelength_unit']
-        return 'µm'  # Default fallback
+        return 'um'  # Default fallback
     
     def _get_flux_unit(self):
         """Extract flux unit from cube_data"""
@@ -131,9 +138,9 @@ class GaussianMapResultsDialog(QDialog):
         
         # Normalize wavelength unit for display
         if 'ANGSTROM' in wave or 'AA' in wave:
-            wave_display = 'Å'
+            wave_display = 'Angstrom'
         elif 'MICRON' in wave or 'UM' in wave:
-            wave_display = 'µm'
+            wave_display = 'um'
         elif 'NM' in wave:
             wave_display = 'nm'
         elif 'KM/S' in wave or 'M/S' in wave:
@@ -146,13 +153,13 @@ class GaussianMapResultsDialog(QDialog):
         
         if has_cgs:
             # Data was converted from MJy/sr to CGS units
-            amp_unit = 'erg/(s·cm²·sr)'
-            area_unit = 'erg/(s·cm²)'
+            amp_unit = 'erg/(s*cm2*sr)'
+            area_unit = 'erg/(s*cm2)'
         else:
             # Native units (not converted)
             flux_clean = flux.replace(' ', '')
             amp_unit = flux_clean
-            area_unit = f'{flux_clean}·{wave_display}'
+            area_unit = f'{flux_clean}*{wave_display}'
         
         return {
             'Area (AUC)': (f'Area [{area_unit}]', 'viridis'),
@@ -160,7 +167,7 @@ class GaussianMapResultsDialog(QDialog):
             'Center': (f'Center [{wave_display}]', 'twilight'),
             'Sigma': (f'Sigma [{wave_display}]', 'cividis'),
             'FWHM': (f'FWHM [{wave_display}]', 'cividis'),
-            'χ² (fit quality)': ('χ² [dimensionless]', 'RdYlGn_r'),
+            'chi2 (fit quality)': ('chi^2 [dimensionless]', 'RdYlGn_r'),
             'Success Mask': ('Success [1=yes, 0=no]', 'gray'),
         }
     
@@ -178,8 +185,8 @@ class GaussianMapResultsDialog(QDialog):
             center_src = global_fit.get('center_source', 'total-spectrum')
             global_text = (
                 f"Global 1D fit: A={global_fit.get('amplitude', float('nan')):.4e}, "
-                f"μ={global_fit.get('center', float('nan')):.4f}, "
-                f"σ={global_fit.get('sigma', float('nan')):.4f} "
+                f"mu={global_fit.get('center', float('nan')):.4f}, "
+                f"sigma={global_fit.get('sigma', float('nan')):.4f} "
                 f"(center from {center_src})"
             )
         else:
@@ -199,7 +206,7 @@ class GaussianMapResultsDialog(QDialog):
         self.param_combo = QComboBox()
         self.param_combo.addItems([
             "Area (AUC)", "Amplitude", "Center", "Sigma", 
-            "FWHM", "χ² (fit quality)", "Success Mask", "Residuals"
+            "FWHM", "chi2 (fit quality)", "Success Mask", "Residuals"
         ])
         param_layout.addWidget(self.param_combo)
         
@@ -240,7 +247,7 @@ class GaussianMapResultsDialog(QDialog):
         button_layout = QHBoxLayout()
         
         # Export current parameter button
-        export_btn = QPushButton("Export Current Parameter")
+        export_btn = QPushButton("Save as FITS File")
         export_btn.clicked.connect(self._export_current_parameter)
         button_layout.addWidget(export_btn)
         
@@ -296,16 +303,16 @@ class GaussianMapResultsDialog(QDialog):
             unit_label, default_cmap = param_units['Center']
         elif param_name == "Sigma":
             data = self.results['sigma']
-            title = f"Gaussian Width (σ) {wave_range}"
+            title = f"Gaussian Width (sigma) {wave_range}"
             unit_label, default_cmap = param_units['Sigma']
         elif param_name == "FWHM":
             data = self.results['fwhm']
             title = f"Full Width at Half Maximum {wave_range}"
             unit_label, default_cmap = param_units['FWHM']
-        elif param_name == "χ² (fit quality)":
+        elif param_name == "chi2 (fit quality)":
             data = self.results['r_squared']
-            title = f"Reduced χ² (≈1 is good fit) {wave_range}"
-            unit_label, default_cmap = param_units['χ² (fit quality)']
+            title = f"Reduced chi^2 (approx 1 is good fit) {wave_range}"
+            unit_label, default_cmap = param_units['chi2 (fit quality)']
         elif param_name == "Success Mask":
             data = self.results['success'].astype(float)
             title = f"Successful Fits (1=success, 0=failed) {wave_range}"
@@ -317,6 +324,9 @@ class GaussianMapResultsDialog(QDialog):
         # Get selected colormap (use default if "Default" selected)
         cmap_selection = self.cmap_combo.currentText()
         cmap = default_cmap if cmap_selection == "Default" else cmap_selection
+        
+        # Store the unit label that's being displayed (for export later)
+        self._current_unit_label = unit_label
         
         # Apply scaling
         scale_selection = self.scale_combo.currentText()
@@ -497,14 +507,80 @@ class GaussianMapResultsDialog(QDialog):
         else:
             base_name = "gaussian"
         
-        # Map parameter names to data and default filenames
+        # Handle Residuals separately (3D cube, already in correct shape)
+        if param_name == "Residuals":
+            if 'residuals_cube' not in self.results or self.results['residuals_cube'] is None:
+                QMessageBox.warning(self, "No Data", "Residuals not available for export")
+                return
+            
+            default_filename = f"{base_name}_gaussian_residuals_cube.fits"
+            out_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Residuals Cube",
+                default_filename,
+                "FITS files (*.fits)"
+            )
+            
+            if not out_path:
+                return
+            
+            try:
+                from astropy.io import fits
+                residuals_data = self.results['residuals_cube']
+                
+                if self.cube_data.header is not None:
+                    out_header = self.cube_data.header.copy()
+                else:
+                    out_header = fits.Header()
+                
+                # Update header
+                instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'
+                teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
+                if instr != 'UNKNOWN':
+                    out_header['INSTRUME'] = instr
+                if teles != 'UNKNOWN':
+                    out_header['TELESCOP'] = teles
+                
+                out_header['BUNIT'] = 'Normalized residuals'
+                out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + ' (Residuals)')
+                out_header['COMMENT'] = 'Gaussian fit residuals: (data - fit) / noise'
+                
+                lam_min = min(self.gauss_left_x, self.gauss_right_x)
+                lam_max = max(self.gauss_left_x, self.gauss_right_x)
+                out_header['LAMMIN'] = (lam_min, "Minimum wavelength of fit")
+                out_header['LAMMAX'] = (lam_max, "Maximum wavelength of fit")
+                
+                # Update NAXIS
+                out_header['NAXIS'] = 3
+                out_header['NAXIS1'] = int(residuals_data.shape[2])
+                out_header['NAXIS2'] = int(residuals_data.shape[1])
+                out_header['NAXIS3'] = int(residuals_data.shape[0])
+                
+                hdu = fits.PrimaryHDU(data=residuals_data, header=out_header)
+                hdul = fits.HDUList([hdu])
+                hdul.writeto(out_path, overwrite=True)
+                
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Residuals cube saved to:\n{out_path}"
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Export Error",
+                    f"Failed to export residuals:\n{str(e)}"
+                )
+            return
+        
+        # Map parameter names to data and default filenames (2D maps)
         param_map = {
             "Area (AUC)": (self.results['area'], f"{base_name}_gaussian_area_map.fits"),
             "Amplitude": (self.results['amplitude'], f"{base_name}_gaussian_amplitude_map.fits"),
             "Center": (self.results['center'], f"{base_name}_gaussian_center_map.fits"),
             "Sigma": (self.results['sigma'], f"{base_name}_gaussian_sigma_map.fits"),
             "FWHM": (self.results['fwhm'], f"{base_name}_gaussian_fwhm_map.fits"),
-            "χ² (fit quality)": (self.results['r_squared'], f"{base_name}_gaussian_chi2_map.fits"),
+            "chi2 (fit quality)": (self.results['r_squared'], f"{base_name}_gaussian_chi2_map.fits"),
             "Success Mask": (self.results['success'].astype(float), f"{base_name}_gaussian_success_mask.fits"),
         }
         
@@ -550,19 +626,19 @@ class GaussianMapResultsDialog(QDialog):
             lam_min = min(self.gauss_left_x, self.gauss_right_x)
             lam_max = max(self.gauss_left_x, self.gauss_right_x)
             
-            # Determine unit for BUNIT based on parameter type and whether conversion was applied
-            if param_name == "Area (AUC)":
-                # Check if unit conversion was applied (header has CDELT1/CDELT2)
-                from .gaussian_fitter import get_pixel_solid_angle
-                solid_angle = get_pixel_solid_angle(self.cube_data.header)
-                if solid_angle is not None:
-                    bunit = "erg/s/cm2"
-                    out_header['COMMENT'] = 'Area converted to erg/s/cm² using pixel solid angle from CDELT1/CDELT2'
+            # Use the EXACT unit label that's displayed on the colorbar
+            # This ensures consistency between visualization and FITS export
+            if self._current_unit_label:
+                # Extract unit from "Parameter [unit]" format
+                if '[' in self._current_unit_label and ']' in self._current_unit_label:
+                    bunit = self._current_unit_label[self._current_unit_label.index('[')+1:self._current_unit_label.index(']')]
                 else:
-                    bunit = "MJy/sr*um"
-                    out_header['COMMENT'] = 'Area in native units (MJy/sr·μm) - no pixel scale available for conversion'
+                    bunit = self._current_unit_label
+                out_header['COMMENT'] = f'{param_name}: {bunit}'
             else:
+                # Fallback if no unit label stored
                 bunit = param_name
+                out_header['COMMENT'] = f'Gaussian fit parameter: {param_name}'
             
             out_header['BUNIT'] = bunit
             out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + f' ({param_name})')
@@ -629,10 +705,10 @@ class HITRANGaussianResultsDialog(QDialog):
     - Wavelength, Species, Transition
     - Amplitude, Sigma, FWHM
     - Area (native and/or CGS units)
-    - R² and fit status
+    - R^2 and fit status
     """
     
-    def __init__(self, parent, results, wave_unit='µm', flux_unit=''):
+    def __init__(self, parent, results, wave_unit='um', flux_unit=''):
         super().__init__(parent)
         self.setWindowTitle("HITRAN Gaussian Fit Results")
         self.setMinimumSize(1000, 600)
@@ -661,15 +737,15 @@ class HITRANGaussianResultsDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(11)
         self.table.setHorizontalHeaderLabels([
-            "λ (" + wave_unit + ")",
+            "lambda (" + wave_unit + ")",
             "Species",
             "Transition",
             "Amplitude",
-            "σ (" + wave_unit + ")",
+            "sigma (" + wave_unit + ")",
             "FWHM (" + wave_unit + ")",
             "Area (native)",
             "Area (CGS)",
-            "R²",
+            "R^2",
             "Status",
             "Message"
         ])
@@ -690,7 +766,7 @@ class HITRANGaussianResultsDialog(QDialog):
                 QTableWidgetItem(f"{result.get('area_native', 0):.4e}"),
                 QTableWidgetItem(f"{result.get('area', 0):.4e}"),
                 QTableWidgetItem(f"{result.get('r_squared', 0):.4f}"),
-                QTableWidgetItem("✓" if result.get('success', False) else "✗"),
+                QTableWidgetItem("Y" if result.get('success', False) else "N"),
                 QTableWidgetItem(result.get('message', ''))
             ]
             
