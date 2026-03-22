@@ -1,0 +1,503 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visualization &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Selecting Regions" href="selecting_regions.html" />
+    <link rel="prev" title="GUI Overview" href="gui_overview.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Visualization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#display-options">Display Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#color-scales">Color Scales</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#choosing-color-scale">Choosing Color Scale</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#intensity-range-vmin-vmax">Intensity Range (vmin/vmax)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#colormaps">Colormaps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#zoom-controls">Zoom Controls</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#reset-view">Reset View</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#overlays">Overlays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-visualizations">Exporting Visualizations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#animation-movies">Animation/Movies</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#display-performance">Display Performance</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting-visualization">Troubleshooting Visualization</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Visualization</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/visualization.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="gui_overview.html" class="btn btn-neutral float-left" title="GUI Overview" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="selecting_regions.html" class="btn btn-neutral float-right" title="Selecting Regions" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="visualization">
+<h1>Visualization<a class="headerlink" href="#visualization" title="Link to this heading"></a></h1>
+<p>IFU Analyzer provides powerful visualization tools to explore and display your data effectively. Learn how to customize the appearance and interact with your data.</p>
+<section id="display-options">
+<h2>Display Options<a class="headerlink" href="#display-options" title="Link to this heading"></a></h2>
+<p><strong>Intensity Map Display</strong></p>
+<p>The main intensity map shows a 2D projection of your 3D data cube:</p>
+<ul class="simple">
+<li><p>Each pixel represents a spatial location (spaxel)</p></li>
+<li><p>Color shows intensity at the current wavelength</p></li>
+<li><p>Interactive: Click any location to update the spectrum</p></li>
+</ul>
+<p><strong>Spectrum Panel Display</strong></p>
+<p>The spectrum panel shows 1D data:</p>
+<ul class="simple">
+<li><p>X-axis: Wavelength or frequency</p></li>
+<li><p>Y-axis: Intensity (flux or count rate)</p></li>
+<li><p>Mouse hover: Show exact values</p></li>
+<li><p>Right-click: Detailed spectrum options</p></li>
+</ul>
+</section>
+<section id="color-scales">
+<h2>Color Scales<a class="headerlink" href="#color-scales" title="Link to this heading"></a></h2>
+<p>Different color scales emphasize different aspects of your data:</p>
+<p><strong>Linear Scale</strong> (Default)</p>
+<ul class="simple">
+<li><p>Direct mapping: intensity → color</p></li>
+<li><p>Best for: Data without extreme value ranges</p></li>
+<li><p>Fast computation</p></li>
+</ul>
+<p><strong>Logarithmic Scale</strong></p>
+<ul class="simple">
+<li><p>Scale: intensity → log(intensity)</p></li>
+<li><p>Best for: Wide dynamic range</p></li>
+<li><p>Emphasizes: Faint features</p></li>
+<li><p>How to enable: View → Color Scale → Logarithmic</p></li>
+</ul>
+<p><strong>Power Law Scale</strong></p>
+<ul class="simple">
+<li><p>Scale: intensity → intensity^power</p></li>
+<li><p>Adjustable exponent (0.5 to 2.0)</p></li>
+<li><p>Best for: Custom emphasis</p></li>
+<li><p>How to enable: View → Color Scale → Power</p></li>
+</ul>
+<p><strong>Square Root Scale</strong></p>
+<ul class="simple">
+<li><p>Scale: intensity → √intensity</p></li>
+<li><p>Best for: Moderate dynamic range</p></li>
+<li><p>Balanced detail emphasis</p></li>
+</ul>
+<section id="choosing-color-scale">
+<h3>Choosing Color Scale<a class="headerlink" href="#choosing-color-scale" title="Link to this heading"></a></h3>
+<p>Use this guide:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Data Type</p></th>
+<th class="head"><p>Best Scale</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Continuum</p></td>
+<td><p>Linear (nice gradients)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Narrow Lines</p></td>
+<td><p>Logarithmic (show faint wings)</p></td>
+</tr>
+<tr class="row-even"><td><p>Stars</p></td>
+<td><p>Square Root (emphasize core without overwhelming)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Weak Features</p></td>
+<td><p>Logarithmic or Power</p></td>
+</tr>
+<tr class="row-even"><td><p>Residuals</p></td>
+<td><p>Linear (equal weight to all deviations)</p></td>
+</tr>
+</tbody>
+</table>
+<p>To change scale:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>Color Scale</strong> button in toolbar</p></li>
+<li><p>Select desired scale</p></li>
+<li><p>Adjust parameters interactively if offered</p></li>
+<li><p>View updates in real-time</p></li>
+</ol>
+</section>
+</section>
+<section id="intensity-range-vmin-vmax">
+<h2>Intensity Range (vmin/vmax)<a class="headerlink" href="#intensity-range-vmin-vmax" title="Link to this heading"></a></h2>
+<p><strong>Histogram Stretch</strong></p>
+<p>Manually set the intensity range displayed:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>Intensity Range</strong> panel</p></li>
+<li><p>Adjust <strong>vmin</strong> (minimum displayed intensity)</p></li>
+<li><p>Adjust <strong>vmax</strong> (maximum displayed intensity)</p></li>
+<li><p>Clipped values appear as black (below vmin) or white (above vmax)</p></li>
+</ol>
+<p><strong>Auto-Scale</strong></p>
+<p>Automatically set optimal range:</p>
+<ul class="simple">
+<li><p>Button: <strong>Auto Scale</strong> (shows in intensity range panel)</p></li>
+<li><p>Resets to 1st and 99th percentile of data</p></li>
+<li><p>Useful after dramatic region changes</p></li>
+</ul>
+<p><strong>Percentile Stretch</strong></p>
+<p>Set range based on percentiles:</p>
+<ol class="arabic simple">
+<li><p>Open <strong>Color Scale</strong> dialog</p></li>
+<li><p>Set min percentile (e.g., 5%)</p></li>
+<li><p>Set max percentile (e.g., 95%)</p></li>
+<li><p>Automatically clips outliers</p></li>
+</ol>
+<p><strong>Full Range</strong></p>
+<p>Show all data without clipping:</p>
+<ul class="simple">
+<li><p>Click <strong>Full Range</strong> button</p></li>
+<li><p>Reveals entire data range</p></li>
+<li><p>May reduce contrast if outliers present</p></li>
+</ul>
+</section>
+<section id="colormaps">
+<h2>Colormaps<a class="headerlink" href="#colormaps" title="Link to this heading"></a></h2>
+<p>Colormaps control how intensity is mapped to colors. IFU Analyzer includes many options:</p>
+<p><strong>Built-in Colormaps</strong></p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Name</p></th>
+<th class="head"><p>Usage</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Viridis</p></td>
+<td><p>Default, most perceptually uniform, good for presentations</p></td>
+</tr>
+<tr class="row-odd"><td><p>Hot</p></td>
+<td><p>Red/yellow/white, good for thermal data</p></td>
+</tr>
+<tr class="row-even"><td><p>Cool</p></td>
+<td><p>Cyan/blue, good for cool/absorbed regions</p></td>
+</tr>
+<tr class="row-odd"><td><p>RdYlBu</p></td>
+<td><p>Red-yellow-blue diverging, good for positive/negative data</p></td>
+</tr>
+<tr class="row-even"><td><p>Binary</p></td>
+<td><p>Black to white, good for monochrome presentations</p></td>
+</tr>
+<tr class="row-odd"><td><p>Inferno</p></td>
+<td><p>High contrast, good for dramatic effects</p></td>
+</tr>
+<tr class="row-even"><td><p>Plasma</p></td>
+<td><p>Perceptually uniform alternative to Viridis</p></td>
+</tr>
+<tr class="row-odd"><td><p>Grey</p></td>
+<td><p>Grayscale, good for printing</p></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Changing Colormaps</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>Colormap</strong> button in toolbar</p></li>
+<li><p>Select colormap from list</p></li>
+<li><p>Preview updates immediately</p></li>
+<li><p>Some support <strong>Invert</strong> option for reversed color order</p></li>
+</ol>
+<p><strong>Custom Colormaps</strong></p>
+<p>Advanced users can define custom colormaps:</p>
+<ol class="arabic simple">
+<li><p>Tools → Preferences → Color Management</p></li>
+<li><p>Load custom colormap file</p></li>
+<li><p>Or create in external tool (Matplotlib)</p></li>
+</ol>
+<p><strong>Colormap Best Practices</strong></p>
+<ul class="simple">
+<li><p><strong>Scientific papers</strong>: Use uniform colormaps (Viridis, Inferno)</p></li>
+<li><p><strong>Presentations</strong>: Use contrasting colormaps (Hot, Cool)</p></li>
+<li><p><strong>Printing</strong>: Use colormaps that work in grayscale</p></li>
+<li><p><strong>Colorblind</strong>: Avoid pure red-green combinations</p></li>
+</ul>
+</section>
+<section id="zoom-controls">
+<h2>Zoom Controls<a class="headerlink" href="#zoom-controls" title="Link to this heading"></a></h2>
+<p><strong>Zooming In/Out</strong></p>
+<p><strong>Zoom Levels</strong></p>
+<ul class="simple">
+<li><p>1:1 = 100% (one data pixel = one screen pixel)</p></li>
+<li><p>1:2 = 50% (one data pixel = half screen)</p></li>
+<li><p>2:1 = 200% (one data pixel = two screen)</p></li>
+</ul>
+<p><strong>Pan View</strong></p>
+<p>Move around zoomed view:</p>
+<ul class="simple">
+<li><p>Middle mouse button + drag</p></li>
+<li><p>Or hold Spacebar + drag</p></li>
+<li><p>Arrow keys for precise movement</p></li>
+</ul>
+<p><strong>Fit to Window</strong></p>
+<p>Automatically scale view:</p>
+<ul class="simple">
+<li><p>Ctrl+0 (zero key)</p></li>
+<li><p>Menu: View → Fit to Window</p></li>
+<li><p>Resets pan and zoom</p></li>
+</ul>
+<section id="reset-view">
+<h3>Reset View<a class="headerlink" href="#reset-view" title="Link to this heading"></a></h3>
+<p>Return to default view: View → Reset View</p>
+</section>
+</section>
+<section id="overlays">
+<h2>Overlays<a class="headerlink" href="#overlays" title="Link to this heading"></a></h2>
+<p><strong>Grid Overlay</strong></p>
+<p>Shows coordinate grid:</p>
+<ul class="simple">
+<li><p>View → Show Grid</p></li>
+<li><p>Adjustable color and spacing</p></li>
+<li><p>Useful for measuring positions</p></li>
+</ul>
+<p><strong>Measurement Tools</strong></p>
+<p>Add measurement annotations:</p>
+<ul class="simple">
+<li><p>Right-click map → Add Measurement</p></li>
+<li><p>Distance measurements</p></li>
+<li><p>Angle measurements</p></li>
+<li><p>Area measurements</p></li>
+</ul>
+<p><strong>Region Outlines</strong></p>
+<p>Selected regions display outlines:</p>
+<ul class="simple">
+<li><p>Rectangle: Green outline</p></li>
+<li><p>Circle: Blue outline</p></li>
+<li><p>Custom: Yellow outline</p></li>
+<li><p>Color customizable in preferences</p></li>
+</ul>
+<p><strong>Coordinate Display</strong></p>
+<p>Current cursor position shows:</p>
+<ul class="simple">
+<li><p>RA/DEC coordinates (if WCS available)</p></li>
+<li><p>Pixel coordinates (always available)</p></li>
+<li><p>Wavelength/Velocity</p></li>
+<li><p>Intensity value</p></li>
+</ul>
+<p><strong>Spectral Overlay</strong></p>
+<p>When fitting, overlay shows:</p>
+<ul class="simple">
+<li><p>Fitted Gaussian curve (red)</p></li>
+<li><p>Baseline (yellow)</p></li>
+<li><p>Residuals (green shaded)</p></li>
+<li><p>Chi-squared value</p></li>
+</ul>
+</section>
+<section id="exporting-visualizations">
+<h2>Exporting Visualizations<a class="headerlink" href="#exporting-visualizations" title="Link to this heading"></a></h2>
+<p><strong>Save Current View as Image</strong></p>
+<ol class="arabic simple">
+<li><p>File → Export Visualization</p></li>
+<li><p>Choose format (PNG, JPEG, PDF)</p></li>
+<li><p>Specify filename</p></li>
+<li><p>Click Export</p></li>
+</ol>
+<p><strong>High-Resolution Export</strong></p>
+<p>For publication-quality figures:</p>
+<ol class="arabic simple">
+<li><p>File → Export Visualization</p></li>
+<li><p>Choose <strong>High Resolution</strong></p></li>
+<li><p>Select up to 4× magnification</p></li>
+<li><p>Export as PDF or PNG</p></li>
+</ol>
+<p><strong>Batch Export</strong></p>
+<p>Export multiple wavelengths as images:</p>
+<ol class="arabic simple">
+<li><p>File → Batch Export</p></li>
+<li><p>Specify wavelength range</p></li>
+<li><p>Choose step size</p></li>
+<li><p>Select output directory</p></li>
+<li><p>Click Start</p></li>
+</ol>
+</section>
+<section id="animation-movies">
+<h2>Animation/Movies<a class="headerlink" href="#animation-movies" title="Link to this heading"></a></h2>
+<p>Create animated sequences:</p>
+<ol class="arabic simple">
+<li><p>File → Create Animation</p></li>
+<li><p>Set wavelength range</p></li>
+<li><p>Set frame rate (number of channels per second)</p></li>
+<li><p>Choose output format (GIF, MP4, WebM)</p></li>
+<li><p>Click Create</p></li>
+</ol>
+<p>Useful for:</p>
+<ul class="simple">
+<li><p>Presentations</p></li>
+<li><p>Publications</p></li>
+<li><p>Data exploration</p></li>
+<li><p>Communicating results to collaborators</p></li>
+</ul>
+</section>
+<section id="display-performance">
+<h2>Display Performance<a class="headerlink" href="#display-performance" title="Link to this heading"></a></h2>
+<p>For smooth performance with large cubes:</p>
+<p><strong>Enable Display Decimation</strong></p>
+<ul class="simple">
+<li><p>Tools → Preferences → Performance</p></li>
+<li><p>When enabled, skips pixels for speed</p></li>
+<li><p>Toggle with P key while viewing</p></li>
+</ul>
+<p><strong>Resolution Adjustment</strong></p>
+<ul class="simple">
+<li><p>Reduce display resolution temporarily</p></li>
+<li><p>Tools → Display Resolution</p></li>
+<li><p>Choose 50%, 33%, or 25% of full resolution</p></li>
+</ul>
+<p><strong>Memory Management</strong></p>
+<ul class="simple">
+<li><p>Monitor memory usage (status bar)</p></li>
+<li><p>Close other applications if needed</p></li>
+<li><p>Use downsampled cubes for initial exploration</p></li>
+</ul>
+</section>
+<section id="troubleshooting-visualization">
+<h2>Troubleshooting Visualization<a class="headerlink" href="#troubleshooting-visualization" title="Link to this heading"></a></h2>
+<p><strong>Colors look washed out</strong></p>
+<ul class="simple">
+<li><p>Adjust vmin/vmax</p></li>
+<li><p>Try different color scale</p></li>
+<li><p>Check display monitor gamma</p></li>
+</ul>
+<p><strong>Very pixelated appearance</strong></p>
+<ul class="simple">
+<li><p>Zoom in with scroll wheel</p></li>
+<li><p>Use View → Fit to Window</p></li>
+<li><p>Enable smoothing interpolation</p></li>
+</ul>
+<p><strong>Slow performance</strong></p>
+<ul class="simple">
+<li><p>Enable Display Decimation</p></li>
+<li><p>Reduce display resolution</p></li>
+<li><p>Close other applications</p></li>
+<li><p>Consider downsampling cube</p></li>
+</ul>
+<p><strong>Colors don’t match expectations</strong></p>
+<ul class="simple">
+<li><p>Verify wavelength selection</p></li>
+<li><p>Check color scale type</p></li>
+<li><p>Confirm data is calibrated</p></li>
+<li><p>Try different colormap</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gui_overview.html" class="btn btn-neutral float-left" title="GUI Overview" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="selecting_regions.html" class="btn btn-neutral float-right" title="Selecting Regions" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,440 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Colormaps &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Reference" href="../reference/index.html" />
+    <link rel="prev" title="Analysis Techniques" href="analysis_techniques.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../user_guide/index.html">User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Features</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="instruments.html">Instruments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="analysis_techniques.html">Analysis Techniques</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Colormaps</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#choosing-the-right-colormap">Choosing the Right Colormap</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#colormap-parameters">Colormap Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#colormap-examples">Colormap Examples</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-colormaps-effectively">Using Colormaps Effectively</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#colormap-resources">Colormap Resources</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-custom-colormaps">Advanced: Custom Colormaps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-figures-with-colormaps">Exporting Figures with Colormaps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#common-mistakes-to-avoid">Common Mistakes to Avoid</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#references">References</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#core-features-overview">Core Features Overview</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Features</a></li>
+      <li class="breadcrumb-item active">Colormaps</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/features/colormaps.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="analysis_techniques.html" class="btn btn-neutral float-left" title="Analysis Techniques" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../reference/index.html" class="btn btn-neutral float-right" title="Reference" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="colormaps">
+<h1>Colormaps<a class="headerlink" href="#colormaps" title="Link to this heading"></a></h1>
+<p>Available colormaps for visualizing intensity maps.</p>
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">Available Colormaps</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 30.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Name</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Best Use</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Viridis</p></td>
+<td><p>Perceptually Uniform</p></td>
+<td><p>Default, scientific papers, colorblind-friendly</p></td>
+</tr>
+<tr class="row-odd"><td><p>Plasma</p></td>
+<td><p>Perceptually Uniform</p></td>
+<td><p>High contrast, presentations</p></td>
+</tr>
+<tr class="row-even"><td><p>Inferno</p></td>
+<td><p>Perceptually Uniform</p></td>
+<td><p>Dark backgrounds, dramatic effect</p></td>
+</tr>
+<tr class="row-odd"><td><p>Magma</p></td>
+<td><p>Perceptually Uniform</p></td>
+<td><p>Publications, presentations</p></td>
+</tr>
+<tr class="row-even"><td><p>Cividis</p></td>
+<td><p>Colorblind-Friendly</p></td>
+<td><p>Colorblind presentations</p></td>
+</tr>
+<tr class="row-odd"><td><p>Hot</p></td>
+<td><p>Sequential</p></td>
+<td><p>Thermal data, warm sources</p></td>
+</tr>
+<tr class="row-even"><td><p>Cool</p></td>
+<td><p>Sequential</p></td>
+<td><p>Cool sources, absorbed regions</p></td>
+</tr>
+<tr class="row-odd"><td><p>RdYlBu</p></td>
+<td><p>Diverging</p></td>
+<td><p>Positive/negative data</p></td>
+</tr>
+<tr class="row-even"><td><p>RdYlGn</p></td>
+<td><p>Diverging</p></td>
+<td><p>Positive/negative data</p></td>
+</tr>
+<tr class="row-odd"><td><p>Spectral</p></td>
+<td><p>Diverging</p></td>
+<td><p>Balanced positive/negative</p></td>
+</tr>
+<tr class="row-even"><td><p>Binary</p></td>
+<td><p>Sequential</p></td>
+<td><p>Monochrome, printing</p></td>
+</tr>
+<tr class="row-odd"><td><p>Grey/Gray</p></td>
+<td><p>Sequential</p></td>
+<td><p>Printing, presentations</p></td>
+</tr>
+<tr class="row-even"><td><p>PuBu</p></td>
+<td><p>Sequential</p></td>
+<td><p>Cool sources</p></td>
+</tr>
+<tr class="row-odd"><td><p>YlOrRd</p></td>
+<td><p>Sequential</p></td>
+<td><p>Warm sources</p></td>
+</tr>
+</tbody>
+</table>
+<section id="choosing-the-right-colormap">
+<h2>Choosing the Right Colormap<a class="headerlink" href="#choosing-the-right-colormap" title="Link to this heading"></a></h2>
+<p><strong>For Scientific Publications</strong></p>
+<p>Use perceptually uniform colormaps:</p>
+<ul class="simple">
+<li><p>✓ Viridis (most common)</p></li>
+<li><p>✓ Plasma</p></li>
+<li><p>✓ Inferno</p></li>
+<li><p>✗ Avoid: Jet, Rainbow (non-uniform, misleading)</p></li>
+</ul>
+<p><strong>For Presentations</strong></p>
+<p>Use high-contrast colormaps:</p>
+<ul class="simple">
+<li><p>✓ Hot</p></li>
+<li><p>✓ Cool</p></li>
+<li><p>✓ Plasma</p></li>
+<li><p>✓ Inferno</p></li>
+</ul>
+<p><strong>For Colorblind Accessibility</strong></p>
+<p>Use colorblind-friendly colormaps:</p>
+<ul class="simple">
+<li><p>✓ Viridis</p></li>
+<li><p>✓ Cividis</p></li>
+<li><p>✓ Greys</p></li>
+<li><p>✗ Avoid: Red-Green combinations</p></li>
+</ul>
+<p><strong>For Diverging Data</strong></p>
+<p>Use diverging colormaps:</p>
+<ul class="simple">
+<li><p>✓ RdYlBu (red, yellow, blue)</p></li>
+<li><p>✓ RdYlGn (red, yellow, green)</p></li>
+<li><p>✓ Spectral</p></li>
+<li><p>✓ Cool/Warm diverging</p></li>
+</ul>
+<p><strong>For Printing</strong></p>
+<p>Use greyscale or monochrome:</p>
+<ul class="simple">
+<li><p>✓ Binary</p></li>
+<li><p>✓ Grey/Gray</p></li>
+<li><p>✓ Bone</p></li>
+<li><p>✓ Copper</p></li>
+</ul>
+</section>
+<section id="colormap-parameters">
+<h2>Colormap Parameters<a class="headerlink" href="#colormap-parameters" title="Link to this heading"></a></h2>
+<p><strong>Reversing a Colormap</strong></p>
+<p>Invert color order:</p>
+<ol class="arabic simple">
+<li><p>Select colormap</p></li>
+<li><p>Check <strong>Invert</strong> checkbox</p></li>
+<li><p>Colors reverse (e.g., Viridis: yellow to purple)</p></li>
+<li><p>Useful for comparison or preference</p></li>
+</ol>
+<p><strong>Modifying Colormap Intensity</strong></p>
+<p>Adjust colormap brightness/contrast:</p>
+<ol class="arabic simple">
+<li><p>Colormap dialog → <strong>Intensity</strong></p></li>
+<li><p>Increase: Makes colors more vivid</p></li>
+<li><p>Decrease: Makes colors more subtle</p></li>
+<li><p>Useful for display preference</p></li>
+</ol>
+<p><strong>Custom Colormaps</strong></p>
+<p>Create your own colormap:</p>
+<ol class="arabic simple">
+<li><p>Tools → Preferences → Colormaps</p></li>
+<li><p><strong>Create Custom</strong></p></li>
+<li><p>Define color at points (e.g., dark at low, bright at high)</p></li>
+<li><p>Save as custom colormap</p></li>
+</ol>
+</section>
+<section id="colormap-examples">
+<h2>Colormap Examples<a class="headerlink" href="#colormap-examples" title="Link to this heading"></a></h2>
+<p><strong>Viridis (Default)</strong></p>
+<ul class="simple">
+<li><p>Purple → Green → Yellow</p></li>
+<li><p>Perceptually uniform</p></li>
+<li><p>Works well for all data types</p></li>
+<li><p>Colorblind-friendly</p></li>
+<li><p>Most commonly used</p></li>
+</ul>
+<p><strong>Hot</strong></p>
+<ul class="simple">
+<li><p>Black → Red → Yellow → White</p></li>
+<li><p>Good for thermal data</p></li>
+<li><p>Intuitive for temperature</p></li>
+<li><p>High contrast</p></li>
+<li><p>Shows detail in bright regions</p></li>
+</ul>
+<p><strong>Cool</strong></p>
+<ul class="simple">
+<li><p>Black → Cyan → White</p></li>
+<li><p>Good for cool/absorbed regions</p></li>
+<li><p>Opposite of Hot</p></li>
+<li><p>High contrast</p></li>
+<li><p>Complements Hot colormap</p></li>
+</ul>
+<p><strong>RdYlBu (Red-Yellow-Blue)</strong></p>
+<ul class="simple">
+<li><p>Red (high) → Yellow (middle) → Blue (low)</p></li>
+<li><p>For diverging data</p></li>
+<li><p>Positive vs. negative</p></li>
+<li><p>Good for velocity maps (red = receding, blue = approaching)</p></li>
+</ul>
+<p><strong>Grey (Grayscale)</strong></p>
+<ul class="simple">
+<li><p>Black → White</p></li>
+<li><p>Best for printing</p></li>
+<li><p>No color information loss</p></li>
+<li><p>Works in monochrome display</p></li>
+</ul>
+</section>
+<section id="using-colormaps-effectively">
+<h2>Using Colormaps Effectively<a class="headerlink" href="#using-colormaps-effectively" title="Link to this heading"></a></h2>
+<p><strong>Emphasizing Features</strong></p>
+<ul class="simple">
+<li><p>Use <strong>Hot</strong> for bright objects on dark background</p></li>
+<li><p>Use <strong>Cool</strong> for faint features</p></li>
+<li><p>Use <strong>Viridis</strong> for balanced visibility</p></li>
+</ul>
+<p><strong>Avoiding Misleading Representation</strong></p>
+<ul class="simple">
+<li><p>✓ Use uniform colormaps (Viridis, Plasma)</p></li>
+<li><p>✗ Avoid Jet/Rainbow (non-uniform, artifacts)</p></li>
+<li><p>✓ Match colormap to data type (thermal, velocity, etc.)</p></li>
+</ul>
+<p><strong>Comparing Multiple Wavelengths</strong></p>
+<ul class="simple">
+<li><p>Use same colormap for all wavelengths</p></li>
+<li><p>Aids visual comparison</p></li>
+<li><p>Use intensity scaling (vmin/vmax) to emphasize features</p></li>
+</ul>
+<p><strong>Creating Composite Images</strong></p>
+<p>RGB composites:</p>
+<ol class="arabic simple">
+<li><p>Select three wavelengths</p></li>
+<li><p>Assign to R, G, B channels</p></li>
+<li><p>Create 3-color image</p></li>
+<li><p>Customize each channel’s colormap</p></li>
+</ol>
+</section>
+<section id="colormap-resources">
+<h2>Colormap Resources<a class="headerlink" href="#colormap-resources" title="Link to this heading"></a></h2>
+<p>For more colormaps:</p>
+<ul class="simple">
+<li><p><strong>Matplotlib</strong>: Extensive library built-in</p></li>
+<li><p><strong>Colorcet</strong>: Curated colormaps collection</p></li>
+<li><p><strong>Scientific Color Maps</strong>: Perceptually accurate colormaps</p></li>
+<li><p><strong>Cmocean</strong>: Oceanography-themed colormaps</p></li>
+</ul>
+</section>
+<section id="advanced-custom-colormaps">
+<h2>Advanced: Custom Colormaps<a class="headerlink" href="#advanced-custom-colormaps" title="Link to this heading"></a></h2>
+<p>Creating scientific colormaps in Python:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">matplotlib.colors</span> <span class="k">as</span> <span class="nn">mcolors</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+
+<span class="c1"># Create custom colormap</span>
+<span class="n">colors</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;darkblue&#39;</span><span class="p">,</span> <span class="s1">&#39;cyan&#39;</span><span class="p">,</span> <span class="s1">&#39;yellow&#39;</span><span class="p">,</span> <span class="s1">&#39;red&#39;</span><span class="p">]</span>
+<span class="n">n_bins</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="n">cmap</span> <span class="o">=</span> <span class="n">mcolors</span><span class="o">.</span><span class="n">LinearSegmentedColormap</span><span class="o">.</span><span class="n">from_list</span><span class="p">(</span>
+    <span class="s1">&#39;custom&#39;</span><span class="p">,</span> <span class="n">colors</span><span class="p">,</span> <span class="n">N</span><span class="o">=</span><span class="n">n_bins</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="exporting-figures-with-colormaps">
+<h2>Exporting Figures with Colormaps<a class="headerlink" href="#exporting-figures-with-colormaps" title="Link to this heading"></a></h2>
+<p>When exporting visualizations:</p>
+<ol class="arabic simple">
+<li><p>File → Export Visualization</p></li>
+</ol>
+<p>2. Choose format (PNG, PDF, etc.)
+3 Colormap automatically included
+4. For printing: Consider grayscale alternative
+5. For presentations: Consider projector colorblindness</p>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Consistency</strong>: Use same colormap across related figures</p></li>
+<li><p><strong>Accessibility</strong>: Avoid red-green combinations</p></li>
+<li><p><strong>Publication</strong>: Use perceptually uniform colormaps</p></li>
+<li><p><strong>Clarity</strong>: Match colormap to data properties</p></li>
+<li><p><strong>Documentation</strong>: Note which colormap you used</p></li>
+<li><p><strong>Alternatives</strong>: Provide colorblind-friendly versions</p></li>
+</ol>
+</section>
+<section id="common-mistakes-to-avoid">
+<h2>Common Mistakes to Avoid<a class="headerlink" href="#common-mistakes-to-avoid" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>❌ Using Jet colormap (non-uniform, artifacts)</p></li>
+<li><p>❌ Using red-green for colorblind readers</p></li>
+<li><p>❌ Changing colormaps between related figures</p></li>
+<li><p>❌ Using colormaps that are visually confusing</p></li>
+<li><p>✓ Test on different displays/projectors</p></li>
+<li><p>✓ Include colorbar in all figures</p></li>
+<li><p>✓ Consider print version early</p></li>
+</ul>
+</section>
+<section id="references">
+<h2>References<a class="headerlink" href="#references" title="Link to this heading"></a></h2>
+<p>For deeper understanding of colormaps:</p>
+<ul class="simple">
+<li><p>“How Bad Is Your Colormap?” (Nuñez et al., 2018)</p></li>
+<li><p>Matplotlib colormap selection guide</p></li>
+<li><p>Scientific Python colormap libraries</p></li>
+</ul>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>Now that you understand colormaps, see:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="../user_guide/visualization.html"><span class="doc">Visualization</span></a> for display options</p></li>
+<li><p><a class="reference internal" href="../user_guide/exporting_data.html"><span class="doc">Exporting Data</span></a> for saving figures</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="analysis_techniques.html" class="btn btn-neutral float-left" title="Analysis Techniques" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../reference/index.html" class="btn btn-neutral float-right" title="Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

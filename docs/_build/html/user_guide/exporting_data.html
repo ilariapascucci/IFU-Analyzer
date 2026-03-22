@@ -1,0 +1,561 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exporting Data &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Features" href="../features/index.html" />
+    <link rel="prev" title="CO Flux Extraction" href="co_flux_extraction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Exporting Data</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#export-options-overview">Export Options Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-spectra">Exporting Spectra</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-parameter-maps">Exporting Parameter Maps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-residuals">Exporting Residuals</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#batch-export">Batch Export</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-analysis-for-publication">Exporting Analysis for Publication</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-for-external-software">Exporting for External Software</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-export-options">Advanced Export Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#troubleshooting-export-issues">Troubleshooting Export Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#quick-reference">Quick Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Exporting Data</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/exporting_data.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../features/index.html" class="btn btn-neutral float-right" title="Features" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="exporting-data">
+<h1>Exporting Data<a class="headerlink" href="#exporting-data" title="Link to this heading"></a></h1>
+<p>Save your analysis results in various formats for further processing and publication.</p>
+<section id="export-options-overview">
+<h2>Export Options Overview<a class="headerlink" href="#export-options-overview" title="Link to this heading"></a></h2>
+<p>IFU Analyzer provides several export capabilities:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>What to Export</p></th>
+<th class="head"><p>Format</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Spectrum</strong></p></td>
+<td><p>ASCII, FITS</p></td>
+<td><p>Publication, further analysis</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Parameter Maps</strong></p></td>
+<td><p>FITS</p></td>
+<td><p>Imaging analysis tools (DS9, CASA, Python)</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Residuals</strong></p></td>
+<td><p>FITS</p></td>
+<td><p>Quality assessment, error analysis</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Visualization</strong></p></td>
+<td><p>PNG, JPEG, PDF</p></td>
+<td><p>Presentations, publications</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Analysis Results</strong></p></td>
+<td><p>ASCII/CSV table</p></td>
+<td><p>Statistics, databases</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Animation</strong></p></td>
+<td><p>GIF, MP4, WebM</p></td>
+<td><p>Web, presentations</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="exporting-spectra">
+<h2>Exporting Spectra<a class="headerlink" href="#exporting-spectra" title="Link to this heading"></a></h2>
+<p><strong>ASCII Format</strong></p>
+<p>Export spectrum as tab-delimited text:</p>
+<ol class="arabic simple">
+<li><p>Right-click spectrum panel → <strong>Export Spectrum</strong></p></li>
+<li><p>Format: ASCII</p></li>
+<li><p>Specify filename with .txt extension</p></li>
+<li><p>File created with columns:</p></li>
+</ol>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Wavelength(um)    Flux(mJy)    Error(mJy)
+4.5000            12.34        0.56
+4.5012            12.41        0.55
+...
+</pre></div>
+</div>
+<p><strong>FITS Format</strong></p>
+<p>Export as FITS binary table:</p>
+<ol class="arabic simple">
+<li><p>Spectrum panel → <strong>Export Spectrum</strong></p></li>
+<li><p>Format: FITS</p></li>
+<li><p>Creates 1D FITS file with:
+- Primary header (instrument, date, etc.)
+- Binary table extension (wavelength, flux, error columns)</p></li>
+</ol>
+<p><strong>Normalized vs. Original</strong></p>
+<p>Choose which version to export:</p>
+<ul class="simple">
+<li><p><strong>Original</strong>: Raw spectrum values</p></li>
+<li><p><strong>Normalized</strong>: Divided by median/maximum</p></li>
+<li><p><strong>Continuum-subtracted</strong>: Baseline removed</p></li>
+</ul>
+<p>Select in export dialog before clicking <strong>Export</strong>.</p>
+</section>
+<section id="exporting-parameter-maps">
+<h2>Exporting Parameter Maps<a class="headerlink" href="#exporting-parameter-maps" title="Link to this heading"></a></h2>
+<p><strong>Export Gaussian Fitting Results</strong></p>
+<p>Save maps created from full-cube fitting:</p>
+<ol class="arabic simple">
+<li><p>File → <strong>Export Results</strong></p></li>
+<li><p>Select maps to include:
+☐ Amplitude Map
+☐ Center Map (kinematics)
+☐ Sigma Map (line width)
+☐ FWHM Map
+☐ Area Map (flux)
+☐ Chi-Squared Map (fit quality)
+☐ Success Mask (good/bad fits)</p></li>
+<li><p>Output format: FITS (multi-extension)</p></li>
+<li><p>Specify filename</p></li>
+</ol>
+<p><strong>FITS Output Structure</strong></p>
+<p>Multi-extension FITS file created:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Primary HDU
+├─ Header: Instrument, wavelength, etc.
+├─ Data: None (metadata only)
+
+Extension 1: Amplitude Map
+├─ Header: Units, wavelength, etc.
+├─ Data: 2D array (RA x Dec)
+
+Extension 2: Center Map
+├─ Header: &quot;Kinematics&quot;
+├─ Data: 2D array
+
+... (additional extensions for each map)
+</pre></div>
+</div>
+<p><strong>Accessing Maps in Other Software</strong></p>
+<p>Load FITS file in analysis tools:</p>
+<p><strong>Python/Astropy:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
+
+<span class="n">hdul</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;results.fits&#39;</span><span class="p">)</span>
+<span class="n">amplitude</span> <span class="o">=</span> <span class="n">hdul</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">data</span>  <span class="c1"># First extension</span>
+<span class="n">velocity</span> <span class="o">=</span> <span class="n">hdul</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">data</span>   <span class="c1"># Second extension</span>
+<span class="n">hdul</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</pre></div>
+</div>
+<p><strong>DS9:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ds9<span class="w"> </span>results.fits
+</pre></div>
+</div>
+<p><strong>CASA:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">casatasks</span>
+<span class="c1"># Maps can be converted to CASA images</span>
+</pre></div>
+</div>
+<p><strong>Image Export Formats</strong></p>
+<p>Export intensity map as image:</p>
+<ol class="arabic simple">
+<li><p>Display desired map/wavelength</p></li>
+<li><p>File → <strong>Export Visualization</strong></p></li>
+<li><p>Choose format:
+- <strong>PNG</strong>: Lossless, good for web (default)
+- <strong>JPEG</strong>: Lossy, smaller file size
+- <strong>PDF</strong>: Vector format, publication quality
+- <strong>SVG</strong>: Scalable vector</p></li>
+<li><p>Resolution options:
+- 1×: Current display size
+- 2×: High resolution
+- 4×: Very high resolution
+- Custom: User-specified DPI</p></li>
+</ol>
+</section>
+<section id="exporting-residuals">
+<h2>Exporting Residuals<a class="headerlink" href="#exporting-residuals" title="Link to this heading"></a></h2>
+<p><strong>Export Residuals Cube</strong></p>
+<p>Save residuals from Gaussian fitting:</p>
+<ol class="arabic simple">
+<li><p>File → <strong>Export Residuals</strong></p></li>
+<li><p>Residuals = Data - Gaussian Fit</p></li>
+<li><p>Same dimensions as input cube</p></li>
+<li><p>Format: FITS (3D)</p></li>
+<li><p>Useful for:
+- Assessing fit quality
+- Detecting systematic patterns
+- Finding outliers/bad pixels</p></li>
+</ol>
+<p><strong>Batch Export Residuals</strong></p>
+<p>Export for multiple wavelength ranges:</p>
+<ol class="arabic simple">
+<li><p>Analysis → <strong>Batch Export Residuals</strong></p></li>
+<li><p>Specify wavelength ranges</p></li>
+<li><p>One residuals file per range</p></li>
+<li><p>Each file contains 3D residuals</p></li>
+</ol>
+<p><strong>Using Residuals Outside IFU Analyzer</strong></p>
+<p>Analyze residuals with Python:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+
+<span class="c1"># Load residuals</span>
+<span class="n">residuals</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">getdata</span><span class="p">(</span><span class="s1">&#39;residuals.fits&#39;</span><span class="p">)</span>
+
+<span class="c1"># Calculate RMS</span>
+<span class="n">rms</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">residuals</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+
+<span class="c1"># Find outliers</span>
+<span class="n">bad_pixels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">residuals</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="o">*</span><span class="n">rms</span>
+</pre></div>
+</div>
+</section>
+<section id="batch-export">
+<h2>Batch Export<a class="headerlink" href="#batch-export" title="Link to this heading"></a></h2>
+<p><strong>Export Multiple Wavelengths</strong></p>
+<p>Create a sequence of exports:</p>
+<ol class="arabic simple">
+<li><p>File → <strong>Batch Export</strong></p></li>
+<li><p>Configure:
+- <strong>Starting wavelength</strong>
+- <strong>Ending wavelength</strong>
+- <strong>Step size</strong> (e.g., Every 10 Å)
+- <strong>What to export</strong>: Spectrum, map, image, etc.
+- <strong>Output directory</strong>: Where to save</p></li>
+<li><p>Click <strong>Start</strong> to begin</p></li>
+</ol>
+<p>Example: Export spectra every 10 Å from 4000-5000 Å:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>spectrum_4000.fits
+spectrum_4010.fits
+spectrum_4020.fits
+...
+spectrum_4990.fits
+spectrum_5000.fits
+</pre></div>
+</div>
+</section>
+<section id="exporting-analysis-for-publication">
+<h2>Exporting Analysis for Publication<a class="headerlink" href="#exporting-analysis-for-publication" title="Link to this heading"></a></h2>
+<p><strong>Complete Results Package</strong></p>
+<p>Create publication-ready output:</p>
+<ol class="arabic simple">
+<li><p>File → <strong>Export for Publication</strong></p></li>
+<li><p>Automatically includes:
+- Parameter maps (FITS)
+- Extracted spectra (ASCII/FITS)
+- Metadata file (parameter summary)
+- Visualizations (PDF quality)</p></li>
+</ol>
+<ol class="arabic simple" start="311">
+<li><p>Specifies archive format</p></li>
+</ol>
+<ol class="arabic simple" start="3">
+<li><p>Output: Compressed archive (.tar.gz or .zip)</p></li>
+</ol>
+<p><strong>Included in Archive</strong></p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>publication/
+├── data/
+│   ├── amplitude_map.fits
+│   ├── center_map.fits
+│   ├── width_map.fits
+│   └── spectra/
+│       ├── spectrum_region1.txt
+│       ├── spectrum_region2.txt
+│       └── ...
+├── figures/
+│   ├── map_amplitude.pdf
+│   ├── map_velocity.pdf
+│   ├── spectrum_overview.pdf
+│   └── ...
+├── metadata.txt
+└── README.txt
+</pre></div>
+</div>
+<p><strong>Metadata File Contents</strong></p>
+<p>Automatic documentation:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Analysis Date: 2024-01-15
+Data File: cosmic_object.fits
+Instrument: JWST/NIRSpec
+
+Analysis Steps:
+1. Gaussian fitting: 4.5-5.0 μm
+2. Continuum subtraction: Linear model
+3. Parameters extracted: Amplitude, Center, FWHM, Area
+
+Results:
+- 100 × 100 pixels fitted
+- 98% success rate
+- Mean χ² = 0.45
+</pre></div>
+</div>
+</section>
+<section id="exporting-for-external-software">
+<h2>Exporting for External Software<a class="headerlink" href="#exporting-for-external-software" title="Link to this heading"></a></h2>
+<p><strong>For Image Analysis (DS9, Aladin)</strong></p>
+<ol class="arabic simple">
+<li><p>Export maps as FITS</p></li>
+<li><p>Both tools directly open .fits files</p></li>
+<li><p>Use standard visualization features</p></li>
+</ol>
+<p><strong>For Statistical Analysis (Python, R)</strong></p>
+<p>Export as ASCII table:</p>
+<ol class="arabic simple">
+<li><p>Analysis → <strong>Export as Table</strong></p></li>
+<li><p>Format: CSV or Tab-delimited</p></li>
+<li><p>Columns: X, Y, Amplitude, Center, FWHM, Area, Chi2</p></li>
+</ol>
+<p><code class="docutils literal notranslate"><span class="pre">`csv</span>
+<span class="pre">X,Y,Amplitude,Center,FWHM,Area,Chi2</span>
+<span class="pre">0,0,45.2,4742.1,2.3,234.5,0.32</span>
+<span class="pre">0,1,43.1,4741.9,2.4,221.3,0.41</span>
+<span class="pre">...</span>
+<span class="pre">`</span></code></p>
+<p><strong>For Kinematic Analysis (GIPSY, Miriad)</strong></p>
+<p>Export velocity maps:</p>
+<ol class="arabic simple">
+<li><p>Analysis → <strong>Export Kinematics</strong></p></li>
+<li><p>Creates velocity cube format</p></li>
+<li><p>Can interface with radio synthesis software</p></li>
+</ol>
+<p><strong>For Publishing (LaTeX, Word)</strong></p>
+<p>Export as table:</p>
+<ol class="arabic simple">
+<li><p>Analysis → <strong>Export as LaTeX Table</strong></p></li>
+<li><p>Creates publication-ready LaTeX code:</p></li>
+</ol>
+<div class="highlight-latex notranslate"><div class="highlight"><pre><span></span><span class="k">\begin</span><span class="nb">{</span>table<span class="nb">}</span>
+<span class="k">\centering</span>
+<span class="k">\begin</span><span class="nb">{</span>tabular<span class="nb">}{</span>cccccc<span class="nb">}</span>
+Region <span class="nb">&amp;</span> F(CO) <span class="nb">&amp;</span> V <span class="nb">&amp;</span> W <span class="nb">&amp;</span> T <span class="nb">&amp;</span> Qual <span class="k">\\</span>
+...
+<span class="k">\end</span><span class="nb">{</span>tabular<span class="nb">}</span>
+<span class="k">\end</span><span class="nb">{</span>table<span class="nb">}</span>
+</pre></div>
+</div>
+</section>
+<section id="advanced-export-options">
+<h2>Advanced Export Options<a class="headerlink" href="#advanced-export-options" title="Link to this heading"></a></h2>
+<p><strong>Custom File Format</strong></p>
+<p>Specify exact export format:</p>
+<ol class="arabic simple">
+<li><p>File → <strong>Export Advanced</strong></p></li>
+<li><p>Choose columns to include</p></li>
+<li><p>Select delimiters (tab, comma, space)</p></li>
+<li><p>Set number precision (4 decimals, scientific notation, etc.)</p></li>
+<li><p>Add/remove header lines</p></li>
+<li><p>Specify units</p></li>
+</ol>
+<p><strong>Compression</strong></p>
+<p>Reduce file size:</p>
+<ul class="simple">
+<li><p><strong>FITS</strong>: Automatic compression available</p></li>
+<li><p><strong>ASCII</strong>: Use gzip when specified</p></li>
+<li><p><strong>Archive</strong>: Always offers compression (.tar.gz vs. .tar)</p></li>
+</ul>
+<p><strong>Metadata Inclusion</strong></p>
+<p>Control what information is saved:</p>
+<ol class="arabic simple">
+<li><p><strong>Full Header</strong>: All FITS keywords, telescope info</p></li>
+<li><p><strong>Minimal Header</strong>: Just essential info</p></li>
+<li><p><strong>No Header</strong>: Data only (dangerous for reproducibility!)</p></li>
+<li><p>Recommendation: Always use <strong>Full Header</strong></p></li>
+</ol>
+<p><strong>Versioning</strong></p>
+<p>IFU Analyzer can append version info:</p>
+<ul class="simple">
+<li><p>Automatic filename: spectrum_v1.fits, spectrum_v2.fits</p></li>
+<li><p>Timestamp: spectrum_2024-01-15.fits</p></li>
+<li><p>Manual suffix: spectrum_final.fits</p></li>
+</ul>
+</section>
+<section id="troubleshooting-export-issues">
+<h2>Troubleshooting Export Issues<a class="headerlink" href="#troubleshooting-export-issues" title="Link to this heading"></a></h2>
+<p><strong>Problem: File won’t open in other software</strong></p>
+<ul class="simple">
+<li><p>Check file format compatibility</p></li>
+<li><p>Try different format (FITS vs. ASCII)</p></li>
+<li><p>Verify file isn’t corrupted: File size &gt; 0?</p></li>
+<li><p>Test with free viewers (DS9 for FITS, notepad for ASCII)</p></li>
+</ul>
+<p><strong>Problem: Very large file sizes</strong></p>
+<ul class="simple">
+<li><p>Use FITS compression: reduces 50%</p></li>
+<li><p>ASCII files larger than FITS: Try FITS format</p></li>
+<li><p>Export subset instead of entire cube</p></li>
+<li><p>Delete temporary backup files</p></li>
+</ul>
+<p><strong>Problem: Missing data in export</strong></p>
+<ul class="simple">
+<li><p>Ensure regions are properly selected</p></li>
+<li><p>Check that analysis completed successfully</p></li>
+<li><p>Verify not exporting empty wavelength range</p></li>
+<li><p>Review success mask for fitting</p></li>
+</ul>
+<p><strong>Problem: Coordinates don’t match</strong></p>
+<ul class="simple">
+<li><p>Verify RA/DEC vs. pixel coordinate mode</p></li>
+<li><p>Check WCS information in header</p></li>
+<li><p>Compare with original FITS file</p></li>
+<li><p>Use external tool to verify: FITS header viewer</p></li>
+</ul>
+<p><strong>Problem: “Permission Denied” error</strong></p>
+<ul class="simple">
+<li><p>Check folder permissions</p></li>
+<li><p>Try exporting to Desktop or Documents</p></li>
+<li><p>On Linux: May need write access to directory</p></li>
+</ul>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Always save raw data alongside processed results</strong></p></li>
+<li><p><strong>Include metadata</strong> in export (don’t lose information)</p></li>
+<li><p><strong>Document your analysis</strong> in a separate README</p></li>
+<li><p><strong>Use version control</strong> for important results</p></li>
+<li><p><strong>Validate exported data</strong> in external tool before relying on it</p></li>
+<li><p><strong>Keep original files</strong> unchanged</p></li>
+<li><p><strong>Document export settings</strong> for reproducibility</p></li>
+</ol>
+</section>
+<section id="quick-reference">
+<h2>Quick Reference<a class="headerlink" href="#quick-reference" title="Link to this heading"></a></h2>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>After exporting:</p>
+<ol class="arabic simple">
+<li><p>Validate results in external tools</p></li>
+<li><p>Create publication figures</p></li>
+<li><p>Archive backup copy</p></li>
+<li><p>Document analysis parameters</p></li>
+<li><p>Share with collaborators</p></li>
+</ol>
+<p>For publication, read our <span class="xref std std-doc">/reference/publishing</span> guide.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../features/index.html" class="btn btn-neutral float-right" title="Features" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

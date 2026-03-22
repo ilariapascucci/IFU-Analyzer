@@ -1,0 +1,484 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GUI Overview &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Visualization" href="visualization.html" />
+    <link rel="prev" title="Loading Data" href="loading_data.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">GUI Overview</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#main-window-layout">Main Window Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#menu-reference">Menu Reference</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#file-menu">File Menu</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#view-menu">View Menu</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tools-menu">Tools Menu</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#help-menu">Help Menu</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#context-menus">Context Menus</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tips-for-navigation">Tips for Navigation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#customizing-the-interface">Customizing the Interface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#accessibility-features">Accessibility Features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#status-indicators">Status Indicators</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">GUI Overview</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/gui_overview.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="loading_data.html" class="btn btn-neutral float-left" title="Loading Data" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="visualization.html" class="btn btn-neutral float-right" title="Visualization" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="gui-overview">
+<h1>GUI Overview<a class="headerlink" href="#gui-overview" title="Link to this heading"></a></h1>
+<p>This section explains the major components of the IFU Analyzer interface and how to navigate them effectively.</p>
+<section id="main-window-layout">
+<h2>Main Window Layout<a class="headerlink" href="#main-window-layout" title="Link to this heading"></a></h2>
+<p>The IFU Analyzer window is organized into several key areas:</p>
+<img alt="GUI Layout" src="_static/layout.png" />
+<p><em>Note: Screenshot showing main interface layout</em></p>
+<p><strong>1. Menu Bar</strong> (Top)</p>
+<ul class="simple">
+<li><p><strong>File</strong>: Open, save, export data</p></li>
+<li><p><strong>View</strong>: Display options, coordinate systems</p></li>
+<li><p><strong>Tools</strong>: Analysis functions, preferences</p></li>
+<li><p><strong>Help</strong>: Documentation, keyboard shortcuts</p></li>
+</ul>
+<p><strong>2. Toolbar</strong> (Below menu)</p>
+<p>Quick-access buttons for common functions:</p>
+<p><strong>3. Main Viewing Area</strong> (Center)</p>
+<p>Displays the currently selected wavelength/velocity slice:</p>
+<ul class="simple">
+<li><p><strong>Intensity Map</strong>: Color-coded spatial data</p></li>
+<li><p><strong>Interactive</strong>: Click to update spectrum</p></li>
+<li><p><strong>Zoomable</strong>: Use scroll wheel or zoom buttons</p></li>
+<li><p><strong>Overlays</strong>: Region selections, measurement tools</p></li>
+</ul>
+<p><strong>4. Spectrum Panel</strong> (Right side)</p>
+<p>Shows 1D spectrum data:</p>
+<ul class="simple">
+<li><p><strong>Integrated Spectrum</strong>: Sum of selected region</p></li>
+<li><p><strong>Peak Spectrum</strong>: Maximum at each wavelength</p></li>
+<li><p><strong>Fitted Overlay</strong>: Gaussian fits (when applied)</p></li>
+<li><p><strong>Residuals</strong>: Difference from fit</p></li>
+<li><p><strong>Interactive</strong>: Right-click for options</p></li>
+</ul>
+<p><strong>5. Status Bar</strong> (Bottom)</p>
+<p>Displays useful information:</p>
+<ul class="simple">
+<li><p>Current wavelength/velocity</p></li>
+<li><p>Cursor position (RA, Dec or pixel coordinates)</p></li>
+<li><p>Intensity value under cursor</p></li>
+<li><p>Data cube dimensions</p></li>
+<li><p>Number of selected pixels</p></li>
+</ul>
+<p><strong>6. Control Panels</strong> (Left side)</p>
+<p>Various controls for navigation and analysis:</p>
+<ul class="simple">
+<li><p><strong>Wavelength Slider</strong>: Navigate through cube</p></li>
+<li><p><strong>Intensity Range</strong>: Adjust vmin/vmax</p></li>
+<li><p><strong>Colormap Selection</strong>: Choose color scheme</p></li>
+<li><p><strong>Statistics</strong>: Min/max/mean of current view</p></li>
+</ul>
+</section>
+<section id="menu-reference">
+<h2>Menu Reference<a class="headerlink" href="#menu-reference" title="Link to this heading"></a></h2>
+<section id="file-menu">
+<h3>File Menu<a class="headerlink" href="#file-menu" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><strong>Open FITS</strong> (Ctrl+O)</dt><dd><p>Load a FITS data cube</p>
+</dd>
+<dt><strong>Save Project</strong> (Ctrl+S)</dt><dd><p>Save analysis state (not commonly used)</p>
+</dd>
+<dt><strong>Export Spectrum</strong></dt><dd><p>Save current spectrum as ASCII or FITS</p>
+</dd>
+<dt><strong>Export Results</strong></dt><dd><p>Save parameter maps (from Gaussian fitting)</p>
+</dd>
+<dt><strong>Export Residuals</strong></dt><dd><p>Save residuals cube from fitting</p>
+</dd>
+<dt><strong>Recent Files</strong></dt><dd><p>Quick access to recently loaded files</p>
+</dd>
+<dt><strong>Exit</strong> (Alt+F4)</dt><dd><p>Close the application</p>
+</dd>
+</dl>
+</section>
+<section id="view-menu">
+<h3>View Menu<a class="headerlink" href="#view-menu" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><strong>Zoom In</strong> (Ctrl++)</dt><dd><p>Magnify the intensity map</p>
+</dd>
+<dt><strong>Zoom Out</strong> (Ctrl+-)</dt><dd><p>Reduce magnification</p>
+</dd>
+<dt><strong>Fit to Window</strong></dt><dd><p>Auto-scale view to window size</p>
+</dd>
+<dt><strong>Coordinate System</strong></dt><dd><ul class="simple">
+<li><p>Wavelength (default)</p></li>
+<li><p>RA/DEC (if WCS available)</p></li>
+</ul>
+</dd>
+<dt><strong>Color Scale</strong></dt><dd><ul class="simple">
+<li><p>Linear: Direct intensity mapping</p></li>
+<li><p>Logarithmic: Emphasize faint features</p></li>
+<li><p>Power Law: Non-linear scaling</p></li>
+<li><p>Square Root: Intermediate option</p></li>
+</ul>
+</dd>
+<dt><strong>Show Grid</strong></dt><dd><p>Overlay coordinate grid</p>
+</dd>
+<dt><strong>Show Colorbar</strong></dt><dd><p>Display intensity scale</p>
+</dd>
+</dl>
+</section>
+<section id="tools-menu">
+<h3>Tools Menu<a class="headerlink" href="#tools-menu" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><strong>Gaussian Fitting</strong></dt><dd><ul class="simple">
+<li><p>Fit Single: Interactive fitting</p></li>
+<li><p>Fit Cube: Batch processing</p></li>
+<li><p>View Residuals: Compare data to fits</p></li>
+</ul>
+</dd>
+<dt><strong>Continuum Subtraction</strong></dt><dd><p>Remove baseline emission</p>
+</dd>
+<dt><strong>Region Statistics</strong></dt><dd><p>Calculate statistics of selected regions</p>
+</dd>
+<dt><strong>CO Flux Extraction</strong></dt><dd><p>Measure CO line fluxes (specialized)</p>
+</dd>
+<dt><strong>Preferences</strong></dt><dd><p>Adjust display and analysis settings</p>
+</dd>
+<dt><strong>Normalize Display</strong></dt><dd><p>Choose normalization method</p>
+</dd>
+</dl>
+</section>
+<section id="help-menu">
+<h3>Help Menu<a class="headerlink" href="#help-menu" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt><strong>Documentation</strong></dt><dd><p>Open this documentation</p>
+</dd>
+<dt><strong>Keyboard Shortcuts</strong></dt><dd><p>Display shortcut reference</p>
+</dd>
+<dt><strong>About</strong></dt><dd><p>Version and copyright information</p>
+</dd>
+</dl>
+</section>
+</section>
+<section id="keyboard-shortcuts">
+<h2>Keyboard Shortcuts<a class="headerlink" href="#keyboard-shortcuts" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
+<th class="head"><p>Action</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Ctrl+O</strong></p></td>
+<td><p>Open FITS file</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Ctrl+S</strong></p></td>
+<td><p>Save project</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Ctrl+E</strong></p></td>
+<td><p>Export spectrum</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Ctrl++</strong> or <strong>Scroll Up</strong></p></td>
+<td><p>Zoom in</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Ctrl+-</strong> or <strong>Scroll Dn</strong></p></td>
+<td><p>Zoom out</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Ctrl+0</strong></p></td>
+<td><p>Reset zoom/fit to window</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Right Arrow</strong></p></td>
+<td><p>Next wavelength channel</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Left Arrow</strong></p></td>
+<td><p>Previous wavelength channel</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Up Arrow</strong></p></td>
+<td><p>Increase wavelength step</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Down Arrow</strong></p></td>
+<td><p>Decrease wavelength step</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>R</strong></p></td>
+<td><p>Activate region selector</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>F</strong></p></td>
+<td><p>Fit single pixel</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>C</strong></p></td>
+<td><p>Fit full cube</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>G</strong></p></td>
+<td><p>Toggle grid</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>L</strong></p></td>
+<td><p>Linear color scale</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>M</strong></p></td>
+<td><p>Logarithmic color scale</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Delete</strong></p></td>
+<td><p>Clear current selection</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Escape</strong></p></td>
+<td><p>Cancel current operation</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="context-menus">
+<h2>Context Menus<a class="headerlink" href="#context-menus" title="Link to this heading"></a></h2>
+<p><strong>Right-click on Intensity Map</strong></p>
+<ul class="simple">
+<li><p>Rotate View</p></li>
+<li><p>Mirror Image</p></li>
+<li><p>Statistics</p></li>
+<li><p>Add Measurement</p></li>
+<li><p>Clear Selection</p></li>
+</ul>
+<p><strong>Right-click on Spectrum</strong></p>
+<ul class="simple">
+<li><p>Fit Gaussian</p></li>
+<li><p>Set Baseline</p></li>
+<li><p>Zoom Spectrum</p></li>
+<li><p>Export Spectrum Data</p></li>
+</ul>
+</section>
+<section id="tips-for-navigation">
+<h2>Tips for Navigation<a class="headerlink" href="#tips-for-navigation" title="Link to this heading"></a></h2>
+<p><strong>Quick Wavelength Jumping</strong></p>
+<ol class="arabic simple">
+<li><p>Click the wavelength display area</p></li>
+<li><p>Type the desired wavelength</p></li>
+<li><p>Press Enter</p></li>
+</ol>
+<p><strong>Precise Pixel Selection</strong></p>
+<ol class="arabic simple">
+<li><p>Use <strong>Select Region</strong> → <strong>Point Tool</strong></p></li>
+<li><p>Click exact pixel location</p></li>
+<li><p>Hold Shift to add multiple points</p></li>
+</ol>
+<p><strong>Large Cube Navigation</strong></p>
+<p>For very large cubes (&gt;1 GB):</p>
+<ol class="arabic simple">
+<li><p>Use <strong>Downsample</strong> mode for initial exploration</p></li>
+<li><p>Switch to full resolution for detailed analysis</p></li>
+<li><p>Work with sub-regions to manage memory</p></li>
+</ol>
+<p><strong>Comparing Multiple Wavelengths</strong></p>
+<ol class="arabic simple">
+<li><p>Load first wavelength</p></li>
+<li><p>Note spectrum and features</p></li>
+<li><p>Navigate to second wavelength</p></li>
+<li><p>Compare intensity maps side-by-side</p></li>
+</ol>
+</section>
+<section id="customizing-the-interface">
+<h2>Customizing the Interface<a class="headerlink" href="#customizing-the-interface" title="Link to this heading"></a></h2>
+<p><strong>Window Size</strong></p>
+<ul class="simple">
+<li><p>Resize by dragging window edges</p></li>
+<li><p>Default size: 1100×800 pixels</p></li>
+<li><p>Recommended minimum: 800×600 pixels</p></li>
+</ul>
+<p><strong>Panel Layout</strong></p>
+<p>Some options can be reorganized:</p>
+<ul class="simple">
+<li><p>Drag panel headers to reposition</p></li>
+<li><p>Right-click panels for options</p></li>
+<li><p>Close unused panels for more space</p></li>
+</ul>
+<p><strong>Color Scheme</strong></p>
+<ul class="simple">
+<li><p>Tools → Preferences → Display</p></li>
+<li><p>Choose from multiple UI themes</p></li>
+<li><p>Save preference for next session</p></li>
+</ul>
+<p><strong>Toolbar</strong></p>
+<ul class="simple">
+<li><p>Right-click toolbar</p></li>
+<li><p>Select tools to show/hide</p></li>
+<li><p>Arrange button order (in some layouts)</p></li>
+</ul>
+</section>
+<section id="accessibility-features">
+<h2>Accessibility Features<a class="headerlink" href="#accessibility-features" title="Link to this heading"></a></h2>
+<p><strong>High Contrast Mode</strong></p>
+<ul class="simple">
+<li><p>Tools → Preferences → Display → High Contrast</p></li>
+</ul>
+<p><strong>Keyboard Navigation</strong></p>
+<ul class="simple">
+<li><p>Most functions accessible via keyboard</p></li>
+<li><p>Tab key moves between UI elements</p></li>
+<li><p>Arrow keys for fine adjustments</p></li>
+</ul>
+<p><strong>Large Text</strong></p>
+<ul class="simple">
+<li><p>Tools → Preferences → Display → Font Size</p></li>
+<li><p>Increases all UI text size</p></li>
+</ul>
+</section>
+<section id="status-indicators">
+<h2>Status Indicators<a class="headerlink" href="#status-indicators" title="Link to this heading"></a></h2>
+<p>The status bar shows various indicators:</p>
+<p><strong>Color Status</strong></p>
+<ul class="simple">
+<li><p>Green: Normal operation</p></li>
+<li><p>Yellow: Warning (e.g., approaching memory limit)</p></li>
+<li><p>Red: Error or critical issue</p></li>
+</ul>
+<p><strong>Processing Indicator</strong></p>
+<ul class="simple">
+<li><p>Spinning animation during analysis</p></li>
+<li><p>Progress bar for long operations</p></li>
+<li><p>Cancel button to stop processing</p></li>
+</ul>
+<p><strong>Mode Indicator</strong></p>
+<p>Shows current operational mode:</p>
+<ul class="simple">
+<li><p>Selection Mode</p></li>
+<li><p>Fitting Mode</p></li>
+<li><p>Measurement Mode</p></li>
+<li><p>Free Browse Mode</p></li>
+</ul>
+</section>
+<section id="getting-help">
+<h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
+<p>If you forget a button’s function:</p>
+<ul class="simple">
+<li><p><strong>Hover</strong>: Mouse over buttons to see tooltip</p></li>
+<li><p><strong>Menu</strong>: Find functions in menus with descriptions</p></li>
+<li><p><strong>Keyboard</strong>: Press F1 or ? for help</p></li>
+<li><p><strong>This Guide</strong>: Full documentation available</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="loading_data.html" class="btn btn-neutral float-left" title="Loading Data" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="visualization.html" class="btn btn-neutral float-right" title="Visualization" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

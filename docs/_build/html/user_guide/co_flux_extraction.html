@@ -1,0 +1,563 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CO Flux Extraction &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Exporting Data" href="exporting_data.html" />
+    <link rel="prev" title="Continuum Subtraction" href="continuum_subtraction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">CO Flux Extraction</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#introduction-to-co-spectroscopy">Introduction to CO Spectroscopy</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#understanding-co-flux">Understanding CO Flux</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#starting-co-flux-extraction">Starting CO Flux Extraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#multi-line-co-analysis">Multi-Line CO Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#full-cube-co-analysis">Full-Cube CO Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#interpreting-co-results">Interpreting CO Results</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#continuum-subtraction-for-co">Continuum Subtraction for CO</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#co-in-different-instruments">CO in Different Instruments</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-co-analysis">Advanced CO Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#co-flux-exporting">CO Flux Exporting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#data-quality-assessment">Data Quality Assessment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#common-co-challenges">Common CO Challenges</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#best-practices-for-co-analysis">Best Practices for CO Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#references">References</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">CO Flux Extraction</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/co_flux_extraction.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-left" title="Continuum Subtraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="co-flux-extraction">
+<h1>CO Flux Extraction<a class="headerlink" href="#co-flux-extraction" title="Link to this heading"></a></h1>
+<p>Extract and measure carbon monoxide (CO) line fluxes from spectral data cubes. This specialized tool analyzes CO emission or absorption across multiple rotational transitions.</p>
+<section id="introduction-to-co-spectroscopy">
+<h2>Introduction to CO Spectroscopy<a class="headerlink" href="#introduction-to-co-spectroscopy" title="Link to this heading"></a></h2>
+<p>CO molecules produce distinctive emission/absorption lines:</p>
+<ul class="simple">
+<li><p><strong>Rotational transitions</strong>: Different J quantum number transitions</p></li>
+<li><p><strong>Multiple isotopologues</strong>:
+- ¹²CO: Most abundant
+- ¹³CO: ~1/80 abundance of ¹²CO
+- C¹⁸O: ~1/500 of ¹²CO</p></li>
+<li><p><strong>Multiple vibrational bands</strong>:
+- Fundamental (v=1→0) transitions
+- Overtone (v=2→1) transitions (rare, very high energy)</p></li>
+</ul>
+<p><strong>Common CO Lines Observed</strong>:</p>
+<ul class="simple">
+<li><p><strong>Near-infrared (JWST/NIRSpec)</strong>: CO fundamental band near 4.7 μm</p></li>
+<li><p><strong>Mid-infrared (JWST/MIRI)</strong>: Various rotational lines</p></li>
+<li><p><strong>Millimeter (ALMA)</strong>: Rotational lines at low J values</p></li>
+</ul>
+</section>
+<section id="understanding-co-flux">
+<h2>Understanding CO Flux<a class="headerlink" href="#understanding-co-flux" title="Link to this heading"></a></h2>
+<p><strong>What is CO Flux?</strong></p>
+<p>Integrated intensity of CO line:</p>
+<div class="math notranslate nohighlight">
+\[F = \int I(\lambda) d\lambda\]</div>
+<p>Units typically: Jy·km/s or K·km/s</p>
+<p><strong>Why Measure CO?</strong></p>
+<ul class="simple">
+<li><p><strong>Molecular mass</strong>: CO traces H₂ mass (CO-to-H₂ conversion factor)</p></li>
+<li><p><strong>Outflow kinematics</strong>: Multiple lines show velocity structure</p></li>
+<li><p><strong>Excitation</strong>: Line ratios determine temperature/density</p></li>
+<li><p><strong>Dynamics</strong>: Kinematic maps show bulk motion</p></li>
+</ul>
+</section>
+<section id="starting-co-flux-extraction">
+<h2>Starting CO Flux Extraction<a class="headerlink" href="#starting-co-flux-extraction" title="Link to this heading"></a></h2>
+<p><strong>Access Tool</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>CO Flux</strong> button in toolbar</p></li>
+<li><p>Or: Tools → CO Flux Extraction</p></li>
+<li><p>CO Flux dialog opens</p></li>
+</ol>
+<p><strong>Simple CO Flux Measurement</strong></p>
+<ol class="arabic simple">
+<li><p>Dialog displays:</p>
+<ul class="simple">
+<li><p>Select CO band (Fundamental, First Overtone, etc.)</p></li>
+<li><p>Expected wavelength displayed</p></li>
+<li><p>Fine-tune wavelength if needed</p></li>
+</ul>
+</li>
+<li><p>Define measurement wavelength range:</p>
+<ul class="simple">
+<li><p>Click line on spectrum</p></li>
+<li><p>Or type wavelength manually</p></li>
+<li><p>Specify line width (usually 10-20 Å)</p></li>
+</ul>
+</li>
+<li><p>Click <strong>Measure</strong>:</p>
+<ul class="simple">
+<li><p>Integrated flux calculated</p></li>
+<li><p>Result displayed with uncertainty</p></li>
+<li><p>Baseline uncertainty shown</p></li>
+</ul>
+</li>
+<li><p>Click <strong>Accept</strong> to record measurement</p></li>
+</ol>
+</section>
+<section id="multi-line-co-analysis">
+<h2>Multi-Line CO Analysis<a class="headerlink" href="#multi-line-co-analysis" title="Link to this heading"></a></h2>
+<p><strong>Analyze Multiple CO Transitions</strong></p>
+<p>Measure multiple CO lines simultaneously:</p>
+<ol class="arabic simple">
+<li><p>Tools → CO Flux → Multi-Line Analysis</p></li>
+<li><p>Select CO transitions to analyze:
+- J=1-0, J=2-1, J=3-2, etc.
+- Or J’=2-1, J’=3-2 (first overtone)</p></li>
+<li><p>Wavelengths automatically populated</p></li>
+<li><p>Click <strong>Analyze All</strong></p></li>
+<li><p>Results table shows all line fluxes</p></li>
+</ol>
+<p><strong>Temperature from Line Ratios</strong></p>
+<p>Estimate excitation temperature:</p>
+<ol class="arabic simple">
+<li><p>After measuring multiple lines</p></li>
+<li><p>Analysis → Excitation Temperature</p></li>
+<li><p>Uses line flux ratio to determine T_ex</p></li>
+<li><p>Assumes local thermodynamic equilibrium (LTE)</p></li>
+<li><p>Formula:</p></li>
+</ol>
+<div class="math notranslate nohighlight">
+\[T_{ex} = \frac{hc\Delta E}{k \ln(N_J / g_J N_{J'} / g_{J'})}\]</div>
+<p><strong>Optical Depth Determination</strong></p>
+<p>Estimate optical depth from line ratios:</p>
+<ol class="arabic simple">
+<li><p>Tools → CO Flux → Optical Depth</p></li>
+<li><p>Measures relative line opacities</p></li>
+<li><p>If τ &lt;&lt; 1: Optically thin (free emission)</p></li>
+<li><p>If τ &gt;&gt; 1: Optically thick (absorption)</p></li>
+</ol>
+</section>
+<section id="full-cube-co-analysis">
+<h2>Full-Cube CO Analysis<a class="headerlink" href="#full-cube-co-analysis" title="Link to this heading"></a></h2>
+<p><strong>Analyze CO for All Pixels</strong></p>
+<p>Extract CO flux maps for entire cube:</p>
+<ol class="arabic simple">
+<li><p>Tools → CO Flux → Full Cube Analysis</p></li>
+<li><p>Configuration:
+- Select CO band/transition
+- Wavelength range
+- Baseline method
+- Use multi-component option?</p></li>
+<li><p>Click <strong>Start</strong></p></li>
+<li><p>Progress bar shows completion</p></li>
+</ol>
+<p><strong>Output Products</strong></p>
+<p>Resulting maps:</p>
+<ul class="simple">
+<li><p><strong>CO Flux Map</strong>: J-integrated line magnitude</p></li>
+<li><p><strong>CO Velocity Map</strong>: Line center (kinematics)</p></li>
+<li><p><strong>CO Width Map</strong>: Line width (σ or FWHM)</p></li>
+<li><p><strong>CO Temperature Map</strong>: Excitation temperature</p></li>
+<li><p><strong>Optical Depth Map</strong>: If using LTE</p></li>
+</ul>
+</section>
+<section id="interpreting-co-results">
+<h2>Interpreting CO Results<a class="headerlink" href="#interpreting-co-results" title="Link to this heading"></a></h2>
+<p><strong>CO Flux Calibration</strong></p>
+<p>Convert flux to physical quantities:</p>
+<div class="math notranslate nohighlight">
+\[M_{H_2} = \alpha_{CO} \times I_{CO}\]</div>
+<p>Where:</p>
+<ul class="simple">
+<li><p>α_CO: CO-to-H₂ conversion factor (~2×10²⁰ cm⁻² (K·km/s)⁻¹)</p></li>
+<li><p>I_CO: CO integrated intensity</p></li>
+<li><p>M_H₂: H₂ column density</p></li>
+</ul>
+<p><strong>Line Opacity</strong></p>
+<p>Assess whether line is optically thick or thin:</p>
+<ul class="simple">
+<li><p><strong>Wide, symmetric profile</strong>: Usually optically thin</p></li>
+<li><p><strong>Narrow, peaked profile</strong>: Often optically thick</p></li>
+<li><p><strong>Blue/red asymmetry</strong>: May indicate optical depth effects</p></li>
+</ul>
+<p><strong>Multiple Transitions</strong></p>
+<p>Interpret J-ladder of CO:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Transition</p></th>
+<th class="head"><p>Wavelength (NearIR)</p></th>
+<th class="head"><p>Excitation</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>J=1-0 (fund)</p></td>
+<td><p>4.732 μm</p></td>
+<td><p>87 K*</p></td>
+</tr>
+<tr class="row-odd"><td><p>J=2-1 (fund)</p></td>
+<td><p>4.655 μm</p></td>
+<td><p>174 K*</p></td>
+</tr>
+<tr class="row-even"><td><p>J=3-2 (fund)</p></td>
+<td><p>4.586 μm</p></td>
+<td><p>261 K*</p></td>
+</tr>
+<tr class="row-odd"><td><p>J=1-0 (ovt)</p></td>
+<td><p>2.323 μm</p></td>
+<td><p>87 K*</p></td>
+</tr>
+</tbody>
+</table>
+<p><a href="#id1"><span class="problematic" id="id2">*</span></a>Approximate excitation energy above ground state</p>
+<p><strong>Interpreting Ratios</strong></p>
+<p>Line ratios indicate:</p>
+<ul class="simple">
+<li><p><strong>J=2-1/J=1-0 &gt;&gt; 1</strong>: High excitation, warm gas &gt; 100 K</p></li>
+<li><p><strong>J=2-1/J=1-0 ≈ 1</strong>: Moderate excitation, T ~ 50-100 K</p></li>
+<li><p><strong>J=2-1/J=1-0 &lt;&lt; 1</strong>: Low excitation (mostly J=1), cool gas</p></li>
+</ul>
+</section>
+<section id="continuum-subtraction-for-co">
+<h2>Continuum Subtraction for CO<a class="headerlink" href="#continuum-subtraction-for-co" title="Link to this heading"></a></h2>
+<p><strong>Important: Remove Continuum First</strong></p>
+<p>Most accurate CO measurements require continuum removal:</p>
+<ol class="arabic simple">
+<li><p>Tools → Continuum Subtraction</p></li>
+<li><p>Define continuum regions away from CO lines</p></li>
+<li><p>Subtract before CO flux extraction</p></li>
+<li><p>More accurate flux measurements</p></li>
+</ol>
+<p><strong>Without Continuum Subtraction</strong></p>
+<p>CO flux includes background:</p>
+<ul class="simple">
+<li><p>Overestimates true line flux</p></li>
+<li><p>Affects temperature calculations</p></li>
+<li><p>Use only if feature clearly isolated</p></li>
+</ul>
+</section>
+<section id="co-in-different-instruments">
+<h2>CO in Different Instruments<a class="headerlink" href="#co-in-different-instruments" title="Link to this heading"></a></h2>
+<p><strong>JWST/NIRSpec</strong></p>
+<ul class="simple">
+<li><p>Fundamental CO band available</p></li>
+<li><p>Multiple transitions detected</p></li>
+<li><p>High resolution spectra</p></li>
+<li><p>1-5 μm range</p></li>
+</ul>
+<p><strong>JWST/MIRI</strong></p>
+<ul class="simple">
+<li><p>Various rotational transitions</p></li>
+<li><p>10-25 μm range</p></li>
+<li><p>Multiple species potentially identifiable</p></li>
+<li><p>Good for low-J transitions</p></li>
+</ul>
+<p><strong>ALMA</strong></p>
+<ul class="simple">
+<li><p>Millimeter/submm CO lines</p></li>
+<li><p>Various rotational transitions</p></li>
+<li><p>High spatial and spectral resolution</p></li>
+<li><p>Excellent for kinematic studies</p></li>
+</ul>
+<p><strong>MUSE</strong></p>
+<ul class="simple">
+<li><p>Limited to optical/near-IR</p></li>
+<li><p>Only if extended to NIR</p></li>
+<li><p>Usually not primary CO detection</p></li>
+<li><p>Use other instruments preferentially</p></li>
+</ul>
+</section>
+<section id="advanced-co-analysis">
+<h2>Advanced CO Analysis<a class="headerlink" href="#advanced-co-analysis" title="Link to this heading"></a></h2>
+<p><strong>Non-LTE Analysis</strong></p>
+<p>For optically thick or non-equilibrium gas:</p>
+<ol class="arabic simple">
+<li><p>Tools → CO Flux → Non-LTE Model</p></li>
+<li><p>Requires collision partner densities</p></li>
+<li><p>More complex but more accurate</p></li>
+<li><p>Available if observational data supports</p></li>
+</ol>
+<p><strong>Multiple Velocity Component Fitting</strong></p>
+<p>When CO shows distinct velocity components:</p>
+<ol class="arabic simple">
+<li><p>Tools → CO Flux → Multi-Component</p></li>
+<li><p>Number of components</p></li>
+<li><p>Fit each component separately</p></li>
+<li><p>Measure flux, velocity, width for each</p></li>
+</ol>
+<p>Example:</p>
+<ul class="simple">
+<li><p>Component 1: Systemic (V = 0)</p></li>
+<li><p>Component 2: Outflow redshifted (V &gt; 0)</p></li>
+<li><p>Component 3: Inflow blueshifted (V &lt; 0)</p></li>
+</ul>
+<p><strong>Outflow Properties from CO</strong></p>
+<p>Extract outflow physical parameters:</p>
+<ol class="arabic simple">
+<li><p>Measure CO flux in extended wings</p></li>
+<li><p>Determine outflow velocity (from line shift)</p></li>
+<li><p>Estimate outflow mass: M_out = α_CO × Flux</p></li>
+<li><p>Estimate outflow energy and momentum</p></li>
+</ol>
+</section>
+<section id="co-flux-exporting">
+<h2>CO Flux Exporting<a class="headerlink" href="#co-flux-exporting" title="Link to this heading"></a></h2>
+<p><strong>Export CO Measurements</strong></p>
+<p>Save individual CO flux measurements:</p>
+<ol class="arabic simple">
+<li><p>File → Export Results → CO Flux</p></li>
+<li><p>Format options:
+- ASCII table (wavelength, flux, error)
+- FITS table (all parameters)
+- LaTeX table (for papers)</p></li>
+<li><p>Specify filename</p></li>
+</ol>
+<p><strong>Export CO Maps</strong></p>
+<p>Save full-cube CO analysis results:</p>
+<ol class="arabic simple">
+<li><p>Analysis → Export CO Maps</p></li>
+<li><p>Select maps to save:
+- Flux, velocity, width maps
+- Temperature, optical depth maps</p></li>
+<li><p>FITS file with multiple extensions</p></li>
+</ol>
+<p><strong>Create CO Diagnostic Diagram</strong></p>
+<p>Generate diagnostic plots:</p>
+<ol class="arabic simple">
+<li><p>Analysis → CO Diagnostics → Temperature Ratio Plot</p></li>
+<li><p>Plots J=2-1/J=1-0 ratio vs. other indicators</p></li>
+<li><p>Compares to theoretical models</p></li>
+<li><p>Can save as PNG/PDF</p></li>
+</ol>
+</section>
+<section id="data-quality-assessment">
+<h2>Data Quality Assessment<a class="headerlink" href="#data-quality-assessment" title="Link to this heading"></a></h2>
+<p><strong>Check CO Measurements</strong></p>
+<p>Before trusting results:</p>
+<ul class="simple">
+<li><p><strong>S/N</strong>: Signal-to-noise in CO lines &gt; 3</p></li>
+<li><p><strong>Baseline</strong>: Stability of continuum</p></li>
+<li><p><strong>Line shape</strong>: Reasonable width for object</p></li>
+<li><p><strong>Comparison</strong>: Against literature values if available</p></li>
+</ul>
+<p><strong>Identifying Problems</strong></p>
+<p>Issues that affect CO flux:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Problem</p></th>
+<th class="head"><p>Solution</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Wrong wavelength</p></td>
+<td><p>Verify against line catalog</p></td>
+</tr>
+<tr class="row-odd"><td><p>Blended lines</p></td>
+<td><p>Use higher resolution data</p></td>
+</tr>
+<tr class="row-even"><td><p>Contamination</p></td>
+<td><p>Use non-CO line-free regions</p></td>
+</tr>
+<tr class="row-odd"><td><p>Poor baseline</p></td>
+<td><p>Better continuum subtraction</p></td>
+</tr>
+<tr class="row-even"><td><p>Noise</p></td>
+<td><p>Average over larger regions</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="common-co-challenges">
+<h2>Common CO Challenges<a class="headerlink" href="#common-co-challenges" title="Link to this heading"></a></h2>
+<p><strong>Issue: CO lines appear weak</strong></p>
+<p>Possible causes:</p>
+<ul class="simple">
+<li><p>Lower sensitivity than expected (check instrument)</p></li>
+<li><p>Target has intrinsically weak CO (cool gas)</p></li>
+<li><p>CO lines blended or overlapped</p></li>
+<li><p>Solution: Integrate over larger area or use longer exposure</p></li>
+</ul>
+<p><strong>Issue: Multiple peaks in CO line</strong></p>
+<p>Indicates velocity components:</p>
+<ul class="simple">
+<li><p>Systemic component</p></li>
+<li><p>High-velocity gas</p></li>
+<li><p>Outflow/inflow</p></li>
+<li><p>Solution: Use multi-component fitting</p></li>
+</ul>
+<p><strong>Issue: Flux varies dramatically spatial</strong></p>
+<p>Suggests:</p>
+<ul class="simple">
+<li><p>Spatial structure (clumpy emission)</p></li>
+<li><p>Optical depth effects</p></li>
+<li><p>Calibration issues</p></li>
+<li><p>Solution: Check individual pixel spectra</p></li>
+</ul>
+<p><strong>Issue: Unusual line widths</strong></p>
+<p>Consider:</p>
+<ul class="simple">
+<li><p>Velocity dispersion (intrinsic)</p></li>
+<li><p>Beam smearing (instrumental)</p></li>
+<li><p>Multiple components</p></li>
+<li><p>Solution: Compare with other data</p></li>
+</ul>
+</section>
+<section id="best-practices-for-co-analysis">
+<h2>Best Practices for CO Analysis<a class="headerlink" href="#best-practices-for-co-analysis" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Always measure multiple transitions</strong> if possible</p></li>
+<li><p><strong>Check excitation</strong> using line ratios</p></li>
+<li><p><strong>Consider optical depth</strong> using line opacity</p></li>
+<li><p><strong>Compare with literature</strong> for validation</p></li>
+<li><p><strong>Document assumptions</strong> (LTE, α_CO value)</p></li>
+<li><p><strong>Keep original data</strong> for reproducibility</p></li>
+<li><p><strong>Include uncertainties</strong> in all measurements</p></li>
+<li><p><strong>Cross-check</strong> with other mass tracers</p></li>
+</ol>
+</section>
+<section id="references">
+<h2>References<a class="headerlink" href="#references" title="Link to this heading"></a></h2>
+<p>For detailed CO spectroscopy:</p>
+<ul class="simple">
+<li><p>RADEX radiative transfer models</p></li>
+<li><p>DESPOTIC non-LTE analysis tool</p></li>
+<li><p>Literature CO coefficients</p></li>
+<li><p>Instrument manuals for wavelength calibrations</p></li>
+</ul>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>After extracting CO fluxes:</p>
+<ol class="arabic simple">
+<li><p>Compare with other tracers</p></li>
+<li><p>Calculate gas masses</p></li>
+<li><p>Analyze kinematics from CO velocity maps</p></li>
+<li><p>Determine outflow properties</p></li>
+<li><p>Export results for publication</p></li>
+<li><p>Read <a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a></p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-left" title="Continuum Subtraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,534 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Continuum Subtraction &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CO Flux Extraction" href="co_flux_extraction.html" />
+    <link rel="prev" title="Gaussian Fitting" href="gaussian_fitting.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Continuum Subtraction</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-subtract-continuum">When to Subtract Continuum</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#understanding-the-continuum">Understanding the Continuum</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#continuum-models">Continuum Models</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#how-continuum-subtraction-works">How Continuum Subtraction Works</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#interactive-continuum-subtraction">Interactive Continuum Subtraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#full-cube-continuum-subtraction">Full-Cube Continuum Subtraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#visualizing-subtraction">Visualizing Subtraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#continuum-fitting-parameters">Continuum Fitting Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#continuum-subtraction-issues">Continuum Subtraction Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#saving-subtracted-data">Saving Subtracted Data</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#quality-assessment">Quality Assessment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#advanced-topics">Advanced Topics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#best-practices">Best Practices</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#common-errors-to-avoid">Common Errors to Avoid</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Continuum Subtraction</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/continuum_subtraction.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="gaussian_fitting.html" class="btn btn-neutral float-left" title="Gaussian Fitting" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-right" title="CO Flux Extraction" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="continuum-subtraction">
+<h1>Continuum Subtraction<a class="headerlink" href="#continuum-subtraction" title="Link to this heading"></a></h1>
+<p>Remove or model the underlying continuum from spectral data before analyzing emission or absorption lines.</p>
+<section id="when-to-subtract-continuum">
+<h2>When to Subtract Continuum<a class="headerlink" href="#when-to-subtract-continuum" title="Link to this heading"></a></h2>
+<p>Remove continuum when:</p>
+<ul class="simple">
+<li><p><strong>Measuring weak lines</strong>: Enhances signal-to-noise</p></li>
+<li><p><strong>Analyzing line profiles</strong>: Isolates pure line signal</p></li>
+<li><p><strong>Comparing different regions</strong>: Removes illumination differences</p></li>
+<li><p><strong>Measuring equivalent widths</strong>: Required for accurate measurement</p></li>
+</ul>
+<p>Keep continuum when:</p>
+<ul class="simple">
+<li><p><strong>Measuring total flux</strong>: Includes all emission</p></li>
+<li><p><strong>Studying continuum properties</strong>: Necessary for analysis</p></li>
+<li><p><strong>Creating broad-band images</strong>: Need full spectrum</p></li>
+</ul>
+</section>
+<section id="understanding-the-continuum">
+<h2>Understanding the Continuum<a class="headerlink" href="#understanding-the-continuum" title="Link to this heading"></a></h2>
+<p>The continuum consists of:</p>
+<ul class="simple">
+<li><p><strong>Stellar/nebular emission</strong>: Underlying hot gas</p></li>
+<li><p><strong>Dust emission</strong>: Thermal dust radiation</p></li>
+<li><p><strong>Scattered light</strong>: Reflected starlight</p></li>
+<li><p><strong>Instrumental effects</strong>: Baseline issues</p></li>
+</ul>
+</section>
+<section id="continuum-models">
+<h2>Continuum Models<a class="headerlink" href="#continuum-models" title="Link to this heading"></a></h2>
+<p>IFU Analyzer supports several continuum fitting models:</p>
+<p><strong>Linear Model</strong></p>
+<p>Simplest: Straight line through spectrum</p>
+<div class="math notranslate nohighlight">
+\[f(\lambda) = a + b\lambda\]</div>
+<ul class="simple">
+<li><p>Best for: Small wavelength ranges, modest continuum</p></li>
+<li><p>Quick to compute</p></li>
+<li><p>May miss curvature</p></li>
+</ul>
+<p><strong>Quadratic Model</strong></p>
+<p>Parabolic curve</p>
+<div class="math notranslate nohighlight">
+\[f(\lambda) = a + b\lambda + c\lambda^2\]</div>
+<ul class="simple">
+<li><p>Best for: Moderate wavelength ranges</p></li>
+<li><p>Captures simple slope changes</p></li>
+<li><p>Standard choice</p></li>
+</ul>
+<p><strong>Cubic Model</strong></p>
+<p>Higher-order polynomial</p>
+<div class="math notranslate nohighlight">
+\[f(\lambda) = a + b\lambda + c\lambda^2 + d\lambda^3\]</div>
+<ul class="simple">
+<li><p>Best for: Complex continuum shapes</p></li>
+<li><p>Risk of overfitting</p></li>
+<li><p>Use mainly when needed</p></li>
+</ul>
+<p><strong>Spline Model</strong></p>
+<p>Piecewise polynomial curves</p>
+<ul class="simple">
+<li><p>Best for: Very complex continuum</p></li>
+<li><p>More flexible than polynomials</p></li>
+<li><p>Requires careful knot placement</p></li>
+</ul>
+<p><strong>Blackbody Model</strong></p>
+<p>Thermal emission from hot object</p>
+<div class="math notranslate nohighlight">
+\[f(\lambda) \propto \frac{1}{\lambda^5(e^{hc/\lambda k T} - 1)}\]</div>
+<ul class="simple">
+<li><p>Best for: Stellar/thermal sources</p></li>
+<li><p>Requires temperature estimate</p></li>
+<li><p>Physically motivated</p></li>
+</ul>
+<p><strong>Power-Law Model</strong></p>
+<div class="math notranslate nohighlight">
+\[f(\lambda) = A \lambda^{-\alpha}\]</div>
+<ul class="simple">
+<li><p>Best for: AGN, synchrotron sources</p></li>
+<li><p>Defines slope</p></li>
+<li><p>Simple, often physical</p></li>
+</ul>
+</section>
+<section id="how-continuum-subtraction-works">
+<h2>How Continuum Subtraction Works<a class="headerlink" href="#how-continuum-subtraction-works" title="Link to this heading"></a></h2>
+<p><strong>Step 1: Define Continuum Regions</strong></p>
+<p>Select wavelength ranges that represent pure continuum:</p>
+<ul class="simple">
+<li><p>Avoid strong spectral lines</p></li>
+<li><p>Choose regions on both sides of feature to analyze</p></li>
+<li><p>Ensure enough pixels for stable fit</p></li>
+</ul>
+<p><strong>Step 2: Fit Continuum</strong></p>
+<p>Software fits selected model through continuum regions:</p>
+<ul class="simple">
+<li><p>Ignores line pixels</p></li>
+<li><p>Computes best-fit parameters</p></li>
+<li><p>Shows fit overlay on spectrum</p></li>
+</ul>
+<p><strong>Step 3: Subtract</strong></p>
+<p>Continuum-subtracted spectrum:</p>
+<div class="math notranslate nohighlight">
+\[f_{cont-sub}(\lambda) = f_{obs}(\lambda) - f_{cont}(\lambda)\]</div>
+<p><strong>Step 4: Analyze</strong></p>
+<p>Now analyze continuum-subtracted spectrum:</p>
+<ul class="simple">
+<li><p>Line profiles stand out</p></li>
+<li><p>Easier to measure equivalent widths</p></li>
+<li><p>More accurate Gaussian fits</p></li>
+</ul>
+</section>
+<section id="interactive-continuum-subtraction">
+<h2>Interactive Continuum Subtraction<a class="headerlink" href="#interactive-continuum-subtraction" title="Link to this heading"></a></h2>
+<p><strong>Simple Method</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>Continuum Subtraction</strong> button in toolbar</p></li>
+<li><p>Dialog appears</p></li>
+<li><p>Select model from dropdown (Linear, Quadratic, etc.)</p></li>
+<li><p>Click <strong>Select Continuum Regions</strong> on spectrum</p></li>
+<li><p>Drag to select continuum-only areas</p></li>
+<li><p>Preview shows fitted continuum</p></li>
+<li><p>Click <strong>Apply</strong></p></li>
+</ol>
+<p><strong>Using Mask</strong></p>
+<p>Specify exact pixels for continuum fitting:</p>
+<ol class="arabic simple">
+<li><p>Tools → Continuum → Advanced</p></li>
+<li><p><strong>Use Mask</strong>: Check this option</p></li>
+<li><p>Specify pixels to use/exclude:
+- By wavelength range
+- By intensity range (avoid high emission)
+- By custom mask</p></li>
+<li><p>Click <strong>Apply</strong></p></li>
+</ol>
+<p><strong>Automatic Continuum Detection</strong></p>
+<p>Let software find continuum:</p>
+<ol class="arabic simple">
+<li><p>Tools → Continuum → Automatic</p></li>
+<li><p>Algorithm identifies line-free regions</p></li>
+<li><p>Usually works well for typical spectra</p></li>
+<li><p>Manual adjustment available if needed</p></li>
+</ol>
+</section>
+<section id="full-cube-continuum-subtraction">
+<h2>Full-Cube Continuum Subtraction<a class="headerlink" href="#full-cube-continuum-subtraction" title="Link to this heading"></a></h2>
+<p>Apply continuum subtraction to entire cube:</p>
+<p><strong>Batch Processing</strong></p>
+<ol class="arabic simple">
+<li><p>Tools → Continuum → Fit All Pixels</p></li>
+<li><p>Configuration dialog:
+- <strong>Model selection</strong>: Choose continuum model
+- <strong>Method</strong>: Automatic or manual regions
+- <strong>Parallelization</strong>: Use multiple cores</p></li>
+<li><p>Click <strong>Start</strong></p></li>
+<li><p>Processed cube saved as new file</p></li>
+</ol>
+<p><strong>Using Same Model Everywhere</strong></p>
+<p>Single continuum fit applied to all pixels:</p>
+<ol class="arabic simple">
+<li><p>Define continuum on integrated spectrum</p></li>
+<li><p>Tools → Continuum → Apply to All Pixels</p></li>
+<li><p>Same model applied everywhere</p></li>
+<li><p>Fast but assumes continuum constant spatially</p></li>
+</ol>
+<p><strong>Per-Pixel Determination</strong></p>
+<p>Find continuum separately for each pixel:</p>
+<ol class="arabic simple">
+<li><p>Tools → Continuum → Pixel-by-Pixel</p></li>
+<li><p>Each pixel’s spectrum analyzed independently</p></li>
+<li><p>Accounts for spatial variations</p></li>
+<li><p>Much slower but more accurate</p></li>
+</ol>
+</section>
+<section id="visualizing-subtraction">
+<h2>Visualizing Subtraction<a class="headerlink" href="#visualizing-subtraction" title="Link to this heading"></a></h2>
+<p><strong>Show Before/After</strong></p>
+<p>Display spectra before and after subtraction:</p>
+<ol class="arabic simple">
+<li><p>Spectrum panel → <strong>Toggle View</strong></p></li>
+<li><p>Switch between:
+- Original spectrum
+- Continuum model (red curve)
+- Continuum-subtracted (original minus model)</p></li>
+<li><p>Use arrow keys to compare</p></li>
+</ol>
+<p><strong>Residuals Display</strong></p>
+<p>Show what was subtracted:</p>
+<ol class="arabic simple">
+<li><p>Spectrum panel → <strong>Show Residuals</strong></p></li>
+<li><p>Green shaded area: Subtracted continuum</p></li>
+<li><p>Clearly see what you removed</p></li>
+</ol>
+</section>
+<section id="continuum-fitting-parameters">
+<h2>Continuum Fitting Parameters<a class="headerlink" href="#continuum-fitting-parameters" title="Link to this heading"></a></h2>
+<p><strong>Optimization Parameters</strong></p>
+<p>Control fitting behavior:</p>
+<ul class="simple">
+<li><p><strong>Convergence threshold</strong>: When algorithm stops (low = very precise)</p></li>
+<li><p><strong>Maximum iterations</strong>: Prevent infinite loops</p></li>
+<li><p><strong>Residual tolerance</strong>: Acceptable fitting error</p></li>
+</ul>
+<p><strong>Model-Specific Parameters</strong></p>
+<p>Blackbody model example:</p>
+<ul class="simple">
+<li><p><strong>Temperature</strong>: Estimate starting value</p></li>
+<li><p><strong>Scaling</strong>: Flux normalization</p></li>
+</ul>
+<p>Power-law model example:</p>
+<ul class="simple">
+<li><p><strong>Slope (α)</strong>: Steepness of power-law</p></li>
+<li><p><strong>Normalization</strong>: Absolute flux scaling</p></li>
+</ul>
+<p><strong>Weighting</strong></p>
+<p>Use uncertainties in fitting:</p>
+<ol class="arabic simple">
+<li><p>Analysis → Fit Options → Weighted Fit</p></li>
+<li><p>Pixels with larger errors: Lower weight</p></li>
+<li><p>More robust against noisy pixels</p></li>
+</ol>
+</section>
+<section id="continuum-subtraction-issues">
+<h2>Continuum Subtraction Issues<a class="headerlink" href="#continuum-subtraction-issues" title="Link to this heading"></a></h2>
+<p><strong>Issue: Over-subtraction (negative fluxes)</strong></p>
+<p>Fitting curve too high:</p>
+<ul class="simple">
+<li><p>Check continuum region selection</p></li>
+<li><p>Try different model (lower order polynomial)</p></li>
+<li><p>Manually adjust fit</p></li>
+</ul>
+<p><strong>Issue: Under-subtraction (residual bump)</strong></p>
+<p>Fitting curve too low:</p>
+<ul class="simple">
+<li><p>Add more continuum regions</p></li>
+<li><p>Include broader wavelength range</p></li>
+<li><p>Use higher-order polynomial</p></li>
+</ul>
+<p><strong>Issue: Ringing/Oscillation</strong></p>
+<p>Overfitting artifacts appear:</p>
+<ul class="simple">
+<li><p>Reduce polynomial order</p></li>
+<li><p>Use spline with fewer knots</p></li>
+<li><p>Switch to simpler model</p></li>
+</ul>
+<p><strong>Issue: Spatially-varying continuum</strong></p>
+<p>Continuum different at each pixel:</p>
+<ul class="simple">
+<li><p>Use pixel-by-pixel subtraction</p></li>
+<li><p>Or define location-dependent regions</p></li>
+<li><p>Will be slower</p></li>
+</ul>
+</section>
+<section id="saving-subtracted-data">
+<h2>Saving Subtracted Data<a class="headerlink" href="#saving-subtracted-data" title="Link to this heading"></a></h2>
+<p><strong>Export Subtracted Cube</strong></p>
+<p>Save continuum-subtracted cube as FITS:</p>
+<ol class="arabic simple">
+<li><p>File → Export Results → Continuum-Subtracted Cube</p></li>
+<li><p>Specify filename</p></li>
+<li><p>FITS file created with subtracted data</p></li>
+<li><p>Original FITS header preserved</p></li>
+</ol>
+<p><strong>Save Continuum Model</strong></p>
+<p>Export the fitted continuum:</p>
+<ol class="arabic simple">
+<li><p>Analysis → Export → Continuum Model</p></li>
+<li><p>Format:
+- ASCII: Wavelength vs. continuum
+- FITS: Extension with continuum array</p></li>
+<li><p>Useful for documentation and reproducibility</p></li>
+</ol>
+<p><strong>Save Parameters</strong></p>
+<p>Export continuum model parameters:</p>
+<ol class="arabic simple">
+<li><p>Analysis → Export Continuum Parameters</p></li>
+<li><p>Saves fitting results:
+- Polynomial coefficients (if used)
+- Temperature (if blackbody)
+- Other model parameters</p></li>
+<li><p>Format: ASCII or FITS</p></li>
+</ol>
+</section>
+<section id="quality-assessment">
+<h2>Quality Assessment<a class="headerlink" href="#quality-assessment" title="Link to this heading"></a></h2>
+<p><strong>Visual Inspection</strong></p>
+<p>Always check your continuum subtraction:</p>
+<ol class="arabic simple">
+<li><p>Display original spectrum</p></li>
+<li><p>Display continuum model overlay</p></li>
+<li><p>Display subtracted result</p></li>
+<li><p>Look for:
+- Lines removed properly
+- No over/under-subtraction
+- Flat baseline after subtraction</p></li>
+</ol>
+<p><strong>Statistical Tests</strong></p>
+<p>Check goodness of subtraction:</p>
+<ol class="arabic simple">
+<li><p>Analysis → Continuum Quality</p></li>
+<li><p>Shows:
+- Reduced χ²: Goodness of fit
+- Baseline level: Should be ~ 0 after subtraction
+- RMS residuals: Should be noise level</p></li>
+</ol>
+<p><strong>Comparing Methods</strong></p>
+<p>Test different continuum models:</p>
+<ol class="arabic simple">
+<li><p>Apply Model 1 (e.g., Linear)</p></li>
+<li><p>Export results</p></li>
+<li><p>Undo, apply Model 2 (e.g., Quadratic)</p></li>
+<li><p>Compare outputs</p></li>
+<li><p>Use model giving best results</p></li>
+</ol>
+</section>
+<section id="advanced-topics">
+<h2>Advanced Topics<a class="headerlink" href="#advanced-topics" title="Link to this heading"></a></h2>
+<p><strong>Continuum in Multi-Component Spectra</strong></p>
+<p>When multiple features present:</p>
+<ul class="simple">
+<li><p>Be careful not to fit over lines</p></li>
+<li><p>Use robust statistics to downweight line pixels</p></li>
+<li><p>Consider multiple-component continuum model</p></li>
+<li><p>May require manual intervention</p></li>
+</ul>
+<p><strong>Dust Extinction Correction</strong></p>
+<p>Combine continuum fitting with extinction correction:</p>
+<ol class="arabic simple">
+<li><p>Model continuum with stellar template</p></li>
+<li><p>Compare to observed continuum</p></li>
+<li><p>Difference attributed to extinction</p></li>
+<li><p>Extinction E(B-V) determined</p></li>
+<li><p>Use to correct extinction</p></li>
+</ol>
+<p><strong>Narrow vs. Broad Components</strong></p>
+<p>When emission has multiple width components:</p>
+<ul class="simple">
+<li><p>Narrow component: From narrow line region</p></li>
+<li><p>Broad component: From broad line region</p></li>
+<li><p>May require separate continuum modeling</p></li>
+<li><p>Advanced technique</p></li>
+</ul>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Always visually inspect</strong> the continuum fit</p></li>
+<li><p><strong>verify continuum regions</strong> don’t include lines</p></li>
+<li><p><strong>Document your method</strong> in analysis notes</p></li>
+<li><p><strong>Save original data</strong> (never overwrite)</p></li>
+<li><p><strong>Test sensitivity</strong> to model choice</p></li>
+<li><p><strong>Be conservative</strong> - under-subtract rather than over</p></li>
+<li><p><strong>Compare methods</strong> when analyzing critical data</p></li>
+</ol>
+</section>
+<section id="common-errors-to-avoid">
+<h2>Common Errors to Avoid<a class="headerlink" href="#common-errors-to-avoid" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>❌ Fitting over strong emission lines</p></li>
+<li><p>❌ Using too high polynomial order</p></li>
+<li><p>❌ Forgetting to document your procedure</p></li>
+<li><p>❌ Discarding original data before fully confident</p></li>
+<li><p>❌ Using continuum subtraction when not needed</p></li>
+<li><p>✓ Always keep original data alongside processed</p></li>
+</ul>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>After continuum subtraction:</p>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="gaussian_fitting.html"><span class="doc">Gaussian Fitting</span></a> for line profile analysis</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> to save results</p></li>
+<li><p>Perform kinematic or flux analysis on clean spectrum</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gaussian_fitting.html" class="btn btn-neutral float-left" title="Gaussian Fitting" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-right" title="CO Flux Extraction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,351 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Installation &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Quick Start" href="quickstart.html" />
+    <link rel="prev" title="Introduction" href="introduction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#prerequisites">Prerequisites</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#system-specific-notes">System-Specific Notes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installation-steps">Installation Steps</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#clone-or-download-the-repository">1. Clone or Download the Repository</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#create-a-virtual-environment-recommended">2. Create a Virtual Environment (Recommended)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#install-required-packages">3. Install Required Packages</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#verify-installation">4. Verify Installation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#troubleshooting-installation">Troubleshooting Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#data-files">Data Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#configuration-files">Configuration Files</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#optional-configuration">Optional Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#system-recommendations">System Recommendations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#platform-specific-tips">Platform-Specific Tips</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="user_guide/index.html">User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Installation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/installation.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="introduction.html" class="btn btn-neutral float-left" title="Introduction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="quickstart.html" class="btn btn-neutral float-right" title="Quick Start" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h1>
+<section id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading"></a></h2>
+<p>Before installing IFU Analyzer, ensure your system meets these requirements:</p>
+<ul class="simple">
+<li><p><strong>Python</strong>: 3.8 or higher</p></li>
+<li><p><strong>Operating System</strong>: Windows, macOS, or Linux</p></li>
+<li><p><strong>RAM</strong>: 4 GB minimum (8 GB or more recommended for large data cubes)</p></li>
+<li><p><strong>Disk Space</strong>: At least 500 MB for installation and sample data</p></li>
+</ul>
+<section id="system-specific-notes">
+<h3>System-Specific Notes<a class="headerlink" href="#system-specific-notes" title="Link to this heading"></a></h3>
+<p><strong>Windows</strong>: Administrator privileges may be needed for the virtual environment setup.</p>
+<p><strong>macOS</strong>: You may need to install Xcode Command Line Tools:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>xcode-select<span class="w"> </span>--install
+</pre></div>
+</div>
+<p><strong>Linux</strong>: Most distributions have Python pre-installed. If not, use your package manager:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Ubuntu/Debian</span>
+sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>python3<span class="w"> </span>python3-pip<span class="w"> </span>python3-venv
+
+<span class="c1"># Fedora/CentOS</span>
+sudo<span class="w"> </span>dnf<span class="w"> </span>install<span class="w"> </span>python3<span class="w"> </span>python3-pip
+</pre></div>
+</div>
+</section>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading"></a></h2>
+<p>The following Python packages are required:</p>
+<ul class="simple">
+<li><p><strong>numpy</strong> - Numerical computing</p></li>
+<li><p><strong>matplotlib</strong> - Data visualization</p></li>
+<li><p><strong>astropy</strong> - FITS file handling and astronomy utilities</p></li>
+<li><p><strong>PyQt5</strong> - Graphical user interface</p></li>
+<li><p><strong>scipy</strong> - Scientific computing (for fitting algorithms)</p></li>
+</ul>
+</section>
+<section id="installation-steps">
+<h2>Installation Steps<a class="headerlink" href="#installation-steps" title="Link to this heading"></a></h2>
+<section id="clone-or-download-the-repository">
+<h3>1. Clone or Download the Repository<a class="headerlink" href="#clone-or-download-the-repository" title="Link to this heading"></a></h3>
+<p>Using Git:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ilariapascucci/IFU-Analyzer.git
+<span class="nb">cd</span><span class="w"> </span>IFU-Analyzer
+</pre></div>
+</div>
+<p>Or download as a ZIP file from the project repository and extract it.</p>
+</section>
+<section id="create-a-virtual-environment-recommended">
+<h3>2. Create a Virtual Environment (Recommended)<a class="headerlink" href="#create-a-virtual-environment-recommended" title="Link to this heading"></a></h3>
+<p>Creating a virtual environment isolates IFU Analyzer’s dependencies from your system Python:</p>
+<p><strong>Using venv (included with Python):</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Windows</span>
+python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+venv<span class="se">\S</span>cripts<span class="se">\a</span>ctivate
+
+<span class="c1"># macOS/Linux</span>
+python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate
+</pre></div>
+</div>
+<p><strong>Using Conda (if you have Anaconda/Miniconda installed):</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>ifu-analyzer<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.10
+conda<span class="w"> </span>activate<span class="w"> </span>ifu-analyzer
+</pre></div>
+</div>
+</section>
+<section id="install-required-packages">
+<h3>3. Install Required Packages<a class="headerlink" href="#install-required-packages" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>numpy<span class="w"> </span>matplotlib<span class="w"> </span>astropy<span class="w"> </span>PyQt5<span class="w"> </span>scipy
+</pre></div>
+</div>
+<p>Or install directly from requirements (if available):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+</section>
+<section id="verify-installation">
+<h3>4. Verify Installation<a class="headerlink" href="#verify-installation" title="Link to this heading"></a></h3>
+<p>To verify that everything is installed correctly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py
+</pre></div>
+</div>
+<p>The IFU Analyzer window should open (1100×800 pixels).</p>
+</section>
+</section>
+<section id="troubleshooting-installation">
+<h2>Troubleshooting Installation<a class="headerlink" href="#troubleshooting-installation" title="Link to this heading"></a></h2>
+<p><strong>Issue: “No module named ‘PyQt5’”</strong></p>
+<p>This typically means PyQt5 wasn’t installed. Try:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>PyQt5
+</pre></div>
+</div>
+<p><strong>Issue: “No module named ‘astropy’”</strong></p>
+<p>Install the astropy package:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>astropy
+</pre></div>
+</div>
+<p><strong>Issue: Command not found: python3</strong></p>
+<p>Ensure Python 3.8+ is installed and added to your PATH. Check your Python installation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>--version
+<span class="c1"># or</span>
+python3<span class="w"> </span>--version
+</pre></div>
+</div>
+<p><strong>Issue: GUI window opens but crashes immediately</strong></p>
+<p>This may indicate a PyQt5 display issue. Try reinstalling PyQt5:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>uninstall<span class="w"> </span>PyQt5
+pip<span class="w"> </span>install<span class="w"> </span>PyQt5
+</pre></div>
+</div>
+<p><strong>Issue: “Permission denied” on macOS/Linux</strong></p>
+<p>You may need to use <code class="docutils literal notranslate"><span class="pre">sudo</span></code> or fix ownership:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Option 1: Use sudo</span>
+sudo<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>numpy<span class="w"> </span>matplotlib<span class="w"> </span>astropy<span class="w"> </span>PyQt5<span class="w"> </span>scipy
+
+<span class="c1"># Option 2: Fix pip permissions (better practice)</span>
+python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--user<span class="w"> </span>numpy<span class="w"> </span>matplotlib<span class="w"> </span>astropy<span class="w"> </span>PyQt5<span class="w"> </span>scipy
+</pre></div>
+</div>
+</section>
+<section id="data-files">
+<h2>Data Files<a class="headerlink" href="#data-files" title="Link to this heading"></a></h2>
+<p>IFU Analyzer does not include sample data files in the repository. To use the application:</p>
+<ol class="arabic simple">
+<li><p>Prepare your own FITS data cubes from supported instruments:
+- MUSE: 3D spectral cubes (.fits)
+- ALMA: Radio interferometry cubes (.fits)
+- MIRI: Mid-infrared spectral cubes (.fits)
+- NIRSpec: Near-infrared spectral cubes (.fits)
+- Generic: Any 2D/3D FITS images</p></li>
+<li><p>Use the “Open FITS” button in the GUI to load your data files</p></li>
+<li><p>Recommended: Create a <code class="docutils literal notranslate"><span class="pre">data/</span></code> subdirectory in your IFU-Analyzer folder to organize your datasets</p></li>
+</ol>
+</section>
+<section id="configuration-files">
+<h2>Configuration Files<a class="headerlink" href="#configuration-files" title="Link to this heading"></a></h2>
+<section id="optional-configuration">
+<h3>Optional Configuration<a class="headerlink" href="#optional-configuration" title="Link to this heading"></a></h3>
+<p>Line catalogs and other data files are stored in:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">hitran_local/</span></code> - HITRAN spectral line database files</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">data/</span></code> - Sample and user data</p></li>
+</ul>
+<p>These directories are created automatically when needed.</p>
+</section>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>After successful installation:</p>
+<ol class="arabic simple">
+<li><p>Start the application: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span></code></p></li>
+<li><p>Read the <a class="reference internal" href="quickstart.html"><span class="doc">Quick Start</span></a> guide for basic usage</p></li>
+<li><p>Explore the <a class="reference internal" href="user_guide/index.html"><span class="doc">User Guide</span></a> for detailed features</p></li>
+<li><p>Load your first FITS file!</p></li>
+</ol>
+</section>
+<section id="getting-help">
+<h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
+<p>If you encounter issues:</p>
+<ol class="arabic simple">
+<li><p>Check the <a class="reference internal" href="troubleshooting.html"><span class="doc">Troubleshooting</span></a> section</p></li>
+<li><p>Review the <a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a> for common questions</p></li>
+<li><p>Check the project’s issue tracker on GitHub</p></li>
+<li><p>Contact the development team</p></li>
+</ol>
+</section>
+<section id="system-recommendations">
+<h2>System Recommendations<a class="headerlink" href="#system-recommendations" title="Link to this heading"></a></h2>
+<p>For optimal performance, especially with large data cubes:</p>
+<ul class="simple">
+<li><p><strong>Processor</strong>: Multi-core processor (4+ cores recommended)</p></li>
+<li><p><strong>RAM</strong>: 8-16 GB for cubes with millions of voxels</p></li>
+<li><p><strong>GPU</strong>: Not required, but CPU-based analysis is used</p></li>
+<li><p><strong>Display</strong>: 1920×1080 or higher resolution recommended</p></li>
+<li><p><strong>Network</strong>: Internet connection needed for line catalog updates (optional)</p></li>
+</ul>
+</section>
+<section id="platform-specific-tips">
+<h2>Platform-Specific Tips<a class="headerlink" href="#platform-specific-tips" title="Link to this heading"></a></h2>
+<p><strong>Windows</strong></p>
+<ul class="simple">
+<li><p>If using Anaconda, always run commands from the “Anaconda Prompt”</p></li>
+<li><p>Visual C++ Runtime may need updating for some packages</p></li>
+</ul>
+<p><strong>macOS</strong></p>
+<ul class="simple">
+<li><p>M1/M2 Macs: You may need to install some packages with: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">--upgrade</span> <span class="pre">--force-reinstall</span> <span class="pre">&lt;package_name&gt;</span></code></p></li>
+<li><p>Homebrew installation can help: <code class="docutils literal notranslate"><span class="pre">brew</span> <span class="pre">install</span> <span class="pre">python3</span></code></p></li>
+</ul>
+<p><strong>Linux</strong></p>
+<ul class="simple">
+<li><p>Ensure you have the development headers: <code class="docutils literal notranslate"><span class="pre">python3-dev</span></code> package</p></li>
+<li><p>Many distributions require: <code class="docutils literal notranslate"><span class="pre">sudo</span> <span class="pre">apt-get</span> <span class="pre">install</span> <span class="pre">python3-tk</span></code> for Tkinter support</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="introduction.html" class="btn btn-neutral float-left" title="Introduction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="quickstart.html" class="btn btn-neutral float-right" title="Quick Start" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

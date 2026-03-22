@@ -1,0 +1,629 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Command Reference &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Glossary" href="glossary.html" />
+    <link rel="prev" title="Keyboard Shortcuts" href="keyboard_shortcuts.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../user_guide/index.html">User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="file_formats.html">File Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="keyboard_shortcuts.html">Keyboard Shortcuts</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Command Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#file-menu">File Menu</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#view-menu">View Menu</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tools-menu">Tools Menu</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#help-menu">Help Menu</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#toolbar-buttons">Toolbar Buttons</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#right-click-context-menus">Right-Click Context Menus</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#dialog-commands">Dialog Commands</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#preferences-dialog">Preferences Dialog</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#quick-commands">Quick Commands</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#command-line-options">Command Line Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="glossary.html">Glossary</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#api-documentation">API Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#file-formats">File Formats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#commands-and-features">Commands and Features</a></li>
+<li class="toctree-l2"><a class="reference internal" href="index.html#glossary">Glossary</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Reference</a></li>
+      <li class="breadcrumb-item active">Command Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/reference/command_reference.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="keyboard_shortcuts.html" class="btn btn-neutral float-left" title="Keyboard Shortcuts" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="glossary.html" class="btn btn-neutral float-right" title="Glossary" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="command-reference">
+<h1>Command Reference<a class="headerlink" href="#command-reference" title="Link to this heading"></a></h1>
+<p>Comprehensive listing of all commands accessible through menus and dialogs.</p>
+<section id="file-menu">
+<h2>File Menu<a class="headerlink" href="#file-menu" title="Link to this heading"></a></h2>
+<p><strong>Open FITS</strong> (Ctrl+O)</p>
+<p>Load a FITS data cube from disk.</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Select FITS file</p></li>
+<li><p>Choose instrument type</p></li>
+<li><p>Advanced: Specify subregion, HDU selection</p></li>
+</ul>
+<p><strong>Save Project</strong> (Ctrl+S)</p>
+<p>Save your analysis session (basic functionality).</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Project metadata only</p></li>
+<li><p>Not typically used</p></li>
+</ul>
+<p><strong>Export Spectrum</strong> (Ctrl+E)</p>
+<p>Export current spectrum for analysis.</p>
+<p>Formats:</p>
+<ul class="simple">
+<li><p>ASCII tab-delimited (.txt)</p></li>
+<li><p>FITS binary table (.fits)</p></li>
+<li><p>Comma-separated values (.csv)</p></li>
+</ul>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Original or normalized</p></li>
+<li><p>Include error bars</p></li>
+<li><p>Custom column selection</p></li>
+</ul>
+<p><strong>Export Results</strong></p>
+<p>Export analysis results (Gaussian fits, maps, etc.).</p>
+<p>Formats:</p>
+<ul class="simple">
+<li><p>FITS multi-extension</p></li>
+<li><p>ASCII table, CSV</p></li>
+</ul>
+<p>Outputs:</p>
+<ul class="simple">
+<li><p>Parameter maps (amplitude, center, width, etc.)</p></li>
+<li><p>Success mask</p></li>
+<li><p>Quality metrics (χ², R²)</p></li>
+</ul>
+<p><strong>Export Residuals</strong></p>
+<p>Export residual cube from fitting.</p>
+<p>Format:</p>
+<ul class="simple">
+<li><p>3D FITS cube</p></li>
+<li><p>Same dimensions as input</p></li>
+</ul>
+<p><strong>Recent Files</strong></p>
+<p>Quick access to recently opened files.</p>
+<p>List shows:</p>
+<ul class="simple">
+<li><p>Most recent first</p></li>
+<li><p>File paths and dates</p></li>
+<li><p>Click to re-open</p></li>
+</ul>
+<p><strong>Exit</strong> (Alt+F4)</p>
+<p>Close application.</p>
+</section>
+<section id="view-menu">
+<h2>View Menu<a class="headerlink" href="#view-menu" title="Link to this heading"></a></h2>
+<p><strong>Zoom In</strong> (Ctrl++)</p>
+<p>Magnify the intensity map.</p>
+<p>Methods:</p>
+<ul class="simple">
+<li><p>Scroll wheel: Zoom</p></li>
+<li><p>Menu: Incremental zoom</p></li>
+<li><p>Type zoom level</p></li>
+</ul>
+<p><strong>Zoom Out</strong> (Ctrl+-)</p>
+<p>Reduce magnification.</p>
+<p>Methods:</p>
+<ul class="simple">
+<li><p>Scroll wheel</p></li>
+<li><p>Menu buttons</p></li>
+<li><p>Keyboard shortcut</p></li>
+</ul>
+<p><strong>Fit to Window</strong> (Ctrl+0)</p>
+<p>Automatically scale view to fill window.</p>
+<p><strong>Reset View</strong></p>
+<p>Return to default zoom and pan.</p>
+<p><strong>Coordinate System</strong></p>
+<p>Select coordinate system for display.</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Wavelength (default)</p></li>
+<li><p>RA/DEC (if WCS available)</p></li>
+</ul>
+<p><strong>Color Scale</strong></p>
+<p>Change intensity scaling method.</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Linear</p></li>
+<li><p>Logarithmic</p></li>
+<li><p>Power Law</p></li>
+<li><p>Square Root</p></li>
+</ul>
+<p><strong>Show Grid</strong></p>
+<p>Toggle coordinate grid overlay.</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Grid color</p></li>
+<li><p>Grid spacing</p></li>
+<li><p>Grid labels</p></li>
+</ul>
+<p><strong>Show Colorbar</strong></p>
+<p>Toggle intensity scale display.</p>
+<p><strong>Show Measurements</strong></p>
+<p>Show/hide measurement overlays.</p>
+</section>
+<section id="tools-menu">
+<h2>Tools Menu<a class="headerlink" href="#tools-menu" title="Link to this heading"></a></h2>
+<p><strong>Region Selection</strong></p>
+<p>Tools for selecting spatial regions.</p>
+<p>Sub-menu:</p>
+<ul class="simple">
+<li><p>Point Tool: Single pixels</p></li>
+<li><p>Rectangle Tool: Rectangular regions</p></li>
+<li><p>Circle Tool: Circular regions</p></li>
+<li><p>Ellipse Tool: Elliptical regions</p></li>
+<li><p>Polygon Tool: Custom shapes</p></li>
+</ul>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Feather edges</p></li>
+<li><p>Invert selection</p></li>
+<li><p>Border selection</p></li>
+<li><p>Union/intersection modes</p></li>
+</ul>
+<p><strong>Spectral Analysis</strong></p>
+<p>Analyze spectral properties.</p>
+<p>Sub-menu:</p>
+<ul class="simple">
+<li><p>Feature Detection: Find emission/absorption lines</p></li>
+<li><p>Line Identification: Identify known lines</p></li>
+<li><p>Measure Equivalent Width</p></li>
+<li><p>Export Spectra</p></li>
+</ul>
+<p><strong>Gaussian Fitting</strong></p>
+<p>Fit Gaussian models to spectra.</p>
+<p>Sub-menu:</p>
+<ul class="simple">
+<li><p>Fit Single: Interactive fitting</p></li>
+<li><p>Fit Cube: Batch processing</p></li>
+<li><p>View Results: Display parameter maps</p></li>
+<li><p>Fit Options: Configure parameters</p></li>
+</ul>
+<p><strong>Continuum Subtraction</strong></p>
+<p>Remove baseline from spectra.</p>
+<p>Sub-menu:</p>
+<ul class="simple">
+<li><p>Simple Subtract: Built-in models</p></li>
+<li><p>Advanced Subtraction: Custom parameters</p></li>
+<li><p>Apply to All Pixels</p></li>
+<li><p>Automatic Detection</p></li>
+</ul>
+<p><strong>CO Flux Extraction</strong></p>
+<p>Extract carbon monoxide line fluxes.</p>
+<p>Sub-menu:</p>
+<ul class="simple">
+<li><p>Simple Measurement: Single line</p></li>
+<li><p>Multi-Line Analysis: Multiple CO transitions</p></li>
+<li><p>Full Cube: Extract CO at every pixel</p></li>
+<li><p>Temperature Calculation</p></li>
+</ul>
+<p><strong>Preferences</strong></p>
+<p>Adjust application settings.</p>
+<p>Categories:</p>
+<ul class="simple">
+<li><p>Display Options</p></li>
+<li><p>Keyboard Shortcuts</p></li>
+<li><p>Colormaps</p></li>
+<li><p>Performance</p></li>
+<li><p>Units</p></li>
+<li><p>Data Processing</p></li>
+</ul>
+<p><strong>Normalize Display</strong></p>
+<p>Choose normalization method.</p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>No normalization</p></li>
+<li><p>Per-pixel normalization</p></li>
+<li><p>Global normalization</p></li>
+</ul>
+</section>
+<section id="help-menu">
+<h2>Help Menu<a class="headerlink" href="#help-menu" title="Link to this heading"></a></h2>
+<p><strong>Documentation</strong></p>
+<p>Open this comprehensive manual.</p>
+<p><strong>Keyboard Shortcuts</strong></p>
+<p>Display keyboard shortcut reference.</p>
+<p><strong>About IFU Analyzer</strong></p>
+<p>Show version, copyright, credits.</p>
+<p><strong>Check for Updates</strong></p>
+<p>Look for newer versions online.</p>
+</section>
+<section id="toolbar-buttons">
+<h2>Toolbar Buttons<a class="headerlink" href="#toolbar-buttons" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Button</p></th>
+<th class="head"><p>Command</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Open FITS</p></td>
+<td><p>File → Open FITS (Ctrl+O)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Save Project</p></td>
+<td><p>File → Save (Ctrl+S)</p></td>
+</tr>
+<tr class="row-even"><td><p>Export</p></td>
+<td><p>File → Export Spectrum (Ctrl+E)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Zoom In</p></td>
+<td><p>View → Zoom In (Ctrl++)</p></td>
+</tr>
+<tr class="row-even"><td><p>Zoom Out</p></td>
+<td><p>View → Zoom Out (Ctrl+-)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Reset Zoom</p></td>
+<td><p>View → Fit to Window (Ctrl+0)</p></td>
+</tr>
+<tr class="row-even"><td><p>Select Region</p></td>
+<td><p>Tools → Region Selection</p></td>
+</tr>
+<tr class="row-odd"><td><p>Fit Single</p></td>
+<td><p>Tools → Fit Single (F)</p></td>
+</tr>
+<tr class="row-even"><td><p>Fit Cube</p></td>
+<td><p>Tools → Fit Cube (C)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Continuum</p></td>
+<td><p>Tools → Continuum Subtraction</p></td>
+</tr>
+<tr class="row-even"><td><p>CO Flux</p></td>
+<td><p>Tools → CO Flux Extraction</p></td>
+</tr>
+<tr class="row-odd"><td><p>Colormap</p></td>
+<td><p>Tools → Change Colormap</p></td>
+</tr>
+<tr class="row-even"><td><p>Color Scale</p></td>
+<td><p>View → Color Scale</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="right-click-context-menus">
+<h2>Right-Click Context Menus<a class="headerlink" href="#right-click-context-menus" title="Link to this heading"></a></h2>
+<p><strong>On Intensity Map</strong></p>
+<ul class="simple">
+<li><p>Copy Screen: Copy map to clipboard</p></li>
+<li><p>Save Image: Export map as image</p></li>
+<li><p>Rotate: Rotate displayed image</p></li>
+<li><p>Mirror: Mirror image</p></li>
+<li><p>Statistics: Show region statistics</p></li>
+<li><p>Clear Selection: Deselect current region</p></li>
+<li><p>Add Measurement: Annotate measurement</p></li>
+<li><p>Properties: Edit map properties</p></li>
+</ul>
+<p><strong>On Spectrum</strong></p>
+<ul class="simple">
+<li><p>Export Spectrum: Save spectrum (Ctrl+E)</p></li>
+<li><p>Copy: Copy spectrum to clipboard</p></li>
+<li><p>Fit: Fit Gaussian to spectrum</p></li>
+<li><p>Zoom: Zoom to spectral region</p></li>
+<li><p>Statistics: Show statistics</p></li>
+<li><p>Clear: Reset spectrum display</p></li>
+<li><p>Options: Configure spectrum display</p></li>
+<li><p>Properties: Edit spectrum properties</p></li>
+</ul>
+<p><strong>On Empty Area (Canvas)</strong></p>
+<ul class="simple">
+<li><p>Reset View: Return to default view</p></li>
+<li><p>Properties: Edit display properties</p></li>
+<li><p>Load Region: Load saved region</p></li>
+<li><p>Save Region: Save current region</p></li>
+<li><p>Clear All: Deselect and reset</p></li>
+</ul>
+</section>
+<section id="dialog-commands">
+<h2>Dialog Commands<a class="headerlink" href="#dialog-commands" title="Link to this heading"></a></h2>
+<p><strong>Open FITS Dialog</strong></p>
+<p>Buttons:</p>
+<ul class="simple">
+<li><p>Browse: Select file</p></li>
+<li><p>OK: Open selected file</p></li>
+<li><p>Cancel: Abort</p></li>
+<li><p>Advanced: More options</p></li>
+</ul>
+<p><strong>Export Spectrum Dialog</strong></p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Format: ASCII, FITS, CSV</p></li>
+<li><p>Normalized: Yes/No</p></li>
+<li><p>Include Errors: Yes/No</p></li>
+<li><p>Columns: Select specific columns</p></li>
+<li><p>Delimiter: Tab, comma, space</p></li>
+</ul>
+<p>Buttons:</p>
+<ul class="simple">
+<li><p>Browse: Choose location</p></li>
+<li><p>Export: Save file</p></li>
+<li><p>Cancel: Abort</p></li>
+</ul>
+<p><strong>Gaussian Fitting Dialog</strong></p>
+<p>Configuration:</p>
+<ul class="simple">
+<li><p>Method: Interactive or automatic</p></li>
+<li><p>Wavelength range: Select lines to fit</p></li>
+<li><p>Initial guess: Provide starting values</p></li>
+<li><p>Constraints: Set parameter limits</p></li>
+<li><p>Continuum: Subtract baseline first</p></li>
+<li><p>Weighting: Use error bars</p></li>
+</ul>
+<p>Buttons:</p>
+<ul class="simple">
+<li><p>Start: Begin fitting</p></li>
+<li><p>Options: Advanced settings</p></li>
+<li><p>Cancel: Abort</p></li>
+</ul>
+<p><strong>Region Selection Dialog</strong></p>
+<p>Tool Selection:</p>
+<ul class="simple">
+<li><p>Point, Rectangle, Circle, Ellipse, Polygon</p></li>
+</ul>
+<p>Options:</p>
+<ul class="simple">
+<li><p>Mode: Replace, Add, Subtract, Intersect</p></li>
+<li><p>Feather: Soften edges</p></li>
+<li><p>Invert: Select everything except region</p></li>
+<li><p>Border: Select only edges</p></li>
+</ul>
+<p>Buttons:</p>
+<ul class="simple">
+<li><p>OK: Apply selection</p></li>
+<li><p>Clear: Deselect</p></li>
+<li><p>Load: Load saved region</p></li>
+<li><p>Save: Save current region</p></li>
+<li><p>Cancel: Cancel operation</p></li>
+</ul>
+<p><strong>Continuum Subtraction Dialog</strong></p>
+<p>Model Selection:</p>
+<ul class="simple">
+<li><p>Linear</p></li>
+<li><p>Quadratic</p></li>
+<li><p>Cubic</p></li>
+<li><p>Spline</p></li>
+<li><p>Blackbody</p></li>
+<li><p>Power-Law</p></li>
+</ul>
+<p>Parameters:</p>
+<ul class="simple">
+<li><p>Wavelength ranges for fitting</p></li>
+<li><p>Model order (if applicable)</p></li>
+<li><p>Fitting method</p></li>
+</ul>
+<p>Buttons:</p>
+<ul class="simple">
+<li><p>Preview: Show result before applying</p></li>
+<li><p>Apply: Perform subtraction</p></li>
+<li><p>Cancel: Abort</p></li>
+</ul>
+<p><strong>CO Flux Dialog</strong></p>
+<p>Options:</p>
+<ul class="simple">
+<li><p>CO Band: Fundamental, first overtone, etc.</p></li>
+<li><p>Transition: J=1-0, J=2-1, etc.</p></li>
+<li><p>Wavelength: Auto-populated or manual</p></li>
+<li><p>Line width: Specify region size</p></li>
+<li><p>Options: Single vs. multi-component</p></li>
+</ul>
+<p>Buttons:</p>
+<ul class="simple">
+<li><p>Measure: Extract flux</p></li>
+<li><p>Analyze All: Multiple transitions</p></li>
+<li><p>Cancel: Abort</p></li>
+</ul>
+</section>
+<section id="preferences-dialog">
+<h2>Preferences Dialog<a class="headerlink" href="#preferences-dialog" title="Link to this heading"></a></h2>
+<p><strong>Display Settings</strong></p>
+<ul class="simple">
+<li><p>Window size behavior</p></li>
+<li><p>Font size</p></li>
+<li><p>Color scheme</p></li>
+<li><p>High contrast mode</p></li>
+</ul>
+<p><strong>Keyboard</strong></p>
+<ul class="simple">
+<li><p>View/customize shortcuts</p></li>
+<li><p>Reset to defaults</p></li>
+</ul>
+<p><strong>Colormaps</strong></p>
+<ul class="simple">
+<li><p>Select default colormap</p></li>
+<li><p>Load custom colormaps</p></li>
+<li><p>Colorbar options</p></li>
+</ul>
+<p><strong>Performance</strong></p>
+<ul class="simple">
+<li><p>Enable decimation</p></li>
+<li><p>Processing threads</p></li>
+<li><p>Memory usage limits</p></li>
+</ul>
+<p><strong>Units</strong></p>
+<ul class="simple">
+<li><p>Wavelength units (Angstrom, μm)</p></li>
+<li><p>Flux calibration constants</p></li>
+<li><p>Default display units</p></li>
+</ul>
+<p><strong>Data Processing</strong></p>
+<ul class="simple">
+<li><p>Default fitting method</p></li>
+<li><p>Continuum model</p></li>
+<li><p>Outlier handling</p></li>
+</ul>
+</section>
+<section id="quick-commands">
+<h2>Quick Commands<a class="headerlink" href="#quick-commands" title="Link to this heading"></a></h2>
+<p>Most common operations:</p>
+<ol class="arabic simple">
+<li><p><strong>Load data</strong>: Ctrl+O</p></li>
+<li><p><strong>Select region</strong>: R</p></li>
+<li><p><strong>Export spectrum</strong>: Ctrl+E</p></li>
+<li><p><strong>Fit single</strong>: F</p></li>
+<li><p><strong>Fit cube</strong>: C</p></li>
+<li><p><strong>Zoom</strong>: Ctrl+± or scroll</p></li>
+<li><p><strong>View results</strong>: Shift+F</p></li>
+<li><p><strong>Exit</strong>: Ctrl+Q</p></li>
+</ol>
+</section>
+<section id="command-line-options">
+<h2>Command Line Options<a class="headerlink" href="#command-line-options" title="Link to this heading"></a></h2>
+<p>To start IFU Analyzer with options:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</pre></div>
+</div>
+<p>Available options:</p>
+<dl class="option-list">
+<dt><kbd><span class="option">--file <var>FILENAME</var></span></kbd></dt>
+<dd><p>Open specified FITS file at startup</p>
+</dd>
+<dt><kbd><span class="option">--region <var>FILENAME</var></span></kbd></dt>
+<dd><p>Load specified region at startup</p>
+</dd>
+<dt><kbd><span class="option">--readonly</span></kbd></dt>
+<dd><p>Open in read-only mode</p>
+</dd>
+<dt><kbd><span class="option">--no-gui</span></kbd></dt>
+<dd><p>Batch processing mode (advanced)</p>
+</dd>
+<dt><kbd><span class="option">--help</span></kbd></dt>
+<dd><p>Show command-line help</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py<span class="w"> </span>--file<span class="w"> </span>mycube.fits<span class="w"> </span>--region<span class="w"> </span>myregion.reg
+</pre></div>
+</div>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>See <a class="reference internal" href="keyboard_shortcuts.html"><span class="doc">Keyboard Shortcuts</span></a> for quick reference</p></li>
+<li><p>Explore menus and context menus for additional options</p></li>
+<li><p>Check <a class="reference internal" href="../user_guide/index.html"><span class="doc">User Guide</span></a> for tutorials</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="keyboard_shortcuts.html" class="btn btn-neutral float-left" title="Keyboard Shortcuts" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="glossary.html" class="btn btn-neutral float-right" title="Glossary" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

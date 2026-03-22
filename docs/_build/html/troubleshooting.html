@@ -1,0 +1,746 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Troubleshooting &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="FAQ" href="faq.html" />
+    <link rel="prev" title="Glossary" href="reference/glossary.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="user_guide/index.html">User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Troubleshooting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#installation-issues">Installation Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#file-opening-issues">File Opening Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#display-issues">Display Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#spectral-analysis-issues">Spectral Analysis Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#gaussian-fitting-issues">Gaussian Fitting Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#continuum-subtraction-issues">Continuum Subtraction Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#export-issues">Export Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#performance-issues">Performance Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#general-debugging">General Debugging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#performance-profiling">Performance Profiling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Troubleshooting</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/troubleshooting.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="reference/glossary.html" class="btn btn-neutral float-left" title="Glossary" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="faq.html" class="btn btn-neutral float-right" title="FAQ" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="troubleshooting">
+<h1>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h1>
+<p>Solutions for common problems in IFU Analyzer.</p>
+<section id="installation-issues">
+<h2>Installation Issues<a class="headerlink" href="#installation-issues" title="Link to this heading"></a></h2>
+<p><strong>“Python not found” / “Command not recognized”</strong></p>
+<p>Problem: Cannot run python or pip commands.</p>
+<p>Solutions:</p>
+<ol class="arabic">
+<li><p>Check Python installation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>--version
+<span class="c1"># or</span>
+python3<span class="w"> </span>--version
+</pre></div>
+</div>
+</li>
+<li><p>If not found, install Python from python.org</p></li>
+<li><p>Add Python to PATH:</p>
+<ul class="simple">
+<li><p><strong>Windows</strong>: During Python installation, check “Add Python to PATH”</p></li>
+<li><p><strong>macOS</strong>: May need to use <code class="docutils literal notranslate"><span class="pre">python3</span></code> instead of <code class="docutils literal notranslate"><span class="pre">python</span></code></p></li>
+<li><p><strong>Linux</strong>: Python usually pre-installed, use <code class="docutils literal notranslate"><span class="pre">python3</span></code></p></li>
+</ul>
+</li>
+</ol>
+<p><strong>“No module named ‘PyQt5’” (or other package)</strong></p>
+<p>Problem: Import error when starting application.</p>
+<p>Solutions:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install missing package</span>
+pip<span class="w"> </span>install<span class="w"> </span>PyQt5<span class="w">  </span><span class="c1"># or numpy, astropy, matplotlib, scipy</span>
+
+<span class="c1"># Or reinstall all dependencies</span>
+pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+<p><strong>“Permission denied” on macOS/Linux</strong></p>
+<p>Problem: Installation fails with permission error.</p>
+<p>Solutions:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Option 1: Use --user flag</span>
+pip<span class="w"> </span>install<span class="w"> </span>--user<span class="w"> </span>PyQt5
+
+<span class="c1"># Option 2: Use sudo (less recommended)</span>
+sudo<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>PyQt5
+
+<span class="c1"># Option 3: Use virtual environment (recommended)</span>
+python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate<span class="w">  </span><span class="c1"># Linux/macOS</span>
+<span class="c1"># or on Windows:</span>
+venv<span class="se">\S</span>cripts<span class="se">\a</span>ctivate
+pip<span class="w"> </span>install<span class="w"> </span>PyQt5
+</pre></div>
+</div>
+</section>
+<section id="file-opening-issues">
+<h2>File Opening Issues<a class="headerlink" href="#file-opening-issues" title="Link to this heading"></a></h2>
+<p><strong>“File will not open” / “Invalid FITS file”</strong></p>
+<p>Problem: FITS file won’t load in IFU Analyzer.</p>
+<p>Check:</p>
+<ol class="arabic">
+<li><p><strong>File format</strong>: Verify it’s actually a FITS file</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>file<span class="w"> </span>mycube.fits
+</pre></div>
+</div>
+</li>
+<li><p><strong>File integrity</strong>: Try opening with external tool (DS9, astropy)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astropy.io</span> <span class="kn">import</span> <span class="n">fits</span>
+<span class="n">hdul</span> <span class="o">=</span> <span class="n">fits</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s1">&#39;mycube.fits&#39;</span><span class="p">)</span>
+<span class="n">hdul</span><span class="o">.</span><span class="n">info</span><span class="p">()</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>File corruption</strong>: Re-download or copy file</p></li>
+</ol>
+<p>Solutions:</p>
+<ul class="simple">
+<li><p>Use “Generic” instrument option if instrument isn’t detecting automatically</p></li>
+<li><p>Try opening file with DS9 or FITS exploration software first</p></li>
+<li><p>If file is valid but won’t open, report as bug with file details</p></li>
+</ul>
+<p><strong>“Wrong instrument type detected”</strong></p>
+<p>Problem: Auto-detection chooses wrong instrument.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p>Manually select correct instrument in dialog</p></li>
+<li><p>Check FITS header keywords match instrument</p></li>
+<li><p>Use “Generic” option to avoid auto-detection</p></li>
+<li><p>Report issue if auto-detection consistently wrong</p></li>
+</ol>
+<p><strong>“File dimensions seem wrong”</strong></p>
+<p>Problem: Displayed cube size doesn’t match expectations.</p>
+<p>Check:</p>
+<ol class="arabic">
+<li><p><strong>FITS header</strong>: View FITS keywords</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;from astropy.io import fits; fits.open(&#39;file.fits&#39;)[0].header&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Multiple HDUs</strong>: File might have multiple data extensions</p>
+<ul class="simple">
+<li><p>Try opening different extension</p></li>
+<li><p>Menu: File → Advanced → Choose HDU</p></li>
+</ul>
+</li>
+<li><p><strong>Transposed axes</strong>: Some tools create transposed data</p>
+<p>Solutions:
+- Note axis order (usually RA × Dec × λ)
+- Use external tool to verify
+- Report if consistently wrong</p>
+</li>
+</ol>
+</section>
+<section id="display-issues">
+<h2>Display Issues<a class="headerlink" href="#display-issues" title="Link to this heading"></a></h2>
+<p><strong>“Data looks too dark/bright”</strong></p>
+<p>Problem: Intensity map not showing expected features.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Adjust intensity range</strong>:</p>
+<ul class="simple">
+<li><p>Click “Auto Scale” button</p></li>
+<li><p>Manually set vmin/vmax sliders</p></li>
+<li><p>Try different color scales (Linear, Log, etc.)</p></li>
+</ul>
+</li>
+<li><p><strong>Change colormap</strong>:</p>
+<ul class="simple">
+<li><p>Click “Colormap” button</p></li>
+<li><p>Select different colormap</p></li>
+<li><p>Try Hot, Cool, or Viridis</p></li>
+</ul>
+</li>
+<li><p><strong>Verify wavelength</strong>:</p>
+<ul class="simple">
+<li><p>Check current wavelength slider</p></li>
+<li><p>Jump to expected wavelength</p></li>
+<li><p>Verify you’re looking at emission region</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>“Text/buttons too small” (or too large)</strong></p>
+<p>Problem: Interface doesn’t scale properly.</p>
+<p>Solutions:</p>
+<ul class="simple">
+<li><p>Tools → Preferences → Font Size: Increase/Decrease</p></li>
+<li><p>Application must restart for changes</p></li>
+<li><p>Check system display scaling settings</p></li>
+</ul>
+<p><strong>“Colors don’t look right” (washed out, etc.)</strong></p>
+<p>Problem: Colors appear wrong or washed out.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p>Check monitor gamma/calibration</p></li>
+<li><p>Try different colormaps</p></li>
+<li><p>Adjust vmin/vmax for better contrast</p></li>
+<li><p>Check color scale (Linear vs. Log)</p></li>
+</ol>
+<p><strong>“Very slow performance” / “Freezing”</strong></p>
+<p>Problem: Application runs slowly or becomes unresponsive.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Check data cube size</strong>:</p>
+<ul class="simple">
+<li><p>Status bar shows dimensions</p></li>
+<li><p>Very large cubes (&gt;1 GB) cause slowness</p></li>
+<li><p>Use downsampled version for initial exploration</p></li>
+</ul>
+</li>
+<li><p><strong>Reduce processing load</strong>:</p>
+<ul class="simple">
+<li><p>Enable Display Decimation (Tools → Performance)</p></li>
+<li><p>Reduce display resolution (Tools → Resolution)</p></li>
+<li><p>Close other applications</p></li>
+</ul>
+</li>
+<li><p><strong>Limit analysis scope</strong>:</p>
+<ul class="simple">
+<li><p>Work with sub-regions rather than full cube</p></li>
+<li><p>Fit smaller wavelength ranges</p></li>
+</ul>
+</li>
+<li><p><strong>Upgrade hardware</strong>:</p>
+<ul class="simple">
+<li><p>Close unnecessary applications</p></li>
+<li><p>Increase RAM if fitting large cubes</p></li>
+<li><p>Use SSD for data storage</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="spectral-analysis-issues">
+<h2>Spectral Analysis Issues<a class="headerlink" href="#spectral-analysis-issues" title="Link to this heading"></a></h2>
+<p><strong>“Spectrum looks noisy”</strong></p>
+<p>Problem: Spectrum has excessive noise.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Smooth/rebin</strong>:</p>
+<ul class="simple">
+<li><p>Right-click spectrum → Rebin</p></li>
+<li><p>Specify bin size (e.g., 3-5 pixels)</p></li>
+<li><p>Reduces noise but loses resolution</p></li>
+</ul>
+</li>
+<li><p><strong>Apply median filter</strong>:</p>
+<ul class="simple">
+<li><p>Right-click spectrum → Median Filter</p></li>
+<li><p>Smooths while preserving features</p></li>
+</ul>
+</li>
+<li><p><strong>Select larger region</strong></p>
+<ul class="simple">
+<li><p>Larger spatial regions → better S/N</p></li>
+<li><p>Use rectangle tool instead of point</p></li>
+</ul>
+</li>
+<li><p><strong>Verify data quality</strong>:</p>
+<ul class="simple">
+<li><p>Check if noise is real (compare other positions)</p></li>
+<li><p>Verify wavelength calibration</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>“Lines not visible / too faint”</strong></p>
+<p>Problem: Expected spectral features don’t appear.</p>
+<p>Check:</p>
+<ol class="arabic simple">
+<li><p><strong>Wavelength accuracy</strong>:</p>
+<ul class="simple">
+<li><p>Verify wavelength calibration</p></li>
+<li><p>Compare known emission line positions</p></li>
+<li><p>Check against line catalog</p></li>
+</ul>
+</li>
+<li><p><strong>Brightness/scaling</strong>:</p>
+<ul class="simple">
+<li><p>Adjust vmin/vmax</p></li>
+<li><p>Try logarithmic color scale</p></li>
+<li><p>Select actual bright region (check intensity map)</p></li>
+</ul>
+</li>
+<li><p><strong>Data quality</strong>:</p>
+<ul class="simple">
+<li><p>Is region actually bright in intensity map?</p></li>
+<li><p>Check continuum level</p></li>
+<li><p>Verify total flux in region</p></li>
+</ul>
+</li>
+<li><p><strong>Hidden by continuum</strong>:</p>
+<ul class="simple">
+<li><p>Perform continuum subtraction first</p></li>
+<li><p>Then line becomes more visible</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="gaussian-fitting-issues">
+<h2>Gaussian Fitting Issues<a class="headerlink" href="#gaussian-fitting-issues" title="Link to this heading"></a></h2>
+<p><strong>“Fits look bad / χ² very high”</strong></p>
+<p>Problem: Gaussian fits have poor quality.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Improve initial guess</strong>:</p>
+<ul class="simple">
+<li><p>Fit → Options → Initial Guess</p></li>
+<li><p>Provide better starting wavelength/width/amplitude</p></li>
+<li><p>Better initial guess → better convergence</p></li>
+</ul>
+</li>
+<li><p><strong>Adjust wavelength range</strong>:</p>
+<ul class="simple">
+<li><p>Fit → Wavelength Range</p></li>
+<li><p>Make sure fitting only includes line</p></li>
+<li><p>Too broad range includes noise</p></li>
+</ul>
+</li>
+<li><p><strong>Subtract continuum first</strong>:</p>
+<ul class="simple">
+<li><p>Tools → Continuum Subtraction</p></li>
+<li><p>Remove baseline before fitting</p></li>
+<li><p>Much better fits without background</p></li>
+</ul>
+</li>
+<li><p><strong>Check data quality</strong>:</p>
+<ul class="simple">
+<li><p>Look at raw spectrum</p></li>
+<li><p>Is profile reasonable (not noisy)?</p></li>
+<li><p>Multiple peaks? (Use multi-component fitting)</p></li>
+</ul>
+</li>
+<li><p><strong>Try different method</strong>:</p>
+<ul class="simple">
+<li><p>Robust fitting for noisy data</p></li>
+<li><p>Multi-component fitting for blended lines</p></li>
+<li><p>Manual adjustment of initial guess</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>“Fits fail for many pixels” (red in success mask)</strong></p>
+<p>Problem: Full-cube fitting has low success rate.</p>
+<p>Check:</p>
+<ol class="arabic simple">
+<li><p><strong>S/N threshold</strong>:</p>
+<ul class="simple">
+<li><p>Low S/N pixels may not fit well</p></li>
+<li><p>Threshold may be too strict</p></li>
+<li><p>Adjust χ² threshold in quality map</p></li>
+</ul>
+</li>
+<li><p><strong>Line parameters</strong>:</p>
+<ul class="simple">
+<li><p>Wavelength range too narrow</p></li>
+<li><p>Expected line absent in many pixels</p></li>
+<li><p>Continuum level too high</p></li>
+</ul>
+</li>
+<li><p><strong>Data issues</strong>:</p>
+<ul class="simple">
+<li><p>Certain regions may be bad/masked</p></li>
+<li><p>Detector artifacts possible</p></li>
+<li><p>Verify region actually contains line</p></li>
+</ul>
+</li>
+</ol>
+<p>Solutions:</p>
+<ul class="simple">
+<li><p>Lower quality threshold to accept more fits</p></li>
+<li><p>Manually check worst-fitting regions</p></li>
+<li><p>Consider using mask/exclude bad pixels</p></li>
+</ul>
+<p><strong>“Parameters unrealistic”</strong></p>
+<p>Problem: Fit parameters (amplitude, width, etc.) are unphysical.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Set constraints</strong>:</p>
+<ul class="simple">
+<li><p>Analysis → Fit Options → Constraints</p></li>
+<li><p>Set min/max for each parameter</p></li>
+<li><p>Prevents non-physical solutions</p></li>
+</ul>
+</li>
+<li><p><strong>Improve wavelength calibration</strong>:</p>
+<ul class="simple">
+<li><p>Verify wavelength solution</p></li>
+<li><p>Compare against known lines</p></li>
+<li><p>Adjust if necessary</p></li>
+</ul>
+</li>
+<li><p><strong>Manual inspection</strong>:</p>
+<ul class="simple">
+<li><p>Look at several fits visually</p></li>
+<li><p>Compare to fitted curve</p></li>
+<li><p>Determine if physically unreasonable</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="continuum-subtraction-issues">
+<h2>Continuum Subtraction Issues<a class="headerlink" href="#continuum-subtraction-issues" title="Link to this heading"></a></h2>
+<p><strong>“Over-subtraction” (negative fluxes)</strong></p>
+<p>Problem: Continuum subtraction removes too much.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Adjust fitting regions</strong>:</p>
+<ul class="simple">
+<li><p>Select continuum regions more carefully</p></li>
+<li><p>Avoid selecting near absorption features</p></li>
+<li><p>Ensure selected regions are truly continuum</p></li>
+</ul>
+</li>
+<li><p><strong>Try simpler model</strong>:</p>
+<ul class="simple">
+<li><p>Use Linear instead of Quadratic</p></li>
+<li><p>Lower polynomial order reduces artifacts</p></li>
+</ul>
+</li>
+<li><p><strong>Manual adjustment</strong>:</p>
+<ul class="simple">
+<li><p>Visually inspect fit</p></li>
+<li><p>See if curve too high</p></li>
+<li><p>Manually lower slightly before applying</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>“Under-subtraction” (residual bump)</strong></p>
+<p>Problem: Continuum not fully removed.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Use higher-order polynomial</strong>:</p>
+<ul class="simple">
+<li><p>Try Quadratic or Cubic</p></li>
+<li><p>Captures continuum curvature better</p></li>
+</ul>
+</li>
+<li><p><strong>Expand fitting regions</strong>:</p>
+<ul class="simple">
+<li><p>Include wider wavelength range</p></li>
+<li><p>More data gives better fit</p></li>
+</ul>
+</li>
+<li><p><strong>Different model</strong>:</p>
+<ul class="simple">
+<li><p>Try Spline instead of polynomial</p></li>
+<li><p>May fit complex curves better</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>“Ringing/Oscillation” (artifacts)</strong></p>
+<p>Problem: Subraction creates oscillating pattern.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Reduce polynomial order</strong>:</p>
+<ul class="simple">
+<li><p>Overfitting causes artifacts</p></li>
+<li><p>Use simpler model</p></li>
+</ul>
+</li>
+<li><p><strong>Switch to Spline</strong>:</p>
+<ul class="simple">
+<li><p>Smoother response than high-order polynomial</p></li>
+<li><p>Fewer artifacts</p></li>
+</ul>
+</li>
+<li><p><strong>Improve fitting regions</strong>:</p>
+<ul class="simple">
+<li><p>Better region selection</p></li>
+<li><p>More stable fit</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="export-issues">
+<h2>Export Issues<a class="headerlink" href="#export-issues" title="Link to this heading"></a></h2>
+<p><strong>“File too large”</strong></p>
+<p>Problem: Exported file much larger than expected.</p>
+<p>Solutions:</p>
+<ul class="simple">
+<li><p><strong>Compress FITS</strong>: Use gzip compression (reduces ~50%)</p></li>
+<li><p><strong>Export subset</strong>: Rather than full cube, specify range</p></li>
+<li><p><strong>Delete temporary files</strong>: May have backups accumulating</p></li>
+</ul>
+<p><strong>“File won’t open in other software”</strong></p>
+<p>Problem: Exported file can’t be read by external tools.</p>
+<p>Check:</p>
+<ol class="arabic simple">
+<li><p><strong>File format compatibility</strong>:</p>
+<ul class="simple">
+<li><p>ASCII files: Open in any text editor</p></li>
+<li><p>FITS: Use DS9 or astropy.io.fits</p></li>
+<li><p>Try with different reader</p></li>
+</ul>
+</li>
+<li><p><strong>File corruption</strong>:</p>
+<ul class="simple">
+<li><p>Check file size &gt; 0</p></li>
+<li><p>Try re-exporting</p></li>
+<li><p>Check disk space during export</p></li>
+</ul>
+</li>
+<li><p><strong>Format issues</strong>:</p>
+<ul class="simple">
+<li><p>Verify correct format selected</p></li>
+<li><p>Try alternative format</p></li>
+<li><p>Test with simple file first</p></li>
+</ul>
+</li>
+</ol>
+<p>Solutions:</p>
+<ul class="simple">
+<li><p>Export to standard FITS format (most compatible)</p></li>
+<li><p>Test with free viewer (DS9) first</p></li>
+<li><p>Check file metadata for clues</p></li>
+</ul>
+</section>
+<section id="performance-issues">
+<h2>Performance Issues<a class="headerlink" href="#performance-issues" title="Link to this heading"></a></h2>
+<p><strong>“Analysis runs very slowly”</strong></p>
+<p>Problem: Fitting or processing takes excessive time.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Use fewer processors</strong> (if applicable):</p>
+<ul class="simple">
+<li><p>Analysis → Options → Processes</p></li>
+<li><p>Start with 1-2, increase if faster</p></li>
+</ul>
+</li>
+<li><p><strong>Reduce data scope</strong>:</p>
+<ul class="simple">
+<li><p>Fit smaller wavelength range</p></li>
+<li><p>Work with sub-region</p></li>
+<li><p>Downsample cube resolution</p></li>
+</ul>
+</li>
+<li><p><strong>Upgrade hardware</strong>:</p>
+<ul class="simple">
+<li><p>Add more RAM if running out</p></li>
+<li><p>Faster CPU helps processing</p></li>
+<li><p>SSD much faster than HDD</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>“Memory running out”</strong></p>
+<p>Problem: “Out of memory” or “Cannot allocate” errors.</p>
+<p>Solutions:</p>
+<ol class="arabic simple">
+<li><p><strong>Close other applications</strong>: Frees RAM</p></li>
+<li><p><strong>Work with smaller cubes</strong>:</p>
+<ul class="simple">
+<li><p>Downsample data</p></li>
+<li><p>Analyze sub-regions</p></li>
+<li><p>Split into wavelength ranges</p></li>
+</ul>
+</li>
+<li><p><strong>Add physical RAM</strong>:</p>
+<ul class="simple">
+<li><p>Permanent solution for large analyses</p></li>
+</ul>
+</li>
+<li><p><strong>Use downsampled cube</strong>:</p>
+<ul class="simple">
+<li><p>Tools → Resolution</p></li>
+<li><p>Temporarily reduce resolution for speed</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="general-debugging">
+<h2>General Debugging<a class="headerlink" href="#general-debugging" title="Link to this heading"></a></h2>
+<p><strong>When something goes wrong:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>Reproduce the issue</strong>:</p>
+<ul class="simple">
+<li><p>Note exact steps taken</p></li>
+<li><p>Try with different data</p></li>
+<li><p>Isolated or widespread?</p></li>
+</ul>
+</li>
+<li><p><strong>Check related documentation</strong>:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a> for common issues</p></li>
+<li><p>User guide for feature info</p></li>
+<li><p>Keyboard shortcuts reference</p></li>
+</ul>
+</li>
+<li><p><strong>Inspect error messages</strong>:</p>
+<ul class="simple">
+<li><p>Error dialog usually explains problem</p></li>
+<li><p>Error log may have details</p></li>
+<li><p>Copy exact error message</p></li>
+</ul>
+</li>
+<li><p><strong>Search for solutions</strong>:</p>
+<ul class="simple">
+<li><p>Search this troubleshooting guide</p></li>
+<li><p>Check project FAQ</p></li>
+<li><p>Search online for error message</p></li>
+</ul>
+</li>
+<li><p><strong>Report as bug</strong> (if not documented):</p>
+<ul class="simple">
+<li><p>Provide exact error message</p></li>
+<li><p>Include data file example (if shareable)</p></li>
+<li><p>List steps to reproduce</p></li>
+<li><p>Specify OS and Python version</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="performance-profiling">
+<h2>Performance Profiling<a class="headerlink" href="#performance-profiling" title="Link to this heading"></a></h2>
+<p>If customizing or developing:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">cProfile</span>
+<span class="kn">import</span> <span class="nn">pstats</span>
+
+<span class="n">profiler</span> <span class="o">=</span> <span class="n">cProfile</span><span class="o">.</span><span class="n">Profile</span><span class="p">()</span>
+<span class="n">profiler</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+
+<span class="c1"># ... code to profile ...</span>
+
+<span class="n">profiler</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+<span class="n">stats</span> <span class="o">=</span> <span class="n">pstats</span><span class="o">.</span><span class="n">Stats</span><span class="p">(</span><span class="n">profiler</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">sort_stats</span><span class="p">(</span><span class="s1">&#39;cumulative&#39;</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">print_stats</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span>  <span class="c1"># Top 20 functions</span>
+</pre></div>
+</div>
+</section>
+<section id="getting-help">
+<h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Check this guide’s troubleshooting section</p></li>
+<li><p>Review <a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a> for common Q&amp;A</p></li>
+<li><p>See online documentation</p></li>
+<li><p>Consult project issue tracker</p></li>
+<li><p>Contact development team</p></li>
+</ol>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>If this doesn’t solve your problem:</p>
+<ul class="simple">
+<li><p>See <a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a> for frequently asked questions</p></li>
+<li><p>Check documentation for related topics</p></li>
+<li><p>File a bug report with details</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="reference/glossary.html" class="btn btn-neutral float-left" title="Glossary" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="faq.html" class="btn btn-neutral float-right" title="FAQ" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

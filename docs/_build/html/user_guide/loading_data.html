@@ -1,0 +1,420 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loading Data &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="GUI Overview" href="gui_overview.html" />
+    <link rel="prev" title="User Guide" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Loading Data</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#supported-instruments">Supported Instruments</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#supported-file-formats">Supported File Formats</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#opening-a-fits-file">Opening a FITS File</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#file-information-headers">File Information &amp; Headers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#understanding-cube-dimensions">Understanding Cube Dimensions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#coordinate-systems">Coordinate Systems</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#data-normalization">Data Normalization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#handling-large-cubes">Handling Large Cubes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#common-data-issues">Common Data Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#data-preparation-tips">Data Preparation Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#multiple-file-management">Multiple File Management</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#saving-your-work">Saving Your Work</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#data-quality-assessment">Data Quality Assessment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Loading Data</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/loading_data.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="index.html" class="btn btn-neutral float-left" title="User Guide" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="gui_overview.html" class="btn btn-neutral float-right" title="GUI Overview" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="loading-data">
+<h1>Loading Data<a class="headerlink" href="#loading-data" title="Link to this heading"></a></h1>
+<p>IFU Analyzer works with FITS (Flexible Image Data System) files containing spectral data cubes or 2D images. This section explains how to load and prepare your data for analysis.</p>
+<section id="supported-instruments">
+<h2>Supported Instruments<a class="headerlink" href="#supported-instruments" title="Link to this heading"></a></h2>
+<p>IFU Analyzer automatically detects and handles data from:</p>
+<ul class="simple">
+<li><p><strong>MUSE</strong> (Multi Unit Spectroscopic Explorer): VLT optical spectroscopy</p></li>
+<li><p><strong>ALMA</strong> (Atacama Large Millimeter Array): Radio interferometry</p></li>
+<li><p><strong>MIRI</strong> (Mid-Infrared Instrument): JWST mid-infrared (10-25 μm)</p></li>
+<li><p><strong>NIRSpec</strong> (Near-Infrared Spectrograph): JWST near-infrared (1-5 μm)</p></li>
+<li><p><strong>Generic/Custom</strong>: Any FITS cube or image</p></li>
+</ul>
+</section>
+<section id="supported-file-formats">
+<h2>Supported File Formats<a class="headerlink" href="#supported-file-formats" title="Link to this heading"></a></h2>
+<p>The application accepts:</p>
+<ul class="simple">
+<li><p><strong>3D FITS Cubes</strong>: Standard (RA, Dec, λ) format</p></li>
+<li><p><strong>2D FITS Images</strong>: Automatically treated as single-wavelength slices</p></li>
+<li><p><strong>Multiple HDUs</strong>: Extensions within FITS files</p></li>
+<li><p><strong>Compressed Files</strong>: .fits.gz files are supported</p></li>
+</ul>
+</section>
+<section id="opening-a-fits-file">
+<h2>Opening a FITS File<a class="headerlink" href="#opening-a-fits-file" title="Link to this heading"></a></h2>
+<p><strong>Via the GUI:</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>File → Open FITS</strong> (or press Ctrl+O)</p></li>
+<li><p>Navigate to your file location</p></li>
+<li><p>Select your FITS file</p></li>
+<li><p><strong>Instrument Dialog</strong> appears:</p>
+<ul class="simple">
+<li><p>Select the instrument or “Generic” for custom data</p></li>
+<li><p>Click <strong>OK</strong></p></li>
+</ul>
+</li>
+<li><p>The file loads and displays:</p>
+<ul class="simple">
+<li><p>Intensity map at the first wavelength</p></li>
+<li><p>Integrated spectrum</p></li>
+<li><p>Header information</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>Keyboard Shortcut:</strong> Press <code class="docutils literal notranslate"><span class="pre">Ctrl+O</span></code> to open a file quickly.</p>
+</section>
+<section id="file-information-headers">
+<h2>File Information &amp; Headers<a class="headerlink" href="#file-information-headers" title="Link to this heading"></a></h2>
+<p>After loading, inspect your file information:</p>
+<ul>
+<li><p><strong>Click View → File Info</strong> to see:</p>
+<ul class="simple">
+<li><p>File name and path</p></li>
+<li><p>Data dimensions (RA pixels, Dec pixels, wavelength points)</p></li>
+<li><p>Instrument name</p></li>
+<li><p>Observation date</p></li>
+<li><p>Integration time</p></li>
+<li><p>Other FITS header keywords</p></li>
+</ul>
+</li>
+<li><p><strong>Data dimensions</strong> are shown in the statusbar:</p>
+<p>Example: <code class="docutils literal notranslate"><span class="pre">Cube:</span> <span class="pre">100×100</span> <span class="pre">pixels,</span> <span class="pre">500</span> <span class="pre">wavelengths</span></code></p>
+</li>
+</ul>
+</section>
+<section id="understanding-cube-dimensions">
+<h2>Understanding Cube Dimensions<a class="headerlink" href="#understanding-cube-dimensions" title="Link to this heading"></a></h2>
+<p>A typical IFU cube has:</p>
+<ul class="simple">
+<li><p><strong>Spatial dimensions</strong>: Each row/column represents a single spaxel (spatial pixel)</p></li>
+<li><p><strong>Spectral dimension</strong>: Each layer represents a single wavelength or velocity channel</p></li>
+<li><p><strong>Data type</strong>: Usually 32-bit or 64-bit floating point</p></li>
+</ul>
+<p>Knowledge of your cube dimensions is important for:</p>
+<ul class="simple">
+<li><p>Selecting appropriate analysis regions</p></li>
+<li><p>Understanding memory requirements</p></li>
+<li><p>Choosing processing methods</p></li>
+</ul>
+</section>
+<section id="coordinate-systems">
+<h2>Coordinate Systems<a class="headerlink" href="#coordinate-systems" title="Link to this heading"></a></h2>
+<p>IFU Analyzer supports two coordinate systems:</p>
+<p><strong>Wavelength Coordinates</strong></p>
+<ul class="simple">
+<li><p>Default system</p></li>
+<li><p>Horizontal axis shows wavelength in micrometers (μm) or Ångströms (Å)</p></li>
+<li><p>Vertical axis shows velocity offset (km/s)</p></li>
+</ul>
+<p><strong>RA/DEC Coordinates</strong></p>
+<ul class="simple">
+<li><p>Sky coordinates from FITS WCS (World Coordinate System)</p></li>
+<li><p>X-axis: Right Ascension (RA)</p></li>
+<li><p>Y-axis: Declination (Dec)</p></li>
+<li><p>Requires valid WCS information in FITS header</p></li>
+</ul>
+<p><strong>Switching Coordinate Systems:</strong></p>
+<p>Use the <strong>Coordinates</strong> menu or keyboard shortcuts:</p>
+<ul class="simple">
+<li><p><strong>View → Coordinate System → Wavelength</strong></p></li>
+<li><p><strong>View → Coordinate System → RA/DEC</strong></p></li>
+</ul>
+</section>
+<section id="data-normalization">
+<h2>Data Normalization<a class="headerlink" href="#data-normalization" title="Link to this heading"></a></h2>
+<p><strong>Display Normalization Options:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>None</strong>: Raw intensity values</p></li>
+<li><p><strong>Per-pixel normalization</strong>: Divide each spectrum by its median</p></li>
+<li><p><strong>Global normalization</strong>: Normalize to the maximum value in the cube</p></li>
+</ol>
+<p>Access via: <strong>Tools → Normalization</strong></p>
+<p><strong>Important</strong>: Normalization only affects display, not saved data.</p>
+</section>
+<section id="handling-large-cubes">
+<h2>Handling Large Cubes<a class="headerlink" href="#handling-large-cubes" title="Link to this heading"></a></h2>
+<p>For cubes larger than 500×500×1000 voxels:</p>
+<ol class="arabic simple">
+<li><p><strong>Sub-cube Loading</strong>: Load a spatial subset</p>
+<ul class="simple">
+<li><p>File → Open FITS → Advanced Options</p></li>
+<li><p>Specify pixel ranges</p></li>
+<li><p>Reduces memory usage</p></li>
+</ul>
+</li>
+<li><p><strong>Downsampling</strong>: Reduce spectral resolution temporarily</p>
+<ul class="simple">
+<li><p>Tools → Downsample</p></li>
+<li><p>Choose bin size (2×, 4×, etc.)</p></li>
+</ul>
+</li>
+<li><p><strong>Working with Regions</strong>: Focus analysis on regions of interest</p></li>
+</ol>
+</section>
+<section id="common-data-issues">
+<h2>Common Data Issues<a class="headerlink" href="#common-data-issues" title="Link to this heading"></a></h2>
+<p><strong>Issue: File won’t open</strong></p>
+<ul class="simple">
+<li><p>Ensure the file is a valid FITS format</p></li>
+<li><p>Check that the file isn’t corrupted (try opening in an external FITS reader)</p></li>
+<li><p>Try the “Generic” instrument option</p></li>
+</ul>
+<p><strong>Issue: Cube dimensions are wrong</strong></p>
+<ul class="simple">
+<li><p>Some FITS files have multiple extensions (HDU)</p></li>
+<li><p>Try: File → Open FITS → Choose different HDU</p></li>
+<li><p>Check FITS header with external tools</p></li>
+</ul>
+<p><strong>Issue: Wavelength calibration looks wrong</strong></p>
+<ul class="simple">
+<li><p>Verify the wavelength axis in the FITS header</p></li>
+<li><p>Check CRVAL1, CDELT1, and related keywords</p></li>
+<li><p>Compare with original observation logs</p></li>
+</ul>
+<p><strong>Issue: Coordinate display missing RA/DEC</strong></p>
+<ul class="simple">
+<li><p>Your FITS file lacks WCS (World Coordinate System) information</p></li>
+<li><p>Use a FITS tool to add WCS calibration</p></li>
+<li><p>Or use pixel coordinates</p></li>
+</ul>
+</section>
+<section id="data-preparation-tips">
+<h2>Data Preparation Tips<a class="headerlink" href="#data-preparation-tips" title="Link to this heading"></a></h2>
+<p>Before loading into IFU Analyzer:</p>
+<ol class="arabic">
+<li><p><strong>Validate FITS File Structure</strong></p>
+<p>Use FitsExplorer or similar tool to confirm:
+- Proper data format
+- Valid wavelength calibration
+- Expected dimensions</p>
+</li>
+<li><p><strong>Organize Your Data</strong></p>
+<p>Create a data directory structure:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>data/
+├── MUSE/
+│   └── musecube_obs1.fits
+├── ALMA/
+│   └── almacube_co.fits
+└── NIRSpec/
+    └── nirspecdata.fits
+</pre></div>
+</div>
+</li>
+<li><p><strong>Create a Manifest</strong></p>
+<p>Keep notes about your files:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>File: muse_obj1.fits
+Instrument: MUSE
+Target: Object Name
+Date: 2024-01-15
+Integration: 300 seconds
+Wavelength range: 4500-9500 Å
+</pre></div>
+</div>
+</li>
+<li><p><strong>Backup Original Files</strong></p>
+<p>Always keep unmodified originals in case you need to re-analyze</p>
+</li>
+</ol>
+</section>
+<section id="multiple-file-management">
+<h2>Multiple File Management<a class="headerlink" href="#multiple-file-management" title="Link to this heading"></a></h2>
+<p><strong>Loading Multiple Files (Sequential):</strong></p>
+<ol class="arabic simple">
+<li><p>File → Open FITS (first file)</p></li>
+<li><p>Perform analysis</p></li>
+<li><p>File → Open FITS (second file)</p></li>
+<li><p>Previous file remains in memory but is not displayed</p></li>
+</ol>
+<p><strong>Switching Between Loaded Files:</strong></p>
+<ul class="simple">
+<li><p>Use <strong>File → Recent Files</strong> menu</p></li>
+<li><p>Or open another file to swap display</p></li>
+</ul>
+<p><strong>For Batch Processing:</strong></p>
+<p>Write a Python script:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.data_loader</span> <span class="kn">import</span> <span class="n">load_fits</span>
+
+<span class="c1"># Load multiple files</span>
+<span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;cube1.fits&#39;</span><span class="p">,</span> <span class="s1">&#39;cube2.fits&#39;</span><span class="p">,</span> <span class="s1">&#39;cube3.fits&#39;</span><span class="p">]</span>
+<span class="k">for</span> <span class="n">filename</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
+    <span class="n">cube</span> <span class="o">=</span> <span class="n">load_fits</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="c1"># Perform analysis on cube</span>
+</pre></div>
+</div>
+</section>
+<section id="saving-your-work">
+<h2>Saving Your Work<a class="headerlink" href="#saving-your-work" title="Link to this heading"></a></h2>
+<p>While you cannot save the loaded cube data directly (to avoid corruption), you can:</p>
+<ul class="simple">
+<li><p><strong>Export analyzed spectra</strong>: File → Export Spectrum</p></li>
+<li><p><strong>Save parameter maps</strong>: File → Export Results</p></li>
+<li><p><strong>Export residuals</strong>: Tools → Export Residuals Cube</p></li>
+</ul>
+<p>See <a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> for details.</p>
+</section>
+<section id="data-quality-assessment">
+<h2>Data Quality Assessment<a class="headerlink" href="#data-quality-assessment" title="Link to this heading"></a></h2>
+<p>Upon loading, check data quality:</p>
+<ol class="arabic simple">
+<li><p><strong>Inspect the integrated spectrum</strong>:
+- Look for expected emission/absorption features
+- Check for noise levels
+- Verify wavelength calibration</p></li>
+<li><p><strong>Review the intensity map</strong>:
+- Scan for obvious defects or bad pixels
+- Check for reasonable signal gradient
+- Look for expected spatial structure</p></li>
+<li><p><strong>Check metadata</strong>:
+- Verify exposure time and date
+- Confirm instrumental configuration
+- Check observation conditions</p></li>
+</ol>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>After loading your data:</p>
+<ol class="arabic simple">
+<li><p>Explore <a class="reference internal" href="visualization.html"><span class="doc">Visualization</span></a> options</p></li>
+<li><p>Learn <a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a> techniques</p></li>
+<li><p>Perform <a class="reference internal" href="spectral_analysis.html"><span class="doc">Spectral Analysis</span></a></p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="User Guide" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="gui_overview.html" class="btn btn-neutral float-right" title="GUI Overview" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
