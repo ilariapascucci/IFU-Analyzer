@@ -50,6 +50,7 @@ class CustomContinuumSelector:
         
         # Active state
         self.is_active = False
+        self.delete_mode = False
         
         # Point requirements
         self.min_points = 5
@@ -117,6 +118,14 @@ class CustomContinuumSelector:
             self.key_cid = None
             
         print("[DEBUG] Custom continuum selector deactivated")
+
+    def set_delete_mode(self, state):
+        """Toggle left-click delete mode"""
+        self.delete_mode = state
+        if state:
+            print("[DEBUG] Custom continuum: Delete mode ON (left-click to remove)")
+        else:
+            print("[DEBUG] Custom continuum: Delete mode OFF (left-click to add)")
             
     def on_key_press(self, event):
         """Handle keyboard events"""
@@ -154,6 +163,9 @@ class CustomContinuumSelector:
         toolbar = self.canvas.toolbar
         if toolbar and toolbar.mode != '':
             return
+        
+        if self.delete_mode:
+            return
             
         x_click = event.xdata
         if x_click is None:
@@ -175,7 +187,10 @@ class CustomContinuumSelector:
         
     def _on_pick(self, event):
         """Handle pick events (clicking on existing points to remove them)"""
-        if event.mouseevent.button != 3:
+        is_right_click = event.mouseevent.button == 3
+        is_left_click_delete = event.mouseevent.button == 1 and self.delete_mode
+        
+        if not (is_right_click or is_left_click_delete):
             return
             
         if hasattr(event.artist, 'custom_continuum_point'):
