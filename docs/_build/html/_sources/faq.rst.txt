@@ -42,19 +42,6 @@ A: IFU Analyzer doesn't include sample data. You'll need to:
 
 A: Practically limited by your computer's RAM.
 
-Performance & Troubleshooting
-==============================
-
-**Q: Application is slow. What can I do?**
-
-A: Try:
-
-1. Enable Display Decimation (Tools → Performance)
-2. Reduce display resolution
-3. Close other applications
-4. Use downsampled cube for exploration
-5. Upgrade computer RAM/CPU
-
 **Q: I get an error opening a file. What's wrong?**
 
 A: Try:
@@ -75,7 +62,7 @@ A: Large cubes are slow because:
 Still Cannot Find Answer?
 ===========================
 
-1. Search :doc:`troubleshooting` guide
+1. Check the FAQ section or documentation guides
 2. Check related user guide sections
 3. Try online documentation
 4. File an issue on project repository

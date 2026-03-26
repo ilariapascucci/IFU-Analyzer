@@ -435,4 +435,4 @@ After exporting:
 4. Document analysis parameters
 5. Share with collaborators
 
-For publication, read our :doc:`/reference/publishing` guide.
+See the exporting data guide for publication-ready formats.

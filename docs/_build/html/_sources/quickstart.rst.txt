@@ -94,5 +94,5 @@ For More Information
 
 - Full feature guide: :doc:`user_guide/index`
 - Advanced analysis: :doc:`features/index`
-- Troubleshooting: :doc:`troubleshooting`
+- FAQ: :doc:`faq`
 - FAQ: :doc:`faq`

@@ -64,4 +64,4 @@ After loading your data:
 
 1. Explore :doc:`visualization` options
 2. Learn :doc:`selecting_regions` techniques
-3. Perform :doc:`spectral_analysis`
+3. Perform :doc:`gaussian_fitting`

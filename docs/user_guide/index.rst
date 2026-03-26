@@ -21,7 +21,6 @@ Choose a topic below to get started, or read through sequentially for a complete
    gui_overview
    visualization
    selecting_regions
-   spectral_analysis
    gaussian_fitting
    continuum_subtraction
    co_flux_extraction

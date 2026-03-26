@@ -310,6 +310,8 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         # Fallback: use median absolute deviation as noise estimate
         noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
     
+    print(f"    [FIND_LINES DEBUG] noise_std={noise_std:.6e}, SNR threshold={snr_threshold * noise_std:.6e}")
+    
     # at start all lines are assumed to be non-detections and assigned NAN for max_amplitude
     data = {
         'line': lines_to_search['line_wave_um'],
@@ -335,6 +337,7 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         if (cflux_max > cflux_min) and (cwave[cflux_idx_max] <= cline + xres) and (cwave[cflux_idx_max] >= cline - xres):
             # Apply SNR threshold: peak must be significant above noise
             if peak_amplitude > snr_threshold * noise_std:
+                print(f"    [LINE {ii}] {cline:.6f} μm: DETECTED! amplitude={peak_amplitude:.6e} (threshold={snr_threshold * noise_std:.6e})")
                 if isinstance(contaminating_lines, pd.DataFrame):
                     # Check if peak is away from contaminating lines
                     if all(np.abs(cwave[cflux_idx_max] - iline) > xres for iline in contaminating_lines['line_wave_um']):
@@ -348,6 +351,16 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
                     lines_dispositions.loc[ii, 'max_amplitude'] = peak_amplitude
                     lines_dispositions.loc[ii, 'line_flux'] = yflux[idx_cline]
                     potential_lines.append((ii, yflux[idx_cline]))
+            else:
+                # Line NOT detected - show why
+                reason = "UNKNOWN"
+                if cflux_max <= cflux_min:
+                    reason = "No flux variation"
+                elif not (cwave[cflux_idx_max] <= cline + xres and cwave[cflux_idx_max] >= cline - xres):
+                    reason = f"Peak at {cwave[cflux_idx_max]:.6f} μm, outside range {cline - xres:.6f}-{cline + xres:.6f}"
+                elif peak_amplitude <= snr_threshold * noise_std:
+                    reason = f"amplitude={peak_amplitude:.6e} < threshold={snr_threshold * noise_std:.6e}"
+                print(f"    [LINE {ii}] {cline:.6f} μm: REJECTED - {reason}")
     
     # Remove duplicates: keep strongest line in each close group
     if remove_duplicate == 'True':
@@ -363,8 +376,8 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
          # Step 2 & 3: Find the strongest line in each group and set the disposition of other lines to 0
         for group in groups:
             if len(group) > 1:
-                # Prefer main isotopologue (12C16O) if present; get the indices of lines that are not rare isotopologues
-                valid_indices = [idx for idx in group if lines_dispositions.loc[idx, 'species'] == '12C16O']
+                # Prefer main isotopologue (12C16O or CO) if present
+                valid_indices = [idx for idx in group if lines_dispositions.loc[idx, 'species'] in ['CO', '12C16O']]
                 # If there are no valid lines, consider all lines in the group
                 if not valid_indices:
                     valid_indices = group
@@ -534,6 +547,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         try:
             par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0, 
                                  bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
+            print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
         except (ValueError, RuntimeError) as e:
             # Bounds are invalid or fit failed - use 3-sigma fallback
             print(f"  curve_fit failed ({str(e)}), using 3-sigma upper limit")
@@ -548,6 +562,9 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
         par = par[2:]  # Extracts which parameters relate to the Gaussians
+        print(f'  [FIT DEBUG] continuum: a={a:.6e}, b={b:.6e}; {len(par)//3} Gaussian components')
+        if len(par) >= 3:
+            print(f'  [FIT DEBUG] First line: amp={par[0]:.6e}, center={par[1]:.6f}, sigma={par[2]:.6e}')
         
         try:
             bfit = many_gaussians_list(xwave[idx_xwave], a, b, *par)
@@ -563,6 +580,10 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                 current_sum_contaminating = 0  # there are no contaminating lines in this wave range!
                 current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
                                     for jj in range(0, len(par), 3))
+            
+            print(f'  [FLUX DEBUG] Range {ii}: {len(par)//3} fitted lines, CO flux segment={current_sum_CO:.6e}, contam={current_sum_contaminating:.6e}')
+            if current_sum_CO < 0:
+                print(f'  [FLUX WARN] Negative CO flux detected! intensities: {[par[jj] for jj in range(0, len(par) - 3 * ncont_lines, 3)]}')
         
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
@@ -574,10 +595,12 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         sum_CO_area = sum_CO_area + current_sum_CO
         sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
         mean_cont = mean_cont + a
+        print(f'  [FLUX DEBUG] Cumulative CO flux: {sum_CO_area:.6e}, Cumulative contam: {sum_contaminating_area:.6e}')
     
     end_time = time.time()
     print(f"Fitting took {np.around(end_time - start_time, decimals=1)} seconds")
     print('===== End fitting')
+    print(f'[FINAL FLUX] Total CO flux: {sum_CO_area:.6e}, Total contam flux: {sum_contaminating_area:.6e}, Mean continuum: {mean_cont/(len(list_wboundaries) - 1):.6e}')
     
     mean_cont = mean_cont / (len(list_wboundaries) - 1)
     
@@ -655,6 +678,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         wave_max = CO_catalog['line_wave_um'].max()
     
     print(f"  Extracting CO flux in wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+    print(f"  [DEBUG] Spectrum: {len(spectrum_wave)} wavelength points, flux range {np.nanmin(spectrum_flux):.4e} to {np.nanmax(spectrum_flux):.4e}")
     if wave_unit:
         print(f"  Wavelength unit: {wave_unit}")
     if flux_unit:
@@ -682,6 +706,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         if n_excluded > 0:
             print(f"  Excluding {n_excluded} CO lines from extraction")
     
+    print(f"  [DEBUG] CO catalog size: {len(CO_catalog_for_fit)} lines")
+    
     # Find detected lines (contam_catalog can be None if user didn't upload contaminating lines)
     detected_lines = find_lines(
         spectrum_wave, spectrum_flux, CO_catalog_for_fit,
@@ -696,14 +722,16 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             'contam_flux': 0,
             'mean_continuum': np.nanmedian(spectrum_flux),
             'detected_lines': pd.DataFrame(),
-            'residuals': pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)})
+            'residuals': pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)}),
+            'mean_detected_wavelength': np.nan
         }
     
     # Identify detected CO and contaminating lines in this spectrum
+    # Accept both 'CO' (HITRAN) and '12C16O' (ECSV catalog) species naming conventions
     try:
         detected_co = detected_lines[
             (detected_lines['disposition'] == 1) & 
-            (detected_lines['species'] == '12C16O')
+            (detected_lines['species'].isin(['CO', '12C16O']))
         ]
     except KeyError as e:
         print(f"  Error: detected_lines missing column - columns are: {detected_lines.columns.tolist()}")
@@ -712,7 +740,9 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     
     # DEBUG: Show how many CO lines were detected
     n_co_detected = len(detected_co)
-    # print(f"  extract_co_flux: Found {n_co_detected} CO lines in this spectrum")
+    if n_co_detected > 0:
+        print(f"  [DEBUG] CO line wavelengths: {detected_co['line'].values[:5].tolist()}...")
+        print(f"  [DEBUG] CO line max amplitudes: {detected_co['max_amplitude'].values[:5].tolist()}...")
     
     # Filter contam_catalog to only include detected lines
     if len(detected_lines) > 0 and 'line' in detected_lines.columns:
@@ -741,6 +771,10 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         # Empty DataFrame - still needs the right columns for fit_glines
         detected_contam = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'species'])
     
+    # DEBUG: Show detected lines after proper initialization
+    n_contam_detected = len(detected_contam)
+    print(f"  [DEBUG] Line detection: {n_co_detected} CO lines detected, {n_contam_detected} contaminating lines")
+    
     # Fit if any lines detected
     if len(detected_co) > 0 or len(detected_contam) > 0:
         # This is the line width in wavelength units, typically 1-2 pixels worth
@@ -754,22 +788,34 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             # print(f"  Warning: sigma estimation failed ({e}), using default 0.005")
             sigma = 0.005
         
+        print(f"  [DEBUG] Before fit_glines: sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
+        print(f"  [DEBUG] Fitting {len(detected_co)} CO + {len(detected_contam)} contaminating lines")
         co_flux, contam_flux, mean_cont, residuals = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
             detected_co, detected_contam, sigma
         )
-        # print(f"  fit_glines returned: co_flux={co_flux}, type={type(co_flux)}, is_finite={np.isfinite(co_flux)}")
+        print(f"  [DEBUG] fit_glines returned: co_flux={co_flux:.6e}, contam_flux={contam_flux:.6e}, mean_cont={mean_cont:.6e}")
+        print(f"  [DEBUG] co_flux type={type(co_flux)}, is_finite={np.isfinite(co_flux)}")
     else:
         co_flux, contam_flux, mean_cont = 0, 0, np.nanmedian(spectrum_flux)
         residuals = pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)})
+        detected_co = pd.DataFrame()
         # print(f"  No lines to fit, returning 0")
+    
+    # Calculate mean wavelength of detected CO lines for flux conversion
+    mean_detected_wavelength = np.nan
+    if len(detected_co) > 0 and 'line' in detected_co.columns:
+        detected_co_only = detected_co[detected_co['disposition'] == 1]
+        if len(detected_co_only) > 0:
+            mean_detected_wavelength = np.mean(detected_co_only['line'].values)
     
     return {
         'co_flux': co_flux,
         'contam_flux': contam_flux,
         'mean_continuum': mean_cont,
         'detected_lines': detected_lines,
-        'residuals': residuals
+        'residuals': residuals,
+        'mean_detected_wavelength': mean_detected_wavelength
     }
 
 
@@ -868,6 +914,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     # Create output maps
     flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
+    wavelength_map = np.full((n_y, n_x), np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
     
     print(f">>> Creating CO flux map: {n_y}×{n_x} pixels, {n_wave} wavelength elements")
     print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
@@ -971,6 +1018,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     def process_row(y_idx):
         row_fluxes = np.full(n_x, np.nan, dtype=np.float32)
         row_detections = np.full(n_x, 0, dtype=np.int32)
+        row_wavelengths = np.full(n_x, np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
         
         # DIAGNOSTIC: Count successes and failures
         num_success = 0
@@ -1017,6 +1065,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     
                     # Step 3: Store results in maps
                     row_fluxes[x_idx] = co_flux_val
+                    row_wavelengths[x_idx] = result.get('mean_detected_wavelength', np.nan)  # Store wavelength for conversion
                     
                     # Count detected CO lines
                     n_detected = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
@@ -1038,7 +1087,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             if (x_idx + 1) % max(1, n_x // 5) == 0:
                 print(f"    Row {y_idx}: {x_idx + 1}/{n_x} pixels...")
         
-        return y_idx, row_fluxes, row_detections
+        return y_idx, row_fluxes, row_detections, row_wavelengths
     
     # Process rows in parallel
     try:
@@ -1057,9 +1106,10 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     break
                 
                 try:
-                    y_idx, row_fluxes, row_detections = future.result()
+                    y_idx, row_fluxes, row_detections, row_wavelengths = future.result()
                     flux_map[y_idx, :] = row_fluxes
                     detection_map[y_idx, :] = row_detections
+                    wavelength_map[y_idx, :] = row_wavelengths
                 except:
                     # Skip this row if cancelled or failed
                     pass
@@ -1091,12 +1141,68 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     print(f"    Mean CO flux: {np.nanmean(flux_map):.4e}")
     print(f"    Max CO flux: {np.nanmax(flux_map):.4e}")
     
+    # Convert flux from MJy/sr*um to erg/s/cm2 using the same conversion as gaussian_fitter.convert_area_to_cgs
+    # Since flux_map already contains integrated flux (amplitude*sigma*sqrt(2pi)), apply only unit conversion
+    print(f"\n>>> Converting CO flux map to physical units (erg/s/cm2)...")
+    try:
+        flux_map_cgs = np.full_like(flux_map, np.nan)
+        n_converted = 0
+        
+        header = cube_data.header
+        cdelt1 = header.get('CDELT1', None) if header else None
+        cdelt2 = header.get('CDELT2', None) if header else None
+        
+        if cdelt1 is not None and cdelt2 is not None:
+            # Calculate conversion factor: CDELT1 * CDELT2 * 1e6 / (180/pi)^2
+            cdelt1_abs = abs(float(cdelt1))
+            cdelt2_abs = abs(float(cdelt2))
+            conv = cdelt1_abs * cdelt2_abs * 1e6 / (180.0 / np.pi)**2
+            c_micron_per_s = 3e14  # Speed of light in um/s
+            
+            for y in range(flux_map.shape[0]):
+                for x in range(flux_map.shape[1]):
+                    flux_val = flux_map[y, x]
+                    wavelength_val = wavelength_map[y, x]
+                    
+                    # Skip invalid pixels
+                    if not np.isfinite(flux_val) or not np.isfinite(wavelength_val) or wavelength_val <= 0:
+                        continue
+                    
+                    # Apply conversion: [MJy/sr*um] --conv--> [Jy*um] --c/lambda^2--> [erg/s/cm2]
+                    flux_jy_um = flux_val * conv
+                    flux_erg_s_cm2 = flux_jy_um * (c_micron_per_s / (wavelength_val**2)) * 1e-23
+                    
+                    if np.isfinite(flux_erg_s_cm2):
+                        flux_map_cgs[y, x] = flux_erg_s_cm2
+                        n_converted += 1
+            
+            if n_converted > 0:
+                print(f"✓ Successfully converted {n_converted}/{flux_map.size} pixels")
+                print(f"  Range: {np.nanmin(flux_map_cgs):.4e} - {np.nanmax(flux_map_cgs):.4e} erg/s/cm2")
+                flux_map_final = flux_map_cgs
+                flux_unit_output = 'erg/s/cm2'
+            else:
+                print(f"⚠️  Conversion produced no valid values, keeping original MJy/sr*um units")
+                flux_map_final = flux_map
+                flux_unit_output = 'MJy/sr um'
+        else:
+            print(f"⚠️  Cannot convert: FITS header missing CDELT1/CDELT2, keeping original MJy/sr*um units")
+            flux_map_final = flux_map
+            flux_unit_output = 'MJy/sr um'
+    except Exception as e:
+        print(f"⚠️  Conversion failed: {str(e)}, keeping original MJy/sr*um units")
+        import traceback
+        traceback.print_exc()
+        flux_map_final = flux_map
+        flux_unit_output = 'MJy/sr um'
+    
     return {
-        'flux_map': flux_map,
+        'flux_map': flux_map_final,
         'detection_map': detection_map,
         'wavelength': wavelength,
         'header': cube_data.header,
-        'wave_range': (wave_min, wave_max)
+        'wave_range': (wave_min, wave_max),
+        'flux_unit': flux_unit_output
     }
 
 
@@ -1136,6 +1242,7 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         wavelength = flux_map_data['wavelength']
         header = flux_map_data.get('header', fits.Header())
         wave_range = flux_map_data.get('wave_range', (np.nanmin(wavelength), np.nanmax(wavelength)))
+        flux_unit_output = flux_map_data.get('flux_unit', None)  # Get output flux unit if available
         
         # Prepare header [REUSED: Original header as base]
         if header is not None:
@@ -1143,19 +1250,26 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         else:
             out_header = fits.Header()
         
-        # Extract BUNIT from original header and create flux unit with wavelength
+        # Extract BUNIT - use output unit if conversion was done, otherwise use header
         try:
-            bunit_str = out_header.get('BUNIT', 'MJy/sr')
-            # Try to parse as astropy unit
-            try:
-                base_unit = u.Unit(bunit_str)
-                flux_unit = base_unit * u.um
-                flux_unit_str = f"{base_unit} um"
-            except (ValueError, TypeError):
-                # Fallback to string concatenation if not a valid unit
-                flux_unit_str = f"{bunit_str} um"
+            if flux_unit_output and flux_unit_output != 'MJy/sr um':
+                # Conversion was applied
+                if flux_unit_output == 'erg/s/cm2':
+                    flux_unit_str = "erg/s/cm2"
+                else:
+                    flux_unit_str = flux_unit_output
+            else:
+                # Use original header or fallback
+                bunit_str = out_header.get('BUNIT', 'MJy/sr')
+                # Try to parse as astropy unit
+                try:
+                    base_unit = u.Unit(bunit_str)
+                    flux_unit_str = f"{base_unit} um"
+                except (ValueError, TypeError):
+                    # Fallback to string concatenation if not a valid unit
+                    flux_unit_str = f"{bunit_str} um"
         except Exception:
-            flux_unit_str = "MJy/sr um"
+            flux_unit_str = flux_unit_output if flux_unit_output else "MJy/sr um"
         
         # Update header with new information
         out_header['NAXIS'] = 2

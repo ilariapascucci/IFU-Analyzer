@@ -11,9 +11,8 @@ IFU Analyzer automatically detects and handles data from:
 
 - **MUSE** (Multi Unit Spectroscopic Explorer): VLT optical spectroscopy
 - **ALMA** (Atacama Large Millimeter Array): Radio interferometry
-- **MIRI** (Mid-Infrared Instrument): JWST mid-infrared (10-25 μm)
-- **NIRSpec** (Near-Infrared Spectrograph): JWST near-infrared (1-5 μm)
-- **Generic/Custom**: Any FITS cube or image
+- **MIRI** (Mid-Infrared Instrument): JWST mid-infrared
+- **NIRSpec** (Near-Infrared Spectrograph): JWST near-infrared
 
 Supported File Formats
 ======================
@@ -23,247 +22,40 @@ The application accepts:
 - **3D FITS Cubes**: Standard (RA, Dec, λ) format
 - **2D FITS Images**: Automatically treated as single-wavelength slices
 - **Multiple HDUs**: Extensions within FITS files
-- **Compressed Files**: .fits.gz files are supported
 
 Opening a FITS File
 ===================
 
 **Via the GUI:**
 
-1. Click **File → Open FITS** (or press Ctrl+O)
+1. Click **Open FITS**
 2. Navigate to your file location
 3. Select your FITS file
-4. **Instrument Dialog** appears:
-   
-   - Select the instrument or "Generic" for custom data
-   - Click **OK**
-
-5. The file loads and displays:
+4. The file loads and displays:
    
    - Intensity map at the first wavelength
-   - Integrated spectrum
+   - 1D spectrum
    - Header information
-
-**Keyboard Shortcut:** Press ``Ctrl+O`` to open a file quickly.
 
 File Information & Headers
 ==========================
 
 After loading, inspect your file information:
 
-- **Click View → File Info** to see:
+- **Header** to see:
   
-  - File name and path
   - Data dimensions (RA pixels, Dec pixels, wavelength points)
   - Instrument name
   - Observation date
-  - Integration time
-  - Other FITS header keywords
-
-- **Data dimensions** are shown in the statusbar:
-  
-  Example: ``Cube: 100×100 pixels, 500 wavelengths``
-
-Understanding Cube Dimensions
-==============================
-
-A typical IFU cube has:
-
-- **Spatial dimensions**: Each row/column represents a single spaxel (spatial pixel)
-- **Spectral dimension**: Each layer represents a single wavelength or velocity channel
-- **Data type**: Usually 32-bit or 64-bit floating point
-
-Knowledge of your cube dimensions is important for:
-
-- Selecting appropriate analysis regions
-- Understanding memory requirements
-- Choosing processing methods
-
-Coordinate Systems
-==================
-
-IFU Analyzer supports two coordinate systems:
-
-**Wavelength Coordinates**
-
-- Default system
-- Horizontal axis shows wavelength in micrometers (μm) or Ångströms (Å)
-- Vertical axis shows velocity offset (km/s)
-
-**RA/DEC Coordinates**
-
-- Sky coordinates from FITS WCS (World Coordinate System)
-- X-axis: Right Ascension (RA)
-- Y-axis: Declination (Dec)
-- Requires valid WCS information in FITS header
-
-**Coordinate Systems Available:**
-
-Data can be displayed in:
-
-- **Wavelength**: Default spatial coordinates
-- **RA/DEC**: Sky coordinates (if WCS information is in the FITS header)
-
-Data Normalization
-==================
-
-**Display Normalization Options:**
-
-1. **None**: Raw intensity values
-2. **Per-pixel normalization**: Divide each spectrum by its median
-3. **Global normalization**: Normalize to the maximum value in the cube
-
-Access via: **Tools → Normalization**
-
-**Important**: Normalization only affects display, not saved data.
-
-Handling Large Cubes
-====================
-
-For cubes larger than 500×500×1000 voxels:
-
-1. **Sub-cube Loading**: Load a spatial subset
-   
-   - File → Open FITS → Advanced Options
-   - Specify pixel ranges
-   - Reduces memory usage
-
-2. **Downsampling**: Reduce spectral resolution temporarily
-   
-   - Tools → Downsample
-   - Choose bin size (2×, 4×, etc.)
-
-3. **Working with Regions**: Focus analysis on regions of interest
-
-Common Data Issues
-==================
-
-**Issue: File won't open**
-
-- Ensure the file is a valid FITS format
-- Check that the file isn't corrupted (try opening in an external FITS reader)
-- Try the "Generic" instrument option
-
-**Issue: Cube dimensions are wrong**
-
-- Some FITS files have multiple extensions (HDU)
-- Try: File → Open FITS → Choose different HDU
-- Check FITS header with external tools
-
-**Issue: Wavelength calibration looks wrong**
-
-- Verify the wavelength axis in the FITS header
-- Check CRVAL1, CDELT1, and related keywords
-- Compare with original observation logs
-
-**Issue: Coordinate display missing RA/DEC**
-
-- Your FITS file lacks WCS (World Coordinate System) information
-- Use a FITS tool to add WCS calibration
-- Or use pixel coordinates
-
-Data Preparation Tips
-=====================
-
-Before loading into IFU Analyzer:
-
-1. **Validate FITS File Structure**
-   
-   Use FitsExplorer or similar tool to confirm:
-   - Proper data format
-   - Valid wavelength calibration
-   - Expected dimensions
-
-2. **Organize Your Data**
-   
-   Create a data directory structure:
-
-   .. code-block:: text
-
-      data/
-      ├── MUSE/
-      │   └── musecube_obs1.fits
-      ├── ALMA/
-      │   └── almacube_co.fits
-      └── NIRSpec/
-          └── nirspecdata.fits
-
-3. **Create a Manifest**
-   
-   Keep notes about your files:
-   
-   .. code-block:: text
-
-      File: muse_obj1.fits
-      Instrument: MUSE
-      Target: Object Name
-      Date: 2024-01-15
-      Integration: 300 seconds
-      Wavelength range: 4500-9500 Å
-
-4. **Backup Original Files**
-   
-   Always keep unmodified originals in case you need to re-analyze
+  - Other FITS header information
 
 Multiple File Management
 ========================
 
-**Loading Multiple Files (Sequential):**
+**Loading Multiple Files:**
 
 1. Click **Open FITS** button (first file)
-2. Perform analysis
-3. Click **Open FITS** again (second file)
-4. Previous file remains in memory but is not displayed
-
-**To Switch Between Files:**
-
-- Click **Open FITS** to load a different file
-- Currently only one file is displayed at a time
-
-**For Batch Processing:**
-
-Write a Python script:
-
-.. code-block:: python
-
-   from cube_explorer.data_loader import load_fits
-   
-   # Load multiple files
-   files = ['cube1.fits', 'cube2.fits', 'cube3.fits']
-   for filename in files:
-       cube = load_fits(filename)
-       # Perform analysis on cube
-
-Saving Your Work
-================
-
-While you cannot save the loaded cube data directly (to avoid corruption), you can:
-
-- **Export analyzed spectra**: File → Export Spectrum
-- **Save parameter maps**: File → Export Results
-- **Export residuals**: Tools → Export Residuals Cube
-
-See :doc:`exporting_data` for details.
-
-Data Quality Assessment
-=======================
-
-Upon loading, check data quality:
-
-1. **Inspect the integrated spectrum**:
-   - Look for expected emission/absorption features
-   - Check for noise levels
-   - Verify wavelength calibration
-
-2. **Review the intensity map**:
-   - Scan for obvious defects or bad pixels
-   - Check for reasonable signal gradient
-   - Look for expected spatial structure
-
-3. **Check metadata**:
-   - Verify exposure time and date
-   - Confirm instrumental configuration
-   - Check observation conditions
+2. Click **🗗** (second file)
 
 Next Steps
 ==========
@@ -272,4 +64,4 @@ After loading your data:
 
 1. Explore :doc:`visualization` options
 2. Learn :doc:`selecting_regions` techniques
-3. Perform :doc:`spectral_analysis`
+3. Perform :doc:`gaussian_fitting`

@@ -77,7 +77,7 @@ For organizing your data, create a ``data/`` folder in the IFU-Analyzer director
 Common Issues
 =============
 
-See :doc:`troubleshooting` for detailed solutions.
+Check the FAQ or user guide for help.
 
 **Quick fixes:**
 

@@ -113,6 +113,6 @@ Next Steps
 
 After selecting regions:
 
-1. :doc:`spectral_analysis` to analyze selected region
-2. :doc:`gaussian_fitting` to fit profiles
+1. :doc:`gaussian_fitting` to analyze profiles
+2. :doc:`continuum_subtraction` to remove baselines
 3. :doc:`exporting_data` to save results

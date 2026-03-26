@@ -86,7 +86,8 @@ class GuiCOFluxMixin:
                         contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
                         subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
                         parent=self,
-                        excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set())
+                        excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
+                        flux_unit=self.co_flux_result_cache.get('flux_unit')
                     )
                     results_dialog.exec_()
                     return
@@ -123,19 +124,23 @@ class GuiCOFluxMixin:
             hitran_df = pd.DataFrame(self.hitran_lines)
             if 'wavelength' in hitran_df.columns and 'line_wave_um' not in hitran_df.columns:
                 hitran_df = hitran_df.rename(columns={'wavelength': 'line_wave_um'})
+            # CRITICAL: Add species column if missing - all HITRAN lines are CO (12C16O unless otherwise specified)
+            if 'species' not in hitran_df.columns:
+                hitran_df['species'] = '12C16O'  # Mark all lines as 12C16O (main isotopologue)
             use_catalog = hitran_df
         else:
             use_catalog = self.CO_lines
         
         self.co_flux_wavelength = self.cube_data.wavelength
         self.co_flux_catalog = use_catalog
-        self.co_flux_contam_catalog = self.contam_lines
+        # Only use contaminating lines if they exist and have data
+        self.co_flux_contam_catalog = self.contam_lines if (hasattr(self, 'contam_lines') and self.contam_lines is not None and len(self.contam_lines) > 0) else None
         self.co_flux_wave_min = wave_min
         self.co_flux_wave_max = wave_max
         self.co_flux_subtract_continuum = True 
         
         self.co_flux_worker = COFluxMapWorker(
-            self.cube_data, use_catalog, self.contam_lines, n_jobs=n_jobs,
+            self.cube_data, use_catalog, self.co_flux_contam_catalog, n_jobs=n_jobs,
             subtract_continuum=True, continuum_poly_deg=3,
             wave_min=wave_min, wave_max=wave_max,
             excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set())
@@ -263,7 +268,8 @@ class GuiCOFluxMixin:
             cube_data=self.cube_data, CO_catalog=getattr(self, 'co_flux_catalog', None),
             contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
             subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
-            parent=self, excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set())
+            parent=self, excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
+            flux_unit=result.get('flux_unit')
         )
         results_dialog.exec_()
     

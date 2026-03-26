@@ -82,7 +82,7 @@ class COFluxMapResultsDialog(QDialog):
     
     def __init__(self, flux_map, detection_map, header=None, wave_range=None, 
                  wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
-                 subtract_continuum=False, parent=None, excluded_wavelengths=None):
+                 subtract_continuum=False, parent=None, excluded_wavelengths=None, flux_unit=None):
         super().__init__(parent)
         self.flux_map = flux_map
         self.detection_map = detection_map
@@ -97,31 +97,50 @@ class COFluxMapResultsDialog(QDialog):
         self.pixel_selection_enabled = True  # Toggle for pixel clicking
         self.excluded_wavelengths = set(excluded_wavelengths) if excluded_wavelengths else set()  # Track excluded lines
         self.parent_gui = parent  # Reference to parent GUI for syncing species dialog
+        self.flux_unit_output = flux_unit or 'MJy/sr um'  # Track output units from conversion
         
         # Extract units from FITS header using astropy units
         try:
-            bunit_str = header.get('BUNIT', 'MJy/sr') if header else 'MJy/sr'
-            # Try to parse as astropy unit, fallback to string if it fails
-            try:
-                self.flux_unit_base = u.Unit(bunit_str)
-            except (ValueError, TypeError):
-                # If it's not a valid astropy unit, use it as-is for display
-                self.flux_unit_base = bunit_str
-            
-            # CO flux unit is base flux unit per wavelength
-            if isinstance(self.flux_unit_base, u.UnitBase):
-                self.flux_unit = self.flux_unit_base * u.um
-                self.flux_unit_str = f"{self.flux_unit_base} um"
-                self.bunit_str = f"{self.flux_unit_base}"
+            # If flux_unit_output was provided (from conversion), use that directly
+            if self.flux_unit_output and self.flux_unit_output != 'MJy/sr um':
+                if self.flux_unit_output == 'erg/s/cm2':
+                    self.flux_unit_str = "erg/s/cm2"
+                    self.bunit_str = "erg/s/cm2"
+                    self.flux_unit_base = u.erg / (u.s * u.cm**2)
+                    self.flux_unit = self.flux_unit_base
+                else:
+                    self.flux_unit_str = self.flux_unit_output
+                    self.bunit_str = self.flux_unit_output
+                    self.flux_unit_base = self.flux_unit_output
+                    self.flux_unit = self.flux_unit_output
             else:
-                self.flux_unit_str = f"{self.flux_unit_base} um"
-                self.bunit_str = self.flux_unit_base
+                # Fall back to header-based units
+                bunit_str = header.get('BUNIT', 'MJy/sr') if header else 'MJy/sr'
+                # Try to parse as astropy unit, fallback to string if it fails
+                try:
+                    self.flux_unit_base = u.Unit(bunit_str)
+                except (ValueError, TypeError):
+                    # If it's not a valid astropy unit, use it as-is for display
+                    self.flux_unit_base = bunit_str
+                
+                # CO flux unit is base flux unit per wavelength
+                if isinstance(self.flux_unit_base, u.UnitBase):
+                    self.flux_unit = self.flux_unit_base * u.um
+                    self.flux_unit_str = f"{self.flux_unit_base} um"
+                    self.bunit_str = f"{self.flux_unit_base}"
+                else:
+                    self.flux_unit_str = f"{self.flux_unit_base} um"
+                    self.bunit_str = self.flux_unit_base
         except Exception:
             # Fallback if header parsing fails
-            self.flux_unit_str = "MJy/sr um"
-            self.bunit_str = "MJy/sr"
-            self.flux_unit_base = u.MJy / u.sr
-            self.flux_unit = self.flux_unit_base * u.um
+            self.flux_unit_str = self.flux_unit_output if self.flux_unit_output else "MJy/sr um"
+            self.bunit_str = self.flux_unit_output if self.flux_unit_output else "MJy/sr"
+            if self.flux_unit_output == 'erg/s/cm2':
+                self.flux_unit_base = u.erg / (u.s * u.cm**2)
+                self.flux_unit = self.flux_unit_base
+            else:
+                self.flux_unit_base = u.MJy / u.sr
+                self.flux_unit = self.flux_unit_base * u.um
         
         self.setWindowTitle("CO Flux Map Results")
         self.resize(1200, 700)

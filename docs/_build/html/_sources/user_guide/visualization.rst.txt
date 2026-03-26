@@ -21,13 +21,11 @@ The spectrum panel shows 1D data:
 
 - X-axis: Wavelength or frequency
 - Y-axis: Intensity (flux or count rate)
-- Mouse hover: Show exact values
-- Right-click: Detailed spectrum options
 
 Color Scales
 ============
 
-Different color scales emphasize different aspects of your data:
+Different scales emphasize different aspects of your data:
 
 **Linear Scale** (Default)
 
@@ -40,14 +38,6 @@ Different color scales emphasize different aspects of your data:
 - Scale: intensity → log(intensity)
 - Best for: Wide dynamic range
 - Emphasizes: Faint features
-- How to enable: View → Color Scale → Logarithmic
-
-**Power Law Scale**
-
-- Scale: intensity → intensity^power
-- Adjustable exponent (0.5 to 2.0)
-- Best for: Custom emphasis
-- How to enable: View → Color Scale → Power
 
 **Square Root Scale**
 
@@ -55,288 +45,35 @@ Different color scales emphasize different aspects of your data:
 - Best for: Moderate dynamic range
 - Balanced detail emphasis
 
-Choosing Color Scale
---------------------
+**Power Law Scale**
 
-Use this guide:
-
-============= ================================================
-Data Type     Best Scale
-============= ================================================
-Continuum     Linear (nice gradients)
-Narrow Lines  Logarithmic (show faint wings)
-Stars         Square Root (emphasize core without overwhelming)
-Weak Features Logarithmic or Power
-Residuals     Linear (equal weight to all deviations)
-============= ================================================
-
-To change scale:
-
-1. Click **Color Scale** button in toolbar
-2. Select desired scale
-3. Adjust parameters interactively if offered
-4. View updates in real-time
-
-Intensity Range (vmin/vmax)
-===========================
-
-**Histogram Stretch**
-
-Manually set the intensity range displayed:
-
-1. Click **Intensity Range** panel
-2. Adjust **vmin** (minimum displayed intensity)
-3. Adjust **vmax** (maximum displayed intensity)
-4. Clipped values appear as black (below vmin) or white (above vmax)
-
-**Auto-Scale**
-
-Automatically set optimal range:
-
-- Button: **Auto Scale** (shows in intensity range panel)
-- Resets to 1st and 99th percentile of data
-- Useful after dramatic region changes
-
-**Percentile Stretch**
-
-Set range based on percentiles:
-
-1. Open **Color Scale** dialog
-2. Set min percentile (e.g., 5%)
-3. Set max percentile (e.g., 95%)
-4. Automatically clips outliers
-
-**Full Range**
-
-Show all data without clipping:
-
-- Click **Full Range** button
-- Reveals entire data range
-- May reduce contrast if outliers present
+- Scale: intensity → intensity^2
+- Best for: Custom emphasis
 
 Colormaps
 =========
 
-Colormaps control how intensity is mapped to colors. IFU Analyzer includes many options:
-
-**Built-in Colormaps**
-
-======== ================================================================================
-Name     Usage
-======== ================================================================================
-Viridis  Default, most perceptually uniform, good for presentations
-Hot      Red/yellow/white, good for thermal data
-Cool     Cyan/blue, good for cool/absorbed regions
-RdYlBu   Red-yellow-blue diverging, good for positive/negative data
-Binary   Black to white, good for monochrome presentations
-Inferno  High contrast, good for dramatic effects
-Plasma   Perceptually uniform alternative to Viridis
-Grey     Grayscale, good for printing
-======== ================================================================================
+Colormaps control how intensity is mapped to colors on slices. IFU Analyzer includes many options.
 
 **Changing Colormaps**
 
-1. Click **Colormap** button in toolbar
+1. Click **🌈** button in slice toolbar
 2. Select colormap from list
 3. Preview updates immediately
-4. Some support **Invert** option for reversed color order
-
-**Custom Colormaps**
-
-Advanced users can define custom colormaps:
-
-1. Tools → Preferences → Color Management
-2. Load custom colormap file
-3. Or create in external tool (Matplotlib)
-
-**Colormap Best Practices**
-
-- **Scientific papers**: Use uniform colormaps (Viridis, Inferno)
-- **Presentations**: Use contrasting colormaps (Hot, Cool)
-- **Printing**: Use colormaps that work in grayscale
-- **Colorblind**: Avoid pure red-green combinations
 
 Zoom Controls
 =============
 
-**Zooming In/Out**
-
-====== ===========================
-Method Action
-====== ===========================
-Mouse  Scroll wheel to zoom
-+/-    Ctrl + Plus/Minus to zoom
-Buttons Zoom In/Out buttons
-====== ===========================
-
-**Zoom Levels**
-
-- 1:1 = 100% (one data pixel = one screen pixel)
-- 1:2 = 50% (one data pixel = half screen)
-- 2:1 = 200% (one data pixel = two screen)
-
-**Pan View**
-
-Move around zoomed view:
-
-- Middle mouse button + drag
-- Or hold Spacebar + drag
-- Arrow keys for precise movement
-
-**Fit to Window**
-
-Automatically scale view:
-
-- Use the **Reset View** button in the toolbar
-- Resets pan and zoom
-
-Reset View
-----------
-
-Return to default view using the **Reset View** button in the toolbar.
-
-Overlays
-========
-
-**Grid Overlay**
-
-Shows coordinate grid:
-
-- View → Show Grid
-- Adjustable color and spacing
-- Useful for measuring positions
-
-**Measurement Tools**
-
-Add measurement annotations:
-
-- Right-click map → Add Measurement
-- Distance measurements
-- Angle measurements
-- Area measurements
-
-**Region Outlines**
-
-Selected regions display outlines:
-
-- Rectangle: Green outline
-- Circle: Blue outline
-- Custom: Yellow outline
-- Color customizable in preferences
-
-**Coordinate Display**
-
-Current cursor position shows:
-
-- RA/DEC coordinates (if WCS available)
-- Pixel coordinates (always available)
-- Wavelength/Velocity
-- Intensity value
-
-**Spectral Overlay**
-
-When fitting, overlay shows:
-
-- Fitted Gaussian curve (red)
-- Baseline (yellow)
-- Residuals (green shaded)
-- Chi-squared value
+**Zooming In**
+1. Select magnifying glass icon under the figure.
+2. Drag from corner to opposite corner.
+3. Click on the Home icon to revert.
 
 Exporting Visualizations
 =========================
 
 **Save Current View as Image**
 
-1. File → Export Visualization
-2. Choose format (PNG, JPEG, PDF)
-3. Specify filename
-4. Click Export
-
-**High-Resolution Export**
-
-For publication-quality figures:
-
-1. File → Export Visualization
-2. Choose **High Resolution**
-3. Select up to 4× magnification
-4. Export as PDF or PNG
-
-**Batch Export**
-
-Export multiple wavelengths as images:
-
-1. File → Batch Export
-2. Specify wavelength range
-3. Choose step size
-4. Select output directory
-5. Click Start
-
-Animation/Movies
-================
-
-Create animated sequences:
-
-1. File → Create Animation
-2. Set wavelength range
-3. Set frame rate (number of channels per second)
-4. Choose output format (GIF, MP4, WebM)
-5. Click Create
-
-Useful for:
-
-- Presentations
-- Publications
-- Data exploration
-- Communicating results to collaborators
-
-Display Performance
-===================
-
-For smooth performance with large cubes:
-
-**Enable Display Decimation**
-
-- Tools → Preferences → Performance
-- When enabled, skips pixels for speed
-- Toggle with P key while viewing
-
-**Resolution Adjustment**
-
-- Reduce display resolution temporarily
-- Tools → Display Resolution
-- Choose 50%, 33%, or 25% of full resolution
-
-**Memory Management**
-
-- Monitor memory usage (status bar)
-- Close other applications if needed
-- Use downsampled cubes for initial exploration
-
-Troubleshooting Visualization
-==============================
-
-**Colors look washed out**
-
-- Adjust vmin/vmax
-- Try different color scale
-- Check display monitor gamma
-
-**Very pixelated appearance**
-
-- Zoom in with scroll wheel
-- Use View → Fit to Window
-- Enable smoothing interpolation
-
-**Slow performance**
-
-- Enable Display Decimation
-- Reduce display resolution
-- Close other applications
-- Consider downsampling cube
-
-**Colors don't match expectations**
-
-- Verify wavelength selection
-- Check color scale type
-- Confirm data is calibrated
-- Try different colormap
+1. Click on the Save icon under the figure.
+2. Specify filename.
+3. Save.

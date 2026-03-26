@@ -19,7 +19,7 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Spectral Analysis" href="spectral_analysis.html" />
+    <link rel="next" title="Gaussian Fitting" href="gaussian_fitting.html" />
     <link rel="prev" title="Visualization" href="visualization.html" /> 
 </head>
 
@@ -61,19 +61,11 @@
 <li class="toctree-l3"><a class="reference internal" href="#using-rectangle-select-tool">Using Rectangle Select Tool</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#using-circle-select-tool">Using Circle Select Tool</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#using-ellipse-select-tool">Using Ellipse Select Tool</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#using-polygon-select-tool">Using Polygon Select Tool</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#combining-selections">Combining Selections</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#using-inverting">Using Inverting</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#selection-operations">Selection Operations</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#saving-selections">Saving Selections</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#selection-statistics">Selection Statistics</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#exporting-regions">Exporting Regions</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#tips-for-effective-selection">Tips for Effective Selection</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#selection-limitations">Selection Limitations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-free-form-select-tool">Using Free-Form Select Tool</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#statistics">Statistics</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
@@ -85,13 +77,8 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Support</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
 </ul>
 
@@ -116,7 +103,7 @@
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
         <a href="visualization.html" class="btn btn-neutral float-left" title="Visualization" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="spectral_analysis.html" class="btn btn-neutral float-right" title="Spectral Analysis" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="gaussian_fitting.html" class="btn btn-neutral float-right" title="Gaussian Fitting" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
 </div>
@@ -161,35 +148,24 @@
 <h2>Activating Region Selection<a class="headerlink" href="#activating-region-selection" title="Link to this heading"></a></h2>
 <p><strong>Method 1: Toolbar</strong></p>
 <ol class="arabic simple">
-<li><p>Click <strong>Select Region</strong> button in toolbar</p></li>
-<li><p>Choose desired tool from dropdown</p></li>
+<li><p>Click figure button in toolbar</p></li>
 <li><p>Tool is now active</p></li>
 </ol>
 </section>
 <section id="using-point-select-tool">
 <h2>Using Point Select Tool<a class="headerlink" href="#using-point-select-tool" title="Link to this heading"></a></h2>
-<p>Select individual or multiple points:</p>
+<p>Select individual point:</p>
 <ol class="arabic simple">
-<li><p>Click the <strong>Point Tool</strong> from the region selector dropdown</p></li>
+<li><p>Click the <strong>*</strong> from the region selector toolbar</p></li>
 <li><p>Click a pixel location</p></li>
-<li><p>Point is selected (red dot appears)</p></li>
-<li><p>Hold <strong>Shift</strong> and click to add more points</p></li>
-<li><p>Hold <strong>Ctrl</strong> and click to remove points</p></li>
-<li><p>Right-click: Show Options</p></li>
 </ol>
-<p>Options:</p>
-<ul class="simple">
-<li><p><strong>Show all selected points</strong>: Overlay</p></li>
-<li><p><strong>Clear selection</strong>: Remove all points</p></li>
-<li><p><strong>Export point coordinates</strong>: Save to file</p></li>
-</ul>
 </section>
 <section id="using-rectangle-select-tool">
 <h2>Using Rectangle Select Tool<a class="headerlink" href="#using-rectangle-select-tool" title="Link to this heading"></a></h2>
 <p>Select rectangular regions:</p>
 <ol class="arabic simple">
-<li><p>Activate <strong>Rectangle Tool</strong> (keyboard: R+2)</p></li>
-<li><p>Click upper-left corner</p></li>
+<li><p>Click the <strong>▭</strong> from the region selector toolbar</p></li>
+<li><p>Hold upper-left corner</p></li>
 <li><p>Drag to lower-right corner</p></li>
 <li><p>Release mouse to finalize</p></li>
 <li><p>Handles appear for resize/adjust</p></li>
@@ -201,234 +177,70 @@
 <li><p><strong>Drag interior</strong>: Move entire rectangle</p></li>
 <li><p><strong>Delete</strong>: Clear and start over</p></li>
 </ul>
-<p>Multiple Rectangles:</p>
-<ul class="simple">
-<li><p>Hold <strong>Shift</strong> and drag new rectangle to add</p></li>
-<li><p>Hold <strong>Ctrl</strong> and drag rectangle to subtract</p></li>
-</ul>
 </section>
 <section id="using-circle-select-tool">
 <h2>Using Circle Select Tool<a class="headerlink" href="#using-circle-select-tool" title="Link to this heading"></a></h2>
 <p>Select circular regions:</p>
 <ol class="arabic simple">
-<li><p>Activate <strong>Circle Tool</strong> (keyboard: R+3)</p></li>
-<li><p>Click center location</p></li>
-<li><p>Drag outward to set radius</p></li>
-<li><p>Release to finalize</p></li>
-<li><p>Center point and radius handles shown</p></li>
+<li><p>Click the <strong>◯</strong> from the region selector toolbar</p></li>
+<li><p>Hold upper-left corner</p></li>
+<li><p>Drag to lower-right corner</p></li>
+<li><p>Release mouse to finalize</p></li>
+<li><p>Handle appears for resize/adjust</p></li>
 </ol>
 <p>Adjustments:</p>
 <ul class="simple">
 <li><p><strong>Drag edge</strong>: Adjust radius</p></li>
 <li><p><strong>Drag center</strong>: Move circle</p></li>
-<li><p><strong>Shift + drag</strong>: Add additional circle</p></li>
-<li><p><strong>Ctrl + drag</strong>: Subtract from selection</p></li>
 </ul>
 </section>
 <section id="using-ellipse-select-tool">
 <h2>Using Ellipse Select Tool<a class="headerlink" href="#using-ellipse-select-tool" title="Link to this heading"></a></h2>
 <p>Select elliptical regions (for elongated features):</p>
 <ol class="arabic simple">
-<li><p>Activate <strong>Ellipse Tool</strong> (keyboard: R+4)</p></li>
-<li><p>Click center location</p></li>
-<li><p>Drag to set semi-major and semi-minor axes</p></li>
-<li><p>Rotate if needed (handles provided)</p></li>
-<li><p>Release to finalize</p></li>
+<li><p>Click the <strong>⬭</strong> from the region selector toolbar</p></li>
+<li><p>Hold upper-left corner</p></li>
+<li><p>Drag to lower-right corner</p></li>
+<li><p>Release mouse to finalize</p></li>
+<li><p>Handle appears for resize/adjust</p></li>
 </ol>
 <p>Adjustments:</p>
 <ul class="simple">
 <li><p><strong>Drag corners</strong>: Adjust size</p></li>
-<li><p><strong>Rotate handle</strong>: Adjust orientation</p></li>
 <li><p><strong>Drag center</strong>: Move ellipse</p></li>
-<li><p><strong>Shift + drag</strong>: Add another ellipse</p></li>
 </ul>
 </section>
-<section id="using-polygon-select-tool">
-<h2>Using Polygon Select Tool<a class="headerlink" href="#using-polygon-select-tool" title="Link to this heading"></a></h2>
+<section id="using-free-form-select-tool">
+<h2>Using Free-Form Select Tool<a class="headerlink" href="#using-free-form-select-tool" title="Link to this heading"></a></h2>
 <p>Select irregular or complex shapes:</p>
 <ol class="arabic simple">
-<li><p>Activate <strong>Polygon Tool</strong> (keyboard: R+5)</p></li>
-<li><p>Click points around region boundary</p></li>
-<li><p>Points connected by lines in real-time</p></li>
-<li><p>Double-click to complete polygon</p></li>
-<li><p>Or press <strong>Escape</strong> + Enter to finish</p></li>
+<li><p>Click the <strong>✏</strong> from the region selector toolbar</p></li>
+<li><p>Draw a closed figure</p></li>
+<li><p>Release mouse to finalize</p></li>
 </ol>
 <p>Tips for Polygons:</p>
 <ul class="simple">
-<li><p>Click many points for precise shapes</p></li>
-<li><p>Close the polygon by clicking near first point</p></li>
-<li><p>Keep points outside region to avoid jagged edges</p></li>
-<li><p>Press <strong>U</strong> to undo last point</p></li>
-<li><p>Press <strong>R</strong> to restart polygon</p></li>
+<li><p>Make closed figures</p></li>
+<li><p>Make figures inside the boundaries</p></li>
 </ul>
 </section>
-<section id="combining-selections">
-<h2>Combining Selections<a class="headerlink" href="#combining-selections" title="Link to this heading"></a></h2>
-<p>Combine multiple regions:</p>
-<p><strong>Union (Add)</strong></p>
-<p>Hold <strong>Shift</strong> and drag new region:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Selection = Region1 + Region2
-</pre></div>
-</div>
-<p><strong>Intersection (Keep Overlap)</strong></p>
-<p>Hold <strong>Alt</strong> and drag second region:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Selection = Region1 ∩ Region2
-</pre></div>
-</div>
-<p><strong>Difference (Subtract)</strong></p>
-<p>Hold <strong>Ctrl</strong> and drag region to remove:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Selection = Region1 - Region2
-</pre></div>
-</div>
-</section>
-<section id="using-inverting">
-<h2>Using Inverting<a class="headerlink" href="#using-inverting" title="Link to this heading"></a></h2>
-<p>Invert selection to select everything EXCEPT a region:</p>
-<ol class="arabic simple">
-<li><p>Make initial selection</p></li>
-<li><p>Right-click selection → <strong>Invert</strong></p></li>
-<li><p>Everything outside becomes selected</p></li>
-</ol>
-<p>Or use: Tools → Region Selection → Invert</p>
-</section>
-<section id="selection-operations">
-<h2>Selection Operations<a class="headerlink" href="#selection-operations" title="Link to this heading"></a></h2>
-<p><strong>Growing/Shrinking Selection</strong></p>
-<p>Expand or contract region edges:</p>
-<ol class="arabic simple">
-<li><p>Right-click selection</p></li>
-<li><p><strong>Grow by</strong>: Expand outward</p></li>
-<li><p><strong>Shrink by</strong>: Contract inward</p></li>
-<li><p>Specify pixel distance</p></li>
-</ol>
-<p><strong>Feathering</strong></p>
-<p>Soften selection edges for smooth transitions:</p>
-<ol class="arabic simple">
-<li><p>Right-click selection</p></li>
-<li><p><strong>Feather Edges</strong></p></li>
-<li><p>Specify feather width in pixels</p></li>
-<li><p>Creates gradual falloff</p></li>
-</ol>
-<p>Useful for: Smooth photometry, avoiding edge artifacts</p>
-<p><strong>Border Selection</strong></p>
-<p>Select only the border of a region:</p>
-<ol class="arabic simple">
-<li><p>Make initial selection</p></li>
-<li><p>Right-click → <strong>Border</strong></p></li>
-<li><p>Specify border width</p></li>
-<li><p>Only edges selected</p></li>
-</ol>
-<p>Useful for: Finding shell structures, edge detection</p>
-</section>
-<section id="saving-selections">
-<h2>Saving Selections<a class="headerlink" href="#saving-selections" title="Link to this heading"></a></h2>
-<p>Save region definitions for later use:</p>
-<p><strong>Save Current Selection</strong></p>
-<ol class="arabic simple">
-<li><p>Right-click selection</p></li>
-<li><p><strong>Save Region</strong></p></li>
-<li><p>Enter filename</p></li>
-<li><p>Format: Region definition file or FITS</p></li>
-</ol>
-<p><strong>Load Saved Selection</strong></p>
-<ol class="arabic simple">
-<li><p>Right-click in empty area</p></li>
-<li><p><strong>Load Region</strong></p></li>
-<li><p>Choose saved region file</p></li>
-<li><p>Selection reappears</p></li>
-</ol>
-<p>Useful for: Comparing analysis across multiple datasets</p>
-</section>
-<section id="selection-statistics">
-<h2>Selection Statistics<a class="headerlink" href="#selection-statistics" title="Link to this heading"></a></h2>
-<p>View statistics of selected region:</p>
-<ol class="arabic simple">
-<li><p>Right-click selection</p></li>
-<li><p><strong>Show Statistics</strong></p></li>
-<li><p>Dialog shows:</p>
-<ul class="simple">
-<li><p><strong>Count</strong>: Number of spaxels selected</p></li>
-<li><p><strong>Mean</strong>, <strong>Median</strong>: Central values</p></li>
-<li><p><strong>Std Dev</strong>: Spread</p></li>
+<section id="statistics">
+<h2>Statistics<a class="headerlink" href="#statistics" title="Link to this heading"></a></h2>
+<blockquote>
+<div><ul class="simple">
+<li><p><strong>Mean</strong>: Central values</p></li>
+<li><p><strong>Std</strong>: Spread</p></li>
 <li><p><strong>Min/Max</strong>: Range</p></li>
 <li><p><strong>Sum</strong>: Total</p></li>
 </ul>
-</li>
-</ol>
-<p><strong>Apply Statistics to Spectrum</strong></p>
-<p>Selected region spectrum shows only pixels in selection:</p>
-<ul class="simple">
-<li><p>Red outline: Selection boundary</p></li>
-<li><p>Blue fill: Statistical overlay</p></li>
-<li><p>Spectrum: Integrated over selection</p></li>
-</ul>
-</section>
-<section id="exporting-regions">
-<h2>Exporting Regions<a class="headerlink" href="#exporting-regions" title="Link to this heading"></a></h2>
-<p>Export region coordinates for external analysis:</p>
-<ol class="arabic simple">
-<li><p>Right-click selection</p></li>
-<li><p><strong>Export Coordinates</strong></p></li>
-<li><p>Choose format:</p>
-<ul class="simple">
-<li><p>DS9 region format (.reg)</p></li>
-<li><p>FITS table format</p></li>
-<li><p>ASCII (pixel or RA/DEC coordinates)</p></li>
-</ul>
-</li>
-<li><p>Specify filename</p></li>
-</ol>
-</section>
-<section id="tips-for-effective-selection">
-<h2>Tips for Effective Selection<a class="headerlink" href="#tips-for-effective-selection" title="Link to this heading"></a></h2>
-<p><strong>For Point Sources</strong></p>
-<ul class="simple">
-<li><p>Use <strong>Circle Tool</strong> with small radius</p></li>
-<li><p>Center on peak intensity</p></li>
-<li><p>Include surrounding faint halo if analyzing total flux</p></li>
-</ul>
-<p><strong>For Extended Objects</strong></p>
-<ul class="simple">
-<li><p>Use <strong>Ellipse Tool</strong></p></li>
-<li><p>Match orientation to object orientation</p></li>
-<li><p>Ensure clear boundary</p></li>
-</ul>
-<p><strong>For Complex Shapes</strong></p>
-<ul class="simple">
-<li><p>Use <strong>Polygon Tool</strong> with many points</p></li>
-<li><p>Zoom in for precise placement</p></li>
-<li><p>Take time for accuracy</p></li>
-</ul>
-<p><strong>For Multiple Objects</strong></p>
-<ul class="simple">
-<li><p>Select first object</p></li>
-<li><p>Hold <strong>Shift</strong> to add subsequent objects</p></li>
-<li><p>Each appears with different color</p></li>
-</ul>
-<p><strong>Avoiding Issues</strong></p>
-<ul class="simple">
-<li><p>Always check selection bounds</p></li>
-<li><p>Verify selection matches intended region</p></li>
-<li><p>Be aware of edge effects</p></li>
-<li><p>Note that selection excludes pixels outside cube boundaries</p></li>
-</ul>
-</section>
-<section id="selection-limitations">
-<h2>Selection Limitations<a class="headerlink" href="#selection-limitations" title="Link to this heading"></a></h2>
-<p>Note these limitations:</p>
-<ul class="simple">
-<li><p>Selection operates on single wavelength plane</p></li>
-<li><p>Spectral information from selected spaxels is summed</p></li>
-<li><p>For 3D analysis, use external tools or Python scripting</p></li>
-<li><p>Large selections (&gt;50% of cube) may slow calculations</p></li>
-</ul>
+</div></blockquote>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <p>After selecting regions:</p>
 <ol class="arabic simple">
-<li><p><a class="reference internal" href="spectral_analysis.html"><span class="doc">Spectral Analysis</span></a> to analyze selected region</p></li>
-<li><p><a class="reference internal" href="gaussian_fitting.html"><span class="doc">Gaussian Fitting</span></a> to fit profiles</p></li>
+<li><p><a class="reference internal" href="gaussian_fitting.html"><span class="doc">Gaussian Fitting</span></a> to analyze profiles</p></li>
+<li><p><a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a> to remove baselines</p></li>
 <li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> to save results</p></li>
 </ol>
 </section>
@@ -439,7 +251,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="visualization.html" class="btn btn-neutral float-left" title="Visualization" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="spectral_analysis.html" class="btn btn-neutral float-right" title="Spectral Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="gaussian_fitting.html" class="btn btn-neutral float-right" title="Gaussian Fitting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

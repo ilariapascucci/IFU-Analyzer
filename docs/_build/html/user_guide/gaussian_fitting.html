@@ -20,7 +20,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Continuum Subtraction" href="continuum_subtraction.html" />
-    <link rel="prev" title="Spectral Analysis" href="spectral_analysis.html" /> 
+    <link rel="prev" title="Selecting Regions" href="selecting_regions.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -55,22 +55,12 @@
 <li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
 <li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
-<li class="toctree-l2"><a class="reference internal" href="spectral_analysis.html">Spectral Analysis</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Gaussian Fitting</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#why-fit-gaussians">Why Fit Gaussians?</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#interactive-single-pixel-fitting">Interactive Single-Pixel Fitting</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#full-cube-gaussian-fitting">Full-Cube Gaussian Fitting</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#viewing-fit-results">Viewing Fit Results</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fitting-parameters">Fitting Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#multi-component-fitting">Multi-Component Fitting</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#fitting-multiple-lines">Fitting Multiple Lines</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#baseline-continuum-fitting">Baseline/Continuum Fitting</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#exporting-fit-parameters">Exporting Fit Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#quality-assessment">Quality Assessment</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#advanced-fitting-options">Advanced Fitting Options</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#troubleshooting-fitting">Troubleshooting Fitting</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#best-practices">Best Practices</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
@@ -81,15 +71,10 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Support</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
 </ul>
 
@@ -113,7 +98,7 @@
             <a href="../_sources/user_guide/gaussian_fitting.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
-        <a href="spectral_analysis.html" class="btn btn-neutral float-left" title="Spectral Analysis" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="continuum_subtraction.html" class="btn btn-neutral float-right" title="Continuum Subtraction" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
@@ -134,348 +119,78 @@
 <li><p><strong>Integrated Flux</strong>: Total energy in the line</p></li>
 <li><p><strong>Quality Metrics</strong>: χ², R², residuals for assessment</p></li>
 </ul>
-<p>Used for:
-- Kinematic analysis (velocity maps)
-- Temperature estimation (width measures)
-- Flux measurements (integrated area)
-- Quality assessment (residuals)</p>
 </section>
 <section id="interactive-single-pixel-fitting">
 <h2>Interactive Single-Pixel Fitting<a class="headerlink" href="#interactive-single-pixel-fitting" title="Link to this heading"></a></h2>
 <p><strong>Quick Fit (Interactive)</strong></p>
 <ol class="arabic simple">
-<li><p>Click on spectrum display to select wavelength region</p></li>
-<li><p>Click <strong>Fit Single Pixel</strong> button (or press F)</p></li>
-<li><p>Gaussian overlay appears on spectrum</p></li>
-<li><p>Fit parameters shown:</p>
-<ul class="simple">
-<li><p><strong>Amplitude</strong> (A): Peak intensity</p></li>
+<li><p>Click on <strong>Gaussian Fit</strong> on the middle toolbar</p></li>
+</ol>
+<p>2. Select <strong>Left</strong>, <strong>Peak</strong>, and <strong>Right</strong> wavelengths on corresponding fit
+2. Click <strong>Fit Gaussian</strong> button
+3. Gaussian overlay appears on spectrum
+4. Fit parameters shown:</p>
+<blockquote>
+<div><ul class="simple">
 <li><p><strong>Center</strong> (μ): Line center wavelength</p></li>
+<li><p><strong>Amplitude</strong> (A): Peak intensity</p></li>
 <li><p><strong>Sigma</strong> (σ): Standard deviation</p></li>
 <li><p><strong>FWHM</strong>: Full Width Half Maximum</p></li>
-<li><p><strong>Area</strong>: Integrated flux</p></li>
-<li><p><strong>χ²</strong>: Fit quality (lower is better)</p></li>
+<li><p><strong>Gaussian Area</strong>: Integrated flux</p></li>
+<li><p><strong>Equivalent Width</strong>:</p></li>
+<li><p><strong>Slope</strong>:</p></li>
+<li><p><strong>Left Endpoint</strong>:</p></li>
 <li><p><strong>R²</strong>: Coefficient of determination (higher is better)</p></li>
+<li><p><strong>χ²</strong>: Fit quality (lower is better)</p></li>
+<li><p><strong>Data Points</strong>: Number of wavelength points in the fit</p></li>
 </ul>
-</li>
-<li><p><strong>Accept</strong> to keep fit, <strong>Reject</strong> to discard</p></li>
+</div></blockquote>
+<ol class="arabic simple" start="5">
+<li><p>Close informational window</p></li>
 </ol>
-<p><strong>Manual Adjustment</strong></p>
-<p>Refine the fit by dragging:</p>
-<ul class="simple">
-<li><p><strong>Peak marker</strong>: Adjust amplitude</p></li>
-<li><p><strong>Center line</strong>: Move center wavelength</p></li>
-<li><p><strong>Width handles</strong>: Adjust line width</p></li>
-<li><p>Press <strong>Enter</strong> to finalize</p></li>
-</ul>
-<p><strong>Fit Quality Indicators</strong></p>
-<ul class="simple">
-<li><p><strong>χ² &lt; 0.1</strong>: Excellent fit</p></li>
-<li><p><strong>χ² 0.1-1.0</strong>: Good fit</p></li>
-<li><p><strong>χ² 1.0-10</strong>: Marginal fit</p></li>
-<li><p><strong>χ² &gt; 10</strong>: Poor fit, try different method</p></li>
-<li><p><strong>R² &gt; 0.95</strong>: Excellent fit</p></li>
-<li><p><strong>R² &gt; 0.80</strong>: Acceptable fit</p></li>
-</ul>
 </section>
 <section id="full-cube-gaussian-fitting">
 <h2>Full-Cube Gaussian Fitting<a class="headerlink" href="#full-cube-gaussian-fitting" title="Link to this heading"></a></h2>
 <p>Fit all pixels in the cube simultaneously:</p>
 <p><strong>Starting Cube Fit</strong></p>
 <ol class="arabic simple">
-<li><p>Click <strong>Fit Full Cube</strong> button (or press C)</p></li>
-<li><p>Configuration dialog:</p>
-<ul class="simple">
-<li><p><strong>Wavelength range</strong>: Lines to analyze</p></li>
-<li><p><strong>Continuum subtraction</strong>: Yes/No</p></li>
-<li><p><strong>Number of processors</strong>: Use all cores for speed</p></li>
-<li><p><strong>Preview</strong>: Show first fit before processing</p></li>
-</ul>
-</li>
+<li><p>Select <strong>Noise L</strong> and <strong>Noise R</strong> to gather noise information near the fit</p></li>
+<li><p>Click <strong>Fit Gaussian Map</strong> button</p></li>
 <li><p>Click <strong>Start</strong> to begin</p></li>
 </ol>
 <p><strong>Progress Monitoring</strong></p>
 <ul class="simple">
 <li><p>Progress bar shows % complete</p></li>
-<li><p>Current pixel displayed</p></li>
-<li><p>Estimated time remaining</p></li>
-<li><p>Cancel button available</p></li>
 </ul>
 <p><strong>Output Maps</strong></p>
 <p>After fitting, created maps include:</p>
 <ul class="simple">
+<li><p><strong>Area Map</strong>: Integrated line flux</p></li>
 <li><p><strong>Amplitude Map</strong>: Peak intensity at each pixel</p></li>
-<li><p><strong>Center Map</strong>: Line center wavelength (shows kinematics)</p></li>
+<li><p><strong>Center Map</strong>: Line center wavelength</p></li>
 <li><p><strong>Sigma Map</strong>: Line width (σ values)</p></li>
 <li><p><strong>FWHM Map</strong>: Full width at half maximum</p></li>
-<li><p><strong>Area Map</strong>: Integrated line flux</p></li>
 <li><p><strong>Chi-Squared Map</strong>: Fit quality at each pixel</p></li>
 <li><p><strong>Success Mask</strong>: Good vs. failed fits</p></li>
+<li><p><strong>Residuals</strong>:</p></li>
 </ul>
 </section>
 <section id="viewing-fit-results">
 <h2>Viewing Fit Results<a class="headerlink" href="#viewing-fit-results" title="Link to this heading"></a></h2>
 <p><strong>Display Parameter Map</strong></p>
-<ol class="arabic simple">
-<li><p>Analysis → View Fit Results</p></li>
-<li><p>Select which map to display:</p>
-<ul class="simple">
-<li><p>Amplitude → Star (★) symbol in icon bar</p></li>
-<li><p>Center → Diamond symbol</p></li>
-<li><p>Width → ∑ symbol</p></li>
-</ul>
-</li>
-<li><p>Map appears in main display</p></li>
-</ol>
-<p><strong>Map Overlays</strong></p>
-<p>Display multiple maps simultaneously:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Overlay Maps</p></li>
-<li><p>Select primary and secondary maps</p></li>
-<li><p>Primary: Color, Secondary: Transparency overlay</p></li>
-</ol>
-<p><strong>Quality Map</strong></p>
-<p>Visualize which fits succeeded:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Success Mask</p></li>
-<li><p>Green: Good fits (χ² &lt; threshold)</p></li>
-<li><p>Red: Failed fits</p></li>
-<li><p>Adjust threshold in dialog</p></li>
-</ol>
-</section>
-<section id="fitting-parameters">
-<h2>Fitting Parameters<a class="headerlink" href="#fitting-parameters" title="Link to this heading"></a></h2>
-<p><strong>Wavelength Range</strong></p>
-<p>Specify which spectral region to fit:</p>
-<ol class="arabic simple">
-<li><p>Select on spectrum (click + drag)</p></li>
-<li><p>Or enter manually: <strong>From</strong>, <strong>To</strong> wavelength</p></li>
-<li><p>Gaussian fit limited to this range</p></li>
-</ol>
-<p><strong>Initial Guess</strong></p>
-<p>Improve fitting by providing initial guess:</p>
-<ol class="arabic simple">
-<li><p>Fit → Options → Initial Guess</p></li>
-<li><p>Estimate:
-- <strong>Center</strong>: Approximate line wavelength
-- <strong>Sigma</strong>: Approximate width
-- <strong>Amplitude</strong>: Approximate peak height</p></li>
-<li><p>Better initial guess = faster convergence</p></li>
-</ol>
+<p>Parameter maps appear after gaussian mapping is complete. Closing this window keeps the
+maps in memory unless new values are input.</p>
 <p><strong>Constraints</strong></p>
-<p>Limit parameter ranges:</p>
 <ol class="arabic simple">
-<li><p>Fit → Options → Constraints</p></li>
-<li><p>Set min/max for each parameter:
-- Amplitude: 0 to max possible flux
-- Center: Valid wavelength range
-- Sigma: Minimum line width</p></li>
-<li><p>Prevents non-physical solutions</p></li>
-</ol>
-<p><strong>Weight by Uncertainty</strong></p>
-<p>Use data uncertainties in fitting:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Weighted Fitting</p></li>
-<li><p>If error column exists in data, used automatically</p></li>
-<li><p>Pixels with high uncertainty: lower weight</p></li>
-<li><p>Results in more robust fits</p></li>
-</ol>
-</section>
-<section id="multi-component-fitting">
-<h2>Multi-Component Fitting<a class="headerlink" href="#multi-component-fitting" title="Link to this heading"></a></h2>
-<p>Fit multiple Gaussians to deblended lines:</p>
-<p><strong>Two-Component Fit</strong></p>
-<ol class="arabic simple">
-<li><p>Spectrum shows blended features</p></li>
-<li><p>Analysis → Multi-Component Fit → Two Gaussians</p></li>
-<li><p>Software identifies two components</p></li>
-<li><p>Each component fitted separately</p></li>
-<li><p>Results for each component displayed</p></li>
-</ol>
-<p><strong>Three+ Components</strong></p>
-<p>For more complex profiles:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Multi-Component Fit → Custom Number</p></li>
-<li><p>Specify number of components</p></li>
-<li><p>Manual adjustments may be needed</p></li>
-<li><p>Each component’s parameters extracted</p></li>
-</ol>
-</section>
-<section id="fitting-multiple-lines">
-<h2>Fitting Multiple Lines<a class="headerlink" href="#fitting-multiple-lines" title="Link to this heading"></a></h2>
-<p><strong>Simultaneous Multi-Line Fit</strong></p>
-<p>Fit several lines at once:</p>
-<ol class="arabic simple">
-<li><p>Tools → Spectral Analysis → Multi-Line Fit</p></li>
-<li><p>Select lines to fit</p></li>
-<li><p>All fitted with shared continuum</p></li>
-<li><p>Results for each line displayed</p></li>
-<li><p>More robust when lines close together</p></li>
-</ol>
-</section>
-<section id="baseline-continuum-fitting">
-<h2>Baseline/Continuum Fitting<a class="headerlink" href="#baseline-continuum-fitting" title="Link to this heading"></a></h2>
-<p><strong>Fitting Polynomial Continuum</strong></p>
-<p>Remove underlying continuum before line fitting:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Fit Continuum</p></li>
-<li><p>Select continuum fitting method:
-- <strong>Linear</strong>: Straight line
-- <strong>Quadratic</strong>: Parabola
-- <strong>Cubic</strong>: Higher-order polynomial
-- <strong>Spline</strong>: Flexible curve</p></li>
-<li><p>Specify baseline wavelength regions</p></li>
-<li><p>Continuum subtracted from spectrum</p></li>
-</ol>
-<p><strong>Automatic Baseline</strong></p>
-<p>Let software identify continuum:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Auto Baseline</p></li>
-<li><p>Software identifies line-free regions</p></li>
-<li><p>Baseline computed from those regions</p></li>
-<li><p>Typically works well for isolated lines</p></li>
+<li><p>Left→Peak→Right should be in a logical order</p></li>
+<li><p>For more accurate results, noise should not be too far from the original fit.</p></li>
 </ol>
 </section>
 <section id="exporting-fit-parameters">
 <h2>Exporting Fit Parameters<a class="headerlink" href="#exporting-fit-parameters" title="Link to this heading"></a></h2>
 <p><strong>Save Parameter Maps as FITS</strong></p>
-<ol class="arabic simple">
-<li><p>File → Export Results</p></li>
-<li><p>Select which maps to save:
-- Check Amplitude, Center, Sigma, FWHM, Area
-- Check Chi-Squared, Success Mask</p></li>
-<li><p>Specify output filename</p></li>
-<li><p>FITS file created with extensions for each map</p></li>
-</ol>
-<p><strong>Save Parameter Table</strong></p>
-<p>Export individual pixel parameters as ASCII:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Export Parameters</p></li>
-<li><p>Choose format:
-- Tab-delimited (.txt)
-- CSV (.csv)
-- FITS table (.fits)</p></li>
-<li><p>Columns: X, Y, Amplitude, Center, Sigma, Area, Chi²</p></li>
-</ol>
-<p><strong>Save Residuals</strong></p>
-<p>Export residual cube (data minus fit):</p>
-<ol class="arabic simple">
-<li><p>File → Export Residuals</p></li>
-<li><p>Cube dimensions match input</p></li>
-<li><p>Each pixel: residuals = data - Gaussian</p></li>
-</ol>
-</section>
-<section id="quality-assessment">
-<h2>Quality Assessment<a class="headerlink" href="#quality-assessment" title="Link to this heading"></a></h2>
-<p><strong>Examining Residuals</strong></p>
-<p>Check goodness of fit via residuals:</p>
-<ol class="arabic simple">
-<li><p>File → Export Residuals</p></li>
-<li><p>Visualize residuals cube</p></li>
-<li><p>Random residuals: Good fit ✓</p></li>
-<li><p>Systematic patterns: Bad fit, try different method ✗</p></li>
-</ol>
-<p><strong>Chi-Squared Analysis</strong></p>
-<p>Assess fit quality:</p>
-<ol class="arabic simple">
-<li><p>Analysis → View Results → Chi-Squared Map</p></li>
-<li><p>Color scale: Brighter = worse fit</p></li>
-<li><p>Investigate red pixels for issues</p></li>
-<li><p>Manual refit of problem regions if needed</p></li>
-</ol>
-<p><strong>Visual Inspection</strong></p>
-<p>Always examine fitted spectra:</p>
-<ol class="arabic simple">
-<li><p>For each region, view:
-- Fitted curve overlaid on data
-- Residual difference
-- Confidence bands</p></li>
-<li><p>Look for:
-- Systematic deviations
-- Poor fit in wings
-- Underlying noise patterns</p></li>
-</ol>
-</section>
-<section id="advanced-fitting-options">
-<h2>Advanced Fitting Options<a class="headerlink" href="#advanced-fitting-options" title="Link to this heading"></a></h2>
-<p><strong>Robust Fitting</strong></p>
-<p>Reduce impact of outliers:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Fit Options → Robust Mode</p></li>
-<li><p>Uses outlier-resistant algorithm</p></li>
-<li><p>Downweights extreme values</p></li>
-<li><p>Better for noisy data</p></li>
-</ol>
-<p><strong>Regularization</strong></p>
-<p>Prevent overfitting:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Fit Options → Regularization</p></li>
-<li><p>Choose strength level</p></li>
-<li><p>Favors smoother solutions</p></li>
-<li><p>Good for noisy data</p></li>
-</ol>
-<p><strong>Parallelization</strong></p>
-<p>Speed up full-cube fitting:</p>
-<ol class="arabic simple">
-<li><p>Analysis → Fit Options → Processes</p></li>
-<li><p>Specify number of processors to use</p></li>
-<li><p>Typically: Use all available cores</p></li>
-<li><p>Dramatic speed improvement for large cubes</p></li>
-</ol>
-</section>
-<section id="troubleshooting-fitting">
-<h2>Troubleshooting Fitting<a class="headerlink" href="#troubleshooting-fitting" title="Link to this heading"></a></h2>
-<p><strong>Fits look bad (high χ², wrong parameters)</strong></p>
-<ul class="simple">
-<li><p>Check wavelength calibration</p></li>
-<li><p>Try different initial guess</p></li>
-<li><p>Examine residuals for patterns</p></li>
-<li><p>Consider multi-component fit if blended</p></li>
-<li><p>Use robust fitting for noisy data</p></li>
-</ul>
-<p><strong>Fits fail for some pixels (red in mask)</strong></p>
-<ul class="simple">
-<li><p>Those pixels may have no signal</p></li>
-<li><p>Baseline may be too high</p></li>
-<li><p>Line may be noise</p></li>
-<li><p>Check individual spectrum quality</p></li>
-</ul>
-<p><strong>Fitting is slow</strong></p>
-<ul class="simple">
-<li><p>Use fewer processors for initial testing</p></li>
-<li><p>Fit smaller wavelength range</p></li>
-<li><p>Consider downsampling cube</p></li>
-<li><p>Upgrade computer hardware if repeatedly slow</p></li>
-</ul>
-<p><strong>Parameters unrealistic</strong></p>
-<ul class="simple">
-<li><p>Check constraints are appropriate</p></li>
-<li><p>Verify wavelength calibration</p></li>
-<li><p>Compare with other methods</p></li>
-<li><p>Manually check a few fits</p></li>
-</ul>
-</section>
-<section id="best-practices">
-<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
-<ol class="arabic simple">
-<li><p><strong>Always inspect fits visually</strong></p></li>
-<li><p><strong>Check χ² values for all pixels</strong></p></li>
-<li><p><strong>Examine residuals for systematic errors</strong></p></li>
-<li><p><strong>Verify constraints are physically sensible</strong></p></li>
-<li><p><strong>Compare with other analysis methods when possible</strong></p></li>
-<li><p><strong>Document your fitting procedure</strong></p></li>
-<li><p><strong>Save both data and results for reproducibility</strong></p></li>
-</ol>
-</section>
-<section id="next-steps">
-<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
-<p>After fitting Gaussians:</p>
-<ol class="arabic simple">
-<li><p>Export results using <a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a></p></li>
-<li><p>Use parameter maps for kinematic analysis</p></li>
-<li><p>Calculate physical quantities from line properties</p></li>
-<li><p>Compare with other datasets</p></li>
-</ol>
+<p>On each map, click on <strong>Save as FITS file</strong>. This saves the parameter map as
+a 1-slice 3D FITS file available to open in a new window.</p>
 </section>
 </section>
 
@@ -483,7 +198,7 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="spectral_analysis.html" class="btn btn-neutral float-left" title="Spectral Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="continuum_subtraction.html" class="btn btn-neutral float-right" title="Continuum Subtraction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
