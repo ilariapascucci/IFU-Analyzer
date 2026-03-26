@@ -14,22 +14,13 @@ The IFU Analyzer window is organized into several key areas:
 
 *Note: Screenshot showing main interface layout*
 
-**1. Menu Bar** (Top)
-
-- **File**: Open, save, export data
-- **View**: Display options, coordinate systems
-- **Tools**: Analysis functions, preferences
-- **Help**: Documentation, keyboard shortcuts
-
-**2. Toolbar** (Below menu)
+**1. Toolbar** (Top)
 
 Quick-access buttons for common functions:
 
 ============================== ========================================
 Button                         Function
 ============================== ========================================
-**Open FITS**                  Load a data cube (Ctrl+O)
-**Save**                       Save project (Ctrl+S)
 **Select Region**              Activate region selection tools
 **Fit Single Pixel**           Fit Gaussian to current spectrum
 **Fit Full Cube**              Fit Gaussians to all pixels
@@ -78,122 +69,6 @@ Various controls for navigation and analysis:
 - **Intensity Range**: Adjust vmin/vmax
 - **Colormap Selection**: Choose color scheme
 - **Statistics**: Min/max/mean of current view
-
-Menu Reference
-==============
-
-File Menu
----------
-
-**Open FITS** (Ctrl+O)
-  Load a FITS data cube
-
-**Save Project** (Ctrl+S)
-  Save analysis state (not commonly used)
-
-**Export Spectrum**
-  Save current spectrum as ASCII or FITS
-
-**Export Results**
-  Save parameter maps (from Gaussian fitting)
-
-**Export Residuals**
-  Save residuals cube from fitting
-
-**Recent Files**
-  Quick access to recently loaded files
-
-**Exit** (Alt+F4)
-  Close the application
-
-View Menu
----------
-
-**Zoom In** (Ctrl++)
-  Magnify the intensity map
-
-**Zoom Out** (Ctrl+-)
-  Reduce magnification
-
-**Fit to Window**
-  Auto-scale view to window size
-
-**Coordinate System**
-  - Wavelength (default)
-  - RA/DEC (if WCS available)
-
-**Color Scale**
-  - Linear: Direct intensity mapping
-  - Logarithmic: Emphasize faint features
-  - Power Law: Non-linear scaling
-  - Square Root: Intermediate option
-
-**Show Grid**
-  Overlay coordinate grid
-
-**Show Colorbar**
-  Display intensity scale
-
-Tools Menu
-----------
-
-**Gaussian Fitting**
-  - Fit Single: Interactive fitting
-  - Fit Cube: Batch processing
-  - View Residuals: Compare data to fits
-
-**Continuum Subtraction**
-  Remove baseline emission
-
-**Region Statistics**
-  Calculate statistics of selected regions
-
-**CO Flux Extraction**
-  Measure CO line fluxes (specialized)
-
-**Preferences**
-  Adjust display and analysis settings
-
-**Normalize Display**
-  Choose normalization method
-
-Help Menu
----------
-
-**Documentation**
-  Open this documentation
-
-**Keyboard Shortcuts**
-  Display shortcut reference
-
-**About**
-  Version and copyright information
-
-Keyboard Shortcuts
-==================
-
-=========================== ==================================
-Shortcut                    Action
-=========================== ==================================
-**Ctrl+O**                  Open FITS file
-**Ctrl+S**                  Save project
-**Ctrl+E**                  Export spectrum
-**Ctrl++** or **Scroll Up**  Zoom in
-**Ctrl+-** or **Scroll Dn** Zoom out
-**Ctrl+0**                  Reset zoom/fit to window
-**Right Arrow**             Next wavelength channel
-**Left Arrow**              Previous wavelength channel
-**Up Arrow**                Increase wavelength step
-**Down Arrow**              Decrease wavelength step
-**R**                       Activate region selector
-**F**                       Fit single pixel
-**C**                       Fit full cube
-**G**                       Toggle grid
-**L**                       Linear color scale
-**M**                       Logarithmic color scale
-**Delete**                  Clear current selection
-**Escape**                  Cancel current operation
-=========================== ==================================
 
 Context Menus
 =============
@@ -322,6 +197,6 @@ Getting Help
 If you forget a button's function:
 
 - **Hover**: Mouse over buttons to see tooltip
-- **Menu**: Find functions in menus with descriptions
+- **Toolbar Buttons**: Use buttons for common tasks
 - **Keyboard**: Press F1 or ? for help
 - **This Guide**: Full documentation available

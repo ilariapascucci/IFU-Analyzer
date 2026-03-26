@@ -23,19 +23,12 @@ This comprehensive documentation covers everything you need to get started, use 
    :maxdepth: 2
    :caption: Features & Analysis
 
-   features/index
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Reference
-
-   reference/index
+   features
 
 .. toctree::
    :maxdepth: 1
    :caption: Support
 
-   troubleshooting
    faq
 
 Search

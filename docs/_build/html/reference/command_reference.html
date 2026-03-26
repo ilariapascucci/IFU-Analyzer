@@ -54,7 +54,7 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
@@ -62,11 +62,15 @@
 <li class="toctree-l2"><a class="reference internal" href="file_formats.html">File Formats</a></li>
 <li class="toctree-l2"><a class="reference internal" href="keyboard_shortcuts.html">Keyboard Shortcuts</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Command Reference</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#file-menu">File Menu</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#view-menu">View Menu</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#toolbar-buttons">Toolbar Buttons</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#display-controls">Display Controls</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#right-click-options">Right-Click Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#dialog-windows">Dialog Windows</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#finding-commands">Finding Commands</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tips">Tips</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#tools-menu">Tools Menu</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#help-menu">Help Menu</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#toolbar-buttons">Toolbar Buttons</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id1">Toolbar Buttons</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#right-click-context-menus">Right-Click Context Menus</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#dialog-commands">Dialog Commands</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#preferences-dialog">Preferences Dialog</a></li>
@@ -120,83 +124,111 @@
              
   <section id="command-reference">
 <h1>Command Reference<a class="headerlink" href="#command-reference" title="Link to this heading"></a></h1>
-<p>Comprehensive listing of all commands accessible through menus and dialogs.</p>
-<section id="file-menu">
-<h2>File Menu<a class="headerlink" href="#file-menu" title="Link to this heading"></a></h2>
-<p><strong>Open FITS</strong> (Ctrl+O)</p>
-<p>Load a FITS data cube from disk.</p>
-<p>Options:</p>
-<ul class="simple">
-<li><p>Select FITS file</p></li>
-<li><p>Choose instrument type</p></li>
-<li><p>Advanced: Specify subregion, HDU selection</p></li>
-</ul>
-<p><strong>Save Project</strong> (Ctrl+S)</p>
-<p>Save your analysis session (basic functionality).</p>
-<p>Options:</p>
-<ul class="simple">
-<li><p>Project metadata only</p></li>
-<li><p>Not typically used</p></li>
-</ul>
-<p><strong>Export Spectrum</strong> (Ctrl+E)</p>
-<p>Export current spectrum for analysis.</p>
-<p>Formats:</p>
-<ul class="simple">
-<li><p>ASCII tab-delimited (.txt)</p></li>
-<li><p>FITS binary table (.fits)</p></li>
-<li><p>Comma-separated values (.csv)</p></li>
-</ul>
-<p>Options:</p>
-<ul class="simple">
-<li><p>Original or normalized</p></li>
-<li><p>Include error bars</p></li>
-<li><p>Custom column selection</p></li>
-</ul>
-<p><strong>Export Results</strong></p>
-<p>Export analysis results (Gaussian fits, maps, etc.).</p>
-<p>Formats:</p>
-<ul class="simple">
-<li><p>FITS multi-extension</p></li>
-<li><p>ASCII table, CSV</p></li>
-</ul>
-<p>Outputs:</p>
-<ul class="simple">
-<li><p>Parameter maps (amplitude, center, width, etc.)</p></li>
-<li><p>Success mask</p></li>
-<li><p>Quality metrics (χ², R²)</p></li>
-</ul>
-<p><strong>Export Residuals</strong></p>
-<p>Export residual cube from fitting.</p>
-<p>Format:</p>
-<ul class="simple">
-<li><p>3D FITS cube</p></li>
-<li><p>Same dimensions as input</p></li>
-</ul>
-<p><strong>Recent Files</strong></p>
-<p>Quick access to recently opened files.</p>
-<p>List shows:</p>
-<ul class="simple">
-<li><p>Most recent first</p></li>
-<li><p>File paths and dates</p></li>
-<li><p>Click to re-open</p></li>
-</ul>
-<p><strong>Exit</strong> (Alt+F4)</p>
-<p>Close application.</p>
+<p>Overview of available commands and interface elements in IFU Analyzer.</p>
+<section id="toolbar-buttons">
+<h2>Toolbar Buttons<a class="headerlink" href="#toolbar-buttons" title="Link to this heading"></a></h2>
+<p>The main toolbar at the top of the window provides quick access to core functions:</p>
+<dl class="simple">
+<dt><strong>Open FITS</strong></dt><dd><p>Click to browse and load a FITS data cube file. Supports MUSE, ALMA, MIRI, and NIRSpec data.</p>
+</dd>
+<dt><strong>Select Region</strong></dt><dd><p>Activate region selection tools to define areas for analysis.</p>
+</dd>
+<dt><strong>Fit Single Pixel</strong></dt><dd><p>Perform Gaussian fitting on the current spectrum (interactive).</p>
+</dd>
+<dt><strong>Fit Full Cube</strong></dt><dd><p>Run Gaussian fitting across all pixels in the cube (batch processing).</p>
+</dd>
+<dt><strong>Subtract Continuum</strong></dt><dd><p>Remove baseline emission from the spectrum.</p>
+</dd>
+<dt><strong>CO Flux Extraction</strong></dt><dd><p>Extract CO line flux measurements (specialized for CO observations).</p>
+</dd>
+<dt><strong>Change Colormap</strong></dt><dd><p>Select different color schemes for the intensity map display.</p>
+</dd>
+<dt><strong>Adjust Color Scale</strong></dt><dd><p>Set color scaling: linear, logarithmic, power law, or square root.</p>
+</dd>
+<dt><strong>Zoom In/Out</strong></dt><dd><p>Magnify or reduce the intensity map view.</p>
+</dd>
+<dt><strong>Reset View</strong></dt><dd><p>Return to default zoom and view settings.</p>
+</dd>
+</dl>
 </section>
-<section id="view-menu">
-<h2>View Menu<a class="headerlink" href="#view-menu" title="Link to this heading"></a></h2>
-<p><strong>Zoom In</strong> (Ctrl++)</p>
-<p>Magnify the intensity map.</p>
-<p>Methods:</p>
+<section id="display-controls">
+<h2>Display Controls<a class="headerlink" href="#display-controls" title="Link to this heading"></a></h2>
+<p><strong>Wavelength Slider</strong> (Left panel)</p>
+<p>Navigate through the data cube:</p>
 <ul class="simple">
-<li><p>Scroll wheel: Zoom</p></li>
-<li><p>Menu: Incremental zoom</p></li>
-<li><p>Type zoom level</p></li>
+<li><p>Click and drag to move through wavelengths smoothly</p></li>
+<li><p>Click specific wavelength labels to jump to that channel</p></li>
+<li><p>View shows currently selected wavelength</p></li>
 </ul>
-<p><strong>Zoom Out</strong> (Ctrl+-)</p>
-<p>Reduce magnification.</p>
-<p>Methods:</p>
+<p><strong>Intensity Range (vmin/vmax)</strong> (Left panel)</p>
+<p>Adjust brightness and contrast:</p>
 <ul class="simple">
+<li><p>Move sliders to set minimum and maximum display values</p></li>
+<li><p>Auto-scale button sets optimal range automatically</p></li>
+</ul>
+<p><strong>Colormap Selection</strong> (Left panel)</p>
+<p>Choose color scheme:</p>
+<ul class="simple">
+<li><p>Select from available colormaps</p></li>
+<li><p>Preview shows color gradient</p></li>
+</ul>
+</section>
+<section id="right-click-options">
+<h2>Right-Click Options<a class="headerlink" href="#right-click-options" title="Link to this heading"></a></h2>
+<p><strong>On Intensity Map</strong></p>
+<ul class="simple">
+<li><p>View pixel statistics</p></li>
+<li><p>Clear current selection</p></li>
+<li><p>Other region-based operations</p></li>
+</ul>
+<p><strong>On Spectrum</strong></p>
+<ul class="simple">
+<li><p>Export spectrum</p></li>
+<li><p>View fitting results</p></li>
+<li><p>Zoom into spectral region</p></li>
+</ul>
+</section>
+<section id="dialog-windows">
+<h2>Dialog Windows<a class="headerlink" href="#dialog-windows" title="Link to this heading"></a></h2>
+<p><strong>File Operations</strong></p>
+<p>Dialogs appear for:</p>
+<ul class="simple">
+<li><p>Loading FITS files</p></li>
+<li><p>Exporting data (spectrum, results, residuals)</p></li>
+<li><p>Choosing output formats and locations</p></li>
+</ul>
+<p><strong>Analysis Options</strong></p>
+<p>Dialogs available for:</p>
+<ul class="simple">
+<li><p>Gaussian fitting parameters</p></li>
+<li><p>Continuum subtraction settings</p></li>
+<li><p>CO flux extraction options</p></li>
+</ul>
+<p><strong>Display Settings</strong></p>
+<p>Configure through dialogs:</p>
+<ul class="simple">
+<li><p>Color scale properties</p></li>
+<li><p>Intensity range adjustments</p></li>
+<li><p>Colormap selection</p></li>
+</ul>
+</section>
+<section id="finding-commands">
+<h2>Finding Commands<a class="headerlink" href="#finding-commands" title="Link to this heading"></a></h2>
+<p>To locate a command:</p>
+<ol class="arabic simple">
+<li><p><strong>Toolbar</strong>: Look for matching button with icon and tooltip</p></li>
+<li><p><strong>Right-click</strong>: Try right-clicking on data area for context options</p></li>
+<li><p><strong>Dialog Buttons</strong>: Look within dialog windows that appear after you select a tool</p></li>
+<li><p><strong>Status Bar</strong>: Check bottom of window for confirmation and current state</p></li>
+</ol>
+</section>
+<section id="tips">
+<h2>Tips<a class="headerlink" href="#tips" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Hover over toolbar buttons to see tooltips describing their function</p></li>
+<li><p>Most data operations require loading a FITS file first</p></li>
+<li><p>Right-click is your best friend for discovering available options on data</p></li>
+<li><p>Dialog windows appear for detailed settings when you click major operations</p></li>
 <li><p>Scroll wheel</p></li>
 <li><p>Menu buttons</p></li>
 <li><p>Keyboard shortcut</p></li>
@@ -320,8 +352,8 @@
 <p><strong>Check for Updates</strong></p>
 <p>Look for newer versions online.</p>
 </section>
-<section id="toolbar-buttons">
-<h2>Toolbar Buttons<a class="headerlink" href="#toolbar-buttons" title="Link to this heading"></a></h2>
+<section id="id1">
+<h2>Toolbar Buttons<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
 <table class="docutils align-default">
 <thead>
 <tr class="row-odd"><th class="head"><p>Button</p></th>

@@ -47,14 +47,12 @@
 <li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Quick Start</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#installation-30-seconds">Installation (30 seconds)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#your-first-analysis-5-minutes">Your First Analysis (5 minutes)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#basic-workflow-example">Basic Workflow Example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#key-toolbar-buttons">Key Toolbar Buttons</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#loading-your-first-data-file">Loading Your First Data File</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#analyzing-a-spectral-line">Analyzing a Spectral Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#mapping-across-the-cube">Mapping Across the Cube</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#common-tasks">Common Tasks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#tips-tricks">Tips &amp; Tricks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#next-steps">Next Steps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#need-more-help">Need More Help?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#for-more-information">For More Information</a></li>
 </ul>
 </li>
 </ul>
@@ -105,218 +103,74 @@
              
   <section id="quick-start">
 <h1>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h1>
-<p>This quick start guide will get you analyzing IFU data in just a few minutes.</p>
-<section id="installation-30-seconds">
-<h2>Installation (30 seconds)<a class="headerlink" href="#installation-30-seconds" title="Link to this heading"></a></h2>
-<ol class="arabic simple">
-<li><p>Install dependencies:</p></li>
-</ol>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>numpy<span class="w"> </span>matplotlib<span class="w"> </span>astropy<span class="w"> </span>PyQt5<span class="w"> </span>scipy
+<p>Get up and running in 5 minutes.</p>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+python<span class="w"> </span>main.py
 </pre></div>
 </div>
-<ol class="arabic simple" start="2">
-<li><p>Run the application:</p></li>
-</ol>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py
-</pre></div>
-</div>
-<p>The IFU Analyzer window should open.</p>
+<p>Done! The application opens.</p>
 </section>
-<section id="your-first-analysis-5-minutes">
-<h2>Your First Analysis (5 minutes)<a class="headerlink" href="#your-first-analysis-5-minutes" title="Link to this heading"></a></h2>
+<section id="loading-your-first-data-file">
+<h2>Loading Your First Data File<a class="headerlink" href="#loading-your-first-data-file" title="Link to this heading"></a></h2>
 <ol class="arabic simple">
-<li><p><strong>Load a FITS File</strong></p>
-<ul class="simple">
 <li><p>Click <strong>File → Open FITS</strong></p></li>
-<li><p>Navigate to your FITS data cube</p></li>
-<li><p>Select the instrument type (MUSE, ALMA, MIRI, NIRSpec, or Generic)</p></li>
+<li><p>Select a FITS file</p></li>
+<li><p>Choose the instrument (MUSE, ALMA, MIRI, NIRSpec, or Generic)</p></li>
 <li><p>Click <strong>Open</strong></p></li>
-</ul>
-</li>
-<li><p><strong>Explore the Data</strong></p>
-<ul class="simple">
-<li><p>The <strong>main view</strong> shows an intensity map of the cube at a specific wavelength</p></li>
-<li><p>The <strong>spectrum panel</strong> shows the integrated spectrum</p></li>
-<li><p>Adjust the <strong>wavelength slider</strong> to move through the cube</p></li>
-<li><p>Hover over the spectrum to see individual wavelengths</p></li>
-</ul>
-</li>
-<li><p><strong>Select a Region</strong></p>
-<ul class="simple">
-<li><p>Click the <strong>Select Region</strong> button in the toolbar</p></li>
-<li><p>Choose a selection tool (point, rectangle, circle, ellipse, or polygon)</p></li>
-<li><p>Click and drag on the intensity map to select a region</p></li>
-<li><p>The spectrum updates to show the averaged spectrum of that region</p></li>
-</ul>
-</li>
-<li><p><strong>Analyze Spectral Features</strong></p>
-<ul class="simple">
-<li><p>Right-click on the spectrum → <strong>Fit Gaussian</strong></p></li>
-<li><p>The fit overlay appears on the spectrum showing the fitted profile</p></li>
-<li><p>View fit parameters: amplitude, center, FWHM, area, χ²</p></li>
-<li><p>Click <strong>Accept</strong> to save the fit</p></li>
-</ul>
-</li>
-<li><p><strong>Export Results</strong></p>
-<ul class="simple">
-<li><p>Click <strong>File → Export Spectrum</strong></p></li>
-<li><p>Choose a format (ASCII or FITS)</p></li>
-<li><p>Specify an output filename</p></li>
-<li><p>Results are saved for further analysis</p></li>
-</ul>
-</li>
 </ol>
+<p>You’ll see:
+- <strong>Intensity map</strong> (center) - brightness at current wavelength
+- <strong>Spectrum</strong> (right) - emission lines and features
+- <strong>Wavelength slider</strong> (bottom) - navigate through the cube</p>
 </section>
-<section id="basic-workflow-example">
-<h2>Basic Workflow Example<a class="headerlink" href="#basic-workflow-example" title="Link to this heading"></a></h2>
-<p>Let’s analyze a CO emission line in a MUSE cube:</p>
-<p><strong>Step 1: Load the data</strong></p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>File → Open FITS → Select &quot;muse_cube.fits&quot; → Choose &quot;MUSE&quot; instrument
-</pre></div>
-</div>
-<p><strong>Step 2: Navigate to the line</strong></p>
-<ul class="simple">
-<li><p>Use the wavelength slider to find the CO 2-1 transition around 6562.8 Å</p></li>
-<li><p>The intensity map should show a bright emission region</p></li>
-</ul>
-<p><strong>Step 3: Select the emitting region</strong></p>
-<ul class="simple">
-<li><p>Select <strong>Rectangle Tool</strong> from the toolbar</p></li>
-<li><p>Draw a rectangle around the bright emission</p></li>
-<li><p>The spectrum panel shows the CO line clearly</p></li>
-</ul>
-<p><strong>Step 4: Fit the line profile</strong></p>
-<ul class="simple">
-<li><p>Right-click on the spectrum → <strong>Fit Gaussian</strong></p></li>
-<li><p>Observe:
-- <strong>Amplitude</strong>: Peak intensity of the line
-- <strong>Center</strong>: Exact wavelength of the emission
-- <strong>FWHM</strong>: Width of the line (related to velocity)
-- <strong>Area</strong>: Total flux in the line</p></li>
-</ul>
-<p><strong>Step 5: Create a map</strong></p>
-<ul class="simple">
-<li><p>Click <strong>Analysis → Fit Full Cube</strong></p></li>
-<li><p>Wait for the processing to complete</p></li>
-<li><p>The amplitude map shows the line strength at each pixel</p></li>
-<li><p>The center map shows velocity variations</p></li>
-</ul>
-<p><strong>Step 6: Export</strong></p>
-<ul class="simple">
-<li><p>File → Export Spectrum to save the analyzed spectrum</p></li>
-<li><p>File → Export Results to save parameter maps as FITS</p></li>
-</ul>
+<section id="analyzing-a-spectral-line">
+<h2>Analyzing a Spectral Line<a class="headerlink" href="#analyzing-a-spectral-line" title="Link to this heading"></a></h2>
+<p><strong>Step 1: Navigate to your line</strong></p>
+<p>Use the wavelength slider to find your emission line.</p>
+<p><strong>Step 2: Select a region (optional)</strong></p>
+<p>Click <strong>Select Region</strong> → choose a shape → draw on the intensity map.</p>
+<p>This shows the spectrum just from that region.</p>
+<p><strong>Step 3: Fit the line profile</strong></p>
+<p>Right-click on the spectrum → <strong>Fit Gaussian</strong></p>
+<p>You’ll see:
+- Fitted curve overlaid on the data
+- <strong>Parameters</strong>: Amplitude, Center, FWHM, Area, χ²</p>
+<p>Click <strong>Accept</strong> to save.</p>
+<p><strong>Step 4: Export your results</strong></p>
+<p>File → <strong>Export Spectrum</strong> → choose format (ASCII or FITS) → save</p>
 </section>
-<section id="key-toolbar-buttons">
-<h2>Key Toolbar Buttons<a class="headerlink" href="#key-toolbar-buttons" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Button</p></th>
-<th class="head"><p>Function</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><strong>Open FITS</strong></p></td>
-<td><p>Load a data cube</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Save</strong></p></td>
-<td><p>Save analysis results</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Select Region</strong></p></td>
-<td><p>Activate region selection tools</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Fit Single</strong></p></td>
-<td><p>Fit a Gaussian to the currently displayed spectrum</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Fit Cube</strong></p></td>
-<td><p>Fit Gaussians to every pixel in the cube</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Continuum</strong></p></td>
-<td><p>Subtract the continuum baseline</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>CO Flux</strong></p></td>
-<td><p>Extract CO flux measurements</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Colormap</strong></p></td>
-<td><p>Change the color scheme of the intensity map</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Color Scale</strong></p></td>
-<td><p>Adjust linear/log/sqrt scaling</p></td>
-</tr>
-</tbody>
-</table>
+<section id="mapping-across-the-cube">
+<h2>Mapping Across the Cube<a class="headerlink" href="#mapping-across-the-cube" title="Link to this heading"></a></h2>
+<p>To fit the same line at every pixel in the cube:</p>
+<ol class="arabic simple">
+<li><p>Click <strong>Fit Full Cube</strong> (C key)</p></li>
+<li><p>Set wavelength range for the line</p></li>
+<li><p>Click <strong>Run</strong></p></li>
+<li><p>Wait for processing</p></li>
+</ol>
+<p>Results appear as maps:
+- <strong>Amplitude map</strong> - line brightness at each pixel
+- <strong>Center map</strong> - wavelength shifts (velocity info)
+- <strong>FWHM map</strong> - line width variations</p>
+<p>Export any map via File → <strong>Export</strong>.</p>
 </section>
 <section id="common-tasks">
 <h2>Common Tasks<a class="headerlink" href="#common-tasks" title="Link to this heading"></a></h2>
-<p><strong>Viewing Different Wavelengths</strong></p>
-<ul class="simple">
-<li><p>Use the <strong>wavelength slider</strong> in the bottom-left</p></li>
-<li><p>Or type a specific wavelength in the <strong>wavelength input field</strong></p></li>
-<li><p>Press Enter to jump to that wavelength</p></li>
-</ul>
-<p><strong>Changing Color Scale</strong></p>
-<ul class="simple">
-<li><p>Click <strong>Color Scale</strong> button</p></li>
-<li><p>Choose from: Linear, Logarithmic, Power, Square Root</p></li>
-<li><p>Adjust <strong>vmin</strong> and <strong>vmax</strong> to emphasize features</p></li>
-</ul>
-<p><strong>Changing Colormap</strong></p>
-<ul class="simple">
-<li><p>Click <strong>Colormap</strong> button</p></li>
-<li><p>Select from available colormaps (Viridis, Hot, Cool, etc.)</p></li>
-<li><p>Preview updates in real-time</p></li>
-</ul>
-<p><strong>Performing Baseline Subtraction</strong></p>
-<ul class="simple">
-<li><p>Click <strong>Continuum</strong> in the toolbar</p></li>
-<li><p>Choose the continuum subtraction method</p></li>
-<li><p>Specify the wavelength regions for fitting</p></li>
-<li><p>Click <strong>Apply</strong></p></li>
-</ul>
-<p><strong>Extracting Spectra from Multiple Regions</strong></p>
-<ol class="arabic simple">
-<li><p>Select your first region</p></li>
-<li><p>Note the integrated spectrum</p></li>
-<li><p>Select a different region</p></li>
-<li><p>Compare the two spectra</p></li>
-<li><p>Export both for comparison analysis</p></li>
-</ol>
-<p><strong>Measuring Kinematics</strong></p>
-<ul class="simple">
-<li><p>Fit Gaussians across different spatial regions</p></li>
-<li><p>The <strong>center map</strong> shows velocity variations</p></li>
-<li><p>Use RA/DEC coordinates to identify structures</p></li>
-<li><p>Export the center map for kinematic analysis</p></li>
-</ul>
+<p><strong>Navigate wavelengths</strong>: Use slider or type wavelength in the field</p>
+<p><strong>Change colors</strong>: Click <strong>Colormap</strong> button</p>
+<p><strong>Adjust brightness</strong>: Use <strong>vmin/vmax</strong> sliders or click <strong>Color Scale</strong></p>
+<p><strong>Subtract continuum</strong>: Click <strong>Continuum</strong> button, select regions, apply</p>
+<p><strong>Measure CO flux</strong>: Click <strong>CO Flux</strong> button</p>
 </section>
-<section id="tips-tricks">
-<h2>Tips &amp; Tricks<a class="headerlink" href="#tips-tricks" title="Link to this heading"></a></h2>
-<ol class="arabic simple">
-<li><p><strong>Smooth Your Display</strong>: Use lower resolution for faster navigation with large cubes</p></li>
-<li><p><strong>Use Velocity Coordinates</strong>: If your data cube includes velocity information, switch to velocity axes for easier analysis</p></li>
-<li><p><strong>Memory Management</strong>: For very large cubes (&gt;1 GB), work with sub-regions rather than the full cube</p></li>
-<li><p><strong>Line Identification</strong>: Check the integrated spectrum against known emission lines to confirm instrument calibration</p></li>
-<li><p><strong>Quality Checks</strong>: Always examine the χ² and R² values from fits to assess fit quality</p></li>
-<li><p><strong>Batch Processing</strong>: For analyzing multiple files, write a simple Python script using IFU Analyzer’s analysis modules</p></li>
-</ol>
-</section>
-<section id="next-steps">
-<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
-<p>Now that you’ve completed your first analysis:</p>
-<ol class="arabic simple">
-<li><p>Read <a class="reference internal" href="user_guide/index.html"><span class="doc">User Guide</span></a> for detailed feature documentation</p></li>
-<li><p>Explore <a class="reference internal" href="features/index.html"><span class="doc">Features</span></a> for advanced analysis techniques</p></li>
-<li><p>Check <a class="reference internal" href="troubleshooting.html"><span class="doc">Troubleshooting</span></a> if you encounter issues</p></li>
-<li><p>Review the <a class="reference internal" href="genindex.html"><span class="std std-ref">Index</span></a> for API reference</p></li>
-</ol>
-</section>
-<section id="need-more-help">
-<h2>Need More Help?<a class="headerlink" href="#need-more-help" title="Link to this heading"></a></h2>
+<section id="for-more-information">
+<h2>For More Information<a class="headerlink" href="#for-more-information" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><strong>Installation problems?</strong> → See <a class="reference internal" href="installation.html"><span class="doc">Installation</span></a></p></li>
-<li><p><strong>How do I…?</strong> → Check <a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a></p></li>
-<li><p><strong>Something isn’t working</strong> → Go to <a class="reference internal" href="troubleshooting.html"><span class="doc">Troubleshooting</span></a></p></li>
-<li><p><strong>Looking for reference material</strong> → See <a class="reference internal" href="reference/index.html"><span class="doc">Reference</span></a></p></li>
+<li><p>Full feature guide: <a class="reference internal" href="user_guide/index.html"><span class="doc">User Guide</span></a></p></li>
+<li><p>Advanced analysis: <a class="reference internal" href="features/index.html"><span class="doc">Features</span></a></p></li>
+<li><p>Troubleshooting: <a class="reference internal" href="troubleshooting.html"><span class="doc">Troubleshooting</span></a></p></li>
+<li><p>FAQ: <a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a></p></li>
 </ul>
 </section>
 </section>

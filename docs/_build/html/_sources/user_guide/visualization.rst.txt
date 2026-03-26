@@ -187,14 +187,13 @@ Move around zoomed view:
 
 Automatically scale view:
 
-- Ctrl+0 (zero key)
-- Menu: View → Fit to Window
+- Use the **Reset View** button in the toolbar
 - Resets pan and zoom
 
 Reset View
 ----------
 
-Return to default view: View → Reset View
+Return to default view using the **Reset View** button in the toolbar.
 
 Overlays
 ========

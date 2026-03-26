@@ -81,7 +81,7 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul>
@@ -218,11 +218,11 @@
 <li><p>Y-axis: Declination (Dec)</p></li>
 <li><p>Requires valid WCS information in FITS header</p></li>
 </ul>
-<p><strong>Switching Coordinate Systems:</strong></p>
-<p>Use the <strong>Coordinates</strong> menu or keyboard shortcuts:</p>
+<p><strong>Coordinate Systems Available:</strong></p>
+<p>Data can be displayed in:</p>
 <ul class="simple">
-<li><p><strong>View → Coordinate System → Wavelength</strong></p></li>
-<li><p><strong>View → Coordinate System → RA/DEC</strong></p></li>
+<li><p><strong>Wavelength</strong>: Default spatial coordinates</p></li>
+<li><p><strong>RA/DEC</strong>: Sky coordinates (if WCS information is in the FITS header)</p></li>
 </ul>
 </section>
 <section id="data-normalization">
@@ -325,15 +325,15 @@ Wavelength range: 4500-9500 Å
 <h2>Multiple File Management<a class="headerlink" href="#multiple-file-management" title="Link to this heading"></a></h2>
 <p><strong>Loading Multiple Files (Sequential):</strong></p>
 <ol class="arabic simple">
-<li><p>File → Open FITS (first file)</p></li>
+<li><p>Click <strong>Open FITS</strong> button (first file)</p></li>
 <li><p>Perform analysis</p></li>
-<li><p>File → Open FITS (second file)</p></li>
+<li><p>Click <strong>Open FITS</strong> again (second file)</p></li>
 <li><p>Previous file remains in memory but is not displayed</p></li>
 </ol>
-<p><strong>Switching Between Loaded Files:</strong></p>
+<p><strong>To Switch Between Files:</strong></p>
 <ul class="simple">
-<li><p>Use <strong>File → Recent Files</strong> menu</p></li>
-<li><p>Or open another file to swap display</p></li>
+<li><p>Click <strong>Open FITS</strong> to load a different file</p></li>
+<li><p>Currently only one file is displayed at a time</p></li>
 </ul>
 <p><strong>For Batch Processing:</strong></p>
 <p>Write a Python script:</p>

@@ -29,21 +29,12 @@ Activating Region Selection
 2. Choose desired tool from dropdown
 3. Tool is now active
 
-**Method 2: Keyboard**
-
-- Press **R** to activate region selector
-- Use number keys to choose tool (1-5)
-
-**Method 3: Menu**
-
-- Tools → Region Selection → [Tool Name]
-
 Using Point Select Tool
 =======================
 
 Select individual or multiple points:
 
-1. Activate **Point Tool** (keyboard: R+1)
+1. Click the **Point Tool** from the region selector dropdown
 2. Click a pixel location
 3. Point is selected (red dot appears)
 4. Hold **Shift** and click to add more points

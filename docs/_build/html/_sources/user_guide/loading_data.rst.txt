@@ -97,12 +97,12 @@ IFU Analyzer supports two coordinate systems:
 - Y-axis: Declination (Dec)
 - Requires valid WCS information in FITS header
 
-**Switching Coordinate Systems:**
+**Coordinate Systems Available:**
 
-Use the **Coordinates** menu or keyboard shortcuts:
+Data can be displayed in:
 
-- **View → Coordinate System → Wavelength**
-- **View → Coordinate System → RA/DEC**
+- **Wavelength**: Default spatial coordinates
+- **RA/DEC**: Sky coordinates (if WCS information is in the FITS header)
 
 Data Normalization
 ==================
@@ -210,15 +210,15 @@ Multiple File Management
 
 **Loading Multiple Files (Sequential):**
 
-1. File → Open FITS (first file)
+1. Click **Open FITS** button (first file)
 2. Perform analysis
-3. File → Open FITS (second file)
+3. Click **Open FITS** again (second file)
 4. Previous file remains in memory but is not displayed
 
-**Switching Between Loaded Files:**
+**To Switch Between Files:**
 
-- Use **File → Recent Files** menu
-- Or open another file to swap display
+- Click **Open FITS** to load a different file
+- Currently only one file is displayed at a time
 
 **For Batch Processing:**
 

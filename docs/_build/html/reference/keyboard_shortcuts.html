@@ -54,31 +54,17 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Reference</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="reference internal" href="index.html">Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="file_formats.html">File Formats</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Keyboard Shortcuts</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#file-operations">File Operations</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#navigation-viewing">Navigation &amp; Viewing</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#region-selection">Region Selection</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#analysis-fitting">Analysis &amp; Fitting</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#display-options">Display Options</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#spectrum-operations">Spectrum Operations</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#tools-features">Tools &amp; Features</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#help-documentation">Help &amp; Documentation</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#context-menu">Context Menu</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#special-keys">Special Keys</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#platform-specific-differences">Platform-Specific Differences</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#customizing-shortcuts">Customizing Shortcuts</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#commonly-used-shortcut-combinations">Commonly Used Shortcut Combinations</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#accessibility">Accessibility</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#tips-for-efficiency">Tips for Efficiency</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#troubleshooting-shortcuts">Troubleshooting Shortcuts</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#quick-reference-card">Quick Reference Card</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#current-interface">Current Interface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#navigation">Navigation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#right-click-menus">Right-Click Menus</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#future-features">Future Features</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="command_reference.html">Command Reference</a></li>
@@ -127,474 +113,51 @@
              
   <section id="keyboard-shortcuts">
 <h1>Keyboard Shortcuts<a class="headerlink" href="#keyboard-shortcuts" title="Link to this heading"></a></h1>
-<p>Complete reference for keyboard shortcuts in IFU Analyzer.</p>
-<section id="file-operations">
-<h2>File Operations<a class="headerlink" href="#file-operations" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Ctrl+O</p></td>
-<td><p>Open FITS file</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+S</p></td>
-<td><p>Save project</p></td>
-</tr>
-<tr class="row-even"><td><p>Ctrl+E</p></td>
-<td><p>Export spectrum</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+Q</p></td>
-<td><p>Quit application</p></td>
-</tr>
-<tr class="row-even"><td><p>Ctrl+Shift+R</p></td>
-<td><p>Export region</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="navigation-viewing">
-<h2>Navigation &amp; Viewing<a class="headerlink" href="#navigation-viewing" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Ctrl++</p></td>
-<td><p>Zoom in</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+-</p></td>
-<td><p>Zoom out</p></td>
-</tr>
-<tr class="row-even"><td><p>Ctrl+0</p></td>
-<td><p>Reset zoom (fit to window)</p></td>
-</tr>
-<tr class="row-odd"><td><p>Left/Right Arrow</p></td>
-<td><p>Previous/next wavelength</p></td>
-</tr>
-<tr class="row-even"><td><p>Up/Down Arrow</p></td>
-<td><p>Increase/decrease wavelength step</p></td>
-</tr>
-<tr class="row-odd"><td><p>Spacebar+Drag</p></td>
-<td><p>Pan view (when zoomed)</p></td>
-</tr>
-<tr class="row-even"><td><p>Home</p></td>
-<td><p>First wavelength</p></td>
-</tr>
-<tr class="row-odd"><td><p>End</p></td>
-<td><p>Last wavelength</p></td>
-</tr>
-<tr class="row-even"><td><p>Page Up/Down</p></td>
-<td><p>Jump 10 wavelengths</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="region-selection">
-<h2>Region Selection<a class="headerlink" href="#region-selection" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>R</p></td>
-<td><p>Activate region selector</p></td>
-</tr>
-<tr class="row-odd"><td><p>R+1</p></td>
-<td><p>Point selection tool</p></td>
-</tr>
-<tr class="row-even"><td><p>R+2</p></td>
-<td><p>Rectangle selection tool</p></td>
-</tr>
-<tr class="row-odd"><td><p>R+3</p></td>
-<td><p>Circle selection tool</p></td>
-</tr>
-<tr class="row-even"><td><p>R+4</p></td>
-<td><p>Ellipse selection tool</p></td>
-</tr>
-<tr class="row-odd"><td><p>R+5</p></td>
-<td><p>Polygon selection tool</p></td>
-</tr>
-<tr class="row-even"><td><p>Shift+Drag</p></td>
-<td><p>Add to selection</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+Drag</p></td>
-<td><p>Subtract from selection</p></td>
-</tr>
-<tr class="row-even"><td><p>Alt+Drag</p></td>
-<td><p>Keep only intersection</p></td>
-</tr>
-<tr class="row-odd"><td><p>U (when in polygon)</p></td>
-<td><p>Undo last polygon point</p></td>
-</tr>
-<tr class="row-even"><td><p>Delete</p></td>
-<td><p>Clear current selection</p></td>
-</tr>
-<tr class="row-odd"><td><p>Escape</p></td>
-<td><p>Cancel operation</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="analysis-fitting">
-<h2>Analysis &amp; Fitting<a class="headerlink" href="#analysis-fitting" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>F</p></td>
-<td><p>Fit single pixel (interactive)</p></td>
-</tr>
-<tr class="row-odd"><td><p>C</p></td>
-<td><p>Fit full cube (batch)</p></td>
-</tr>
-<tr class="row-even"><td><p>Ctrl+F</p></td>
-<td><p>Fit options dialog</p></td>
-</tr>
-<tr class="row-odd"><td><p>Shift+F</p></td>
-<td><p>View fit results</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="display-options">
-<h2>Display Options<a class="headerlink" href="#display-options" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>L</p></td>
-<td><p>Linear color scale</p></td>
-</tr>
-<tr class="row-odd"><td><p>M</p></td>
-<td><p>Logarithmic color scale</p></td>
-</tr>
-<tr class="row-even"><td><p>P</p></td>
-<td><p>Power law color scale</p></td>
-</tr>
-<tr class="row-odd"><td><p>S</p></td>
-<td><p>Square root color scale</p></td>
-</tr>
-<tr class="row-even"><td><p>G</p></td>
-<td><p>Toggle grid overlay</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+G</p></td>
-<td><p>Configure grid</p></td>
-</tr>
-<tr class="row-even"><td><p>B</p></td>
-<td><p>Show/hide colorbar</p></td>
-</tr>
-<tr class="row-odd"><td><p>I</p></td>
-<td><p>Invert colormap</p></td>
-</tr>
-<tr class="row-even"><td><p>J</p></td>
-<td><p>Next colormap</p></td>
-</tr>
-<tr class="row-odd"><td><p>K</p></td>
-<td><p>Previous colormap</p></td>
-</tr>
-<tr class="row-even"><td><p>H</p></td>
-<td><p>Histogram adjustment</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+L</p></td>
-<td><p>Color scale dialog</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="spectrum-operations">
-<h2>Spectrum Operations<a class="headerlink" href="#spectrum-operations" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Ctrl+Shift+E</p></td>
-<td><p>Export spectrum (advanced)</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+X</p></td>
-<td><p>Cut spectrum</p></td>
-</tr>
-<tr class="row-even"><td><p>Ctrl+C</p></td>
-<td><p>Copy spectrum</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+V</p></td>
-<td><p>Paste spectrum</p></td>
-</tr>
-<tr class="row-even"><td><p>Right-click</p></td>
-<td><p>Spectrum context menu</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="tools-features">
-<h2>Tools &amp; Features<a class="headerlink" href="#tools-features" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>T</p></td>
-<td><p>Show/hide toolbar</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+,</p></td>
-<td><p>Preferences dialog</p></td>
-</tr>
-<tr class="row-even"><td><p>Ctrl+;</p></td>
-<td><p>View settings</p></td>
-</tr>
-<tr class="row-odd"><td><p>Ctrl+.</p></td>
-<td><p>Tool options</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="help-documentation">
-<h2>Help &amp; Documentation<a class="headerlink" href="#help-documentation" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>F1</p></td>
-<td><p>Open documentation</p></td>
-</tr>
-<tr class="row-odd"><td><p>Shift+F1</p></td>
-<td><p>Keyboard shortcuts</p></td>
-</tr>
-<tr class="row-even"><td><p>?</p></td>
-<td><p>Quick help</p></td>
-</tr>
-<tr class="row-odd"><td><p>H</p></td>
-<td><p>Show this help</p></td>
-</tr>
-<tr class="row-even"><td><p>Ctrl+H</p></td>
-<td><p>Full manual</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="context-menu">
-<h2>Context Menu<a class="headerlink" href="#context-menu" title="Link to this heading"></a></h2>
-<p>Right-click provides context-sensitive menus:</p>
-<p><strong>On Intensity Map:</strong></p>
+<p><strong>Note:</strong> Keyboard shortcuts are not currently implemented in IFU Analyzer.</p>
+<section id="current-interface">
+<h2>Current Interface<a class="headerlink" href="#current-interface" title="Link to this heading"></a></h2>
+<p>IFU Analyzer currently uses a button-based interface. All functions are accessible through:</p>
 <ul class="simple">
-<li><p>Rotate view</p></li>
-<li><p>Mirror image</p></li>
-<li><p>Statistics</p></li>
-<li><p>Clear selection</p></li>
-<li><p>Add measurement</p></li>
+<li><p><strong>Toolbar Buttons</strong>: Click buttons in the toolbar at the top</p></li>
+<li><p><strong>Right-Click Context Menus</strong>: Right-click on the intensity map or spectrum for options</p></li>
+<li><p><strong>Dialog Buttons</strong>: Click buttons within dialog windows for actions</p></li>
 </ul>
-<p><strong>On Spectrum:</strong></p>
+</section>
+<section id="navigation">
+<h2>Navigation<a class="headerlink" href="#navigation" title="Link to this heading"></a></h2>
+<p><strong>Wavelength Navigation</strong></p>
+<p>Use the wavelength slider on the left control panel to move through the data cube:</p>
 <ul class="simple">
-<li><p>Fit Gaussian</p></li>
-<li><p>Set baseline</p></li>
+<li><p>Click and drag to navigate continuously</p></li>
+<li><p>Click on specific values to jump to that wavelength</p></li>
+<li><p>Use arrow buttons if available next to the slider</p></li>
+</ul>
+<p><strong>Zoom and Pan</strong></p>
+<ul class="simple">
+<li><p><strong>Scroll Wheel</strong>: Zoom in and out on the intensity map</p></li>
+<li><p><strong>Toolbar Buttons</strong>: Use zoom and pan buttons in the main toolbar</p></li>
+</ul>
+<p><strong>Intensity Adjustment</strong></p>
+<p>Use vmin/vmax sliders to adjust the displayed intensity range (brightness/contrast).</p>
+</section>
+<section id="right-click-menus">
+<h2>Right-Click Menus<a class="headerlink" href="#right-click-menus" title="Link to this heading"></a></h2>
+<p><strong>On Intensity Map</strong></p>
+<ul class="simple">
+<li><p>View statistics</p></li>
+<li><p>Clear selection</p></li>
+<li><p>Other region options</p></li>
+</ul>
+<p><strong>On Spectrum</strong></p>
+<ul class="simple">
 <li><p>Export spectrum</p></li>
+<li><p>View fit results</p></li>
 <li><p>Zoom spectral region</p></li>
 </ul>
-<p><strong>In Empty Area:</strong></p>
-<ul class="simple">
-<li><p>Load region</p></li>
-<li><p>Save region</p></li>
-<li><p>Clear all</p></li>
-</ul>
 </section>
-<section id="special-keys">
-<h2>Special Keys<a class="headerlink" href="#special-keys" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Key</p></th>
-<th class="head"><p>Function</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Enter</p></td>
-<td><p>Confirm selection, apply changes</p></td>
-</tr>
-<tr class="row-odd"><td><p>Escape</p></td>
-<td><p>Cancel operation, deselect</p></td>
-</tr>
-<tr class="row-even"><td><p>Tab</p></td>
-<td><p>Move between interface panels</p></td>
-</tr>
-<tr class="row-odd"><td><p>Shift+Tab</p></td>
-<td><p>Move to previous panel</p></td>
-</tr>
-<tr class="row-even"><td><p>Mouse Scroll</p></td>
-<td><p>Zoom in/out</p></td>
-</tr>
-<tr class="row-odd"><td><p>Middle Mouse+Drag</p></td>
-<td><p>Pan view</p></td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="platform-specific-differences">
-<h2>Platform-Specific Differences<a class="headerlink" href="#platform-specific-differences" title="Link to this heading"></a></h2>
-<p><strong>Windows/Linux</strong></p>
-<ul class="simple">
-<li><p>Alt for menu access</p></li>
-<li><p>Ctrl+Z for undo</p></li>
-<li><p>Ctrl+Y for redo</p></li>
-</ul>
-<p><strong>macOS</strong></p>
-<ul class="simple">
-<li><p>Cmd replaces Ctrl (e.g., Cmd+O for Open)</p></li>
-<li><p>Option for Alt key</p></li>
-<li><p>⌘+Z for undo</p></li>
-<li><p>⌘+⇧+Z for redo</p></li>
-</ul>
-</section>
-<section id="customizing-shortcuts">
-<h2>Customizing Shortcuts<a class="headerlink" href="#customizing-shortcuts" title="Link to this heading"></a></h2>
-<p>To customize keyboard shortcuts:</p>
-<ol class="arabic simple">
-<li><p>Tools → Preferences → Keyboard</p></li>
-<li><p>Select command to modify</p></li>
-<li><p>Enter new shortcut</p></li>
-<li><p>Click OK</p></li>
-<li><p>Restart application for some changes</p></li>
-</ol>
-<p><strong>Note</strong>: Some shortcuts are hard-coded and cannot be modified.</p>
-</section>
-<section id="commonly-used-shortcut-combinations">
-<h2>Commonly Used Shortcut Combinations<a class="headerlink" href="#commonly-used-shortcut-combinations" title="Link to this heading"></a></h2>
-<p><strong>Typical Workflow</strong></p>
-<ol class="arabic simple">
-<li><p>Ctrl+O → Open FITS file</p></li>
-<li><p>R → Select region</p></li>
-<li><p>F → Fit single pixel</p></li>
-<li><p>C → Fit full cube</p></li>
-<li><p>Ctrl+E → Export spectrum</p></li>
-<li><p>Ctrl+S → Save results</p></li>
-</ol>
-<p><strong>Quick Navigation</strong></p>
-<ol class="arabic simple">
-<li><p>Left/Right arrows → Move through wavelengths</p></li>
-<li><p>Ctrl+0 → Reset view</p></li>
-<li><p>R → Select region</p></li>
-<li><p>View results</p></li>
-</ol>
-<p><strong>Analysis Session</strong></p>
-<ol class="arabic simple">
-<li><p>Ctrl+O → Open file</p></li>
-<li><p>L/M/P/S → Change color scale</p></li>
-<li><p>G → Add grid</p></li>
-<li><p>F or C → Perform fitting</p></li>
-<li><p>Ctrl+Shift+E → Export</p></li>
-</ol>
-<p><strong>Exporting Multiple</strong></p>
-<ol class="arabic simple">
-<li><p>Select region</p></li>
-<li><p>Ctrl+E → Export</p></li>
-<li><p>Right arrow → Move to next wavelength</p></li>
-<li><p>Repeat Ctrl+E as needed</p></li>
-</ol>
-</section>
-<section id="accessibility">
-<h2>Accessibility<a class="headerlink" href="#accessibility" title="Link to this heading"></a></h2>
-<p><strong>Navigation Without Mouse</strong></p>
-<ul class="simple">
-<li><p>Tab/Shift+Tab: Move between controls</p></li>
-<li><p>Arrow keys: Select options</p></li>
-<li><p>Enter: Activate buttons</p></li>
-<li><p>Escape: Cancel dialogs</p></li>
-</ul>
-<p><strong>High Contrast Mode</strong></p>
-<ul class="simple">
-<li><p>View → Display Options → High Contrast</p></li>
-<li><p>Improves visibility on certain displays</p></li>
-</ul>
-<p><strong>Font Size</strong></p>
-<ul class="simple">
-<li><p>Tools → Preferences → Font Size</p></li>
-<li><p>Increase text size for visibility</p></li>
-</ul>
-</section>
-<section id="tips-for-efficiency">
-<h2>Tips for Efficiency<a class="headerlink" href="#tips-for-efficiency" title="Link to this heading"></a></h2>
-<ol class="arabic simple">
-<li><p><strong>Memorize most-used shortcuts</strong>: Ctrl+O, Ctrl+E, R, F, C</p></li>
-<li><p><strong>Use number keys</strong> for region tool selection (R+1, R+2, etc.)</p></li>
-<li><p><strong>Arrow keys</strong> faster than slider for wavelength navigation</p></li>
-<li><p><strong>Right-click</strong> for context-sensitive options</p></li>
-<li><p><strong>F1</strong> when in doubt about functionality</p></li>
-</ol>
-</section>
-<section id="troubleshooting-shortcuts">
-<h2>Troubleshooting Shortcuts<a class="headerlink" href="#troubleshooting-shortcuts" title="Link to this heading"></a></h2>
-<p><strong>Shortcut not working</strong></p>
-<ul class="simple">
-<li><p>Check for conflicting system shortcuts (Windows/macOS)</p></li>
-<li><p>Ensure application window is active (has focus)</p></li>
-<li><p>Try menu equivalent instead</p></li>
-<li><p>Restart application if recently customized</p></li>
-</ul>
-<p><strong>Modifier key issues</strong></p>
-<ul class="simple">
-<li><p>Verify Caps Lock is not on</p></li>
-<li><p>Try holding modifier longer</p></li>
-<li><p>Check keyboard layout (affects some combinations)</p></li>
-</ul>
-<p><strong>Custom shortcuts not saving</strong></p>
-<ul class="simple">
-<li><p>Ensure you clicked OK/Apply in preferences</p></li>
-<li><p>Restart application to apply changes</p></li>
-<li><p>Check permissions on configuration file</p></li>
-</ul>
-</section>
-<section id="quick-reference-card">
-<h2>Quick Reference Card<a class="headerlink" href="#quick-reference-card" title="Link to this heading"></a></h2>
-<p>Print this quick reference:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>┌─────────────────────────────────────┐
-│ IFU ANALYZER QUICK SHORTCUTS        │
-├─────────────────────────────────────┤
-│ File:                               │
-│   Ctrl+O  Open    Ctrl+S  Save     │
-│                                     │
-│ Select:                             │
-│   R  Activate    R+1-5  Choose     │
-│   Shift+Drag  Add  Ctrl+Drag  Sub  │
-│                                     │
-│ Analysis:                           │
-│   F  Fit Single    C  Fit Cube     │
-│                                     │
-│ Display:                            │
-│   L  Linear  M  Log  P  Power      │
-│   Ctrl++ Zoom  Ctrl+0 Reset        │
-│                                     │
-│ Help:                               │
-│   F1  Manual    ?  Help             │
-└─────────────────────────────────────┘
-</pre></div>
-</div>
-</section>
-<section id="next-steps">
-<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
-<ul class="simple">
-<li><p>Memorize key shortcuts for efficiency</p></li>
-<li><p>Discover additional shortcuts through menus</p></li>
-<li><p>Customize as needed for your workflow</p></li>
-<li><p>See <a class="reference internal" href="command_reference.html"><span class="doc">Command Reference</span></a> for menu commands</p></li>
-</ul>
+<section id="future-features">
+<h2>Future Features<a class="headerlink" href="#future-features" title="Link to this heading"></a></h2>
+<p>Keyboard shortcut support may be added in future versions of IFU Analyzer. Currently, all functionality is accessible through the button interface.</p>
 </section>
 </section>
 

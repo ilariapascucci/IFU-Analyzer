@@ -2,102 +2,127 @@
 Command Reference
 =================
 
-Comprehensive listing of all commands accessible through menus and dialogs.
+Overview of available commands and interface elements in IFU Analyzer.
 
-File Menu
-=========
+Toolbar Buttons
+===============
 
-**Open FITS** (Ctrl+O)
+The main toolbar at the top of the window provides quick access to core functions:
 
-Load a FITS data cube from disk.
+**Open FITS**
+  Click to browse and load a FITS data cube file. Supports MUSE, ALMA, MIRI, and NIRSpec data.
 
-Options:
+**Select Region**
+  Activate region selection tools to define areas for analysis.
 
-- Select FITS file
-- Choose instrument type
-- Advanced: Specify subregion, HDU selection
+**Fit Single Pixel**
+  Perform Gaussian fitting on the current spectrum (interactive).
 
-**Save Project** (Ctrl+S)
+**Fit Full Cube**
+  Run Gaussian fitting across all pixels in the cube (batch processing).
 
-Save your analysis session (basic functionality).
+**Subtract Continuum**
+  Remove baseline emission from the spectrum.
 
-Options:
+**CO Flux Extraction**
+  Extract CO line flux measurements (specialized for CO observations).
 
-- Project metadata only
-- Not typically used
+**Change Colormap**
+  Select different color schemes for the intensity map display.
 
-**Export Spectrum** (Ctrl+E)
+**Adjust Color Scale**
+  Set color scaling: linear, logarithmic, power law, or square root.
 
-Export current spectrum for analysis.
+**Zoom In/Out**
+  Magnify or reduce the intensity map view.
 
-Formats:
+**Reset View**
+  Return to default zoom and view settings.
 
-- ASCII tab-delimited (.txt)
-- FITS binary table (.fits)
-- Comma-separated values (.csv)
+Display Controls
+================
 
-Options:
+**Wavelength Slider** (Left panel)
 
-- Original or normalized
-- Include error bars
-- Custom column selection
+Navigate through the data cube:
 
-**Export Results**
+- Click and drag to move through wavelengths smoothly
+- Click specific wavelength labels to jump to that channel
+- View shows currently selected wavelength
 
-Export analysis results (Gaussian fits, maps, etc.).
+**Intensity Range (vmin/vmax)** (Left panel)
 
-Formats:
+Adjust brightness and contrast:
 
-- FITS multi-extension
-- ASCII table, CSV
+- Move sliders to set minimum and maximum display values
+- Auto-scale button sets optimal range automatically
 
-Outputs:
+**Colormap Selection** (Left panel)
 
-- Parameter maps (amplitude, center, width, etc.)
-- Success mask
-- Quality metrics (χ², R²)
+Choose color scheme:
 
-**Export Residuals**
+- Select from available colormaps
+- Preview shows color gradient
 
-Export residual cube from fitting.
+Right-Click Options
+===================
 
-Format:
+**On Intensity Map**
 
-- 3D FITS cube
-- Same dimensions as input
+- View pixel statistics
+- Clear current selection
+- Other region-based operations
 
-**Recent Files**
+**On Spectrum**
 
-Quick access to recently opened files.
+- Export spectrum
+- View fitting results
+- Zoom into spectral region
 
-List shows:
+Dialog Windows
+==============
 
-- Most recent first
-- File paths and dates
-- Click to re-open
+**File Operations**
 
-**Exit** (Alt+F4)
+Dialogs appear for:
 
-Close application.
+- Loading FITS files
+- Exporting data (spectrum, results, residuals)
+- Choosing output formats and locations
 
-View Menu
-=========
+**Analysis Options**
 
-**Zoom In** (Ctrl++)
+Dialogs available for:
 
-Magnify the intensity map.
+- Gaussian fitting parameters
+- Continuum subtraction settings
+- CO flux extraction options
 
-Methods:
+**Display Settings**
 
-- Scroll wheel: Zoom
-- Menu: Incremental zoom
-- Type zoom level
+Configure through dialogs:
 
-**Zoom Out** (Ctrl+-)
+- Color scale properties
+- Intensity range adjustments
+- Colormap selection
 
-Reduce magnification.
+Finding Commands
+================
 
-Methods:
+To locate a command:
+
+1. **Toolbar**: Look for matching button with icon and tooltip
+2. **Right-click**: Try right-clicking on data area for context options
+3. **Dialog Buttons**: Look within dialog windows that appear after you select a tool
+4. **Status Bar**: Check bottom of window for confirmation and current state
+
+Tips
+====
+
+- Hover over toolbar buttons to see tooltips describing their function
+- Most data operations require loading a FITS file first
+- Right-click is your best friend for discovering available options on data
+- Dialog windows appear for detailed settings when you click major operations
 
 - Scroll wheel
 - Menu buttons

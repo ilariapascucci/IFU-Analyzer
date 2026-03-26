@@ -25,44 +25,24 @@ Activating Region Selection
 
 **Method 1: Toolbar**
 
-1. Click **Select Region** button in toolbar
-2. Choose desired tool from dropdown
-3. Tool is now active
-
-**Method 2: Keyboard**
-
-- Press **R** to activate region selector
-- Use number keys to choose tool (1-5)
-
-**Method 3: Menu**
-
-- Tools → Region Selection → [Tool Name]
+1. Click figure button in toolbar
+2. Tool is now active
 
 Using Point Select Tool
 =======================
 
-Select individual or multiple points:
+Select individual point:
 
-1. Activate **Point Tool** (keyboard: R+1)
+1. Click the **\*** from the region selector toolbar
 2. Click a pixel location
-3. Point is selected (red dot appears)
-4. Hold **Shift** and click to add more points
-5. Hold **Ctrl** and click to remove points
-6. Right-click: Show Options
-
-Options:
-
-- **Show all selected points**: Overlay
-- **Clear selection**: Remove all points
-- **Export point coordinates**: Save to file
 
 Using Rectangle Select Tool
 ============================
 
 Select rectangular regions:
 
-1. Activate **Rectangle Tool** (keyboard: R+2)
-2. Click upper-left corner
+1. Click the **▭** from the region selector toolbar
+2. Hold upper-left corner
 3. Drag to lower-right corner
 4. Release mouse to finalize
 5. Handles appear for resize/adjust
@@ -74,242 +54,59 @@ Adjustments:
 - **Drag interior**: Move entire rectangle
 - **Delete**: Clear and start over
 
-Multiple Rectangles:
-
-- Hold **Shift** and drag new rectangle to add
-- Hold **Ctrl** and drag rectangle to subtract
-
 Using Circle Select Tool
 ========================
 
 Select circular regions:
 
-1. Activate **Circle Tool** (keyboard: R+3)
-2. Click center location
-3. Drag outward to set radius
-4. Release to finalize
-5. Center point and radius handles shown
+1. Click the **◯** from the region selector toolbar
+2. Hold upper-left corner
+3. Drag to lower-right corner
+4. Release mouse to finalize
+5. Handle appears for resize/adjust
 
 Adjustments:
 
 - **Drag edge**: Adjust radius
 - **Drag center**: Move circle
-- **Shift + drag**: Add additional circle
-- **Ctrl + drag**: Subtract from selection
 
 Using Ellipse Select Tool
 =========================
 
 Select elliptical regions (for elongated features):
 
-1. Activate **Ellipse Tool** (keyboard: R+4)
-2. Click center location
-3. Drag to set semi-major and semi-minor axes
-4. Rotate if needed (handles provided)
-5. Release to finalize
+1. Click the **⬭** from the region selector toolbar
+2. Hold upper-left corner
+3. Drag to lower-right corner
+4. Release mouse to finalize
+5. Handle appears for resize/adjust
 
 Adjustments:
 
 - **Drag corners**: Adjust size
-- **Rotate handle**: Adjust orientation
 - **Drag center**: Move ellipse
-- **Shift + drag**: Add another ellipse
 
-Using Polygon Select Tool
+Using Free-Form Select Tool
 =========================
 
 Select irregular or complex shapes:
 
-1. Activate **Polygon Tool** (keyboard: R+5)
-2. Click points around region boundary
-3. Points connected by lines in real-time
-4. Double-click to complete polygon
-5. Or press **Escape** + Enter to finish
+1. Click the **✏** from the region selector toolbar
+2. Draw a closed figure
+3. Release mouse to finalize
 
 Tips for Polygons:
 
-- Click many points for precise shapes
-- Close the polygon by clicking near first point
-- Keep points outside region to avoid jagged edges
-- Press **U** to undo last point
-- Press **R** to restart polygon
+- Make closed figures
+- Make figures inside the boundaries
 
-Combining Selections
+Statistics
 ====================
 
-Combine multiple regions:
-
-**Union (Add)**
-
-Hold **Shift** and drag new region:
-
-.. code-block:: text
-
-   Selection = Region1 + Region2
-
-**Intersection (Keep Overlap)**
-
-Hold **Alt** and drag second region:
-
-.. code-block:: text
-
-   Selection = Region1 ∩ Region2
-
-**Difference (Subtract)**
-
-Hold **Ctrl** and drag region to remove:
-
-.. code-block:: text
-
-   Selection = Region1 - Region2
-
-Using Inverting
-===============
-
-Invert selection to select everything EXCEPT a region:
-
-1. Make initial selection
-2. Right-click selection → **Invert**
-3. Everything outside becomes selected
-
-Or use: Tools → Region Selection → Invert
-
-Selection Operations
-====================
-
-**Growing/Shrinking Selection**
-
-Expand or contract region edges:
-
-1. Right-click selection
-2. **Grow by**: Expand outward
-3. **Shrink by**: Contract inward
-4. Specify pixel distance
-
-**Feathering**
-
-Soften selection edges for smooth transitions:
-
-1. Right-click selection
-2. **Feather Edges**
-3. Specify feather width in pixels
-4. Creates gradual falloff
-
-Useful for: Smooth photometry, avoiding edge artifacts
-
-**Border Selection**
-
-Select only the border of a region:
-
-1. Make initial selection
-2. Right-click → **Border**
-3. Specify border width
-4. Only edges selected
-
-Useful for: Finding shell structures, edge detection
-
-Saving Selections
-=================
-
-Save region definitions for later use:
-
-**Save Current Selection**
-
-1. Right-click selection
-2. **Save Region**
-3. Enter filename
-4. Format: Region definition file or FITS
-
-**Load Saved Selection**
-
-1. Right-click in empty area
-2. **Load Region**
-3. Choose saved region file
-4. Selection reappears
-
-Useful for: Comparing analysis across multiple datasets
-
-Selection Statistics
-====================
-
-View statistics of selected region:
-
-1. Right-click selection
-2. **Show Statistics**
-3. Dialog shows:
-
-   - **Count**: Number of spaxels selected
-   - **Mean**, **Median**: Central values
-   - **Std Dev**: Spread
+   - **Mean**: Central values
+   - **Std**: Spread
    - **Min/Max**: Range
    - **Sum**: Total
-
-**Apply Statistics to Spectrum**
-
-Selected region spectrum shows only pixels in selection:
-
-- Red outline: Selection boundary
-- Blue fill: Statistical overlay
-- Spectrum: Integrated over selection
-
-Exporting Regions
-=================
-
-Export region coordinates for external analysis:
-
-1. Right-click selection
-2. **Export Coordinates**
-3. Choose format:
-
-   - DS9 region format (.reg)
-   - FITS table format
-   - ASCII (pixel or RA/DEC coordinates)
-
-4. Specify filename
-
-Tips for Effective Selection
-============================
-
-**For Point Sources**
-
-- Use **Circle Tool** with small radius
-- Center on peak intensity
-- Include surrounding faint halo if analyzing total flux
-
-**For Extended Objects**
-
-- Use **Ellipse Tool**
-- Match orientation to object orientation
-- Ensure clear boundary
-
-**For Complex Shapes**
-
-- Use **Polygon Tool** with many points
-- Zoom in for precise placement
-- Take time for accuracy
-
-**For Multiple Objects**
-
-- Select first object
-- Hold **Shift** to add subsequent objects
-- Each appears with different color
-
-**Avoiding Issues**
-
-- Always check selection bounds
-- Verify selection matches intended region
-- Be aware of edge effects
-- Note that selection excludes pixels outside cube boundaries
-
-Selection Limitations
-====================
-
-Note these limitations:
-
-- Selection operates on single wavelength plane
-- Spectral information from selected spaxels is summed
-- For 3D analysis, use external tools or Python scripting
-- Large selections (>50% of cube) may slow calculations
 
 Next Steps
 ==========

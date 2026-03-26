@@ -412,21 +412,17 @@ Best Practices
 Quick Reference
 ===============
 
-============ ============ =============== ===========================
-What         Format       Menu Path       File Extension
-============ ============ =============== ===========================
-Spectrum     ASCII        Right-click     .txt
-Spectrum     FITS         Right-click     .fits
-Map          FITS         File → Export   .fits
-Residuals    FITS         File → Export   .fits
-Image        PNG          File → Export   .png
-Image        PDF          File → Export   .pdf
-Animation    GIF          File → Export   .gif
-Animation    MP4          File → Export   .mp4
-Parameters   CSV          Analysis →     .csv
-Parameters   LaTeX        Analysis →     .tex
-Archive      ZIP          File → Export   .zip
-============ ============ =============== ===========================
+============ ============ =========================================
+What         Format       How to Access
+============ ============ =========================================
+Spectrum     ASCII        Right-click on spectrum → Export
+Spectrum     FITS         Right-click on spectrum → Export
+Map          FITS         Use data export dialog
+Residuals    FITS         Use residuals export dialog
+Image        PNG          Use display export options
+Parameters   CSV          After fitting, use results export
+Archive      ZIP          Bundle results using archive function
+============ ============ =========================================
 
 Next Steps
 ==========

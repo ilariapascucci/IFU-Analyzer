@@ -54,14 +54,6 @@
 <li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">GUI Overview</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#main-window-layout">Main Window Layout</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#menu-reference">Menu Reference</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#file-menu">File Menu</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#view-menu">View Menu</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#tools-menu">Tools Menu</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#help-menu">Help Menu</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#context-menus">Context Menus</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#tips-for-navigation">Tips for Navigation</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#customizing-the-interface">Customizing the Interface</a></li>
@@ -82,15 +74,10 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../features/index.html">Features</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Reference</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../reference/index.html">Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Support</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
 </ul>
 
@@ -130,14 +117,7 @@
 <p>The IFU Analyzer window is organized into several key areas:</p>
 <img alt="GUI Layout" src="_static/layout.png" />
 <p><em>Note: Screenshot showing main interface layout</em></p>
-<p><strong>1. Menu Bar</strong> (Top)</p>
-<ul class="simple">
-<li><p><strong>File</strong>: Open, save, export data</p></li>
-<li><p><strong>View</strong>: Display options, coordinate systems</p></li>
-<li><p><strong>Tools</strong>: Analysis functions, preferences</p></li>
-<li><p><strong>Help</strong>: Documentation, keyboard shortcuts</p></li>
-</ul>
-<p><strong>2. Toolbar</strong> (Below menu)</p>
+<p><strong>1. Toolbar</strong> (Top)</p>
 <p>Quick-access buttons for common functions:</p>
 <p><strong>3. Main Viewing Area</strong> (Center)</p>
 <p>Displays the currently selected wavelength/velocity slice:</p>
@@ -173,153 +153,6 @@
 <li><p><strong>Colormap Selection</strong>: Choose color scheme</p></li>
 <li><p><strong>Statistics</strong>: Min/max/mean of current view</p></li>
 </ul>
-</section>
-<section id="menu-reference">
-<h2>Menu Reference<a class="headerlink" href="#menu-reference" title="Link to this heading"></a></h2>
-<section id="file-menu">
-<h3>File Menu<a class="headerlink" href="#file-menu" title="Link to this heading"></a></h3>
-<dl class="simple">
-<dt><strong>Open FITS</strong> (Ctrl+O)</dt><dd><p>Load a FITS data cube</p>
-</dd>
-<dt><strong>Save Project</strong> (Ctrl+S)</dt><dd><p>Save analysis state (not commonly used)</p>
-</dd>
-<dt><strong>Export Spectrum</strong></dt><dd><p>Save current spectrum as ASCII or FITS</p>
-</dd>
-<dt><strong>Export Results</strong></dt><dd><p>Save parameter maps (from Gaussian fitting)</p>
-</dd>
-<dt><strong>Export Residuals</strong></dt><dd><p>Save residuals cube from fitting</p>
-</dd>
-<dt><strong>Recent Files</strong></dt><dd><p>Quick access to recently loaded files</p>
-</dd>
-<dt><strong>Exit</strong> (Alt+F4)</dt><dd><p>Close the application</p>
-</dd>
-</dl>
-</section>
-<section id="view-menu">
-<h3>View Menu<a class="headerlink" href="#view-menu" title="Link to this heading"></a></h3>
-<dl class="simple">
-<dt><strong>Zoom In</strong> (Ctrl++)</dt><dd><p>Magnify the intensity map</p>
-</dd>
-<dt><strong>Zoom Out</strong> (Ctrl+-)</dt><dd><p>Reduce magnification</p>
-</dd>
-<dt><strong>Fit to Window</strong></dt><dd><p>Auto-scale view to window size</p>
-</dd>
-<dt><strong>Coordinate System</strong></dt><dd><ul class="simple">
-<li><p>Wavelength (default)</p></li>
-<li><p>RA/DEC (if WCS available)</p></li>
-</ul>
-</dd>
-<dt><strong>Color Scale</strong></dt><dd><ul class="simple">
-<li><p>Linear: Direct intensity mapping</p></li>
-<li><p>Logarithmic: Emphasize faint features</p></li>
-<li><p>Power Law: Non-linear scaling</p></li>
-<li><p>Square Root: Intermediate option</p></li>
-</ul>
-</dd>
-<dt><strong>Show Grid</strong></dt><dd><p>Overlay coordinate grid</p>
-</dd>
-<dt><strong>Show Colorbar</strong></dt><dd><p>Display intensity scale</p>
-</dd>
-</dl>
-</section>
-<section id="tools-menu">
-<h3>Tools Menu<a class="headerlink" href="#tools-menu" title="Link to this heading"></a></h3>
-<dl class="simple">
-<dt><strong>Gaussian Fitting</strong></dt><dd><ul class="simple">
-<li><p>Fit Single: Interactive fitting</p></li>
-<li><p>Fit Cube: Batch processing</p></li>
-<li><p>View Residuals: Compare data to fits</p></li>
-</ul>
-</dd>
-<dt><strong>Continuum Subtraction</strong></dt><dd><p>Remove baseline emission</p>
-</dd>
-<dt><strong>Region Statistics</strong></dt><dd><p>Calculate statistics of selected regions</p>
-</dd>
-<dt><strong>CO Flux Extraction</strong></dt><dd><p>Measure CO line fluxes (specialized)</p>
-</dd>
-<dt><strong>Preferences</strong></dt><dd><p>Adjust display and analysis settings</p>
-</dd>
-<dt><strong>Normalize Display</strong></dt><dd><p>Choose normalization method</p>
-</dd>
-</dl>
-</section>
-<section id="help-menu">
-<h3>Help Menu<a class="headerlink" href="#help-menu" title="Link to this heading"></a></h3>
-<dl class="simple">
-<dt><strong>Documentation</strong></dt><dd><p>Open this documentation</p>
-</dd>
-<dt><strong>Keyboard Shortcuts</strong></dt><dd><p>Display shortcut reference</p>
-</dd>
-<dt><strong>About</strong></dt><dd><p>Version and copyright information</p>
-</dd>
-</dl>
-</section>
-</section>
-<section id="keyboard-shortcuts">
-<h2>Keyboard Shortcuts<a class="headerlink" href="#keyboard-shortcuts" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Shortcut</p></th>
-<th class="head"><p>Action</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><strong>Ctrl+O</strong></p></td>
-<td><p>Open FITS file</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Ctrl+S</strong></p></td>
-<td><p>Save project</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Ctrl+E</strong></p></td>
-<td><p>Export spectrum</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Ctrl++</strong> or <strong>Scroll Up</strong></p></td>
-<td><p>Zoom in</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Ctrl+-</strong> or <strong>Scroll Dn</strong></p></td>
-<td><p>Zoom out</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Ctrl+0</strong></p></td>
-<td><p>Reset zoom/fit to window</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Right Arrow</strong></p></td>
-<td><p>Next wavelength channel</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Left Arrow</strong></p></td>
-<td><p>Previous wavelength channel</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Up Arrow</strong></p></td>
-<td><p>Increase wavelength step</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Down Arrow</strong></p></td>
-<td><p>Decrease wavelength step</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>R</strong></p></td>
-<td><p>Activate region selector</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>F</strong></p></td>
-<td><p>Fit single pixel</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>C</strong></p></td>
-<td><p>Fit full cube</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>G</strong></p></td>
-<td><p>Toggle grid</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>L</strong></p></td>
-<td><p>Linear color scale</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>M</strong></p></td>
-<td><p>Logarithmic color scale</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Delete</strong></p></td>
-<td><p>Clear current selection</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Escape</strong></p></td>
-<td><p>Cancel current operation</p></td>
-</tr>
-</tbody>
-</table>
 </section>
 <section id="context-menus">
 <h2>Context Menus<a class="headerlink" href="#context-menus" title="Link to this heading"></a></h2>
@@ -443,7 +276,7 @@
 <p>If you forget a button’s function:</p>
 <ul class="simple">
 <li><p><strong>Hover</strong>: Mouse over buttons to see tooltip</p></li>
-<li><p><strong>Menu</strong>: Find functions in menus with descriptions</p></li>
+<li><p><strong>Toolbar Buttons</strong>: Use buttons for common tasks</p></li>
 <li><p><strong>Keyboard</strong>: Press F1 or ? for help</p></li>
 <li><p><strong>This Guide</strong>: Full documentation available</p></li>
 </ul>

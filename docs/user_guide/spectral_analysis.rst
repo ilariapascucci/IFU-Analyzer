@@ -7,26 +7,17 @@ Extract and analyze spectral information from your IFU data cube.
 Understanding IFU Spectra
 =========================
 
-In IFU data, you can extract spectra from:
-
-1. **Single Spaxels**: Spectrum of one spatial pixel
-2. **Selected Regions**: Average spectrum of multiple pixels
-3. **Entire Cube**: Integrated spectrum of all pixels
-
 The spectrum shows flux (or counts) as a function of wavelength or velocity.
 
 Viewing Spectra
 ===============
 
-**Integrated Spectrum Display**
+**Spectrum Display**
 
 The right panel shows the spectrum of your current selection:
 
 - **X-axis**: Wavelength (or velocity/frequency)
 - **Y-axis**: Flux/intensity
-- **Red curve**: Data spectrum
-- **Blue points** (optional): Uncertainty/errors
-- **Green overlay** (optional): Fitted profile or residuals
 
 **Spectrum Update**
 
@@ -35,8 +26,6 @@ Spectrum updates when:
 - You change wavelength slider
 - You select a new region
 - You move cursor over the map
-
-To update manually: Press **Enter** or click **Update Spectrum** button
 
 Extracting Spectra
 ==================
