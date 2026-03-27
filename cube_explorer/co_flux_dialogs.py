@@ -513,6 +513,11 @@ class COFluxMapResultsDialog(QDialog):
                         if kw in self.header:
                             hdu.header[kw] = self.header[kw]
                 
+                # Ensure INSTRUME is set - get from cube_data if not in header
+                if 'INSTRUME' not in hdu.header and hasattr(self, 'cube_data') and self.cube_data is not None:
+                    if hasattr(self.cube_data, 'instrument'):
+                        hdu.header['INSTRUME'] = self.cube_data.instrument
+                
                 hdu.header['BUNIT'] = self.flux_unit_str
                 hdu.header['DESC'] = 'CO rovibrational flux: Integrated area under CO line gaussians'
                 if self.wave_range:

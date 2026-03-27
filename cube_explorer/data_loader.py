@@ -74,10 +74,28 @@ class CubeData:
             
             # Detect instrument
             self.instrument = detect_instrument(self.hdul)
+            
+            # If detect_instrument fails, try reading INSTRUME directly from header
+            if self.instrument is None:
+                # Try to get INSTRUME value directly from any HDU
+                for hdu in self.hdul:
+                    if 'INSTRUME' in hdu.header:
+                        instrume_val = hdu.header['INSTRUME'].strip().upper()
+                        # Map common INSTRUME values to our known instruments
+                        if 'MUSE' in instrume_val:
+                            self.instrument = 'MUSE'
+                        elif 'ALMA' in instrume_val:
+                            self.instrument = 'ALMA'
+                        elif 'MIRI' in instrume_val:
+                            self.instrument = 'MIRI'
+                        elif 'NIRSPEC' in instrume_val:
+                            self.instrument = 'NIRSpec'
+                        break
+            
             if self.instrument is None:
                 raise ValueError("Could not detect instrument from FITS headers")
-
-            # Load data using appropriate loader
+            
+            # Load data using appropriate loader for detected instrument
             self.header, data = TELESCOPE_LOADERS[self.instrument](self.hdul)
 
             # --- Handle ALMA data ---

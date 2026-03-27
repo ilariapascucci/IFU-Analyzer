@@ -24,10 +24,6 @@ class GuiCOFluxMixin:
             QMessageBox.warning(self, "No Data", "Load a FITS cube first")
             return
         
-        if not hasattr(self, 'CO_lines') or self.CO_lines is None:
-            QMessageBox.warning(self, "Missing Catalog", "CO line catalog not loaded")
-            return
-        
         if not hasattr(self, 'contam_lines'):
             self.contam_lines = None
         

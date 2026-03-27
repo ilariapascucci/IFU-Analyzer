@@ -12,8 +12,8 @@ import numpy as np
 TELESCOPE_LOADERS = {
     "MUSE": lambda hdul: (hdul[1].header, hdul[1].data),
     "ALMA": lambda hdul: (hdul[0].header, hdul[0].data),
-    "MIRI": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data),
-    "NIRSpec": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data),
+    "MIRI": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data) if "SCI" in hdul else (hdul[0].header, hdul[0].data),
+    "NIRSpec": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data) if "SCI" in hdul else (hdul[0].header, hdul[0].data),
 }
 
 def detect_instrument(hdul):

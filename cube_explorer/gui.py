@@ -269,16 +269,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         CO_path = os.path.join(base_path, 'data', 'CO', 'CO_comprehensive_linelist_with_g.ecsv')
         
-        print('\n>>> Loading CO Catalogues...')
         self.CO_lines = load_CO_line_catalog(CO_path)
         # Contaminating lines are now optional - users can load them separately after HITRAN parameters are set
         self.contam_lines = None
-        
-        if self.CO_lines is not None:
-            print(f'✓ CO lines: {len(self.CO_lines)} entries')
-            print(f'✓ Contaminating lines: OPTIONAL (can be loaded later)\n')
-        else:
-            print('⚠️  Warning: Failed to load CO lines catalog\n')
     def _clear_all_displays(self):
         """Clear all plots, selections, and stats when loading a new cube."""
         print("=== CLEAR ALL DISPLAYS START ===")

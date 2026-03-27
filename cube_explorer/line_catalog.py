@@ -454,16 +454,12 @@ def load_CO_line_catalog(filepath):
     """
     try:
         if not os.path.exists(filepath):
-            print(f"❌ Error: File '{filepath}' not found.")
             return None
         
-        print(f">>> Loading CO line catalog from {filepath}...")
         CO_lines = ascii.read(filepath)
         CO_lines = CO_lines.to_pandas()
-        print(f"✓ Loaded {len(CO_lines)} CO lines")
         return CO_lines
     except Exception as e:
-        print(f"❌ Error loading CO catalog: {e}")
         return None
 
 def load_contaminating_lines_catalog(filepath):
