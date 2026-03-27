@@ -41,7 +41,7 @@ From the IFU-Analyzer folder, run:
 
    pip install -r requirements.txt
 
-That's it! This installs all 10 dependencies needed to run IFU Analyzer.
+That's it! This installs all dependencies needed to run IFU Analyzer.
 
 
 3. Launch the Application
@@ -63,7 +63,6 @@ IFU Analyzer accepts FITS files from any supported instrument:
 - **ALMA**: Radio/millimeter data
 - **MIRI** (JWST): Mid-infrared cubes
 - **NIRSpec** (JWST): Near-infrared data
-- **Generic**: Any 2D/3D FITS image
 
 To load data:
 

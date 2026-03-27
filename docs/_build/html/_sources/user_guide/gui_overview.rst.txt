@@ -50,5 +50,4 @@ If you forget a button's function:
 
 - **Hover**: Mouse over buttons to see tooltip
 - **Toolbar Buttons**: Use buttons for common tasks
-- **Keyboard**: Press F1 or ? for help
 - **This Guide**: Full documentation available

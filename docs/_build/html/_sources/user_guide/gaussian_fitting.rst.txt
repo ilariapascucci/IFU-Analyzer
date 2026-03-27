@@ -16,24 +16,24 @@ Gaussian fitting provides:
 - **Quality Metrics**: χ², R², residuals for assessment
 
 Interactive Single-Pixel Fitting
-===============================
+================================
 
 **Quick Fit (Interactive)**
 
 1. Click on **Gaussian Fit** on the middle toolbar
 2. Select **Left**, **Peak**, and **Right** wavelengths on corresponding fit
-2. Click **Fit Gaussian** button
-3. Gaussian overlay appears on spectrum
-4. Fit parameters shown:
+3. Click **Fit Gaussian** button
+4. Gaussian overlay appears on spectrum
+5. Fit parameters shown:
    
    - **Center** (μ): Line center wavelength
    - **Amplitude** (A): Peak intensity
    - **Sigma** (σ): Standard deviation
    - **FWHM**: Full Width Half Maximum
    - **Gaussian Area**: Integrated flux
-   - **Equivalent Width**: 
-   - **Slope**:
-   - **Left Endpoint**:
+   - **Equivalent Width**: Width of a rectangular profile with same flux as the Gaussian
+   - **Slope**: Baseline slope (continuum gradient)
+   - **Left Endpoint**: Wavelength value at the left edge of the fit region
    - **R²**: Coefficient of determination (higher is better)
    - **χ²**: Fit quality (lower is better)
    - **Data Points**: Number of wavelength points in the fit
@@ -66,7 +66,7 @@ After fitting, created maps include:
 - **FWHM Map**: Full width at half maximum
 - **Chi-Squared Map**: Fit quality at each pixel
 - **Success Mask**: Good vs. failed fits
-- **Residuals**:
+- **Residuals Map**: Difference between data and fitted model
 
 Viewing Fit Results
 ===================

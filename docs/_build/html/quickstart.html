@@ -49,9 +49,6 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Quick Start</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#loading-your-first-data-file">Loading Your First Data File</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#analyzing-a-spectral-line">Analyzing a Spectral Line</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#mapping-across-the-cube">Mapping Across the Cube</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#common-tasks">Common Tasks</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#for-more-information">For More Information</a></li>
 </ul>
 </li>
@@ -112,59 +109,17 @@ python<span class="w"> </span>main.py
 <ol class="arabic simple">
 <li><p>Click <strong>File → Open FITS</strong></p></li>
 <li><p>Select a FITS file</p></li>
-<li><p>Choose the instrument (MUSE, ALMA, MIRI, NIRSpec, or Generic)</p></li>
+<li><p>Choose the instrument (MUSE, ALMA, MIRI, NIRSpec)</p></li>
 <li><p>Click <strong>Open</strong></p></li>
 </ol>
 <p>You’ll see:
-- <strong>Intensity map</strong> (center) - brightness at current wavelength
-- <strong>Spectrum</strong> (right) - emission lines and features
-- <strong>Wavelength slider</strong> (bottom) - navigate through the cube</p>
-</section>
-<section id="analyzing-a-spectral-line">
-<h2>Analyzing a Spectral Line<a class="headerlink" href="#analyzing-a-spectral-line" title="Link to this heading"></a></h2>
-<p><strong>Step 1: Navigate to your line</strong></p>
-<p>Use the wavelength slider to find your emission line.</p>
-<p><strong>Step 2: Select a region (optional)</strong></p>
-<p>Click <strong>Select Region</strong> → choose a shape → draw on the intensity map.</p>
-<p>This shows the spectrum just from that region.</p>
-<p><strong>Step 3: Fit the line profile</strong></p>
-<p>Right-click on the spectrum → <strong>Fit Gaussian</strong></p>
-<p>You’ll see:
-- Fitted curve overlaid on the data
-- <strong>Parameters</strong>: Amplitude, Center, FWHM, Area, χ²</p>
-<p>Click <strong>Accept</strong> to save.</p>
-<p><strong>Step 4: Export your results</strong></p>
-<p>File → <strong>Export Spectrum</strong> → choose format (ASCII or FITS) → save</p>
-</section>
-<section id="mapping-across-the-cube">
-<h2>Mapping Across the Cube<a class="headerlink" href="#mapping-across-the-cube" title="Link to this heading"></a></h2>
-<p>To fit the same line at every pixel in the cube:</p>
-<ol class="arabic simple">
-<li><p>Click <strong>Fit Full Cube</strong> (C key)</p></li>
-<li><p>Set wavelength range for the line</p></li>
-<li><p>Click <strong>Run</strong></p></li>
-<li><p>Wait for processing</p></li>
-</ol>
-<p>Results appear as maps:
-- <strong>Amplitude map</strong> - line brightness at each pixel
-- <strong>Center map</strong> - wavelength shifts (velocity info)
-- <strong>FWHM map</strong> - line width variations</p>
-<p>Export any map via File → <strong>Export</strong>.</p>
-</section>
-<section id="common-tasks">
-<h2>Common Tasks<a class="headerlink" href="#common-tasks" title="Link to this heading"></a></h2>
-<p><strong>Navigate wavelengths</strong>: Use slider or type wavelength in the field</p>
-<p><strong>Change colors</strong>: Click <strong>Colormap</strong> button</p>
-<p><strong>Adjust brightness</strong>: Use <strong>vmin/vmax</strong> sliders or click <strong>Color Scale</strong></p>
-<p><strong>Subtract continuum</strong>: Click <strong>Continuum</strong> button, select regions, apply</p>
-<p><strong>Measure CO flux</strong>: Click <strong>CO Flux</strong> button</p>
+- <strong>Intensity maps</strong> (top center) - brightness at current wavelengths
+- <strong>Spectrum</strong> (bottom center) - 1D spectrum of FITS file showing wavelengths and flux</p>
 </section>
 <section id="for-more-information">
 <h2>For More Information<a class="headerlink" href="#for-more-information" title="Link to this heading"></a></h2>
 <ul class="simple">
 <li><p>Full feature guide: <a class="reference internal" href="user_guide/index.html"><span class="doc">User Guide</span></a></p></li>
-<li><p>Advanced analysis: <span class="xref std std-doc">features/index</span></p></li>
-<li><p>FAQ: <a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a></p></li>
 <li><p>FAQ: <a class="reference internal" href="faq.html"><span class="doc">FAQ</span></a></p></li>
 </ul>
 </section>

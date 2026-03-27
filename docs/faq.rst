@@ -49,8 +49,6 @@ A: Try:
 1. Verify file is valid FITS
 2. Check FITS header is valid
 
-See :doc:`troubleshooting` for detailed solutions.
-
 **Q: Why is cube fitting so slow?**
 
 A: Large cubes are slow because:

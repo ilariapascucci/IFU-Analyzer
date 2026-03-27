@@ -41,7 +41,7 @@ A Gaussian fit will be highlighted for each line, and the fit statistics will be
 
 Extract CO flux maps for each pixel:
 
-1. Complete Multi-Gaussian Fit and Automatic Continuum.
+1. Complete Automatic Continuum
 2. Click on **CO Flux Map**
 
 **Progress Monitoring**

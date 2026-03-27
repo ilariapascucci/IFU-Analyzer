@@ -13,14 +13,14 @@ The main intensity map shows a 2D projection of your 3D data cube:
 
 - Each pixel represents a spatial location (spaxel)
 - Color shows intensity at the current wavelength
-- Interactive: Click any location to update the spectrum
+- Interactive: Click any location to update the spectrum by setting a left or right slice
 
 **Spectrum Panel Display**
 
 The spectrum panel shows 1D data:
 
 - X-axis: Wavelength or frequency
-- Y-axis: Intensity (flux or count rate)
+- Y-axis: Intensity (flux)
 
 Color Scales
 ============
@@ -65,6 +65,7 @@ Zoom Controls
 =============
 
 **Zooming In**
+
 1. Select magnifying glass icon under the figure.
 2. Drag from corner to opposite corner.
 3. Click on the Home icon to revert.

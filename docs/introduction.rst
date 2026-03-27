@@ -3,7 +3,7 @@ Introduction
 ============
 
 What is IFU Analyzer?
-====================
+=====================
 
 **IFU Analyzer** is a comprehensive, interactive Python application designed for visualizing and analyzing three-dimensional spectroscopic data cubes from Integral Field Unit (IFU) instruments. It provides an intuitive graphical interface combined with powerful analysis tools, making it accessible to both casual users and advanced researchers.
 
@@ -24,18 +24,20 @@ Interactive Visualization
 - **Dual-View Interface**: Compare wavelength and velocity representations side-by-side
 - **Real-time Updates**: Spectrum updates instantly as you select regions or pixels
 - **Advanced Color Controls**: Apply linear, logarithmic, power-law, and square-root scaling with customizable colormaps
-- **2D Imaging**: Support for 2D images including intensity maps and derived Gaussian parameter maps
+- **2D Imaging**: Support for 2D images
 
 Spectral Analysis
 -----------------
 
-- **Gaussian Line Fitting**: 
-  - Interactive single-pixel fitting with visual overlay and quality metrics
-  - Automated full-cube parallel fitting with comprehensive parameter extraction
+- **Gaussian Line Fitting**:
+
+  - Interactive wavelength fitting with visual overlay and quality metrics
+  - Full-cube fitting with comprehensive parameter extraction
   - Baseline subtraction and continuum removal
   - Quality assessment through χ², R², FWHM, and area measurements
 
 - **Parameter Maps**:
+
   - Integrated area (intensity maps)
   - Peak amplitude distributions
   - Line center measurements
@@ -44,9 +46,8 @@ Spectral Analysis
   - Success/failure masks
 
 - **Spectral Processing**:
+
   - Region-based spectral extraction
-  - Statistical analysis of selected regions
-  - Spectrum normalization
   - Automated continuum baseline subtraction
   - Spectral line identification using HITRAN database
 
@@ -55,14 +56,13 @@ Data Management
 
 - **Multi-Format Support**: Works with FITS files from various instruments and custom formats
 - **Memory-Efficient Processing**: Handle large data cubes efficiently
-- **Multiple Selection Tools**: Point, rectangular, circular, elliptical, and custom polygon selection
+- **Multiple Selection Tools**: Point, rectangular, circular, elliptical, and free-form selection
 - **Coordinate Systems**: Seamless conversion between pixel and RA/DEC coordinates
 
 Export & Output
 ---------------
 
-- **ASCII Spectrum Export**: Save displayed spectra (normalized or original) as tab-delimited text files
-- **Residuals Analysis**: Export 3D normalized residuals cubes with full FITS header metadata
+- **ASCII Spectrum Export**: Save displayed spectra as tab-delimited text files
 - **Automatic Metadata**: Instrument detection and header preservation during export
 - **Custom Formatting**: Configure output format to match your analysis pipeline
 

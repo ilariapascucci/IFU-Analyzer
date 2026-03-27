@@ -121,30 +121,37 @@
 <li><p><strong>Dual-View Interface</strong>: Compare wavelength and velocity representations side-by-side</p></li>
 <li><p><strong>Real-time Updates</strong>: Spectrum updates instantly as you select regions or pixels</p></li>
 <li><p><strong>Advanced Color Controls</strong>: Apply linear, logarithmic, power-law, and square-root scaling with customizable colormaps</p></li>
-<li><p><strong>2D Imaging</strong>: Support for 2D images including intensity maps and derived Gaussian parameter maps</p></li>
+<li><p><strong>2D Imaging</strong>: Support for 2D images</p></li>
 </ul>
 </section>
 <section id="spectral-analysis">
 <h3>Spectral Analysis<a class="headerlink" href="#spectral-analysis" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>Gaussian Line Fitting</strong>:
-- Interactive single-pixel fitting with visual overlay and quality metrics
-- Automated full-cube parallel fitting with comprehensive parameter extraction
-- Baseline subtraction and continuum removal
-- Quality assessment through χ², R², FWHM, and area measurements</p></li>
-<li><p><strong>Parameter Maps</strong>:
-- Integrated area (intensity maps)
-- Peak amplitude distributions
-- Line center measurements
-- Line width analysis (σ, FWHM)
-- Fit quality metrics
-- Success/failure masks</p></li>
-<li><p><strong>Spectral Processing</strong>:
-- Region-based spectral extraction
-- Statistical analysis of selected regions
-- Spectrum normalization
-- Automated continuum baseline subtraction
-- Spectral line identification using HITRAN database</p></li>
+<li><p><strong>Gaussian Line Fitting</strong>:</p>
+<ul>
+<li><p>Interactive wavelength fitting with visual overlay and quality metrics</p></li>
+<li><p>Full-cube fitting with comprehensive parameter extraction</p></li>
+<li><p>Baseline subtraction and continuum removal</p></li>
+<li><p>Quality assessment through χ², R², FWHM, and area measurements</p></li>
+</ul>
+</li>
+<li><p><strong>Parameter Maps</strong>:</p>
+<ul>
+<li><p>Integrated area (intensity maps)</p></li>
+<li><p>Peak amplitude distributions</p></li>
+<li><p>Line center measurements</p></li>
+<li><p>Line width analysis (σ, FWHM)</p></li>
+<li><p>Fit quality metrics</p></li>
+<li><p>Success/failure masks</p></li>
+</ul>
+</li>
+<li><p><strong>Spectral Processing</strong>:</p>
+<ul>
+<li><p>Region-based spectral extraction</p></li>
+<li><p>Automated continuum baseline subtraction</p></li>
+<li><p>Spectral line identification using HITRAN database</p></li>
+</ul>
+</li>
 </ul>
 </section>
 <section id="data-management">
@@ -152,15 +159,14 @@
 <ul class="simple">
 <li><p><strong>Multi-Format Support</strong>: Works with FITS files from various instruments and custom formats</p></li>
 <li><p><strong>Memory-Efficient Processing</strong>: Handle large data cubes efficiently</p></li>
-<li><p><strong>Multiple Selection Tools</strong>: Point, rectangular, circular, elliptical, and custom polygon selection</p></li>
+<li><p><strong>Multiple Selection Tools</strong>: Point, rectangular, circular, elliptical, and free-form selection</p></li>
 <li><p><strong>Coordinate Systems</strong>: Seamless conversion between pixel and RA/DEC coordinates</p></li>
 </ul>
 </section>
 <section id="export-output">
 <h3>Export &amp; Output<a class="headerlink" href="#export-output" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>ASCII Spectrum Export</strong>: Save displayed spectra (normalized or original) as tab-delimited text files</p></li>
-<li><p><strong>Residuals Analysis</strong>: Export 3D normalized residuals cubes with full FITS header metadata</p></li>
+<li><p><strong>ASCII Spectrum Export</strong>: Save displayed spectra as tab-delimited text files</p></li>
 <li><p><strong>Automatic Metadata</strong>: Instrument detection and header preservation during export</p></li>
 <li><p><strong>Custom Formatting</strong>: Configure output format to match your analysis pipeline</p></li>
 </ul>

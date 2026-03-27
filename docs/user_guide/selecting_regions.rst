@@ -1,6 +1,6 @@
-================
+=================
 Selecting Regions
-================
+=================
 
 Learn how to select areas of interest in your data cube for analysis.
 
@@ -14,9 +14,8 @@ Tool                     Best For
 ======================== ==================================================================
 **Point Select**         Single pixels or precise locations
 **Rectangle Select**     Rectangular areas, embedded sources
-**Circle Select**        Star-like or circular features
+**Circle Select**        Circular features
 **Ellipse Select**       Elongated structures, galaxies
-**Polygon Select**       Irregular or complex shapes
 **Free-Form Draw**       Precise manual outlines
 ======================== ==================================================================
 
@@ -87,7 +86,7 @@ Adjustments:
 - **Drag center**: Move ellipse
 
 Using Free-Form Select Tool
-=========================
+===========================
 
 Select irregular or complex shapes:
 
@@ -95,13 +94,13 @@ Select irregular or complex shapes:
 2. Draw a closed figure
 3. Release mouse to finalize
 
-Tips for Polygons:
+Tips for free-form:
 
 - Make closed figures
 - Make figures inside the boundaries
 
 Statistics
-====================
+==========
 
    - **Mean**: Central values
    - **Std**: Spread
