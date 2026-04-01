@@ -1,11 +1,22 @@
 """
 Custom continuum subtraction using user-selected points and spline fitting
+
+IMPORTANT: This module supports both interactive GUI usage and non-GUI programmatic usage.
+PyQt5 is optional and only loaded for interactive features.
 """
 
 import numpy as np
 from scipy.interpolate import CubicSpline
-from PyQt5.QtWidgets import QMessageBox
-from PyQt5.QtCore import Qt
+import warnings
+
+# PyQt5 imports are optional - try to import but don't fail if unavailable
+try:
+    from PyQt5.QtWidgets import QMessageBox
+    from PyQt5.QtCore import Qt
+    HAS_PYQT5 = True
+except ImportError:
+    HAS_PYQT5 = False
+    warnings.warn("PyQt5 not available - interactive features will be disabled. Core continuum fitting functions still work.")
 
 class CustomContinuumSelector:
     """
@@ -63,8 +74,10 @@ class CustomContinuumSelector:
             
         self.is_active = True
         
-        self.canvas.setFocusPolicy(Qt.StrongFocus)
-        self.canvas.setFocus()
+        # Set focus policy (GUI-only, safe to skip if PyQt5 unavailable)
+        if HAS_PYQT5 and hasattr(self.canvas, 'setFocusPolicy'):
+            self.canvas.setFocusPolicy(Qt.StrongFocus)
+            self.canvas.setFocus()
         
         # Clear any previous selections
         self._clear_points()
@@ -74,8 +87,8 @@ class CustomContinuumSelector:
         self.pick_cid = self.canvas.mpl_connect('pick_event', self._on_pick)
         self.key_cid = self.canvas.mpl_connect('key_press_event', self.on_key_press)
         
-        # Show instructions
-        if self.parent_widget:
+        # Show instructions (GUI-only, safe to skip if PyQt5 unavailable)
+        if self.parent_widget and HAS_PYQT5:
             QMessageBox.information(
                 self.parent_widget,
                 "Custom Continuum Subtraction",

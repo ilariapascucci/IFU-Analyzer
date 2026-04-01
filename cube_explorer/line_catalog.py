@@ -243,13 +243,22 @@ def get_cache_age(table_name):
         return None
     return None
 
-def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, cache_days=30):
+def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None):
     """
     Retrieves molecular spectroscopic line data from the HITRAN database using HAPI.
     Implements smart caching to minimize downloads, converts wavelength ranges to 
     wavenumbers, extracts quantum numbers for transition labeling, and calculates 
     upper energy levels. Handles both cached and fresh data with user prompts for 
     cache refresh based on age.
+    
+    Args:
+        wavelength_min, wavelength_max: Wavelength range in µm
+        molecule: Molecule name (e.g., 'CO')
+        isotopologue: Isotopologue number (default 1)
+        refresh_cache: Force cache refresh
+        cache_days: Cache age threshold
+        v_upper: Filter by upper vibrational level (optional, e.g., 1 for v=1)
+        v_lower: Filter by lower vibrational level (optional, e.g., 0 for v=0)
     """
     try:
         from hapi import db_begin, fetch, getColumns, tableList
@@ -288,23 +297,23 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
         if data_cached and not refresh_cache:
             cache_age = get_cache_age(table_name)
             if cache_age is not None:
-                print(f"📅 Cache age: {cache_age:.1f} days")
+                print(f"[CACHE] Age: {cache_age:.1f} days")
                 if cache_age > cache_days:
-                    print(f"⚠️  Cache is older than {cache_days} days (using cached unless refresh_cache=True)")
+                    print(f"[INFO] Cache is older than {cache_days} days (using cached unless refresh_cache=True)")
 
         if refresh_cache and data_cached:
-            print(f"🗑️  Deleting old cache...")
+            print(f"[INFO] Deleting old cache...")
             delete_cache_properly(table_name)
             data_cached = False
 
         if data_cached and not refresh_cache:
-            print(f"✓ Using cached {molecule} data")
+            print(f"[OK] Using cached {molecule} data")
         else:
-            print(f"📥 Downloading {molecule} from HITRAN...")
+            print(f"[INFO] Downloading {molecule} from HITRAN...")
             fetch(table_name, M, I, wavenum_min, wavenum_max)
-            print(f"✓ Download complete - cached locally")
+            print(f"[OK] Download complete - cached locally")
 
-        print(f"⏳ Processing data...\n")
+        print(f"[INFO] Processing data...\n")
         data_rows = []
 
         # Attempt to retrieve quantum numbers for transition labeling
@@ -342,8 +351,22 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                 # Parse transition notation from quantum numbers
                 if global_upper_quanta is not None and local_lower_quanta is not None:
                     try:
-                        v_upper = str(global_upper_quanta[i]).strip()
-                        v_lower = str(global_lower_quanta[i]).strip()
+                        v_upper_str = str(global_upper_quanta[i]).strip()
+                        v_lower_str = str(global_lower_quanta[i]).strip()
+                        
+                        # Extract numeric vibrational levels for filtering
+                        try:
+                            v_upper_num = int(re.search(r'\d+', v_upper_str).group())
+                            v_lower_num = int(re.search(r'\d+', v_lower_str).group())
+                        except:
+                            v_upper_num = None
+                            v_lower_num = None
+                        
+                        # Apply vibrational level filter if specified
+                        if v_upper is not None and v_upper_num != v_upper:
+                            continue
+                        if v_lower is not None and v_lower_num != v_lower:
+                            continue
 
                         lower_str = str(local_lower_quanta[i]).strip()
                         j_match = re.search(r'(\d+)', lower_str)
@@ -367,9 +390,9 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                             else:
                                 j_upper = '?'
 
-                            transition = f"v={v_upper}->{v_lower}, J={j_upper}->{j_lower}"
+                            transition = f"v={v_upper_str}->{v_lower_str}, J={j_upper}->{j_lower}"
                         else:
-                            transition = f"v={v_upper}->{v_lower}"
+                            transition = f"v={v_upper_str}->{v_lower_str}"
                     except Exception as ex:
                         transition = "N/A"
                 else:
@@ -385,10 +408,10 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                     'e_upper': float(eupper[i]),
                 })
 
-        print(f"✓ Retrieved {len(data_rows)} lines\n")
+        print(f"[OK] Retrieved {len(data_rows)} lines\n")
         return data_rows, {}
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"[ERROR] {str(e)}")
         return [], {}
 
 def display_results(results):
