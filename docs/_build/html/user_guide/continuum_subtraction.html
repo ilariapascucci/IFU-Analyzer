@@ -56,9 +56,13 @@
 <li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
 <li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Continuum Subtraction</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Continuum Subtraction</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#automatic-continuum-subtraction">Automatic Continuum Subtraction</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
 </ul>
 </li>
 </ul>
@@ -101,6 +105,73 @@
              
   <section id="continuum-subtraction">
 <h1>Continuum Subtraction<a class="headerlink" href="#continuum-subtraction" title="Link to this heading"></a></h1>
+<p>The continuum is the underlying stellar/background emission that spans the entire spectrum
+(as opposed to narrow spectral lines which are superimposed on top). Removing the continuum
+is essential for accurate line flux measurements.</p>
+<section id="automatic-continuum-subtraction">
+<h2>Automatic Continuum Subtraction<a class="headerlink" href="#automatic-continuum-subtraction" title="Link to this heading"></a></h2>
+<p>IFU Analyzer includes an automatic continuum fitting algorithm that:</p>
+<ol class="arabic simple">
+<li><p>Detects emission/absorption peaks (spectral lines) in the spectrum</p></li>
+<li><p>Fits a smooth curve through the remaining “line-free” pixels</p></li>
+<li><p>Subtracts this fitted continuum from the spectrum</p></li>
+</ol>
+<p><strong>Via the GUI:</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>Continuum Tools</strong> in the toolbar</p></li>
+<li><p>Select <strong>Automatic Continuum</strong></p></li>
+<li><p>Choose <strong>Continuum Line</strong> to fit the global continuum</p></li>
+<li><p>The spectrum will update showing the continuum-subtracted result</p></li>
+</ol>
+<p><strong>Using the Continuum API</strong></p>
+<p>Fit and subtract continuum programmatically:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.api</span> <span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_continuum</span>
+
+<span class="c1"># Load data</span>
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+<span class="n">spectrum</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span>
+<span class="n">wavelength</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span>
+
+<span class="c1"># Fit continuum using automatic peak detection</span>
+<span class="n">continuum</span> <span class="o">=</span> <span class="n">fit_continuum</span><span class="p">(</span>
+    <span class="n">wavelength</span><span class="p">,</span>
+    <span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">sigma_threshold</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>      <span class="c1"># Peak detection sensitivity</span>
+    <span class="n">peak_exclusion</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>         <span class="c1"># Pixels to exclude near peaks</span>
+    <span class="n">iterations</span><span class="o">=</span><span class="mi">2</span>              <span class="c1"># Iterative refinement</span>
+<span class="p">)</span>
+
+<span class="c1"># Subtract to get line-only spectrum</span>
+<span class="n">line_spectrum</span> <span class="o">=</span> <span class="n">spectrum</span> <span class="o">-</span> <span class="n">continuum</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Original spectrum range: </span><span class="si">{</span><span class="n">spectrum</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">spectrum</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Line-only spectrum range: </span><span class="si">{</span><span class="n">line_spectrum</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">line_spectrum</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Continuum Parameters</strong></p>
+<p>You can fine-tune the continuum fitting with these parameters:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">continuum</span> <span class="o">=</span> <span class="n">fit_continuum</span><span class="p">(</span>
+    <span class="n">wavelength</span><span class="p">,</span>
+    <span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">window_size</span><span class="o">=</span><span class="mi">51</span><span class="p">,</span>           <span class="c1"># Window for median filter (must be odd)</span>
+    <span class="n">sigma_threshold</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>      <span class="c1"># Prominence threshold in sigma</span>
+    <span class="n">peak_distance</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>          <span class="c1"># Minimum pixels between peaks</span>
+    <span class="n">peak_exclusion</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>         <span class="c1"># Pixels excluded on each side of peak</span>
+    <span class="n">iterations</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>             <span class="c1"># Number of refinement iterations</span>
+    <span class="n">smoothing_factor</span><span class="o">=</span><span class="mi">5</span>        <span class="c1"># Spline smoothing parameter</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Higher <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span></code> values are less aggressive (detect fewer lines).
+Lower <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span></code> values are more aggressive (detect more lines).</p>
+<p><strong>Tips for Better Continuum Fits</strong></p>
+<ul class="simple">
+<li><p>If too much continuum is being subtracted, increase <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span></code></p></li>
+<li><p>If not enough continuum is being subtracted, decrease <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span></code></p></li>
+<li><p>For noisy data, increase <code class="docutils literal notranslate"><span class="pre">iterations</span></code> for more refinement</p></li>
+<li><p>Adjust <code class="docutils literal notranslate"><span class="pre">window_size</span></code> based on the width of spectral features (wider features = larger window)</p></li>
+</ul>
+</section>
 </section>
 
 

@@ -10,7 +10,6 @@ What is IFU Analyzer?
 The application supports data from multiple state-of-the-art instruments:
 
 - **MUSE** (Multi Unit Spectroscopic Explorer) - VLT optical spectroscopy
-- **ALMA** (Atacama Large Millimeter/submillimeter Array) - Radio interferometry
 - **MIRI** (Mid-Infrared Instrument) - JWST mid-infrared spectroscopy
 - **NIRSpec** (Near-Infrared Spectrograph) - JWST near-infrared spectroscopy
 
@@ -20,8 +19,8 @@ Key Capabilities
 Interactive Visualization
 -------------------------
 
-- **3D Spectral Data Cube Exploration**: Load and navigate through 3D FITS data cubes with seamless wavelength/velocity slicing
-- **Dual-View Interface**: Compare wavelength and velocity representations side-by-side
+- **3D Spectral Data Cube Exploration**: Load and navigate through 3D FITS data cubes with seamless wavelength slicing
+- **Multiple Wavelength Views**: Explore data across different wavelength ranges interactively
 - **Real-time Updates**: Spectrum updates instantly as you select regions or pixels
 - **Advanced Color Controls**: Apply linear, logarithmic, power-law, and square-root scaling with customizable colormaps
 - **2D Imaging**: Support for 2D images
@@ -29,21 +28,21 @@ Interactive Visualization
 Spectral Analysis
 -----------------
 
-- **Gaussian Line Fitting**:
+- **1D Gaussian Line Fitting**:
 
-  - Interactive wavelength fitting with visual overlay and quality metrics
-  - Full-cube fitting with comprehensive parameter extraction
+  - Interactive single-pixel spectrum fitting with visual overlay and quality metrics
+  - Pixel-by-pixel full-cube fitting with comprehensive parameter extraction
   - Baseline subtraction and continuum removal
   - Quality assessment through χ², R², FWHM, and area measurements
 
-- **Parameter Maps**:
+- **Integrated Intensity Maps & Pixel-by-Pixel Gaussian Fitting**:
 
-  - Integrated area (intensity maps)
-  - Peak amplitude distributions
-  - Line center measurements
-  - Line width analysis (σ, FWHM)
-  - Fit quality metrics
-  - Success/failure masks
+  - Integrated area (intensity maps) from line fitting
+  - Peak amplitude distributions across the field
+  - Line center measurements at each spatial position
+  - Line width analysis (σ, FWHM) variations
+  - Fit quality metrics and diagnostics
+  - Success/failure masks showing fit reliability
 
 - **Spectral Processing**:
 

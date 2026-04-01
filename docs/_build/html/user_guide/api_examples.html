@@ -1,0 +1,385 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Using IFU Analyzer Without the GUI &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Features" href="../features.html" />
+    <link rel="prev" title="Exporting Data" href="exporting_data.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Using IFU Analyzer Without the GUI</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#quick-start">Quick Start</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#basic-workflow">Basic Workflow</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#load-a-fits-cube">Load a FITS Cube</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fetch-hitran-molecular-lines">Fetch HITRAN Molecular Lines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fit-spectral-lines">Fit Spectral Lines</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fit-continuum">Fit Continuum</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#create-a-plot">Create a Plot</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#complete-example">Complete Example</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#common-issues">Common Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#available-functions">Available Functions</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#core-modules">Core Modules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#for-detailed-documentation">For Detailed Documentation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Using IFU Analyzer Without the GUI</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/api_examples.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="exporting_data.html" class="btn btn-neutral float-left" title="Exporting Data" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../features.html" class="btn btn-neutral float-right" title="Features" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="using-ifu-analyzer-without-the-gui">
+<h1>Using IFU Analyzer Without the GUI<a class="headerlink" href="#using-ifu-analyzer-without-the-gui" title="Link to this heading"></a></h1>
+<p>This guide explains how to use IFU Analyzer as a Python library directly from your scripts or Jupyter notebooks.</p>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
+<p>The easiest way is to use the <cite>example_basic_api.py</cite> script as a template. It shows a complete workflow:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>example_basic_api.py
+</pre></div>
+</div>
+<p>This loads a FITS file, fetches HITRAN CO lines, fits them to the spectrum, and generates a plot.</p>
+</section>
+<section id="basic-workflow">
+<h2>Basic Workflow<a class="headerlink" href="#basic-workflow" title="Link to this heading"></a></h2>
+<section id="load-a-fits-cube">
+<h3>Load a FITS Cube<a class="headerlink" href="#load-a-fits-cube" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.data_loader</span> <span class="kn">import</span> <span class="n">CubeData</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">CubeData</span><span class="p">()</span>
+<span class="n">cube</span><span class="o">.</span><span class="n">load_from_file</span><span class="p">(</span><span class="s2">&quot;path/to/data.fits&quot;</span><span class="p">)</span>
+
+<span class="c1"># Access data</span>
+<span class="n">wavelength</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span>
+<span class="n">spectrum</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span>
+<span class="n">full_cube</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">cube</span>  <span class="c1"># Shape: (wavelength, x, y)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Wavelength range: </span><span class="si">{</span><span class="n">wavelength</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">wavelength</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Cube shape: </span><span class="si">{</span><span class="n">full_cube</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="fetch-hitran-molecular-lines">
+<h3>Fetch HITRAN Molecular Lines<a class="headerlink" href="#fetch-hitran-molecular-lines" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.line_catalog</span> <span class="kn">import</span> <span class="n">fetch_hitran_data</span>
+
+<span class="c1"># Get CO v=1→0 lines in 4.7-4.8 µm range</span>
+<span class="n">hitran_lines</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
+    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.7</span><span class="p">,</span>
+    <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.8</span><span class="p">,</span>
+    <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;CO&#39;</span><span class="p">,</span>
+    <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>        <span class="c1"># Main isotope (12CO)</span>
+    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>             <span class="c1"># Upper vibrational level</span>
+    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span>              <span class="c1"># Lower vibrational level</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">hitran_lines</span><span class="p">)</span><span class="si">}</span><span class="s2"> lines&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">hitran_lines</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">line</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.9f</span><span class="si">}</span><span class="s2"> um - </span><span class="si">{</span><span class="n">line</span><span class="p">[</span><span class="s1">&#39;transition&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="fit-spectral-lines">
+<h3>Fit Spectral Lines<a class="headerlink" href="#fit-spectral-lines" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.gaussian_fitter</span> <span class="kn">import</span> <span class="n">fit_hitran_lines</span>
+
+<span class="c1"># Fit all HITRAN lines to the spectrum</span>
+<span class="n">fit_results</span> <span class="o">=</span> <span class="n">fit_hitran_lines</span><span class="p">(</span>
+    <span class="n">spectrum_x</span><span class="o">=</span><span class="n">wavelength</span><span class="p">,</span>
+    <span class="n">spectrum_y</span><span class="o">=</span><span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">hitran_lines</span><span class="o">=</span><span class="n">hitran_lines</span><span class="p">,</span>
+    <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">)</span>
+
+<span class="c1"># Important: Use the HITRAN wavelengths directly (not the fitted centers)</span>
+<span class="k">for</span> <span class="n">hitran_line</span><span class="p">,</span> <span class="n">fit_result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">hitran_lines</span><span class="p">,</span> <span class="n">fit_results</span><span class="p">):</span>
+    <span class="n">fit_result</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">hitran_line</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span>
+
+<span class="c1"># Check which lines were successfully detected</span>
+<span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">fit_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Successfully fit </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">detected</span><span class="p">)</span><span class="si">}</span><span class="s2"> lines&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="fit-continuum">
+<h3>Fit Continuum<a class="headerlink" href="#fit-continuum" title="Link to this heading"></a></h3>
+<p>The GUI’s continuum fitting algorithm:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">scipy.ndimage</span> <span class="kn">import</span> <span class="n">median_filter</span>
+<span class="kn">from</span> <span class="nn">scipy.interpolate</span> <span class="kn">import</span> <span class="n">UnivariateSpline</span>
+<span class="kn">from</span> <span class="nn">scipy.signal</span> <span class="kn">import</span> <span class="n">find_peaks</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+
+<span class="k">def</span> <span class="nf">fit_continuum_gui</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">flux</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit continuum using GUI parameters&quot;&quot;&quot;</span>
+    <span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;window_size&#39;</span><span class="p">:</span> <span class="mi">51</span><span class="p">,</span>
+        <span class="s1">&#39;sigma_threshold&#39;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>
+        <span class="s1">&#39;peak_exclusion&#39;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="s1">&#39;iterations&#39;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="s1">&#39;smoothing_factor&#39;</span><span class="p">:</span> <span class="mi">5</span>
+    <span class="p">}</span>
+
+    <span class="c1"># Smooth and find peaks (lines)</span>
+    <span class="n">smoothed</span> <span class="o">=</span> <span class="n">median_filter</span><span class="p">(</span><span class="n">flux</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;window_size&#39;</span><span class="p">],</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;reflect&#39;</span><span class="p">)</span>
+    <span class="n">peaks</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">find_peaks</span><span class="p">(</span>
+        <span class="n">flux</span><span class="p">,</span>
+        <span class="n">prominence</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">flux</span><span class="p">)</span> <span class="o">*</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;sigma_threshold&#39;</span><span class="p">],</span>
+        <span class="n">distance</span><span class="o">=</span><span class="n">params</span><span class="p">[</span><span class="s1">&#39;peak_exclusion&#39;</span><span class="p">]</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Exclude line pixels</span>
+    <span class="n">exclude</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">flux</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">peak</span> <span class="ow">in</span> <span class="n">peaks</span><span class="p">:</span>
+        <span class="n">left</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">peak</span> <span class="o">-</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;peak_exclusion&#39;</span><span class="p">])</span>
+        <span class="n">right</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">flux</span><span class="p">),</span> <span class="n">peak</span> <span class="o">+</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;peak_exclusion&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">exclude</span><span class="p">[</span><span class="n">left</span><span class="p">:</span><span class="n">right</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="c1"># Fit spline through continuum</span>
+    <span class="n">valid</span> <span class="o">=</span> <span class="o">~</span><span class="n">exclude</span>
+    <span class="n">spline</span> <span class="o">=</span> <span class="n">UnivariateSpline</span><span class="p">(</span>
+        <span class="n">wavelength</span><span class="p">[</span><span class="n">valid</span><span class="p">],</span>
+        <span class="n">smoothed</span><span class="p">[</span><span class="n">valid</span><span class="p">],</span>
+        <span class="n">s</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span> <span class="o">/</span> <span class="n">params</span><span class="p">[</span><span class="s1">&#39;smoothing_factor&#39;</span><span class="p">],</span>
+        <span class="n">k</span><span class="o">=</span><span class="mi">3</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">spline</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span>
+
+<span class="n">continuum</span> <span class="o">=</span> <span class="n">fit_continuum_gui</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">)</span>
+<span class="n">line_spectrum</span> <span class="o">=</span> <span class="n">spectrum</span> <span class="o">-</span> <span class="n">continuum</span>
+</pre></div>
+</div>
+</section>
+<section id="create-a-plot">
+<h3>Create a Plot<a class="headerlink" href="#create-a-plot" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">14</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+
+<span class="c1"># Plot spectrum</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="s1">&#39;b-&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;Spectrum&#39;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.7</span><span class="p">)</span>
+
+<span class="c1"># Plot continuum</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum</span><span class="p">,</span> <span class="s1">&#39;orange&#39;</span><span class="p">,</span> <span class="n">linewidth</span><span class="o">=</span><span class="mf">2.5</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;Continuum&#39;</span><span class="p">)</span>
+
+<span class="c1"># Mark detected lines</span>
+<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">detected</span><span class="p">:</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="n">line</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">],</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;red&#39;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;:&#39;</span><span class="p">)</span>
+
+<span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s1">&#39;Wavelength (um)&#39;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s1">&#39;Flux&#39;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Spectrum: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">detected</span><span class="p">)</span><span class="si">}</span><span class="s1"> CO lines detected&#39;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s1">&#39;spectrum_analysis.png&#39;</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="complete-example">
+<h2>Complete Example<a class="headerlink" href="#complete-example" title="Link to this heading"></a></h2>
+<p>See <cite>example_basic_api.py</cite> for a full working example that includes:</p>
+<ol class="arabic simple">
+<li><p>Loading FITS data</p></li>
+<li><p>Fetching HITRAN CO v=1→0 lines</p></li>
+<li><p>Fitting lines to spectrum</p></li>
+<li><p>Fitting continuum using GUI algorithm</p></li>
+<li><p>Generating visualization with markers on detected CO lines</p></li>
+</ol>
+<p>Run it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>/path/to/IFU-Analyzer
+python<span class="w"> </span>example_basic_api.py
+</pre></div>
+</div>
+<p>Output: <cite>co_analysis_nirspec.png</cite> showing spectrum + continuum + line markers</p>
+</section>
+<section id="common-issues">
+<h2>Common Issues<a class="headerlink" href="#common-issues" title="Link to this heading"></a></h2>
+<p><strong>Issue: Wavelength values are Quantity objects</strong></p>
+<p>If wavelength has units (astropy Quantity), extract the numeric values:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">):</span>
+    <span class="n">wavelength</span> <span class="o">=</span> <span class="n">wavelength</span><span class="o">.</span><span class="n">value</span>
+<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">spectrum</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">):</span>
+    <span class="n">spectrum</span> <span class="o">=</span> <span class="n">spectrum</span><span class="o">.</span><span class="n">value</span>
+</pre></div>
+</div>
+<p><strong>Issue: CubeData not found</strong></p>
+<p>Make sure you’re in the IFU-Analyzer directory or add it to Python path:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">sys</span>
+<span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="s1">&#39;/path/to/IFU-Analyzer&#39;</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">cube_explorer.data_loader</span> <span class="kn">import</span> <span class="n">CubeData</span>
+</pre></div>
+</div>
+<p><strong>Issue: HITRAN fetch fails</strong></p>
+<p>The first fetch downloads data (~100MB). Subsequent calls use local cache.</p>
+<p>For specific vibrational levels, use <cite>v_upper</cite> and <cite>v_lower</cite> parameters:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get v=1→0 lines only (not all CO lines)</span>
+<span class="n">hitran_lines</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
+    <span class="mf">4.7</span><span class="p">,</span> <span class="mf">4.8</span><span class="p">,</span> <span class="s1">&#39;CO&#39;</span><span class="p">,</span>
+    <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>      <span class="c1"># Must match</span>
+    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span>       <span class="c1"># Must match</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Issue: Only some lines detected</strong></p>
+<p>The fitting algorithm may not detect faint lines. To use HITRAN wavelengths directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># IMPORTANT: Override fit results with HITRAN wavelengths</span>
+<span class="k">for</span> <span class="n">hitran_line</span><span class="p">,</span> <span class="n">fit_result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">hitran_lines</span><span class="p">,</span> <span class="n">fit_results</span><span class="p">):</span>
+    <span class="n">fit_result</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">hitran_line</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+<section id="available-functions">
+<h2>Available Functions<a class="headerlink" href="#available-functions" title="Link to this heading"></a></h2>
+<section id="core-modules">
+<h3>Core Modules<a class="headerlink" href="#core-modules" title="Link to this heading"></a></h3>
+<p><strong>cube_explorer.data_loader</strong></p>
+<ul class="simple">
+<li><p><cite>CubeData.load_from_file(filepath)</cite> - Load FITS cube with auto-instrument detection</p></li>
+</ul>
+<p><strong>cube_explorer.line_catalog</strong></p>
+<ul class="simple">
+<li><p><cite>fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, v_upper=None, v_lower=None)</cite> - Get HITRAN lines with optional vibrational filtering</p></li>
+</ul>
+<p><strong>cube_explorer.gaussian_fitter</strong></p>
+<ul class="simple">
+<li><p><cite>fit_hitran_lines(spectrum_x, spectrum_y, hitran_lines, header=None, wave_unit=None)</cite> - Fit Gaussians to all lines</p></li>
+<li><p><cite>fit_gaussian_to_line(wavelength, spectrum, x1, x2)</cite> - Fit single line</p></li>
+</ul>
+</section>
+</section>
+<section id="for-detailed-documentation">
+<h2>For Detailed Documentation<a class="headerlink" href="#for-detailed-documentation" title="Link to this heading"></a></h2>
+<p>Check module docstrings:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.line_catalog</span> <span class="kn">import</span> <span class="n">fetch_hitran_data</span>
+<span class="n">help</span><span class="p">(</span><span class="n">fetch_hitran_data</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="exporting_data.html" class="btn btn-neutral float-left" title="Exporting Data" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../features.html" class="btn btn-neutral float-right" title="Features" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

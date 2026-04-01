@@ -13,7 +13,7 @@ IFU Analyzer provides several export capabilities:
 What to Export             Format                Purpose
 ========================== ==================== ================================================
 **Spectrum**               ASCII, FITS           Further analysis
-**Parameter Maps**         FITS                  Imaging analysis tools
+**Gaussian Fit Maps**      FITS                  Imaging analysis tools
 **Visualization**          PNG, JPEG, PDF        Slices and other 2D data
 ========================== ==================== ================================================
 
@@ -36,14 +36,14 @@ Export spectrum as tab-delimited text:
    4.5012            12.41
    ...
 
-Exporting Parameter Maps
-========================
+Exporting Gaussian Fit Maps
+============================
 
 **Export Gaussian Fitting Results**
 
-Save maps created from full-cube fitting:
+Save maps created from pixel-by-pixel cube fitting:
 
-1. Click on **Save as FITS file** for each parameter on its select windows
+1. Click on **Save as FITS file** for each parameter on its result window
 2. Specify filename
 
 **Image Export Formats**

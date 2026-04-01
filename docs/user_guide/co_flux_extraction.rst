@@ -54,3 +54,70 @@ Resulting maps:
 
 - **CO Flux Map**: Map with integrated flux for each pixel
 - **Detection Count**: Map with count for each pixel
+
+
+Using the CO Flux API
+======================
+
+Extract CO fluxes programmatically for single spectra or full data cubes.
+
+**Extract CO Flux from a Single Spectrum**
+
+.. code-block:: python
+
+    from cube_explorer.api import load_cube, extract_co_flux, fit_continuum
+    
+    # Load your data
+    cube = load_cube("data.fits")
+    
+    # Step 1: Fit and subtract continuum
+    continuum = fit_continuum(cube.wavelength, cube.spectrum)
+    line_spectrum = cube.spectrum - continuum
+    
+    # Step 2: Extract CO flux
+    co_result = extract_co_flux(
+        wavelength=cube.wavelength,
+        spectrum=line_spectrum,
+        co_catalog_path="path/to/CO_catalog.ecsv"
+    )
+    
+    print(f"Total CO flux: {co_result['co_flux']:.3f} erg/s/cm²")
+    print(f"Number of lines detected: {co_result['detection_count']}")
+    print(f"CO lines used: {co_result['used_lines']}")
+
+**Create CO Flux Maps**
+
+Generate flux maps for the entire data cube:
+
+.. code-block:: python
+
+    from cube_explorer.api import load_cube, create_co_flux_map
+    
+    cube = load_cube("data.fits")
+    
+    # Create CO flux map for the entire cube
+    # Uses HITRAN automatically by default, or provide a custom CO catalog
+    co_flux_map = create_co_flux_map(
+        cube,
+        n_jobs=4  # Parallel jobs for faster processing
+    )
+    
+    print(f"CO flux map shape: {co_flux_map['flux_map'].shape}")
+    print(f"Mean CO flux: {co_flux_map['flux_map'][co_flux_map['flux_map'] > 0].mean():.3f} erg/s/cm²")
+    print(f"Pixels with CO detection: {co_flux_map['success_mask'].sum()}")
+
+**Expected Catalog Format**
+
+The CO catalog file should be in ECSV (Enhanced Character Separated Values) format with columns:
+
+- ``wavelength``: Wavelength in micrometers
+- ``species``: Molecule name (e.g., "CO")
+- ``transition``: Transition description (e.g., "J=5-4")
+- ``einstein_coeff``: Einstein A coefficient
+
+**Tips for CO Flux Extraction**
+
+- Always apply continuum subtraction before extracting CO flux
+- Ensure your wavelength calibration is accurate (errors affect line identification)
+- The algorithm automatically measures line widths and integrates flux
+- For more control over individual line fits, use ``fit_hitran_lines()`` instead

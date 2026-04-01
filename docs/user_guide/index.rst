@@ -25,3 +25,4 @@ Choose a topic below to get started, or read through sequentially for a complete
    continuum_subtraction
    co_flux_extraction
    exporting_data
+   api_examples

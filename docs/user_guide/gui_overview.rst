@@ -24,7 +24,7 @@ The IFU Analyzer window is organized into several key areas:
 
 **2. Main Viewing Area** (Top Center)
 
-Displays the currently selected wavelength/velocity left and right slices:
+Displays the currently selected wavelength left and right slices:
 
 - **Intensity Map**: Color-coded flux data with statistics
 - **Interactive**: Select a specific slice region for analysis

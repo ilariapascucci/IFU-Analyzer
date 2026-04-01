@@ -19,7 +19,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Quick Start" href="quickstart.html" />
+    <link rel="next" title="User Guide" href="user_guide/index.html" />
     <link rel="prev" title="Introduction" href="introduction.html" /> 
 </head>
 
@@ -48,9 +48,10 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Installation</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#getting-started">Getting Started</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#download-the-repository">1. Download the Repository</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#install-required-packages">2. Install Required Packages</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#launch-the-application">3. Launch the Application</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#create-a-conda-environment-recommended">1. Create a Conda Environment (Recommended)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#download-the-repository">2. Download the Repository</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#install-required-packages">3. Install Required Packages</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#launch-the-application">4. Launch the Application</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#using-your-data">Using Your Data</a></li>
@@ -58,7 +59,6 @@
 <li class="toctree-l2"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
 <ul>
@@ -93,7 +93,7 @@
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
         <a href="introduction.html" class="btn btn-neutral float-left" title="Introduction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="quickstart.html" class="btn btn-neutral float-right" title="Quick Start" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="user_guide/index.html" class="btn btn-neutral float-right" title="User Guide" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
 </div>
@@ -107,14 +107,28 @@
 <p>Before installing IFU Analyzer, you need:</p>
 <ul class="simple">
 <li><p><strong>Python</strong>: 3.8 or higher</p></li>
+<li><p><strong>Conda</strong>: For managing Python environments (optional but recommended)</p></li>
 <li><p><strong>Git</strong> (optional): For cloning the repository</p></li>
 <li><p><strong>Operating System</strong>: Windows or macOS</p></li>
 </ul>
 </section>
 <section id="getting-started">
 <h2>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading"></a></h2>
+<p><strong>Important</strong>: IFU Analyzer requires specific versions of packages to avoid compatibility issues.
+Creating a dedicated conda environment is strongly recommended.</p>
+<section id="create-a-conda-environment-recommended">
+<h3>1. Create a Conda Environment (Recommended)<a class="headerlink" href="#create-a-conda-environment-recommended" title="Link to this heading"></a></h3>
+<p>Before proceeding, create a new conda environment for IFU Analyzer:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>ifu-analyzer<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.10
+conda<span class="w"> </span>activate<span class="w"> </span>ifu-analyzer
+</pre></div>
+</div>
+<p>This isolates IFU Analyzer’s dependencies from your system Python, preventing package conflicts.</p>
+<p><strong>Note</strong>: You can also use standard Python virtual environments (<code class="docutils literal notranslate"><span class="pre">venv</span></code>), but conda is
+recommended for better package compatibility management.</p>
+</section>
 <section id="download-the-repository">
-<h3>1. Download the Repository<a class="headerlink" href="#download-the-repository" title="Link to this heading"></a></h3>
+<h3>2. Download the Repository<a class="headerlink" href="#download-the-repository" title="Link to this heading"></a></h3>
 <p>Option A: Using Git</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ilariapascucci/IFU-Analyzer.git
 <span class="nb">cd</span><span class="w"> </span>IFU-Analyzer
@@ -129,7 +143,7 @@
 </ul>
 </section>
 <section id="install-required-packages">
-<h3>2. Install Required Packages<a class="headerlink" href="#install-required-packages" title="Link to this heading"></a></h3>
+<h3>3. Install Required Packages<a class="headerlink" href="#install-required-packages" title="Link to this heading"></a></h3>
 <p>From the IFU-Analyzer folder, run:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
 </pre></div>
@@ -137,7 +151,7 @@
 <p>That’s it! This installs all dependencies needed to run IFU Analyzer.</p>
 </section>
 <section id="launch-the-application">
-<h3>3. Launch the Application<a class="headerlink" href="#launch-the-application" title="Link to this heading"></a></h3>
+<h3>4. Launch the Application<a class="headerlink" href="#launch-the-application" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py
 </pre></div>
 </div>
@@ -146,10 +160,9 @@
 </section>
 <section id="using-your-data">
 <h2>Using Your Data<a class="headerlink" href="#using-your-data" title="Link to this heading"></a></h2>
-<p>IFU Analyzer accepts FITS files from any supported instrument:</p>
+<p>IFU Analyzer accepts FITS files from supported instruments:</p>
 <ul class="simple">
 <li><p><strong>MUSE</strong> (VLT): 3D spectral cubes</p></li>
-<li><p><strong>ALMA</strong>: Radio/millimeter data</p></li>
 <li><p><strong>MIRI</strong> (JWST): Mid-infrared cubes</p></li>
 <li><p><strong>NIRSpec</strong> (JWST): Near-infrared data</p></li>
 </ul>
@@ -175,8 +188,7 @@
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <ol class="arabic simple">
 <li><p>Start the application: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">main.py</span></code></p></li>
-<li><p>Read <a class="reference internal" href="quickstart.html"><span class="doc">Quick Start</span></a> for a 5-minute tutorial</p></li>
-<li><p>Explore <a class="reference internal" href="user_guide/index.html"><span class="doc">User Guide</span></a> for features</p></li>
+<li><p>Explore <a class="reference internal" href="user_guide/index.html"><span class="doc">User Guide</span></a> for features and tutorials</p></li>
 <li><p>Load your first data file!</p></li>
 </ol>
 </section>
@@ -187,7 +199,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="introduction.html" class="btn btn-neutral float-left" title="Introduction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="quickstart.html" class="btn btn-neutral float-right" title="Quick Start" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="user_guide/index.html" class="btn btn-neutral float-right" title="User Guide" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

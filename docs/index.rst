@@ -1,7 +1,7 @@
 IFU Analyzer Documentation
 ==========================
 
-Welcome to the **IFU Analyzer** documentation! IFU Analyzer is an interactive Python tool for visualizing and analyzing Integral Field Unit (IFU) spectroscopic data from various astronomical instruments including MUSE, ALMA, MIRI, and NIRSpec.
+Welcome to the **IFU Analyzer** documentation! IFU Analyzer is an interactive Python tool for visualizing and analyzing Integral Field Unit (IFU) spectroscopic data from various astronomical instruments including MUSE, MIRI, and NIRSpec.
 
 This comprehensive documentation covers everything you need to get started, use the application effectively, and perform advanced analysis on your IFU data.
 
@@ -11,7 +11,6 @@ This comprehensive documentation covers everything you need to get started, use 
 
    introduction
    installation
-   quickstart
 
 .. toctree::
    :maxdepth: 2

@@ -20,7 +20,7 @@ Loading Your First Data File
 
 1. Click **File → Open FITS**
 2. Select a FITS file
-3. Choose the instrument (MUSE, ALMA, MIRI, NIRSpec)
+3. Choose the instrument (MUSE, MIRI, NIRSpec)
 4. Click **Open**
 
 You'll see:

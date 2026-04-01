@@ -342,7 +342,7 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
     )
 
 
-def create_co_map(cube_data, co_catalog_path=None, contamination_catalog_path=None, n_jobs=8, wavelength_min=None, wavelength_max=None):
+def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_path=None, n_jobs=8, wavelength_min=None, wavelength_max=None):
     """
     Create a 2D map of CO flux across the entire data cube.
 
@@ -369,7 +369,7 @@ def create_co_map(cube_data, co_catalog_path=None, contamination_catalog_path=No
 
     Example:
         >>> cube = load_cube("data.fits")
-        >>> co_map = create_co_map(cube, n_jobs=4)
+        >>> co_map = create_co_flux_map(cube, n_jobs=4)
         >>> print(f"Map shape: {co_map['flux_map'].shape}")
     """
     # If no catalog provided, fetch from HITRAN automatically
@@ -428,5 +428,5 @@ __all__ = [
     'measure_equivalent_width',
     # CO Flux
     'extract_co_flux',
-    'create_co_map',
+    'create_co_flux_map',
 ]

@@ -20,7 +20,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Loading Data" href="loading_data.html" />
-    <link rel="prev" title="Quick Start" href="../quickstart.html" /> 
+    <link rel="prev" title="Installation" href="../installation.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -46,7 +46,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
 <ul class="current">
@@ -59,6 +58,7 @@
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
 </ul>
 </li>
 </ul>
@@ -90,7 +90,7 @@
             <a href="../_sources/user_guide/index.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
-        <a href="../quickstart.html" class="btn btn-neutral float-left" title="Quick Start" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../installation.html" class="btn btn-neutral float-left" title="Installation" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="loading_data.html" class="btn btn-neutral float-right" title="Loading Data" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
@@ -119,6 +119,7 @@
 <li class="toctree-l2"><a class="reference internal" href="loading_data.html#file-information-headers">File Information &amp; Headers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="loading_data.html#multiple-file-management">Multiple File Management</a></li>
 <li class="toctree-l2"><a class="reference internal" href="loading_data.html#next-steps">Next Steps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html#using-the-data-loading-api">Using the Data Loading API</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="gui_overview.html">GUI Overview</a><ul>
@@ -148,23 +149,37 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#why-fit-gaussians">Why Fit Gaussians?</a></li>
-<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#interactive-single-pixel-fitting">Interactive Single-Pixel Fitting</a></li>
-<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#full-cube-gaussian-fitting">Full-Cube Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#d-spectrum-fitting">1D Spectrum Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#pixel-by-pixel-cube-fitting">Pixel-by-Pixel Cube Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#viewing-fit-results">Viewing Fit Results</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#exporting-fit-parameters">Exporting Fit Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html#using-the-gaussian-fitting-api">Using the Gaussian Fitting API</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html#automatic-continuum-subtraction">Automatic Continuum Subtraction</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html#starting-co-flux-extraction">Starting CO Flux Extraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html#load-contaminating-lines">Load Contaminating Lines</a></li>
 <li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html#multi-gaussian-fit">Multi-Gaussian Fit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html#using-the-co-flux-api">Using the CO Flux API</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="exporting_data.html">Exporting Data</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html#export-options-overview">Export Options Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html#exporting-spectra">Exporting Spectra</a></li>
-<li class="toctree-l2"><a class="reference internal" href="exporting_data.html#exporting-parameter-maps">Exporting Parameter Maps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html#exporting-gaussian-fit-maps">Exporting Gaussian Fit Maps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html#basic-workflow">Basic Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html#complete-example">Complete Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html#common-issues">Common Issues</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html#available-functions">Available Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html#for-detailed-documentation">For Detailed Documentation</a></li>
 </ul>
 </li>
 </ul>
@@ -175,7 +190,7 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../quickstart.html" class="btn btn-neutral float-left" title="Quick Start" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../installation.html" class="btn btn-neutral float-left" title="Installation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="loading_data.html" class="btn btn-neutral float-right" title="Loading Data" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

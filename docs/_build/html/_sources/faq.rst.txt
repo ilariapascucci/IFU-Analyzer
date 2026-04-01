@@ -11,11 +11,11 @@ Getting Started
 
 A: Follow these steps:
 
-1. Read :doc:`quickstart` for a 5-minute overview
+1. See :doc:`installation` for setup
 2. Install sample data (or find your own FITS cube)
 3. Launch the application: ``python main.py``
 4. File → Open FITS to load your first data cube
-5. Explore the interface following Quick Start guide
+5. Explore the interface and refer to :doc:`user_guide/index` for tutorials
 
 **Q: What FITS data can I use?**
 
@@ -25,7 +25,7 @@ A: Any standard FITS cube with:
 - Wavelength calibration (FITS header keywords)
 - Valid coordinate system (optional but useful)
 
-Confirmed supported instruments: MUSE, ALMA, MIRI, NIRSpec.
+Confirmed supported instruments: MUSE, MIRI, NIRSpec.
 
 Data & Files
 ============
