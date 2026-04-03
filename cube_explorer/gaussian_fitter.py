@@ -939,14 +939,15 @@ def auto_detect_boundaries(peak_x: float, spectrum_x: np.ndarray, spectrum_y: np
     """
     Auto-detect LEFT and RIGHT boundaries for a line around a peak.
     
-    Finds the wavelengths where the spectrum drops to threshold_percent of peak height.
+    Simple algorithm: Find the peak, then go wavelength-by-wavelength left and right
+    until the slope changes direction (indicating a valley between peaks).
     
     Args:
         peak_x: Line center wavelength (peak location)
         spectrum_x: Full wavelength array
         spectrum_y: Full flux array
         continuum_y: Optional continuum array (will subtract before analysis)
-        threshold_percent: Height threshold in percent of peak (default 30%)
+        threshold_percent: Unused (kept for compatibility)
     
     Returns:
         (left_boundary, right_boundary) tuple
@@ -968,26 +969,29 @@ def auto_detect_boundaries(peak_x: float, spectrum_x: np.ndarray, spectrum_y: np
         window = 0.03
         return peak_x - window, peak_x + window
     
-    # Threshold for edge detection
-    threshold = (threshold_percent / 100.0) * peak_height
-    
-    # Search LEFT: go backwards from peak until below threshold
+    # Search LEFT: go backwards from peak, stop when slope changes direction (starts going up)
     left_idx = peak_idx
-    for i in range(peak_idx - 1, -1, -1):
-        if spectrum_to_analyze[i] < threshold:
+    for i in range(peak_idx - 1, max(0, peak_idx - 80), -1):
+        # Check slope: is it going up (positive slope)?
+        slope = spectrum_to_analyze[i] - spectrum_to_analyze[i + 1]
+        if slope > 0:  # Going UP = we found the valley
             left_idx = i
             break
     else:
-        left_idx = 0
+        # No slope change found, use bounded fallback
+        left_idx = max(0, peak_idx - 80)
     
-    # Search RIGHT: go forwards from peak until below threshold
+    # Search RIGHT: go forwards from peak, stop when slope changes direction (starts going up)
     right_idx = peak_idx
-    for i in range(peak_idx + 1, len(spectrum_x)):
-        if spectrum_to_analyze[i] < threshold:
+    for i in range(peak_idx + 1, min(len(spectrum_x), peak_idx + 80)):
+        # Check slope: is it going up (positive slope)?
+        slope = spectrum_to_analyze[i] - spectrum_to_analyze[i - 1]
+        if slope > 0:  # Going UP = we found the valley
             right_idx = i
             break
     else:
-        right_idx = len(spectrum_x) - 1
+        # No slope change found, use bounded fallback
+        right_idx = min(len(spectrum_x) - 1, peak_idx + 80)
     
     # Get wavelength values
     left_boundary = spectrum_x[left_idx]

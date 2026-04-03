@@ -8,6 +8,7 @@ from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, auto_detec
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
+from .co_flux_extractor import fit_continuum_median_peaks
 
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
     if isinstance(wavelength_quantity_or_array, Quantity):
@@ -307,17 +308,22 @@ STATUS: {result.message}
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
             return
         
-        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
-            QMessageBox.warning(self, "No Continuum", "Please compute the continuum first before fitting lines.")
-            return
-        
         spectrum_x = _extract_wavelength_value(self.spec_plotter.wavelength)
         spectrum_y = self.cube_data.spectrum
-        continuum_y = self.continuum_fitted
         
-        if spectrum_x is None or spectrum_y is None or len(spectrum_x) != len(spectrum_y) or len(spectrum_x) != len(continuum_y):
+        if spectrum_x is None or spectrum_y is None or len(spectrum_x) != len(spectrum_y):
             QMessageBox.warning(self, "Data Error", "Data mismatch.")
             return
+        
+        # Auto-compute continuum with default values if not already fitted
+        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+            try:
+                continuum_y = fit_continuum_median_peaks(spectrum_x, spectrum_y)
+            except Exception as e:
+                QMessageBox.warning(self, "Continuum Error", f"Could not compute continuum automatically:\n{str(e)}")
+                return
+        else:
+            continuum_y = self.continuum_fitted
         
         fit_results = []
         for line in self.plotted_lines:
@@ -326,7 +332,7 @@ STATUS: {result.message}
                 if line_center is None: continue
                 line_center = float(line_center)
                 
-                x1, x2 = auto_detect_boundaries(line_center, spectrum_x, spectrum_y, continuum_y=continuum_y, threshold_percent=30.0)
+                x1, x2 = auto_detect_boundaries(line_center, spectrum_x, spectrum_y, continuum_y=continuum_y, threshold_percent=15.0)
                 region_mask = (spectrum_x >= x1) & (spectrum_x <= x2)
                 
                 result = fit_gaussian_to_line(
