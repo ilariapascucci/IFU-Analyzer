@@ -443,13 +443,22 @@ def display_results(results):
     print("="*115)
     print(f"✓ Total entries: {len(results)}\n")
 
-def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False):
+def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None):
     """
     GUI-compatible function to fetch HITRAN data and return results for display.
+    
+    Args:
+        wavelength_min, wavelength_max: Wavelength range in µm
+        molecule: Molecule name
+        isotopologue: Isotopologue number (default 1)
+        refresh_cache: Force cache refresh
+        v_upper: Optional upper vibrational level filter (None = include all)
+        v_lower: Optional lower vibrational level filter (None = include all)
     """
     try:
         results, _ = fetch_hitran_data(
-            wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache
+            wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache,
+            v_upper=v_upper, v_lower=v_lower
         )
         return results
     except Exception as e:
