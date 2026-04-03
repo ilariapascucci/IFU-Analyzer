@@ -5,20 +5,6 @@ Gaussian Fitting
 Fit Gaussian profiles to spectral lines to extract physical parameters. This page covers both
 1D single-pixel spectrum fitting and full-cube automated fitting.
 
-Why Fit Gaussians?
-==================
-
-Gaussian fitting is essential for quantitative spectral analysis. It provides:
-
-- **Line Centers**: Exact wavelength of emission or absorption features
-- **Peak Intensities**: Maximum flux value at the line center
-- **Line Widths**: FWHM (Full Width Half Maximum) and line width (σ)
-- **Integrated Flux**: Total energy/intensity in the spectral line
-- **Physical Parameters**: From line properties, derive physical quantities like temperature, 
-  density, or mass
-- **Quality Metrics**: χ², R² values, and residuals to assess fit reliability and distinguish 
-  real features from noise
-
 1D Spectrum Fitting
 ===================
 
