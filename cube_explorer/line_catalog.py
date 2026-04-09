@@ -406,6 +406,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                     'transition': transition,
                     'a_coeff': float(A[i]),
                     'e_upper': float(eupper[i]),
+                    'Gp': float(Gp[i]),
                 })
 
         print(f"[OK] Retrieved {len(data_rows)} lines\n")

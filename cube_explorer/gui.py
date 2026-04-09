@@ -489,6 +489,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.two_d_btn = QPushButton("2D")
         self.two_d_btn.setToolTip("Open a 2D FITS analyzer window")
         self.two_d_btn.clicked.connect(self.open_2d_window)
+
+        self.rot_diag_btn = QPushButton("Rot Diag")
+        self.rot_diag_btn.setToolTip("Open rotational diagram analyzer for H2")
+        self.rot_diag_btn.clicked.connect(self.open_rotational_diagram)
         
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
@@ -499,6 +503,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
         self.controls_layout.addWidget(self.two_d_btn)
+        self.controls_layout.addWidget(self.rot_diag_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
@@ -2933,5 +2938,19 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
         except Exception as e:
             QMessageBox.warning(self, "2D Window Error", f"Could not open 2D window:\n{e}")
+
+    def open_rotational_diagram(self):
+        try:
+            from .gui_rotational_diagram import RotationalDiagramWindow
+
+            rot_diag_window = RotationalDiagramWindow()
+            rot_diag_window.show()
+
+            if not hasattr(self, "childwindows") or self.childwindows is None:
+                self.childwindows = []
+            self.childwindows.append(rot_diag_window)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Rotational Diagram Error", f"Could not open rotational diagram window:\n{e}")
 
 
