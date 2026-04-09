@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
 from .line_catalog import fetch_hitran_data
@@ -500,7 +501,7 @@ class RotationalDiagramWindow(QMainWindow):
         # Create results dialog with plot
         dialog = QDialog(self)
         dialog.setWindowTitle("Rotational Diagram Results")
-        dialog.setGeometry(100, 100, 1000, 600)
+        dialog.setGeometry(100, 100, 1200, 600)
         
         layout = QHBoxLayout(dialog)
         
@@ -510,7 +511,7 @@ class RotationalDiagramWindow(QMainWindow):
         text_widget.setReadOnly(True)
         layout.addWidget(text_widget, 1)
         
-        # Right side: plot
+        # Right side: plot with toolbar
         if "_plot_data" in results:
             plot_data = results["_plot_data"]
             fig = Figure(figsize=(6, 5), dpi=100)
@@ -522,7 +523,7 @@ class RotationalDiagramWindow(QMainWindow):
             popt1 = plot_data["popt1"]
             popt2 = plot_data["popt2"]
             
-            # Convert to log10 scale as in original plots
+            # Convert to log10 scale
             y_arr_log10 = np.log10(np.exp(y_arr))
             y_err_log10 = np.log10(np.exp(y_err))
             
@@ -533,24 +534,50 @@ class RotationalDiagramWindow(QMainWindow):
             # Generate fit lines
             E_fit = np.linspace(np.min(E_arr), np.max(E_arr), 200)
             
-            # 1T fit line (dashed)
-            if popt1 is not None:
+            # Determine if 2T was performed
+            is_2T = popt2 is not None
+            
+            # Show 1T line only if NOT doing 2T fit
+            if popt1 is not None and not is_2T:
                 from .rotational_diagram_fitter import model_1T
                 y1T = model_1T(E_fit, *popt1)
                 ax.plot(E_fit, np.log10(np.exp(y1T)), '--', linewidth=2, label='1T')
             
-            # 2T fit line (solid, if available)
+            # 2T: show two component lines AND combined curve
             if popt2 is not None:
                 from .rotational_diagram_fitter import model_2T
+                a1_2, T1_2, a2_2, T2_2 = popt2
+                
+                # Component 1 (warm) - dotted
+                y_comp1 = a1_2 - E_fit / T1_2
+                ax.plot(E_fit, np.log10(np.exp(y_comp1)), ':', linewidth=2.5, color='blue', label=f'Warm: T={T1_2:.0f} K')
+                
+                # Component 2 (hot) - dotted
+                y_comp2 = a2_2 - E_fit / T2_2
+                ax.plot(E_fit, np.log10(np.exp(y_comp2)), ':', linewidth=2.5, color='orange', label=f'Hot: T={T2_2:.0f} K')
+                
+                # Combined 2T curve - solid
                 y2T = model_2T(E_fit, *popt2)
-                ax.plot(E_fit, np.log10(np.exp(y2T)), '-', linewidth=2, label='2T')
+                ax.plot(E_fit, np.log10(np.exp(y2T)), '-', linewidth=3, color='red', label='2-component model')
             
-            ax.set_xlabel('E_u (K)', fontsize=12)
-            ax.set_ylabel('log(N_u / g_u)', fontsize=12)
+            # Increase tick sizes
+            ax.tick_params(axis='both', which='major', labelsize=11)
+            ax.tick_params(axis='both', which='minor', labelsize=10)
+            
+            ax.set_xlabel('E_u (K)', fontsize=12, fontweight='bold')
+            ax.set_ylabel('log(N_u / g_u)', fontsize=12, fontweight='bold')
             ax.grid(True, alpha=0.3, linestyle='--')
-            ax.legend(fontsize=10)
+            ax.legend(fontsize=10, loc='upper right')
+            
+            # Plot widget container with toolbar
+            plot_widget = QWidget()
+            plot_layout = QVBoxLayout(plot_widget)
             
             canvas = FigureCanvas(fig)
-            layout.addWidget(canvas, 1)
+            toolbar = NavigationToolbar(canvas, dialog)
+            
+            plot_layout.addWidget(toolbar)
+            plot_layout.addWidget(canvas)
+            layout.addWidget(plot_widget, 1)
         
         dialog.exec_()
