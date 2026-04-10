@@ -407,3 +407,14 @@ class CustomContinuumSelector:
         """Clear all points and fitted continuum"""
         self._clear_points()
         print("[DEBUG] Custom continuum selection cleared")
+
+    def load_points(self, points):
+        """
+        Takes a list of (x, y) tuples from a saved file, 
+        clears the current canvas, and draws the loaded points.
+        """
+        self._clear_points()
+        for x, y in points:
+            self._add_point(x, y)
+            
+        print(f"[DEBUG] Loaded and drew {len(points)} custom points")

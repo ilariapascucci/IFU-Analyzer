@@ -589,6 +589,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.custom_delete_btn = QPushButton("Delete Point")
         self.custom_ok_btn = QPushButton("OK")
 
+        self.custom_save_pts_btn = QPushButton("Save Points")
+        self.custom_load_pts_btn = QPushButton("Load Points")
+
+        self.custom_save_pts_btn.setToolTip("Save custom continuum points to a .txt file")
+        self.custom_load_pts_btn.setToolTip("Load custom continuum points from a .txt file")
+
         self.save_spectrum_btn = QPushButton("Save Spectrum")
         self.save_continuum_btn = QPushButton("Save Continuum")
 
@@ -607,12 +613,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
         self.custom_delete_btn.clicked.connect(self._on_custom_delete_toggled)
         self.custom_ok_btn.clicked.connect(self.on_custom_ok_clicked)
+        self.custom_save_pts_btn.clicked.connect(self._save_custom_points)
+        self.custom_load_pts_btn.clicked.connect(self._load_custom_points)
 
         # Hide all action buttons initially
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
         self.custom_ok_btn.hide()
+        self.custom_save_pts_btn.hide()
+        self.custom_load_pts_btn.hide()
 
         # Tooltips
         self.auto_continuum_toggle.setToolTip("Toggle automatic continuum fitting mode")
@@ -925,6 +935,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.continuum_action_layout.addWidget(self.subtract_continuum_btn)
         self.continuum_action_layout.addWidget(self.custom_subtract_btn)
         self.continuum_action_layout.addWidget(self.custom_delete_btn)
+        self.continuum_action_layout.addWidget(self.custom_save_pts_btn)
+        self.continuum_action_layout.addWidget(self.custom_load_pts_btn)
         self.continuum_action_layout.addWidget(self.custom_ok_btn)
         self.continuum_action_layout.addWidget(self.save_spectrum_btn)
         self.continuum_action_layout.addWidget(self.save_continuum_btn)
