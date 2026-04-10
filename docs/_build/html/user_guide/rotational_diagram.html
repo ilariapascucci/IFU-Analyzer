@@ -1,0 +1,246 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rotational Diagram &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Exporting Data" href="exporting_data.html" />
+    <link rel="prev" title="CO Flux Extraction" href="co_flux_extraction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Rotational Diagram</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#using-the-rotational-diagram-tool">Using the Rotational Diagram Tool</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Rotational Diagram</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/rotational_diagram.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="rotational-diagram">
+<h1>Rotational Diagram<a class="headerlink" href="#rotational-diagram" title="Link to this heading"></a></h1>
+<section id="using-the-rotational-diagram-tool">
+<h2>Using the Rotational Diagram Tool<a class="headerlink" href="#using-the-rotational-diagram-tool" title="Link to this heading"></a></h2>
+<p><strong>Accessing the Tool</strong></p>
+<ol class="arabic simple">
+<li><p>Click the <strong>Rot Diag</strong> button in the main toolbar</p></li>
+<li><p>The Rotational Diagram window opens</p></li>
+</ol>
+<p><strong>Step 1: Fetch HITRAN Data</strong></p>
+<ol class="arabic simple">
+<li><p>Set wavelength range (μm):</p>
+<ul class="simple">
+<li><p><strong>Min Wavelength</strong>: Lower bound of wavelength range</p></li>
+<li><p><strong>Max Wavelength</strong>: Upper bound of wavelength range</p></li>
+</ul>
+</li>
+<li><p>Select H₂ isotopologue (use <strong>1</strong> for main isotope)</p></li>
+<li><p>(Optional) Filter by vibrational levels:</p>
+<ul class="simple">
+<li><p>Check <strong>“Include all transitions”</strong> to get all v’ → v’’ transitions</p></li>
+<li><p>Uncheck to specify specific v_upper and v_lower values</p></li>
+</ul>
+</li>
+<li><p>Click <strong>Fetch HITRAN Lines</strong></p>
+<ul class="simple">
+<li><p>A background thread fetches molecular data from the HITRAN database</p></li>
+<li><p>Progress shown during fetch</p></li>
+<li><p>Parsed lines appear in the table below</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>Step 2: Select Lines and Enter Data</strong></p>
+<p>The table displays all fetched H₂ transitions with columns:</p>
+<ul class="simple">
+<li><p><strong>☑</strong>: Checkbox to select/deselect each line</p></li>
+<li><p><strong>λ (μm)</strong>: Wavelength</p></li>
+<li><p><strong>Transition</strong>: v’ J’ → v’’ J’’ notation</p></li>
+<li><p><strong>A_ul (s⁻¹)</strong>: Einstein coefficient</p></li>
+<li><p><strong>E_u (K)</strong>: Upper state energy</p></li>
+<li><p><strong>g_u</strong>: Statistical weight</p></li>
+<li><p><strong>Flux</strong>: Observed line flux (your data - enter here)</p></li>
+<li><p><strong>Flux Error</strong>: Uncertainty in flux</p></li>
+<li><p><strong>Error %</strong>: Percentage uncertainty (auto-calculated)</p></li>
+</ul>
+<p><strong>Entering Flux Values:</strong></p>
+<ol class="arabic">
+<li><p>Check the boxes for lines you want to include in the fit</p></li>
+<li><p>Enter observed line fluxes in the <strong>Flux</strong> column</p></li>
+<li><p>Enter flux errors in either:</p>
+<ul class="simple">
+<li><p><strong>Flux Error</strong> column (absolute values), OR</p></li>
+<li><p><strong>Error %</strong> column (percentage uncertainties)</p></li>
+</ul>
+<p>Use the <strong>Error Mode</strong> toggle to switch between absolute values and percentages.
+The columns auto-calculate between the two formats as you type.</p>
+</li>
+</ol>
+<p><strong>Step 3: Input Physical Parameters</strong></p>
+<p>At the bottom of the window, provide:</p>
+<ul class="simple">
+<li><p><strong>R (AU)</strong>: Emitting source radius in astronomical units (e.g., disk radius)</p></li>
+<li><p><strong>Distance (pc)</strong>: Distance to source in parsecs</p></li>
+<li><p><strong>Fit Mode</strong>:</p>
+<ul>
+<li><p><strong>1T</strong>: Single-temperature fit (assumes one thermal component)</p></li>
+<li><p><strong>2T</strong>: Two-temperature fit (models warm and hot components)</p></li>
+</ul>
+</li>
+</ul>
+<p><strong>Step 4: Run the Fit</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>Run Rotational Fit</strong> button</p></li>
+<li><p>The tool performs the analysis:</p>
+<ul class="simple">
+<li><p>Computes column densities from fluxes</p></li>
+<li><p>Fits 1-temperature and/or 2-temperature models</p></li>
+<li><p>Calculates rotational temperatures and uncertainties</p></li>
+<li><p>Generates visualization</p></li>
+</ul>
+</li>
+</ol>
+<p><strong>Step 5: Interpret Results</strong></p>
+<p>A dialog displays both text results and a plot:</p>
+<p><strong>Text Results:</strong></p>
+<dl class="simple">
+<dt>For <strong>1T fit</strong>:</dt><dd><ul class="simple">
+<li><p><strong>T</strong> (K): Rotational temperature with uncertainty</p></li>
+<li><p><strong>Ncol</strong> (cm⁻²): Total column density from intercept</p></li>
+</ul>
+</dd>
+<dt>For <strong>2T fit</strong>:</dt><dd><ul class="simple">
+<li><p><strong>T₁, T₂</strong> (K): Warm and hot component temperatures</p></li>
+<li><p><strong>N₁, N₂</strong> (cm⁻²): Column densities for each component</p></li>
+</ul>
+</dd>
+</dl>
+<p><strong>Plot Visualization:</strong></p>
+<ul class="simple">
+<li><p><strong>Black dots with error bars</strong>: Observed data (ln(N_u/g_u) vs E_u)</p></li>
+<li><p><strong>Dashed blue line</strong>: Warm component (2T only)</p></li>
+<li><p><strong>Dashed orange line</strong>: Hot component (2T only)</p></li>
+<li><p><strong>Solid red line</strong>: Combined 2-temperature model fit (2T only)</p></li>
+<li><p><strong>Dashed blue line</strong>: 1T model fit (1T mode only)</p></li>
+</ul>
+<p>Use the toolbar to <strong>zoom</strong>, <strong>pan</strong>, and <strong>save</strong> the plot.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

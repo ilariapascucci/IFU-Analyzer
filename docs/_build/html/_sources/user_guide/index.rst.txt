@@ -24,5 +24,6 @@ Choose a topic below to get started, or read through sequentially for a complete
    gaussian_fitting
    continuum_subtraction
    co_flux_extraction
+   rotational_diagram
    exporting_data
    api_examples

@@ -13,7 +13,12 @@ IFU Analyzer handles data from multiple telescopes and instruments.
 
 **Advanced Analysis**
 
-Comprehensive tools for spectroscopic analysis including Gaussian fitting, continuum subtraction, and specialized CO flux extraction.
+Comprehensive tools for spectroscopic analysis including:
+
+- Gaussian fitting for precise line parameter extraction
+- Continuum subtraction for noise reduction
+- CO flux extraction for CO rovibrational line analysis
+- Rotational diagram analysis for H₂ rotational temperature determination
 
 **Interactive Visualization**
 

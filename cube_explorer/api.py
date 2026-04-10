@@ -6,11 +6,12 @@ All functions in this module work as pure Python functions and can be imported
 and used in scripts, Jupyter notebooks, or other Python applications.
 
 Main Categories:
-1. Data Loading     - Load FITS cubes and extract spectra
-2. Gaussian Fitting - Fit spectral lines with Gaussian profiles
-3. CO Flux Analysis - Extract CO line fluxes with continuum handling
-4. Unit Conversion  - Convert between wavelength/velocity/frequency units
-5. Line Catalogs    - Query and filter spectral line databases
+1. Data Loading        - Load FITS cubes and extract spectra
+2. Gaussian Fitting    - Fit spectral lines with Gaussian profiles
+3. CO Flux Analysis    - Extract CO line fluxes with continuum handling
+4. Rotational Diagram  - Analyze H2 rotational temperatures from molecular transitions
+5. Unit Conversion     - Convert between wavelength/velocity/frequency units
+6. Line Catalogs       - Query and filter spectral line databases
 
 Example Usage
 =============
@@ -38,6 +39,22 @@ CO flux extraction:
     ...     co_catalog_path="path/to/CO_catalog.ecsv"
     ... )
     >>> print(f"Total CO flux: {co_result['co_flux']} erg/s/cm²")
+
+Rotational diagram analysis (H2):
+    >>> from cube_explorer.api import rotational_diagram
+    >>> result = rotational_diagram(
+    ...     fluxes={1: 178e-16, 2: 55.9e-16, 3: 122e-16},
+    ...     flux_errors={1: 9e-16, 2: 3.2e-16, 3: 6.3e-16},
+    ...     wavelengths=[17.03, 12.28, 9.66],
+    ...     Aul=[4.761e-10, 2.755e-9, 9.836e-9],
+    ...     Eu=[1015.1, 1681.6, 2503.7],
+    ...     gu=[21, 9, 33],
+    ...     R=8.5,     # AU
+    ...     dist=71.5, # pc
+    ...     fit2T=True
+    ... )
+    >>> print(f"1T Temperature: {result['1T']['T']:.1f} K")
+    >>> print(f"2T Temperatures: {result['2T']['T1']:.1f} K, {result['2T']['T2']:.1f} K")
 
 Unit conversion (using astropy):
     >>> import astropy.units as u
