@@ -1,6 +1,6 @@
 """
-Rotational Diagram Analysis GUI for H2 molecular data - SIMPLIFIED
-Single unified interface for selecting lines and entering flux data
+Rotational Diagram Analysis GUI for Molecular data (H2, CO) - SIMPLIFIED
+Single unified interface for selecting molecules, lines, and entering flux data
 """
 
 import os
@@ -26,16 +26,29 @@ from .line_catalog import fetch_hitran_data
 AU = 1.496e13  # cm
 PC = 3.086e18  # cm
 
+# Isotopologue ranges per molecule (HITRAN numbering)
+MOLECULE_ISOTOPOLOGUES = {
+    'H2': {'labels': ['H₂', 'HD', 'D₂'], 'range': (1, 3)},
+    'CO': {'labels': ['¹²C¹⁶O', '¹³C¹⁶O', '¹²C¹⁸O', '¹²C¹⁷O', '¹³C¹⁸O'], 'range': (1, 5)},
+}
+
+# Regex patterns for extracting vibrational transitions per molecule
+MOLECULE_TRANSITION_PATTERNS = {
+    'H2': r'v=\d+',  # Matches "v=0", "v=1", etc.
+    'CO': r'v=(\d+)->(\d+)',  # Matches "v=1->0", "v=2->1", etc.
+}
+
 
 class HitranFetchThread(QThread):
     """Background thread for fetching HITRAN data"""
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
     
-    def __init__(self, wl_min, wl_max, isotopologue, v_upper=None, v_lower=None):
+    def __init__(self, wl_min, wl_max, molecule, isotopologue, v_upper=None, v_lower=None):
         super().__init__()
         self.wl_min = wl_min
         self.wl_max = wl_max
+        self.molecule = molecule
         self.isotopologue = isotopologue
         self.v_upper = v_upper
         self.v_lower = v_lower
@@ -43,8 +56,8 @@ class HitranFetchThread(QThread):
     def run(self):
         try:
             hitran_data, _ = fetch_hitran_data(
-                self.wl_min, self.wl_max, 
-                molecule='H2',
+                self.wl_min, self.wl_max,
+                molecule=self.molecule,
                 isotopologue=self.isotopologue,
                 v_upper=self.v_upper,
                 v_lower=self.v_lower
@@ -59,7 +72,8 @@ class RotationalDiagramWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("H2 Rotational Diagram Analyzer")
+        self.current_molecule = 'H2'  # Default molecule
+        self.setWindowTitle(f"{self.current_molecule} Rotational Diagram Analyzer")
         self.setGeometry(100, 100, 1500, 800)
         
         self.hitran_lines = []
@@ -140,12 +154,14 @@ class RotationalDiagramWindow(QMainWindow):
         frame = QFrame()
         layout = QVBoxLayout()
         
-        # Molecule
+        # Molecule selector
         mol_layout = QHBoxLayout()
         mol_layout.addWidget(QLabel("Molecule:"))
-        mol_label = QLabel("H2")
-        mol_label.setStyleSheet("font-weight: bold; color: #0066ff; font-size: 11pt;")
-        mol_layout.addWidget(mol_label)
+        self.mol_combo = QComboBox()
+        self.mol_combo.addItems(list(MOLECULE_ISOTOPOLOGUES.keys()))
+        self.mol_combo.setCurrentText(self.current_molecule)
+        self.mol_combo.currentTextChanged.connect(self.on_molecule_changed)
+        mol_layout.addWidget(self.mol_combo)
         mol_layout.addStretch()
         layout.addLayout(mol_layout)
         
@@ -168,8 +184,7 @@ class RotationalDiagramWindow(QMainWindow):
         
         input_layout.addWidget(QLabel("Isotopologue:"))
         self.isotopologue_spin = QSpinBox()
-        self.isotopologue_spin.setRange(1, 5)
-        self.isotopologue_spin.setValue(1)
+        self.update_isotopologue_range()
         input_layout.addWidget(self.isotopologue_spin)
         
         input_layout.addWidget(QLabel("v_upper:"))
@@ -202,6 +217,20 @@ class RotationalDiagramWindow(QMainWindow):
         
         frame.setLayout(layout)
         return frame
+    
+    def on_molecule_changed(self, molecule):
+        """Update UI when molecule selection changes"""
+        self.current_molecule = molecule
+        self.setWindowTitle(f"{molecule} Rotational Diagram Analyzer")
+        self.update_isotopologue_range()
+    
+    def update_isotopologue_range(self):
+        """Update isotopologue spinner range based on selected molecule"""
+        mol_data = MOLECULE_ISOTOPOLOGUES.get(self.current_molecule)
+        if mol_data:
+            min_iso, max_iso = mol_data['range']
+            self.isotopologue_spin.setRange(min_iso, max_iso)
+            self.isotopologue_spin.setValue(min_iso)
     
     def on_include_all_transitions_toggled(self):
         checked = self.include_all_trans_check.isChecked()
@@ -273,7 +302,7 @@ class RotationalDiagramWindow(QMainWindow):
                 pass
     
     def fetch_hitran_lines(self):
-        """Fetch H2 lines from HITRAN"""
+        """Fetch molecular lines from HITRAN"""
         wl_min = self.wl_min_input.value()
         wl_max = self.wl_max_input.value()
         isotopologue = self.isotopologue_spin.value()
@@ -290,11 +319,11 @@ class RotationalDiagramWindow(QMainWindow):
             v_lower = self.v_lower_spin.value()
         
         self.fetch_btn.setEnabled(False)
-        progress = QProgressDialog("Fetching H2 lines from HITRAN...", None, 0, 0, self)
+        progress = QProgressDialog(f"Fetching {self.current_molecule} lines from HITRAN...", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModal)
         progress.show()
         
-        self.fetch_thread = HitranFetchThread(wl_min, wl_max, isotopologue, v_upper, v_lower)
+        self.fetch_thread = HitranFetchThread(wl_min, wl_max, self.current_molecule, isotopologue, v_upper, v_lower)
         self.fetch_thread.finished.connect(lambda data: self.on_hitran_fetched(data, progress))
         self.fetch_thread.error.connect(lambda err: self.on_hitran_error(err, progress))
         self.fetch_thread.start()
@@ -304,7 +333,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.fetch_btn.setEnabled(True)
         
         if not data:
-            QMessageBox.warning(self, "Error", "No H2 lines found in this wavelength range")
+            QMessageBox.warning(self, "Error", f"No {self.current_molecule} lines found in this wavelength range")
             return
         
         self.hitran_lines = data
