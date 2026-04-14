@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QTableWidget, QTableWidgetItem, QSpinBox, 
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit
+    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -210,10 +210,19 @@ class RotationalDiagramWindow(QMainWindow):
         input_layout.addStretch()
         layout.addLayout(input_layout)
         
-        # Fetch button
-        self.fetch_btn = QPushButton("Fetch Lines")
+        # Fetch and Import buttons
+        button_layout = QHBoxLayout()
+        
+        self.fetch_btn = QPushButton("Fetch from HITRAN")
         self.fetch_btn.clicked.connect(self.fetch_hitran_lines)
-        layout.addWidget(self.fetch_btn)
+        button_layout.addWidget(self.fetch_btn)
+        
+        self.import_csv_btn = QPushButton("Import from CSV")
+        self.import_csv_btn.clicked.connect(self.import_csv_file)
+        button_layout.addWidget(self.import_csv_btn)
+        
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
         
         frame.setLayout(layout)
         return frame
@@ -344,6 +353,211 @@ class RotationalDiagramWindow(QMainWindow):
         self.fetch_btn.setEnabled(True)
         QMessageBox.critical(self, "HITRAN Fetch Error", error_msg)
     
+    def import_csv_file(self):
+        """Import species, wavelength, and flux data from CSV, enriching with HITRAN data for A and E_u"""
+        csv_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import CSV File",
+            "",
+            "CSV Files (*.csv);;All Files (*.*)"
+        )
+        
+        if not csv_path:
+            return
+        
+        try:
+            import csv
+            
+            # Read CSV file
+            rows = []
+            csv_data = []
+            
+            with open(csv_path, 'r') as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames is None:
+                    QMessageBox.warning(self, "Error", "CSV file is empty")
+                    return
+                
+                # Check for required columns (case-insensitive)
+                available_cols = {col.strip().lower(): col.strip() for col in reader.fieldnames if col}
+                required_cols = {'species', 'wavelength', 'flux'}
+                
+                if not required_cols.issubset(available_cols.keys()):
+                    missing = required_cols - available_cols.keys()
+                    QMessageBox.warning(
+                        self,
+                        "Missing Columns",
+                        f"CSV must have 'species', 'wavelength', and 'flux' columns.\nMissing: {', '.join(missing)}"
+                    )
+                    return
+                
+                # Check for optional error column
+                has_error = False
+                error_col = None
+                for col_lower, col_actual in available_cols.items():
+                    if 'error' in col_lower and col_lower != 'wavelength':
+                        has_error = True
+                        error_col = col_actual
+                        break
+                
+                # Map column names (case-insensitive)
+                species_col = available_cols['species']
+                wavelength_col = available_cols['wavelength']
+                flux_col = available_cols['flux']
+                
+                for row_dict in reader:
+                    try:
+                        species = row_dict.get(species_col, '').strip().upper()
+                        wavelength = float(row_dict.get(wavelength_col, '').strip())
+                        flux = float(row_dict.get(flux_col, '').strip())
+                        
+                        row_info = {
+                            'species': species,
+                            'wavelength': wavelength,
+                            'flux': flux
+                        }
+                        
+                        # Add error if available
+                        if has_error and error_col:
+                            try:
+                                flux_error = float(row_dict.get(error_col, '').strip())
+                                row_info['flux_error'] = flux_error
+                            except (ValueError, AttributeError):
+                                pass
+                        
+                        csv_data.append(row_info)
+                    except (ValueError, TypeError):
+                        # Skip rows with invalid data
+                        continue
+            
+            if not csv_data:
+                QMessageBox.warning(self, "Error", "No valid rows found in CSV")
+                return
+            
+            # Now enrich CSV data with HITRAN values for A and E_u
+            # Group CSV data by species to batch-fetch HITRAN data
+            species_list = list(set(row['species'] for row in csv_data))
+            
+            # Get wavelength ranges to fetch
+            all_wavelengths = [row['wavelength'] for row in csv_data]
+            wl_min = min(all_wavelengths) - 0.1  # Buffer for rounding
+            wl_max = max(all_wavelengths) + 0.1
+            
+            hitran_cache = {}  # Cache HITRAN data by species
+            
+            progress = QProgressDialog(
+                "Enriching CSV data with HITRAN information...",
+                None, 0, len(species_list), self
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            
+            # Fetch HITRAN data for each species
+            for idx, species in enumerate(species_list):
+                progress.setValue(idx)
+                try:
+                    hitran_data, _ = fetch_hitran_data(
+                        wl_min, wl_max,
+                        molecule=species,
+                        isotopologue=1
+                    )
+                    hitran_cache[species] = hitran_data
+                except Exception as e:
+                    print(f"Warning: Could not fetch HITRAN data for {species}: {e}")
+                    hitran_cache[species] = []
+            
+            progress.close()
+            
+            # Match CSV rows to HITRAN data
+            for csv_row in csv_data:
+                species = csv_row['species']
+                wavelength = csv_row['wavelength']
+                hitran_lines = hitran_cache.get(species, [])
+                
+                # Find matching HITRAN line (within 0.0001 μm = 4 decimal places)
+                best_match = None
+                best_diff = float('inf')
+                
+                for hitran_line in hitran_lines:
+                    diff = abs(hitran_line['wavelength'] - wavelength)
+                    if diff < 0.0001 and diff < best_diff:  # 4 decimal place tolerance
+                        best_match = hitran_line
+                        best_diff = diff
+                
+                # Create data row with original CSV wavelength but HITRAN A and E_u
+                if best_match:
+                    row_data = {
+                        'wavelength': wavelength,  # Keep original CSV value
+                        'flux': csv_row['flux'],
+                        'a_coeff': best_match.get('a_coeff', 0.0),
+                        'e_upper': best_match.get('e_upper', 0.0),
+                        'Gp': best_match.get('Gp', 1.0),
+                        'transition': best_match.get('transition', 'User Data'),
+                        'species': species
+                    }
+                else:
+                    # No matching HITRAN line found, use defaults
+                    row_data = {
+                        'wavelength': wavelength,
+                        'flux': csv_row['flux'],
+                        'a_coeff': 0.0,  # Unknown
+                        'e_upper': 0.0,  # Unknown
+                        'Gp': 1.0,
+                        'transition': 'User Data (no HITRAN match)',
+                        'species': species
+                    }
+                    print(f"Warning: No HITRAN match for {species} at {wavelength:.4f} μm")
+                
+                # Add error if available
+                if 'flux_error' in csv_row:
+                    row_data['flux_error'] = csv_row['flux_error']
+                
+                rows.append(row_data)
+            
+            self.hitran_lines = rows
+            self.populate_lines_table()
+            
+            # Pre-fill errors if they were provided in CSV
+            self.populate_csv_errors()
+            
+            # Count successful matches
+            matched = sum(1 for r in rows if r['a_coeff'] > 0)
+            QMessageBox.information(
+                self,
+                "Import Successful",
+                f"Imported {len(rows)} rows from CSV\n"
+                f"Matched {matched}/{len(rows)} lines to HITRAN data"
+            )
+        
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Failed to import CSV:\n{str(e)}")
+    
+    def populate_csv_errors(self):
+        """Populate error column if flux_error was in CSV"""
+        for row in range(self.lines_table.rowCount()):
+            if row < len(self.hitran_lines):
+                line_data = self.hitran_lines[row]
+                if 'flux_error' in line_data:
+                    # Determine which column to fill based on error mode
+                    is_value_mode = "Values" in self.error_mode.currentText()
+                    
+                    if is_value_mode:
+                        # Column 7: Flux Error (absolute value)
+                        error_item = self.lines_table.item(row, 7)
+                        if error_item:
+                            error_item.setText(f"{line_data['flux_error']:.4e}")
+                        
+                        # Calculate percentage for column 8
+                        flux_text = self.lines_table.item(row, 6).text()
+                        if flux_text:
+                            try:
+                                flux_val = float(flux_text)
+                                pct = (line_data['flux_error'] / flux_val) * 100 if flux_val != 0 else 0
+                                pct_item = self.lines_table.item(row, 8)
+                                if pct_item:
+                                    pct_item.setText(f"{pct:.1f}")
+                            except ValueError:
+                                pass
+    
     def populate_lines_table(self):
         """Populate the unified table with all columns"""
         self.lines_table.setRowCount(len(self.hitran_lines))
@@ -384,7 +598,11 @@ class RotationalDiagramWindow(QMainWindow):
             self.lines_table.setItem(row, 5, g_item)
             
             # Flux (editable)
-            self.lines_table.setItem(row, 6, QTableWidgetItem(""))
+            flux_val = line.get('flux', '')
+            if flux_val:
+                self.lines_table.setItem(row, 6, QTableWidgetItem(f"{flux_val:.4e}"))
+            else:
+                self.lines_table.setItem(row, 6, QTableWidgetItem(""))
             
             # Flux Error (editable)
             self.lines_table.setItem(row, 7, QTableWidgetItem(""))
@@ -437,8 +655,11 @@ class RotationalDiagramWindow(QMainWindow):
                 return
             
             # Get error from either column (whichever is populated)
+            # Errors are OPTIONAL - if missing, flux_error will be None (unweighted fitting)
             error_text = self.lines_table.item(row, 7).text().strip()
             error_pct_text = self.lines_table.item(row, 8).text().strip()
+            
+            flux_error = None
             
             if error_text:
                 try:
@@ -453,12 +674,10 @@ class RotationalDiagramWindow(QMainWindow):
                 except ValueError:
                     QMessageBox.warning(self, "Error", f"Invalid error % at row {row+1}")
                     return
-            else:
-                QMessageBox.warning(self, "Error", f"No flux error for row {row+1}")
-                return
             
             fluxes[j_counter] = flux
-            flux_errors[j_counter] = flux_error
+            if flux_error is not None:
+                flux_errors[j_counter] = flux_error
             molecular_data['wavelengths'][j_counter] = line['wavelength']
             molecular_data['Aul'][j_counter] = line.get('a_coeff', 0)
             molecular_data['Eu'][j_counter] = line.get('e_upper', 0)

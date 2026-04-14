@@ -124,7 +124,6 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
 
     for J in fluxes:
         F = fluxes[J]
-        dF = flux_errors[J]
 
         # Get molecular data for this J level
         if J not in wave or J not in Aul or J not in Eu or J not in gu:
@@ -132,10 +131,17 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             continue
 
         Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
-        dNu = Nu * (dF / F)
+        
+        # Handle optional flux errors
+        if J in flux_errors:
+            dF = flux_errors[J]
+            dNu = Nu * (dF / F)
+            dy = dNu / Nu
+        else:
+            # No error provided for this point - use unweighted fitting
+            dy = 1.0  # Default weight for unweighted fit
 
         y = np.log(Nu / gu[J])
-        dy = dNu / Nu
 
         E_arr.append(Eu[J])
         y_arr.append(y)
@@ -148,12 +154,21 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 data points for fitting")
 
+    # Check if we have errors for all points
+    have_errors = np.all(y_err != 1.0)  # 1.0 = default unweighted value
+    
+    if not have_errors:
+        print("Note: No flux errors provided - using unweighted fitting")
+        sigma = None
+    else:
+        sigma = y_err
+
     # ============ 1T fit ============
     p0 = [np.max(y_arr), 500]
 
     popt1, pcov1 = curve_fit(
         model_1T, E_arr, y_arr,
-        sigma=y_err, absolute_sigma=True, p0=p0
+        sigma=sigma, absolute_sigma=True, p0=p0
     )
 
     a1, T1 = popt1
@@ -190,7 +205,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         try:
             popt2, pcov2 = curve_fit(
                 model_2T, E_arr, y_arr,
-                sigma=y_err, absolute_sigma=True,
+                sigma=sigma, absolute_sigma=True,
                 p0=p0, maxfev=10000
             )
 
