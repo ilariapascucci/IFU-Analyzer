@@ -49,7 +49,7 @@ def compute_Nu(F, lam, A, R=None, dist=None):
     Nu_col = (4*np.pi * F * lam_cm) / (hplanck * clight * A)
     
     if R is not None and dist is not None:
-        arcsec2 = (2*R/dist)**2
+        arcsec2 = np.pi*(R/dist)**2
         sr_arcsec2 = 4.25*(10**10)
         sr = arcsec2/sr_arcsec2
         Nu_total = Nu_col / sr
@@ -93,19 +93,20 @@ def model_2T(E, a1, T1, a2, T2):
     return np.log(np.exp(a1 - E/T1) + np.exp(a2 - E/T2))
 
 
-def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T=False, R=None, dist=140*pc):
+def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T=False, R=None, dist=140*pc, upper_limits=None):
     """
     Perform rotational diagram analysis on H2 lines.
     
     Args:
         fluxes: Dictionary {J: flux_value} where J is the upper rotational level
-        flux_errors: Dictionary {J: flux_error} 
+        flux_errors: Dictionary {J: flux_error}
         molecular_data: Dictionary with 'wavelengths', 'Aul', 'Eu', 'gu' keys
                        Each value is a dict {J: value}
         OPR: Ortho-para ratio (None to skip correction)
         fit2T: Whether to perform 2-temperature fit
         R: Emitting radius (AU or cm). If < 1e6, assumed to be AU; converted to cm
         dist: Distance (pc or cm). If < 1e12, assumed to be pc; converted to cm
+        upper_limits: Optional dict {J: True} for measurements marked as upper limits
     
     Returns:
         Dictionary with fitting results
@@ -132,6 +133,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
 
         Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
         
+        # Check if this is an upper limit
+        is_upper_limit = upper_limits and J in upper_limits
+        
         # Handle optional flux errors
         if J in flux_errors:
             dF = flux_errors[J]
@@ -146,6 +150,10 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         E_arr.append(Eu[J])
         y_arr.append(y)
         y_err.append(dy)
+        
+        # Log upper limits for reference
+        if is_upper_limit:
+            print(f"  [UPPER LIMIT] E_u={Eu[J]:.2f} K, log(Nu/gu)={y:.2f}")
 
     E_arr = np.array(E_arr)
     y_arr = np.array(y_arr)

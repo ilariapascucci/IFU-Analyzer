@@ -503,7 +503,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
         self.controls_layout.addWidget(self.two_d_btn)
-        self.controls_layout.addWidget(self.rot_diag_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
@@ -905,6 +904,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.co_flux_map_btn)
+        self.hitran_group.add_button(self.rot_diag_btn)
         collapsible_layout.addWidget(self.hitran_group)
         
         # Group 5: Shifting

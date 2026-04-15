@@ -100,9 +100,9 @@ class RotationalDiagramWindow(QMainWindow):
         main_layout.addLayout(toggle_layout)
         
         self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(9)
+        self.lines_table.setColumnCount(10)
         self.lines_table.setHorizontalHeaderLabels(
-            ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error", "Error %"]
+            ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error", "Error %", "Upper Limit?"]
         )
         self.lines_table.setColumnWidth(0, 40)
         self.lines_table.setColumnWidth(1, 80)
@@ -110,6 +110,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.lines_table.setColumnWidth(3, 110)
         self.lines_table.setColumnWidth(4, 80)
         self.lines_table.setColumnWidth(5, 60)
+        self.lines_table.setColumnWidth(9, 85)
         main_layout.addWidget(self.lines_table)
         
         # Connect table changes for auto-calculation
@@ -609,6 +610,10 @@ class RotationalDiagramWindow(QMainWindow):
             
             # Error % (editable)
             self.lines_table.setItem(row, 8, QTableWidgetItem(""))
+            
+            # Upper Limit? (editable checkbox)
+            ul_checkbox = QCheckBox()
+            self.lines_table.setCellWidget(row, 9, ul_checkbox)
         
         # Set initial edit/read-only status based on current mode
         self.update_error_columns()
@@ -627,6 +632,7 @@ class RotationalDiagramWindow(QMainWindow):
         """Run the fitting"""
         fluxes = {}
         flux_errors = {}
+        upper_limits = {}  # Track which measurements are upper limits
         molecular_data = {
             'wavelengths': {},
             'Aul': {},
@@ -675,9 +681,16 @@ class RotationalDiagramWindow(QMainWindow):
                     QMessageBox.warning(self, "Error", f"Invalid error % at row {row+1}")
                     return
             
+            # Check if this is an upper limit
+            ul_checkbox = self.lines_table.cellWidget(row, 9)
+            is_upper_limit = ul_checkbox and ul_checkbox.isChecked()
+            
             fluxes[j_counter] = flux
             if flux_error is not None:
                 flux_errors[j_counter] = flux_error
+            if is_upper_limit:
+                upper_limits[j_counter] = True
+            
             molecular_data['wavelengths'][j_counter] = line['wavelength']
             molecular_data['Aul'][j_counter] = line.get('a_coeff', 0)
             molecular_data['Eu'][j_counter] = line.get('e_upper', 0)
@@ -714,7 +727,8 @@ class RotationalDiagramWindow(QMainWindow):
                 OPR=None,
                 fit2T=fit_2t,
                 R=radius_au,       # in AU
-                dist=distance_pc   # in pc
+                dist=distance_pc,  # in pc
+                upper_limits=upper_limits
             )
             
             self.show_results(results)
