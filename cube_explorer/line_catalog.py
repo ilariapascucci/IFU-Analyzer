@@ -190,14 +190,14 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
 def get_available_molecules():
     return {
         'H2O': 1, 'CO2': 2, 'O3': 3, 'N2O': 4, 'CO': 5, 'CH4': 6, 'O2': 7, 'NO': 8,
-        'SO2': 9, 'NO2': 10, 'NH3': 11, 'HNO3': 12, 'OH': 13, 'HF': 14, 'HCl': 15,
-        'HBr': 16, 'HI': 17, 'ClO': 18, 'OCS': 19, 'H2CO': 20, 'HOCl': 21, 'N2': 22,
-        'HCN': 23, 'CH3Cl': 24, 'H2O2': 25, 'C2H2': 26, 'C2H6': 27, 'PH3': 28,
-        'COF2': 29, 'SF6': 30, 'H2S': 31, 'HCOOH': 32, 'HO2': 33, 'O': 34,
-        'ClONO2': 35, 'NOp': 36, 'HOBr': 37, 'C2H4': 38, 'CH3OH': 39, 'CH3Br': 40,
-        'CH3CN': 41, 'CF4': 42, 'C4H2': 43, 'HC3N': 44, 'H2': 45, 'CS': 46,
-        'SO3': 47, 'C2N2': 48, 'COCl2': 49, 'SO': 50, 'CH3F': 51, 'GeH4': 52,
-        'CS2': 53, 'CH3I': 54, 'NF3': 55,
+        'SO2': 9, 'NO2': 10, 'NH3': 11, 'HNO3': 12, 'OH': 13, 'HF': 14,
+        'HI': 15, 'OCS': 16, 'H2CO': 17, 'N2': 18,
+        'HCN': 19, 'H2O2': 20, 'C2H2': 21, 'C2H6': 22, 'PH3': 23,
+        'COF2': 24, 'SF6': 25, 'H2S': 26, 'HCOOH': 27, 'HO2': 28, 'O': 29,
+        'C2H4': 30, 'CH3OH': 31,
+        'CH3CN': 32, 'CF4': 33, 'C4H2': 34, 'HC3N': 35, 'H2': 36, 'CS': 37,
+        'SO3': 38, 'C2N2': 39, 'SO': 40, 'CH3F': 41,
+        'CS2': 42, 'CH3I': 43, 'NF3': 44,
     }
 
 def convert_to_numpy(data):

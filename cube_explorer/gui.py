@@ -42,6 +42,7 @@ from .region_selector import RegionSelector
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
 from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
+from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, auto_detect_boundaries
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
@@ -2584,134 +2585,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 QMessageBox.information(self, "No Matches", "No HITRAN lines found in this range.")
                 return
 
-            # Filter by transition level based on molecule (molecule-specific logic)
+            # Filter by transition level based on molecule
             if filter_quantum:
-                filtered_results = []
-                
-                if molecule.upper() == 'CO':
-                    # CO transition filtering
-                    v_upper, ok = QInputDialog.getInt(
-                        self,
-                        "CO Upper Transition Number",
-                        "Enter upper vibrational state:\n(e.g., 1 for v=1→0)",
-                        1,
-                        0,
-                        100,
-                        1
-                    )
-                    if not ok:
-                        return
-
-                    v_lower, ok = QInputDialog.getInt(
-                        self,
-                        "CO Lower Transition Number",
-                        "Enter lower vibrational state:\n(e.g., 0 for v=1→0)",
-                        0,
-                        0,
-                        100,
-                        1
-                    )
-                    if not ok:
-                        return
-                    
-                    # CO uses regex: r'v=(\d+)->(\d+)' to extract and match vibrational levels
-                    for line in results:
-                        transition = line.get('transition', '')
-                        if transition and '->' in transition:
-                            try:
-                                v_match = re.search(r'v=(\d+)->(\d+)', transition)
-                                if v_match:
-                                    line_v_upper = int(v_match.group(1))
-                                    line_v_lower = int(v_match.group(2))
-                                    if line_v_upper == v_upper and line_v_lower == v_lower:
-                                        filtered_results.append(line)
-                            except (ValueError, AttributeError):
-                                filtered_results.append(line)
-                        else:
-                            filtered_results.append(line)
-                    
-                    if not filtered_results:
-                        QMessageBox.information(
-                            self, 
-                            "No Matches", 
-                            f"No HITRAN lines found with v={v_upper}->{v_lower} transition."
-                        )
-                        return
-                
-                elif molecule.upper() == 'H2O':
-                    # H2O transition filtering
-                    h2o_upper_text, ok = QInputDialog.getText(
-                        self,
-                        "H₂O Upper Transition Numbers",
-                        "Enter upper state (v Ka Kc):\n(e.g., 0 3 0 for 0 3 0→0 1 0)",
-                        QLineEdit.Normal,
-                        "0 3 0"
-                    )
-                    if not ok or not h2o_upper_text:
-                        return
-
-                    h2o_lower_text, ok = QInputDialog.getText(
-                        self,
-                        "H₂O Lower Transition Numbers",
-                        "Enter lower state (v Ka Kc):\n(e.g., 0 1 0 for 0 3 0→0 1 0)",
-                        QLineEdit.Normal,
-                        "0 1 0"
-                    )
-                    if not ok or not h2o_lower_text:
-                        return
-                    
-                    # H2O uses simple string matching: "0 3 0->0 1 0"
-                    h2o_pattern = f"{h2o_upper_text}->{h2o_lower_text}"
-                    for line in results:
-                        transition = line.get('transition', '')
-                        if transition and h2o_pattern in transition:
-                            filtered_results.append(line)
-                    
-                    if not filtered_results:
-                        QMessageBox.information(
-                            self, 
-                            "No Matches", 
-                            f"No H₂O lines found matching {h2o_pattern} transition."
-                        )
-                        return
-                
-                elif molecule.upper() == 'OH':
-                    # OH transition filtering
-                    oh_upper_text, ok = QInputDialog.getText(
-                        self,
-                        "OH Upper Transition State",
-                        "Enter upper state:\n(e.g., X1/2   3 for v=X1/2   3→X3/2   2)",
-                        QLineEdit.Normal,
-                        "X1/2   3"
-                    )
-                    if not ok or not oh_upper_text:
-                        return
-
-                    oh_lower_text, ok = QInputDialog.getText(
-                        self,
-                        "OH Lower Transition State",
-                        "Enter lower state:\n(e.g., X3/2   2 for v=X1/2   3→X3/2   2)",
-                        QLineEdit.Normal,
-                        "X3/2   2"
-                    )
-                    if not ok or not oh_lower_text:
-                        return
-                    
-                    # OH uses simple string matching: "X1/2   3->X3/2   2"
-                    oh_pattern = f"{oh_upper_text}->{oh_lower_text}"
-                    for line in results:
-                        transition = line.get('transition', '')
-                        if transition and oh_pattern in transition:
-                            filtered_results.append(line)
-                    
-                    if not filtered_results:
-                        QMessageBox.information(
-                            self, 
-                            "No Matches", 
-                            f"No OH lines found matching {oh_pattern} transition."
-                        )
-                        return
-                
+                filtered_results = apply_transition_filter(self, results, molecule)
+                if filtered_results is None:
+                    return
                 results = filtered_results
 
             # Mark HITRAN lines with source

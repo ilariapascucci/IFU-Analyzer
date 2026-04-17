@@ -20,6 +20,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 from .line_catalog import fetch_hitran_data
+from .transition_patterns import TRANSITION_PATTERNS
 
 
 # Constants
@@ -32,11 +33,13 @@ MOLECULE_ISOTOPOLOGUES = {
     'CO': {'labels': ['¹²C¹⁶O', '¹³C¹⁶O', '¹²C¹⁸O', '¹²C¹⁷O', '¹³C¹⁸O'], 'range': (1, 5)},
 }
 
-# Regex patterns for extracting vibrational transitions per molecule
-MOLECULE_TRANSITION_PATTERNS = {
-    'H2': r'v=\d+',  # Matches "v=0", "v=1", etc.
-    'CO': r'v=(\d+)->(\d+)',  # Matches "v=1->0", "v=2->1", etc.
-}
+# Helper function to get regex pattern for a molecule
+def get_molecule_regex(molecule):
+    """Get the regex pattern for a molecule from transition_patterns"""
+    pattern_info = TRANSITION_PATTERNS.get(molecule.upper())
+    if pattern_info:
+        return pattern_info.get('regex')
+    return None
 
 
 class HitranFetchThread(QThread):
