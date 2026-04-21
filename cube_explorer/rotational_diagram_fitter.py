@@ -137,7 +137,10 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         is_upper_limit = upper_limits and J in upper_limits
         
         # Handle optional flux errors
-        if J in flux_errors:
+        # Upper limits should have NO error (they're constraints, not measurements)
+        if is_upper_limit:
+            dy = 0.0  # Upper limits have no uncertainty
+        elif J in flux_errors:
             dF = flux_errors[J]
             dNu = Nu * (dF / F)
             dy = dNu / Nu
@@ -162,20 +165,38 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 data points for fitting")
 
-    # Check if we have errors for all points
-    have_errors = np.all(y_err != 1.0)  # 1.0 = default unweighted value
+    # Separate upper limits from measured points for fitting
+    # Upper limits (dy=0) should not be included in the weighted fit
+    measured_mask = y_err != 0.0
+    E_measured = E_arr[measured_mask]
+    y_measured = y_arr[measured_mask]
+    y_err_measured = y_err[measured_mask]
+    
+    # Check if we have enough measured points (not upper limits)
+    if len(E_measured) < 2:
+        print("Warning: Not enough measured points (non-upper-limits) for fitting. Using all points.")
+        E_fit = E_arr
+        y_fit = y_arr
+        y_err_fit = y_err
+    else:
+        E_fit = E_measured
+        y_fit = y_measured
+        y_err_fit = y_err_measured
+
+    # Check if we have errors for the points being fitted
+    have_errors = np.all(y_err_fit != 1.0)  # 1.0 = default unweighted value
     
     if not have_errors:
         print("Note: No flux errors provided - using unweighted fitting")
         sigma = None
     else:
-        sigma = y_err
+        sigma = y_err_fit
 
     # ============ 1T fit ============
-    p0 = [np.max(y_arr), 500]
+    p0 = [np.max(y_fit), 500]
 
     popt1, pcov1 = curve_fit(
-        model_1T, E_arr, y_arr,
+        model_1T, E_fit, y_fit,
         sigma=sigma, absolute_sigma=True, p0=p0
     )
 
@@ -212,7 +233,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
 
         try:
             popt2, pcov2 = curve_fit(
-                model_2T, E_arr, y_arr,
+                model_2T, E_fit, y_fit,
                 sigma=sigma, absolute_sigma=True,
                 p0=p0, maxfev=10000
             )
