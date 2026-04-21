@@ -49,7 +49,7 @@ def compute_Nu(F, lam, A, R=None, dist=None):
     Nu_col = (4*np.pi * F * lam_cm) / (hplanck * clight * A)
     
     if R is not None and dist is not None:
-        arcsec2 = np.pi*(R/dist)**2
+        arcsec2 = (2*R/dist)**2
         sr_arcsec2 = 4.25*(10**10)
         sr = arcsec2/sr_arcsec2
         Nu_total = Nu_col / sr
