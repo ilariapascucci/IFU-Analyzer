@@ -122,7 +122,7 @@ class RotationalDiagramWindow(QMainWindow):
         bottom_layout.addWidget(QLabel("R (au):"))
         self.radius_input = QDoubleSpinBox()
         self.radius_input.setRange(0.01, 10000)
-        self.radius_input.setValue(8.5)
+        self.radius_input.setValue(17)
         self.radius_input.setDecimals(4)
         bottom_layout.addWidget(self.radius_input)
         

@@ -49,7 +49,7 @@ def compute_Nu(F, lam, A, R=None, dist=None):
     Nu_col = (4*np.pi * F * lam_cm) / (hplanck * clight * A)
     
     if R is not None and dist is not None:
-        arcsec2 = (2*R/dist)**2
+        arcsec2 = np.pi*((R/dist)**2)
         sr_arcsec2 = 4.25*(10**10)
         sr = arcsec2/sr_arcsec2
         Nu_total = Nu_col / sr
@@ -131,22 +131,22 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             print(f"Warning: Missing data for J={J}, skipping")
             continue
 
+        # Skip points without flux errors unless they're upper limits
+        is_upper_limit = upper_limits and J in upper_limits
+        if not is_upper_limit and J not in flux_errors:
+            print(f"Warning: No flux error for J={J}, skipping")
+            continue
+
         Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
         
-        # Check if this is an upper limit
-        is_upper_limit = upper_limits and J in upper_limits
-        
-        # Handle optional flux errors
+        # Handle flux errors
         # Upper limits should have NO error (they're constraints, not measurements)
         if is_upper_limit:
             dy = 0.0  # Upper limits have no uncertainty
-        elif J in flux_errors:
+        else:
             dF = flux_errors[J]
             dNu = Nu * (dF / F)
             dy = dNu / Nu
-        else:
-            # No error provided for this point - use unweighted fitting
-            dy = 1.0  # Default weight for unweighted fit
 
         y = np.log(Nu / gu[J])
 
@@ -184,10 +184,11 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         y_err_fit = y_err_measured
 
     # Check if we have errors for the points being fitted
-    have_errors = np.all(y_err_fit != 1.0)  # 1.0 = default unweighted value
+    # All points should have either real errors or be upper limits (dy=0)
+    have_errors = np.any(y_err_fit != 0.0)  # True if any non-zero errors
     
     if not have_errors:
-        print("Note: No flux errors provided - using unweighted fitting")
+        print("Note: All points are upper limits - cannot fit")
         sigma = None
     else:
         sigma = y_err_fit
