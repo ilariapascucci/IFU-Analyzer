@@ -9,11 +9,31 @@ import numpy as np
 # The returned header contains metadata and WCS info
 # The returned data is the 3D data cube
 
+def _merge_primary_into_sci(hdul, sci_key):
+    """Return SCI header with PRIMARY keywords added as fallback."""
+    from astropy.io.fits import Header
+    sci_hdr = hdul[sci_key].header.copy()
+    primary_hdr = hdul[0].header
+    # Only copy PRIMARY keys that are missing from SCI
+    for key, value, comment in primary_hdr.cards:
+        if key and key not in sci_hdr and key not in ('SIMPLE', 'EXTEND', 'END'):
+            try:
+                sci_hdr[key] = (value, comment)
+            except Exception:
+                pass
+    return sci_hdr
+
 TELESCOPE_LOADERS = {
     "MUSE": lambda hdul: (hdul[1].header, hdul[1].data),
     "ALMA": lambda hdul: (hdul[0].header, hdul[0].data),
-    "MIRI": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data) if "SCI" in hdul else (hdul[0].header, hdul[0].data),
-    "NIRSpec": lambda hdul: (hdul["SCI"].header, hdul["SCI"].data) if "SCI" in hdul else (hdul[0].header, hdul[0].data),
+    "MIRI": lambda hdul: (
+        (_merge_primary_into_sci(hdul, "SCI"), hdul["SCI"].data)
+        if "SCI" in hdul else (hdul[0].header, hdul[0].data)
+    ),
+    "NIRSpec": lambda hdul: (
+        (_merge_primary_into_sci(hdul, "SCI"), hdul["SCI"].data)
+        if "SCI" in hdul else (hdul[0].header, hdul[0].data)
+    ),
 }
 
 def detect_instrument(hdul):
