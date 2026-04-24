@@ -2588,7 +2588,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             if filter_quantum:
                 filtered_results = []
                 
-                if molecule.upper() == 'CO':
+                if molecule.upper() == 'CO' or molecule.upper() == 'H2':
                     # CO transition filtering
                     v_upper, ok = QInputDialog.getInt(
                         self,

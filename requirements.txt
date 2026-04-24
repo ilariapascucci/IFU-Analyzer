@@ -23,7 +23,12 @@ pandas>=1.3.0              # Data manipulation and analysis
 
 scikit-learn>=1.6.0        # Machine learning (RANSAC, polynomial features, pipelines)
 astropy>=7.1.0             # Astronomy-specific tools (FITS, WCS, units, coordinates)
-astropy-iers-data=>0.2025.10.6.0.35.25           # Astropy dependency
+astropy-iers-data>=0.2025.10.6.0.35.25           # Astropy dependency
+
+# ============================================================================
+# BAYESIAN STATISTICS & CENSORED REGRESSION
+# ============================================================================
+pymc>=4.0                  # Bayesian inference (censored regression for upper limits)
 
 # ============================================================================
 # HITRAN DATABASE & SPECTROSCOPY
