@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QTableWidget, QTableWidgetItem, QSpinBox, 
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog
+    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -78,6 +78,7 @@ class RotationalDiagramWindow(QMainWindow):
         
         self.hitran_lines = []
         self.fetch_thread = None
+        self.updating_error_columns = False  # Flag to prevent recursive updates
         
         # Main widget
         main_widget = QWidget()
@@ -115,6 +116,9 @@ class RotationalDiagramWindow(QMainWindow):
         
         # Connect table changes for auto-calculation
         self.lines_table.itemChanged.connect(self.on_table_item_changed)
+        
+        # Connect upper limit checkbox changes
+        self.lines_table.cellClicked.connect(self.on_cell_clicked)
         
         # Bottom: Physical parameters + buttons
         bottom_layout = QHBoxLayout()
@@ -270,46 +274,69 @@ class RotationalDiagramWindow(QMainWindow):
                     error_pct_item.setFlags(error_pct_item.flags() | Qt.ItemIsEditable)
     
     def on_table_item_changed(self, item):
-        """Auto-calculate flux error or percentage when user enters value"""
-        if self.lines_table.rowCount() == 0:
+        """Auto-calculate flux error or percentage when user enters value, clear the other when empty"""
+        if self.updating_error_columns:
             return
         
-        row = item.row()
-        col = item.column()
-        
-        # Get flux value
-        flux_item = self.lines_table.item(row, 6)
-        if not flux_item:
-            return
+        self.updating_error_columns = True
         
         try:
-            flux = float(flux_item.text())
-        except ValueError:
-            return
-        
-        is_value_mode = "Values" in self.error_mode.currentText()
-        
-        if is_value_mode and col == 7:
-            # User entered flux error (column 8), calculate percentage
+            if self.lines_table.rowCount() == 0:
+                return
+            
+            row = item.row()
+            col = item.column()
+            
+            # Columns 7 and 8 are flux error and error %
+            if col not in (7, 8):
+                return
+            
+            flux_error_item = self.lines_table.item(row, 7)
+            error_pct_item = self.lines_table.item(row, 8)
+            
+            if not flux_error_item or not error_pct_item:
+                return
+            
+            # Get flux value
+            flux_item = self.lines_table.item(row, 6)
+            if not flux_item:
+                return
+            
             try:
-                flux_error = float(item.text())
-                pct = (flux_error / flux) * 100 if flux != 0 else 0
-                error_pct_item = self.lines_table.item(row, 8)
-                if error_pct_item:
-                    error_pct_item.setText(f"{pct:.1f}")
+                flux = float(flux_item.text())
             except ValueError:
-                pass
-        
-        elif not is_value_mode and col == 8:
-            # User entered percentage (column 9), calculate flux error
-            try:
-                pct = float(item.text())
-                flux_error = flux * (pct / 100.0)
-                flux_error_item = self.lines_table.item(row, 7)
-                if flux_error_item:
-                    flux_error_item.setText(f"{flux_error:.4e}")
-            except ValueError:
-                pass
+                return
+            
+            # Get current text from the item that changed
+            current_text = item.text().strip() if item.text() else ""
+            
+            if col == 7:  # Flux Error column changed
+                if current_text == "":
+                    # User cleared flux error - also clear error %
+                    error_pct_item.setText("")
+                else:
+                    # Calculate percentage
+                    try:
+                        flux_error = float(current_text)
+                        pct = (flux_error / flux) * 100 if flux != 0 else 0
+                        error_pct_item.setText(f"{pct:.1f}")
+                    except ValueError:
+                        pass
+            
+            elif col == 8:  # Error % column changed
+                if current_text == "":
+                    # User cleared error % - also clear flux error
+                    flux_error_item.setText("")
+                else:
+                    # Calculate flux error
+                    try:
+                        pct = float(current_text)
+                        flux_error = flux * (pct / 100.0)
+                        flux_error_item.setText(f"{flux_error:.4e}")
+                    except ValueError:
+                        pass
+        finally:
+            self.updating_error_columns = False
     
     def fetch_hitran_lines(self):
         """Fetch molecular lines from HITRAN"""
@@ -613,6 +640,8 @@ class RotationalDiagramWindow(QMainWindow):
             
             # Upper Limit? (editable checkbox)
             ul_checkbox = QCheckBox()
+            # Connect checkbox state change to upper limit dialog
+            ul_checkbox.stateChanged.connect(lambda state, r=row: self.on_upper_limit_checkbox_changed(r, state))
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
         
         # Set initial edit/read-only status based on current mode
@@ -843,3 +872,629 @@ class RotationalDiagramWindow(QMainWindow):
             layout.addWidget(plot_widget, 1)
         
         dialog.exec_()
+    
+    def on_upper_limit_checkbox_changed(self, row, state):
+        """Handle upper limit checkbox state change"""
+        ul_checkbox = self.lines_table.cellWidget(row, 9)
+        if not ul_checkbox:
+            return
+        
+        # Only process if checkbox just became checked
+        if state != Qt.Checked:
+            return
+        
+        # Clear error columns when upper limit is checked
+        flux_error_item = self.lines_table.item(row, 7)
+        error_pct_item = self.lines_table.item(row, 8)
+        if flux_error_item:
+            flux_error_item.setText("")
+        if error_pct_item:
+            error_pct_item.setText("")
+        
+        # User checked upper limit - prompt for FITS file
+        dialog = UpperLimitFitsDialog(self, row, self.hitran_lines[row])
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted:
+            flux_ul = dialog.get_flux_ul()
+            if flux_ul is not None:
+                # Auto-populate the flux column
+                flux_item = self.lines_table.item(row, 6)
+                if flux_item:
+                    flux_item.setText(f"{flux_ul:.4e}")
+                # Also clear error columns again to be safe
+                if flux_error_item:
+                    flux_error_item.setText("")
+                if error_pct_item:
+                    error_pct_item.setText("")
+        else:
+            # User cancelled, uncheck the box
+            ul_checkbox.blockSignals(True)
+            ul_checkbox.setChecked(False)
+            ul_checkbox.blockSignals(False)
+    
+    def on_cell_clicked(self, row, col):
+        """Handle cell clicks (for compatibility)"""
+        pass
+
+
+class UpperLimitFitsDialog(QDialog):
+    """Dialog for loading FITS and performing Gaussian fit for upper limits - reuses main window pattern"""
+    
+    def __init__(self, parent, row, line_data):
+        super().__init__(parent)
+        self.row = row
+        self.line_data = line_data
+        self.flux_ul = None
+        self.sigma_noise = None  # Measured noise std dev
+        self.fits_file = None
+        self.spectrum = None
+        self.wavelength = None
+        self.gauss_mode = None  # 'left', 'right', 'noise_left', 'noise_right', or None
+        self.fits_header = None  # Store header for unit conversion
+        self.fits_instrument = None  # Store instrument for unit conversion
+        
+        # Boundary markers for line region
+        self.gauss_left_x = None
+        self.gauss_right_x = None
+        self.gauss_left_marker = None
+        self.gauss_right_marker = None
+        
+        # Noise region markers
+        self.noise_left_x = None
+        self.noise_right_x = None
+        self.noise_left_marker = None
+        self.noise_right_marker = None
+        
+        # Gaussian boundary markers
+        self.gauss_left_x = None
+        self.gauss_right_x = None
+        self.gauss_left_marker = None
+        self.gauss_right_marker = None
+        
+        self.setWindowTitle(f"Upper Limit: Fit Line {line_data['wavelength']:.6f} μm")
+        self.setGeometry(100, 100, 1100, 750)
+        
+        layout = QVBoxLayout()
+        
+        # FITS file selection
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(QLabel("FITS File:"))
+        self.file_label = QLabel("No file selected")
+        file_layout.addWidget(self.file_label)
+        
+        load_btn = QPushButton("Load FITS")
+        load_btn.clicked.connect(self.load_fits_file)
+        file_layout.addWidget(load_btn)
+        file_layout.addStretch()
+        layout.addLayout(file_layout)
+        
+        # Spectrum plot area
+        self.fig = Figure(figsize=(11, 5), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.canvas = FigureCanvas(self.fig)
+        self.canvas.mpl_connect("button_press_event", self.on_canvas_click)
+        layout.addWidget(self.canvas)
+        
+        # Add matplotlib toolbar
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        layout.addWidget(self.toolbar)
+        
+        # Instructions
+        instructions = QLabel(
+            "1. Load FITS file\n"
+            "2. Click 'Noise L', then click on line-free region to mark left edge\n"
+            "3. Click 'Noise R', then click to mark right edge (noise std will be calculated)\n"
+            "4. Click 'Left' button, then click spectrum to mark line left boundary\n"
+            "5. Click 'Right' button, then click spectrum to mark line right boundary\n"
+            "6. Click 'Fit Gaussian' to calculate 3σ upper limit"
+        )
+        layout.addWidget(instructions)
+        
+        # Interactive buttons
+        button_layout = QHBoxLayout()
+        
+        # Noise selection buttons
+        self.noise_left_btn = QPushButton("Noise L")
+        self.noise_left_btn.setCheckable(True)
+        self.noise_left_btn.clicked.connect(self.on_noise_left_clicked)
+        self.noise_left_btn.setEnabled(False)
+        button_layout.addWidget(self.noise_left_btn)
+        
+        self.noise_right_btn = QPushButton("Noise R")
+        self.noise_right_btn.setCheckable(True)
+        self.noise_right_btn.clicked.connect(self.on_noise_right_clicked)
+        self.noise_right_btn.setEnabled(False)
+        button_layout.addWidget(self.noise_right_btn)
+        
+        button_layout.addSpacing(10)
+        
+        # Line boundary buttons
+        self.left_btn = QPushButton("Left")
+        self.left_btn.setCheckable(True)
+        self.left_btn.clicked.connect(self.on_left_clicked)
+        self.left_btn.setEnabled(False)
+        button_layout.addWidget(self.left_btn)
+        
+        self.right_btn = QPushButton("Right")
+        self.right_btn.setCheckable(True)
+        self.right_btn.clicked.connect(self.on_right_clicked)
+        self.right_btn.setEnabled(False)
+        button_layout.addWidget(self.right_btn)
+        
+        button_layout.addStretch()
+        
+        self.fit_btn = QPushButton("Fit Gaussian")
+        self.fit_btn.clicked.connect(self.fit_gaussian)
+        self.fit_btn.setEnabled(False)
+        button_layout.addWidget(self.fit_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # Result display (selectable text)
+        self.result_display = QLineEdit()
+        self.result_display.setReadOnly(True)
+        layout.addWidget(self.result_display)
+        
+        # OK/Cancel buttons
+        dialog_buttons = QHBoxLayout()
+        
+        self.ok_btn = QPushButton("OK")
+        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.setEnabled(False)
+        dialog_buttons.addWidget(self.ok_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        dialog_buttons.addWidget(cancel_btn)
+        
+        layout.addLayout(dialog_buttons)
+        
+        self.setLayout(layout)
+    
+    def on_left_clicked(self):
+        """Activate left boundary selection mode"""
+        if self.left_btn.isChecked():
+            self.gauss_mode = 'left'
+            self.right_btn.setChecked(False)
+            self.noise_left_btn.setChecked(False)
+            self.noise_right_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+    
+    def on_right_clicked(self):
+        """Activate right boundary selection mode"""
+        if self.right_btn.isChecked():
+            self.gauss_mode = 'right'
+            self.left_btn.setChecked(False)
+            self.noise_left_btn.setChecked(False)
+            self.noise_right_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+    
+    def on_noise_left_clicked(self):
+        """Activate noise left boundary selection mode"""
+        if self.noise_left_btn.isChecked():
+            self.gauss_mode = 'noise_left'
+            self.left_btn.setChecked(False)
+            self.right_btn.setChecked(False)
+            self.noise_right_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+    
+    def on_noise_right_clicked(self):
+        """Activate noise right boundary selection mode"""
+        if self.noise_right_btn.isChecked():
+            self.gauss_mode = 'noise_right'
+            self.left_btn.setChecked(False)
+            self.right_btn.setChecked(False)
+            self.noise_left_btn.setChecked(False)
+        else:
+            self.gauss_mode = None
+    
+    def on_canvas_click(self, event):
+        """Handle canvas clicks to set boundaries and noise region"""
+        if event.inaxes != self.ax or event.xdata is None:
+            return
+        
+        if self.gauss_mode == 'noise_left':
+            # Remove old marker
+            if self.noise_left_marker:
+                try:
+                    self.noise_left_marker.remove()
+                except:
+                    pass
+            
+            # Add new marker
+            self.noise_left_marker = self.ax.axvline(event.xdata, color='orange', linestyle='--', linewidth=1.3, label='Noise L', alpha=0.7)
+            self.noise_left_x = event.xdata
+            self.noise_left_btn.setChecked(False)
+            self.gauss_mode = None
+            self.canvas.draw()
+            
+            # If both noise boundaries are set, calculate sigma_noise
+            if self.noise_left_x is not None and self.noise_right_x is not None:
+                self._calculate_noise_std()
+        
+        elif self.gauss_mode == 'noise_right':
+            # Remove old marker
+            if self.noise_right_marker:
+                try:
+                    self.noise_right_marker.remove()
+                except:
+                    pass
+            
+            # Add new marker
+            self.noise_right_marker = self.ax.axvline(event.xdata, color='orange', linestyle='--', linewidth=1.3, label='Noise R', alpha=0.7)
+            self.noise_right_x = event.xdata
+            self.noise_right_btn.setChecked(False)
+            self.gauss_mode = None
+            self.canvas.draw()
+            
+            # If both noise boundaries are set, calculate sigma_noise
+            if self.noise_left_x is not None and self.noise_right_x is not None:
+                self._calculate_noise_std()
+        
+        elif self.gauss_mode == 'left':
+            # Remove old marker
+            if self.gauss_left_marker:
+                try:
+                    self.gauss_left_marker.remove()
+                except:
+                    pass
+            
+            # Add new marker
+            self.gauss_left_marker = self.ax.axvline(event.xdata, color='green', linestyle='--', linewidth=1.5, label='Left', alpha=0.7)
+            self.gauss_left_x = event.xdata
+            self.left_btn.setChecked(False)
+            self.gauss_mode = None
+            self.canvas.draw()
+        
+        elif self.gauss_mode == 'right':
+            # Remove old marker
+            if self.gauss_right_marker:
+                try:
+                    self.gauss_right_marker.remove()
+                except:
+                    pass
+            
+            # Add new marker
+            self.gauss_right_marker = self.ax.axvline(event.xdata, color='purple', linestyle='--', linewidth=1.5, label='Right', alpha=0.7)
+            self.gauss_right_x = event.xdata
+            self.right_btn.setChecked(False)
+            self.gauss_mode = None
+            self.canvas.draw()
+        
+        # Enable fit button if all required selections are made
+        if (self.gauss_left_x is not None and self.gauss_right_x is not None and 
+            self.noise_left_x is not None and self.noise_right_x is not None and
+            self.sigma_noise is not None):
+            self.fit_btn.setEnabled(True)
+    
+    def load_fits_file(self):
+        """Load FITS file and display spectrum (using main window's CubeData loader for consistency)"""
+        fits_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select FITS File",
+            "",
+            "FITS Files (*.fits *.fit);;All Files (*.*)"
+        )
+        
+        if not fits_path:
+            return
+        
+        try:
+            # Import CubeData from data_loader to ensure same wavelength extraction as main window
+            from .data_loader import CubeData
+            
+            print(f"[DEBUG] Loading FITS: {fits_path}")
+            
+            # Use CubeData to load FITS (handles MUSE, ALMA, MIRI, NIRSpec properly)
+            cube_data = CubeData()
+            cube_data.load_from_file(fits_path)
+            
+            print(f"[DEBUG] CubeData loaded: cube shape={cube_data.cube.shape}, wavelength shape={cube_data.wavelength.shape}")
+            
+            # Extract center pixel spectrum from cube
+            if cube_data.cube.ndim == 3:
+                # Shape is (wavelength, y, x) - take center pixel
+                ny, nx = cube_data.cube.shape[1], cube_data.cube.shape[2]
+                center_y, center_x = ny // 2, nx // 2
+                spectrum = cube_data.cube[:, center_y, center_x]
+                print(f"[DEBUG] Extracted center pixel at ({center_y}, {center_x}), spectrum shape={spectrum.shape}")
+            elif cube_data.cube.ndim == 1:
+                spectrum = cube_data.cube
+                print(f"[DEBUG] 1D spectrum: shape={spectrum.shape}")
+            else:
+                print(f"[DEBUG] ERROR: Unsupported cube shape: {cube_data.cube.shape}")
+                QMessageBox.warning(self, "Error", f"Unsupported cube shape: {cube_data.cube.shape}")
+                return
+            
+            # Get wavelength with units and convert to plain array
+            wavelength_quantity = cube_data.wavelength
+            if wavelength_quantity is not None:
+                wavelength = wavelength_quantity.value  # Extract numeric values
+                print(f"[DEBUG] Extracted wavelength values, shape={wavelength.shape}")
+                
+                # Safety checks
+                if np.any(np.isnan(wavelength)):
+                    print(f"[DEBUG] WARNING: wavelength contains NaN values!")
+                    nan_count = np.sum(np.isnan(wavelength))
+                    print(f"[DEBUG] NaN count: {nan_count}/{len(wavelength)}")
+                
+                # Ensure wavelength is increasing
+                if wavelength[0] > wavelength[-1]:
+                    print(f"[DEBUG] Wavelength is decreasing, reversing...")
+                    wavelength = wavelength[::-1]
+                    spectrum = spectrum[::-1]
+                
+                # Sanity check on wavelength range
+                print(f"[DEBUG] Wavelength range: {wavelength[0]:.6f} to {wavelength[-1]:.6f}")
+                if wavelength[-1] - wavelength[0] < 0.001:
+                    print(f"[DEBUG] WARNING: wavelength span is very small ({wavelength[-1] - wavelength[0]:.6e})")
+                    
+            else:
+                print(f"[DEBUG] ERROR: wavelength_quantity is None")
+                QMessageBox.warning(self, "Error", "Could not extract wavelength from FITS")
+                return
+            
+            print(f"[DEBUG] spectrum stats: min={np.nanmin(spectrum):.4e}, max={np.nanmax(spectrum):.4e}, mean={np.nanmean(spectrum):.4e}")
+            print(f"[DEBUG] spectrum has {np.sum(np.isnan(spectrum))} NaN values out of {len(spectrum)}")
+            print(f"[DEBUG] spectrum has {np.sum(np.isinf(spectrum))} inf values")
+            print(f"[DEBUG] wavelength stats: min={np.min(wavelength):.6f}, max={np.max(wavelength):.6f}")
+            
+            # Check if spectrum is all zeros
+            if np.allclose(spectrum, 0):
+                print(f"[DEBUG] WARNING: spectrum is all zeros!")
+            
+            # Check if spectrum has any valid data
+            valid_mask = ~np.isnan(spectrum) & ~np.isinf(spectrum)
+            if not np.any(valid_mask):
+                print(f"[DEBUG] ERROR: No valid data in spectrum!")
+                QMessageBox.warning(self, "Error", "No valid data in spectrum (all NaN or inf)")
+                return
+            
+            valid_count = np.sum(valid_mask)
+            print(f"[DEBUG] Valid spectrum points: {valid_count}/{len(spectrum)}")
+            
+            # Store spectrum and wavelength
+            self.spectrum = spectrum
+            self.wavelength = wavelength
+            self.fits_file = fits_path
+            self.fits_header = cube_data.header  # Store header for unit conversion
+            self.fits_instrument = cube_data.instrument  # Store instrument type
+            self.file_label.setText(os.path.basename(fits_path))
+            
+            # Enable boundary and noise buttons
+            self.left_btn.setEnabled(True)
+            self.right_btn.setEnabled(True)
+            self.noise_left_btn.setEnabled(True)
+            self.noise_right_btn.setEnabled(True)
+            
+            print(f"[DEBUG] About to call plot_spectrum()")
+            # Plot spectrum
+            self.plot_spectrum()
+            print(f"[DEBUG] plot_spectrum() completed")
+        
+        except Exception as e:
+            import traceback
+            print(f"[DEBUG] Exception in load_fits_file: {e}")
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"Failed to load FITS:\n{str(e)}")
+    
+    def plot_spectrum(self):
+        """Plot the loaded spectrum (using visualization.py approach for robustness)"""
+        if self.spectrum is None or self.wavelength is None:
+            print("[DEBUG] plot_spectrum: spectrum or wavelength is None")
+            return
+        
+        print(f"[DEBUG] plot_spectrum: spectrum shape={self.spectrum.shape}, wavelength shape={self.wavelength.shape}")
+        print(f"[DEBUG] spectrum range: [{np.nanmin(self.spectrum):.4e}, {np.nanmax(self.spectrum):.4e}]")
+        print(f"[DEBUG] wavelength range: [{np.nanmin(self.wavelength):.6f}, {np.nanmax(self.wavelength):.6f}]")
+        
+        self.ax.clear()
+        
+        # Reset axis limits (like visualization.py does)
+        self.ax.set_xlim(auto=True)
+        self.ax.set_ylim(auto=True)
+        
+        try:
+            # Use raw spectrum data directly
+            x = self.wavelength
+            y = np.asarray(self.spectrum).astype(np.float32)
+            
+            # Plot as step (like main window)
+            self.ax.step(x, y, where='mid', color='blue', linewidth=1.2, label='Spectrum')
+            
+            # Highlight peak (catalog line)
+            peak_wl = self.line_data['wavelength']
+            self.ax.axvline(peak_wl, color='red', linestyle=':', linewidth=1.5, alpha=0.7, label=f'Catalog line ({peak_wl:.6f} μm)')
+            
+            self.ax.set_xlabel('Wavelength (μm)', fontsize=11)
+            self.ax.set_ylabel('Flux', fontsize=11)
+            self.ax.set_title('Click Left and Right buttons, then click spectrum to mark boundaries')
+            self.ax.grid(True, alpha=0.3)
+            self.ax.legend()
+            
+            print(f"[DEBUG] Plot created successfully")
+            
+        except Exception as e:
+            print(f"[DEBUG] Error in plot_spectrum: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback: empty plot
+            self.ax.plot([], [])
+        
+        # Tight layout and draw
+        self.fig.tight_layout()
+        print(f"[DEBUG] Calling canvas.draw()")
+        self.canvas.draw()
+        print(f"[DEBUG] Canvas drawn")
+    
+    def _calculate_noise_std(self):
+        """Calculate noise standard deviation (in flux units) from selected noise region"""
+        if self.spectrum is None or self.wavelength is None:
+            return
+        
+        # Ensure left < right
+        left = min(self.noise_left_x, self.noise_right_x)
+        right = max(self.noise_left_x, self.noise_right_x)
+        
+        # Extract noise region
+        mask = (self.wavelength >= left) & (self.wavelength <= right)
+        noise_spectrum = self.spectrum[mask]
+        
+        if len(noise_spectrum) < 2:
+            QMessageBox.warning(self, "Error", "Noise region too small")
+            return
+        
+        # Calculate std (RMS noise level in flux units, e.g., MJy/sr)
+        self.sigma_noise = np.nanstd(noise_spectrum)
+        print(f"[DEBUG] Noise region: σ_noise = {self.sigma_noise:.6e} (flux units)")
+        
+        # Update result display
+        self.result_display.setText(f"σ_noise = {self.sigma_noise:.6e} (measured)")
+    
+    def _get_spectral_resolution_sigma(self, wavelength_um):
+        """
+        Get spectral resolution as Gaussian sigma (in µm) based on FITS instrument.
+        Returns sigma_ref = (λ / R) / 2.355, where R is spectral resolving power.
+        """
+        if self.fits_header is None:
+            return None
+        
+
+        grating = str(self.fits_header.get('GRATING', '')).strip().upper()
+        instrume = str(self.fits_header.get('INSTRUME', '')).strip().upper()
+
+        # NIRSpec spectral resolutions (R values depend on grating)
+        if 'NIRSPEC' in instrume:
+            if grating.startswith('G140H'):
+                R = 2700
+            elif grating.startswith('G235H'):
+                R = 2700
+            elif grating.startswith('G395H'):
+                R = 2700
+            elif grating.startswith('G140M'):
+                R = 1000
+            elif grating.startswith('G235M'):
+                R = 1000
+            elif grating.startswith('G395M'):
+                R = 1000
+            else:
+                print(f"[DEBUG] Unknown NIRSpec grating: {grating}")
+                return None
+
+            # R = λ / Δλ, so Δλ = λ / R
+            delta_lambda = wavelength_um / R
+            # Convert FWHM to sigma: sigma = FWHM / 2.355
+            sigma_ref = delta_lambda / 2.355
+            return sigma_ref
+
+        print(f"[DEBUG] Could not match instrument: INSTRUME={instrume}, GRATING={grating}")
+        return None
+
+    def fit_gaussian(self):
+        """
+        Fit Gaussian to spectrum and calculate upper limit flux using noise region std.
+        This is the old behavior: fits a Gaussian (even to noise), uses fitted sigma for upper limit.
+        """
+        if self.spectrum is None or self.wavelength is None:
+            QMessageBox.warning(self, "Error", "No spectrum loaded")
+            return
+        if self.sigma_noise is None:
+            QMessageBox.warning(self, "Error", "Noise region not selected or calculated")
+            return
+        left = self.gauss_left_x
+        right = self.gauss_right_x
+        peak = self.line_data['wavelength']
+        if not (left < peak < right):
+            QMessageBox.warning(self, "Error", f"Peak ({peak:.6f}) must be between left ({left:.6f}) and right ({right:.6f})")
+            return
+        try:
+            # Extract spectrum region
+            mask = (self.wavelength >= left) & (self.wavelength <= right)
+            x_fit = self.wavelength[mask]
+            y_fit = self.spectrum[mask]
+            if len(x_fit) < 5:
+                QMessageBox.warning(self, "Error", "Region too small for fitting")
+                return
+            from .gaussian_fitter import calculate_baseline, estimate_gaussian_params, gaussian
+            from scipy.optimize import curve_fit
+            y1 = y_fit[0]
+            y2 = y_fit[-1]
+            baseline = calculate_baseline(x_fit[0], y1, x_fit[-1], y2, x_fit, y_fit)
+            y_corrected = y_fit - baseline
+            amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_fit, y_corrected)
+            bounds = (
+                [0, x_fit[0], 0.001 * (x_fit[-1] - x_fit[0])],
+                [10 * np.max(y_corrected), x_fit[-1], 2 * (x_fit[-1] - x_fit[0])]
+            )
+            amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
+            center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
+            sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
+            popt, pcov = curve_fit(
+                gaussian, x_fit, y_corrected,
+                p0=[amp_guess, center_guess, sigma_guess],
+                bounds=bounds,
+                maxfev=10000
+            )
+            amplitude_fit, center_fit, sigma_fit = popt
+            # --- USE INSTRUMENT SIGMA FOR UPPER LIMIT ---
+            sigma_instr = self._get_spectral_resolution_sigma(peak)
+
+            if sigma_instr is None:
+                # fallback to fitted sigma if instrument unavailable
+                print("[DEBUG] Using fitted sigma (no instrument sigma available)")
+                sigma_use = sigma_fit
+            else:
+                sigma_use = sigma_instr
+
+            amplitude_3sigma = 3.0 * self.sigma_noise
+            flux_ul_native = amplitude_3sigma * np.sqrt(2 * np.pi) * sigma_use
+
+            flux_ul_cgs = None
+            
+            if self.fits_header is not None:
+                from .gaussian_fitter import convert_area_to_cgs
+                try:
+                    flux_ul_cgs = convert_area_to_cgs(
+                        amplitude_mjy_sr=amplitude_3sigma,
+                        sigma_val=sigma_use,
+                        center_val=peak,
+                        header=self.fits_header,
+                        wave_unit='µm',
+                        flux_unit_input=self.fits_header.get('BUNIT', None)
+                    )
+                except Exception as e:
+                    print(f"[DEBUG] Could not convert to CGS: {e}")
+                    flux_ul_cgs = None
+            self.flux_ul = flux_ul_cgs if flux_ul_cgs is not None else flux_ul_native
+            result_parts = [
+                f"Amplitude (fitted): {amplitude_fit:.4e}",
+                f"σ (fitted): {sigma_use:.6f} μm",
+                f"σ_noise (measured): {self.sigma_noise:.6e} MJy/sr"
+            ]
+            if flux_ul_cgs is not None:
+                result_parts.append(f"3σ UL (CGS): {flux_ul_cgs:.4e} erg/s/cm²")
+            result_text = " | ".join(result_parts)
+            self.result_display.setText(result_text)
+            self.result_display.setStyleSheet("background-color: #90EE90; font-weight: bold;")
+            self.ok_btn.setEnabled(True)
+            from scipy.interpolate import interp1d
+            self.ax.clear()
+            try:
+                if len(self.wavelength) > 10:
+                    f = interp1d(self.wavelength, self.spectrum, kind='cubic', bounds_error=False, fill_value='extrapolate')
+                    wl_smooth = np.linspace(self.wavelength[0], self.wavelength[-1], len(self.wavelength) * 3)
+                    spectrum_smooth = f(wl_smooth)
+                    self.ax.plot(wl_smooth, spectrum_smooth, 'b-', linewidth=1.2, label='Spectrum', alpha=0.7)
+            except:
+                self.ax.plot(self.wavelength, self.spectrum, 'b-', linewidth=1, alpha=0.7)
+        except Exception as e:
+            QMessageBox.critical(self, "Fit Error", f"Failed to fit Gaussian:\n{str(e)}")
+
+    
+    def get_flux_ul(self):
+        """Return calculated upper limit flux"""
+        return self.flux_ul
