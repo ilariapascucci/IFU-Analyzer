@@ -94,25 +94,27 @@ class CollapsibleButtonGroup(QWidget):
         # Main horizontal layout
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)  # Tighter spacing
+        self.main_layout.setSpacing(2)  # Small spacing between toggle and buttons
         
-        # Toggle button (always visible)
+        # Toggle button (always visible) - blue with white text
         self.toggle_btn = QPushButton(f"▶ {title}")
         self.toggle_btn.setCheckable(True)
-        self.toggle_btn.setFixedWidth(150)  # Wider to fit "Continuum Tools"
+        self.toggle_btn.setFixedHeight(28)
+        self.toggle_btn.setMinimumWidth(100)
         self.toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
                 color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px;
+                border: 1px solid #2d73c5;
+                border-radius: 3px;
+                padding: 5px 12px;
                 font-weight: bold;
                 text-align: left;
                 font-size: 11px;
             }
             QPushButton:hover {
                 background-color: #357abd;
+                border: 1px solid #2d73c5;
             }
             QPushButton:checked {
                 background-color: #2d73c5;
@@ -124,8 +126,8 @@ class CollapsibleButtonGroup(QWidget):
         # Container for child buttons (collapsible)
         self.button_container = QFrame()
         self.button_layout = QHBoxLayout(self.button_container)
-        self.button_layout.setContentsMargins(2, 0, 0, 0)
-        self.button_layout.setSpacing(2)  # Buttons closer together
+        self.button_layout.setContentsMargins(0, 0, 0, 0)
+        self.button_layout.setSpacing(0)  # Tight spacing
         
         # Initially hidden
         self.button_container.setMaximumWidth(0)
@@ -139,6 +141,7 @@ class CollapsibleButtonGroup(QWidget):
     
     def add_button(self, button):
         """Add a button to this collapsible group"""
+        # Use default button styling (no custom stylesheet)
         self.button_layout.addWidget(button)
     
     def close_other_groups(self):
@@ -556,7 +559,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.gauss_noise_right_btn = QPushButton("Noise R")
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
-        self.multi_gauss_fit_btn = QPushButton("Multi-Gaussian Fit")
+        self.multi_gauss_fit_btn = QPushButton("Multi-Gauss")
         self.co_flux_map_btn = QPushButton("CO Flux Map")
         
         self.auto_continuum_toggle = QPushButton("Automatic Continuum")
@@ -564,27 +567,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
         self.auto_continuum_toggle.setCheckable(True)
         self.custom_continuum_toggle.setCheckable(True)
-
-        # Style for toggle buttons
-        toggle_style = """
-            QPushButton {
-                background-color: #e0e0e0;
-                border: 2px solid #888;
-                border-radius: 4px;
-                padding: 6px;
-                font-weight: bold;
-            }
+        
+        # Apply toggle-button styling for state feedback
+        toggle_checked_style = """
             QPushButton:checked {
                 background-color: #4a90e2;
                 color: white;
-                border: 2px solid #2d73c5;
-            }
-            QPushButton:hover {
-                border: 2px solid #4a90e2;
+                border: 1px solid #2d73c5;
             }
         """
-        self.auto_continuum_toggle.setStyleSheet(toggle_style)
-        self.custom_continuum_toggle.setStyleSheet(toggle_style)
+        self.auto_continuum_toggle.setStyleSheet(toggle_checked_style)
+        self.custom_continuum_toggle.setStyleSheet(toggle_checked_style)
 
         # Action buttons (initially hidden)
         self.continuum_line_btn = QPushButton("Continuum Line")
@@ -681,9 +674,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         # Wavelength range inputs (for line search)
         self.min_wave_input = QLineEdit(self)
         self.min_wave_input.setPlaceholderText("Min λ")
+        self.min_wave_input.setFixedWidth(70)
         self.max_wave_input = QLineEdit(self)
         self.max_wave_input.setPlaceholderText("Max λ")
+        self.max_wave_input.setFixedWidth(70)
         self.ok_wave_button = QPushButton("OK")
+        self.ok_wave_button.setFixedWidth(35)
         self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
         
         # HITRAN collapsible group buttons
@@ -691,11 +687,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.hitran_btn.setToolTip("Fetch HITRAN lines with transition level filtering")
         self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
         
-        self.load_contam_btn = QPushButton("Load Contaminating Lines")
+        self.load_contam_btn = QPushButton("Contam. Lines")
         self.load_contam_btn.setToolTip("(Optional) Load CSV file with contaminating lines")
         self.load_contam_btn.clicked.connect(self._load_contaminating_lines_dialog)
         
-        self.show_species_btn = QPushButton("SPECIES")
+        self.show_species_btn = QPushButton("Lines")
         self.show_species_btn.setToolTip("Show available HITRAN species")
         self.show_species_btn.clicked.connect(self.show_available_species)
 
@@ -895,25 +891,30 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.continuum_group.add_button(self.custom_continuum_toggle)
         collapsible_layout.addWidget(self.continuum_group)
         
-        # Group 4: HITRAN (wavelength inputs + action buttons + CO flux map)
+        # Group 4: Rotational Diagram
+        self.rotational_diagram_group = CollapsibleButtonGroup("Rotational Diagram")
+        self.rotational_diagram_group.add_button(self.rot_diag_btn)
+        collapsible_layout.addWidget(self.rotational_diagram_group)
+        
+        # Group 5: HITRAN (wavelength inputs + action buttons + CO flux map)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(self.max_wave_input)
+        self.hitran_group.add_button(self.ok_wave_button)  # was missing
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.load_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.co_flux_map_btn)
-        self.hitran_group.add_button(self.rot_diag_btn)
         collapsible_layout.addWidget(self.hitran_group)
         
-        # Group 5: Shifting
+        # Group 6: Shifting
         self.shifting_group = CollapsibleButtonGroup("Shifting")
         self.shifting_group.add_button(self.shift_btn)
         self.shifting_group.add_button(self.apply_shift_btn)
         collapsible_layout.addWidget(self.shifting_group)
         
-        collapsible_layout.addStretch()
+        collapsible_layout.addStretch()  # Push all groups to the left
         
         main_layout.addLayout(collapsible_layout)
         
