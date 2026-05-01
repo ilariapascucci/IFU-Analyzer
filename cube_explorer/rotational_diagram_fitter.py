@@ -27,6 +27,56 @@ Eu = {}  # K
 gu = {}  # unitless
 
 
+def get_spectral_resolution(wavelength, instrument, header=None):
+    """
+    Calculate spectral resolution R(λ) = λ/Δλ for different instruments.
+    
+    Args:
+        wavelength: float or array, wavelength in microns
+        instrument: str, instrument name ('NIRSPEC', 'MIRI')
+        header: astropy.io.fits.Header, optional. Required for NIRSpec to get grating info
+    
+    Returns:
+        float or array, spectral resolution R(λ)
+    
+    Formulas:
+        MIRI: R(λ) = 4603 − 128 × λ
+        NIRSpec (from grating):
+            - G140H, G235H, G395H: R ~ 2700
+            - G140M, G235M, G395M: R ~ 1000
+            - PRISM: R ~ 100
+    """
+    instrument = instrument.upper()
+    
+    if instrument == 'MIRI':
+        # MIRI spectral resolution formula
+        return 4603 - 128 * wavelength
+    
+    elif instrument == 'NIRSPEC':
+        if header is None:
+            raise ValueError("NIRSpec requires FITS header for grating information")
+        
+        grating = header.get('GRATING', '').upper()
+        
+        # High resolution gratings: R ~ 2700
+        if grating in ['G140H', 'G235H', 'G395H']:
+            return 2700
+        
+        # Medium resolution gratings: R ~ 1000
+        elif grating in ['G140M', 'G235M', 'G395M']:
+            return 1000
+        
+        # Low resolution prism: R ~ 100
+        elif grating == 'PRISM':
+            return 100
+        
+        else:
+            raise ValueError(f"Unknown NIRSpec grating: {grating}")
+    
+    else:
+        raise ValueError(f"Instrument {instrument} not yet supported for spectral resolution")
+
+
 def is_ortho(J):
     """Check if rotational level J is ortho (odd J)"""
     return (J % 2 == 1)
@@ -97,13 +147,151 @@ def model_2T(E, a1, T1, a2, T2):
 # ===========
 # Upper limit
 # ===========
-
-def gaussian_flux_upper_limit(sigma_noise, wavelength, R):
-    A_ul = 3.0 * sigma_noise
+def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=None, R=None):
+    """
+    Calculate upper limit flux from noise using spectral resolution.
+    
+    Args:
+        sigma_noise: Noise standard deviation in MJy/sr (per-pixel)
+        wavelength: Wavelength in microns
+        instrument: str, instrument name ('NIRSPEC', 'MIRI'). If provided, calculates R automatically
+        header: astropy.io.fits.Header, required for NIRSpec if instrument is specified
+        R: float, spectral resolution R(λ) = λ/Δλ. Use if already calculated, overrides auto-calculation
+    
+    Returns:
+        tuple: (F_ul, delta_lambda) - upper limit flux and wavelength resolution
+    
+    Formula:
+        F_ul = 3 × σ_noise × λ/R
+        Result is in [MJy/sr·μm]
+    """
+    # Calculate R if not provided
+    if R is None:
+        if instrument is None:
+            raise ValueError("Must provide either R or instrument name")
+        R = get_spectral_resolution(wavelength, instrument, header)
+    
     delta_lambda = wavelength / R
-    sigma_lambda = delta_lambda / 2.355
-    F_ul = A_ul * np.sqrt(2 * np.pi) * sigma_lambda
-    return F_ul, sigma_lambda
+    F_ul = 3.0 * sigma_noise * delta_lambda
+    return F_ul, delta_lambda
+
+def estimate_noise_local(wavelength_arr, flux_arr, line_wavelength, n_pixels=13):
+    """
+    Estimate per-pixel noise around a line using local continuum subtraction.
+
+    Takes n_pixels on each side of the line center, fits a straight line
+    through them, subtracts it, then returns np.nanstd of the residuals.
+
+    Args:
+        wavelength_arr: 1D array of wavelengths (microns)
+        flux_arr:       1D array of flux values (MJy/sr)
+        line_wavelength: Central wavelength of the line (microns)
+        n_pixels:       Number of pixels to use on each side (default 13)
+
+    Returns:
+        sigma_noise: float, std dev of residuals in same units as flux_arr
+                     None if not enough pixels
+    """
+    # Find the index closest to the line center
+    center_idx = np.argmin(np.abs(wavelength_arr - line_wavelength))
+
+    # Grab n_pixels on each side, excluding the center pixel itself
+    left_idx  = np.arange(center_idx - n_pixels, center_idx)
+    right_idx = np.arange(center_idx + 1, center_idx + n_pixels + 1)
+
+    # Clip to valid array bounds
+    left_idx  = left_idx[(left_idx >= 0) & (left_idx < len(wavelength_arr))]
+    right_idx = right_idx[(right_idx >= 0) & (right_idx < len(wavelength_arr))]
+
+    idx = np.concatenate([left_idx, right_idx])
+    if len(idx) < 4:
+        return None
+
+    wave_region = wavelength_arr[idx]
+    flux_region = flux_arr[idx]
+
+    # Remove NaNs before fitting
+    valid = np.isfinite(flux_region)
+    if valid.sum() < 4:
+        return None
+
+    # Fit and subtract linear continuum
+    coeffs    = np.polyfit(wave_region[valid], flux_region[valid], 1)
+    residuals = flux_region - np.polyval(coeffs, wave_region)
+    
+    sigma_noise = float(np.nanstd(residuals))
+    
+    print(f"[DEBUG] estimate_noise_local:")
+    print(f"[DEBUG]   center_idx={center_idx}, line_wavelength={line_wavelength:.6f}")
+    print(f"[DEBUG]   left_idx range: {left_idx[0]}-{left_idx[-1]} ({len(left_idx)} pts)")
+    print(f"[DEBUG]   right_idx range: {right_idx[0]}-{right_idx[-1]} ({len(right_idx)} pts)")
+    print(f"[DEBUG]   wave_region: {wave_region[0]:.6f} - {wave_region[-1]:.6f}")
+    print(f"[DEBUG]   flux_region min/max/mean: {np.nanmin(flux_region):.4e} / {np.nanmax(flux_region):.4e} / {np.nanmean(flux_region):.4e}")
+    print(f"[DEBUG]   linear fit coeffs: slope={coeffs[0]:.6e}, intercept={coeffs[1]:.6e}")
+    print(f"[DEBUG]   residuals min/max/mean: {np.nanmin(residuals):.4e} / {np.nanmax(residuals):.4e} / {np.nanmean(residuals):.4e}")
+    print(f"[DEBUG]   sigma_noise = {sigma_noise:.6e}")
+
+    return sigma_noise
+
+def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_unit='MJy/sr'):
+    """
+    Convert upper limit flux from native units to CGS (erg/s/cm²).
+    
+    Designed specifically for upper limits computed as: 3σ_noise × √(2π) × σ_λ
+    where the result is in [native_flux_unit × wavelength_unit].
+    
+    Args:
+        flux_ul_native: Upper limit flux in native units × wavelength
+                       (e.g., MJy/sr·μm for NIRSpec)
+        wavelength: Line wavelength in microns
+        header: FITS header containing CDELT1, CDELT2 (spatial pixel scales in degrees)
+        flux_unit: Native flux unit ('MJy/sr' for NIRSpec/MIRI, etc.)
+    
+    Returns:
+        float: Upper limit flux in erg/s/cm², or None if conversion fails
+    
+    Formula for MJy/sr·μm → erg/s/cm²:
+        1. Convert [MJy/sr·μm] → [Jy·μm] using pixel solid angle:
+           Ω = CDELT1 × CDELT2 × (π/180)² steradians
+           flux_jy_um = flux_native × Ω × 1e-3
+        2. Convert [Jy·μm] → [erg/s/cm²] using wavelength-to-frequency:
+           flux_cgs = flux_jy_um × (c / λ²) × 1e-23
+    """
+    try:
+        if header is None or flux_ul_native is None or wavelength is None:
+            return None
+        
+        # Extract CDELT values (in degrees)
+        cdelt1 = header.get('CDELT1', None)
+        cdelt2 = header.get('CDELT2', None)
+        
+        if cdelt1 is None or cdelt2 is None:
+            return None
+        
+        cdelt1_abs = abs(float(cdelt1))
+        cdelt2_abs = abs(float(cdelt2))
+        
+        # Check if units are MJy/sr
+        if 'MJY' not in flux_unit.upper() or 'SR' not in flux_unit.upper():
+            return None
+        
+        # Step 1: Convert [MJy/sr·μm] → [Jy·μm]
+        # Solid angle of one pixel in steradians
+        steradian_per_degree2 = (np.pi / 180.0) ** 2
+        omega_pixel_sr = cdelt1_abs * cdelt2_abs * steradian_per_degree2
+        
+        # Remove "/sr" and convert MJy → Jy
+        flux_jy_um = flux_ul_native * omega_pixel_sr * 1e6
+        
+        # Step 2: Convert [Jy·μm] → [erg/s/cm²]
+        # Using F_ν = F_λ × (c / λ²)
+        c_micron_per_s = 2.99792458e14  # speed of light in μm/s
+        flux_cgs = flux_jy_um * (c_micron_per_s / (wavelength ** 2)) * 1e-23
+        
+        return flux_cgs
+    
+    except Exception:
+        return None
 
 
 def flux_to_logNu_upper(F_ul, lam, Aul_val, gu_val, R=None, dist=None):
@@ -112,13 +300,13 @@ def flux_to_logNu_upper(F_ul, lam, Aul_val, gu_val, R=None, dist=None):
 
     if R is not None and dist is not None:
         arcsec2 = np.pi * (R / dist)**2
-        sr_arcsec2 = 4.25e10
+        sr_arcsec2 = 4.25*(10**10)
         Nu_ul = Nu_ul / (arcsec2 / sr_arcsec2)
 
     return np.log(Nu_ul / gu_val)
 
 
-def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T=False, R=None, dist=140*pc, upper_limits=None, use_censored=False):
+def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T=False, R=None, dist=140*pc, upper_limits=None):
     """
     Perform rotational diagram analysis on H2 lines.
     
@@ -131,10 +319,15 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         fit2T: Whether to perform 2-temperature fit
         R: Emitting radius (AU or cm).
         dist: Distance (pc or cm).
-        upper_limits: Optional dict {J: True} for measurements marked as upper limits
+        upper_limits: Optional dict {J: True} for measurements marked as upper limits.
+                      If present, PyMC censored regression is automatically used.
     
     Returns:
         Dictionary with fitting results
+    
+    Notes:
+        - If no upper limits: uses fast curve_fit (scipy)
+        - If upper limits present: automatically uses PyMC censored likelihood
     """
     
     global wave, Aul, Eu, gu
@@ -163,6 +356,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         y_arr.append(y)
 
         is_ul = upper_limits is not None and J in upper_limits
+        print(f"J={J}, Eu={Eu[J]:.1f}, F={F:.4e}, is_ul={is_ul}")
         is_ul_mask.append(is_ul)
 
         # error handling
@@ -182,10 +376,10 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         raise ValueError("Need at least 2 points")
 
     # =========================
-    # Decide method
+    # Decide method: auto-use PyMC if upper limits present
     # =========================
     has_upper_limits = np.any(is_ul_mask)
-    use_pymc = use_censored and has_upper_limits
+    use_pymc = has_upper_limits
 
     # ==========================================================
     # 1T FIT
@@ -195,6 +389,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         print("\n--- 1T FIT (curve_fit) ---")
 
         sigma = y_err if np.any(y_err > 0) else None
+
+        print(f"[DEBUG] y_err passed to curve_fit: {y_err}")
 
         popt1, pcov1 = curve_fit(
             model_1T,
@@ -303,6 +499,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             "E_arr": E_arr,
             "y_arr": y_arr,
             "y_err": y_err,
+            "is_ul_mask": is_ul_mask,
             "popt1": list(popt1) if not use_pymc else [a1, T1],
             "popt2": list(popt2) if not use_pymc else list(result["popt"]),
         }
@@ -311,6 +508,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             "E_arr": E_arr,
             "y_arr": y_arr,
             "y_err": y_err,
+            "is_ul_mask": is_ul_mask,
             "popt1": list(popt1) if not use_pymc else [a1, T1],
             "popt2": None,
         }

@@ -770,13 +770,13 @@ class RotationalDiagramWindow(QMainWindow):
         results_text = "\n" + "="*50 + "\n"
         results_text += "ROTATIONAL DIAGRAM ANALYSIS RESULTS\n"
         results_text += "="*50 + "\n\n"
-        
+
         if "1T" in results:
             r1t = results["1T"]
             results_text += "--- 1T FIT ---\n"
             results_text += f"T = {r1t['T']:.1f} ± {r1t['dT']:.1f} K\n"
             results_text += f"Ncol = {r1t['Ncol']:.2e} ± {r1t['dNcol']:.2e} cm^-2\n\n"
-        
+
         if "2T" in results:
             r2t = results["2T"]
             results_text += "--- 2T FIT ---\n"
@@ -784,93 +784,102 @@ class RotationalDiagramWindow(QMainWindow):
             results_text += f"T2 = {r2t['T2']:.1f} ± {r2t.get('dT2', float('nan')):.1f} K\n"
             results_text += f"N1 = {r2t['Ncol1']:.2e} ± {r2t.get('dNcol1', float('nan')):.2e} cm^-2\n"
             results_text += f"N2 = {r2t['Ncol2']:.2e} ± {r2t.get('dNcol2', float('nan')):.2e} cm^-2\n"
-        
+
         results_text += "="*50 + "\n"
-        
+
         print(results_text)
-        
+
         # Create results dialog with plot
         dialog = QDialog(self)
         dialog.setWindowTitle("Rotational Diagram Results")
         dialog.setGeometry(100, 100, 1200, 600)
-        
+
         layout = QHBoxLayout(dialog)
-        
+
         # Left side: text results
         text_widget = QTextEdit()
         text_widget.setText(results_text)
         text_widget.setReadOnly(True)
         layout.addWidget(text_widget, 1)
-        
+
         # Right side: plot with toolbar
         if "_plot_data" in results:
             plot_data = results["_plot_data"]
             fig = Figure(figsize=(6, 5), dpi=100)
             ax = fig.add_subplot(111)
-            
-            E_arr = plot_data["E_arr"]
-            y_arr = plot_data["y_arr"]
-            y_err = plot_data["y_err"]
-            popt1 = plot_data["popt1"]
-            popt2 = plot_data["popt2"]
-            
-            # Convert to log10 scale
+
+            E_arr     = plot_data["E_arr"]
+            y_arr     = plot_data["y_arr"]
+            y_err     = plot_data["y_err"]
+            is_ul     = plot_data.get("is_ul_mask", np.zeros(len(E_arr), dtype=bool))
+            popt1     = plot_data["popt1"]
+            popt2     = plot_data["popt2"]
+
+            # Convert ln -> log10
             y_arr_log10 = np.log10(np.exp(y_arr))
-            y_err_log10 = np.log10(np.exp(y_err))
-            
-            # Plot data points with error bars
-            ax.errorbar(E_arr, y_arr_log10, yerr=y_err_log10, fmt='o', color='black', 
-                       markersize=6, capsize=4, zorder=3)
-            
+            # y_err is fractional (dNu/Nu), convert to log10 scale
+            y_err_log10 = y_err / np.log(10)
+
+            det = ~is_ul
+
+            # Detections — black circles with error bars
+            if np.any(det):
+                ax.errorbar(E_arr[det], y_arr_log10[det], yerr=y_err_log10[det],
+                            fmt='o', color='black', markersize=6, capsize=4, zorder=3,
+                            label='Detection')
+
+            # Upper limits — red downward arrows, no error bar
+            if np.any(is_ul):
+                ax.errorbar(E_arr[is_ul], y_arr_log10[is_ul], yerr=0.15,
+                            fmt='v', color='red', markersize=8,
+                            uplims=True, zorder=3, label='Upper limit')
+
             # Generate fit lines
             E_fit = np.linspace(np.min(E_arr), np.max(E_arr), 200)
-            
-            # Determine if 2T was performed
+            ax.set_xlim(np.min(E_arr) - 500, np.max(E_arr) + 500)
+
             is_2T = popt2 is not None
-            
+
             # Show 1T line only if NOT doing 2T fit
             if popt1 is not None and not is_2T:
                 from .rotational_diagram_fitter import model_1T
                 y1T = model_1T(E_fit, *popt1)
                 ax.plot(E_fit, np.log10(np.exp(y1T)), '--', linewidth=2, label='1T')
-            
+
             # 2T: show two component lines AND combined curve
             if popt2 is not None:
                 from .rotational_diagram_fitter import model_2T
                 a1_2, T1_2, a2_2, T2_2 = popt2
-                
-                # Component 1 (warm) - dotted
+
                 y_comp1 = a1_2 - E_fit / T1_2
-                ax.plot(E_fit, np.log10(np.exp(y_comp1)), ':', linewidth=2.5, color='blue', label=f'Warm: T={T1_2:.0f} K')
-                
-                # Component 2 (hot) - dotted
+                ax.plot(E_fit, np.log10(np.exp(y_comp1)), ':', linewidth=2.5,
+                        color='blue', label=f'Warm: T={T1_2:.0f} K')
+
                 y_comp2 = a2_2 - E_fit / T2_2
-                ax.plot(E_fit, np.log10(np.exp(y_comp2)), ':', linewidth=2.5, color='orange', label=f'Hot: T={T2_2:.0f} K')
-                
-                # Combined 2T curve - solid
+                ax.plot(E_fit, np.log10(np.exp(y_comp2)), ':', linewidth=2.5,
+                        color='orange', label=f'Hot: T={T2_2:.0f} K')
+
                 y2T = model_2T(E_fit, *popt2)
-                ax.plot(E_fit, np.log10(np.exp(y2T)), '-', linewidth=3, color='red', label='2-component model')
-            
-            # Increase tick sizes
+                ax.plot(E_fit, np.log10(np.exp(y2T)), '-', linewidth=3,
+                        color='red', label='2-component model')
+
             ax.tick_params(axis='both', which='major', labelsize=11)
             ax.tick_params(axis='both', which='minor', labelsize=10)
-            
             ax.set_xlabel('E_u (K)', fontsize=12, fontweight='bold')
             ax.set_ylabel('log(N_u / g_u)', fontsize=12, fontweight='bold')
             ax.grid(True, alpha=0.3, linestyle='--')
             ax.legend(fontsize=10, loc='upper right')
-            
-            # Plot widget container with toolbar
+
             plot_widget = QWidget()
             plot_layout = QVBoxLayout(plot_widget)
-            
+
             canvas = FigureCanvas(fig)
             toolbar = NavigationToolbar(canvas, dialog)
-            
+
             plot_layout.addWidget(toolbar)
             plot_layout.addWidget(canvas)
             layout.addWidget(plot_widget, 1)
-        
+
         dialog.exec_()
     
     def on_upper_limit_checkbox_changed(self, row, state):
@@ -930,18 +939,12 @@ class UpperLimitFitsDialog(QDialog):
         self.fits_file = None
         self.spectrum = None
         self.wavelength = None
-        self.gauss_mode = None  # 'noise_left' or 'noise_right'
         self.fits_header = None
         self.fits_instrument = None
-
-        # Noise region markers
-        self.noise_left_x = None
-        self.noise_right_x = None
-        self.noise_left_marker = None
-        self.noise_right_marker = None
+        self.cube_data = None  # Store cube data for noise extraction
 
         self.setWindowTitle(f"Upper Limit: {line_data['wavelength']:.6f} μm")
-        self.setGeometry(100, 100, 1100, 700)
+        self.setGeometry(100, 100, 600, 200)
 
         layout = QVBoxLayout()
 
@@ -956,42 +959,19 @@ class UpperLimitFitsDialog(QDialog):
         file_layout.addStretch()
         layout.addLayout(file_layout)
 
-        # Spectrum plot
-        self.fig = Figure(figsize=(11, 5), dpi=100)
-        self.ax = self.fig.add_subplot(111)
-        self.canvas = FigureCanvas(self.fig)
-        self.canvas.mpl_connect("button_press_event", self.on_canvas_click)
-        layout.addWidget(self.canvas)
-
-        self.toolbar = NavigationToolbar(self.canvas, self)
-        layout.addWidget(self.toolbar)
-
         # Instructions
         instructions = QLabel(
-            "1. Load FITS file\n"
-            "2. Click 'Noise L' then click spectrum to mark left edge of a clean continuum region\n"
-            "3. Click 'Noise R' then click spectrum to mark right edge  (σ_noise calculated automatically)\n"
-            "4. Click 'Calculate Upper Limit'"
+            f"Line: {line_data['wavelength']:.6f} μm\n"
+            "Workflow:\n"
+            "1. Load FITS file → automatically extracts spectrum from center pixel\n"
+            "2. Click 'Calculate Upper Limit' → noise calculated from 13 points each side of line"
         )
         layout.addWidget(instructions)
 
         # Buttons
         button_layout = QHBoxLayout()
-
-        self.noise_left_btn = QPushButton("Noise L")
-        self.noise_left_btn.setCheckable(True)
-        self.noise_left_btn.clicked.connect(self.on_noise_left_clicked)
-        self.noise_left_btn.setEnabled(False)
-        button_layout.addWidget(self.noise_left_btn)
-
-        self.noise_right_btn = QPushButton("Noise R")
-        self.noise_right_btn.setCheckable(True)
-        self.noise_right_btn.clicked.connect(self.on_noise_right_clicked)
-        self.noise_right_btn.setEnabled(False)
-        button_layout.addWidget(self.noise_right_btn)
-
         button_layout.addStretch()
-
+        
         self.fit_btn = QPushButton("Calculate Upper Limit")
         self.fit_btn.clicked.connect(self.fit_gaussian)
         self.fit_btn.setEnabled(False)
@@ -1017,61 +997,9 @@ class UpperLimitFitsDialog(QDialog):
 
         self.setLayout(layout)
 
-    def on_noise_left_clicked(self):
-        if self.noise_left_btn.isChecked():
-            self.gauss_mode = 'noise_left'
-            self.noise_right_btn.setChecked(False)
-        else:
-            self.gauss_mode = None
-
-    def on_noise_right_clicked(self):
-        if self.noise_right_btn.isChecked():
-            self.gauss_mode = 'noise_right'
-            self.noise_left_btn.setChecked(False)
-        else:
-            self.gauss_mode = None
-
-    def on_canvas_click(self, event):
-        """Handle canvas clicks to set noise region boundaries."""
-        if event.inaxes != self.ax or event.xdata is None:
-            return
-
-        if self.gauss_mode == 'noise_left':
-            if self.noise_left_marker:
-                try:
-                    self.noise_left_marker.remove()
-                except Exception:
-                    pass
-            self.noise_left_marker = self.ax.axvline(
-                event.xdata, color='orange', linestyle='--',
-                linewidth=1.3, label='Noise L', alpha=0.7)
-            self.noise_left_x = event.xdata
-            self.noise_left_btn.setChecked(False)
-            self.gauss_mode = None
-            self.canvas.draw()
-
-        elif self.gauss_mode == 'noise_right':
-            if self.noise_right_marker:
-                try:
-                    self.noise_right_marker.remove()
-                except Exception:
-                    pass
-            self.noise_right_marker = self.ax.axvline(
-                event.xdata, color='orange', linestyle='--',
-                linewidth=1.3, label='Noise R', alpha=0.7)
-            self.noise_right_x = event.xdata
-            self.noise_right_btn.setChecked(False)
-            self.gauss_mode = None
-            self.canvas.draw()
-
-        # Auto-calculate noise and enable button once both edges are set
-        if self.noise_left_x is not None and self.noise_right_x is not None:
-            self._calculate_noise_std()
-            if self.sigma_noise is not None:
-                self.fit_btn.setEnabled(True)
     
     def load_fits_file(self):
-        """Load FITS file and display spectrum (using main window's CubeData loader for consistency)"""
+        """Load FITS file and extract spectrum from center pixel (using CubeData loader for consistency)"""
         fits_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select FITS File",
@@ -1162,16 +1090,12 @@ class UpperLimitFitsDialog(QDialog):
             self.fits_file = fits_path
             self.fits_header = cube_data.header  # Store header for unit conversion
             self.fits_instrument = cube_data.instrument  # Store instrument type
+            self.cube_data = cube_data  # Store cube_data for noise measurement
             self.file_label.setText(os.path.basename(fits_path))
             
-            # Enable boundary and noise buttons
-            self.noise_left_btn.setEnabled(True)
-            self.noise_right_btn.setEnabled(True)
-            
-            print(f"[DEBUG] About to call plot_spectrum()")
-            # Plot spectrum
-            self.plot_spectrum()
-            print(f"[DEBUG] plot_spectrum() completed")
+            # Enable Calculate button
+            self.fit_btn.setEnabled(True)
+            print(f"[DEBUG] FITS loaded successfully")
         
         except Exception as e:
             import traceback
@@ -1179,88 +1103,48 @@ class UpperLimitFitsDialog(QDialog):
             traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Failed to load FITS:\n{str(e)}")
     
-    def plot_spectrum(self):
-        """Plot the loaded spectrum (using visualization.py approach for robustness)"""
-        if self.spectrum is None or self.wavelength is None:
-            print("[DEBUG] plot_spectrum: spectrum or wavelength is None")
-            return
-        
-        print(f"[DEBUG] plot_spectrum: spectrum shape={self.spectrum.shape}, wavelength shape={self.wavelength.shape}")
-        print(f"[DEBUG] spectrum range: [{np.nanmin(self.spectrum):.4e}, {np.nanmax(self.spectrum):.4e}]")
-        print(f"[DEBUG] wavelength range: [{np.nanmin(self.wavelength):.6f}, {np.nanmax(self.wavelength):.6f}]")
-        
-        self.ax.clear()
-        
-        # Reset axis limits (like visualization.py does)
-        self.ax.set_xlim(auto=True)
-        self.ax.set_ylim(auto=True)
-        
-        try:
-            # Use raw spectrum data directly
-            x = self.wavelength
-            y = np.asarray(self.spectrum).astype(np.float32)
-            
-            # Plot as step (like main window)
-            self.ax.step(x, y, where='mid', color='blue', linewidth=1.2, label='Spectrum')
-            
-            # Highlight peak (catalog line)
-            peak_wl = self.line_data['wavelength']
-            self.ax.axvline(peak_wl, color='red', linestyle=':', linewidth=1.5, alpha=0.7, label=f'Catalog line ({peak_wl:.6f} μm)')
-            
-            self.ax.set_xlabel('Wavelength (μm)', fontsize=11)
-            self.ax.set_ylabel('Flux', fontsize=11)
-            self.ax.set_title('Click Left and Right buttons, then click spectrum to mark boundaries')
-            self.ax.grid(True, alpha=0.3)
-            self.ax.legend()
-            
-            print(f"[DEBUG] Plot created successfully")
-            
-        except Exception as e:
-            print(f"[DEBUG] Error in plot_spectrum: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback: empty plot
-            self.ax.plot([], [])
-        
-        # Tight layout and draw
-        self.fig.tight_layout()
-        print(f"[DEBUG] Calling canvas.draw()")
-        self.canvas.draw()
-        print(f"[DEBUG] Canvas drawn")
     
-    def _calculate_noise_std(self):
-        """Calculate noise RMS from selected region after subtracting a linear continuum."""
+    def _calculate_noise_local(self, n_pixels=13):
+        """
+        Estimate noise using boss's method: n_pixels each side of line center,
+        fit a straight line, subtract, nanstd of residuals.
+        """
         if self.spectrum is None or self.wavelength is None:
             return
 
-        left = min(self.noise_left_x, self.noise_right_x)
-        right = max(self.noise_left_x, self.noise_right_x)
-        mask = (self.wavelength >= left) & (self.wavelength <= right)
-        noise_spectrum = self.spectrum[mask]
-        wave_region = self.wavelength[mask]
+        from .rotational_diagram_fitter import estimate_noise_local
 
-        if len(noise_spectrum) < 5:
-            QMessageBox.warning(self, "Error", "Noise region too small (need at least 5 pixels)")
+        peak = self.line_data['wavelength']
+        sigma = estimate_noise_local(self.wavelength, self.spectrum, peak, n_pixels=n_pixels)
+
+        if sigma is None:
+            QMessageBox.warning(self, "Error", "Not enough pixels around line to estimate noise")
             return
 
-        # Subtract linear continuum to remove slope before measuring RMS
-        coeffs = np.polyfit(wave_region, noise_spectrum, 1)
-        residuals = noise_spectrum - np.polyval(coeffs, wave_region)
-        self.sigma_noise = np.nanstd(residuals)
+        self.sigma_noise = sigma
+        print(f"[DEBUG] Local noise (13px each side): sigma = {self.sigma_noise:.4e} MJy/sr")
 
-        print(f"[DEBUG] Noise region: {left:.4f}-{right:.4f} um, "
-              f"n={len(noise_spectrum)}, sigma_noise = {self.sigma_noise:.4e}")
     
     def _get_spectral_resolution_sigma(self, wavelength_um):
         """
-        Get spectral resolution as Gaussian sigma (in µm) based on FITS instrument.
-        Returns sigma_ref = (λ / R) / 2.355, where R is spectral resolving power.
+        Get spectral resolution as wavelength width (in µm) based on FITS instrument.
+        Returns delta_lambda = λ / R, where R is spectral resolving power.
+        
+        Formulas:
+            NIRSPEC (high-res): R ~ 2700, 1000, 100 (depends on grating)
+            MIRI: R(λ) = 4603 - 128 × λ (wavelength-dependent)
         """
         if self.fits_header is None:
             return None
         
         grating = str(self.fits_header.get('GRATING', '')).strip().upper()
         instrume = str(self.fits_header.get('INSTRUME', '')).strip().upper()
+
+        # MIRI spectral resolution (wavelength-dependent formula)
+        if 'MIRI' in instrume:
+            R = 4603 - 128 * wavelength_um
+            delta_lambda = wavelength_um / R
+            return delta_lambda
 
         # NIRSpec spectral resolutions (R values depend on grating)
         if 'NIRSPEC' in instrume:
@@ -1282,9 +1166,7 @@ class UpperLimitFitsDialog(QDialog):
 
             # R = λ / Δλ, so Δλ = λ / R
             delta_lambda = wavelength_um / R
-            # Convert FWHM to sigma: sigma = FWHM / 2.355
-            sigma_ref = delta_lambda / 2.355
-            return sigma_ref
+            return delta_lambda
 
         print(f"[DEBUG] Could not match instrument: INSTRUME={instrume}, GRATING={grating}")
         return None
@@ -1292,24 +1174,29 @@ class UpperLimitFitsDialog(QDialog):
     def fit_gaussian(self):
         """
         Calculate 3-sigma upper limit flux from noise RMS and instrumental line width.
-        No Gaussian fit is performed — fitting noise on a non-detection is meaningless
-        and produces unreliable sigma values orders of magnitude too small.
+        
+        Uses boss's method: 13 points on each side of line center,
+        fit linear continuum, subtract, then nanstd of residuals.
 
-        Formula:  F_ul = 3 * sigma_noise * sqrt(2*pi) * sigma_lambda
-        where sigma_lambda = (lambda / R) / 2.355  (instrumental FWHM -> Gaussian sigma)
+        Formula:  F_ul = 3 * sigma_noise * delta_lambda
+        where delta_lambda = lambda / R  (instrumental spectral resolution)
         """
         if self.spectrum is None or self.wavelength is None:
             QMessageBox.warning(self, "Error", "No spectrum loaded")
             return
-        if self.sigma_noise is None:
-            QMessageBox.warning(self, "Error", "Please select a noise region first")
-            return
-
+        
         peak = self.line_data['wavelength']
 
-        # --- Instrumental sigma (required) ---
-        sigma_instr = self._get_spectral_resolution_sigma(peak)
-        if sigma_instr is None:
+        # --- Calculate noise using boss's 13-point local method ---
+        self._calculate_noise_local(n_pixels=13)
+        
+        if self.sigma_noise is None:
+            QMessageBox.warning(self, "Error", "Could not calculate noise")
+            return
+
+        # --- Instrumental delta_lambda (required) ---
+        delta_lambda = self._get_spectral_resolution_sigma(peak)
+        if delta_lambda is None:
             QMessageBox.warning(
                 self, "Error",
                 "Could not determine spectral resolution from FITS header.\n"
@@ -1319,20 +1206,36 @@ class UpperLimitFitsDialog(QDialog):
 
         # --- Upper limit flux ---
         amplitude_3sigma = 3.0 * self.sigma_noise
-        flux_ul_native = amplitude_3sigma * np.sqrt(2 * np.pi) * sigma_instr
+        flux_ul_native = amplitude_3sigma * np.sqrt(2*np.pi) * delta_lambda
 
         flux_ul_cgs = None
         if self.fits_header is not None:
-            from .gaussian_fitter import convert_area_to_cgs
             try:
-                flux_ul_cgs = convert_area_to_cgs(
-                    amplitude_mjy_sr=amplitude_3sigma,
-                    sigma_val=sigma_instr,
-                    center_val=peak,
-                    header=self.fits_header,
-                    wave_unit='µm',
-                    flux_unit_input=self.fits_header.get('BUNIT', None)
-                )
+                # Convert [MJy/sr·μm] → [erg/s/cm²]
+                cdelt1 = abs(float(self.fits_header.get('CDELT1', 1.0)))
+                cdelt2 = abs(float(self.fits_header.get('CDELT2', 1.0)))
+                
+                # Solid angle of one pixel in steradians
+                steradian_per_degree2 = (np.pi / 180.0) ** 2
+                omega_pixel_sr = cdelt1 * cdelt2 * steradian_per_degree2
+                
+                print(f"[DEBUG] CDELT1={cdelt1}, CDELT2={cdelt2}")
+                print(f"[DEBUG] omega_pixel_sr = {omega_pixel_sr:.6e} sr")
+                
+                # Remove "/sr" and convert MJy → Jy
+                flux_jy_um = flux_ul_native * omega_pixel_sr * 1e6
+                print(f"[DEBUG] flux_ul_native = {flux_ul_native:.6e} MJy/sr·μm")
+                print(f"[DEBUG] flux_jy_um = {flux_jy_um:.6e} Jy/μm")
+                
+                # Wavelength-to-frequency conversion: F_ν = F_λ × c/λ²
+                c_micron_per_s = 3.0e14  # μm/s
+                c_over_lambda_sq = c_micron_per_s / (peak ** 2)
+                print(f"[DEBUG] peak = {peak:.6f} μm")
+                print(f"[DEBUG] c/λ² = {c_over_lambda_sq:.6e}")
+                
+                flux_ul_cgs = flux_jy_um * c_over_lambda_sq * 1e-23
+                print(f"[DEBUG] flux_ul_cgs = {flux_ul_cgs:.6e} erg/s/cm²")
+                
             except Exception as e:
                 print(f"[DEBUG] Could not convert to CGS: {e}")
                 flux_ul_cgs = None
@@ -1340,9 +1243,9 @@ class UpperLimitFitsDialog(QDialog):
         self.flux_ul = flux_ul_cgs if flux_ul_cgs is not None else flux_ul_native
 
         result_parts = [
-            f"σ_noise (measured): {self.sigma_noise:.6e}",
-            f"σ_instr: {sigma_instr:.6f} μm  (λ/R/2.355 at {peak:.4f} μm)",
-            f"3σ UL (native): {flux_ul_native:.4e}",
+            f"σ_noise (1D spectrum, 13+13 pts): {self.sigma_noise:.6e} MJy/sr",
+            f"Δλ: {delta_lambda:.6f} μm  (λ/R at {peak:.4f} μm)",
+            f"3σ UL (native): {flux_ul_native:.4e} MJy/sr·μm",
         ]
         if flux_ul_cgs is not None:
             result_parts.append(f"3σ UL (CGS): {flux_ul_cgs:.4e} erg/s/cm²")
@@ -1350,33 +1253,6 @@ class UpperLimitFitsDialog(QDialog):
         self.result_display.setText(" | ".join(result_parts))
         self.result_display.setStyleSheet("background-color: #90EE90; font-weight: bold;")
         self.ok_btn.setEnabled(True)
-
-        # --- Redraw plot with noise level indicated ---
-        self.ax.clear()
-        try:
-            from scipy.interpolate import interp1d
-            if len(self.wavelength) > 10:
-                f_interp = interp1d(self.wavelength, self.spectrum, kind='cubic',
-                                    bounds_error=False, fill_value='extrapolate')
-                wl_smooth = np.linspace(self.wavelength[0], self.wavelength[-1],
-                                        len(self.wavelength) * 3)
-                self.ax.plot(wl_smooth, f_interp(wl_smooth), 'b-', linewidth=1.2,
-                             label='Spectrum', alpha=0.7)
-            else:
-                self.ax.plot(self.wavelength, self.spectrum, 'b-', linewidth=1, alpha=0.7)
-
-            # Show 3-sigma noise band and line position
-            self.ax.axvline(peak, color='red', linestyle=':', linewidth=1.5,
-                            label=f'Line ({peak:.4f} μm)')
-            self.ax.axhline(amplitude_3sigma, color='orange', linestyle='--',
-                            linewidth=1.2, label=f'3σ noise = {amplitude_3sigma:.2e}')
-            self.ax.axhline(-amplitude_3sigma, color='orange', linestyle='--', linewidth=1.2)
-            self.ax.legend(fontsize=9)
-        except Exception as e:
-            print(f"[DEBUG] Plot error: {e}")
-
-        self.fig.tight_layout()
-        self.canvas.draw()
 
     
     def get_flux_ul(self):
