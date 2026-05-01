@@ -352,11 +352,17 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
         y = np.log(Nu / gu[J])
 
+        is_ul = upper_limits is not None and J in upper_limits
+        
+        # Skip detections without error data - no defaults allowed
+        if (not is_ul) and (J not in flux_errors):
+            print(f"J={J}: skipping (detection without error data)")
+            continue
+
+        print(f"J={J}, Eu={Eu[J]:.1f}, F={F:.4e}, is_ul={is_ul}")
+        
         E_arr.append(Eu[J])
         y_arr.append(y)
-
-        is_ul = upper_limits is not None and J in upper_limits
-        print(f"J={J}, Eu={Eu[J]:.1f}, F={F:.4e}, is_ul={is_ul}")
         is_ul_mask.append(is_ul)
 
         # error handling
@@ -365,7 +371,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             dNu = Nu * (dF / F)
             y_err.append(dNu / Nu)
         else:
-            y_err.append(0.0 if is_ul else 1.0)
+            # upper limits: treated as constraints with 0 error
+            y_err.append(0.0)
 
     E_arr = np.array(E_arr)
     y_arr = np.array(y_arr)
@@ -520,54 +527,97 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
 # CENSORED MODELS (ONLY USED IF ENABLED)
 # ==========================================================
 def censored_1T(E, y, yerr, is_ul):
-
+    """Bayesian 1-temperature rotational diagram fit with censored upper limits.
+    
+    Uses PyMC to handle mixed detections and upper limits:
+    - Detections: fit normally with likelihood
+    - Upper limits: one-sided constraint (F < F_ul)
+    """
+    # mask = True for detections, False for upper limits
     mask = ~is_ul
 
     with pm.Model() as model:
 
+        # === PRIORS ===
+        # log(Ncol) ~ Normal(data mean, sigma=5 dex)
         a = pm.Normal("a", mu=np.mean(y[mask]), sigma=5)
+        # Temperature range: 10 K to 5000 K (reasonable for H2)
         T = pm.Uniform("T", 10, 5000)
 
+        # === LINEAR MODEL ===
+        # rotational diagram: ln(N/g) = a - E_u/T
         mu = a - E / T
 
+        # === LIKELIHOOD FOR DETECTIONS ===
+        # Fit only the non-upper-limit points (mask=True)
+        # Assume σ = 1.0 in log space for all detections
         pm.Normal("obs", mu=mu[mask], sigma=1.0, observed=y[mask])
 
+        # === LIKELIHOOD FOR UPPER LIMITS ===
+        # Censored: treat measured value as upper bound
+        # y_ul < F_ul means ln(N/g)_meas is an upper limit on the true value
         if np.any(is_ul):
             pm.Censored(
                 "ul",
+                # Normal distribution centered at model prediction
                 pm.Normal.dist(mu=mu[is_ul], sigma=1.0),
+                # Upper censoring: observed value is upper bound
                 upper=y[is_ul],
                 observed=y[is_ul]
             )
 
+        # === SAMPLING ===
+        # Draw 500 posterior samples (+ 500 tuning steps) from joint posterior
         trace = pm.sample(500, tune=500, chains=1, cores=1, progressbar=False)
 
+    # === RETURN POSTERIOR ESTIMATES ===
     return {
-        "a": float(trace.posterior["a"].mean()),
-        "da": float(trace.posterior["a"].std()),
-        "T": float(trace.posterior["T"].mean()),
-        "dT": float(trace.posterior["T"].std())
+        "a": float(trace.posterior["a"].mean()),        # log(Ncol)
+        "da": float(trace.posterior["a"].std()),        # uncertainty
+        "T": float(trace.posterior["T"].mean()),        # temperature
+        "dT": float(trace.posterior["T"].std())         # uncertainty
     }
 
 
 def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
-
+    """Bayesian 2-temperature rotational diagram fit with censored upper limits.
+    
+    Fits a mixture of two thermal components:
+    ln(N/g) = log(exp(a1 - E/T1) + exp(a2 - E/T2))
+    
+    Args:
+        E, y, yerr, is_ul: same as censored_1T
+        a1_init, T1_init: initial guesses from 1T fit (for better prior)
+    """
+    # mask = True for detections, False for upper limits
     mask = ~is_ul
 
     with pm.Model() as model:
 
-        a1 = pm.Normal("a1", mu=a1_init, sigma=5)
-        T1 = pm.Uniform("T1", 10, 5000)
-        a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)
-        T2 = pm.Uniform("T2", 10, 5000)
+        # === PRIORS (2-component model) ===
+        # Component 1: centered near the 1T result
+        a1 = pm.Normal("a1", mu=a1_init, sigma=5)           # log(Ncol) warm component
+        T1 = pm.Uniform("T1", 10, 5000)                     # temp warm component
+        
+        # Component 2: cooler component (a2 is lower, T2 is higher)
+        a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)         # log(Ncol) cool component
+        T2 = pm.Uniform("T2", 10, 5000)                     # temp cool component
 
+        # === TWO-TEMPERATURE MODEL ===
+        # Combine two exponential terms in log space:
+        # μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))
+        # This is a mixture of two Boltzmann distributions
         mu = pm.math.log(
             pm.math.exp(a1 - E/T1) +
             pm.math.exp(a2 - E/T2)
         )
 
+        # === LIKELIHOOD FOR DETECTIONS ===
+        # Fit only detections; upper limits are censored
         pm.Normal("obs", mu=mu[mask], sigma=1.0, observed=y[mask])
 
+        # === LIKELIHOOD FOR UPPER LIMITS ===
+        # Same censoring approach: y_measured is upper bound on true value
         if np.any(is_ul):
             pm.Censored(
                 "ul",
@@ -576,19 +626,24 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
                 observed=y[is_ul]
             )
 
+        # === SAMPLING ===
+        # Draw posterior samples
         trace = pm.sample(500, tune=500, chains=1, cores=1, progressbar=False)
 
+    # === RETURN POSTERIOR ESTIMATES ===
     return {
+        # Best-fit parameters (posterior means)
         "popt": np.array([
-            float(trace.posterior["a1"].mean()),
-            float(trace.posterior["T1"].mean()),
-            float(trace.posterior["a2"].mean()),
-            float(trace.posterior["T2"].mean())
+            float(trace.posterior["a1"].mean()),     # log(Ncol1)
+            float(trace.posterior["T1"].mean()),     # T_warm
+            float(trace.posterior["a2"].mean()),     # log(Ncol2)
+            float(trace.posterior["T2"].mean())      # T_cool
         ]),
+        # Uncertainties (posterior stds)
         "errs": np.array([
-            float(trace.posterior["a1"].std()),
-            float(trace.posterior["T1"].std()),
-            float(trace.posterior["a2"].std()),
-            float(trace.posterior["T2"].std())
+            float(trace.posterior["a1"].std()),      # δlog(Ncol1)
+            float(trace.posterior["T1"].std()),      # δT_warm
+            float(trace.posterior["a2"].std()),      # δlog(Ncol2)
+            float(trace.posterior["T2"].std())       # δT_cool
         ])
     }
