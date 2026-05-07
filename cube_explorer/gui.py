@@ -17,7 +17,7 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog
+    QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog, QDoubleSpinBox
 )
 from PyQt5.QtCore import Qt, QPoint, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont
@@ -100,7 +100,7 @@ class CollapsibleButtonGroup(QWidget):
         self.toggle_btn = QPushButton(f"▶ {title}")
         self.toggle_btn.setCheckable(True)
         self.toggle_btn.setFixedHeight(28)
-        self.toggle_btn.setMinimumWidth(100)
+        self.toggle_btn.setFixedWidth(145)  # Fixed width for all buttons
         self.toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
@@ -672,12 +672,20 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
 
         # Wavelength range inputs (for line search)
-        self.min_wave_input = QLineEdit(self)
-        self.min_wave_input.setPlaceholderText("Min λ")
+        self.min_wave_input = QDoubleSpinBox(self)
         self.min_wave_input.setFixedWidth(70)
-        self.max_wave_input = QLineEdit(self)
-        self.max_wave_input.setPlaceholderText("Max λ")
+        self.min_wave_input.setFixedHeight(28)
+        self.min_wave_input.setRange(0.1, 1000)
+        self.min_wave_input.setDecimals(4)
+        self.min_wave_input.setSingleStep(0.1)
+        self.min_wave_input.setToolTip("Min wavelength (λ)")
+        self.max_wave_input = QDoubleSpinBox(self)
         self.max_wave_input.setFixedWidth(70)
+        self.max_wave_input.setFixedHeight(28)
+        self.max_wave_input.setRange(0.1, 1000)
+        self.max_wave_input.setDecimals(4)
+        self.max_wave_input.setSingleStep(0.1)
+        self.max_wave_input.setToolTip("Max wavelength (λ)")
         self.ok_wave_button = QPushButton("OK")
         self.ok_wave_button.setFixedWidth(35)
         self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
@@ -1219,8 +1227,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         """Triggered when user confirms wavelength range (OK button - currently not visible)"""
         # Read min/max wavelength
         try:
-            min_wave = float(self.min_wave_input.text())
-            max_wave = float(self.max_wave_input.text())
+            min_wave = self.min_wave_input.value()
+            max_wave = self.max_wave_input.value()
         except ValueError:
             QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
             return
@@ -1238,8 +1246,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
 
     def on_span_selected(self, xmin, xmax):
-        self.min_wave_input.setText(f"{xmin:.3f}")
-        self.max_wave_input.setText(f"{xmax:.3f}")
+        self.min_wave_input.setValue(xmin)
+        self.max_wave_input.setValue(xmax)
 
     def _display_slice(self, idx, target):
         """Display a wavelength/velocity slice with proper title and intensity units"""
@@ -2515,8 +2523,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         try:
             # Get wavelength range from GUI inputs
             try:
-                wavelength_min = float(self.min_wave_input.text())
-                wavelength_max = float(self.max_wave_input.text())
+                wavelength_min = self.min_wave_input.value()
+                wavelength_max = self.max_wave_input.value()
             except ValueError:
                 QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
                 return
