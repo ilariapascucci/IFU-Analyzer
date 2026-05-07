@@ -97,6 +97,18 @@ class RotationalDiagramWindow(QMainWindow):
         self.error_mode.addItems(["Values (Column 8)", "Percentages (Column 9)"])
         self.error_mode.currentTextChanged.connect(self.on_error_mode_changed)
         toggle_layout.addWidget(self.error_mode)
+        
+        # Select All / Deselect All buttons
+        self.select_all_btn = QPushButton("Select All")
+        self.select_all_btn.clicked.connect(self.select_all_lines)
+        self.select_all_btn.setMaximumWidth(100)
+        toggle_layout.addWidget(self.select_all_btn)
+        
+        self.deselect_all_btn = QPushButton("Deselect All")
+        self.deselect_all_btn.clicked.connect(self.deselect_all_lines)
+        self.deselect_all_btn.setMaximumWidth(100)
+        toggle_layout.addWidget(self.deselect_all_btn)
+        
         toggle_layout.addStretch()
         main_layout.addLayout(toggle_layout)
         
@@ -656,6 +668,26 @@ class RotationalDiagramWindow(QMainWindow):
                 has_selection = True
                 break
         self.run_fit_btn.setEnabled(has_selection)
+    
+    def select_all_lines(self):
+        """Select all lines in the table"""
+        for row in range(self.lines_table.rowCount()):
+            checkbox = self.lines_table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.blockSignals(True)
+                checkbox.setChecked(True)
+                checkbox.blockSignals(False)
+        self.on_line_selected()
+    
+    def deselect_all_lines(self):
+        """Deselect all lines in the table"""
+        for row in range(self.lines_table.rowCount()):
+            checkbox = self.lines_table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.blockSignals(True)
+                checkbox.setChecked(False)
+                checkbox.blockSignals(False)
+        self.on_line_selected()
     
     def run_rotational_fit(self):
         """Run the fitting"""

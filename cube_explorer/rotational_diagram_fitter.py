@@ -219,7 +219,7 @@ def estimate_noise_local(wavelength_arr, flux_arr, line_wavelength, n_pixels=13)
     coeffs    = np.polyfit(wave_region[valid], flux_region[valid], 1)
     residuals = flux_region - np.polyval(coeffs, wave_region)
     
-    sigma_noise = float(np.nanstd(residuals))
+    sigma_noise = float(np.nanstd(flux_region))
     
     print(f"[DEBUG] estimate_noise_local:")
     print(f"[DEBUG]   center_idx={center_idx}, line_wavelength={line_wavelength:.6f}")
@@ -293,7 +293,7 @@ def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_uni
     except Exception:
         return None
 
-
+'''
 def flux_to_logNu_upper(F_ul, lam, Aul_val, gu_val, R=None, dist=None):
     lam_cm = lam * 1e-4
     Nu_ul = (4*np.pi * F_ul * lam_cm) / (hplanck * clight * Aul_val)
@@ -304,7 +304,7 @@ def flux_to_logNu_upper(F_ul, lam, Aul_val, gu_val, R=None, dist=None):
         Nu_ul = Nu_ul / (arcsec2 / sr_arcsec2)
 
     return np.log(Nu_ul / gu_val)
-
+'''
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T=False, R=None, dist=140*pc, upper_limits=None):
     """
