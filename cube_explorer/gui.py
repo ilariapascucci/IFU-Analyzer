@@ -2952,7 +2952,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         try:
             from .gui_rotational_diagram import RotationalDiagramWindow
 
-            rot_diag_window = RotationalDiagramWindow()
+            rot_diag_window = RotationalDiagramWindow(parent_gui=self)
             rot_diag_window.show()
 
             if not hasattr(self, "childwindows") or self.childwindows is None:

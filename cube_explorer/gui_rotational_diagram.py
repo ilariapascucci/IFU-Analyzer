@@ -7,6 +7,7 @@ import os
 import re
 import numpy as np
 import matplotlib.pyplot as plt
+from astropy.io import fits
 
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
@@ -20,6 +21,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 from .line_catalog import fetch_hitran_data
+from .rotational_diagram_fitter import estimate_noise_local, gaussian_flux_upper_limit, get_spectral_resolution
 
 
 # Constants
@@ -70,7 +72,7 @@ class HitranFetchThread(QThread):
 class RotationalDiagramWindow(QMainWindow):
     """Main window for rotational diagram analysis"""
     
-    def __init__(self):
+    def __init__(self, parent_gui=None):  # parent_gui kept for backward compatibility, not used
         super().__init__()
         self.current_molecule = 'H2'  # Default molecule
         self.setWindowTitle(f"{self.current_molecule} Rotational Diagram Analyzer")
@@ -79,6 +81,9 @@ class RotationalDiagramWindow(QMainWindow):
         self.hitran_lines = []
         self.fetch_thread = None
         self.updating_error_columns = False  # Flag to prevent recursive updates
+        
+        # Track workflow: None=unset, 'csv'=import, 'hitran'=fetch
+        self.workflow_mode = None
         
         # Main widget
         main_widget = QWidget()
@@ -238,6 +243,11 @@ class RotationalDiagramWindow(QMainWindow):
         self.import_csv_btn.clicked.connect(self.import_csv_file)
         button_layout.addWidget(self.import_csv_btn)
         
+        self.calculate_fluxes_btn = QPushButton("Calculate Fluxes")
+        self.calculate_fluxes_btn.clicked.connect(self.open_batch_flux_dialog)
+        self.calculate_fluxes_btn.setVisible(False)  # Hidden until HITRAN lines fetched
+        button_layout.addWidget(self.calculate_fluxes_btn)
+        
         button_layout.addStretch()
         layout.addLayout(button_layout)
         
@@ -385,8 +395,19 @@ class RotationalDiagramWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"No {self.current_molecule} lines found in this wavelength range")
             return
         
+        # Set workflow mode to HITRAN
+        self.workflow_mode = 'hitran'
+        self.import_csv_btn.setEnabled(False)  # Disable CSV import
+        self.calculate_fluxes_btn.setVisible(True)  # Show Calculate Fluxes button
+        
         self.hitran_lines = data
         self.populate_lines_table()
+        
+        # Disable upper limit checkboxes for HITRAN (we auto-calculate them)
+        for row in range(self.lines_table.rowCount()):
+            ul_checkbox = self.lines_table.cellWidget(row, 9)
+            if ul_checkbox:
+                ul_checkbox.setEnabled(False)
     
     def on_hitran_error(self, error_msg, progress):
         progress.close()
@@ -559,6 +580,17 @@ class RotationalDiagramWindow(QMainWindow):
             # Pre-fill errors if they were provided in CSV
             self.populate_csv_errors()
             
+            # Set workflow mode to CSV
+            self.workflow_mode = 'csv'
+            self.fetch_btn.setEnabled(False)  # Disable HITRAN fetch
+            self.calculate_fluxes_btn.setVisible(False)  # Hide Calculate Fluxes button
+            
+            # Disable upper limit checkboxes for CSV (user shouldn't calculate fluxes)
+            for row in range(self.lines_table.rowCount()):
+                ul_checkbox = self.lines_table.cellWidget(row, 9)
+                if ul_checkbox:
+                    ul_checkbox.setEnabled(False)
+            
             # Count successful matches
             matched = sum(1 for r in rows if r['a_coeff'] > 0)
             QMessageBox.information(
@@ -597,6 +629,264 @@ class RotationalDiagramWindow(QMainWindow):
                                     pct_item.setText(f"{pct:.1f}")
                             except ValueError:
                                 pass
+    
+    def open_batch_flux_dialog(self):
+        """Open dialog for batch flux calculation from multiple FITS files"""
+        # Get selected lines
+        selected_lines = []
+        selected_rows = []
+        for row in range(self.lines_table.rowCount()):
+            checkbox = self.lines_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                selected_lines.append(self.hitran_lines[row])
+                selected_rows.append(row)
+        
+        if not selected_lines:
+            QMessageBox.warning(self, "No Lines Selected", "Please select lines to calculate fluxes for.")
+            return
+        
+        # Open file dialog for FITS files
+        fits_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            f"Select FITS Files (for {len(selected_lines)} lines)",
+            "",
+            "FITS Files (*.fits *.fit);;All Files (*.*)"
+        )
+        
+        if not fits_paths:
+            return
+        
+        # Calculate fluxes using FITS files
+        self.calculate_fluxes_batch(selected_rows, fits_paths)
+    
+    def calculate_fluxes_batch(self, selected_rows, fits_paths):
+        """Calculate fluxes for all selected lines using their matched FITS files"""
+        from .data_loader import CubeData
+        from .gaussian_fitter import fit_gaussian_to_line, convert_area_to_cgs
+        from .rotational_diagram_fitter import get_spectral_resolution, estimate_noise_local, gaussian_flux_upper_limit, convert_flux_upper_limit_to_cgs
+        
+        progress = QProgressDialog(
+            "Calculating fluxes from FITS files...", 
+            None, 0, len(selected_rows), self
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        
+        for idx, row in enumerate(selected_rows):
+            progress.setValue(idx)
+            line = self.hitran_lines[row]
+            wl = line['wavelength']
+            
+            # Find matching FITS file (try each one until we find one that covers this wavelength)
+            cube_data = None
+            for fits_path in fits_paths:
+                try:
+                    test_cube = CubeData()
+                    test_cube.load_from_file(fits_path)
+                    
+                    # Check if line wavelength is within this FITS file's range
+                    wavelength = test_cube.wavelength.value
+                    if wavelength[0] <= wl <= wavelength[-1]:
+                        cube_data = test_cube
+                        break
+                except Exception as e:
+                    print(f"Skipping {fits_path}: {e}")
+                    continue
+            
+            if cube_data is None:
+                print(f"Warning: No FITS file covers wavelength {wl:.4f} μm for line {row+1}")
+                QMessageBox.warning(self, "No FITS Match", f"No FITS file covers {wl:.4f} μm")
+                return
+            
+            try:
+                # Extract center pixel spectrum
+                if cube_data.cube.ndim == 3:
+                    ny, nx = cube_data.cube.shape[1], cube_data.cube.shape[2]
+                    center_y, center_x = ny // 2, nx // 2
+                    spectrum = np.nansum(cube_data.cube, axis=(1, 2))
+                else:
+                    spectrum = cube_data.cube
+                
+                wavelength = cube_data.wavelength.value
+                header = cube_data.header
+                instrument = cube_data.instrument
+                
+                # Ensure wavelength is increasing
+                if wavelength[0] > wavelength[-1]:
+                    wavelength = wavelength[::-1]
+                    spectrum = spectrum[::-1]
+                
+                # Get spectral resolution
+                R = get_spectral_resolution(wl, instrument=instrument, header=header)
+                delta_lambda = wl / R
+                
+                # Define wavelength window (±2Δλ)
+                window_width = delta_lambda * 2
+                x1 = wl - window_width
+                x2 = wl + window_width
+                
+                # Fit gaussian using fit_gaussian_to_line (get raw values, no header conversion)
+                fit_result = fit_gaussian_to_line(
+                    x1=x1, x2=x2,
+                    spectrum_x=wavelength,
+                    spectrum_y=spectrum,
+                    peak_x=wl,
+                    header=None  # Get native units
+                )
+                
+                if not fit_result.success:
+                    print(f"Warning: Gaussian fit failed for line {wl:.4f}: {fit_result.message}")
+                    continue
+                
+                # Convert area to CGS using convert_area_to_cgs formula
+                flux_integrated = convert_area_to_cgs(
+                    fit_result.amplitude,
+                    fit_result.sigma,
+                    fit_result.center,
+                    header=header,
+                    wave_unit='UM',
+                    flux_unit_input='MJy/sr'
+                )
+                
+                if flux_integrated is None:
+                    print(f"Warning: Could not convert flux to CGS for line {wl:.4f}")
+                    continue
+                
+                # Calculate uncertainty using Monte Carlo (returns native units from fits)
+                flux_error_native = self._calculate_flux_uncertainty(
+                    x1, x2, wavelength, spectrum, wl, flux_integrated, header=header
+                )
+                
+                # Convert flux_error to CGS using same factor as flux
+                # Get conversion factor: apply convert_area_to_cgs logic
+                cdelt1 = abs(float(header.get('CDELT1', 1)))
+                cdelt2 = abs(float(header.get('CDELT2', 1)))
+                conv_factor = cdelt1 * cdelt2 * 1e6 / (180.0 / np.pi)**2
+                c_micron_per_s = 3e14
+                flux_error = flux_error_native * conv_factor * (c_micron_per_s / (wl**2)) * 1e-23
+                
+                # Auto-detect upper limit using the same function as the manual button
+                sigma_noise = estimate_noise_local(wavelength, spectrum, wl, n_pixels=13)
+                if sigma_noise is None:
+                    sigma_noise = np.nanstd(spectrum[len(spectrum)//2:])
+                
+                # Get upper limit in native units (MJy/sr·μm)
+                F_ul_native, delta_lambda_ul = gaussian_flux_upper_limit(
+                    sigma_noise, wl, 
+                    instrument=instrument, 
+                    header=header
+                )
+                
+                # Convert F_ul to CGS using centralized function
+                F_ul_cgs = convert_flux_upper_limit_to_cgs(F_ul_native, wl, header, flux_unit='MJy/sr')
+                
+                is_upper_limit = flux_integrated < F_ul_cgs
+                
+                print(f"[BATCH_FLUX] Line {row+1} @ {wl:.6f} μm:")
+                print(f"  flux = {flux_integrated:.4e} erg/s/cm²")
+                print(f"  error = {flux_error:.4e} erg/s/cm²")
+                print(f"  noise (native) = {sigma_noise:.4e} MJy/sr")
+                print(f"  delta_lambda = {delta_lambda_ul:.4e} μm")
+                print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm²")
+                print(f"  is_upper_limit = {is_upper_limit}")
+                
+                # Use upper limit value if detected as upper limit
+                flux_to_display = F_ul_cgs if is_upper_limit else flux_integrated
+                
+                # Populate table
+                flux_item = self.lines_table.item(row, 6)
+                if flux_item:
+                    flux_item.setText(f"{flux_to_display:.4e}")
+                
+                error_item = self.lines_table.item(row, 7)
+                if error_item:
+                    error_item.setText(f"{flux_error:.4e}")
+                
+                pct_item = self.lines_table.item(row, 8)
+                if pct_item and flux_integrated > 0:
+                    pct = (flux_error / flux_integrated) * 100
+                    pct_item.setText(f"{pct:.1f}")
+                
+                # Auto-check upper limit if detected
+                ul_checkbox = self.lines_table.cellWidget(row, 9)
+                if ul_checkbox and is_upper_limit:
+                    ul_checkbox.blockSignals(True)
+                    ul_checkbox.setChecked(True)
+                    ul_checkbox.blockSignals(False)
+                
+            except Exception as e:
+                print(f"Error processing row {row}: {e}")
+                QMessageBox.critical(self, "Calculation Error", f"Error processing line {row+1}:\n{e}")
+        
+        progress.close()
+        QMessageBox.information(self, "Complete", "Flux calculation complete!")
+    
+    def _calculate_flux_uncertainty(self, x1, x2, spectrum_x, spectrum_y, peak_x, flux_ini, header=None):
+        """
+        Calculate uncertainty on integrated flux using Monte Carlo.
+        
+        Method:
+        1. Estimate baseline noise from spectrum edges (first 4 and last 4 pixels)
+        2. Do 1000 iterations: add random noise, re-fit gaussian, collect fluxes
+        3. Return std dev of flux distribution
+        
+        Args:
+            x1, x2: Wavelength bounds
+            spectrum_x, spectrum_y: Spectrum wavelength and flux arrays
+            peak_x: Line center wavelength
+            flux_ini: Initial flux (unused, kept for compatibility)
+            header: FITS header for unit conversion (optional)
+        """
+        from .gaussian_fitter import fit_gaussian_to_line
+        
+        # Extract data in region
+        mask = (spectrum_x >= x1) & (spectrum_x <= x2)
+        x_data = spectrum_x[mask]
+        y_data = spectrum_y[mask]
+        
+        if len(y_data) < 4:
+            return 0.0
+        
+        # Step 1: Calculate baseline from edges (first 4 and last 4 pixels)
+        y1 = y_data[0]
+        y2 = y_data[-1]
+        baseline = y1 + (y2 - y1) / (x_data[-1] - x_data[0]) * (x_data - x_data[0])
+        
+        # Calculate noise std from edge residuals
+        edge_residuals = np.concatenate([y_data[:4] - baseline[:4], y_data[-4:] - baseline[-4:]])
+        sd = np.nanstd(edge_residuals)
+        
+        if sd <= 0:
+            return 0.0
+        
+        # Step 2: Monte Carlo: add noise, re-fit, collect fluxes
+        n_step = 1000
+        flux_dist = np.zeros(n_step)
+        
+        for i in range(n_step):
+            # Add random Gaussian noise to spectrum
+            noise = np.random.normal(0, sd, len(y_data))
+            y_noisy = y_data + noise
+            
+            # Re-fit gaussian (without header, so it returns native units)
+            fit_result = fit_gaussian_to_line(
+                x1=x1, x2=x2,
+                spectrum_x=x_data,
+                spectrum_y=y_noisy,
+                peak_x=peak_x,
+                header=None  # Explicitly use native units for consistency
+            )
+            
+            if fit_result.success:
+                flux_dist[i] = fit_result.area
+            else:
+                flux_dist[i] = np.nan
+        
+        # Step 3: Return std dev of valid fluxes
+        valid_fluxes = flux_dist[np.isfinite(flux_dist)]
+        if len(valid_fluxes) > 0:
+            return np.std(valid_fluxes)
+        else:
+            return 0.0
     
     def populate_lines_table(self):
         """Populate the unified table with all columns"""
@@ -924,6 +1214,10 @@ class RotationalDiagramWindow(QMainWindow):
         if state != Qt.Checked:
             return
         
+        # Skip dialog for CSV imports (they don't specify upper limits)
+        if self.workflow_mode == 'csv':
+            return
+        
         # Clear error columns when upper limit is checked
         flux_error_item = self.lines_table.item(row, 7)
         error_pct_item = self.lines_table.item(row, 8)
@@ -1243,30 +1537,16 @@ class UpperLimitFitsDialog(QDialog):
         flux_ul_cgs = None
         if self.fits_header is not None:
             try:
-                # Convert [MJy/sr·μm] → [erg/s/cm²]
-                cdelt1 = abs(float(self.fits_header.get('CDELT1', 1.0)))
-                cdelt2 = abs(float(self.fits_header.get('CDELT2', 1.0)))
+                from .rotational_diagram_fitter import convert_flux_upper_limit_to_cgs
                 
-                # Solid angle of one pixel in steradians
-                steradian_per_degree2 = (np.pi / 180.0) ** 2
-                omega_pixel_sr = cdelt1 * cdelt2 * steradian_per_degree2
+                # Use centralized conversion function (same as batch calculation)
+                flux_ul_cgs = convert_flux_upper_limit_to_cgs(
+                    flux_ul_native, peak, self.fits_header, flux_unit='MJy/sr'
+                )
                 
-                print(f"[DEBUG] CDELT1={cdelt1}, CDELT2={cdelt2}")
-                print(f"[DEBUG] omega_pixel_sr = {omega_pixel_sr:.6e} sr")
-                
-                # Remove "/sr" and convert MJy → Jy
-                flux_jy_um = flux_ul_native * omega_pixel_sr * 1e6
-                print(f"[DEBUG] flux_ul_native = {flux_ul_native:.6e} MJy/sr·μm")
-                print(f"[DEBUG] flux_jy_um = {flux_jy_um:.6e} Jy/μm")
-                
-                # Wavelength-to-frequency conversion: F_ν = F_λ × c/λ²
-                c_micron_per_s = 3.0e14  # μm/s
-                c_over_lambda_sq = c_micron_per_s / (peak ** 2)
-                print(f"[DEBUG] peak = {peak:.6f} μm")
-                print(f"[DEBUG] c/λ² = {c_over_lambda_sq:.6e}")
-                
-                flux_ul_cgs = flux_jy_um * c_over_lambda_sq * 1e-23
-                print(f"[DEBUG] flux_ul_cgs = {flux_ul_cgs:.6e} erg/s/cm²")
+                if flux_ul_cgs is not None:
+                    print(f"[DEBUG] flux_ul_native = {flux_ul_native:.6e} MJy/sr·μm")
+                    print(f"[DEBUG] flux_ul_cgs = {flux_ul_cgs:.6e} erg/s/cm²")
                 
             except Exception as e:
                 print(f"[DEBUG] Could not convert to CGS: {e}")

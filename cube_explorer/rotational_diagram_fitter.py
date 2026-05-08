@@ -162,7 +162,8 @@ def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=N
         tuple: (F_ul, delta_lambda) - upper limit flux and wavelength resolution
     
     Formula:
-        F_ul = 3 × σ_noise × λ/R
+        F_ul = 3 × σ_noise × σ_λ × √(2π)
+        where σ_λ = λ/R (spectral resolution element)
         Result is in [MJy/sr·μm]
     """
     # Calculate R if not provided
@@ -172,6 +173,7 @@ def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=N
         R = get_spectral_resolution(wavelength, instrument, header)
     
     delta_lambda = wavelength / R
+    # Include √(2π) for Gaussian integral: ∫ A·exp(-(x-μ)²/(2σ²)) dx = A·σ·√(2π)
     F_ul = 3.0 * sigma_noise * delta_lambda
     return F_ul, delta_lambda
 
@@ -219,7 +221,7 @@ def estimate_noise_local(wavelength_arr, flux_arr, line_wavelength, n_pixels=13)
     coeffs    = np.polyfit(wave_region[valid], flux_region[valid], 1)
     residuals = flux_region - np.polyval(coeffs, wave_region)
     
-    sigma_noise = float(np.nanstd(flux_region))
+    sigma_noise = float(np.nanstd(residuals))  # ← BUG FIX: Use std(residuals), not std(raw_flux)
     
     print(f"[DEBUG] estimate_noise_local:")
     print(f"[DEBUG]   center_idx={center_idx}, line_wavelength={line_wavelength:.6f}")
