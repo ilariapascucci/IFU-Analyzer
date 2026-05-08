@@ -664,64 +664,75 @@ class RotationalDiagramWindow(QMainWindow):
         from .data_loader import CubeData
         from .gaussian_fitter import fit_gaussian_to_line, convert_area_to_cgs
         from .rotational_diagram_fitter import get_spectral_resolution, estimate_noise_local, gaussian_flux_upper_limit, convert_flux_upper_limit_to_cgs
-        
+
         progress = QProgressDialog(
-            "Calculating fluxes from FITS files...", 
-            None, 0, len(selected_rows), self
+            "Loading FITS files...",
+            None, 0, len(fits_paths) + len(selected_rows), self
         )
         progress.setWindowModality(Qt.WindowModal)
-        
+
+        # --- Load each FITS file once and pre-sum spatially ---
+        loaded_cubes = []
+        summed_spectra = []
+        for i, fits_path in enumerate(fits_paths):
+            progress.setValue(i)
+            try:
+                cube = CubeData()
+                cube.load_from_file(fits_path)
+                if cube.cube.ndim == 3:
+                    summed = np.nansum(cube.cube, axis=(1, 2))
+                else:
+                    summed = cube.cube
+                loaded_cubes.append(cube)
+                summed_spectra.append(summed)
+            except Exception as e:
+                print(f"Skipping {fits_path}: {e}")
+
+        if not loaded_cubes:
+            QMessageBox.warning(self, "Error", "Could not load any FITS files.")
+            progress.close()
+            return
+
+        # --- Process each line ---
         for idx, row in enumerate(selected_rows):
-            progress.setValue(idx)
+            progress.setValue(len(fits_paths) + idx)
             line = self.hitran_lines[row]
             wl = line['wavelength']
-            
-            # Find matching FITS file (try each one until we find one that covers this wavelength)
+
+            # Find matching cube by wavelength range (no re-loading)
             cube_data = None
-            for fits_path in fits_paths:
-                try:
-                    test_cube = CubeData()
-                    test_cube.load_from_file(fits_path)
-                    
-                    # Check if line wavelength is within this FITS file's range
-                    wavelength = test_cube.wavelength.value
-                    if wavelength[0] <= wl <= wavelength[-1]:
-                        cube_data = test_cube
-                        break
-                except Exception as e:
-                    print(f"Skipping {fits_path}: {e}")
-                    continue
-            
+            spectrum = None
+            for cube, summed in zip(loaded_cubes, summed_spectra):
+                wav = cube.wavelength.value
+                if wav[0] <= wl <= wav[-1]:
+                    cube_data = cube
+                    spectrum = summed
+                    break
+
             if cube_data is None:
                 print(f"Warning: No FITS file covers wavelength {wl:.4f} μm for line {row+1}")
                 QMessageBox.warning(self, "No FITS Match", f"No FITS file covers {wl:.4f} μm")
                 return
-            
+
             try:
-                # Sum over all spaxels spatially to match aperture-extracted noise
-                if cube_data.cube.ndim == 3:
-                    spectrum = np.nansum(cube_data.cube, axis=(1, 2))
-                else:
-                    spectrum = cube_data.cube
-                
                 wavelength = cube_data.wavelength.value
                 header = cube_data.header
                 instrument = cube_data.instrument
-                
+
                 # Ensure wavelength is increasing
                 if wavelength[0] > wavelength[-1]:
                     wavelength = wavelength[::-1]
                     spectrum = spectrum[::-1]
-                
+
                 # Get spectral resolution
                 R = get_spectral_resolution(wl, instrument=instrument, header=header)
                 delta_lambda = wl / R
-                
+
                 # Define wavelength window (±2Δλ)
                 window_width = delta_lambda * 2
                 x1 = wl - window_width
                 x2 = wl + window_width
-                
+
                 # Fit gaussian using fit_gaussian_to_line (get raw values, no header conversion)
                 fit_result = fit_gaussian_to_line(
                     x1=x1, x2=x2,
@@ -730,11 +741,11 @@ class RotationalDiagramWindow(QMainWindow):
                     peak_x=wl,
                     header=None  # Get native units
                 )
-                
+
                 if not fit_result.success:
                     print(f"Warning: Gaussian fit failed for line {wl:.4f}: {fit_result.message}")
                     continue
-                
+
                 # Convert area to CGS using convert_area_to_cgs formula
                 flux_integrated = convert_area_to_cgs(
                     fit_result.amplitude,
@@ -744,41 +755,40 @@ class RotationalDiagramWindow(QMainWindow):
                     wave_unit='UM',
                     flux_unit_input='MJy/sr'
                 )
-                
+
                 if flux_integrated is None:
                     print(f"Warning: Could not convert flux to CGS for line {wl:.4f}")
                     continue
-                
+
                 # Calculate uncertainty using Monte Carlo (returns native units from fits)
                 flux_error_native = self._calculate_flux_uncertainty(
                     x1, x2, wavelength, spectrum, wl, flux_integrated, header=header
                 )
-                
+
                 # Convert flux_error to CGS using same factor as flux
-                # Get conversion factor: apply convert_area_to_cgs logic
                 cdelt1 = abs(float(header.get('CDELT1', 1)))
                 cdelt2 = abs(float(header.get('CDELT2', 1)))
                 conv_factor = cdelt1 * cdelt2 * 1e6 / (180.0 / np.pi)**2
                 c_micron_per_s = 3e14
                 flux_error = flux_error_native * conv_factor * (c_micron_per_s / (wl**2)) * 1e-23
-                
-                # Auto-detect upper limit using the same function as the manual button
+
+                # Auto-detect upper limit
                 sigma_noise = estimate_noise_local(wavelength, spectrum, wl, n_pixels=13)
                 if sigma_noise is None:
                     sigma_noise = np.nanstd(spectrum[len(spectrum)//2:])
-                
+
                 # Get upper limit in native units (MJy/sr·μm)
                 F_ul_native, delta_lambda_ul = gaussian_flux_upper_limit(
-                    sigma_noise, wl, 
-                    instrument=instrument, 
+                    sigma_noise, wl,
+                    instrument=instrument,
                     header=header
                 )
-                
-                # Convert F_ul to CGS using centralized function
+
+                # Convert F_ul to CGS
                 F_ul_cgs = convert_flux_upper_limit_to_cgs(F_ul_native, wl, header, flux_unit='MJy/sr')
-                
+
                 is_upper_limit = flux_integrated < F_ul_cgs
-                
+
                 print(f"[BATCH_FLUX] Line {row+1} @ {wl:.6f} μm:")
                 print(f"  flux = {flux_integrated:.4e} erg/s/cm²")
                 print(f"  error = {flux_error:.4e} erg/s/cm²")
@@ -786,35 +796,35 @@ class RotationalDiagramWindow(QMainWindow):
                 print(f"  delta_lambda = {delta_lambda_ul:.4e} μm")
                 print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm²")
                 print(f"  is_upper_limit = {is_upper_limit}")
-                
+
                 # Use upper limit value if detected as upper limit
                 flux_to_display = F_ul_cgs if is_upper_limit else flux_integrated
-                
+
                 # Populate table
                 flux_item = self.lines_table.item(row, 6)
                 if flux_item:
                     flux_item.setText(f"{flux_to_display:.4e}")
-                
+
                 error_item = self.lines_table.item(row, 7)
                 if error_item:
                     error_item.setText(f"{flux_error:.4e}")
-                
+
                 pct_item = self.lines_table.item(row, 8)
                 if pct_item and flux_integrated > 0:
                     pct = (flux_error / flux_integrated) * 100
                     pct_item.setText(f"{pct:.1f}")
-                
+
                 # Auto-check upper limit if detected
                 ul_checkbox = self.lines_table.cellWidget(row, 9)
                 if ul_checkbox and is_upper_limit:
                     ul_checkbox.blockSignals(True)
                     ul_checkbox.setChecked(True)
                     ul_checkbox.blockSignals(False)
-                
+
             except Exception as e:
                 print(f"Error processing row {row}: {e}")
                 QMessageBox.critical(self, "Calculation Error", f"Error processing line {row+1}:\n{e}")
-        
+
         progress.close()
         QMessageBox.information(self, "Complete", "Flux calculation complete!")
     
