@@ -940,14 +940,16 @@ class RotationalDiagramWindow(QMainWindow):
             # Error % (editable)
             self.lines_table.setItem(row, 8, QTableWidgetItem(""))
             
-            # Upper Limit? (editable checkbox)
+            # Upper Limit? (checkbox - auto-filled by batch calculation, disabled for HITRAN)
             ul_checkbox = QCheckBox()
-            # Connect checkbox state change to upper limit dialog
-            ul_checkbox.stateChanged.connect(lambda state, r=row: self.on_upper_limit_checkbox_changed(r, state))
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
         
         # Set initial edit/read-only status based on current mode
         self.update_error_columns()
+    
+    def on_cell_clicked(self, row, col):
+        """Handle cell clicks (for compatibility)"""
+        pass
     
     def on_line_selected(self):
         """Enable Run Fit button if lines selected"""
@@ -1204,53 +1206,7 @@ class RotationalDiagramWindow(QMainWindow):
 
         dialog.exec_()
     
-    def on_upper_limit_checkbox_changed(self, row, state):
-        """Handle upper limit checkbox state change"""
-        ul_checkbox = self.lines_table.cellWidget(row, 9)
-        if not ul_checkbox:
-            return
-        
-        # Only process if checkbox just became checked
-        if state != Qt.Checked:
-            return
-        
-        # Skip dialog for CSV imports (they don't specify upper limits)
-        if self.workflow_mode == 'csv':
-            return
-        
-        # Clear error columns when upper limit is checked
-        flux_error_item = self.lines_table.item(row, 7)
-        error_pct_item = self.lines_table.item(row, 8)
-        if flux_error_item:
-            flux_error_item.setText("")
-        if error_pct_item:
-            error_pct_item.setText("")
-        
-        # User checked upper limit - prompt for FITS file
-        dialog = UpperLimitFitsDialog(self, row, self.hitran_lines[row])
-        result = dialog.exec_()
-        
-        if result == QDialog.Accepted:
-            flux_ul = dialog.get_flux_ul()
-            if flux_ul is not None:
-                # Auto-populate the flux column
-                flux_item = self.lines_table.item(row, 6)
-                if flux_item:
-                    flux_item.setText(f"{flux_ul:.4e}")
-                # Also clear error columns again to be safe
-                if flux_error_item:
-                    flux_error_item.setText("")
-                if error_pct_item:
-                    error_pct_item.setText("")
-        else:
-            # User cancelled, uncheck the box
-            ul_checkbox.blockSignals(True)
-            ul_checkbox.setChecked(False)
-            ul_checkbox.blockSignals(False)
-    
-    def on_cell_clicked(self, row, col):
-        """Handle cell clicks (for compatibility)"""
-        pass
+
 
 
 class UpperLimitFitsDialog(QDialog):

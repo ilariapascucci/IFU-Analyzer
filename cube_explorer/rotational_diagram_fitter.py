@@ -383,16 +383,23 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
 
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 points")
-
-    # =========================
-    # Decide method: auto-use PyMC if upper limits present
-    # =========================
+    
+    # Check if we have enough detections for PyMC (at least 2 detections required)
+    n_detections = np.sum(~is_ul_mask)
     has_upper_limits = np.any(is_ul_mask)
+    
+    if has_upper_limits and n_detections < 2:
+        if n_detections == 0:
+            raise ValueError(f"Cannot fit: all {len(E_arr)} measurements are upper limits. Need at least 2 detections to constrain temperature and column density.")
+        else:
+            raise ValueError(f"Need at least 2 detections for fitting with upper limits. You have {n_detections} detection(s) and {np.sum(is_ul_mask)} upper limit(s).")
+    
+    # Decide method: auto-use PyMC if upper limits present
     use_pymc = has_upper_limits
 
     # ==========================================================
     # 1T FIT
-    # ==========================================================
+    # =========================================================
     if not use_pymc:
 
         print("\n--- 1T FIT (curve_fit) ---")
