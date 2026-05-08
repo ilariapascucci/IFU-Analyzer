@@ -698,10 +698,8 @@ class RotationalDiagramWindow(QMainWindow):
                 return
             
             try:
-                # Extract center pixel spectrum
+                # Sum over all spaxels spatially to match aperture-extracted noise
                 if cube_data.cube.ndim == 3:
-                    ny, nx = cube_data.cube.shape[1], cube_data.cube.shape[2]
-                    center_y, center_x = ny // 2, nx // 2
                     spectrum = np.nansum(cube_data.cube, axis=(1, 2))
                 else:
                     spectrum = cube_data.cube
@@ -1245,8 +1243,8 @@ class UpperLimitFitsDialog(QDialog):
         instructions = QLabel(
             f"Line: {line_data['wavelength']:.6f} μm\n"
             "Workflow:\n"
-            "1. Load FITS file → automatically extracts spectrum from center pixel\n"
-            "2. Click 'Calculate Upper Limit' → noise calculated from 13 points each side of line"
+            "1. Load FITS file\n"
+            "2. Click 'Calculate Upper Limit' → noise estimated from spatially-summed cube, 13 points each side of line"
         )
         layout.addWidget(instructions)
 
@@ -1296,222 +1294,114 @@ class UpperLimitFitsDialog(QDialog):
             # Import CubeData from data_loader to ensure same wavelength extraction as main window
             from .data_loader import CubeData
             
-            print(f"[DEBUG] Loading FITS: {fits_path}")
-            
-            # Use CubeData to load FITS (handles MUSE, ALMA, MIRI, NIRSpec properly)
             cube_data = CubeData()
             cube_data.load_from_file(fits_path)
             
-            print(f"[DEBUG] CubeData loaded: cube shape={cube_data.cube.shape}, wavelength shape={cube_data.wavelength.shape}")
-            
-            # Extract center pixel spectrum from cube
+            # Extract center pixel spectrum from cube (for wavelength reference)
             if cube_data.cube.ndim == 3:
-                # Shape is (wavelength, y, x) - take center pixel
                 ny, nx = cube_data.cube.shape[1], cube_data.cube.shape[2]
                 center_y, center_x = ny // 2, nx // 2
                 spectrum = cube_data.cube[:, center_y, center_x]
-                print(f"[DEBUG] Extracted center pixel at ({center_y}, {center_x}), spectrum shape={spectrum.shape}")
             elif cube_data.cube.ndim == 1:
                 spectrum = cube_data.cube
-                print(f"[DEBUG] 1D spectrum: shape={spectrum.shape}")
             else:
-                print(f"[DEBUG] ERROR: Unsupported cube shape: {cube_data.cube.shape}")
                 QMessageBox.warning(self, "Error", f"Unsupported cube shape: {cube_data.cube.shape}")
                 return
             
             # Get wavelength with units and convert to plain array
             wavelength_quantity = cube_data.wavelength
             if wavelength_quantity is not None:
-                wavelength = wavelength_quantity.value  # Extract numeric values
-                print(f"[DEBUG] Extracted wavelength values, shape={wavelength.shape}")
-                
-                # Safety checks
-                if np.any(np.isnan(wavelength)):
-                    print(f"[DEBUG] WARNING: wavelength contains NaN values!")
-                    nan_count = np.sum(np.isnan(wavelength))
-                    print(f"[DEBUG] NaN count: {nan_count}/{len(wavelength)}")
-                
+                wavelength = wavelength_quantity.value
+
                 # Ensure wavelength is increasing
                 if wavelength[0] > wavelength[-1]:
-                    print(f"[DEBUG] Wavelength is decreasing, reversing...")
                     wavelength = wavelength[::-1]
                     spectrum = spectrum[::-1]
-                
-                # Sanity check on wavelength range
-                print(f"[DEBUG] Wavelength range: {wavelength[0]:.6f} to {wavelength[-1]:.6f}")
-                if wavelength[-1] - wavelength[0] < 0.001:
-                    print(f"[DEBUG] WARNING: wavelength span is very small ({wavelength[-1] - wavelength[0]:.6e})")
                     
             else:
-                print(f"[DEBUG] ERROR: wavelength_quantity is None")
                 QMessageBox.warning(self, "Error", "Could not extract wavelength from FITS")
                 return
-            
-            print(f"[DEBUG] spectrum stats: min={np.nanmin(spectrum):.4e}, max={np.nanmax(spectrum):.4e}, mean={np.nanmean(spectrum):.4e}")
-            print(f"[DEBUG] spectrum has {np.sum(np.isnan(spectrum))} NaN values out of {len(spectrum)}")
-            print(f"[DEBUG] spectrum has {np.sum(np.isinf(spectrum))} inf values")
-            print(f"[DEBUG] wavelength stats: min={np.min(wavelength):.6f}, max={np.max(wavelength):.6f}")
-            
-            # Check if spectrum is all zeros
-            if np.allclose(spectrum, 0):
-                print(f"[DEBUG] WARNING: spectrum is all zeros!")
             
             # Check if spectrum has any valid data
             valid_mask = ~np.isnan(spectrum) & ~np.isinf(spectrum)
             if not np.any(valid_mask):
-                print(f"[DEBUG] ERROR: No valid data in spectrum!")
                 QMessageBox.warning(self, "Error", "No valid data in spectrum (all NaN or inf)")
                 return
-            
-            valid_count = np.sum(valid_mask)
-            print(f"[DEBUG] Valid spectrum points: {valid_count}/{len(spectrum)}")
             
             # Store spectrum and wavelength
             self.spectrum = spectrum
             self.wavelength = wavelength
             self.fits_file = fits_path
-            self.fits_header = cube_data.header  # Store header for unit conversion
-            self.fits_instrument = cube_data.instrument  # Store instrument type
-            self.cube_data = cube_data  # Store cube_data for noise measurement
+            self.fits_header = cube_data.header
+            self.fits_instrument = cube_data.instrument
+            self.cube_data = cube_data
             self.file_label.setText(os.path.basename(fits_path))
-            
-            # Enable Calculate button
             self.fit_btn.setEnabled(True)
-            print(f"[DEBUG] FITS loaded successfully")
         
         except Exception as e:
             import traceback
-            print(f"[DEBUG] Exception in load_fits_file: {e}")
             traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Failed to load FITS:\n{str(e)}")
     
     
-    def _calculate_noise_local(self, n_pixels=13):
-        """
-        Estimate noise using boss's method: n_pixels each side of line center,
-        fit a straight line, subtract, nanstd of residuals.
-        """
-        if self.spectrum is None or self.wavelength is None:
-            return
-
-        from .rotational_diagram_fitter import estimate_noise_local
-
-        peak = self.line_data['wavelength']
-        sigma = estimate_noise_local(self.wavelength, self.spectrum, peak, n_pixels=n_pixels)
-
-        if sigma is None:
-            QMessageBox.warning(self, "Error", "Not enough pixels around line to estimate noise")
-            return
-
-        self.sigma_noise = sigma
-        print(f"[DEBUG] Local noise (13px each side): sigma = {self.sigma_noise:.4e} MJy/sr")
-
-    
-    def _get_spectral_resolution_sigma(self, wavelength_um):
-        """
-        Get spectral resolution as wavelength width (in µm) based on FITS instrument.
-        Returns delta_lambda = λ / R, where R is spectral resolving power.
-        
-        Formulas:
-            NIRSPEC (high-res): R ~ 2700, 1000, 100 (depends on grating)
-            MIRI: R(λ) = 4603 - 128 × λ (wavelength-dependent)
-        """
-        if self.fits_header is None:
-            return None
-        
-        grating = str(self.fits_header.get('GRATING', '')).strip().upper()
-        instrume = str(self.fits_header.get('INSTRUME', '')).strip().upper()
-
-        # MIRI spectral resolution (wavelength-dependent formula)
-        if 'MIRI' in instrume:
-            R = 4603 - 128 * wavelength_um
-            delta_lambda = wavelength_um / R
-            return delta_lambda
-
-        # NIRSpec spectral resolutions (R values depend on grating)
-        if 'NIRSPEC' in instrume:
-            if grating.startswith('G140H'):
-                R = 2700
-            elif grating.startswith('G235H'):
-                R = 2700
-            elif grating.startswith('G395H'):
-                R = 2700
-            elif grating.startswith('G140M'):
-                R = 1000
-            elif grating.startswith('G235M'):
-                R = 1000
-            elif grating.startswith('G395M'):
-                R = 1000
-            else:
-                print(f"[DEBUG] Unknown NIRSpec grating: {grating}")
-                return None
-
-            # R = λ / Δλ, so Δλ = λ / R
-            delta_lambda = wavelength_um / R
-            return delta_lambda
-
-        print(f"[DEBUG] Could not match instrument: INSTRUME={instrume}, GRATING={grating}")
-        return None
-
     def fit_gaussian(self):
         """
         Calculate 3-sigma upper limit flux from noise RMS and instrumental line width.
-        
-        Uses boss's method: 13 points on each side of line center,
-        fit linear continuum, subtract, then nanstd of residuals.
+
+        Uses boss's method: sum all spaxels spatially, then estimate noise from
+        13 points on each side of line center with linear continuum subtraction.
 
         Formula:  F_ul = 3 * sigma_noise * delta_lambda
         where delta_lambda = lambda / R  (instrumental spectral resolution)
         """
-        if self.spectrum is None or self.wavelength is None:
-            QMessageBox.warning(self, "Error", "No spectrum loaded")
+        if self.cube_data is None or self.wavelength is None:
+            QMessageBox.warning(self, "Error", "No FITS file loaded")
             return
-        
+
         peak = self.line_data['wavelength']
 
-        # --- Calculate noise using boss's 13-point local method ---
-        self._calculate_noise_local(n_pixels=13)
-        
-        if self.sigma_noise is None:
-            QMessageBox.warning(self, "Error", "Could not calculate noise")
-            return
+        # --- Sum cube spatially (same as batch calculation) ---
+        if self.cube_data.cube.ndim == 3:
+            spectrum_summed = np.nansum(self.cube_data.cube, axis=(1, 2))
+        else:
+            spectrum_summed = self.cube_data.cube
 
-        # --- Instrumental delta_lambda (required) ---
-        delta_lambda = self._get_spectral_resolution_sigma(peak)
-        if delta_lambda is None:
+        # --- Calculate noise on summed spectrum ---
+        sigma_noise = estimate_noise_local(self.wavelength, spectrum_summed, peak, n_pixels=13)
+        if sigma_noise is None:
+            QMessageBox.warning(self, "Error", "Not enough pixels around line to estimate noise")
+            return
+        self.sigma_noise = sigma_noise
+
+        # --- Instrumental delta_lambda ---
+        try:
+            R = get_spectral_resolution(peak, instrument=self.fits_instrument, header=self.fits_header)
+            delta_lambda = peak / R
+        except Exception as e:
             QMessageBox.warning(
                 self, "Error",
-                "Could not determine spectral resolution from FITS header.\n"
-                "Check that INSTRUME and GRATING keywords are present."
+                f"Could not determine spectral resolution from FITS header.\n"
+                f"Check that INSTRUME and GRATING keywords are present.\n{e}"
             )
             return
 
-        # --- Upper limit flux ---
-        amplitude_3sigma = 3.0 * self.sigma_noise
-        flux_ul_native = amplitude_3sigma * np.sqrt(2*np.pi) * delta_lambda
+        # --- Upper limit flux: F_ul = 3 * sigma_noise * delta_lambda ---
+        flux_ul_native = 3.0 * sigma_noise * delta_lambda
 
         flux_ul_cgs = None
         if self.fits_header is not None:
             try:
                 from .rotational_diagram_fitter import convert_flux_upper_limit_to_cgs
-                
-                # Use centralized conversion function (same as batch calculation)
                 flux_ul_cgs = convert_flux_upper_limit_to_cgs(
                     flux_ul_native, peak, self.fits_header, flux_unit='MJy/sr'
                 )
-                
-                if flux_ul_cgs is not None:
-                    print(f"[DEBUG] flux_ul_native = {flux_ul_native:.6e} MJy/sr·μm")
-                    print(f"[DEBUG] flux_ul_cgs = {flux_ul_cgs:.6e} erg/s/cm²")
-                
             except Exception as e:
-                print(f"[DEBUG] Could not convert to CGS: {e}")
-                flux_ul_cgs = None
+                print(f"Could not convert to CGS: {e}")
 
         self.flux_ul = flux_ul_cgs if flux_ul_cgs is not None else flux_ul_native
 
         result_parts = [
-            f"σ_noise (1D spectrum, 13+13 pts): {self.sigma_noise:.6e} MJy/sr",
+            f"σ_noise (summed cube, 13+13 pts): {self.sigma_noise:.6e} MJy/sr",
             f"Δλ: {delta_lambda:.6f} μm  (λ/R at {peak:.4f} μm)",
             f"3σ UL (native): {flux_ul_native:.4e} MJy/sr·μm",
         ]
