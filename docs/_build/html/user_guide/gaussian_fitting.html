@@ -1,0 +1,232 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gaussian Fitting &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Continuum Subtraction" href="continuum_subtraction.html" />
+    <link rel="prev" title="Selecting Regions" href="selecting_regions.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Gaussian Fitting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#why-fit-gaussians">Why Fit Gaussians?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#interactive-single-pixel-fitting">Interactive Single-Pixel Fitting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#full-cube-gaussian-fitting">Full-Cube Gaussian Fitting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#viewing-fit-results">Viewing Fit Results</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-fit-parameters">Exporting Fit Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Gaussian Fitting</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/gaussian_fitting.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-right" title="Continuum Subtraction" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="gaussian-fitting">
+<h1>Gaussian Fitting<a class="headerlink" href="#gaussian-fitting" title="Link to this heading"></a></h1>
+<p>Fit Gaussian profiles to spectral lines to extract physical parameters.</p>
+<section id="why-fit-gaussians">
+<h2>Why Fit Gaussians?<a class="headerlink" href="#why-fit-gaussians" title="Link to this heading"></a></h2>
+<p>Gaussian fitting provides:</p>
+<ul class="simple">
+<li><p><strong>Line Centers</strong>: Exact wavelength/velocity of emission</p></li>
+<li><p><strong>Peak Intensities</strong>: Maximum flux value</p></li>
+<li><p><strong>Line Widths</strong>: FWHM and velocity dispersion</p></li>
+<li><p><strong>Integrated Flux</strong>: Total energy in the line</p></li>
+<li><p><strong>Quality Metrics</strong>: χ², R², residuals for assessment</p></li>
+</ul>
+</section>
+<section id="interactive-single-pixel-fitting">
+<h2>Interactive Single-Pixel Fitting<a class="headerlink" href="#interactive-single-pixel-fitting" title="Link to this heading"></a></h2>
+<p><strong>Quick Fit (Interactive)</strong></p>
+<ol class="arabic simple">
+<li><p>Click on <strong>Gaussian Fit</strong> on the middle toolbar</p></li>
+<li><p>Select <strong>Left</strong>, <strong>Peak</strong>, and <strong>Right</strong> wavelengths on corresponding fit</p></li>
+<li><p>Click <strong>Fit Gaussian</strong> button</p></li>
+<li><p>Gaussian overlay appears on spectrum</p></li>
+<li><p>Fit parameters shown:</p>
+<ul class="simple">
+<li><p><strong>Center</strong> (μ): Line center wavelength</p></li>
+<li><p><strong>Amplitude</strong> (A): Peak intensity</p></li>
+<li><p><strong>Sigma</strong> (σ): Standard deviation</p></li>
+<li><p><strong>FWHM</strong>: Full Width Half Maximum</p></li>
+<li><p><strong>Gaussian Area</strong>: Integrated flux</p></li>
+<li><p><strong>Equivalent Width</strong>: Width of a rectangular profile with same flux as the Gaussian</p></li>
+<li><p><strong>Slope</strong>: Baseline slope (continuum gradient)</p></li>
+<li><p><strong>Left Endpoint</strong>: Wavelength value at the left edge of the fit region</p></li>
+<li><p><strong>R²</strong>: Coefficient of determination (higher is better)</p></li>
+<li><p><strong>χ²</strong>: Fit quality (lower is better)</p></li>
+<li><p><strong>Data Points</strong>: Number of wavelength points in the fit</p></li>
+</ul>
+</li>
+</ol>
+<ol class="arabic simple" start="5">
+<li><p>Close informational window</p></li>
+</ol>
+</section>
+<section id="full-cube-gaussian-fitting">
+<h2>Full-Cube Gaussian Fitting<a class="headerlink" href="#full-cube-gaussian-fitting" title="Link to this heading"></a></h2>
+<p>Fit all pixels in the cube simultaneously:</p>
+<p><strong>Starting Cube Fit</strong></p>
+<ol class="arabic simple">
+<li><p>Select <strong>Noise L</strong> and <strong>Noise R</strong> to gather noise information near the fit</p></li>
+<li><p>Click <strong>Fit Gaussian Map</strong> button</p></li>
+<li><p>Click <strong>Start</strong> to begin</p></li>
+</ol>
+<p><strong>Progress Monitoring</strong></p>
+<ul class="simple">
+<li><p>Progress bar shows % complete</p></li>
+</ul>
+<p><strong>Output Maps</strong></p>
+<p>After fitting, created maps include:</p>
+<ul class="simple">
+<li><p><strong>Area Map</strong>: Integrated line flux</p></li>
+<li><p><strong>Amplitude Map</strong>: Peak intensity at each pixel</p></li>
+<li><p><strong>Center Map</strong>: Line center wavelength</p></li>
+<li><p><strong>Sigma Map</strong>: Line width (σ values)</p></li>
+<li><p><strong>FWHM Map</strong>: Full width at half maximum</p></li>
+<li><p><strong>Chi-Squared Map</strong>: Fit quality at each pixel</p></li>
+<li><p><strong>Success Mask</strong>: Good vs. failed fits</p></li>
+<li><p><strong>Residuals Map</strong>: Difference between data and fitted model</p></li>
+</ul>
+</section>
+<section id="viewing-fit-results">
+<h2>Viewing Fit Results<a class="headerlink" href="#viewing-fit-results" title="Link to this heading"></a></h2>
+<p><strong>Display Parameter Map</strong></p>
+<p>Parameter maps appear after gaussian mapping is complete. Closing this window keeps the
+maps in memory unless new values are input.</p>
+<p><strong>Constraints</strong></p>
+<ol class="arabic simple">
+<li><p>Left→Peak→Right should be in a logical order</p></li>
+<li><p>For more accurate results, noise should not be too far from the original fit.</p></li>
+</ol>
+</section>
+<section id="exporting-fit-parameters">
+<h2>Exporting Fit Parameters<a class="headerlink" href="#exporting-fit-parameters" title="Link to this heading"></a></h2>
+<p><strong>Save Parameter Maps as FITS</strong></p>
+<p>On each map, click on <strong>Save as FITS file</strong>. This saves the parameter map as
+a 1-slice 3D FITS file available to open in a new window.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-right" title="Continuum Subtraction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

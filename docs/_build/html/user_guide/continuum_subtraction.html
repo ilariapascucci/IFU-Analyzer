@@ -1,0 +1,597 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Continuum Subtraction &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CO Flux Extraction" href="co_flux_extraction.html" />
+    <link rel="prev" title="Gaussian Fitting" href="gaussian_fitting.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Continuum Subtraction</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#when-to-use-which-mode">When to use which mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#automatic-continuum">Automatic Continuum</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#activating-the-mode">Activating the mode</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fitting-the-continuum">Fitting the continuum</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#applying-the-subtraction">Applying the subtraction</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#behind-the-scenes">Behind the scenes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-continuum">Custom Continuum</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id1">Activating the mode</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#placing-anchor-points">Placing anchor points</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#editing-the-points">Editing the points</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#saving-and-loading-point-sets">Saving and loading point sets</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#previewing-and-confirming">Previewing and confirming</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#saving-the-results">Saving the results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#output-format">Output format</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#when-the-button-is-available">When the button is available</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#reusing-the-continuum-from-the-command-line">Reusing the continuum from the command line</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#recovery-and-resets">Recovery and resets</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#common-issues">Common issues</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#the-fit-looks-high-overshoots-into-line-peaks">The fit looks high (overshoots into line peaks)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#the-fit-looks-low-cuts-into-the-continuum-between-lines">The fit looks low (cuts into the continuum between lines)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#the-fit-has-wiggles-where-the-data-is-featureless">The fit has wiggles where the data is featureless</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#the-subtract-continuum-button-is-disabled">The Subtract Continuum button is disabled</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#custom-subtract-complains-place-at-least-3-points">Custom subtract complains “Place at least 3 points”</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#i-want-to-revert-to-the-original-spectrum">I want to revert to the original spectrum</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#see-also">See also</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Continuum Subtraction</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/continuum_subtraction.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="gaussian_fitting.html" class="btn btn-neutral float-left" title="Gaussian Fitting" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-right" title="CO Flux Extraction" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="continuum-subtraction">
+<h1>Continuum Subtraction<a class="headerlink" href="#continuum-subtraction" title="Link to this heading"></a></h1>
+<p>A “continuum” is the smoothly-varying baseline that underlies the
+emission and absorption features in your spectrum. Most line-fitting and
+flux-extraction workflows assume the continuum has been removed first.</p>
+<p>IFU Analyzer provides two complementary tools for continuum subtraction:</p>
+<ul class="simple">
+<li><p><strong>Automatic Continuum</strong> — a 4-step algorithm that fits a baseline
+without any clicks: median filter → peak detection → iterative sigma
+clipping → spline smoothing.</p></li>
+<li><p><strong>Custom Continuum</strong> — manual point-and-click placement of anchor
+points that are then connected with a cubic spline. Use this when the
+spectrum has unusual shape (broad features, instrumental artefacts,
+step changes) that defeat the automatic fitter.</p></li>
+</ul>
+<p>You can switch between modes at any time, but only one is “active” at
+once. A confirmation dialog appears if you switch while progress exists
+in the other mode, so you don’t lose work by accident.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#when-to-use-which-mode" id="id2">When to use which mode</a></p></li>
+<li><p><a class="reference internal" href="#automatic-continuum" id="id3">Automatic Continuum</a></p>
+<ul>
+<li><p><a class="reference internal" href="#activating-the-mode" id="id4">Activating the mode</a></p></li>
+<li><p><a class="reference internal" href="#fitting-the-continuum" id="id5">Fitting the continuum</a></p></li>
+<li><p><a class="reference internal" href="#applying-the-subtraction" id="id6">Applying the subtraction</a></p></li>
+<li><p><a class="reference internal" href="#behind-the-scenes" id="id7">Behind the scenes</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#custom-continuum" id="id8">Custom Continuum</a></p>
+<ul>
+<li><p><a class="reference internal" href="#id1" id="id9">Activating the mode</a></p></li>
+<li><p><a class="reference internal" href="#placing-anchor-points" id="id10">Placing anchor points</a></p></li>
+<li><p><a class="reference internal" href="#editing-the-points" id="id11">Editing the points</a></p></li>
+<li><p><a class="reference internal" href="#saving-and-loading-point-sets" id="id12">Saving and loading point sets</a></p></li>
+<li><p><a class="reference internal" href="#previewing-and-confirming" id="id13">Previewing and confirming</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#saving-the-results" id="id14">Saving the results</a></p>
+<ul>
+<li><p><a class="reference internal" href="#output-format" id="id15">Output format</a></p></li>
+<li><p><a class="reference internal" href="#when-the-button-is-available" id="id16">When the button is available</a></p></li>
+<li><p><a class="reference internal" href="#reusing-the-continuum-from-the-command-line" id="id17">Reusing the continuum from the command line</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#recovery-and-resets" id="id18">Recovery and resets</a></p></li>
+<li><p><a class="reference internal" href="#common-issues" id="id19">Common issues</a></p>
+<ul>
+<li><p><a class="reference internal" href="#the-fit-looks-high-overshoots-into-line-peaks" id="id20">The fit looks high (overshoots into line peaks)</a></p></li>
+<li><p><a class="reference internal" href="#the-fit-looks-low-cuts-into-the-continuum-between-lines" id="id21">The fit looks low (cuts into the continuum between lines)</a></p></li>
+<li><p><a class="reference internal" href="#the-fit-has-wiggles-where-the-data-is-featureless" id="id22">The fit has wiggles where the data is featureless</a></p></li>
+<li><p><a class="reference internal" href="#the-subtract-continuum-button-is-disabled" id="id23">The Subtract Continuum button is disabled</a></p></li>
+<li><p><a class="reference internal" href="#custom-subtract-complains-place-at-least-3-points" id="id24">Custom subtract complains “Place at least 3 points”</a></p></li>
+<li><p><a class="reference internal" href="#i-want-to-revert-to-the-original-spectrum" id="id25">I want to revert to the original spectrum</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#see-also" id="id26">See also</a></p></li>
+</ul>
+</nav>
+<a class="reference internal image-reference" href="../_images/continuum_panel.png"><img alt="The Continuum Tools panel with Automatic and Custom mode toggles" class="align-center" src="../_images/continuum_panel.png" style="width: 60%;" />
+</a>
+<section id="when-to-use-which-mode">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">When to use which mode</a><a class="headerlink" href="#when-to-use-which-mode" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Spectrum characteristic</p></th>
+<th class="head"><p>Best mode</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Smooth, monotonic continuum, narrow lines</p></td>
+<td><p><strong>Automatic</strong> (default parameters usually work)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Many lines, but baseline still smooth</p></td>
+<td><p>Automatic with looser peak detection (sigma ≈ 1.5)</p></td>
+</tr>
+<tr class="row-even"><td><p>Broad emission with shallow wings</p></td>
+<td><p>Automatic with larger <code class="docutils literal notranslate"><span class="pre">peak_exclusion</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Strong instrumental artefacts (steps, dips)</p></td>
+<td><p><strong>Custom</strong> — automatic can’t model discontinuities</p></td>
+</tr>
+<tr class="row-even"><td><p>Sparse, well-isolated line-free regions</p></td>
+<td><p><strong>Custom</strong> — fastest, places ~5 anchor points</p></td>
+</tr>
+<tr class="row-odd"><td><p>Unusual baseline shape (curved, wavy)</p></td>
+<td><p><strong>Custom</strong> — fit only where you have signal-free data</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="automatic-continuum">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Automatic Continuum</a><a class="headerlink" href="#automatic-continuum" title="Link to this heading"></a></h2>
+<section id="activating-the-mode">
+<h3><a class="toc-backref" href="#id4" role="doc-backlink">Activating the mode</a><a class="headerlink" href="#activating-the-mode" title="Link to this heading"></a></h3>
+<p>Click the <strong>Automatic Continuum</strong> toggle button in the GUI’s continuum
+panel. Two additional buttons appear underneath:</p>
+<ul class="simple">
+<li><p><strong>Continuum Line</strong> — fits the continuum and overlays it (in orange)
+over the original spectrum, without changing the data.</p></li>
+<li><p><strong>Subtract Continuum</strong> — applies the fitted continuum, replacing the
+displayed spectrum with the continuum-subtracted version.</p></li>
+</ul>
+<a class="reference internal image-reference" href="../_images/continuum_action_buttons.png"><img alt="The Continuum Line and Subtract Continuum action buttons" class="align-center" src="../_images/continuum_action_buttons.png" style="width: 35%;" />
+</a>
+<p>The split into two steps is intentional: you fit and <em>preview</em>, then
+decide whether to apply.</p>
+</section>
+<section id="fitting-the-continuum">
+<h3><a class="toc-backref" href="#id5" role="doc-backlink">Fitting the continuum</a><a class="headerlink" href="#fitting-the-continuum" title="Link to this heading"></a></h3>
+<p>Click <strong>Continuum Line</strong>. The Continuum Parameters dialog opens with
+seven tunable parameters and an algorithm overview:</p>
+<a class="reference internal image-reference" href="../_images/continuum_dialog.png"><img alt="The Continuum Fitting Parameters dialog with seven spinboxes" class="align-center" src="../_images/continuum_dialog.png" style="width: 65%;" />
+</a>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 14.0%" />
+<col style="width: 64.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Median Filter Window Size</p></td>
+<td><p>51 pixels</p></td>
+<td><p>Sliding window for the first-pass continuum estimate. Larger →
+smoother baseline, but may miss fine structure. Must be odd.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Peak Detection Threshold (σ)</p></td>
+<td><p>2.0</p></td>
+<td><p>Detection cutoff for emission/absorption lines. Lower → more
+sensitive; use 1.5 for very clean data, 3.0 for noisy data.</p></td>
+</tr>
+<tr class="row-even"><td><p>Minimum Peak Width</p></td>
+<td><p>1 pixel</p></td>
+<td><p>Minimum width for a feature to count as a peak. Filters out noise
+spikes and very narrow artefacts.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Minimum Peak Separation</p></td>
+<td><p>3 pixels</p></td>
+<td><p>Minimum distance between detected peaks. Prevents the algorithm
+from finding multiple peaks in the same feature.</p></td>
+</tr>
+<tr class="row-even"><td><p>Peak Exclusion Zone</p></td>
+<td><p>3 pixels</p></td>
+<td><p>Number of pixels on each side of a detected peak that are masked
+before the final fit. Use larger values for broad lines.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Outlier Removal Iterations</p></td>
+<td><p>2</p></td>
+<td><p>How many sigma-clipping passes to run after the first fit. More
+iterations → cleaner baseline but slower.</p></td>
+</tr>
+<tr class="row-even"><td><p>Spline Smoothing Factor</p></td>
+<td><p>5</p></td>
+<td><p>Controls how smooth the final spline is. Lower → closer to the
+data; higher → smoother curve. <code class="docutils literal notranslate"><span class="pre">s</span> <span class="pre">=</span> <span class="pre">N</span> <span class="pre">/</span> <span class="pre">smoothing_factor</span></code> where
+<code class="docutils literal notranslate"><span class="pre">N</span></code> is the number of data points.</p></td>
+</tr>
+</tbody>
+</table>
+<p>Click <strong>Reset to Defaults</strong> at any point to restore all seven values.
+Click <strong>Apply &amp; Fit Continuum</strong> to run the algorithm. The fitted curve
+appears in orange over the original spectrum:</p>
+<img alt="Automatic continuum overlay preview" class="align-center" src="../_images/continuum_auto_preview.png" />
+<p>If you don’t like the fit, click <strong>Continuum Line</strong> again to reopen the
+dialog with your last parameters and try different settings.</p>
+</section>
+<section id="applying-the-subtraction">
+<h3><a class="toc-backref" href="#id6" role="doc-backlink">Applying the subtraction</a><a class="headerlink" href="#applying-the-subtraction" title="Link to this heading"></a></h3>
+<p>Once you’re happy with the preview, click <strong>Subtract Continuum</strong>. The
+displayed spectrum is replaced with the continuum-subtracted version
+(orange curve subtracted from the original). The y-axis rescales
+automatically so the now-near-zero baseline is visible alongside the
+line peaks.</p>
+<p>A guard prevents double-subtraction: if you click Subtract Continuum
+twice in the same session, the second click is ignored — there’s nothing
+to subtract.</p>
+<a class="reference internal image-reference" href="../_images/continuum_auto_subtracted.png"><img alt="Spectrum after automatic continuum subtraction sitting at zero baseline" class="align-center" src="../_images/continuum_auto_subtracted.png" style="width: 95%;" />
+</a>
+</section>
+<section id="behind-the-scenes">
+<h3><a class="toc-backref" href="#id7" role="doc-backlink">Behind the scenes</a><a class="headerlink" href="#behind-the-scenes" title="Link to this heading"></a></h3>
+<p>The algorithm runs in 4 steps:</p>
+<ol class="arabic simple">
+<li><p><strong>Median filter</strong> of width <code class="docutils literal notranslate"><span class="pre">window_size</span></code> produces a first-pass
+continuum estimate.</p></li>
+<li><p><strong>Peak detection</strong> using <code class="docutils literal notranslate"><span class="pre">scipy.signal.find_peaks</span></code> finds features
+above <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span> <span class="pre">×</span> <span class="pre">RMS</span></code> with the given width and distance
+constraints.</p></li>
+<li><p><strong>Peak masking</strong> sets a region of width <code class="docutils literal notranslate"><span class="pre">peak_exclusion</span></code> around
+every detected peak to be ignored, then the median filter is
+re-applied to the masked data.</p></li>
+<li><p><strong>Iterative sigma clipping</strong> (<code class="docutils literal notranslate"><span class="pre">iterations</span></code> passes) removes
+outliers above the running continuum estimate.</p></li>
+<li><p><strong>Spline smoothing</strong> fits a <code class="docutils literal notranslate"><span class="pre">UnivariateSpline</span></code> (k=3) with smoothing
+parameter <code class="docutils literal notranslate"><span class="pre">s</span> <span class="pre">=</span> <span class="pre">N</span> <span class="pre">/</span> <span class="pre">smoothing_factor</span></code> to the cleaned continuum.</p></li>
+</ol>
+<p>The result is stored as a 1D array the same length as the wavelength
+axis and overlaid in orange before subtraction.</p>
+</section>
+</section>
+<section id="custom-continuum">
+<h2><a class="toc-backref" href="#id8" role="doc-backlink">Custom Continuum</a><a class="headerlink" href="#custom-continuum" title="Link to this heading"></a></h2>
+<section id="id1">
+<h3><a class="toc-backref" href="#id9" role="doc-backlink">Activating the mode</a><a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<p>Click the <strong>Custom Continuum</strong> toggle. Five additional buttons appear:</p>
+<ul class="simple">
+<li><p><strong>Custom Subtract</strong> — enter point-placement mode.</p></li>
+<li><p><strong>Delete Point</strong> — toggle delete mode (click points to remove them).</p></li>
+<li><p><strong>Save Points</strong> — export the current anchor points to a CSV file.</p></li>
+<li><p><strong>Load Points</strong> — re-import previously-saved anchor points.</p></li>
+<li><p><strong>OK</strong> — fit the spline and preview the result.</p></li>
+</ul>
+<p>The unified <strong>Save Results</strong> button (shared with Automatic mode) writes
+the full subtraction result to disk and is available as soon as a
+continuum has been fitted in either mode.</p>
+<p>Switching to Custom while Automatic progress exists prompts a
+confirmation dialog. Confirming clears the automatic state — you start
+fresh.</p>
+</section>
+<section id="placing-anchor-points">
+<h3><a class="toc-backref" href="#id10" role="doc-backlink">Placing anchor points</a><a class="headerlink" href="#placing-anchor-points" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Click <strong>Custom Subtract</strong> to enter placement mode.</p></li>
+<li><p>Click directly on the spectrum at line-free regions where you want
+the continuum to pass through. Each click adds a point; the point
+snaps to the nearest data value so it sits exactly on the curve.</p></li>
+<li><p>Aim for at least <strong>3 points</strong> (mathematical minimum for a cubic
+spline). For most spectra, 5–10 well-spread points produce excellent
+fits.</p></li>
+</ol>
+<a class="reference internal image-reference" href="../_images/continuum_custom_points.png"><img alt="Spectrum with manually placed continuum anchor points (black dots)" class="align-center" src="../_images/continuum_custom_points.png" style="width: 95%;" />
+</a>
+</section>
+<section id="editing-the-points">
+<h3><a class="toc-backref" href="#id11" role="doc-backlink">Editing the points</a><a class="headerlink" href="#editing-the-points" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Move a point</strong> — click and drag a placed point.</p></li>
+<li><p><strong>Delete a single point</strong> — click <strong>Delete Point</strong> (it toggles on)
+then click the point you want to remove. Click Delete Point again to
+exit delete mode.</p></li>
+<li><p><strong>Clear all</strong> — switch to <strong>Automatic Continuum</strong> and back; the
+confirmation dialog gives you the option to clear progress.</p></li>
+</ul>
+</section>
+<section id="saving-and-loading-point-sets">
+<h3><a class="toc-backref" href="#id12" role="doc-backlink">Saving and loading point sets</a><a class="headerlink" href="#saving-and-loading-point-sets" title="Link to this heading"></a></h3>
+<p>Reusable point sets are saved as a simple CSV. This is handy when you
+have many similar cubes and want to apply the same continuum strategy
+to all of them.</p>
+<p><strong>Save Points</strong> prompts for a filename and writes:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Wavelength, Flux
+3.0000e-06, 1.2345e-02
+3.5000e-06, 1.2378e-02
+4.0000e-06, 1.2412e-02
+</pre></div>
+</div>
+<p><strong>Load Points</strong> reads the same format. Lines starting with <code class="docutils literal notranslate"><span class="pre">#</span></code> and
+blank lines are ignored. Loading replaces the current point set; it
+doesn’t append.</p>
+</section>
+<section id="previewing-and-confirming">
+<h3><a class="toc-backref" href="#id13" role="doc-backlink">Previewing and confirming</a><a class="headerlink" href="#previewing-and-confirming" title="Link to this heading"></a></h3>
+<p>Click <strong>OK</strong> when you’ve placed all the points you want. The fitter:</p>
+<ol class="arabic simple">
+<li><p>Sorts the points by wavelength.</p></li>
+<li><p>Fits a cubic spline with <code class="docutils literal notranslate"><span class="pre">bc_type='natural'</span></code> (no enforced slope at
+endpoints).</p></li>
+<li><p>Evaluates the spline at every wavelength channel.</p></li>
+<li><p>Displays the result in orange over the original spectrum.</p></li>
+<li><p>Opens a confirmation dialog: <strong>“The fitted continuum is shown in
+orange. Subtract it from the spectrum?”</strong></p></li>
+</ol>
+<p>Clicking <strong>Yes</strong> subtracts the fitted curve and replaces the displayed
+spectrum. Clicking <strong>No</strong> keeps the orange preview but doesn’t subtract
+— you can keep tweaking points and click OK again.</p>
+<a class="reference internal image-reference" href="../_images/custom_subtracted.png"><img alt="Custom-continuum subtracted spectrum at zero baseline" class="align-center" src="../_images/custom_subtracted.png" style="width: 95%;" />
+</a>
+<p>After subtraction, the spectrum y-axis rescales so the subtracted curve
+is visible. The <strong>Save Results</strong> button becomes the recommended way to
+export everything (see <span class="xref std std-ref">saving-the-fitted-continuum</span> below).</p>
+<a class="reference internal image-reference" href="../_images/custom_preview.png" id="saving-the-fitted-continuum"><img alt="Spectrum with black anchor points and orange custom continuum preview" class="align-center" id="saving-the-fitted-continuum" src="../_images/custom_preview.png" style="width: 95%;" />
+</a>
+</section>
+</section>
+<section id="saving-the-results">
+<h2><a class="toc-backref" href="#id14" role="doc-backlink">Saving the results</a><a class="headerlink" href="#saving-the-results" title="Link to this heading"></a></h2>
+<p>A single <strong>Save Results</strong> button writes everything you need to disk:
+the original spectrum, the fitted continuum, and the
+continuum-subtracted spectrum, all in one tab-delimited ASCII file.</p>
+<section id="output-format">
+<h3><a class="toc-backref" href="#id15" role="doc-backlink">Output format</a><a class="headerlink" href="#output-format" title="Link to this heading"></a></h3>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Results Export from Cube Explorer
+# Instrument: MIRI
+# Type: full_results
+# Wavelength unit: micron
+# Flux unit: MJy/sr
+#
+# Wavelength (micron)   Original         Continuum        Subtracted
+6.530400e+00            1.420169e+06     1.450957e+06     -3.078756e+04
+6.531200e+00            1.468611e+06     1.448846e+06      1.976483e+04
+...
+</pre></div>
+</div>
+<p>Four columns:</p>
+<ul class="simple">
+<li><p><strong>Wavelength</strong> — in the unit reported by the FITS header.</p></li>
+<li><p><strong>Original</strong> — the spectrum before any subtraction was applied.</p></li>
+<li><p><strong>Continuum</strong> — the fitted continuum (smooth baseline). <code class="docutils literal notranslate"><span class="pre">NaN</span></code> if no
+continuum has been fitted yet.</p></li>
+<li><p><strong>Subtracted</strong> — <code class="docutils literal notranslate"><span class="pre">Original</span> <span class="pre">−</span> <span class="pre">Continuum</span></code>. <code class="docutils literal notranslate"><span class="pre">NaN</span></code> if no continuum
+has been fitted.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">Subtracted</span></code> column always equals <code class="docutils literal notranslate"><span class="pre">Original</span> <span class="pre">−</span> <span class="pre">Continuum</span></code> to
+machine precision. This is true whether or not you actually clicked the
+Subtract button — the file always lets you reconstruct both the original
+and the subtracted spectrum.</p>
+</section>
+<section id="when-the-button-is-available">
+<h3><a class="toc-backref" href="#id16" role="doc-backlink">When the button is available</a><a class="headerlink" href="#when-the-button-is-available" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>No continuum fitted yet</strong> — the button is still active; the file
+will contain wavelength and the original spectrum, with the continuum
+and subtracted columns filled with <code class="docutils literal notranslate"><span class="pre">NaN</span></code>.</p></li>
+<li><p><strong>Continuum fitted but not yet subtracted</strong> — all four columns are
+populated; the subtracted column is computed without you having to
+click Subtract.</p></li>
+<li><p><strong>Continuum fitted and subtracted</strong> — same four columns; the file is
+identical regardless of subtraction state.</p></li>
+</ul>
+<p>This means the saved file is <strong>always reproducible</strong>: the same
+continuum and the same original spectrum give the same four columns,
+no matter when in the workflow you press the button.</p>
+</section>
+<section id="reusing-the-continuum-from-the-command-line">
+<h3><a class="toc-backref" href="#id17" role="doc-backlink">Reusing the continuum from the command line</a><a class="headerlink" href="#reusing-the-continuum-from-the-command-line" title="Link to this heading"></a></h3>
+<p>The saved continuum is compatible with the CLI’s <code class="docutils literal notranslate"><span class="pre">subtract-continuum</span></code>
+tool, but the CLI expects a file with header <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span>
+<span class="pre">fitted_continuum</span></code>. To reuse a continuum exported by the GUI, you have
+two options:</p>
+<ol class="arabic simple">
+<li><p><strong>Extract the continuum column.</strong> Open the results file in your
+favourite tool, drop the Original and Subtracted columns, change the
+header line to <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">fitted_continuum</span></code>, and save.</p></li>
+<li><p><strong>Use the CLI’s own auto-continuum.</strong> For batch processing of many
+cubes, it’s usually faster to run <code class="docutils literal notranslate"><span class="pre">clip.py</span> <span class="pre">auto-continuum</span></code> once
+per cube and pipe its output into <code class="docutils literal notranslate"><span class="pre">subtract-continuum</span></code>. See
+<a class="reference internal" href="../cli.html"><span class="doc">Command-Line Interface</span></a> for the workflow.</p></li>
+</ol>
+</section>
+</section>
+<section id="recovery-and-resets">
+<h2><a class="toc-backref" href="#id18" role="doc-backlink">Recovery and resets</a><a class="headerlink" href="#recovery-and-resets" title="Link to this heading"></a></h2>
+<p>The continuum panel tracks two independent kinds of state:</p>
+<ul class="simple">
+<li><p><strong>Automatic progress</strong> — whether a fit exists, whether the preview is
+shown, whether subtraction has been applied.</p></li>
+<li><p><strong>Custom progress</strong> — whether the placement session is active,
+whether points exist, whether subtraction has been applied.</p></li>
+</ul>
+<p>If you toggle between modes, the active mode’s progress is preserved
+and the <em>other</em> mode’s progress is cleared (after a confirmation
+dialog). This means:</p>
+<ul class="simple">
+<li><p>You can switch from Automatic to Custom without losing your
+automatic fit until you confirm the clear.</p></li>
+<li><p>After a subtraction has been applied, the original spectrum is backed
+up internally. Subsequent operations re-fit against the backup, not
+the already-subtracted spectrum, so you can iterate safely.</p></li>
+</ul>
+</section>
+<section id="common-issues">
+<h2><a class="toc-backref" href="#id19" role="doc-backlink">Common issues</a><a class="headerlink" href="#common-issues" title="Link to this heading"></a></h2>
+<section id="the-fit-looks-high-overshoots-into-line-peaks">
+<h3><a class="toc-backref" href="#id20" role="doc-backlink">The fit looks high (overshoots into line peaks)</a><a class="headerlink" href="#the-fit-looks-high-overshoots-into-line-peaks" title="Link to this heading"></a></h3>
+<p>Increase <strong>Peak Detection Threshold</strong> (try <code class="docutils literal notranslate"><span class="pre">sigma</span> <span class="pre">=</span> <span class="pre">1.5</span></code>) so more
+peaks are detected and masked. Or increase <strong>Peak Exclusion Zone</strong> so
+the wings of broad lines are also excluded from the fit.</p>
+</section>
+<section id="the-fit-looks-low-cuts-into-the-continuum-between-lines">
+<h3><a class="toc-backref" href="#id21" role="doc-backlink">The fit looks low (cuts into the continuum between lines)</a><a class="headerlink" href="#the-fit-looks-low-cuts-into-the-continuum-between-lines" title="Link to this heading"></a></h3>
+<p>Decrease <strong>Spline Smoothing Factor</strong> to let the fit follow the data
+more closely. Or decrease <strong>Outlier Removal Iterations</strong> to 1.</p>
+</section>
+<section id="the-fit-has-wiggles-where-the-data-is-featureless">
+<h3><a class="toc-backref" href="#id22" role="doc-backlink">The fit has wiggles where the data is featureless</a><a class="headerlink" href="#the-fit-has-wiggles-where-the-data-is-featureless" title="Link to this heading"></a></h3>
+<p>Increase <strong>Spline Smoothing Factor</strong> (try <code class="docutils literal notranslate"><span class="pre">10</span></code> or <code class="docutils literal notranslate"><span class="pre">20</span></code>) for a
+smoother spline. Or increase <strong>Median Filter Window Size</strong> to <code class="docutils literal notranslate"><span class="pre">101</span></code>.</p>
+</section>
+<section id="the-subtract-continuum-button-is-disabled">
+<h3><a class="toc-backref" href="#id23" role="doc-backlink">The Subtract Continuum button is disabled</a><a class="headerlink" href="#the-subtract-continuum-button-is-disabled" title="Link to this heading"></a></h3>
+<p>Click <strong>Continuum Line</strong> first to compute a fit. Subtract is enabled
+only after a continuum has been fitted.</p>
+</section>
+<section id="custom-subtract-complains-place-at-least-3-points">
+<h3><a class="toc-backref" href="#id24" role="doc-backlink">Custom subtract complains “Place at least 3 points”</a><a class="headerlink" href="#custom-subtract-complains-place-at-least-3-points" title="Link to this heading"></a></h3>
+<p>A cubic spline needs at least 3 anchor points. Click on three or more
+line-free regions of the spectrum.</p>
+</section>
+<section id="i-want-to-revert-to-the-original-spectrum">
+<h3><a class="toc-backref" href="#id25" role="doc-backlink">I want to revert to the original spectrum</a><a class="headerlink" href="#i-want-to-revert-to-the-original-spectrum" title="Link to this heading"></a></h3>
+<p>Toggle the active mode off, then on again. The continuum panel
+automatically restores the backup of the original spectrum when you
+start a new session.</p>
+</section>
+</section>
+<section id="see-also">
+<h2><a class="toc-backref" href="#id26" role="doc-backlink">See also</a><a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="gaussian_fitting.html"><span class="doc">Gaussian Fitting</span></a> — the next step after continuum subtraction
+for most workflows.</p></li>
+<li><p><a class="reference internal" href="../cli.html"><span class="doc">Command-Line Interface</span></a> — <code class="docutils literal notranslate"><span class="pre">auto-continuum</span></code>, <code class="docutils literal notranslate"><span class="pre">custom-continuum</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">subtract-continuum</span></code> command-line equivalents for batch processing.</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — full reference for all spectrum/continuum
+export formats.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gaussian_fitting.html" class="btn btn-neutral float-left" title="Gaussian Fitting" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-right" title="CO Flux Extraction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
