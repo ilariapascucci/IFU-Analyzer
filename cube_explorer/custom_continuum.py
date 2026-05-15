@@ -7,16 +7,8 @@ PyQt5 is optional and only loaded for interactive features.
 
 import numpy as np
 from scipy.interpolate import CubicSpline
-import warnings
-
-# PyQt5 imports are optional - try to import but don't fail if unavailable
-try:
-    from PyQt5.QtWidgets import QMessageBox
-    from PyQt5.QtCore import Qt
-    HAS_PYQT5 = True
-except ImportError:
-    HAS_PYQT5 = False
-    warnings.warn("PyQt5 not available - interactive features will be disabled. Core continuum fitting functions still work.")
+from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtCore import Qt
 
 class CustomContinuumSelector:
     """
@@ -64,8 +56,8 @@ class CustomContinuumSelector:
         self.delete_mode = False
         
         # Point requirements
-        self.min_points = 5
-        self.recommended_points = 20
+        self.min_points = 3
+        self.recommended_points = 5
         
     def activate(self):
         """Activate the custom continuum selector"""
@@ -74,10 +66,8 @@ class CustomContinuumSelector:
             
         self.is_active = True
         
-        # Set focus policy (GUI-only, safe to skip if PyQt5 unavailable)
-        if HAS_PYQT5 and hasattr(self.canvas, 'setFocusPolicy'):
-            self.canvas.setFocusPolicy(Qt.StrongFocus)
-            self.canvas.setFocus()
+        self.canvas.setFocusPolicy(Qt.StrongFocus)
+        self.canvas.setFocus()
         
         # Clear any previous selections
         self._clear_points()
@@ -87,8 +77,8 @@ class CustomContinuumSelector:
         self.pick_cid = self.canvas.mpl_connect('pick_event', self._on_pick)
         self.key_cid = self.canvas.mpl_connect('key_press_event', self.on_key_press)
         
-        # Show instructions (GUI-only, safe to skip if PyQt5 unavailable)
-        if self.parent_widget and HAS_PYQT5:
+        # Show instructions
+        if self.parent_widget:
             QMessageBox.information(
                 self.parent_widget,
                 "Custom Continuum Subtraction",
@@ -309,41 +299,15 @@ class CustomContinuumSelector:
     def fit_continuum(self):
         """
         Fit a cubic spline through the selected continuum points.
-        
-        Mathematical Process:
-        1. For each pair of adjacent knots, calculate cubic polynomial: y = ax³ + bx² + cx + d
-        2. Apply smoothness constraints at each knot:
-           - Values match (continuity)
-           - First derivatives match (smooth slope)
-           - Second derivatives match (smooth curvature)
-        3. Interpolate across entire wavelength range
-        
-        Returns the fitted continuum array or None if fitting fails.
+        ...docstring...
+
+        Note: the OK-button caller (on_custom_ok_clicked) already enforces
+        the minimum-points check and shows its own preview-and-confirm
+        dialog. This method just does the math and returns the array; it
+        does NOT show dialogs of its own to avoid stacking modals.
         """
         if len(self.continuum_points) < self.min_points:
-            if self.parent_widget:
-                QMessageBox.warning(
-                    self.parent_widget,
-                    "Insufficient Points",
-                    f"You need at least {self.min_points} points to fit a continuum.\n"
-                    f"Currently selected: {len(self.continuum_points)} points\n"
-                    f"Recommended: {self.recommended_points}+ points for best results"
-                )
             return None
-            
-        if len(self.continuum_points) < self.recommended_points:
-            if self.parent_widget:
-                result = QMessageBox.question(
-                    self.parent_widget,
-                    "Few Points Selected",
-                    f"You have selected {len(self.continuum_points)} points.\n"
-                    f"For best results, {self.recommended_points}+ points are recommended.\n\n"
-                    f"Continue anyway?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
-                )
-                if result == QMessageBox.No:
-                    return None
                     
         try:
             points_array = np.array(self.continuum_points)
@@ -420,3 +384,14 @@ class CustomContinuumSelector:
         """Clear all points and fitted continuum"""
         self._clear_points()
         print("[DEBUG] Custom continuum selection cleared")
+
+    def load_points(self, points):
+        """
+        Takes a list of (x, y) tuples from a saved file, 
+        clears the current canvas, and draws the loaded points.
+        """
+        self._clear_points()
+        for x, y in points:
+            self._add_point(x, y)
+            
+        print(f"[DEBUG] Loaded and drew {len(points)} custom points")

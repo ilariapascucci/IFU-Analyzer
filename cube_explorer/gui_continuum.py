@@ -1,6 +1,6 @@
 import numpy as np
 import traceback
-from PyQt5.QtWidgets import QMessageBox, QApplication
+from PyQt5.QtWidgets import QMessageBox, QApplication, QFileDialog
 from scipy.ndimage import median_filter
 from scipy.interpolate import UnivariateSpline
 from scipy.signal import find_peaks
@@ -79,7 +79,10 @@ class GuiContinuumMixin:
             wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
             cube = getattr(self, 'cube_data', None) or getattr(self, 'cubedata', None)
             if cube is None: return
-            flux = cube.spectrum
+            if self.original_spectrum_backup is not None:
+                flux = self.original_spectrum_backup.copy()
+            else:
+                flux = cube.spectrum
             
             if wavelength is None or flux is None: return
             
@@ -200,7 +203,14 @@ class GuiContinuumMixin:
             flux = self.original_spectrum_backup.copy()
             continuum = self.continuum_fitted
 
-            if flux.shape != continuum.shape: return
+            if flux.shape != continuum.shape:
+                QMessageBox.warning(
+                    self, "Shape Mismatch",
+                    f"Spectrum length {flux.shape} does not match the fitted "
+                    f"continuum length {continuum.shape}.\n\n"
+                    "Please refit the continuum and try again."
+                )
+                return
 
             flux_subtracted = flux - continuum
             self.cube_data.spectrum = flux_subtracted
@@ -233,6 +243,11 @@ class GuiContinuumMixin:
             self.auto_continuum_subtracted = True
 
         except Exception as e:
+            traceback.print_exc()
+            QMessageBox.warning(
+                self, "Subtraction Failed",
+                f"Could not subtract the continuum:\n{e}"
+            )
             self.subtract_continuum_btn.setChecked(False)
 
     def _activate_custom_continuum_subtraction(self):
@@ -255,6 +270,10 @@ class GuiContinuumMixin:
 
             if self.original_spectrum_backup is None:
                 self.original_spectrum_backup = self.cube_data.spectrum.copy()
+
+            base_flux = (self.original_spectrum_backup.copy()
+                         if self.original_spectrum_backup is not None
+                         else self.cube_data.spectrum)
 
             if self.custom_continuum_selector is None:
                 self.custom_continuum_selector = CustomContinuumSelector(
@@ -336,7 +355,11 @@ class GuiContinuumMixin:
             self.continuum_subtracted = True
             self.custom_continuum_applied = True
         except Exception as e:
-            pass
+            traceback.print_exc()
+            QMessageBox.warning(
+                self, "Subtraction Failed",
+                f"Could not subtract the custom continuum:\n{e}"
+            )
 
     def _restore_original_spectrum(self):
         if self.original_spectrum_backup is None: return
@@ -409,6 +432,8 @@ class GuiContinuumMixin:
         self.hide_all_action_buttons()
         self.custom_subtract_btn.show()
         self.custom_delete_btn.show()
+        self.custom_save_pts_btn.show()
+        self.custom_load_pts_btn.show()
         self.custom_ok_btn.show()
 
     def hide_all_action_buttons(self):
@@ -416,6 +441,8 @@ class GuiContinuumMixin:
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
         self.custom_delete_btn.hide()
+        self.custom_save_pts_btn.hide()
+        self.custom_load_pts_btn.hide()
         self.custom_ok_btn.hide()
 
     def has_automatic_progress(self):
@@ -460,6 +487,15 @@ class GuiContinuumMixin:
     def _on_custom_delete_toggled(self, checked):
         if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
             self.custom_continuum_selector.set_delete_mode(checked)
+    
+    def _finalize_custom_continuum(self):
+        """Keyboard ENTER alternative to clicking the OK button.
+
+        custom_continuum.py's CustomContinuumSelector calls this when
+        the user presses ENTER on the canvas. We just delegate to the
+        existing OK-button handler so both paths behave identically.
+        """
+        self.on_custom_ok_clicked()
 
     def on_custom_ok_clicked(self):
         if not self.custom_continuum_active or self.custom_continuum_selector is None:
@@ -521,3 +557,59 @@ class GuiContinuumMixin:
 
         except Exception:
             traceback.print_exc()
+
+    
+    def _save_custom_points(self):
+        if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
+            QMessageBox.warning(self, "Not Active", "Start a custom continuum session first by clicking 'Custom Subtract'.")
+            return
+
+        points = getattr(self.custom_continuum_selector, 'continuum_points', [])
+        if len(points) == 0:
+            QMessageBox.warning(self, "No Points", "There are no points on the graph to save.")
+            return
+
+        fname, _ = QFileDialog.getSaveFileName(self, "Save Continuum Points", filter="Text files (*.txt);;CSV files (*.csv)")
+        if not fname:
+            return
+
+        try:
+            with open(fname, 'w') as f:
+                f.write("# Wavelength, Flux\n")
+                for x, y in points:
+                    f.write(f"{x:.6e}, {y:.6e}\n")
+            QMessageBox.information(self, "Saved", f"Points successfully saved to:\n{fname}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save points:\n{str(e)}")
+
+    def _load_custom_points(self):
+        if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
+            QMessageBox.warning(self, "Not Active", "Please click 'Custom Subtract' to start a session before loading points.")
+            return
+
+        fname, _ = QFileDialog.getOpenFileName(self, "Load Continuum Points", filter="Text files (*.txt *.csv)")
+        if not fname:
+            return
+
+        try:
+            points = []
+            with open(fname, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    parts = line.split(',')
+                    if len(parts) >= 2:
+                        x, y = float(parts[0]), float(parts[1])
+                        points.append((x, y))
+
+            if not points:
+                QMessageBox.warning(self, "No Valid Points", "No valid coordinates found in the file.")
+                return
+
+            # Send the points to the selector to draw them
+            self.custom_continuum_selector.load_points(points)
+            QMessageBox.information(self, "Loaded", f"Successfully loaded {len(points)} points.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load points:\n{str(e)}")

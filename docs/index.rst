@@ -20,6 +20,12 @@ This comprehensive documentation covers everything you need to get started, use 
 
 .. toctree::
    :maxdepth: 2
+   :caption: Command Line
+
+   cli
+
+.. toctree::
+   :maxdepth: 2
    :caption: Features & Analysis
 
    features

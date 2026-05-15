@@ -1,0 +1,635 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2D FITS Dual Image Viewer &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Exporting Data" href="exporting_data.html" />
+    <link rel="prev" title="CO Flux Extraction" href="co_flux_extraction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting.html">Gaussian Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">2D FITS Dual Image Viewer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#launching-the-viewer">Launching the viewer</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#image-display">Image Display</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#loading-images">Loading images</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#wcs-grid-overlay">WCS grid overlay</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cursor-readout-and-statistics">Cursor readout and statistics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#color-scale-and-colormap">Color scale and colormap</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#header-viewer">Header viewer</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#image-rotation">Image Rotation</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#performing-a-rotation">Performing a rotation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#what-happens-internally">What happens internally</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#saving-the-rotated-image">Saving the rotated image</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#contour-plotting">Contour Plotting</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#drawing-contours">Drawing contours</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cross-image-contours-wcs-matched">Cross-image contours (WCS-matched)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#stacking-and-clearing">Stacking and clearing</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#contour-export-import">Contour Export / Import</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#save-contour-as-txt">Save contour as .txt</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#load-saved-contour">Load saved contour</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#save-contour-mask-as-fits">Save contour mask as FITS</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#wcs-superimpose">WCS Superimpose</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#procedure">Procedure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#alignment-diagnostic">Alignment diagnostic</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#slides-convolute-pairwise-resolution-matching">Slides Convolute — pairwise resolution matching</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id1">Procedure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id2">What happens internally</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#guards-and-edge-cases">Guards and edge cases</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#batch-convolution-multi-image-resolution-matching">Batch Convolution — multi-image resolution matching</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id3">Procedure</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id4">What happens internally</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#output">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#region-selection">Region Selection</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">2D FITS Dual Image Viewer</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/2d_viewer.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="d-fits-dual-image-viewer">
+<h1>2D FITS Dual Image Viewer<a class="headerlink" href="#d-fits-dual-image-viewer" title="Link to this heading"></a></h1>
+<p>The 2D FITS Dual Image Viewer is a standalone side-by-side viewer for
+2D intensity maps, moment maps, and derived FITS products. It is fully
+WCS-aware, with interactive coordinate display and a full set of
+multi-image analysis tools.</p>
+<p>This guide walks through every feature of the viewer in the order most
+users will encounter them. For a top-level feature summary, see the
+2D FITS Dual Image Viewer section of <a class="reference internal" href="../features.html"><span class="doc">Features</span></a>.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#launching-the-viewer" id="id5">Launching the viewer</a></p></li>
+<li><p><a class="reference internal" href="#image-display" id="id6">Image Display</a></p>
+<ul>
+<li><p><a class="reference internal" href="#loading-images" id="id7">Loading images</a></p></li>
+<li><p><a class="reference internal" href="#wcs-grid-overlay" id="id8">WCS grid overlay</a></p></li>
+<li><p><a class="reference internal" href="#cursor-readout-and-statistics" id="id9">Cursor readout and statistics</a></p></li>
+<li><p><a class="reference internal" href="#color-scale-and-colormap" id="id10">Color scale and colormap</a></p></li>
+<li><p><a class="reference internal" href="#header-viewer" id="id11">Header viewer</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#image-rotation" id="id12">Image Rotation</a></p>
+<ul>
+<li><p><a class="reference internal" href="#performing-a-rotation" id="id13">Performing a rotation</a></p></li>
+<li><p><a class="reference internal" href="#what-happens-internally" id="id14">What happens internally</a></p></li>
+<li><p><a class="reference internal" href="#saving-the-rotated-image" id="id15">Saving the rotated image</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#contour-plotting" id="id16">Contour Plotting</a></p>
+<ul>
+<li><p><a class="reference internal" href="#drawing-contours" id="id17">Drawing contours</a></p></li>
+<li><p><a class="reference internal" href="#cross-image-contours-wcs-matched" id="id18">Cross-image contours (WCS-matched)</a></p></li>
+<li><p><a class="reference internal" href="#stacking-and-clearing" id="id19">Stacking and clearing</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#contour-export-import" id="id20">Contour Export / Import</a></p>
+<ul>
+<li><p><a class="reference internal" href="#save-contour-as-txt" id="id21">Save contour as .txt</a></p></li>
+<li><p><a class="reference internal" href="#load-saved-contour" id="id22">Load saved contour</a></p></li>
+<li><p><a class="reference internal" href="#save-contour-mask-as-fits" id="id23">Save contour mask as FITS</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#wcs-superimpose" id="id24">WCS Superimpose</a></p>
+<ul>
+<li><p><a class="reference internal" href="#procedure" id="id25">Procedure</a></p></li>
+<li><p><a class="reference internal" href="#alignment-diagnostic" id="id26">Alignment diagnostic</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#slides-convolute-pairwise-resolution-matching" id="id27">Slides Convolute — pairwise resolution matching</a></p>
+<ul>
+<li><p><a class="reference internal" href="#id1" id="id28">Procedure</a></p></li>
+<li><p><a class="reference internal" href="#id2" id="id29">What happens internally</a></p></li>
+<li><p><a class="reference internal" href="#guards-and-edge-cases" id="id30">Guards and edge cases</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#batch-convolution-multi-image-resolution-matching" id="id31">Batch Convolution — multi-image resolution matching</a></p>
+<ul>
+<li><p><a class="reference internal" href="#id3" id="id32">Procedure</a></p></li>
+<li><p><a class="reference internal" href="#id4" id="id33">What happens internally</a></p></li>
+<li><p><a class="reference internal" href="#output" id="id34">Output</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#region-selection" id="id35">Region Selection</a></p></li>
+</ul>
+</nav>
+<a class="reference internal image-reference" href="../_images/2d_viewer_main.png"><img alt="The 2D FITS Dual Image Viewer with all controls visible" class="align-center" src="../_images/2d_viewer_main.png" style="width: 100%;" />
+</a>
+<section id="launching-the-viewer">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Launching the viewer</a><a class="headerlink" href="#launching-the-viewer" title="Link to this heading"></a></h2>
+<p>The 2D Viewer can be opened from the main IFU Analyzer window, or run on
+its own when no cube is loaded. Either way, you get a dual-panel layout
+with <strong>Left</strong> and <strong>Right</strong> image slots that each behave independently.</p>
+</section>
+<section id="image-display">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">Image Display</a><a class="headerlink" href="#image-display" title="Link to this heading"></a></h2>
+<section id="loading-images">
+<h3><a class="toc-backref" href="#id7" role="doc-backlink">Loading images</a><a class="headerlink" href="#loading-images" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Click <strong>Open 2D FITS (Left)</strong> or <strong>Open 2D FITS (Right)</strong> to load a 2D
+FITS image into the corresponding panel.</p></li>
+<li><p>Each panel keeps its own WCS, scaling, and colormap state — you can mix
+any two images of any pixel scale or orientation.</p></li>
+<li><p>A 2D viewer panel accepts any standard 2D FITS image: intensity maps,
+Gaussian-derived maps (peak, sigma, area), moment maps, RGB-channel
+exports, etc.</p></li>
+</ul>
+<a class="reference internal image-reference" href="../_images/2d_viewer_loaded.png"><img alt="2D viewer with an image loaded, WCS grid, colorbar, and stats panel" class="align-center" src="../_images/2d_viewer_loaded.png" style="width: 70%;" />
+</a>
+</section>
+<section id="wcs-grid-overlay">
+<h3><a class="toc-backref" href="#id8" role="doc-backlink">WCS grid overlay</a><a class="headerlink" href="#wcs-grid-overlay" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>If the FITS header contains a celestial WCS (<code class="docutils literal notranslate"><span class="pre">CTYPE1</span></code>/<code class="docutils literal notranslate"><span class="pre">CTYPE2</span></code> with
+<code class="docutils literal notranslate"><span class="pre">RA---*</span></code> / <code class="docutils literal notranslate"><span class="pre">DEC--*</span></code>), an RA/Dec grid is automatically drawn over
+the image.</p></li>
+<li><p>Tick label format auto-scales to the field of view —
+degrees → arcmin → arcsec → sub-arcsec.</p></li>
+<li><p>Tick positions remain correct after any rotation.</p></li>
+<li><p>Non-celestial WCS automatically falls back to plain pixel axes.</p></li>
+</ul>
+</section>
+<section id="cursor-readout-and-statistics">
+<h3><a class="toc-backref" href="#id9" role="doc-backlink">Cursor readout and statistics</a><a class="headerlink" href="#cursor-readout-and-statistics" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Move the mouse over either image and the left side panel shows live:</p>
+<ul>
+<li><p>Pixel coordinates <code class="docutils literal notranslate"><span class="pre">(x,</span> <span class="pre">y)</span></code></p></li>
+<li><p>RA in <code class="docutils literal notranslate"><span class="pre">hh:mm:ss</span></code></p></li>
+<li><p>Dec in <code class="docutils literal notranslate"><span class="pre">dd:mm:ss</span></code></p></li>
+<li><p>Flux value at the cursor (with the unit from <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>)</p></li>
+</ul>
+</li>
+<li><p>The <strong>Image Stats</strong> panel reports min, max, and mean of the displayed
+image, plus the unit string from <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>.</p></li>
+</ul>
+</section>
+<section id="color-scale-and-colormap">
+<h3><a class="toc-backref" href="#id10" role="doc-backlink">Color scale and colormap</a><a class="headerlink" href="#color-scale-and-colormap" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Each panel has a <strong>Scale</strong> dropdown with four options:</p>
+<ul>
+<li><p><strong>Linear</strong> — direct mapping</p></li>
+<li><p><strong>Log</strong> — <code class="docutils literal notranslate"><span class="pre">log10</span></code> of the data (useful for faint extended emission)</p></li>
+<li><p><strong>Sqrt</strong> — square-root stretch (intermediate compression)</p></li>
+<li><p><strong>Power</strong> — <code class="docutils literal notranslate"><span class="pre">data^2</span></code> stretch (boosts high-flux regions)</p></li>
+</ul>
+</li>
+<li><p>Click the <strong>🌈</strong> button on either panel to open the colormap dialog
+and pick any matplotlib colormap. Colorblind-friendly options are
+included.</p></li>
+</ul>
+<a class="reference internal image-reference" href="../_images/2d_colormap_dialog.png"><img alt="The Select Colormap dialog showing available colormaps" class="align-center" src="../_images/2d_colormap_dialog.png" style="width: 35%;" />
+</a>
+</section>
+<section id="header-viewer">
+<h3><a class="toc-backref" href="#id11" role="doc-backlink">Header viewer</a><a class="headerlink" href="#header-viewer" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Click <strong>Header</strong> on either panel to open a dialog listing every FITS
+header card for that image. Useful for checking <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>, the WCS
+keywords (<code class="docutils literal notranslate"><span class="pre">CTYPE</span></code>, <code class="docutils literal notranslate"><span class="pre">CDELT</span></code>, <code class="docutils literal notranslate"><span class="pre">CD*_*</span></code>, <code class="docutils literal notranslate"><span class="pre">PC*_*</span></code>), and instrument
+identifiers (<code class="docutils literal notranslate"><span class="pre">INSTRUME</span></code>, <code class="docutils literal notranslate"><span class="pre">TELESCOP</span></code>).</p></li>
+</ul>
+<a class="reference internal image-reference" href="../_images/2d_header_viewer.png"><img alt="The FITS Header dialog showing WCS and metadata keywords" class="align-center" src="../_images/2d_header_viewer.png" style="width: 50%;" />
+</a>
+</section>
+</section>
+<section id="image-rotation">
+<h2><a class="toc-backref" href="#id12" role="doc-backlink">Image Rotation</a><a class="headerlink" href="#image-rotation" title="Link to this heading"></a></h2>
+<p>The Rotation tool turns the image about its centre by any angle while
+keeping the WCS correct, so RA/Dec coordinates remain accurate.</p>
+<section id="performing-a-rotation">
+<h3><a class="toc-backref" href="#id13" role="doc-backlink">Performing a rotation</a><a class="headerlink" href="#performing-a-rotation" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Select the direction (<strong>Clockwise</strong> or <strong>Counter-Clockwise</strong>).</p></li>
+<li><p>Enter the angle in degrees (any positive number).</p></li>
+<li><p>Click <strong>Rotate</strong> and pick the panel (<strong>Left</strong> / <strong>Right</strong>) to apply
+the rotation to.</p></li>
+</ol>
+<a class="reference internal image-reference" href="../_images/2d_rotation.png"><img alt="Rotation actions panel and before/after of a 90 degree rotation" class="align-center" src="../_images/2d_rotation.png" style="width: 75%;" />
+</a>
+</section>
+<section id="what-happens-internally">
+<h3><a class="toc-backref" href="#id14" role="doc-backlink">What happens internally</a><a class="headerlink" href="#what-happens-internally" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">scipy.ndimage.rotate</span></code> is used with <code class="docutils literal notranslate"><span class="pre">reshape=True</span></code> and
+<code class="docutils literal notranslate"><span class="pre">cval=NaN</span></code>. Border pixels created by the rotation are NaN, not zero,
+so they don’t contaminate later analysis.</p></li>
+<li><p>The CD matrix is updated as <code class="docutils literal notranslate"><span class="pre">CD_new</span> <span class="pre">=</span> <span class="pre">CD_orig</span> <span class="pre">×</span> <span class="pre">R⁻¹</span></code> where <code class="docutils literal notranslate"><span class="pre">R</span></code> is
+the 2D rotation matrix for the opposite of the requested angle.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CRPIX</span></code> is <strong>not</strong> changed — the reference pixel stays anchored to
+the same sky coordinate, so RA/Dec tick labels remain correct.</p></li>
+<li><p>Rotations are cumulative — applying 30°, then 30° gives the correct
+60° image (errors do not stack).</p></li>
+</ul>
+</section>
+<section id="saving-the-rotated-image">
+<h3><a class="toc-backref" href="#id15" role="doc-backlink">Saving the rotated image</a><a class="headerlink" href="#saving-the-rotated-image" title="Link to this heading"></a></h3>
+<p>Click <strong>Save Rotated FITS</strong> to write the rotated image and its updated
+WCS header to a new FITS file. The new file is self-contained — you can
+load it into the viewer (or any other tool) and the WCS will be correct.</p>
+</section>
+</section>
+<section id="contour-plotting">
+<h2><a class="toc-backref" href="#id16" role="doc-backlink">Contour Plotting</a><a class="headerlink" href="#contour-plotting" title="Link to this heading"></a></h2>
+<p>Generate sigma-level contours from one image and draw them on the same
+panel or on the other panel (WCS-matched cross-image contours).</p>
+<section id="drawing-contours">
+<h3><a class="toc-backref" href="#id17" role="doc-backlink">Drawing contours</a><a class="headerlink" href="#drawing-contours" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Click <strong>Plot Contour</strong>.</p></li>
+<li><p>Choose:</p>
+<ul class="simple">
+<li><p><strong>Draw on</strong>: which panel to draw the contour overlays on
+(Left / Right)</p></li>
+<li><p><strong>Source image</strong>: same panel, or the opposite panel for
+cross-image contours</p></li>
+<li><p><strong>Background std</strong>: leave blank to use Astropy
+<code class="docutils literal notranslate"><span class="pre">sigma_clipped_stats</span></code> (3σ clipping) for automatic background
+estimation; or enter a custom value</p></li>
+<li><p><strong>Sigma levels</strong>: comma-separated list, e.g. <code class="docutils literal notranslate"><span class="pre">3,</span> <span class="pre">5,</span> <span class="pre">10</span></code></p></li>
+<li><p><strong>Contour color</strong>: any matplotlib color string or hex code</p></li>
+</ul>
+</li>
+<li><p>Click <strong>OK</strong> to draw the contours.</p></li>
+</ol>
+<p>For each level <code class="docutils literal notranslate"><span class="pre">N</span></code> in your list, a contour line is drawn at
+<code class="docutils literal notranslate"><span class="pre">median</span> <span class="pre">+</span> <span class="pre">N</span> <span class="pre">×</span> <span class="pre">std</span></code>, where <code class="docutils literal notranslate"><span class="pre">median</span></code> and <code class="docutils literal notranslate"><span class="pre">std</span></code> are from the
+background statistics.</p>
+<a class="reference internal image-reference" href="../_images/2d_contours_panel.png"><img alt="The Contours action panel with all contour-related buttons" class="align-center" src="../_images/2d_contours_panel.png" style="width: 30%;" />
+</a>
+<p>The result is a contour overlay on the chosen panel:</p>
+<a class="reference internal image-reference" href="../_images/2d_contour_overlay.png"><img alt="Image with contour overlay at multiple sigma levels" class="align-center" src="../_images/2d_contour_overlay.png" style="width: 55%;" />
+</a>
+</section>
+<section id="cross-image-contours-wcs-matched">
+<h3><a class="toc-backref" href="#id18" role="doc-backlink">Cross-image contours (WCS-matched)</a><a class="headerlink" href="#cross-image-contours-wcs-matched" title="Link to this heading"></a></h3>
+<p>When you generate contours from a different panel’s image, the contour
+vertices are transformed through both images’ WCS so they land at the
+correct sky coordinates on the destination panel. This works even when
+the two images have:</p>
+<ul class="simple">
+<li><p>Different pixel scales</p></li>
+<li><p>Different array sizes</p></li>
+<li><p>Different orientations</p></li>
+</ul>
+<p>Select <strong>Other Slice (Match WCS)</strong> as the “Generate contour FROM”
+source:</p>
+<a class="reference internal image-reference" href="../_images/2d_contour_dialog_cross.png"><img alt="Plot WCS Contour dialog set to generate contours from the other panel" class="align-center" src="../_images/2d_contour_dialog_cross.png" style="width: 50%;" />
+</a>
+<p>The contours then match across both panels via WCS:</p>
+<a class="reference internal image-reference" href="../_images/2d_cross_contour.png"><img alt="Both panels showing WCS-matched contours of the same source" class="align-center" src="../_images/2d_cross_contour.png" style="width: 100%;" />
+</a>
+</section>
+<section id="stacking-and-clearing">
+<h3><a class="toc-backref" href="#id19" role="doc-backlink">Stacking and clearing</a><a class="headerlink" href="#stacking-and-clearing" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Multiple <strong>Plot Contour</strong> runs add contour sets on top of each other —
+for example, draw 3σ in white, then 10σ in red.</p></li>
+<li><p>Click <strong>Clear Contours</strong> to remove all contour overlays from a panel.</p></li>
+</ul>
+</section>
+</section>
+<section id="contour-export-import">
+<h2><a class="toc-backref" href="#id20" role="doc-backlink">Contour Export / Import</a><a class="headerlink" href="#contour-export-import" title="Link to this heading"></a></h2>
+<p>Once you have a set of contours you like, you can persist them in two
+formats: a human-readable text file or a binary FITS mask.</p>
+<section id="save-contour-as-txt">
+<h3><a class="toc-backref" href="#id21" role="doc-backlink">Save contour as .txt</a><a class="headerlink" href="#save-contour-as-txt" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Click <strong>Save Contour Mask</strong> → choose the source panel → enter a
+filename.</p></li>
+<li><p>Output is a comma-separated ASCII file:</p></li>
+</ul>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># IFU Analyzer 2D - Contour Export
+# level, x_pixel, y_pixel, RA_deg, Dec_deg
+3.000000e+00, 42.1234, 18.7654, 67.90591, 18.20682
+3.000000e+00, 42.5234, 18.6754, 67.90585, 18.20680
+...
+</pre></div>
+</div>
+<p>Each row is one vertex on a contour path. The sigma level is the first
+column. Pixel coordinates and RA/Dec are included so the file can be
+used by any external tool.</p>
+</section>
+<section id="load-saved-contour">
+<h3><a class="toc-backref" href="#id22" role="doc-backlink">Load saved contour</a><a class="headerlink" href="#load-saved-contour" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Click <strong>Load Saved Contour</strong> → pick a binary FITS mask file.</p></li>
+<li><p>Choose the destination panel.</p></li>
+<li><p>The mask is reprojected onto the panel’s pixel grid via WCS coordinate
+mapping and drawn as an overlay.</p></li>
+</ul>
+</section>
+<section id="save-contour-mask-as-fits">
+<h3><a class="toc-backref" href="#id23" role="doc-backlink">Save contour mask as FITS</a><a class="headerlink" href="#save-contour-mask-as-fits" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Exports a binary 0/1 <code class="docutils literal notranslate"><span class="pre">uint8</span></code> FITS image with the WCS header of the
+source panel.</p></li>
+<li><p>Use this when you need to feed the contour as a mask into another
+analysis tool.</p></li>
+</ul>
+</section>
+</section>
+<section id="wcs-superimpose">
+<h2><a class="toc-backref" href="#id24" role="doc-backlink">WCS Superimpose</a><a class="headerlink" href="#wcs-superimpose" title="Link to this heading"></a></h2>
+<p>Overlay two images that have different WCS grids — different pixel
+scale, array size, orientation, or pointing — onto a single panel.</p>
+<section id="procedure">
+<h3><a class="toc-backref" href="#id25" role="doc-backlink">Procedure</a><a class="headerlink" href="#procedure" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Load one image in the Left panel and another in the Right panel.</p></li>
+<li><p>Click <strong>Superimpose WCS</strong>.</p></li>
+<li><p>Choose:</p>
+<ul class="simple">
+<li><p>The <strong>background panel</strong> (this becomes the reference grid)</p></li>
+<li><p>The <strong>overlay colormap</strong></p></li>
+<li><p>The overlay <strong>alpha</strong> (transparency, 0.1–1.0; ~0.5 is a good
+starting point)</p></li>
+</ul>
+</li>
+<li><p>The viewer reprojects the overlay image onto the background image’s
+pixel grid using the project’s built-in WCS coordinate transform
+pipeline (no external <code class="docutils literal notranslate"><span class="pre">reproject</span></code> package required). Bicubic
+interpolation (<code class="docutils literal notranslate"><span class="pre">order=3</span></code>) is used with NaN-aware masking.</p></li>
+</ol>
+</section>
+<section id="alignment-diagnostic">
+<h3><a class="toc-backref" href="#id26" role="doc-backlink">Alignment diagnostic</a><a class="headerlink" href="#alignment-diagnostic" title="Link to this heading"></a></h3>
+<p>After superimposing, the terminal prints the <strong>peak separation</strong> — the
+angular distance between the brightest pixels of the two images, in
+arcseconds. Use this to confirm the WCS headers agree:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&lt;</span> <span class="pre">0.5</span> <span class="pre">px</span></code> → good alignment</p></li>
+<li><p>Large separation → WCS header discrepancy (check <code class="docutils literal notranslate"><span class="pre">EQUINOX</span></code>,
+<code class="docutils literal notranslate"><span class="pre">CRPIX</span></code>, the CD matrix, etc.)</p></li>
+</ul>
+</section>
+</section>
+<section id="slides-convolute-pairwise-resolution-matching">
+<h2><a class="toc-backref" href="#id27" role="doc-backlink">Slides Convolute — pairwise resolution matching</a><a class="headerlink" href="#slides-convolute-pairwise-resolution-matching" title="Link to this heading"></a></h2>
+<p>Match the resolution of two images so they can be compared pixel-by-pixel.
+This is the standard step before any multi-instrument flux comparison
+(e.g. MIRI vs NIRSpec H₂ intensity).</p>
+<section id="id1">
+<h3><a class="toc-backref" href="#id28" role="doc-backlink">Procedure</a><a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Load both images into the Left and Right panels.</p></li>
+<li><p>Click <strong>Slides Convolute</strong>.</p></li>
+<li><p>A confirmation dialog shows:</p>
+<ul class="simple">
+<li><p>Which image will be convolved (the finer one)</p></li>
+<li><p>The Gaussian kernel σ in arcsec and in fine-image pixels</p></li>
+<li><p>The output grid dimensions</p></li>
+</ul>
+</li>
+<li><p>Click <strong>Yes</strong> to run.</p></li>
+<li><p>Choose a save path — the convolved image is written as a 2-HDU FITS
+(image + <code class="docutils literal notranslate"><span class="pre">COVERAGE</span></code> extension).</p></li>
+<li><p>The success dialog shows a flux audit: <code class="docutils literal notranslate"><span class="pre">Ratio</span> <span class="pre">out/in</span> <span class="pre">:</span> <span class="pre">1.000000</span></code>
+confirms exact flux conservation.</p></li>
+</ol>
+</section>
+<section id="id2">
+<h3><a class="toc-backref" href="#id29" role="doc-backlink">What happens internally</a><a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
+<p>The tool automatically identifies the finer image and convolves it up to
+the coarser pixel scale:</p>
+<ul class="simple">
+<li><p><strong>Kernel width</strong> is derived by quadrature subtraction:
+<code class="docutils literal notranslate"><span class="pre">σ</span> <span class="pre">=</span> <span class="pre">√(σ_target²</span> <span class="pre">−</span> <span class="pre">σ_input²)</span> <span class="pre">/</span> <span class="pre">2.3548</span></code> (in fine-image pixels).</p></li>
+<li><p><strong>Convolution</strong> uses <code class="docutils literal notranslate"><span class="pre">astropy.convolution.convolve_fft</span></code> with
+<code class="docutils literal notranslate"><span class="pre">nan_treatment='interpolate'</span></code> (NaN pixels — e.g. IFU footprint
+borders — are handled without propagating gaps),
+<code class="docutils literal notranslate"><span class="pre">normalize_kernel=True</span></code> (kernel sum is unity, so surface brightness
+is preserved per pixel), and NaN-padding of width <code class="docutils literal notranslate"><span class="pre">⌈4σ⌉</span></code> before the
+FFT so kernel tails stay inside the domain.</p></li>
+<li><p>A final flux renormalisation guarantees
+<code class="docutils literal notranslate"><span class="pre">Σ(output_finite)</span> <span class="pre">==</span> <span class="pre">Σ(input_finite)</span></code> to machine precision
+(~10⁻⁷ relative error).</p></li>
+<li><p>The convolved image is then reprojected onto a new pixel grid at the
+coarse pixel scale using a flux-conserving spherical-polygon
+intersection algorithm (equivalent to <code class="docutils literal notranslate"><span class="pre">reproject_exact</span></code> —
+self-implemented; no external <code class="docutils literal notranslate"><span class="pre">reproject</span></code> dependency).</p></li>
+<li><p>Output shape is sized to fully contain the fine image’s original FOV
+so no sky coverage is lost.</p></li>
+</ul>
+</section>
+<section id="guards-and-edge-cases">
+<h3><a class="toc-backref" href="#id30" role="doc-backlink">Guards and edge cases</a><a class="headerlink" href="#guards-and-edge-cases" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Same-resolution guard:</strong> if both panels have the same pixel scale
+(within 0.0001 arcsec/px), Slides Convolute shows a “nothing to do”
+message instead of running. This prevents repeated unnecessary
+convolutions.</p></li>
+<li><p><strong>No-overlap guard:</strong> if the two images cover completely different
+sky regions, the viewer warns “No Sky Overlap” and refuses to run.
+Load images of the same field.</p></li>
+<li><p><strong>Empty-result postcheck:</strong> if the inputs technically overlap but the
+full-coverage output region is empty (e.g. very thin edge-only
+overlap), the viewer warns and does not save an all-NaN result.</p></li>
+</ul>
+</section>
+</section>
+<section id="batch-convolution-multi-image-resolution-matching">
+<h2><a class="toc-backref" href="#id31" role="doc-backlink">Batch Convolution — multi-image resolution matching</a><a class="headerlink" href="#batch-convolution-multi-image-resolution-matching" title="Link to this heading"></a></h2>
+<p>Bring any number of images to a single common resolution and FOV in one
+step.</p>
+<section id="id3">
+<h3><a class="toc-backref" href="#id32" role="doc-backlink">Procedure</a><a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<ol class="arabic simple">
+<li><p>Click <strong>Batch Convolution</strong> to open the batch dialog.</p></li>
+<li><p>Use <strong>+ Add FITS Files</strong> to add two or more 2D FITS files. Any mix
+of instruments, pixel scales, and orientations is allowed.</p></li>
+<li><p>Click <strong>Process &amp; Download ZIP</strong>.</p></li>
+<li><p>Choose a save path for the output <code class="docutils literal notranslate"><span class="pre">.zip</span></code> file.</p></li>
+</ol>
+<p>The dialog prevents you from launching when the inputs cover disjoint
+sky regions — a “No Sky Overlap” warning lists which file pairs don’t
+share sky, so you can remove the off-field file before retrying.</p>
+<a class="reference internal image-reference" href="../_images/2d_batch_convolution_dialog.png"><img alt="The Batch Match Resolution dialog with several FITS files added" class="align-center" src="../_images/2d_batch_convolution_dialog.png" style="width: 50%;" />
+</a>
+</section>
+<section id="id4">
+<h3><a class="toc-backref" href="#id33" role="doc-backlink">What happens internally</a><a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<p>The tool:</p>
+<ol class="arabic simple">
+<li><p>Identifies the <strong>worst (coarsest) pixel scale</strong> among all inputs —
+this becomes the target scale.</p></li>
+<li><p>Identifies the <strong>largest-area image</strong> (most sky coverage) to define
+the output orientation and centre.</p></li>
+<li><p>Builds a single common output WCS at the worst scale, sized to cover
+the <strong>union of all input footprints</strong> — no image loses sky coverage.</p></li>
+<li><p>For each input, applies the appropriate Gaussian kernel (σ from
+quadrature) and reprojects onto the common grid.</p></li>
+<li><p>Images already at the worst scale receive <code class="docutils literal notranslate"><span class="pre">σ</span> <span class="pre">=</span> <span class="pre">0</span></code> (no smoothing;
+only a reproject if needed).</p></li>
+</ol>
+</section>
+<section id="output">
+<h3><a class="toc-backref" href="#id34" role="doc-backlink">Output</a><a class="headerlink" href="#output" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>All outputs are packed into a <code class="docutils literal notranslate"><span class="pre">.zip</span></code> archive — one FITS per input,
+all on the same WCS grid, ready for pixel-by-pixel comparison.</p></li>
+<li><p>Each output FITS includes the <code class="docutils literal notranslate"><span class="pre">COVERAGE</span></code> extension (per-pixel
+overlap fraction 0–1).</p></li>
+<li><p>The completion dialog shows a flux audit table — every row should
+read <code class="docutils literal notranslate"><span class="pre">ratio</span> <span class="pre">=</span> <span class="pre">1.000000</span></code>. Any large deviation indicates a corrupted
+WCS header in the corresponding input.</p></li>
+<li><p>Files that produced an all-NaN frame appear in the audit table with
+<code class="docutils literal notranslate"><span class="pre">[EMPTY]</span></code> next to their name; they’re skipped in the ZIP so the
+rest of the batch is still useful.</p></li>
+</ul>
+</section>
+</section>
+<section id="region-selection">
+<h2><a class="toc-backref" href="#id35" role="doc-backlink">Region Selection</a><a class="headerlink" href="#region-selection" title="Link to this heading"></a></h2>
+<p>The 2D Viewer supports the same region tools as the main cube viewer:</p>
+<ul class="simple">
+<li><p><strong>Point</strong> — single-pixel readout</p></li>
+<li><p><strong>Rectangle</strong> — axis-aligned box</p></li>
+<li><p><strong>Circle</strong> — fixed-aspect-ratio ellipse</p></li>
+<li><p><strong>Ellipse</strong> — independently adjustable major and minor axes</p></li>
+<li><p><strong>Custom polygon</strong> — click to add vertices, double-click to close</p></li>
+</ul>
+<p>Once a region is drawn on either panel, statistics appear in the image
+stats panel: min, max, mean, sum, std for the pixels enclosed by the
+region. Region handles are interactive — drag to move, drag corners to
+resize.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

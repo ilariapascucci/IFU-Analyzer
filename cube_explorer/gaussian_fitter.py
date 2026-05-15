@@ -1485,11 +1485,24 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             # Skip pixels with too many NaNs or masked values (prevents R² calculation warnings)
             finite_mask = np.isfinite(y_corrected)
             n_finite = np.count_nonzero(finite_mask)
-            
+
+            if n_finite == 0:
+                # Completely outside the FOV (all-NaN spectrum) — leave every output as NaN.
+                # Do NOT assign an upper-limit area here; the noise estimate would rely on the
+                # safe_nanstd fallback (1.0), which is an entirely artificial number.
+                continue
+
             if n_finite < 5:
-                # Insufficient data: assign upper limit without fitting
+                # Some data but insufficient for a full fit — assign an upper limit.
                 # (prevents meaningless R² computations on near-empty spectra)
-                std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else safe_nanstd(y_data, fallback=1.0)
+                # Use fallback=None so safe_nanstd signals "no estimate" when y_data has
+                # fewer than 2 finite values (n_finite == 1).  In that case there is no
+                # real noise measurement available and we must not invent one.
+                std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else safe_nanstd(y_data, fallback=None)
+                if std_temp is None or not np.isfinite(std_temp):
+                    # Cannot compute a real noise estimate — pixel has no usable data,
+                    # leave every output NaN (treat as outside FOV).
+                    continue
                 upper_limit_amplitude = fac_above_stdres * std_temp
                 upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
                 if header is not None:

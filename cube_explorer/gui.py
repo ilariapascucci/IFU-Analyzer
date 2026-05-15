@@ -94,27 +94,25 @@ class CollapsibleButtonGroup(QWidget):
         # Main horizontal layout
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(2)  # Small spacing between toggle and buttons
+        self.main_layout.setSpacing(0)  # Tighter spacing
         
-        # Toggle button (always visible) - blue with white text
+        # Toggle button (always visible)
         self.toggle_btn = QPushButton(f"▶ {title}")
         self.toggle_btn.setCheckable(True)
-        self.toggle_btn.setFixedHeight(28)
-        self.toggle_btn.setFixedWidth(145)  # Fixed width for all buttons
+        self.toggle_btn.setFixedWidth(150)  # Wider to fit "Continuum Tools"
         self.toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
                 color: white;
-                border: 1px solid #2d73c5;
-                border-radius: 3px;
-                padding: 5px 12px;
+                border: none;
+                border-radius: 4px;
+                padding: 6px;
                 font-weight: bold;
                 text-align: left;
                 font-size: 11px;
             }
             QPushButton:hover {
                 background-color: #357abd;
-                border: 1px solid #2d73c5;
             }
             QPushButton:checked {
                 background-color: #2d73c5;
@@ -126,8 +124,8 @@ class CollapsibleButtonGroup(QWidget):
         # Container for child buttons (collapsible)
         self.button_container = QFrame()
         self.button_layout = QHBoxLayout(self.button_container)
-        self.button_layout.setContentsMargins(0, 0, 0, 0)
-        self.button_layout.setSpacing(0)  # Tight spacing
+        self.button_layout.setContentsMargins(2, 0, 0, 0)
+        self.button_layout.setSpacing(2)  # Buttons closer together
         
         # Initially hidden
         self.button_container.setMaximumWidth(0)
@@ -567,17 +565,27 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
         self.auto_continuum_toggle.setCheckable(True)
         self.custom_continuum_toggle.setCheckable(True)
-        
-        # Apply toggle-button styling for state feedback
-        toggle_checked_style = """
+
+        # Style for toggle buttons
+        toggle_style = """
+            QPushButton {
+                background-color: #e0e0e0;
+                border: 2px solid #888;
+                border-radius: 4px;
+                padding: 6px;
+                font-weight: bold;
+            }
             QPushButton:checked {
                 background-color: #4a90e2;
                 color: white;
-                border: 1px solid #2d73c5;
+                border: 2px solid #2d73c5;
+            }
+            QPushButton:hover {
+                border: 2px solid #4a90e2;
             }
         """
-        self.auto_continuum_toggle.setStyleSheet(toggle_checked_style)
-        self.custom_continuum_toggle.setStyleSheet(toggle_checked_style)
+        self.auto_continuum_toggle.setStyleSheet(toggle_style)
+        self.custom_continuum_toggle.setStyleSheet(toggle_style)
 
         # Action buttons (initially hidden)
         self.continuum_line_btn = QPushButton("Continuum Line")
@@ -586,8 +594,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.custom_delete_btn = QPushButton("Delete Point")
         self.custom_ok_btn = QPushButton("OK")
 
-        self.save_spectrum_btn = QPushButton("Save Spectrum")
-        self.save_continuum_btn = QPushButton("Save Continuum")
+        self.custom_save_pts_btn = QPushButton("Save Points")
+        self.custom_load_pts_btn = QPushButton("Load Points")
+
+        self.custom_save_pts_btn.setToolTip("Save custom continuum points to a .txt file")
+        self.custom_load_pts_btn.setToolTip("Load custom continuum points from a .txt file")
+
+        self.save_results_btn = QPushButton("Save Results")
 
         # Make action buttons checkable
         self.continuum_line_btn.setCheckable(True)
@@ -604,12 +617,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
         self.custom_delete_btn.clicked.connect(self._on_custom_delete_toggled)
         self.custom_ok_btn.clicked.connect(self.on_custom_ok_clicked)
+        self.custom_save_pts_btn.clicked.connect(self._save_custom_points)
+        self.custom_load_pts_btn.clicked.connect(self._load_custom_points)
 
         # Hide all action buttons initially
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
         self.custom_ok_btn.hide()
+        self.custom_save_pts_btn.hide()
+        self.custom_load_pts_btn.hide()
 
         # Tooltips
         self.auto_continuum_toggle.setToolTip("Toggle automatic continuum fitting mode")
@@ -647,8 +664,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
         self.multi_gauss_fit_btn.clicked.connect(self._fit_multi_gaussian)
         self.co_flux_map_btn.clicked.connect(self._extract_co_flux_map)
-        self.save_spectrum_btn.clicked.connect(self._save_spectrum_ascii)
-        self.save_continuum_btn.clicked.connect(self._save_continuum_ascii)
+        self.save_results_btn.clicked.connect(self._save_results_ascii)
         self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
         
         # Set tooltips for all buttons
@@ -659,8 +675,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.gauss_peak_btn.setToolTip("Click on spectrum to set peak center of Gaussian fit")
         self.gauss_right_btn.setToolTip("Click on spectrum to set right boundary of Gaussian fit")
         self.gauss_fit_btn.setToolTip("Fit a Gaussian to the selected line")
-        self.save_spectrum_btn.setToolTip("Save the current spectrum to an ASCII file")
-        self.save_continuum_btn.setToolTip("Save the fitted continuum to an ASCII file")
+        self.save_results_btn.setToolTip(
+            "Save wavelength, original spectrum, fitted continuum, "
+            "and continuum-subtracted spectrum to a single ASCII file."
+        )
         self.continuum_line_btn.setToolTip("Toggle continuum subtraction mode")
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
@@ -939,9 +957,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.continuum_action_layout.addWidget(self.subtract_continuum_btn)
         self.continuum_action_layout.addWidget(self.custom_subtract_btn)
         self.continuum_action_layout.addWidget(self.custom_delete_btn)
+        self.continuum_action_layout.addWidget(self.custom_save_pts_btn)
+        self.continuum_action_layout.addWidget(self.custom_load_pts_btn)
         self.continuum_action_layout.addWidget(self.custom_ok_btn)
-        self.continuum_action_layout.addWidget(self.save_spectrum_btn)
-        self.continuum_action_layout.addWidget(self.save_continuum_btn)
+        self.continuum_action_layout.addWidget(self.save_results_btn)
         self.continuum_action_layout.addStretch()
         main_layout.addLayout(self.continuum_action_layout)
 
@@ -1227,8 +1246,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         """Triggered when user confirms wavelength range (OK button - currently not visible)"""
         # Read min/max wavelength
         try:
-            min_wave = self.min_wave_input.value()
-            max_wave = self.max_wave_input.value()
+            min_wave = float(self.min_wave_input.text())
+            max_wave = float(self.max_wave_input.text())
         except ValueError:
             QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
             return
@@ -1246,8 +1265,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
 
     def on_span_selected(self, xmin, xmax):
-        self.min_wave_input.setValue(xmin)
-        self.max_wave_input.setValue(xmax)
+        self.min_wave_input.setText(f"{xmin:.3f}")
+        self.max_wave_input.setText(f"{xmax:.3f}")
 
     def _display_slice(self, idx, target):
         """Display a wavelength/velocity slice with proper title and intensity units"""
@@ -2523,8 +2542,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         try:
             # Get wavelength range from GUI inputs
             try:
-                wavelength_min = self.min_wave_input.value()
-                wavelength_max = self.max_wave_input.value()
+                wavelength_min = float(self.min_wave_input.text())
+                wavelength_max = float(self.max_wave_input.text())
             except ValueError:
                 QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
                 return
@@ -2596,7 +2615,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             # Filter by transition level based on molecule (molecule-specific logic)
             if filter_quantum:
                 filtered_results = []
-                
+
                 if molecule.upper() == 'CO' or molecule.upper() == 'H2':
                     # CO transition filtering
                     v_upper, ok = QInputDialog.getInt(
@@ -2622,7 +2641,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                     )
                     if not ok:
                         return
-                    
+
                     # CO uses regex: r'v=(\d+)->(\d+)' to extract and match vibrational levels
                     for line in results:
                         transition = line.get('transition', '')
@@ -2638,15 +2657,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                                 filtered_results.append(line)
                         else:
                             filtered_results.append(line)
-                    
+
                     if not filtered_results:
                         QMessageBox.information(
-                            self, 
-                            "No Matches", 
+                            self,
+                            "No Matches",
                             f"No HITRAN lines found with v={v_upper}->{v_lower} transition."
                         )
                         return
-                
+
                 elif molecule.upper() == 'H2O':
                     # H2O transition filtering
                     h2o_upper_text, ok = QInputDialog.getText(
@@ -2668,22 +2687,22 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                     )
                     if not ok or not h2o_lower_text:
                         return
-                    
+
                     # H2O uses simple string matching: "0 3 0->0 1 0"
                     h2o_pattern = f"{h2o_upper_text}->{h2o_lower_text}"
                     for line in results:
                         transition = line.get('transition', '')
                         if transition and h2o_pattern in transition:
                             filtered_results.append(line)
-                    
+
                     if not filtered_results:
                         QMessageBox.information(
-                            self, 
-                            "No Matches", 
+                            self,
+                            "No Matches",
                             f"No H₂O lines found matching {h2o_pattern} transition."
                         )
                         return
-                
+
                 elif molecule.upper() == 'OH':
                     # OH transition filtering
                     oh_upper_text, ok = QInputDialog.getText(
@@ -2705,28 +2724,28 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                     )
                     if not ok or not oh_lower_text:
                         return
-                    
+
                     # OH uses simple string matching: "X1/2   3->X3/2   2"
                     oh_pattern = f"{oh_upper_text}->{oh_lower_text}"
                     for line in results:
                         transition = line.get('transition', '')
                         if transition and oh_pattern in transition:
                             filtered_results.append(line)
-                    
+
                     if not filtered_results:
                         QMessageBox.information(
-                            self, 
-                            "No Matches", 
+                            self,
+                            "No Matches",
                             f"No OH lines found matching {oh_pattern} transition."
                         )
                         return
-                
+
                 results = filtered_results
 
             # Mark HITRAN lines with source
             for line in results:
                 line['source'] = 'HITRAN'
-            
+
             # Store HITRAN lines
             self.hitran_lines = results
 
@@ -2825,113 +2844,77 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         # Also clear Gaussian fit visualization
         self.clear_gaussian_fit()
 
-    def _save_spectrum_ascii(self):
-        """Save the current spectrum displayed in the bottom panel to ASCII file"""
-        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
-            QMessageBox.warning(self, "No Data", "No spectrum loaded to save.")
-            return
-        
-        if _extract_wavelength_value(self.spec_plotter.wavelength) is None:
-            QMessageBox.warning(self, "No Data", "No wavelength data available.")
-            return
-        
-        # Get the current spectrum data (use current plotted spectrum)
-        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-        
-        # Use current spectrum from plotter
-        spectrum = self.spec_plotter.current_spectrum if hasattr(self.spec_plotter, 'current_spectrum') else self.cube_data.spectrum
-        spectrum_type = "original"
-        
-        # Open file dialog
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, 
-            "Save Spectrum as ASCII",
-            "spectrum.txt",
-            "Text files (*.txt);;CSV files (*.csv);;All files (*)"
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            # Prepare header
-            wave_unit = self.cube_data.wave_unit if hasattr(self.cube_data, 'wave_unit') else "Unknown"
-            instrument = self.cube_data.instrument if hasattr(self.cube_data, 'instrument') else "Unknown"
-            
-            # Write ASCII file with header
-            with open(file_path, 'w') as f:
-                f.write(f"# Spectrum Export from Cube Explorer\n")
-                f.write(f"# Instrument: {instrument}\n")
-                f.write(f"# Type: {spectrum_type}\n")
-                f.write(f"# Wavelength unit: {wave_unit}\n")
-                f.write(f"# Flux unit: {self.cube_data.header.get('BUNIT', 'Unknown') if hasattr(self.cube_data, 'header') else 'Unknown'}\n")
-                f.write(f"#\n")
-                f.write(f"# Wavelength ({wave_unit})\tFlux\n")
-                
-                # Write data
-                for w, s in zip(wavelength, spectrum):
-                    f.write(f"{w:.6e}\t{s:.6e}\n")
-            
-            QMessageBox.information(self, "Success", f"Spectrum saved to:\n{file_path}")
-            print(f"Spectrum saved to {file_path}")
-        
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save spectrum:\n{str(e)}")
-            print(f"Error saving spectrum: {e}")
+    def _save_results_ascii(self):
+        """Save the full continuum-subtraction result to an ASCII file.
 
-    def _save_continuum_ascii(self):
-        """Save the fitted continuum to an ASCII file"""
-        # Ensure a continuum has actually been fitted
-        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
-            QMessageBox.warning(self, "No Data", "No continuum has been fitted yet. Please fit a continuum first.")
-            return
-
+        Columns: wavelength, original_spectrum, fitted_continuum, subtracted
+        Missing columns (e.g. no continuum fitted) are written as NaN.
+        """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             QMessageBox.warning(self, "No Data", "No spectrum loaded.")
             return
-        
+
         wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
         if wavelength is None:
             QMessageBox.warning(self, "No Data", "No wavelength data available.")
             return
-        
-        # Open file dialog
+
+        # Original spectrum = the pre-subtraction values.  If a subtraction
+        # has been applied, the backup holds the original; otherwise the
+        # cube's current spectrum IS the original.
+        if getattr(self, 'original_spectrum_backup', None) is not None:
+            original = self.original_spectrum_backup
+        else:
+            original = self.cube_data.spectrum if hasattr(self, 'cube_data') and self.cube_data is not None else None
+
+        if original is None:
+            QMessageBox.warning(self, "No Data", "No spectrum to save.")
+            return
+
+        # Continuum may not exist if the user never fitted one.
+        if hasattr(self, 'continuum_fitted') and self.continuum_fitted is not None:
+            continuum = self.continuum_fitted
+        else:
+            continuum = np.full_like(original, np.nan, dtype=float)
+
+        # Subtracted column = original - continuum, where the continuum is
+        # finite.  Where the continuum is NaN, the subtracted result is NaN.
+        subtracted = np.where(
+            np.isfinite(continuum), original - continuum, np.nan
+        )
+
         file_path, _ = QFileDialog.getSaveFileName(
-            self, 
-            "Save Continuum as ASCII",
-            "continuum.txt",
+            self,
+            "Save Results as ASCII",
+            "results.txt",
             "Text files (*.txt);;CSV files (*.csv);;All files (*)"
         )
-        
         if not file_path:
             return
-        
+
         try:
-            # Prepare header
             wave_unit = self.cube_data.wave_unit if hasattr(self.cube_data, 'wave_unit') else "Unknown"
+            flux_unit = (self.cube_data.header.get('BUNIT', 'Unknown')
+                         if hasattr(self.cube_data, 'header') else 'Unknown')
             instrument = self.cube_data.instrument if hasattr(self.cube_data, 'instrument') else "Unknown"
-            
-            # Write ASCII file with header
+
             with open(file_path, 'w') as f:
-                f.write(f"# Continuum Export from Cube Explorer\n")
+                f.write("# Results Export from Cube Explorer\n")
                 f.write(f"# Instrument: {instrument}\n")
-                f.write(f"# Type: fitted_continuum\n")
+                f.write("# Type: full_results\n")
                 f.write(f"# Wavelength unit: {wave_unit}\n")
-                f.write(f"# Flux unit: {self.cube_data.header.get('BUNIT', 'Unknown') if hasattr(self.cube_data, 'header') else 'Unknown'}\n")
-                f.write(f"#\n")
-                f.write(f"# Wavelength ({wave_unit})\tContinuum Flux\n")
-                
-                # Write data (skipping any NaN values)
-                for w, c in zip(wavelength, self.continuum_fitted):
-                    if np.isfinite(c):
-                        f.write(f"{w:.6e}\t{c:.6e}\n")
-            
-            QMessageBox.information(self, "Success", f"Continuum saved to:\n{file_path}")
-            print(f"Continuum saved to {file_path}")
-        
+                f.write(f"# Flux unit: {flux_unit}\n")
+                f.write("#\n")
+                f.write(f"# Wavelength ({wave_unit})\tOriginal\tContinuum\tSubtracted\n")
+                for w, o, c, s in zip(wavelength, original, continuum, subtracted):
+                    f.write(f"{w:.6e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\n")
+
+            QMessageBox.information(self, "Success", f"Results saved to:\n{file_path}")
+            print(f"Results saved to {file_path}")
+
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save continuum:\n{str(e)}")
-            print(f"Error saving continuum: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save results:\n{e}")
+            print(f"Error saving results: {e}")
 
     def open_2d_window(self):
         try:

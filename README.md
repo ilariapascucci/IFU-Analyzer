@@ -79,6 +79,41 @@ A standalone side-by-side viewer for 2D intensity maps, moment maps, and derived
 - Built-in peak separation diagnostic prints angular offset between the two image peaks to terminal — confirms alignment accuracy
 - Uses bicubic interpolation (`order=3`) with NaN-aware masking for accurate spatial alignment
 
+#### Resolution Matching — Slides Convolute (Left/Right)
+
+Match a pair of images to a common spatial resolution — the standard step before any multi-instrument flux comparison.
+
+- Load two FITS images of different pixel scales into the Left and Right panels
+- Click **Slides Convolute** to open the confirmation dialog
+- The tool automatically determines which image is finer and which is coarser, then convolves the **finer** image up to the **coarser** pixel scale using a Gaussian kernel
+- Kernel width: derived from quadrature subtraction `σ = √(σ_target² − σ_input²) / 2.3548`, expressed in fine-image pixels
+- Convolution uses `astropy.convolution.convolve_fft` with:
+  - `nan_treatment='interpolate'` — NaN pixels (e.g. IFU footprint borders) are handled correctly without propagating gaps
+  - `normalize_kernel=True` — kernel sum is unity so surface brightness is preserved per pixel
+  - NaN-padding of width `⌈4σ⌉` before the FFT, so kernel tails stay inside the domain
+  - Final flux renormalisation: `Σ(output_finite) == Σ(input_finite)` to machine precision (~1e-7 relative error)
+- After smoothing, the convolved image is reprojected onto a new pixel grid at the coarse pixel scale using a flux-conserving spherical-polygon-intersection algorithm (equivalent to `reproject_exact` — self-implemented, no external `reproject` dependency)
+- Output shape is sized to fully contain the fine image's original FOV (no sky coverage is lost)
+- **Same-resolution guard:** if both panels have the same pixel scale (within 0.0001 arcsec/px), clicking Slides Convolute shows a "nothing to do" message instead of running — preventing repeated unnecessary convolutions
+- Output is saved as a 2-HDU FITS: image + `COVERAGE` extension (per-pixel overlap fraction 0–1)
+- The save dialog shows a flux audit: `Ratio out/in : 1.000000` confirms exact flux conservation
+
+#### Resolution Matching — Batch Convolution
+
+Bring any number of multi-instrument images to a single common resolution and FOV in one step.
+
+- Click **Batch Convolution** to open the batch dialog
+- Use **+ Add FITS Files** to add two or more 2D FITS files (any mix of instruments, pixel scales, orientations)
+- The tool:
+  1. Identifies the **worst (coarsest) pixel scale** among all inputs — this becomes the target scale
+  2. Identifies the **largest-area image** (most sky coverage) to define the output orientation and centre
+  3. Builds a single common output WCS at the worst scale, sized to cover the **union of all input footprints** — no image loses sky coverage
+  4. For each input, applies the appropriate Gaussian kernel (σ from quadrature) and reprojects onto the common grid
+  5. Images already at the worst scale receive σ = 0 (no smoothing; only a reproject if needed)
+- All outputs are packed into a `.zip` file — one FITS per input, all on the same WCS grid, ready for pixel-by-pixel comparison
+- Each output FITS includes the `COVERAGE` extension
+- The completion dialog shows a flux audit table (`ratio = 1.000000` per file)
+
 #### Region Selection
 
 - Point, rectangle, circle, ellipse, and custom polygon tools
@@ -130,6 +165,8 @@ A standalone side-by-side viewer for 2D intensity maps, moment maps, and derived
   - Automatic method selection: ordinary least-squares (`scipy.curve_fit`) when all points are detections; PyMC Bayesian censored regression when one or more upper limits are present
   - Emitting radius and distance inputs (AU / pc) for column-density normalization
   - Results dialog reports fitted temperature(s) and column densities
+  - **Save Results:** one-click export of wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum to a single ASCII file (see Export Capabilities below)
+  - **Re-fit safety:** every continuum fit, in either mode, operates on the original spectrum — repeat fits and subtractions are stable and reproducible, never compounding
 
 ### Data Processing
 
@@ -148,7 +185,7 @@ A standalone side-by-side viewer for 2D intensity maps, moment maps, and derived
 
 ### Export Capabilities
 
-- **ASCII Spectrum Export:** Save displayed spectrum (normalized or original) as tab-delimited text
+- **Continuum Results Export (ASCII):** single **Save Results** button writes a four-column file — wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum — in tab-delimited format. Missing columns (e.g. no continuum fitted yet) are written as `NaN`. The `# Type: full_results` header identifies the file format.
 - **Residuals FITS Export:** Export 3D normalized residuals cube with full header metadata
 - **CO Flux Maps:** Export full-cube fitting results with integrated flux estimates
 - **Contour Coordinates (.txt):** Export contour path vertices with pixel + RA/Dec positions and sigma level labels
@@ -156,6 +193,235 @@ A standalone side-by-side viewer for 2D intensity maps, moment maps, and derived
 - **Rotated Image (FITS):** Save rotated image with updated WCS header
 - Automatic instrument detection and header preservation
 - Unit-aware exports with CGS calibration support
+
+- **Convolved Image (FITS):** Save resolution-matched image (Slides Convolute output) with 2-HDU layout (image + COVERAGE)
+- **Batch Convolution ZIP:** Zip archive of all resolution-matched FITS files on a common WCS grid
+- Automatic instrument detection and header preservation
+- Unit-aware exports with CGS calibration support
+
+---
+
+## Command-Line Interface (clip.py)
+
+`clip.py` exposes the core analysis pipeline as a standalone CLI — useful for scripting, batch jobs, or headless server workflows where the GUI is not available.
+
+### Setup
+
+```bash
+# Run from the project root (one level above cube_explorer/)
+python clip.py <command> [options]
+```
+
+> **Note:** `clip.py` must be placed **outside** the `cube_explorer/` folder so that the relative `cube_explorer.data_loader` import resolves correctly.
+
+---
+
+### Commands
+
+#### `auto-continuum` — Automatic Continuum Detection and Export
+
+Automatically fits a continuum baseline to the cube's integrated spectrum using median filtering, peak detection, and iterative sigma clipping, then saves the fitted curve as a text file.
+
+```bash
+python clip.py auto-continuum -i <cube.fits> [-p window sigma width distance exclusion iters smoothing]
+```
+
+| Flag              | Description                                      | Default            |
+| ----------------- | ------------------------------------------------ | ------------------ |
+| `-i` / `--input`  | Path to input FITS cube                          | _(required)_       |
+| `-p` / `--params` | Space-separated algorithm parameters (see below) | `51 2.0 1 3 3 2 5` |
+
+**Parameters (in order):**
+
+| Position | Name        | Meaning                                          | Default |
+| -------- | ----------- | ------------------------------------------------ | ------- |
+| 1        | `window`    | Median filter window size (channels)             | `51`    |
+| 2        | `sigma`     | Peak detection threshold (× RMS)                 | `2.0`   |
+| 3        | `width`     | Minimum peak width (channels)                    | `1`     |
+| 4        | `distance`  | Minimum distance between peaks (channels)        | `3`     |
+| 5        | `exclusion` | Channels to mask on each side of a detected peak | `3`     |
+| 6        | `iters`     | Sigma-clipping iterations                        | `2`     |
+| 7        | `smoothing` | Spline smoothing factor                          | `5`     |
+
+**Algorithm:**
+
+1. Apply median filter of width `window` as a first-pass continuum estimate
+2. Detect emission peaks above `sigma × RMS` using `scipy.signal.find_peaks`
+3. Mask `exclusion` channels on each side of every detected peak
+4. Interpolate over masked regions, then re-apply median filter
+5. Iteratively sigma-clip outliers for `iters` passes
+6. Fit a smoothing `UnivariateSpline` (k=3) to the cleaned continuum
+7. Prompt for output filename → saves `<name>.txt` with columns: `Wavelength  Continuum_Fit`
+
+**Examples:**
+
+```bash
+# Default parameters
+python clip.py auto-continuum -i data/miri_cube.fits
+
+# Custom parameters: larger window, tighter sigma, more exclusion
+python clip.py auto-continuum -i data/miri_cube.fits -p 75 1.5 2 5 5 3 8
+```
+
+---
+
+#### `custom-continuum` — Continuum from User-Supplied Points
+
+Fits a Cubic Spline through a set of user-defined wavelength/flux anchor points and subtracts the result from the spectrum.
+
+```bash
+python clip.py custom-continuum -i <cube.fits> -p <points.csv>
+```
+
+| Flag              | Description                               |
+| ----------------- | ----------------------------------------- |
+| `-i` / `--input`  | Path to input FITS cube                   |
+| `-p` / `--points` | Path to CSV file containing anchor points |
+
+**Points file format** — comma-separated, one point per line, no header:
+
+```
+3.5e-6,0.012
+4.0e-6,0.015
+4.8e-6,0.011
+```
+
+The spline is fit with `bc_type='natural'` and evaluated at every wavelength channel. The output is the continuum-subtracted spectrum, saved as `<name>.txt` with columns: `Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result`.
+
+**Example:**
+
+```bash
+python clip.py custom-continuum -i data/muse_cube.fits -p my_points.csv
+```
+
+---
+
+#### `subtract-continuum` — Subtract a Continuum from a Spectrum
+
+Subtracts either a constant offset, a previously exported fitted-continuum file, or a raw-points file from the cube's spectrum.
+
+```bash
+python clip.py subtract-continuum -i <cube.fits> -c <value_or_file>
+```
+
+| Flag                 | Description                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `-i` / `--input`     | Path to input FITS cube                                                                    |
+| `-c` / `--continuum` | Numeric constant, path to a fitted-continuum `.txt`, or path to a raw-points `.txt`/`.csv` |
+
+**Three modes, auto-detected from the `-c` argument:**
+
+| Mode                      | How detected                                         | Behaviour                                                                         |
+| ------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **Constant**              | `-c` is a plain number, e.g. `0.05`                  | Subtracts the constant from every channel                                         |
+| **Fitted continuum file** | File contains `# Type: fitted_continuum` header line | Interpolates the saved curve onto the current wavelength grid and subtracts       |
+| **Raw points file**       | File has no recognised header                        | Parses comma-separated `(wavelength, flux)` pairs, fits a Cubic Spline, subtracts |
+
+Output file columns: `Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result`
+
+**Examples:**
+
+```bash
+# Constant baseline
+python clip.py subtract-continuum -i data/alma_cube.fits -c 0.03
+
+# Re-use a previously fitted continuum
+python clip.py subtract-continuum -i data/alma_cube.fits -c continuum_export.txt
+
+# Subtract from raw anchor points
+python clip.py subtract-continuum -i data/nirspec_cube.fits -c my_baseline_points.csv
+```
+
+---
+
+#### `2d-rotate` — Rotate a 2D FITS Image
+
+Rotates a 2D FITS image by an arbitrary angle and updates the WCS CD matrix so RA/Dec coordinates remain accurate after rotation.
+
+```bash
+python clip.py 2d-rotate -i <image.fits> -a <angle_degrees>
+```
+
+| Flag             | Description                                              |
+| ---------------- | -------------------------------------------------------- |
+| `-i` / `--input` | Path to input 2D FITS file                               |
+| `-a` / `--angle` | Rotation angle in degrees (positive = counter-clockwise) |
+
+**What happens internally:**
+
+- `scipy.ndimage.rotate` with `reshape=True` and `cval=NaN` (empty border pixels are NaN, not zero)
+- The CD matrix is updated: `CD_new = CD_orig × R⁻¹`, where `R` is the 2D rotation matrix for `-angle`
+- `CRPIX` is not changed — the reference pixel stays at the same sky coordinate
+
+The CLI prompts for an output filename and saves `<name>.fits`.
+
+**Example:**
+
+```bash
+python clip.py 2d-rotate -i data/miri_intensity.fits -a 45
+# Prompted: Enter filename to save ROTATED FITS: rotated_45deg
+# → saves rotated_45deg.fits
+```
+
+---
+
+#### `2d-contour` — Extract Contour Coordinates from a 2D FITS Image
+
+Generates contour lines at user-specified sigma levels, computes RA/Dec for every contour vertex using the image WCS, and saves the result as a text file.
+
+```bash
+python clip.py 2d-contour -i <image.fits> -l <level1> [level2 ...]
+```
+
+| Flag              | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| `-i` / `--input`  | Path to input 2D FITS file                      |
+| `-l` / `--levels` | One or more sigma multipliers (space-separated) |
+
+**Level definition:**
+
+- Background median and RMS are estimated with Astropy `sigma_clipped_stats` (3σ clipping)
+- Each level `N` draws a contour at `median + N × RMS`
+
+**Output file format** — comma-separated:
+
+```
+# IFU Analyzer 2D - Contour Export
+# level, x_pixel, y_pixel, RA_deg, Dec_deg
+3.000000e+00, 42.1234, 18.7654, 67.90591, 18.20682
+...
+```
+
+The CLI prompts for an output filename and saves `<name>.txt`.
+
+**Examples:**
+
+```bash
+# Single level
+python clip.py 2d-contour -i data/moment0.fits -l 3
+
+# Multiple levels
+python clip.py 2d-contour -i data/moment0.fits -l 3 5 10 20
+
+# High-significance contours only
+python clip.py 2d-contour -i data/miri_intensity.fits -l 5 10 30 50
+```
+
+---
+
+### Output File Formats
+
+All CLI commands that produce spectra save tab- or comma-delimited `.txt` files with commented headers. Files exported by the CLI are fully compatible with the GUI's **subtract-continuum** import — a continuum file exported from `auto-continuum` can be fed directly to `subtract-continuum -c`.
+
+| Command              | Output columns                                                |
+| -------------------- | ------------------------------------------------------------- |
+| `auto-continuum`     | `Wavelength  Continuum_Fit`                                   |
+| `custom-continuum`   | `Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result` |
+| `subtract-continuum` | `Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result` |
+| `2d-rotate`          | FITS file                                                     |
+| `2d-contour`         | `level, x_pixel, y_pixel, RA_deg, Dec_deg`                    |
+
+---
 
 ## Installation
 
@@ -307,6 +573,21 @@ python main.py
    - The overlay image is reprojected onto the background WCS grid using built-in WCS coordinate transforms and blended
    - Terminal prints peak separation in arcsec to confirm alignment accuracy
 
+   **Slides Convolute (resolution matching, two images):**
+   - Load two images of different pixel scales into the Left and Right panels
+   - Click **Slides Convolute**
+   - A confirmation dialog shows: which image will be convolved, the Gaussian kernel σ, and the output grid dimensions
+   - Click Yes to run — output FITS is saved with a 2-HDU layout (image + COVERAGE)
+   - The success dialog shows a flux audit: `Ratio out/in : 1.000000`
+   - If both panels already have the same pixel scale, a message explains that no convolution is needed
+
+   **Batch Convolution (resolution matching, multiple files):**
+   - Click **Batch Convolution**
+   - Click **+ Add FITS Files** to select two or more 2D FITS files
+   - Click **Process & Download ZIP**
+   - Choose a save path for the output `.zip` file
+   - All outputs share the same WCS grid (worst pixel scale, union FOV), ready for comparison
+
 ### CO Rovibrational Flux Mapping
 
 7. Extract CO flux from full data cube:
@@ -334,11 +615,7 @@ python main.py
 9. Export results:
    - **Spectrum:** Click "Save Spectrum" below spectrum plot
    - **Continuum:** Click "Save Continuum" to export the fitted baseline
-   - **Residuals:** Select "Residuals" in Gaussian map results → "Export Residuals Cube"
-   - **CO Flux Maps:** Export flux estimates with units conversion (CGS)
-   - **Contour .txt:** Pixel + RA/Dec coordinates of all contour vertices
-   - **Contour FITS mask:** Binary 0/1 mask with WCS header
-   - **Rotated FITS:** Rotated image with corrected WCS header
+
 
 ### Additional Features
 
@@ -364,33 +641,34 @@ python main.py
 ```
 IFU-Analyzer/
 ├── main.py                     # Application entry point
+├── clip.py                     # Command-line interface (CLI)
+├── analyzer.py                 # Core analysis wrapper
 ├── cube_explorer/
-│ ├── __init__.py
-│ ├── api.py                    # Non-GUI programmatic API (scripts/notebooks)
-│ ├── gui.py                    # Main GUI (2900+ lines)
-│ ├── gui_continuum.py          # Continuum subtraction mixin (auto + custom modes)
-│ ├── gui_gaussian.py           # Gaussian fitting mixin
-│ ├── gui_coflux.py             # CO flux mapping mixin
-│ ├── gui_rotational_diagram.py # H2 rotational diagram analyzer window
-│ ├── ifu_analyzer_2d.py        # 2D FITS dual viewer (WCS, rotation, contours, superimpose)
-│ ├── data_loader.py            # FITS loading & instrument detection
-│ ├── gaussian_fitter.py        # Gaussian fitting algorithms
-│ ├── co_flux_extractor.py      # CO rovibrational flux mapping
-│ ├── rotational_diagram_fitter.py # H2 rotational-temperature fitting (1T/2T, PyMC censored regression)
-│ ├── visualization.py          # Plotting and rendering functions
-│ ├── region_selector.py        # Interactive region selection tools
-│ ├── pixel_diagnostics.py      # Pixel-level fit inspection dialog
-│ ├── colormap_dialog.py        # Colormap customization
-│ ├── continuum_dialog.py       # Automatic continuum fitting parameter dialog
-│ ├── custom_continuum.py       # Interactive custom continuum point selector
-│ ├── co_flux_dialogs.py        # CO flux mapping configuration dialogs
-│ ├── gaussian_dialogs.py       # Gaussian fitting dialogs
-│ ├── species_dialog.py         # Spectral line species selection
-│ ├── line_catalog.py           # Line identification and HITRAN integration
-│ ├── unit_converter.py         # Wavelength/frequency and unit conversion
-│ └── utils.py                  # Utility functions
+│   ├── __init__.py
+│   ├── gui.py                  # Main GUI (2500+ lines)
+│   ├── gui_continuum.py        # Continuum subtraction mixin (auto + custom modes)
+│   ├── gui_gaussian.py         # Gaussian fitting mixin
+│   ├── gui_coflux.py           # CO flux mapping mixin
+│   ├── ifu_analyzer_2d.py      # 2D FITS dual viewer (WCS, rotation, contours, superimpose, resolution matching)
+│   ├── data_loader.py          # FITS loading & instrument detection
+│   ├── gaussian_fitter.py      # Gaussian fitting algorithms
+│   ├── co_flux_extractor.py    # CO rovibrational flux mapping
+│   ├── visualization.py        # Plotting and rendering functions
+│   ├── region_selector.py      # Interactive region selection tools
+│   ├── pixel_diagnostics.py    # Pixel-level fit inspection dialog
+│   ├── colormap_dialog.py      # Colormap customization
+│   ├── continuum_dialog.py     # Automatic continuum fitting parameter dialog
+│   ├── custom_continuum.py     # Interactive custom continuum point selector
+│   ├── co_flux_dialogs.py      # CO flux mapping configuration dialogs
+│   ├── gaussian_dialogs.py     # Gaussian fitting dialogs
+│   ├── species_dialog.py       # Spectral line species selection
+│   ├── line_catalog.py         # Line identification and HITRAN integration
+│   ├── unit_converter.py       # Wavelength/frequency and unit conversion
+│   └── utils.py                # Utility functions
 └── data/                       # (Optional) Sample FITS files
 ```
+
+---
 
 ## Troubleshooting
 
@@ -419,16 +697,36 @@ IFU-Analyzer/
    - Check terminal for `DEBUG superimpose: Peak separation` — should be < 0.5 px
    - Large separation indicates a WCS header discrepancy between the two files
 
-6. **Gaussian Fitting Issues:**
+6. **Slides Convolute / Batch Convolution Issues:**
+   - If the output sum differs noticeably from the input, check that both files have a valid `CDELT` or CD matrix in their headers — the pixel scale is required to compute the kernel size
+   - The flux audit dialog (`Ratio out/in`) should always read `1.000000`; any large deviation indicates a corrupted WCS header
+   - "Same resolution" message is expected when both panels have identical pixel scales — no action needed
+   - "No Sky Overlap" warning means the two images cover disjoint sky regions; load images of the same field. In Batch mode the warning lists which file pairs don't share sky so you can remove the off-field file before retrying
+
+7. **Continuum Subtraction Issues:**
+   - Every fit, in either Automatic or Custom mode, is applied to the original spectrum — you can refit and re-subtract repeatedly without compounding errors
+   - "No Continuum" message means you clicked Subtract before fitting; click "Continuum Line" (or place at least 3 custom points and click OK) first
+   - "Too Few Points" in Custom mode means you tried to fit with fewer than 3 anchor points; a cubic spline needs at least 3
+   - For very noisy spectra, increase the Median Filter Window Size to 101 and the Sigma Threshold to 3.0
+
+8. **Gaussian Fitting Issues:**
    - Ensure adequate wavelength range selected (>4 points)
    - Check for positive peaks after baseline subtraction
    - "x0 is infeasible" errors are automatically handled with bounds clamping
    - Low success rate may indicate noise-dominated regions
 
-7. **Performance Issues:**
+9. **Performance Issues:**
    - Gaussian mapping optimized to ~10-30 seconds for typical cubes
    - Large cubes (>100k pixels) may take 1-2 minutes
    - Background processing prevents GUI freezing
+   - Batch Convolution on many large images may take a few minutes per file (reprojection is pixel-exact)
+
+10. **CLI (clip.py) Issues:**
+    - Run `clip.py` from the project root, not from inside `cube_explorer/`
+    - If you see `ImportError: Could not import CubeData`, move `clip.py` one directory level up
+    - The `--params` flag for `auto-continuum` expects all seven values in order: `window sigma width distance exclusion iters smoothing`
+
+---
 
 ## Contributing
 

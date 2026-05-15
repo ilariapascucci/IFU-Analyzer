@@ -11,6 +11,7 @@ It creates Figure objects that can be embedded in Qt GUIs or saved to disk.
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm, PowerNorm, Normalize
 from astropy.units import Quantity
