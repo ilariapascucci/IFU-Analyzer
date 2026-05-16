@@ -57,12 +57,17 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Command-Line Interface</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#setup">Setup</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#commands">Commands</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#auto-continuum-automatic-continuum-detection-and-export"><code class="docutils literal notranslate"><span class="pre">auto-continuum</span></code> — Automatic continuum detection and export</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#custom-continuum-continuum-from-user-supplied-points"><code class="docutils literal notranslate"><span class="pre">custom-continuum</span></code> — Continuum from user-supplied points</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#subtract-continuum-subtract-a-continuum-from-a-spectrum"><code class="docutils literal notranslate"><span class="pre">subtract-continuum</span></code> — Subtract a continuum from a spectrum</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#d-rotate-rotate-a-2d-fits-image"><code class="docutils literal notranslate"><span class="pre">2d-rotate</span></code> — Rotate a 2D FITS image</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#d-contour-extract-contour-coordinates-from-a-2d-fits-image"><code class="docutils literal notranslate"><span class="pre">2d-contour</span></code> — Extract contour coordinates from a 2D FITS image</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#output-formats-quick-reference">Output Formats — quick reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#auto-continuum">auto-continuum</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#custom-continuum">custom-continuum</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#subtract-continuum">subtract-continuum</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#d-rotate">2d-rotate</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#d-contour">2d-contour</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#using-the-cli-from-jupyter">Using the CLI from Jupyter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#jupyter-notebook-issues">Jupyter notebook issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cli-issues">CLI issues</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -104,43 +109,30 @@
              
   <section id="command-line-interface">
 <h1>Command-Line Interface<a class="headerlink" href="#command-line-interface" title="Link to this heading"></a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">clip.py</span></code> exposes the core IFU Analyzer pipeline as a standalone CLI —
-useful for scripting, batch jobs, or headless server workflows where the
-GUI is not available.</p>
-<nav class="contents local" id="contents">
-<ul class="simple">
-<li><p><a class="reference internal" href="#setup" id="id1">Setup</a></p></li>
-<li><p><a class="reference internal" href="#commands" id="id2">Commands</a></p></li>
-<li><p><a class="reference internal" href="#auto-continuum-automatic-continuum-detection-and-export" id="id3"><code class="docutils literal notranslate"><span class="pre">auto-continuum</span></code> — Automatic continuum detection and export</a></p></li>
-<li><p><a class="reference internal" href="#custom-continuum-continuum-from-user-supplied-points" id="id4"><code class="docutils literal notranslate"><span class="pre">custom-continuum</span></code> — Continuum from user-supplied points</a></p></li>
-<li><p><a class="reference internal" href="#subtract-continuum-subtract-a-continuum-from-a-spectrum" id="id5"><code class="docutils literal notranslate"><span class="pre">subtract-continuum</span></code> — Subtract a continuum from a spectrum</a></p></li>
-<li><p><a class="reference internal" href="#d-rotate-rotate-a-2d-fits-image" id="id6"><code class="docutils literal notranslate"><span class="pre">2d-rotate</span></code> — Rotate a 2D FITS image</a></p></li>
-<li><p><a class="reference internal" href="#d-contour-extract-contour-coordinates-from-a-2d-fits-image" id="id7"><code class="docutils literal notranslate"><span class="pre">2d-contour</span></code> — Extract contour coordinates from a 2D FITS image</a></p></li>
-<li><p><a class="reference internal" href="#output-formats-quick-reference" id="id8">Output Formats — quick reference</a></p></li>
-</ul>
-</nav>
+<p><code class="docutils literal notranslate"><span class="pre">clip.py</span></code> exposes the core IFU Analyzer pipeline as a standalone
+command-line tool. It is useful for scripting, batch jobs, headless
+servers, and Jupyter workflows where the GUI is not available.</p>
+<p>The same code paths used by the GUI are exposed here, so the CLI and
+the GUI are guaranteed to produce identical results given identical
+inputs.</p>
 <section id="setup">
-<h2><a class="toc-backref" href="#id1" role="doc-backlink">Setup</a><a class="headerlink" href="#setup" title="Link to this heading"></a></h2>
-<p>Run <code class="docutils literal notranslate"><span class="pre">clip.py</span></code> from the <strong>project root</strong>, one level above
+<h2>Setup<a class="headerlink" href="#setup" title="Link to this heading"></a></h2>
+<p>Run <code class="docutils literal notranslate"><span class="pre">clip.py</span></code> from the project root, one level above
 <code class="docutils literal notranslate"><span class="pre">cube_explorer/</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>&lt;command&gt;<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
 </pre></div>
 </div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">clip.py</span></code> must be placed <strong>outside</strong> the <code class="docutils literal notranslate"><span class="pre">cube_explorer/</span></code> folder so
-that the <code class="docutils literal notranslate"><span class="pre">cube_explorer.data_loader</span></code> import resolves correctly. If
-you see <code class="docutils literal notranslate"><span class="pre">ImportError:</span> <span class="pre">Could</span> <span class="pre">not</span> <span class="pre">import</span> <span class="pre">CubeData</span></code>, move <code class="docutils literal notranslate"><span class="pre">clip.py</span></code>
-one directory level up.</p>
-</div>
+<p>If you see <code class="docutils literal notranslate"><span class="pre">ImportError:</span> <span class="pre">Could</span> <span class="pre">not</span> <span class="pre">import</span> <span class="pre">CubeData</span></code>, move <code class="docutils literal notranslate"><span class="pre">clip.py</span></code>
+one directory level up so it sits next to <code class="docutils literal notranslate"><span class="pre">main.py</span></code>.</p>
 </section>
 <section id="commands">
-<h2><a class="toc-backref" href="#id2" role="doc-backlink">Commands</a><a class="headerlink" href="#commands" title="Link to this heading"></a></h2>
-<p>There are five CLI subcommands:</p>
+<h2>Commands<a class="headerlink" href="#commands" title="Link to this heading"></a></h2>
+<p>Five subcommands are available. Click any of them to jump to its full
+reference page.</p>
 <table class="docutils align-default">
 <colgroup>
-<col style="width: 25.0%" />
-<col style="width: 75.0%" />
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Command</p></th>
@@ -148,400 +140,400 @@ one directory level up.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><a class="reference internal" href="#cli-auto-continuum"><span class="std std-ref">auto-continuum — Automatic continuum detection and export</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#cli-auto-continuum"><span class="std std-ref">auto-continuum</span></a></p></td>
 <td><p>Automatic continuum detection and export</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#cli-custom-continuum"><span class="std std-ref">custom-continuum — Continuum from user-supplied points</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cli-custom-continuum"><span class="std std-ref">custom-continuum</span></a></p></td>
 <td><p>Continuum fit from user-supplied anchor points</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#cli-subtract-continuum"><span class="std std-ref">subtract-continuum — Subtract a continuum from a spectrum</span></a></p></td>
-<td><p>Subtract a continuum (constant, fitted curve, or anchor points)</p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#cli-subtract-continuum"><span class="std std-ref">subtract-continuum</span></a></p></td>
+<td><p>Subtract a continuum (constant, fitted file, or anchor points)</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#cli-2d-rotate"><span class="std std-ref">2d-rotate — Rotate a 2D FITS image</span></a></p></td>
-<td><p>Rotate a 2D FITS image with WCS update</p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cli-2d-rotate"><span class="std std-ref">2d-rotate</span></a></p></td>
+<td><p>Rotate a 2D FITS image, updating the WCS</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#cli-2d-contour"><span class="std std-ref">2d-contour — Extract contour coordinates from a 2D FITS image</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#cli-2d-contour"><span class="std std-ref">2d-contour</span></a></p></td>
 <td><p>Extract contour coordinates from a 2D FITS image</p></td>
 </tr>
 </tbody>
 </table>
 </section>
-<section id="auto-continuum-automatic-continuum-detection-and-export">
-<span id="cli-auto-continuum"></span><h2><a class="toc-backref" href="#id3" role="doc-backlink"><code class="docutils literal notranslate"><span class="pre">auto-continuum</span></code> — Automatic continuum detection and export</a><a class="headerlink" href="#auto-continuum-automatic-continuum-detection-and-export" title="Link to this heading"></a></h2>
-<p>Automatically fits a continuum baseline to the cube’s integrated spectrum
-using median filtering, peak detection, and iterative sigma clipping,
-then saves the fitted curve as a text file.</p>
+<section id="auto-continuum">
+<span id="cli-auto-continuum"></span><h2>auto-continuum<a class="headerlink" href="#auto-continuum" title="Link to this heading"></a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>auto-continuum<span class="w"> </span>-i<span class="w"> </span>&lt;cube.fits&gt;<span class="w"> </span><span class="o">[</span>-p<span class="w"> </span>window<span class="w"> </span>sigma<span class="w"> </span>width<span class="w"> </span>distance<span class="w"> </span>exclusion<span class="w"> </span>iters<span class="w"> </span>smoothing<span class="o">]</span>
 </pre></div>
 </div>
-<p><strong>Flags</strong></p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 22.0%" />
-<col style="width: 55.0%" />
-<col style="width: 23.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Flag</p></th>
-<th class="head"><p>Description</p></th>
-<th class="head"><p>Default</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-i</span></code> / <code class="docutils literal notranslate"><span class="pre">--input</span></code></p></td>
-<td><p>Path to input FITS cube</p></td>
-<td><p><em>(required)</em></p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-p</span></code> / <code class="docutils literal notranslate"><span class="pre">--params</span></code></p></td>
-<td><p>Space-separated algorithm parameters (see below)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">51</span> <span class="pre">2.0</span> <span class="pre">1</span> <span class="pre">3</span> <span class="pre">3</span> <span class="pre">2</span> <span class="pre">5</span></code></p></td>
-</tr>
-</tbody>
-</table>
-<p><strong>Parameters (in order)</strong></p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 8.0%" />
-<col style="width: 14.0%" />
-<col style="width: 60.0%" />
-<col style="width: 18.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Position</p></th>
-<th class="head"><p>Name</p></th>
-<th class="head"><p>Meaning</p></th>
-<th class="head"><p>Default</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>1</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">window</span></code></p></td>
-<td><p>Median-filter window size (channels)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">51</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p>2</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">sigma</span></code></p></td>
-<td><p>Peak-detection threshold (× RMS)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">2.0</span></code></p></td>
-</tr>
-<tr class="row-even"><td><p>3</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">width</span></code></p></td>
-<td><p>Minimum peak width (channels)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p>4</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">distance</span></code></p></td>
-<td><p>Minimum distance between peaks (channels)</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">3</span></code></p></td>
-</tr>
-<tr class="row-even"><td><p>5</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">exclusion</span></code></p></td>
-<td><p>Channels to mask on each side of a detected peak</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">3</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p>6</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">iters</span></code></p></td>
-<td><p>Sigma-clipping iterations</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
-</tr>
-<tr class="row-even"><td><p>7</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">smoothing</span></code></p></td>
-<td><p>Spline smoothing factor</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
-</tr>
-</tbody>
-</table>
-<p><strong>Algorithm</strong></p>
+<p>Automatically fit the continuum baseline of a cube’s integrated spectrum
+using median filtering, peak detection, iterative sigma clipping, and
+spline smoothing. The fitted continuum is saved to a tab-delimited
+ASCII file with header <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">fitted_continuum</span></code>, ready to be fed
+back into <a class="reference internal" href="#cli-subtract-continuum"><span class="std std-ref">subtract-continuum</span></a>.</p>
+<p>The algorithm runs in four steps:</p>
 <ol class="arabic simple">
-<li><p>Apply a median filter of width <code class="docutils literal notranslate"><span class="pre">window</span></code> as a first-pass continuum
-estimate.</p></li>
-<li><p>Detect emission peaks above <code class="docutils literal notranslate"><span class="pre">sigma</span> <span class="pre">×</span> <span class="pre">RMS</span></code> using
-<code class="docutils literal notranslate"><span class="pre">scipy.signal.find_peaks</span></code>.</p></li>
-<li><p>Mask <code class="docutils literal notranslate"><span class="pre">exclusion</span></code> channels on each side of every detected peak.</p></li>
-<li><p>Interpolate over masked regions, then re-apply the median filter.</p></li>
-<li><p>Iteratively sigma-clip outliers for <code class="docutils literal notranslate"><span class="pre">iters</span></code> passes.</p></li>
-<li><p>Fit a smoothing <code class="docutils literal notranslate"><span class="pre">UnivariateSpline</span></code> (k=3) to the cleaned continuum.</p></li>
-<li><p>Prompt for an output filename → save <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.txt</span></code> with columns
-<code class="docutils literal notranslate"><span class="pre">Wavelength</span>&#160; <span class="pre">Continuum_Fit</span></code>.</p></li>
+<li><p><strong>Median filtering</strong> of width <code class="docutils literal notranslate"><span class="pre">window</span></code> produces a first-pass
+continuum estimate.</p></li>
+<li><p><strong>Peak detection</strong> finds emission/absorption features above
+<code class="docutils literal notranslate"><span class="pre">sigma</span> <span class="pre">×</span> <span class="pre">RMS</span></code> using <code class="docutils literal notranslate"><span class="pre">scipy.signal.find_peaks</span></code> with the given
+<code class="docutils literal notranslate"><span class="pre">width</span></code> and <code class="docutils literal notranslate"><span class="pre">distance</span></code> constraints.</p></li>
+<li><p><strong>Iterative sigma clipping</strong> removes outliers above the running
+continuum estimate for <code class="docutils literal notranslate"><span class="pre">iters</span></code> passes.</p></li>
+<li><p><strong>Spline smoothing</strong> fits a cubic <code class="docutils literal notranslate"><span class="pre">UnivariateSpline</span></code> to the
+cleaned continuum with smoothing parameter
+<code class="docutils literal notranslate"><span class="pre">s</span> <span class="pre">=</span> <span class="pre">N</span> <span class="pre">/</span> <span class="pre">smoothing_factor</span></code>.</p></li>
 </ol>
-<p><strong>Output file format</strong></p>
-<p>Tab-delimited two-column ASCII with a comment header:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Type: fitted_continuum
-# Wavelength  Continuum_Fit
-3.0000e-06   1.2345e-02
-3.0010e-06   1.2347e-02
+<p>After fitting, you are prompted for an output filename. The file is
+written as <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.txt</span></code> in the current directory.</p>
+<dl class="field-list">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><dl class="simple">
+<dt><strong>-i, –input</strong><span class="classifier">str</span></dt><dd><p>Path to the input FITS cube. Required.</p>
+</dd>
+<dt><strong>-p, –params</strong><span class="classifier">list of 7 numbers, optional</span></dt><dd><p>Algorithm parameters in this exact order:
+<code class="docutils literal notranslate"><span class="pre">window</span> <span class="pre">sigma</span> <span class="pre">width</span> <span class="pre">distance</span> <span class="pre">exclusion</span> <span class="pre">iters</span> <span class="pre">smoothing</span></code>.
+Defaults to <code class="docutils literal notranslate"><span class="pre">51</span> <span class="pre">2.0</span> <span class="pre">1</span> <span class="pre">3</span> <span class="pre">3</span> <span class="pre">2</span> <span class="pre">5</span></code> if omitted.</p>
+<ul class="simple">
+<li><p><strong>window</strong> (int, default 51) — Median-filter window size in channels.
+Larger values produce a smoother baseline but may miss fine
+structure. Must be odd. Typical range 21–101.</p></li>
+<li><p><strong>sigma</strong> (float, default 2.0) — Peak-detection threshold in
+units of the RMS. Lower values detect weaker lines. Use 1.5 for
+clean data, 2.0 for typical, 3.0 for noisy.</p></li>
+<li><p><strong>width</strong> (int, default 1) — Minimum width in channels for a
+feature to count as a peak. Filters out single-channel spikes.</p></li>
+<li><p><strong>distance</strong> (int, default 3) — Minimum separation in channels
+between detected peaks.</p></li>
+<li><p><strong>exclusion</strong> (int, default 3) — Channels masked on each side of
+every detected peak before the final fit. Use larger values for
+broad lines.</p></li>
+<li><p><strong>iters</strong> (int, default 2) — Number of sigma-clipping passes
+after the first fit.</p></li>
+<li><p><strong>smoothing</strong> (int, default 5) — Spline smoothing factor.
+Smoothness scales as <code class="docutils literal notranslate"><span class="pre">s</span> <span class="pre">=</span> <span class="pre">N</span> <span class="pre">/</span> <span class="pre">smoothing_factor</span></code>. Lower →
+closer fit to the data; higher → smoother curve.</p></li>
+</ul>
+</dd>
+</dl>
+</dd>
+<dt class="field-even">Output file format<span class="colon">:</span></dt>
+<dd class="field-even"><p>Tab-delimited ASCII with a comment header:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Export from IFU-Analyzer CLI
+# Instrument: MIRI
+# Type: fitted_continuum
+# Wavelength unit: micron
+# Flux unit: MJy/sr
+#
+# Wavelength (micron)   Continuum_Fit
+6.530400e+00            1.420169e+06
+6.531200e+00            1.448846e+06
 ...
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">fitted_continuum</span></code> line lets <a class="reference internal" href="#cli-subtract-continuum"><span class="std std-ref">subtract-continuum — Subtract a continuum from a spectrum</span></a>
-re-import the file later.</p>
-<p><strong>Examples</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Default parameters</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>auto-continuum<span class="w"> </span>-i<span class="w"> </span>data/miri_cube.fits
-
-<span class="c1"># Custom parameters: larger window, tighter sigma, more exclusion</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>auto-continuum<span class="w"> </span>-i<span class="w"> </span>data/miri_cube.fits<span class="w"> </span>-p<span class="w"> </span><span class="m">75</span><span class="w"> </span><span class="m">1</span>.5<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="m">8</span>
+<p>The <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">fitted_continuum</span></code> line lets
+<a class="reference internal" href="#cli-subtract-continuum"><span class="std std-ref">subtract-continuum</span></a> auto-detect this format on re-import.</p>
+</dd>
+<dt class="field-odd">Examples<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Default parameters:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>auto-continuum<span class="w"> </span>-i<span class="w"> </span>data/miri_cube.fits
 </pre></div>
 </div>
+<p>Custom parameters — larger window, tighter sigma, more exclusion:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>auto-continuum<span class="w"> </span>-i<span class="w"> </span>data/miri_cube.fits<span class="w"> </span>-p<span class="w"> </span><span class="m">75</span><span class="w"> </span><span class="m">1</span>.5<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="m">8</span>
+</pre></div>
+</div>
+</dd>
+</dl>
 </section>
-<section id="custom-continuum-continuum-from-user-supplied-points">
-<span id="cli-custom-continuum"></span><h2><a class="toc-backref" href="#id4" role="doc-backlink"><code class="docutils literal notranslate"><span class="pre">custom-continuum</span></code> — Continuum from user-supplied points</a><a class="headerlink" href="#custom-continuum-continuum-from-user-supplied-points" title="Link to this heading"></a></h2>
-<p>Fits a Cubic Spline through a set of user-defined wavelength/flux anchor
-points and subtracts the result from the spectrum.</p>
+<section id="custom-continuum">
+<span id="cli-custom-continuum"></span><h2>custom-continuum<a class="headerlink" href="#custom-continuum" title="Link to this heading"></a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>custom-continuum<span class="w"> </span>-i<span class="w"> </span>&lt;cube.fits&gt;<span class="w"> </span>-p<span class="w"> </span>&lt;points.csv&gt;
 </pre></div>
 </div>
-<p><strong>Flags</strong></p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 22.0%" />
-<col style="width: 78.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Flag</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-i</span></code> / <code class="docutils literal notranslate"><span class="pre">--input</span></code></p></td>
-<td><p>Path to input FITS cube</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-p</span></code> / <code class="docutils literal notranslate"><span class="pre">--points</span></code></p></td>
-<td><p>Path to CSV file containing anchor points</p></td>
-</tr>
-</tbody>
-</table>
-<p><strong>Points file format</strong></p>
-<p>Comma-separated, one point per line, no header:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>3.5e-6,0.012
+<p>Fit a cubic spline through user-supplied wavelength/flux anchor points,
+then subtract the result from the spectrum. The output is a 4-column
+ASCII file in <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">full_results</span></code> format — identical to the GUI’s
+<code class="docutils literal notranslate"><span class="pre">Save</span> <span class="pre">Results</span></code> button.</p>
+<dl class="field-list">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><dl class="simple">
+<dt><strong>-i, –input</strong><span class="classifier">str</span></dt><dd><p>Path to the input FITS cube. Required.</p>
+</dd>
+<dt><strong>-p, –points</strong><span class="classifier">str</span></dt><dd><p>Path to a CSV file of anchor points, one per line, comma-separated,
+no header. Required.</p>
+</dd>
+</dl>
+</dd>
+<dt class="field-even">Points file format<span class="colon">:</span></dt>
+<dd class="field-even"><div class="highlight-text notranslate"><div class="highlight"><pre><span></span>3.5e-6,0.012
 4.0e-6,0.015
 4.8e-6,0.011
 </pre></div>
 </div>
 <p>The spline is fit with <code class="docutils literal notranslate"><span class="pre">bc_type='natural'</span></code> and evaluated at every
 wavelength channel.</p>
-<p><strong>Output file format</strong></p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result
-3.0000e-06   1.4567e-02     1.2345e-02     2.2220e-03
+</dd>
+<dt class="field-odd">Output file format<span class="colon">:</span></dt>
+<dd class="field-odd"><div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Type: full_results
+# Wavelength (micron)   Original    Continuum    Subtracted
+6.530400e+00            1.420169e+06   1.450957e+06   -3.078756e+04
 ...
 </pre></div>
 </div>
-<p><strong>Example</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>custom-continuum<span class="w"> </span>-i<span class="w"> </span>data/muse_cube.fits<span class="w"> </span>-p<span class="w"> </span>my_points.csv
+</dd>
+<dt class="field-even">Example<span class="colon">:</span></dt>
+<dd class="field-even"><div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>custom-continuum<span class="w"> </span>-i<span class="w"> </span>data/muse_cube.fits<span class="w"> </span>-p<span class="w"> </span>my_points.csv
 </pre></div>
 </div>
+</dd>
+</dl>
 </section>
-<section id="subtract-continuum-subtract-a-continuum-from-a-spectrum">
-<span id="cli-subtract-continuum"></span><h2><a class="toc-backref" href="#id5" role="doc-backlink"><code class="docutils literal notranslate"><span class="pre">subtract-continuum</span></code> — Subtract a continuum from a spectrum</a><a class="headerlink" href="#subtract-continuum-subtract-a-continuum-from-a-spectrum" title="Link to this heading"></a></h2>
-<p>Subtracts either a constant offset, a previously exported fitted-continuum
-file, or a raw-points file from the cube’s spectrum.</p>
+<section id="subtract-continuum">
+<span id="cli-subtract-continuum"></span><h2>subtract-continuum<a class="headerlink" href="#subtract-continuum" title="Link to this heading"></a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>&lt;cube.fits&gt;<span class="w"> </span>-c<span class="w"> </span>&lt;value_or_file&gt;
 </pre></div>
 </div>
-<p><strong>Flags</strong></p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 25.0%" />
-<col style="width: 75.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Flag</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-i</span></code> / <code class="docutils literal notranslate"><span class="pre">--input</span></code></p></td>
-<td><p>Path to input FITS cube</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-c</span></code> / <code class="docutils literal notranslate"><span class="pre">--continuum</span></code></p></td>
-<td><p>Numeric constant, path to a fitted-continuum <code class="docutils literal notranslate"><span class="pre">.txt</span></code>, or path to
-a raw-points <code class="docutils literal notranslate"><span class="pre">.txt</span></code>/<code class="docutils literal notranslate"><span class="pre">.csv</span></code></p></td>
-</tr>
-</tbody>
-</table>
-<p><strong>Three modes — auto-detected from the ``-c`` argument</strong></p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 22.0%" />
-<col style="width: 33.0%" />
-<col style="width: 45.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Mode</p></th>
-<th class="head"><p>How detected</p></th>
-<th class="head"><p>Behaviour</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><strong>Constant</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">-c</span></code> is a plain number (e.g. <code class="docutils literal notranslate"><span class="pre">0.05</span></code>)</p></td>
-<td><p>Subtracts the constant from every channel</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Fitted continuum file</strong></p></td>
-<td><p>File contains a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">fitted_continuum</span></code> header line</p></td>
-<td><p>Interpolates the saved curve onto the current wavelength grid
-and subtracts</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Raw points file</strong></p></td>
-<td><p>File has no recognised header</p></td>
-<td><p>Parses comma-separated <code class="docutils literal notranslate"><span class="pre">(wavelength,</span> <span class="pre">flux)</span></code> pairs, fits a Cubic
-Spline, then subtracts</p></td>
-</tr>
-</tbody>
-</table>
-<p><strong>Output file format</strong></p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result
+<p>Subtract a continuum from a cube’s spectrum. The continuum source is
+auto-detected from the <code class="docutils literal notranslate"><span class="pre">-c</span></code> argument:</p>
+<ul class="simple">
+<li><p>a plain number → constant offset</p></li>
+<li><p>a file with header <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">fitted_continuum</span></code> → 2-column file
+(auto-continuum output)</p></li>
+<li><p>a file with header <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">full_results</span></code> → 4-column file (GUI
+Save Results or CLI custom-continuum output)</p></li>
+<li><p>any other text file → parsed as raw anchor points (wavelength, flux),
+fit with a cubic spline</p></li>
+</ul>
+<dl class="field-list">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><dl class="simple">
+<dt><strong>-i, –input</strong><span class="classifier">str</span></dt><dd><p>Path to the input FITS cube. Required.</p>
+</dd>
+<dt><strong>-c, –continuum</strong><span class="classifier">str or float</span></dt><dd><p>One of:</p>
+<ul class="simple">
+<li><p>A numeric constant (e.g. <code class="docutils literal notranslate"><span class="pre">0.05</span></code>). Subtracted from every channel.</p></li>
+<li><p>Path to a <code class="docutils literal notranslate"><span class="pre">fitted_continuum</span></code> file. The 2-column data is
+interpolated onto the cube’s wavelength grid and subtracted.</p></li>
+<li><p>Path to a <code class="docutils literal notranslate"><span class="pre">full_results</span></code> file. The continuum column (3rd column)
+is extracted, interpolated, and subtracted. <strong>Added in the
+2026-05 update</strong> to support GUI ↔ CLI round-trips.</p></li>
+<li><p>Path to a raw points file. Fit with a cubic spline and subtracted.</p></li>
+</ul>
+</dd>
+</dl>
+</dd>
+<dt class="field-even">Output file format<span class="colon">:</span></dt>
+<dd class="field-even"><p>Same 4-column <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">full_results</span></code> format as
+<a class="reference internal" href="#cli-custom-continuum"><span class="std std-ref">custom-continuum</span></a>.</p>
+</dd>
+<dt class="field-odd">Examples<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Constant baseline:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>data/alma_cube.fits<span class="w"> </span>-c<span class="w"> </span><span class="m">0</span>.03
 </pre></div>
 </div>
-<p>A continuum exported by <a class="reference internal" href="#cli-auto-continuum"><span class="std std-ref">auto-continuum — Automatic continuum detection and export</span></a> can be fed directly to
-<code class="docutils literal notranslate"><span class="pre">subtract-continuum</span> <span class="pre">-c</span></code> — the two commands are designed to pipe into
-each other.</p>
-<p><strong>Examples</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Constant baseline</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>data/alma_cube.fits<span class="w"> </span>-c<span class="w"> </span><span class="m">0</span>.03
-
-<span class="c1"># Re-use a previously fitted continuum</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>data/alma_cube.fits<span class="w"> </span>-c<span class="w"> </span>continuum_export.txt
-
-<span class="c1"># Subtract using raw anchor points</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>data/nirspec_cube.fits<span class="w"> </span>-c<span class="w"> </span>my_baseline_points.csv
+<p>Re-use a previously fitted continuum:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>data/alma_cube.fits<span class="w"> </span>-c<span class="w"> </span>continuum_export.txt
 </pre></div>
 </div>
+<p>Re-use a GUI-saved results file (4-column format):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>data/cube.fits<span class="w"> </span>-c<span class="w"> </span>gui_results.txt
+</pre></div>
+</div>
+<p>Subtract using raw anchor points:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>subtract-continuum<span class="w"> </span>-i<span class="w"> </span>data/nirspec_cube.fits<span class="w"> </span>-c<span class="w"> </span>my_baseline_points.csv
+</pre></div>
+</div>
+</dd>
+</dl>
 </section>
-<section id="d-rotate-rotate-a-2d-fits-image">
-<span id="cli-2d-rotate"></span><h2><a class="toc-backref" href="#id6" role="doc-backlink"><code class="docutils literal notranslate"><span class="pre">2d-rotate</span></code> — Rotate a 2D FITS image</a><a class="headerlink" href="#d-rotate-rotate-a-2d-fits-image" title="Link to this heading"></a></h2>
-<p>Rotates a 2D FITS image by an arbitrary angle and updates the WCS CD
-matrix so RA/Dec coordinates remain accurate after rotation.</p>
+<section id="d-rotate">
+<span id="cli-2d-rotate"></span><h2>2d-rotate<a class="headerlink" href="#d-rotate" title="Link to this heading"></a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>2d-rotate<span class="w"> </span>-i<span class="w"> </span>&lt;image.fits&gt;<span class="w"> </span>-a<span class="w"> </span>&lt;angle_degrees&gt;
 </pre></div>
 </div>
-<p><strong>Flags</strong></p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 22.0%" />
-<col style="width: 78.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Flag</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-i</span></code> / <code class="docutils literal notranslate"><span class="pre">--input</span></code></p></td>
-<td><p>Path to input 2D FITS file</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-a</span></code> / <code class="docutils literal notranslate"><span class="pre">--angle</span></code></p></td>
-<td><p>Rotation angle in degrees (positive = counter-clockwise)</p></td>
-</tr>
-</tbody>
-</table>
-<p><strong>What happens internally</strong></p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">scipy.ndimage.rotate</span></code> with <code class="docutils literal notranslate"><span class="pre">reshape=True</span></code> and <code class="docutils literal notranslate"><span class="pre">cval=NaN</span></code> (empty
-border pixels are NaN, not zero).</p></li>
-<li><p>The CD matrix is updated:
-<code class="docutils literal notranslate"><span class="pre">CD_new</span> <span class="pre">=</span> <span class="pre">CD_orig</span> <span class="pre">×</span> <span class="pre">R⁻¹</span></code>, where <code class="docutils literal notranslate"><span class="pre">R</span></code> is the 2D rotation matrix
-for <code class="docutils literal notranslate"><span class="pre">-angle</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">CRPIX</span></code> is <strong>not</strong> changed — the reference pixel stays at the same
-sky coordinate.</p></li>
+<p>Rotate a 2D FITS image and update the WCS CD matrix so RA/Dec
+coordinates remain accurate after rotation.</p>
+<dl class="field-list">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><dl class="simple">
+<dt><strong>-i, –input</strong><span class="classifier">str</span></dt><dd><p>Path to the input 2D FITS file. Required.</p>
+</dd>
+<dt><strong>-a, –angle</strong><span class="classifier">float</span></dt><dd><p>Rotation angle in degrees, positive = counter-clockwise. Required.</p>
+</dd>
+</dl>
+</dd>
+<dt class="field-even">Notes<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">scipy.ndimage.rotate</span></code> is used with <code class="docutils literal notranslate"><span class="pre">reshape=True</span></code> and
+<code class="docutils literal notranslate"><span class="pre">cval=NaN</span></code> (empty border pixels are NaN, not zero).</p></li>
+<li><p>The CD matrix update is <code class="docutils literal notranslate"><span class="pre">CD_new</span> <span class="pre">=</span> <span class="pre">CD_orig</span> <span class="pre">×</span> <span class="pre">R⁻¹</span></code> where <code class="docutils literal notranslate"><span class="pre">R</span></code> is
+the 2D rotation matrix for <code class="docutils literal notranslate"><span class="pre">-angle</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CRPIX</span></code> is <strong>not</strong> changed — the reference pixel stays at the
+same sky coordinate.</p></li>
 </ul>
-<p><strong>Output</strong></p>
-<p>A new FITS file with the rotated image and an updated WCS header. The CLI
-prompts for the output filename.</p>
-<p><strong>Example</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>2d-rotate<span class="w"> </span>-i<span class="w"> </span>data/miri_intensity.fits<span class="w"> </span>-a<span class="w"> </span><span class="m">45</span>
-<span class="c1"># Prompted: Enter filename to save ROTATED FITS: rotated_45deg</span>
-<span class="c1"># → saves rotated_45deg.fits</span>
+</dd>
+<dt class="field-odd">Output<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A new FITS file with the rotated image and updated WCS header. You
+are prompted for the output filename.</p>
+</dd>
+<dt class="field-even">Example<span class="colon">:</span></dt>
+<dd class="field-even"><div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>2d-rotate<span class="w"> </span>-i<span class="w"> </span>data/miri_intensity.fits<span class="w"> </span>-a<span class="w"> </span><span class="m">45</span>
 </pre></div>
 </div>
+</dd>
+</dl>
 </section>
-<section id="d-contour-extract-contour-coordinates-from-a-2d-fits-image">
-<span id="cli-2d-contour"></span><h2><a class="toc-backref" href="#id7" role="doc-backlink"><code class="docutils literal notranslate"><span class="pre">2d-contour</span></code> — Extract contour coordinates from a 2D FITS image</a><a class="headerlink" href="#d-contour-extract-contour-coordinates-from-a-2d-fits-image" title="Link to this heading"></a></h2>
-<p>Generates contour lines at user-specified sigma levels, computes RA/Dec
-for every contour vertex using the image WCS, and saves the result as a
-text file.</p>
+<section id="d-contour">
+<span id="cli-2d-contour"></span><h2>2d-contour<a class="headerlink" href="#d-contour" title="Link to this heading"></a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>2d-contour<span class="w"> </span>-i<span class="w"> </span>&lt;image.fits&gt;<span class="w"> </span>-l<span class="w"> </span>&lt;level1&gt;<span class="w"> </span><span class="o">[</span>level2<span class="w"> </span>...<span class="o">]</span>
 </pre></div>
 </div>
-<p><strong>Flags</strong></p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 22.0%" />
-<col style="width: 78.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Flag</p></th>
-<th class="head"><p>Description</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-i</span></code> / <code class="docutils literal notranslate"><span class="pre">--input</span></code></p></td>
-<td><p>Path to input 2D FITS file</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-l</span></code> / <code class="docutils literal notranslate"><span class="pre">--levels</span></code></p></td>
-<td><p>One or more sigma multipliers (space-separated)</p></td>
-</tr>
-</tbody>
-</table>
-<p><strong>Level definition</strong></p>
-<ul class="simple">
-<li><p>Background median and RMS are estimated with Astropy
-<code class="docutils literal notranslate"><span class="pre">sigma_clipped_stats</span></code> (3σ clipping).</p></li>
-<li><p>Each level <code class="docutils literal notranslate"><span class="pre">N</span></code> draws a contour at <code class="docutils literal notranslate"><span class="pre">median</span> <span class="pre">+</span> <span class="pre">N</span> <span class="pre">×</span> <span class="pre">RMS</span></code>.</p></li>
-</ul>
-<p><strong>Output file format</strong></p>
-<p>Comma-separated ASCII with a comment header:</p>
+<p>Generate contour lines at user-specified sigma levels and save every
+vertex’s pixel and sky coordinates to a text file.</p>
+<dl class="field-list">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><dl class="simple">
+<dt><strong>-i, –input</strong><span class="classifier">str</span></dt><dd><p>Path to the input 2D FITS file. Required.</p>
+</dd>
+<dt><strong>-l, –levels</strong><span class="classifier">list of float</span></dt><dd><p>Sigma multipliers, space-separated. Each level <code class="docutils literal notranslate"><span class="pre">N</span></code> draws a
+contour at <code class="docutils literal notranslate"><span class="pre">median</span> <span class="pre">+</span> <span class="pre">N</span> <span class="pre">×</span> <span class="pre">RMS</span></code> where <code class="docutils literal notranslate"><span class="pre">median</span></code> and <code class="docutils literal notranslate"><span class="pre">RMS</span></code> are
+from <code class="docutils literal notranslate"><span class="pre">astropy.stats.sigma_clipped_stats</span></code> (3σ clipping).
+Required, at least one value.</p>
+</dd>
+</dl>
+</dd>
+<dt class="field-even">Output file format<span class="colon">:</span></dt>
+<dd class="field-even"><p>Comma-separated ASCII:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span># IFU Analyzer 2D - Contour Export
 # level, x_pixel, y_pixel, RA_deg, Dec_deg
 3.000000e+00, 42.1234, 18.7654, 67.90591, 18.20682
 ...
 </pre></div>
 </div>
-<p><strong>Examples</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Single level</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>2d-contour<span class="w"> </span>-i<span class="w"> </span>data/moment0.fits<span class="w"> </span>-l<span class="w"> </span><span class="m">3</span>
-
-<span class="c1"># Multiple levels</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>2d-contour<span class="w"> </span>-i<span class="w"> </span>data/moment0.fits<span class="w"> </span>-l<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="m">20</span>
-
-<span class="c1"># High-significance contours only</span>
-python<span class="w"> </span>clip.py<span class="w"> </span>2d-contour<span class="w"> </span>-i<span class="w"> </span>data/miri_intensity.fits<span class="w"> </span>-l<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="m">30</span><span class="w"> </span><span class="m">50</span>
+<p>You are prompted for the output filename.</p>
+</dd>
+<dt class="field-odd">Examples<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Single level:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>2d-contour<span class="w"> </span>-i<span class="w"> </span>data/moment0.fits<span class="w"> </span>-l<span class="w"> </span><span class="m">3</span>
 </pre></div>
 </div>
+<p>Multiple levels:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>2d-contour<span class="w"> </span>-i<span class="w"> </span>data/moment0.fits<span class="w"> </span>-l<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="m">20</span>
+</pre></div>
+</div>
+</dd>
+</dl>
 </section>
-<section id="output-formats-quick-reference">
-<h2><a class="toc-backref" href="#id8" role="doc-backlink">Output Formats — quick reference</a><a class="headerlink" href="#output-formats-quick-reference" title="Link to this heading"></a></h2>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 28.0%" />
-<col style="width: 72.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Command</p></th>
-<th class="head"><p>Output columns</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">auto-continuum</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">Wavelength</span>&#160; <span class="pre">Continuum_Fit</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">custom-continuum</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">Wavelength</span>&#160; <span class="pre">Original_Flux</span>&#160; <span class="pre">Continuum_Fit</span>&#160; <span class="pre">Subtracted_Result</span></code></p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">subtract-continuum</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">Wavelength</span>&#160; <span class="pre">Original_Flux</span>&#160; <span class="pre">Continuum_Fit</span>&#160; <span class="pre">Subtracted_Result</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">2d-rotate</span></code></p></td>
-<td><p>FITS file with rotated image and updated WCS header</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">2d-contour</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">level,</span> <span class="pre">x_pixel,</span> <span class="pre">y_pixel,</span> <span class="pre">RA_deg,</span> <span class="pre">Dec_deg</span></code></p></td>
-</tr>
-</tbody>
-</table>
-<p>Files exported by the CLI are fully compatible with the GUI’s
-<strong>subtract-continuum</strong> import — a continuum file exported by
-<code class="docutils literal notranslate"><span class="pre">auto-continuum</span></code> can be fed directly to <code class="docutils literal notranslate"><span class="pre">subtract-continuum</span> <span class="pre">-c</span></code>.</p>
+<section id="using-the-cli-from-jupyter">
+<h2>Using the CLI from Jupyter<a class="headerlink" href="#using-the-cli-from-jupyter" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">clip.py</span></code> exposes the same five commands as plain Python functions,
+specifically for use from Jupyter notebooks or scripts. They take
+<code class="docutils literal notranslate"><span class="pre">output_name</span></code> as a keyword argument, skipping the interactive
+filename prompt that the CLI uses.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">clip</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">auto_continuum</span><span class="p">,</span>
+    <span class="n">custom_continuum</span><span class="p">,</span>
+    <span class="n">subtract_continuum</span><span class="p">,</span>
+    <span class="n">rotate_2d</span><span class="p">,</span>
+    <span class="n">contour_2d</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">auto_continuum</span><span class="p">(</span><span class="s2">&quot;mycube.fits&quot;</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;continuum_out&quot;</span><span class="p">)</span>
+<span class="n">subtract_continuum</span><span class="p">(</span><span class="s2">&quot;mycube.fits&quot;</span><span class="p">,</span> <span class="s2">&quot;continuum_out.txt&quot;</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;subtracted&quot;</span><span class="p">)</span>
+<span class="n">custom_continuum</span><span class="p">(</span><span class="s2">&quot;mycube.fits&quot;</span><span class="p">,</span> <span class="s2">&quot;points.csv&quot;</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;custom_sub&quot;</span><span class="p">)</span>
+<span class="n">rotate_2d</span><span class="p">(</span><span class="s2">&quot;image.fits&quot;</span><span class="p">,</span> <span class="mi">45</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;rotated_45&quot;</span><span class="p">)</span>
+<span class="n">contour_2d</span><span class="p">(</span><span class="s2">&quot;image.fits&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;contours&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>All five wrappers accept <code class="docutils literal notranslate"><span class="pre">output_name=None</span></code> (the default), in which
+case the function falls back to the same interactive <code class="docutils literal notranslate"><span class="pre">input()</span></code> prompt
+the CLI uses.</p>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="jupyter-notebook-issues">
+<h3>Jupyter notebook issues<a class="headerlink" href="#jupyter-notebook-issues" title="Link to this heading"></a></h3>
+<p><strong>Cell hangs after running a CLI command with</strong> <code class="docutils literal notranslate"><span class="pre">!python</span> <span class="pre">clip.py</span> <span class="pre">...</span></code></p>
+<blockquote>
+<div><p>Jupyter does not forward keyboard input to <code class="docutils literal notranslate"><span class="pre">!</span></code> subprocesses, so
+when <code class="docutils literal notranslate"><span class="pre">clip.py</span></code> calls <code class="docutils literal notranslate"><span class="pre">input()</span></code> for the output filename, it sits
+waiting for input that will never arrive.</p>
+<p>Fix: pipe the filename in via <code class="docutils literal notranslate"><span class="pre">echo</span></code>, or use the Python wrapper
+functions:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Option A — pipe the filename</span>
+<span class="err">!</span><span class="n">echo</span> <span class="n">my_output</span> <span class="o">|</span> <span class="n">python</span> <span class="n">clip</span><span class="o">.</span><span class="n">py</span> <span class="n">auto</span><span class="o">-</span><span class="n">continuum</span> <span class="o">-</span><span class="n">i</span> <span class="n">cube</span><span class="o">.</span><span class="n">fits</span>
+
+<span class="c1"># Option B — use the wrapper (recommended)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">clip</span><span class="w"> </span><span class="kn">import</span> <span class="n">auto_continuum</span>
+<span class="n">auto_continuum</span><span class="p">(</span><span class="s2">&quot;cube.fits&quot;</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;my_output&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div></blockquote>
+<p><strong>FileNotFoundError when loading the FITS file</strong></p>
+<blockquote>
+<div><p>Jupyter’s working directory is wherever Jupyter was started, not
+where the FITS file lives. Either start Jupyter from the project
+folder, or change directory inside the notebook:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="n">os</span><span class="o">.</span><span class="n">chdir</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;C:\path\to\IFU-Analyzer&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Then verify with <code class="docutils literal notranslate"><span class="pre">os.path.exists(&quot;mycube.fits&quot;)</span></code>.</p>
+</div></blockquote>
+<p><strong>ImportError: cannot import</strong> <code class="docutils literal notranslate"><span class="pre">CubeData</span></code></p>
+<blockquote>
+<div><p><code class="docutils literal notranslate"><span class="pre">clip.py</span></code> must be at the project root, one level above
+<code class="docutils literal notranslate"><span class="pre">cube_explorer/</span></code>. The wrapper expects to be importable as
+<code class="docutils literal notranslate"><span class="pre">from</span> <span class="pre">cube_explorer.data_loader</span> <span class="pre">import</span> <span class="pre">CubeData</span></code>.</p>
+<p>Fix: move <code class="docutils literal notranslate"><span class="pre">clip.py</span></code> up one level if it is currently inside
+<code class="docutils literal notranslate"><span class="pre">cube_explorer/</span></code>.</p>
+</div></blockquote>
+<p><strong>Filename contains a space or parenthesis</strong></p>
+<blockquote>
+<div><p>The shell splits on spaces, so a filename like
+<code class="docutils literal notranslate"><span class="pre">Level3_ch1-long_s3d</span> <span class="pre">(1).fits</span></code> is parsed as two arguments.</p>
+<p>Fix: quote the path, or rename the file:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>clip.py<span class="w"> </span>auto-continuum<span class="w"> </span>-i<span class="w"> </span><span class="s2">&quot;Level3_ch1-long_s3d (1).fits&quot;</span>
+</pre></div>
+</div>
+</div></blockquote>
+</section>
+<section id="cli-issues">
+<h3>CLI issues<a class="headerlink" href="#cli-issues" title="Link to this heading"></a></h3>
+<p><strong>“unrecognized arguments”</strong></p>
+<blockquote>
+<div><p>Almost always caused by an unquoted filename containing spaces. See
+the previous item.</p>
+</div></blockquote>
+<p><strong>The continuum file from the GUI is not recognized</strong></p>
+<blockquote>
+<div><p>The CLI accepts both legacy <code class="docutils literal notranslate"><span class="pre">fitted_continuum</span></code> (2 columns) and
+the new <code class="docutils literal notranslate"><span class="pre">full_results</span></code> (4 columns) formats out of the box. If you
+still get a parse error, open the file in a text editor and confirm
+it has either <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">fitted_continuum</span></code> or <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Type:</span> <span class="pre">full_results</span></code>
+in the first 15 lines.</p>
+</div></blockquote>
+<p><strong>“–params expects 7 values”</strong></p>
+<blockquote>
+<div><p><code class="docutils literal notranslate"><span class="pre">auto-continuum</span></code>’s <code class="docutils literal notranslate"><span class="pre">--params</span></code> flag requires all seven values in
+order, even if you only want to change one. Use the default block
+<code class="docutils literal notranslate"><span class="pre">51</span> <span class="pre">2.0</span> <span class="pre">1</span> <span class="pre">3</span> <span class="pre">3</span> <span class="pre">2</span> <span class="pre">5</span></code> as a starting template and edit the values you
+need.</p>
+</div></blockquote>
+<p><strong>Output file has fewer rows than the cube’s wavelength channels</strong></p>
+<blockquote>
+<div><p>The continuum output (<code class="docutils literal notranslate"><span class="pre">fitted_continuum</span></code> format) only writes rows
+where the fit was finite. NaN regions of the spectrum are skipped.
+The 4-column <code class="docutils literal notranslate"><span class="pre">full_results</span></code> output preserves every channel,
+writing <code class="docutils literal notranslate"><span class="pre">nan</span></code> where appropriate.</p>
+</div></blockquote>
+<p><strong>Cube loads but the spectrum looks wrong</strong></p>
+<blockquote>
+<div><p><code class="docutils literal notranslate"><span class="pre">clip.py</span></code> uses <code class="docutils literal notranslate"><span class="pre">CubeData</span></code> from <code class="docutils literal notranslate"><span class="pre">cube_explorer.data_loader</span></code>,
+which computes <code class="docutils literal notranslate"><span class="pre">cube.spectrum</span></code> as the mean across all spatial
+pixels. If you need a region-restricted spectrum, use the GUI’s
+region tools to define the region first, then save the spectrum
+from the GUI.</p>
+</div></blockquote>
+</section>
 </section>
 </section>
 
