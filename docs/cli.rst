@@ -2,40 +2,37 @@
 Command-Line Interface
 ======================
 
-``clip.py`` exposes the core IFU Analyzer pipeline as a standalone CLI —
-useful for scripting, batch jobs, or headless server workflows where the
-GUI is not available.
+``clip.py`` exposes the core IFU Analyzer pipeline as a standalone
+command-line tool. It is useful for scripting, batch jobs, headless
+servers, and Jupyter workflows where the GUI is not available.
 
-.. contents::
-   :local:
-   :depth: 2
+The same code paths used by the GUI are exposed here, so the CLI and
+the GUI are guaranteed to produce identical results given identical
+inputs.
 
 
 Setup
 =====
 
-Run ``clip.py`` from the **project root**, one level above
+Run ``clip.py`` from the project root, one level above
 ``cube_explorer/``:
 
 .. code-block:: bash
 
    python clip.py <command> [options]
 
-.. note::
-
-   ``clip.py`` must be placed **outside** the ``cube_explorer/`` folder so
-   that the ``cube_explorer.data_loader`` import resolves correctly. If
-   you see ``ImportError: Could not import CubeData``, move ``clip.py``
-   one directory level up.
+If you see ``ImportError: Could not import CubeData``, move ``clip.py``
+one directory level up so it sits next to ``main.py``.
 
 
 Commands
 ========
 
-There are five CLI subcommands:
+Five subcommands are available. Click any of them to jump to its full
+reference page.
 
 .. list-table::
-   :widths: 25 75
+   :widths: 30 70
    :header-rows: 1
 
    * - Command
@@ -45,370 +42,445 @@ There are five CLI subcommands:
    * - :ref:`cli-custom-continuum`
      - Continuum fit from user-supplied anchor points
    * - :ref:`cli-subtract-continuum`
-     - Subtract a continuum (constant, fitted curve, or anchor points)
+     - Subtract a continuum (constant, fitted file, or anchor points)
    * - :ref:`cli-2d-rotate`
-     - Rotate a 2D FITS image with WCS update
+     - Rotate a 2D FITS image, updating the WCS
    * - :ref:`cli-2d-contour`
      - Extract contour coordinates from a 2D FITS image
 
 
 .. _cli-auto-continuum:
 
-``auto-continuum`` — Automatic continuum detection and export
-=============================================================
-
-Automatically fits a continuum baseline to the cube's integrated spectrum
-using median filtering, peak detection, and iterative sigma clipping,
-then saves the fitted curve as a text file.
+auto-continuum
+==============
 
 .. code-block:: bash
 
    python clip.py auto-continuum -i <cube.fits> [-p window sigma width distance exclusion iters smoothing]
 
-**Flags**
+Automatically fit the continuum baseline of a cube's integrated spectrum
+using median filtering, peak detection, iterative sigma clipping, and
+spline smoothing. The fitted continuum is saved to a tab-delimited
+ASCII file with header ``# Type: fitted_continuum``, ready to be fed
+back into :ref:`cli-subtract-continuum`.
 
-.. list-table::
-   :widths: 22 55 23
-   :header-rows: 1
+The algorithm runs in four steps:
 
-   * - Flag
-     - Description
-     - Default
-   * - ``-i`` / ``--input``
-     - Path to input FITS cube
-     - *(required)*
-   * - ``-p`` / ``--params``
-     - Space-separated algorithm parameters (see below)
-     - ``51 2.0 1 3 3 2 5``
+1. **Median filtering** of width ``window`` produces a first-pass
+   continuum estimate.
+2. **Peak detection** finds emission/absorption features above
+   ``sigma × RMS`` using ``scipy.signal.find_peaks`` with the given
+   ``width`` and ``distance`` constraints.
+3. **Iterative sigma clipping** removes outliers above the running
+   continuum estimate for ``iters`` passes.
+4. **Spline smoothing** fits a cubic ``UnivariateSpline`` to the
+   cleaned continuum with smoothing parameter
+   ``s = N / smoothing_factor``.
 
-**Parameters (in order)**
+After fitting, you are prompted for an output filename. The file is
+written as ``<name>.txt`` in the current directory.
 
-.. list-table::
-   :widths: 8 14 60 18
-   :header-rows: 1
+:Parameters:
 
-   * - Position
-     - Name
-     - Meaning
-     - Default
-   * - 1
-     - ``window``
-     - Median-filter window size (channels)
-     - ``51``
-   * - 2
-     - ``sigma``
-     - Peak-detection threshold (× RMS)
-     - ``2.0``
-   * - 3
-     - ``width``
-     - Minimum peak width (channels)
-     - ``1``
-   * - 4
-     - ``distance``
-     - Minimum distance between peaks (channels)
-     - ``3``
-   * - 5
-     - ``exclusion``
-     - Channels to mask on each side of a detected peak
-     - ``3``
-   * - 6
-     - ``iters``
-     - Sigma-clipping iterations
-     - ``2``
-   * - 7
-     - ``smoothing``
-     - Spline smoothing factor
-     - ``5``
+   **-i, --input** : str
+      Path to the input FITS cube. Required.
 
-**Algorithm**
+   **-p, --params** : list of 7 numbers, optional
+      Algorithm parameters in this exact order:
+      ``window sigma width distance exclusion iters smoothing``.
+      Defaults to ``51 2.0 1 3 3 2 5`` if omitted.
 
-1. Apply a median filter of width ``window`` as a first-pass continuum
-   estimate.
-2. Detect emission peaks above ``sigma × RMS`` using
-   ``scipy.signal.find_peaks``.
-3. Mask ``exclusion`` channels on each side of every detected peak.
-4. Interpolate over masked regions, then re-apply the median filter.
-5. Iteratively sigma-clip outliers for ``iters`` passes.
-6. Fit a smoothing ``UnivariateSpline`` (k=3) to the cleaned continuum.
-7. Prompt for an output filename → save ``<name>.txt`` with columns
-   ``Wavelength  Continuum_Fit``.
+      * **window** (int, default 51) — Median-filter window size in channels.
+        Larger values produce a smoother baseline but may miss fine
+        structure. Must be odd. Typical range 21–101.
 
-**Output file format**
+      * **sigma** (float, default 2.0) — Peak-detection threshold in
+        units of the RMS. Lower values detect weaker lines. Use 1.5 for
+        clean data, 2.0 for typical, 3.0 for noisy.
 
-Tab-delimited two-column ASCII with a comment header:
+      * **width** (int, default 1) — Minimum width in channels for a
+        feature to count as a peak. Filters out single-channel spikes.
 
-.. code-block:: text
+      * **distance** (int, default 3) — Minimum separation in channels
+        between detected peaks.
 
-   # Type: fitted_continuum
-   # Wavelength  Continuum_Fit
-   3.0000e-06   1.2345e-02
-   3.0010e-06   1.2347e-02
-   ...
+      * **exclusion** (int, default 3) — Channels masked on each side of
+        every detected peak before the final fit. Use larger values for
+        broad lines.
 
-The ``# Type: fitted_continuum`` line lets :ref:`cli-subtract-continuum`
-re-import the file later.
+      * **iters** (int, default 2) — Number of sigma-clipping passes
+        after the first fit.
 
-**Examples**
+      * **smoothing** (int, default 5) — Spline smoothing factor.
+        Smoothness scales as ``s = N / smoothing_factor``. Lower →
+        closer fit to the data; higher → smoother curve.
 
-.. code-block:: bash
+:Output file format:
 
-   # Default parameters
-   python clip.py auto-continuum -i data/miri_cube.fits
+   Tab-delimited ASCII with a comment header:
 
-   # Custom parameters: larger window, tighter sigma, more exclusion
-   python clip.py auto-continuum -i data/miri_cube.fits -p 75 1.5 2 5 5 3 8
+   .. code-block:: text
+
+      # Export from IFU-Analyzer CLI
+      # Instrument: MIRI
+      # Type: fitted_continuum
+      # Wavelength unit: micron
+      # Flux unit: MJy/sr
+      #
+      # Wavelength (micron)   Continuum_Fit
+      6.530400e+00            1.420169e+06
+      6.531200e+00            1.448846e+06
+      ...
+
+   The ``# Type: fitted_continuum`` line lets
+   :ref:`cli-subtract-continuum` auto-detect this format on re-import.
+
+:Examples:
+
+   Default parameters:
+
+   .. code-block:: bash
+
+      python clip.py auto-continuum -i data/miri_cube.fits
+
+   Custom parameters — larger window, tighter sigma, more exclusion:
+
+   .. code-block:: bash
+
+      python clip.py auto-continuum -i data/miri_cube.fits -p 75 1.5 2 5 5 3 8
 
 
 .. _cli-custom-continuum:
 
-``custom-continuum`` — Continuum from user-supplied points
-==========================================================
-
-Fits a Cubic Spline through a set of user-defined wavelength/flux anchor
-points and subtracts the result from the spectrum.
+custom-continuum
+================
 
 .. code-block:: bash
 
    python clip.py custom-continuum -i <cube.fits> -p <points.csv>
 
-**Flags**
+Fit a cubic spline through user-supplied wavelength/flux anchor points,
+then subtract the result from the spectrum. The output is a 4-column
+ASCII file in ``# Type: full_results`` format — identical to the GUI's
+``Save Results`` button.
 
-.. list-table::
-   :widths: 22 78
-   :header-rows: 1
+:Parameters:
 
-   * - Flag
-     - Description
-   * - ``-i`` / ``--input``
-     - Path to input FITS cube
-   * - ``-p`` / ``--points``
-     - Path to CSV file containing anchor points
+   **-i, --input** : str
+      Path to the input FITS cube. Required.
 
-**Points file format**
+   **-p, --points** : str
+      Path to a CSV file of anchor points, one per line, comma-separated,
+      no header. Required.
 
-Comma-separated, one point per line, no header:
+:Points file format:
 
-.. code-block:: text
+   .. code-block:: text
 
-   3.5e-6,0.012
-   4.0e-6,0.015
-   4.8e-6,0.011
+      3.5e-6,0.012
+      4.0e-6,0.015
+      4.8e-6,0.011
 
-The spline is fit with ``bc_type='natural'`` and evaluated at every
-wavelength channel.
+   The spline is fit with ``bc_type='natural'`` and evaluated at every
+   wavelength channel.
 
-**Output file format**
+:Output file format:
 
-.. code-block:: text
+   .. code-block:: text
 
-   # Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result
-   3.0000e-06   1.4567e-02     1.2345e-02     2.2220e-03
-   ...
+      # Type: full_results
+      # Wavelength (micron)   Original    Continuum    Subtracted
+      6.530400e+00            1.420169e+06   1.450957e+06   -3.078756e+04
+      ...
 
-**Example**
+:Example:
 
-.. code-block:: bash
+   .. code-block:: bash
 
-   python clip.py custom-continuum -i data/muse_cube.fits -p my_points.csv
+      python clip.py custom-continuum -i data/muse_cube.fits -p my_points.csv
 
 
 .. _cli-subtract-continuum:
 
-``subtract-continuum`` — Subtract a continuum from a spectrum
-=============================================================
-
-Subtracts either a constant offset, a previously exported fitted-continuum
-file, or a raw-points file from the cube's spectrum.
+subtract-continuum
+==================
 
 .. code-block:: bash
 
    python clip.py subtract-continuum -i <cube.fits> -c <value_or_file>
 
-**Flags**
+Subtract a continuum from a cube's spectrum. The continuum source is
+auto-detected from the ``-c`` argument:
 
-.. list-table::
-   :widths: 25 75
-   :header-rows: 1
+* a plain number → constant offset
+* a file with header ``# Type: fitted_continuum`` → 2-column file
+  (auto-continuum output)
+* a file with header ``# Type: full_results`` → 4-column file (GUI
+  Save Results or CLI custom-continuum output)
+* any other text file → parsed as raw anchor points (wavelength, flux),
+  fit with a cubic spline
 
-   * - Flag
-     - Description
-   * - ``-i`` / ``--input``
-     - Path to input FITS cube
-   * - ``-c`` / ``--continuum``
-     - Numeric constant, path to a fitted-continuum ``.txt``, or path to
-       a raw-points ``.txt``/``.csv``
+:Parameters:
 
-**Three modes — auto-detected from the ``-c`` argument**
+   **-i, --input** : str
+      Path to the input FITS cube. Required.
 
-.. list-table::
-   :widths: 22 33 45
-   :header-rows: 1
+   **-c, --continuum** : str or float
+      One of:
 
-   * - Mode
-     - How detected
-     - Behaviour
-   * - **Constant**
-     - ``-c`` is a plain number (e.g. ``0.05``)
-     - Subtracts the constant from every channel
-   * - **Fitted continuum file**
-     - File contains a ``# Type: fitted_continuum`` header line
-     - Interpolates the saved curve onto the current wavelength grid
-       and subtracts
-   * - **Raw points file**
-     - File has no recognised header
-     - Parses comma-separated ``(wavelength, flux)`` pairs, fits a Cubic
-       Spline, then subtracts
+      * A numeric constant (e.g. ``0.05``). Subtracted from every channel.
+      * Path to a ``fitted_continuum`` file. The 2-column data is
+        interpolated onto the cube's wavelength grid and subtracted.
+      * Path to a ``full_results`` file. The continuum column (3rd column)
+        is extracted, interpolated, and subtracted. **Added in the
+        2026-05 update** to support GUI ↔ CLI round-trips.
+      * Path to a raw points file. Fit with a cubic spline and subtracted.
 
-**Output file format**
+:Output file format:
 
-.. code-block:: text
+   Same 4-column ``# Type: full_results`` format as
+   :ref:`cli-custom-continuum`.
 
-   # Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result
+:Examples:
 
-A continuum exported by :ref:`cli-auto-continuum` can be fed directly to
-``subtract-continuum -c`` — the two commands are designed to pipe into
-each other.
+   Constant baseline:
 
-**Examples**
+   .. code-block:: bash
 
-.. code-block:: bash
+      python clip.py subtract-continuum -i data/alma_cube.fits -c 0.03
 
-   # Constant baseline
-   python clip.py subtract-continuum -i data/alma_cube.fits -c 0.03
+   Re-use a previously fitted continuum:
 
-   # Re-use a previously fitted continuum
-   python clip.py subtract-continuum -i data/alma_cube.fits -c continuum_export.txt
+   .. code-block:: bash
 
-   # Subtract using raw anchor points
-   python clip.py subtract-continuum -i data/nirspec_cube.fits -c my_baseline_points.csv
+      python clip.py subtract-continuum -i data/alma_cube.fits -c continuum_export.txt
+
+   Re-use a GUI-saved results file (4-column format):
+
+   .. code-block:: bash
+
+      python clip.py subtract-continuum -i data/cube.fits -c gui_results.txt
+
+   Subtract using raw anchor points:
+
+   .. code-block:: bash
+
+      python clip.py subtract-continuum -i data/nirspec_cube.fits -c my_baseline_points.csv
 
 
 .. _cli-2d-rotate:
 
-``2d-rotate`` — Rotate a 2D FITS image
-======================================
-
-Rotates a 2D FITS image by an arbitrary angle and updates the WCS CD
-matrix so RA/Dec coordinates remain accurate after rotation.
+2d-rotate
+=========
 
 .. code-block:: bash
 
    python clip.py 2d-rotate -i <image.fits> -a <angle_degrees>
 
-**Flags**
+Rotate a 2D FITS image and update the WCS CD matrix so RA/Dec
+coordinates remain accurate after rotation.
 
-.. list-table::
-   :widths: 22 78
-   :header-rows: 1
+:Parameters:
 
-   * - Flag
-     - Description
-   * - ``-i`` / ``--input``
-     - Path to input 2D FITS file
-   * - ``-a`` / ``--angle``
-     - Rotation angle in degrees (positive = counter-clockwise)
+   **-i, --input** : str
+      Path to the input 2D FITS file. Required.
 
-**What happens internally**
+   **-a, --angle** : float
+      Rotation angle in degrees, positive = counter-clockwise. Required.
 
-- ``scipy.ndimage.rotate`` with ``reshape=True`` and ``cval=NaN`` (empty
-  border pixels are NaN, not zero).
-- The CD matrix is updated:
-  ``CD_new = CD_orig × R⁻¹``, where ``R`` is the 2D rotation matrix
-  for ``-angle``.
-- ``CRPIX`` is **not** changed — the reference pixel stays at the same
-  sky coordinate.
+:Notes:
 
-**Output**
+   * ``scipy.ndimage.rotate`` is used with ``reshape=True`` and
+     ``cval=NaN`` (empty border pixels are NaN, not zero).
+   * The CD matrix update is ``CD_new = CD_orig × R⁻¹`` where ``R`` is
+     the 2D rotation matrix for ``-angle``.
+   * ``CRPIX`` is **not** changed — the reference pixel stays at the
+     same sky coordinate.
 
-A new FITS file with the rotated image and an updated WCS header. The CLI
-prompts for the output filename.
+:Output:
 
-**Example**
+   A new FITS file with the rotated image and updated WCS header. You
+   are prompted for the output filename.
 
-.. code-block:: bash
+:Example:
 
-   python clip.py 2d-rotate -i data/miri_intensity.fits -a 45
-   # Prompted: Enter filename to save ROTATED FITS: rotated_45deg
-   # → saves rotated_45deg.fits
+   .. code-block:: bash
+
+      python clip.py 2d-rotate -i data/miri_intensity.fits -a 45
 
 
 .. _cli-2d-contour:
 
-``2d-contour`` — Extract contour coordinates from a 2D FITS image
-=================================================================
-
-Generates contour lines at user-specified sigma levels, computes RA/Dec
-for every contour vertex using the image WCS, and saves the result as a
-text file.
+2d-contour
+==========
 
 .. code-block:: bash
 
    python clip.py 2d-contour -i <image.fits> -l <level1> [level2 ...]
 
-**Flags**
+Generate contour lines at user-specified sigma levels and save every
+vertex's pixel and sky coordinates to a text file.
 
-.. list-table::
-   :widths: 22 78
-   :header-rows: 1
+:Parameters:
 
-   * - Flag
-     - Description
-   * - ``-i`` / ``--input``
-     - Path to input 2D FITS file
-   * - ``-l`` / ``--levels``
-     - One or more sigma multipliers (space-separated)
+   **-i, --input** : str
+      Path to the input 2D FITS file. Required.
 
-**Level definition**
+   **-l, --levels** : list of float
+      Sigma multipliers, space-separated. Each level ``N`` draws a
+      contour at ``median + N × RMS`` where ``median`` and ``RMS`` are
+      from ``astropy.stats.sigma_clipped_stats`` (3σ clipping).
+      Required, at least one value.
 
-- Background median and RMS are estimated with Astropy
-  ``sigma_clipped_stats`` (3σ clipping).
-- Each level ``N`` draws a contour at ``median + N × RMS``.
+:Output file format:
 
-**Output file format**
+   Comma-separated ASCII:
 
-Comma-separated ASCII with a comment header:
+   .. code-block:: text
 
-.. code-block:: text
+      # IFU Analyzer 2D - Contour Export
+      # level, x_pixel, y_pixel, RA_deg, Dec_deg
+      3.000000e+00, 42.1234, 18.7654, 67.90591, 18.20682
+      ...
 
-   # IFU Analyzer 2D - Contour Export
-   # level, x_pixel, y_pixel, RA_deg, Dec_deg
-   3.000000e+00, 42.1234, 18.7654, 67.90591, 18.20682
-   ...
+   You are prompted for the output filename.
 
-**Examples**
+:Examples:
 
-.. code-block:: bash
+   Single level:
 
-   # Single level
-   python clip.py 2d-contour -i data/moment0.fits -l 3
+   .. code-block:: bash
 
-   # Multiple levels
-   python clip.py 2d-contour -i data/moment0.fits -l 3 5 10 20
+      python clip.py 2d-contour -i data/moment0.fits -l 3
 
-   # High-significance contours only
-   python clip.py 2d-contour -i data/miri_intensity.fits -l 5 10 30 50
+   Multiple levels:
+
+   .. code-block:: bash
+
+      python clip.py 2d-contour -i data/moment0.fits -l 3 5 10 20
 
 
-Output Formats — quick reference
-================================
+Using the CLI from Jupyter
+==========================
 
-.. list-table::
-   :widths: 28 72
-   :header-rows: 1
+``clip.py`` exposes the same five commands as plain Python functions,
+specifically for use from Jupyter notebooks or scripts. They take
+``output_name`` as a keyword argument, skipping the interactive
+filename prompt that the CLI uses.
 
-   * - Command
-     - Output columns
-   * - ``auto-continuum``
-     - ``Wavelength  Continuum_Fit``
-   * - ``custom-continuum``
-     - ``Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result``
-   * - ``subtract-continuum``
-     - ``Wavelength  Original_Flux  Continuum_Fit  Subtracted_Result``
-   * - ``2d-rotate``
-     - FITS file with rotated image and updated WCS header
-   * - ``2d-contour``
-     - ``level, x_pixel, y_pixel, RA_deg, Dec_deg``
+.. code-block:: python
 
-Files exported by the CLI are fully compatible with the GUI's
-**subtract-continuum** import — a continuum file exported by
-``auto-continuum`` can be fed directly to ``subtract-continuum -c``.
+   from clip import (
+       auto_continuum,
+       custom_continuum,
+       subtract_continuum,
+       rotate_2d,
+       contour_2d,
+   )
+
+   auto_continuum("mycube.fits", output_name="continuum_out")
+   subtract_continuum("mycube.fits", "continuum_out.txt", output_name="subtracted")
+   custom_continuum("mycube.fits", "points.csv", output_name="custom_sub")
+   rotate_2d("image.fits", 45, output_name="rotated_45")
+   contour_2d("image.fits", [3, 5, 10], output_name="contours")
+
+All five wrappers accept ``output_name=None`` (the default), in which
+case the function falls back to the same interactive ``input()`` prompt
+the CLI uses.
+
+
+Troubleshooting
+===============
+
+Jupyter notebook issues
+-----------------------
+
+**Cell hangs after running a CLI command with** ``!python clip.py ...``
+
+   Jupyter does not forward keyboard input to ``!`` subprocesses, so
+   when ``clip.py`` calls ``input()`` for the output filename, it sits
+   waiting for input that will never arrive.
+
+   Fix: pipe the filename in via ``echo``, or use the Python wrapper
+   functions:
+
+   .. code-block:: python
+
+      # Option A — pipe the filename
+      !echo my_output | python clip.py auto-continuum -i cube.fits
+
+      # Option B — use the wrapper (recommended)
+      from clip import auto_continuum
+      auto_continuum("cube.fits", output_name="my_output")
+
+**FileNotFoundError when loading the FITS file**
+
+   Jupyter's working directory is wherever Jupyter was started, not
+   where the FITS file lives. Either start Jupyter from the project
+   folder, or change directory inside the notebook:
+
+   .. code-block:: python
+
+      import os
+      os.chdir(r"C:\path\to\IFU-Analyzer")
+
+   Then verify with ``os.path.exists("mycube.fits")``.
+
+**ImportError: cannot import** ``CubeData``
+
+   ``clip.py`` must be at the project root, one level above
+   ``cube_explorer/``. The wrapper expects to be importable as
+   ``from cube_explorer.data_loader import CubeData``.
+
+   Fix: move ``clip.py`` up one level if it is currently inside
+   ``cube_explorer/``.
+
+**Filename contains a space or parenthesis**
+
+   The shell splits on spaces, so a filename like
+   ``Level3_ch1-long_s3d (1).fits`` is parsed as two arguments.
+
+   Fix: quote the path, or rename the file:
+
+   .. code-block:: bash
+
+      python clip.py auto-continuum -i "Level3_ch1-long_s3d (1).fits"
+
+
+CLI issues
+----------
+
+**"unrecognized arguments"**
+
+   Almost always caused by an unquoted filename containing spaces. See
+   the previous item.
+
+**The continuum file from the GUI is not recognized**
+
+   The CLI accepts both legacy ``fitted_continuum`` (2 columns) and
+   the new ``full_results`` (4 columns) formats out of the box. If you
+   still get a parse error, open the file in a text editor and confirm
+   it has either ``# Type: fitted_continuum`` or ``# Type: full_results``
+   in the first 15 lines.
+
+**"--params expects 7 values"**
+
+   ``auto-continuum``'s ``--params`` flag requires all seven values in
+   order, even if you only want to change one. Use the default block
+   ``51 2.0 1 3 3 2 5`` as a starting template and edit the values you
+   need.
+
+**Output file has fewer rows than the cube's wavelength channels**
+
+   The continuum output (``fitted_continuum`` format) only writes rows
+   where the fit was finite. NaN regions of the spectrum are skipped.
+   The 4-column ``full_results`` output preserves every channel,
+   writing ``nan`` where appropriate.
+
+**Cube loads but the spectrum looks wrong**
+
+   ``clip.py`` uses ``CubeData`` from ``cube_explorer.data_loader``,
+   which computes ``cube.spectrum`` as the mean across all spatial
+   pixels. If you need a region-restricted spectrum, use the GUI's
+   region tools to define the region first, then save the spectrum
+   from the GUI.
