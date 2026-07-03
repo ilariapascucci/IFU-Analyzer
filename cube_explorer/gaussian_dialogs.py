@@ -371,7 +371,8 @@ class GaussianMapResultsDialog(QDialog):
                 f"Min: {np.nanmin(data):.4e}\n"
                 f"Max: {np.nanmax(data):.4e}\n"
                 f"Mean: {np.nanmean(data):.4e}\n"
-                f"Median: {np.nanmedian(data):.4e}"
+                f"Median: {np.nanmedian(data):.4e}\n"
+                f"Sum: {np.nansum(data):.4e}"
             )
             ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
                    verticalalignment='top', bbox=dict(boxstyle='round', 
@@ -551,7 +552,7 @@ class GaussianMapResultsDialog(QDialog):
                 out_header['LAMMAX'] = (lam_max, "Maximum wavelength of fit")
                 
                 # Update NAXIS
-                out_header['NAXIS'] = 3
+                out_header['NAXIS'] = 2
                 out_header['NAXIS1'] = int(residuals_data.shape[2])
                 out_header['NAXIS2'] = int(residuals_data.shape[1])
                 out_header['NAXIS3'] = int(residuals_data.shape[0])

@@ -1877,6 +1877,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 
     return {
         'amplitude': amplitude_map_cgs,  # CGS units (erg/s/cm²/sr) if available, else native (MJy/sr)
+        'amp_originalunits': amplitude_map,  # Original units (MJy/sr)
         'center': center_map,
         'sigma': sigma_map,
         'fwhm': fwhm_map,
