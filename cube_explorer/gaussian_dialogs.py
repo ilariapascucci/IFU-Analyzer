@@ -555,7 +555,6 @@ class GaussianMapResultsDialog(QDialog):
                 out_header['NAXIS'] = 2
                 out_header['NAXIS1'] = int(residuals_data.shape[2])
                 out_header['NAXIS2'] = int(residuals_data.shape[1])
-                out_header['NAXIS3'] = int(residuals_data.shape[0])
                 
                 hdu = fits.PrimaryHDU(data=residuals_data, header=out_header)
                 hdul = fits.HDUList([hdu])
@@ -603,10 +602,7 @@ class GaussianMapResultsDialog(QDialog):
         
         try:
             from astropy.io import fits
-            
-            # Reshape 2D data to 3D: (n_y, n_x) -> (1, n_y, n_x)
-            data_3d = data[np.newaxis, :, :]
-            
+                        
             # Start with a copy of the original header (like residuals export does)
             if self.cube_data.header is not None:
                 out_header = self.cube_data.header.copy()
@@ -650,14 +646,15 @@ class GaussianMapResultsDialog(QDialog):
             out_header['NTOTAL'] = (int(self.results['success'].size), "Total number of pixels")
             out_header['COMMENT'] = f'Gaussian fit parameter: {param_name}'
             
-            # Update NAXIS for 3D map (1, n_y, n_x)
-            out_header['NAXIS'] = 3
-            out_header['NAXIS1'] = int(data_3d.shape[2])
-            out_header['NAXIS2'] = int(data_3d.shape[1])
-            out_header['NAXIS3'] = int(data_3d.shape[0])
+            out_header['NAXIS'] = 2
+            out_header['NAXIS1'] = int(data.shape[1])
+            out_header['NAXIS2'] = int(data.shape[0])
+            for key in list(out_header.keys()):
+                if any(key.startswith(prefix) for prefix in ["NAXIS3", "WCSAXES", "CRPIX3", "CRVAL3", "CDELT3", "CTYPE3", "CUNIT3", "PC1_3", "PC2_3", "PC3_3", "PC3_1", "PC3_2"]):
+                    del out_header[key]
             
             # Create HDU and write
-            hdu = fits.PrimaryHDU(data=data_3d, header=out_header)
+            hdu = fits.PrimaryHDU(data=data, header=out_header)
             hdul = fits.HDUList([hdu])
             hdul.writeto(out_path, overwrite=True)
             
