@@ -11,7 +11,8 @@ print("="*70)
 try:
     from cube_explorer.api import (
         load_cube, fit_line, fit_multiple_lines, fit_hitran_lines,
-        fit_continuum, measure_equivalent_width, extract_co_flux, create_co_map
+        fit_continuum, measure_equivalent_width, extract_co_flux, create_co_flux_map,
+        rotational_diagram
     )
     print("[OK] All API functions imported successfully")
     print("  Available functions:")
@@ -22,7 +23,8 @@ try:
     print("    - fit_continuum()")
     print("    - measure_equivalent_width()")
     print("    - extract_co_flux()")
-    print("    - create_co_map()")
+    print("    - create_co_flux_map()")
+    print("    - rotational_diagram()")
 except Exception as e:
     print(f"[ERROR] Import failed: {e}")
     exit(1)

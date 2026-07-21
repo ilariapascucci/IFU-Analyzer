@@ -256,7 +256,7 @@ Core Modules
 **cube_explorer.gaussian_fitter**
 
 * `fit_hitran_lines(spectrum_x, spectrum_y, hitran_lines, header=None, wave_unit=None)` - Fit Gaussians to all lines
-* `fit_gaussian_to_line(wavelength, spectrum, x1, x2)` - Fit single line
+* `fit_gaussian_to_line(x1, x2, spectrum_x, spectrum_y, peak_x, noise_min=None, noise_max=None, header=None, wave_unit=None)` - Fit single line between x1/x2, with an explicit peak wavelength
 
 
 For Detailed Documentation

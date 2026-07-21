@@ -122,6 +122,15 @@ A standalone side-by-side viewer for 2D intensity maps, moment maps, and derived
     - Full spectrum displayed after subtraction with correct y-axis scaling (no clipping)
     - Save fitted continuum as ASCII or save continuum-subtracted spectrum
 
+- **Rotational Diagram Analysis (H2):**
+  - Standalone analyzer window for H2 rotational-temperature diagrams (1T and 2T fits)
+  - Fetch line data from HITRAN or import a custom CSV of transitions
+  - Select/deselect individual H2 lines; per-line flux and flux-error entry
+  - Non-detections can be marked as upper limits (calculated directly from a FITS cube via a dedicated dialog)
+  - Automatic method selection: ordinary least-squares (`scipy.curve_fit`) when all points are detections; PyMC Bayesian censored regression when one or more upper limits are present
+  - Emitting radius and distance inputs (AU / pc) for column-density normalization
+  - Results dialog reports fitted temperature(s) and column densities
+
 ### Data Processing
 
 - Coordinate conversion (pixel ↔ RA/DEC)
@@ -158,8 +167,10 @@ A standalone side-by-side viewer for 2D intensity maps, moment maps, and derived
 ### Dependencies
 
 ```bash
-pip install numpy matplotlib astropy PyQt5 scipy
+pip install -r requirements.txt
 ```
+
+Core dependencies: `PyQt5`, `matplotlib`, `numpy`, `scipy`, `pandas`, `scikit-learn`, `astropy`. `pymc` is required for Bayesian censored-regression fits (rotational diagram upper limits), and `hitran-api` for live HITRAN database queries. See `requirements.txt` for the full, versioned list.
 
 ### Setup
 
@@ -307,9 +318,20 @@ python main.py
    - View flux maps, SNR statistics, and detection quality
    - Export results with integrated flux estimates
 
+### Rotational Diagram Analysis
+
+8. Fit H2 rotational temperatures:
+   - Click the "Rotational Diagram" button to open the analyzer window
+   - Fetch H2 line data from HITRAN, or import a custom CSV of transitions
+   - Select the lines to include, entering measured flux/flux-error per line
+   - For non-detections, use "Calculate Upper Limit" to derive a flux limit directly from the loaded cube
+   - Enter emitting radius (AU) and distance (pc), then choose 1T or 2T fitting
+   - Click "Run Fit" — if any line is marked as an upper limit, fitting automatically switches to PyMC Bayesian censored regression instead of ordinary least-squares
+   - Review fitted temperature(s) and column densities in the results dialog
+
 ### Data Export
 
-8. Export results:
+9. Export results:
    - **Spectrum:** Click "Save Spectrum" below spectrum plot
    - **Continuum:** Click "Save Continuum" to export the fitted baseline
    - **Residuals:** Select "Residuals" in Gaussian map results → "Export Residuals Cube"
@@ -320,7 +342,7 @@ python main.py
 
 ### Additional Features
 
-9. Advanced tools:
+10. Advanced tools:
    - **Header Viewer:** Inspect FITS header information for selected HDU
    - **Line Catalog:** Load custom spectral line catalogs (LST format)
    - **HITRAN Database:** Query molecular lines with species filtering dialog
@@ -331,8 +353,8 @@ python main.py
 
 ## Performance
 
-- **Optimized Gaussian Fitting:** Adaptive parallelization with 8 workers (threads/processes)
-- **Reduced convergence iterations:** maxfev=5000 for ~2-5x speedup
+- **Optimized Gaussian Fitting:** Adaptive parallelization with up to 8 worker threads (`ThreadPoolExecutor`, capped to CPU count)
+- **Reduced convergence iterations:** per-pixel fits use a lowered `curve_fit` maxfev (800-1000) for ~2-5x speedup; full-line and CO/rotational-diagram fits use a higher maxfev (10000) for reliability
 - **Background processing:** GUI remains responsive during computations
 - **Memory efficiency:** Memory-mapped access for large cubes
 - **Typical performance:** ~10-30 seconds for full-cube Gaussian mapping
@@ -342,17 +364,19 @@ python main.py
 ```
 IFU-Analyzer/
 ├── main.py                     # Application entry point
-├── analyzer.py                 # Core analysis wrapper
 ├── cube_explorer/
 │ ├── __init__.py
-│ ├── gui.py                    # Main GUI (2500+ lines)
+│ ├── api.py                    # Non-GUI programmatic API (scripts/notebooks)
+│ ├── gui.py                    # Main GUI (2900+ lines)
 │ ├── gui_continuum.py          # Continuum subtraction mixin (auto + custom modes)
 │ ├── gui_gaussian.py           # Gaussian fitting mixin
 │ ├── gui_coflux.py             # CO flux mapping mixin
+│ ├── gui_rotational_diagram.py # H2 rotational diagram analyzer window
 │ ├── ifu_analyzer_2d.py        # 2D FITS dual viewer (WCS, rotation, contours, superimpose)
 │ ├── data_loader.py            # FITS loading & instrument detection
 │ ├── gaussian_fitter.py        # Gaussian fitting algorithms
 │ ├── co_flux_extractor.py      # CO rovibrational flux mapping
+│ ├── rotational_diagram_fitter.py # H2 rotational-temperature fitting (1T/2T, PyMC censored regression)
 │ ├── visualization.py          # Plotting and rendering functions
 │ ├── region_selector.py        # Interactive region selection tools
 │ ├── pixel_diagnostics.py      # Pixel-level fit inspection dialog
@@ -419,7 +443,7 @@ IFU-Analyzer/
 - Residuals are normalized by noise std (may need raw residuals for some analyses)
 - 2D FITS images display as single-slice cubes in main viewer (use dedicated 2D viewer for full functionality)
 - CO flux mapping requires well-defined line catalog with accurate wavelengths
-- ProcessPoolExecutor may have startup overhead on very small cubes
+- ThreadPoolExecutor-based parallelization may have limited speedup on very small cubes due to worker startup overhead
 - WCS superimpose uses bicubic interpolation with NaN masking; accuracy is sub-pixel for typical FITS WCS grids
 
 ## Future Enhancements

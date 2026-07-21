@@ -205,9 +205,11 @@ Automatically fit all lines from a molecular species in your spectrum:
     fit_quality_r2 = result.r_squared       # R² value (0-1, higher is better)
     fit_quality_chi2 = result.chi_squared   # χ² value (lower is better)
     
-    # Continuum information
-    continuum_flux = result.continuum       # Fitted continuum at line location
-    
+    # Baseline information
+    baseline_flux = result.baseline               # Fitted linear baseline, evaluated at each data point
+    baseline_slope = result.baseline_slope         # Baseline slope
+    baseline_intercept = result.baseline_intercept # Baseline value at x1
+
     # Status information
     was_successful = result.success         # Boolean: fit succeeded?
     status_message = result.message         # String: status information

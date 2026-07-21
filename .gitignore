@@ -10,3 +10,8 @@
 /hitran_local/
 /CO/
 /cube_explorer/__pycache__/
+
+# Ignore generated content
+/.claude/
+CLAUDE.md
+.claudeignore

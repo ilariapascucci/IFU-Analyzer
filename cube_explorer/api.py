@@ -42,13 +42,16 @@ CO flux extraction:
 
 Rotational diagram analysis (H2):
     >>> from cube_explorer.api import rotational_diagram
+    >>> molecular_data = {
+    ...     'wavelengths': {1: 17.03, 2: 12.28, 3: 9.66},
+    ...     'Aul': {1: 4.761e-10, 2: 2.755e-9, 3: 9.836e-9},
+    ...     'Eu': {1: 1015.1, 2: 1681.6, 3: 2503.7},
+    ...     'gu': {1: 21, 2: 9, 3: 33},
+    ... }
     >>> result = rotational_diagram(
     ...     fluxes={1: 178e-16, 2: 55.9e-16, 3: 122e-16},
     ...     flux_errors={1: 9e-16, 2: 3.2e-16, 3: 6.3e-16},
-    ...     wavelengths=[17.03, 12.28, 9.66],
-    ...     Aul=[4.761e-10, 2.755e-9, 9.836e-9],
-    ...     Eu=[1015.1, 1681.6, 2503.7],
-    ...     gu=[21, 9, 33],
+    ...     molecular_data=molecular_data,
     ...     R=8.5,     # AU
     ...     dist=71.5, # pc
     ...     fit2T=True
@@ -330,10 +333,10 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
     Returns:
         dict: Results containing:
             - 'co_flux': Total CO flux (erg/s/cm²)
-            - 'line_fluxes': Dict of individual line fluxes
-            - 'continuum': Fitted continuum spectrum
-            - 'residual': Spectrum after line removal
-            - 'n_detected': Number of detected CO lines
+            - 'contam_flux': Total flux attributed to contaminating lines
+            - 'mean_continuum': Mean continuum level used for the fit
+            - 'detected_lines': DataFrame of individual detected line fits
+            - 'residuals': DataFrame of fit residuals
 
     Example:
         >>> result = extract_co_flux(
@@ -343,7 +346,7 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
         ...     snr_threshold=3.0
         ... )
         >>> print(f"Total CO flux: {result['co_flux']:.4e} erg/s/cm²")
-        >>> print(f"Detected {result['n_detected']} lines")
+        >>> print(f"Detected {len(result['detected_lines'])} lines")
     """
     # Load catalogs from files
     co_catalog = load_CO_line_catalog(co_catalog_path)
@@ -379,10 +382,9 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
     Returns:
         dict: Map data containing:
             - 'flux_map': 2D array of CO fluxes
-            - 'amplitude_map': Peak amplitudes
-            - 'sigma_map': Gaussian sigma widths
-            - 'center_map': Line center shifts
-            - 'success_mask': Boolean mask of successful fits
+            - 'detection_map': 2D array with number of detected CO lines per pixel
+            - 'wavelength': 1D wavelength array used for fitting
+            - 'header': FITS header from the original cube
 
     Example:
         >>> cube = load_cube("data.fits")
@@ -425,6 +427,13 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
 
 
 # ============================================================================
+# ROTATIONAL DIAGRAM API
+# ============================================================================
+
+from .rotational_diagram_fitter import rotational_diagram
+
+
+# ============================================================================
 # UNIT CONVERSION API
 # ============================================================================
 
@@ -446,4 +455,6 @@ __all__ = [
     # CO Flux
     'extract_co_flux',
     'create_co_flux_map',
+    # Rotational Diagram
+    'rotational_diagram',
 ]
