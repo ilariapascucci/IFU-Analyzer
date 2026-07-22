@@ -12,19 +12,25 @@ import numpy as np
 import matplotlib.patches as patches
 from astropy.io import fits
 from astropy.wcs import WCS
+from astropy.wcs.utils import proj_plane_pixel_scales  # used by: _get_pixel_size_arcsec
 from astropy.stats import sigma_clipped_stats
+from astropy.convolution import convolve_fft, Gaussian2DKernel  # used by: gaussian_convolve_match
+from astropy.coordinates import SkyCoord  # used by: build_target_wcs_for_batch, _apply_loaded_contour
+import astropy.units as u  # used by: build_target_wcs_for_batch, _apply_loaded_contour
 from scipy.ndimage import rotate
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit, 
+    QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
     QInputDialog, QLineEdit, QListWidget, QListWidgetItem
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from matplotlib.colors import Normalize
+from matplotlib.colors import LogNorm, PowerNorm  # used by: display_image, _change_scale
 from PyQt5.QtCore import Qt
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
@@ -42,7 +48,6 @@ def _get_pixel_size_arcsec(header):
     raw CDELT keywords if the WCS cannot be built.
     """
     try:
-        from astropy.wcs.utils import proj_plane_pixel_scales
         w = WCS(header)
         if w.has_celestial:
             return abs(float(proj_plane_pixel_scales(w.celestial)[0])) * 3600.0
@@ -99,7 +104,6 @@ def gaussian_convolve_match(image, sigma_pix):
     if not np.isfinite(sigma_pix) or sigma_pix <= 0.05:
         return image.copy()
 
-    from astropy.convolution import convolve_fft, Gaussian2DKernel
     kernel = Gaussian2DKernel(x_stddev=float(sigma_pix))
 
     finite_mask = np.isfinite(image)
@@ -243,8 +247,6 @@ def build_target_wcs_for_batch(input_wcss_and_shapes, target_pix_arcsec):
     out.wcs.crpix = [1.0, 1.0]
 
     # Project every input corner into the (provisional) target pixel grid
-    from astropy.coordinates import SkyCoord
-    import astropy.units as u
     ra = np.concatenate(all_corners_ra)
     dec = np.concatenate(all_corners_dec)
     sky = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame='icrs')
@@ -1571,10 +1573,11 @@ class Ifu_analyzer_2d_window(QWidget):
             self._apply_loaded_contour(target, fname, color)
 
     def _apply_loaded_contour(self, target, fname, color):
-        """Loads a saved binary mask and plots it using WCS mapping."""
+        """Loads a saved contour and plots it, reprojected onto this panel's own WCS."""
         target_plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
         target_img = self.image_left if target == 'left' else self.image_right
-        
+        target_wcs = self.wcs_left if target == 'left' else self.wcs_right
+
         if target_img is None:
             QMessageBox.warning(self, "No Target Image", f"Load an image in the {target} panel first.")
             return
@@ -1582,10 +1585,37 @@ class Ifu_analyzer_2d_window(QWidget):
         try:
             data = np.genfromtxt(fname, delimiter=',', comments='#')
             if data.ndim == 1: data = data.reshape(1, -1)
-            
-            x_pts = data[:, 1]
-            y_pts = data[:, 2]
-            
+
+            x_pix_saved = data[:, 1]
+            y_pix_saved = data[:, 2]
+
+            # Prefer RA/Dec (columns 3, 4) converted into THIS panel's pixel
+            # grid, so a contour saved from one image lines up correctly on
+            # a different image (different rotation, shape, or reprojection).
+            # Only fall back to the raw saved pixel coordinates when the file
+            # has no RA/Dec (old export, or no WCS at save time) or this
+            # panel itself has no WCS to convert into — in that case the
+            # contour is only valid if both panels already share a pixel grid.
+            use_sky = data.shape[1] >= 5 and target_wcs is not None
+            if use_sky:
+                ra_pts = data[:, 3]
+                dec_pts = data[:, 4]
+                use_sky = bool(np.all(np.isfinite(ra_pts)) and np.all(np.isfinite(dec_pts)))
+
+            if use_sky:
+                sky = SkyCoord(ra=ra_pts * u.deg, dec=dec_pts * u.deg, frame='icrs')
+                x_pts, y_pts = target_wcs.world_to_pixel(sky)
+                x_pts = np.asarray(x_pts, dtype=float)
+                y_pts = np.asarray(y_pts, dtype=float)
+            else:
+                QMessageBox.warning(
+                    self, "No WCS Alignment",
+                    "This contour file has no RA/Dec, or this panel has no WCS, "
+                    "so it will be plotted at its saved pixel coordinates.\n\n"
+                    "It will only line up correctly if this panel uses the exact "
+                    "same pixel grid as the panel it was saved from.")
+                x_pts, y_pts = x_pix_saved, y_pix_saved
+
             dist = np.sqrt(np.diff(x_pts)**2 + np.diff(y_pts)**2)
             break_indices = np.where(dist > 5.0)[0] + 1 
             
@@ -1613,7 +1643,6 @@ class Ifu_analyzer_2d_window(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to plot saved contour:\n{str(e)}")
-            import traceback
             traceback.print_exc()
 
     def _prompt_and_superimpose(self):
@@ -1694,7 +1723,6 @@ class Ifu_analyzer_2d_window(QWidget):
             if ov_finite.size == 0:
                 return
 
-            from matplotlib.colors import Normalize
             ov_norm = Normalize(vmin=float(np.nanmin(ov_finite)), vmax=float(np.nanmax(ov_finite)))
             ax.imshow(reprojected, origin='lower', cmap=overlay_cmap,
                     norm=ov_norm, alpha=alpha, aspect='auto', interpolation='nearest')
@@ -2216,7 +2244,6 @@ class Ifu_analyzer_2d_window(QWidget):
         if vmin == vmax:
             vmax = vmin + 1.0
 
-        from matplotlib.colors import LogNorm, PowerNorm, Normalize
         if scale == 'Log':
             # Log scale requires strictly positive values
             vmin_log = _log_norm_vmin(finite)
@@ -2252,7 +2279,6 @@ class Ifu_analyzer_2d_window(QWidget):
                         ra, dec = ax.coords[0], ax.coords[1]
 
                     # Choose formatter precision based on FOV — let Astropy auto-pick spacing
-                    import astropy.units as u
                     cdelt    = abs(header.get('CDELT1', header.get('CD1_1', 0.0)))
                     ny, nx   = image.shape
                     fov_amin = cdelt * max(nx, ny) * 60.0   # arcmin
@@ -2762,9 +2788,6 @@ class Ifu_analyzer_2d_window(QWidget):
         ``display_image`` (e.g. after a colormap change) preserve the scale
         instead of falling back to Linear.
         """
-        from matplotlib.colors import Normalize, LogNorm, PowerNorm
-        import numpy as np
-
         # Use the exact variable names from _init_plots
         if panel == 'left':
             combo = self.scale_combo_left
