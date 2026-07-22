@@ -9,7 +9,11 @@ from scipy.optimize import curve_fit
 import pymc as pm
 
 
-# Constants
+
+'''
+CONSTANTS
+'''
+
 erg2ev = 6.24150647996e11  # erg -> eV
 clight = 2.99792458e10  # cm/s
 hplanck_eV = 4.135667696e-15  # eV*s
@@ -19,13 +23,127 @@ Msun = 1.989e33  # g
 au = 1.496e13  # cm
 pc = 3.086e18  # cm
 
+
+
+'''
+HITRAN DATA
+'''
+
 # Molecular data for H2 (from HITRAN - these would be populated dynamically)
 # For now, we'll accept these as inputs from the GUI
 wave = {}  # micron
 Aul = {}  # s^-1
 Eu = {}  # K
-gu = {}  # unitless
+#gu = {}  # unitless
 
+
+
+'''
+FORMULAS
+'''
+
+def is_ortho(J):
+    """Check if rotational level J is ortho (odd J)"""
+    return (J % 2 == 1)
+
+def get_Ju(SJ):
+    """Upper rotational level for H2 S-branch line S(SJ)"""
+    return SJ + 2
+
+def get_gu(SJ):
+    """Rotational-only degeneracy (2*Ju+1), nuclear spin excluded so apply_OPR can supply it"""
+    Ju = get_Ju(SJ)
+    #gs = 3 if is_ortho(Ju) else 1
+    return (2*Ju + 1)
+
+def compute_Nu(F, lam, A, R=None, dist=None):
+    """
+    Compute column density from flux.
+    
+    Args:
+        F: Flux
+        lam: Wavelength (micron)
+        A: Einstein coefficient (s^-1)
+        R: Emitting radius (cm), optional
+        dist: Distance (cm), optional
+    
+    Returns:
+        Column density Nu
+    """
+    lam_cm = lam * 1e-4  # micron to cm
+    Nu_col = (4*np.pi * F * lam_cm) / (hplanck * clight * A)
+
+    if R is not None:
+        arcsec2 = np.pi*((R/dist)**2)
+        sr_arcsec2 = 4.25*(10**10)
+        sr = arcsec2/sr_arcsec2
+        Nu_total = Nu_col / sr
+        return Nu_total
+    else:
+        return Nu_col*((dist*pc)**2)
+
+
+def apply_OPR(Nu, J, OPR):
+    """Apply ortho-para ratio correction"""
+    if OPR is None:
+        OPR = 3.0
+
+    if isinstance(OPR, (int, float)):
+        opr_val = OPR
+    else:
+        raise ValueError("OPR must be None or a float (use 'fit' in wrapper)")
+
+    f_ortho = opr_val  # / (1 + opr_val)
+    f_para  = 1.0  # / (1 + opr_val)
+
+    return Nu / (f_ortho if is_ortho(J) else f_para)
+
+
+def Q_Herbst(T):
+    """Herbst partition function for H2"""
+    return 0.0247 * T / (1 - np.exp(-6000/T))
+
+
+def Q_Herbst_err(T, T_err):
+    """Error on partition function"""
+    a = 6000.0
+    c = 0.0247
+    ea = np.exp(-a/T)
+    dQdT = c * (1/(1-ea) - (a*ea)/(T*(1-ea)**2))
+    return np.abs(dQdT) * T_err
+
+
+def model_1T(E, a, T):
+    """Single temperature rotational diagram model"""
+    return a - E / T
+
+
+def model_2T(E, a1, T1, a2, T2):
+    """Two temperature rotational diagram model"""
+    return np.log(np.exp(a1 - E/T1) + np.exp(a2 - E/T2))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
+UPPER LIMITS
+'''
 
 def get_spectral_resolution(wavelength, instrument, header=None):
     """
@@ -77,76 +195,6 @@ def get_spectral_resolution(wavelength, instrument, header=None):
         raise ValueError(f"Instrument {instrument} not yet supported for spectral resolution")
 
 
-def is_ortho(J):
-    """Check if rotational level J is ortho (odd J)"""
-    return (J % 2 == 1)
-
-
-def compute_Nu(F, lam, A, R=None, dist=None):
-    """
-    Compute column density from flux.
-    
-    Args:
-        F: Flux
-        lam: Wavelength (micron)
-        A: Einstein coefficient (s^-1)
-        R: Emitting radius (cm), optional
-        dist: Distance (cm), optional
-    
-    Returns:
-        Column density Nu
-    """
-    lam_cm = lam * 1e-4  # micron to cm
-    Nu_col = (4*np.pi * F * lam_cm) / (hplanck * clight * A)
-    
-    if R is not None and dist is not None:
-        arcsec2 = np.pi*(R/dist)**2
-        sr_arcsec2 = 4.25*(10**10)
-        sr = arcsec2/sr_arcsec2
-        Nu_total = Nu_col / sr
-        return Nu_total
-    else:
-        return Nu_col
-
-
-def apply_OPR(Nu, J, OPR):
-    """Apply ortho-para ratio correction"""
-    if OPR is None:
-        return Nu
-
-    f_ortho = OPR / (1 + OPR)
-    f_para = 1 / (1 + OPR)
-
-    return Nu / (f_ortho if is_ortho(J) else f_para)
-
-
-def Q_Herbst(T):
-    """Herbst partition function for H2"""
-    return 0.0247 * T / (1 - np.exp(-6000/T))
-
-
-def Q_Herbst_err(T, T_err):
-    """Error on partition function"""
-    a = 6000.0
-    c = 0.0247
-    ea = np.exp(-a/T)
-    dQdT = c * (1/(1-ea) - (a*ea)/(T*(1-ea)**2))
-    return np.abs(dQdT) * T_err
-
-
-def model_1T(E, a, T):
-    """Single temperature rotational diagram model"""
-    return a - E / T
-
-
-def model_2T(E, a1, T1, a2, T2):
-    """Two temperature rotational diagram model"""
-    return np.log(np.exp(a1 - E/T1) + np.exp(a2 - E/T2))
-
-
-# ===========
-# Upper limit
-# ===========
 def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=None, R=None):
     """
     Calculate upper limit flux from noise using spectral resolution.
@@ -296,6 +344,32 @@ def flux_to_logNu_upper(F_ul, lam, Aul_val, gu_val, R=None, dist=None):
 
     return np.log(Nu_ul / gu_val)
 '''
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T=False, R=None, dist=140*pc, upper_limits=None):
     """
