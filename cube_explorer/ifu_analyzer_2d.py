@@ -606,6 +606,21 @@ def _wcs_footprints_overlap(wcs1, shape1, wcs2, shape2):
         return True
 
 
+def _log_norm_vmin(data):
+    """Return the ``vmin`` to use for a ``LogNorm`` over ``data``.
+
+    Uses the smallest strictly-positive finite value so the log stretch
+    spans the decades the data actually occupies, instead of an arbitrary
+    floor like ``1e-10`` (which — if the true positive minimum is much
+    higher — wastes most of the color range on values that don't exist
+    and washes out the display). Falls back to ``1e-5`` when there is no
+    positive data at all.
+    """
+    finite = data[np.isfinite(data)]
+    positive = finite[finite > 0]
+    return float(np.nanmin(positive)) if positive.size else 1e-5
+
+
 # ----------------------------------------------------------------------
 # 6. Backwards-compatibility aliases for the rest of the file
 # ----------------------------------------------------------------------
@@ -2204,7 +2219,7 @@ class Ifu_analyzer_2d_window(QWidget):
         from matplotlib.colors import LogNorm, PowerNorm, Normalize
         if scale == 'Log':
             # Log scale requires strictly positive values
-            vmin_log = max(vmin, 1e-10)
+            vmin_log = _log_norm_vmin(finite)
             norm = LogNorm(vmin=vmin_log, vmax=vmax)
         elif scale == 'Sqrt':
             vmin_sqrt = max(vmin, 0.0)
@@ -2788,8 +2803,7 @@ class Ifu_analyzer_2d_window(QWidget):
         # Apply the selected mathematical normalization
         if scale_type == 'Log':
             # Log scale cannot handle zero or negative numbers
-            vmin_pos = valid_data[valid_data > 0]
-            vmin_log = float(np.nanmin(vmin_pos)) if len(vmin_pos) > 0 else 1e-5
+            vmin_log = _log_norm_vmin(valid_data)
             im.set_norm(LogNorm(vmin=vmin_log, vmax=vmax))
         elif scale_type == 'Power (γ=2)':
             im.set_norm(PowerNorm(gamma=2.0, vmin=vmin, vmax=vmax))
