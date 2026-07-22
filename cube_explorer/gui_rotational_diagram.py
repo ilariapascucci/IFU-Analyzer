@@ -765,12 +765,11 @@ class RotationalDiagramWindow(QMainWindow):
                     x1, x2, wavelength, spectrum, wl, flux_integrated, header=header
                 )
 
-                # Convert flux_error to CGS using same factor as flux
-                cdelt1 = abs(float(header.get('CDELT1', 1)))
-                cdelt2 = abs(float(header.get('CDELT2', 1)))
-                conv_factor = cdelt1 * cdelt2 * 1e6 / (180.0 / np.pi)**2
-                c_micron_per_s = 3e14
-                flux_error = flux_error_native * conv_factor * (c_micron_per_s / (wl**2)) * 1e-23
+                # Convert flux_error to CGS using the same MJy/sr*um -> erg/s/cm2 conversion as flux_integrated
+                flux_error = convert_flux_upper_limit_to_cgs(flux_error_native, wl, header, flux_unit='MJy/sr')
+                if flux_error is None:
+                    print(f"Warning: Could not convert flux error to CGS for line {wl:.4f}")
+                    continue
 
                 # Auto-detect upper limit
                 sigma_noise = estimate_noise_local(wavelength, spectrum, wl, n_pixels=13)
