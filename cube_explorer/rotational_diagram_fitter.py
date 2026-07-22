@@ -331,9 +331,96 @@ def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_uni
         flux_cgs = flux_jy_um * (c_micron_per_s / (wavelength ** 2)) * 1e-23
         
         return flux_cgs
-    
+
     except Exception:
         return None
+
+
+def compute_line_flux(wavelength_arr, spectrum_arr, line_wavelength, header, instrument):
+    """
+    Fit a single line in an (already spatially-summed) spectrum and compute its
+    integrated flux, flux uncertainty, and upper-limit status, all in CGS units.
+
+    Args:
+        wavelength_arr: 1D wavelength array (microns), increasing order
+        spectrum_arr: 1D flux array (MJy/sr), matching wavelength_arr
+        line_wavelength: Target line center wavelength (microns)
+        header: FITS header (for spectral resolution + unit conversion)
+        instrument: Instrument name ('MIRI', 'NIRSPEC', ...)
+
+    Returns:
+        dict with keys:
+            success (bool), message (str or None),
+            flux_cgs, flux_error_cgs, is_upper_limit, F_ul_cgs,
+            sigma_noise, delta_lambda
+        On failure (fit or unit-conversion failure), success=False, message
+        explains why, and the numeric fields are absent.
+    """
+    from .gaussian_fitter import fit_gaussian_to_line, convert_area_to_cgs, estimate_flux_uncertainty_montecarlo
+
+    wl = line_wavelength
+
+    # Get spectral resolution and define a wavelength window (+/-2*delta_lambda) around the line
+    R = get_spectral_resolution(wl, instrument=instrument, header=header)
+    delta_lambda = wl / R
+    window_width = delta_lambda * 2
+    x1 = wl - window_width
+    x2 = wl + window_width
+
+    # Fit gaussian (native units, no header conversion)
+    fit_result = fit_gaussian_to_line(
+        x1=x1, x2=x2,
+        spectrum_x=wavelength_arr,
+        spectrum_y=spectrum_arr,
+        peak_x=wl,
+        header=None
+    )
+
+    if not fit_result.success:
+        return {"success": False, "message": f"Gaussian fit failed: {fit_result.message}"}
+
+    # Convert area to CGS
+    flux_integrated = convert_area_to_cgs(
+        fit_result.amplitude, fit_result.sigma, fit_result.center,
+        header=header, wave_unit='UM', flux_unit_input='MJy/sr'
+    )
+    if flux_integrated is None:
+        return {"success": False, "message": "Could not convert flux to CGS"}
+
+    # Monte Carlo flux uncertainty (native units), converted to CGS using the same factor as flux
+    flux_error_native = estimate_flux_uncertainty_montecarlo(x1, x2, wavelength_arr, spectrum_arr, wl)
+    flux_error = convert_flux_upper_limit_to_cgs(flux_error_native, wl, header, flux_unit='MJy/sr')
+    if flux_error is None:
+        return {"success": False, "message": "Could not convert flux error to CGS"}
+
+    # Auto-detect upper limit
+    sigma_noise = estimate_noise_local(wavelength_arr, spectrum_arr, wl, n_pixels=13)
+    if sigma_noise is None:
+        sigma_noise = np.nanstd(spectrum_arr[len(spectrum_arr)//2:])
+
+    F_ul_native, delta_lambda_ul = gaussian_flux_upper_limit(sigma_noise, wl, instrument=instrument, header=header)
+    F_ul_cgs = convert_flux_upper_limit_to_cgs(F_ul_native, wl, header, flux_unit='MJy/sr')
+
+    is_upper_limit = flux_integrated < F_ul_cgs
+
+    print(f"[BATCH_FLUX] Line @ {wl:.6f} μm:")
+    print(f"  flux = {flux_integrated:.4e} erg/s/cm²")
+    print(f"  error = {flux_error:.4e} erg/s/cm²")
+    print(f"  noise (native) = {sigma_noise:.4e} MJy/sr")
+    print(f"  delta_lambda = {delta_lambda_ul:.4e} μm")
+    print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm²")
+    print(f"  is_upper_limit = {is_upper_limit}")
+
+    return {
+        "success": True,
+        "message": None,
+        "flux_cgs": flux_integrated,
+        "flux_error_cgs": flux_error,
+        "is_upper_limit": is_upper_limit,
+        "F_ul_cgs": F_ul_cgs,
+        "sigma_noise": sigma_noise,
+        "delta_lambda": delta_lambda_ul,
+    }
 
 
 # ==========================================================

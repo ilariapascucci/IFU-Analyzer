@@ -662,8 +662,7 @@ class RotationalDiagramWindow(QMainWindow):
     def calculate_fluxes_batch(self, selected_rows, fits_paths):
         """Calculate fluxes for all selected lines using their matched FITS files"""
         from .data_loader import CubeData
-        from .gaussian_fitter import fit_gaussian_to_line, convert_area_to_cgs, estimate_flux_uncertainty_montecarlo
-        from .rotational_diagram_fitter import get_spectral_resolution, estimate_noise_local, gaussian_flux_upper_limit, convert_flux_upper_limit_to_cgs
+        from .rotational_diagram_fitter import compute_line_flux
 
         progress = QProgressDialog(
             "Loading FITS files...",
@@ -724,77 +723,17 @@ class RotationalDiagramWindow(QMainWindow):
                     wavelength = wavelength[::-1]
                     spectrum = spectrum[::-1]
 
-                # Get spectral resolution
-                R = get_spectral_resolution(wl, instrument=instrument, header=header)
-                delta_lambda = wl / R
+                # Fit the line and compute flux, error, and upper-limit status (CGS)
+                result = compute_line_flux(wavelength, spectrum, wl, header, instrument)
 
-                # Define wavelength window (±2Δλ)
-                window_width = delta_lambda * 2
-                x1 = wl - window_width
-                x2 = wl + window_width
-
-                # Fit gaussian using fit_gaussian_to_line (get raw values, no header conversion)
-                fit_result = fit_gaussian_to_line(
-                    x1=x1, x2=x2,
-                    spectrum_x=wavelength,
-                    spectrum_y=spectrum,
-                    peak_x=wl,
-                    header=None  # Get native units
-                )
-
-                if not fit_result.success:
-                    print(f"Warning: Gaussian fit failed for line {wl:.4f}: {fit_result.message}")
+                if not result["success"]:
+                    print(f"Warning: {result['message']} for line {wl:.4f}")
                     continue
 
-                # Convert area to CGS using convert_area_to_cgs formula
-                flux_integrated = convert_area_to_cgs(
-                    fit_result.amplitude,
-                    fit_result.sigma,
-                    fit_result.center,
-                    header=header,
-                    wave_unit='UM',
-                    flux_unit_input='MJy/sr'
-                )
-
-                if flux_integrated is None:
-                    print(f"Warning: Could not convert flux to CGS for line {wl:.4f}")
-                    continue
-
-                # Calculate uncertainty using Monte Carlo (returns native units from fits)
-                flux_error_native = estimate_flux_uncertainty_montecarlo(
-                    x1, x2, wavelength, spectrum, wl
-                )
-
-                # Convert flux_error to CGS using the same MJy/sr*um -> erg/s/cm2 conversion as flux_integrated
-                flux_error = convert_flux_upper_limit_to_cgs(flux_error_native, wl, header, flux_unit='MJy/sr')
-                if flux_error is None:
-                    print(f"Warning: Could not convert flux error to CGS for line {wl:.4f}")
-                    continue
-
-                # Auto-detect upper limit
-                sigma_noise = estimate_noise_local(wavelength, spectrum, wl, n_pixels=13)
-                if sigma_noise is None:
-                    sigma_noise = np.nanstd(spectrum[len(spectrum)//2:])
-
-                # Get upper limit in native units (MJy/sr·μm)
-                F_ul_native, delta_lambda_ul = gaussian_flux_upper_limit(
-                    sigma_noise, wl,
-                    instrument=instrument,
-                    header=header
-                )
-
-                # Convert F_ul to CGS
-                F_ul_cgs = convert_flux_upper_limit_to_cgs(F_ul_native, wl, header, flux_unit='MJy/sr')
-
-                is_upper_limit = flux_integrated < F_ul_cgs
-
-                print(f"[BATCH_FLUX] Line {row+1} @ {wl:.6f} μm:")
-                print(f"  flux = {flux_integrated:.4e} erg/s/cm²")
-                print(f"  error = {flux_error:.4e} erg/s/cm²")
-                print(f"  noise (native) = {sigma_noise:.4e} MJy/sr")
-                print(f"  delta_lambda = {delta_lambda_ul:.4e} μm")
-                print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm²")
-                print(f"  is_upper_limit = {is_upper_limit}")
+                flux_integrated = result["flux_cgs"]
+                flux_error = result["flux_error_cgs"]
+                is_upper_limit = result["is_upper_limit"]
+                F_ul_cgs = result["F_ul_cgs"]
 
                 # Use upper limit value if detected as upper limit
                 flux_to_display = F_ul_cgs if is_upper_limit else flux_integrated
