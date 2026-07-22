@@ -635,7 +635,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum")
         self.custom_subtract_btn.setToolTip("Manually select continuum points and fit")
         self.custom_ok_btn.setToolTip("Calculate and apply custom continuum")
-        self.save_spectrum_btn.setToolTip("Save current spectrum to file")
         self.custom_delete_btn.setToolTip("Toggle to delete points with left-click")
 
         self.subtract_continuum_btn.setCheckable(True)
