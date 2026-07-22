@@ -157,7 +157,7 @@ class GuiGaussianMixin:
             return
         
         if self.gauss_peak_x is None:
-            QMessageBox.warning(self, "Peak Selection Required", "You MUST select a peak to fit.")
+            QMessageBox.warning(self, "Peak Selection Required", "You must select a peak to fit.")
             return
         
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None or not hasattr(self, 'cube_data') or self.cube_data is None:
@@ -439,9 +439,9 @@ STATUS: {result.message}
         if cube is None or wavelength is None: return
         
         lam_min, lam_max = min(self.gauss_left_x, self.gauss_right_x), max(self.gauss_left_x, self.gauss_right_x)
-        if np.count_nonzero((wavelength >= lam_min) & (wavelength <= lam_max)) < 50:
-            if QMessageBox.warning(self, "Narrow Fit Region", "Region is very narrow (<50 points). Continue?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.No:
-                return
+        # if np.count_nonzero((wavelength >= lam_min) & (wavelength <= lam_max)) < 50:
+        #     if QMessageBox.warning(self, "Narrow Fit Region", "Region is very narrow (<50 points). Continue?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.No:
+        #         return
         
         if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
             QMessageBox.warning(self, "Noise Region Required", "You MUST define a noise region for map fitting.")

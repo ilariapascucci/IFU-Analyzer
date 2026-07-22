@@ -189,6 +189,7 @@ class PixelDiagnosticsDialog(QDialog):
         
         # Get fit results
         amplitude = self.fit_results['amplitude'][row, col]
+        amplitude_for_fitting = self.fit_results['amp_originalunits'][row, col]
         center = self.fit_results['center'][row, col]
         sigma = self.fit_results['sigma'][row, col]
         area = self.fit_results['area'][row, col]
@@ -205,8 +206,8 @@ class PixelDiagnosticsDialog(QDialog):
         y_corrected = y_data - baseline
         
         # Generate fitted curve
-        if success and not np.isnan(amplitude):
-            y_fit = gaussian(self.x_data, amplitude, center, sigma)
+        if success and not np.isnan(amplitude_for_fitting):
+            y_fit = gaussian(self.x_data, amplitude_for_fitting, center, sigma)
             residuals = y_corrected - y_fit
         else:
             y_fit = np.full_like(self.x_data, np.nan)
@@ -219,7 +220,7 @@ class PixelDiagnosticsDialog(QDialog):
         ax_data = self.fig.add_subplot(2, 1, 1)
         ax_data.plot(self.x_data, y_data, 'o-', label='Data', linewidth=1.5, markersize=4)
         ax_data.plot(self.x_data, baseline, '--', label='Baseline', linewidth=2, alpha=0.7)
-        if success and not np.isnan(amplitude):
+        if success and not np.isnan(amplitude_for_fitting):
             ax_data.plot(self.x_data, baseline + y_fit, '-', label='Gaussian Fit', 
                         linewidth=2, color='red', alpha=0.8)
         ax_data.set_ylabel('Flux')
@@ -231,7 +232,7 @@ class PixelDiagnosticsDialog(QDialog):
         ax_residuals = self.fig.add_subplot(2, 1, 2)
         ax_residuals.plot(self.x_data, y_corrected, 'o-', label='Baseline-corrected Data', 
                          linewidth=1.5, markersize=4)
-        if success and not np.isnan(amplitude):
+        if success and not np.isnan(amplitude_for_fitting):
             ax_residuals.plot(self.x_data, y_fit, '-', label='Gaussian Model', 
                             linewidth=2, color='red', alpha=0.8)
             ax_residuals.plot(self.x_data, residuals, 's', label='Residuals', 
@@ -255,19 +256,19 @@ class PixelDiagnosticsDialog(QDialog):
             r_squared_local = np.nan
 
         # Update info label with fit details
-        info_text = self._format_fit_info(row, col, amplitude, center, sigma, 
+        info_text = self._format_fit_info(row, col, amplitude_for_fitting, center, sigma, 
                                          area, r_squared_local, success, is_detection, 
                                          is_upper_limit, y_data, y_corrected, 
                                          residuals)
         self.info_label.setText(info_text)
     
-    def _format_fit_info(self, row, col, amplitude, center, sigma, area, r_squared, 
+    def _format_fit_info(self, row, col, amplitude_for_fitting, center, sigma, area, r_squared, 
                         success, is_detection, is_upper_limit, y_data, y_corrected, 
                         residuals) -> str:
         """Format fit information as readable text"""
         
         # Determine fit status
-        if not success and np.isnan(amplitude):
+        if not success and np.isnan(amplitude_for_fitting):
             status = "❌ FAILED FIT"
         elif is_detection:
             status = f"✅ DETECTION (>{self.fac_above_stdres}σ)"
@@ -284,10 +285,10 @@ class PixelDiagnosticsDialog(QDialog):
             "",
             f"Fit Parameters:",
             f"  Center (λ):        {center:12.6f}  (wavelength units)",
-            f"  Amplitude (A):     {amplitude:12.6e}  (peak height)",
+            f"  Amplitude (A):     {amplitude_for_fitting:12.6e}  (peak height, flux units)",
             f"  Sigma (σ):         {sigma:12.6e}  (Gaussian width)",
             f"  FWHM:              {2.355*sigma:12.6e}  (full width at half max)",
-            f"  Area (AUC):        {area:12.6e}  (integrated flux)",
+            f"  Area (AUC):        {area:12.6e}  (integrated flux, ergs/s/cm²/sr or native units)",
             "",
             f"Fit Quality:",
             f"  R² (goodness):     {r_squared:12.6f}  (1.0 = perfect)",
