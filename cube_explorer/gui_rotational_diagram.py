@@ -662,7 +662,7 @@ class RotationalDiagramWindow(QMainWindow):
     def calculate_fluxes_batch(self, selected_rows, fits_paths):
         """Calculate fluxes for all selected lines using their matched FITS files"""
         from .data_loader import CubeData
-        from .gaussian_fitter import fit_gaussian_to_line, convert_area_to_cgs
+        from .gaussian_fitter import fit_gaussian_to_line, convert_area_to_cgs, estimate_flux_uncertainty_montecarlo
         from .rotational_diagram_fitter import get_spectral_resolution, estimate_noise_local, gaussian_flux_upper_limit, convert_flux_upper_limit_to_cgs
 
         progress = QProgressDialog(
@@ -761,8 +761,8 @@ class RotationalDiagramWindow(QMainWindow):
                     continue
 
                 # Calculate uncertainty using Monte Carlo (returns native units from fits)
-                flux_error_native = self._calculate_flux_uncertainty(
-                    x1, x2, wavelength, spectrum, wl, flux_integrated, header=header
+                flux_error_native = estimate_flux_uncertainty_montecarlo(
+                    x1, x2, wavelength, spectrum, wl
                 )
 
                 # Convert flux_error to CGS using the same MJy/sr*um -> erg/s/cm2 conversion as flux_integrated
@@ -826,74 +826,6 @@ class RotationalDiagramWindow(QMainWindow):
 
         progress.close()
         QMessageBox.information(self, "Complete", "Flux calculation complete!")
-    
-    def _calculate_flux_uncertainty(self, x1, x2, spectrum_x, spectrum_y, peak_x, flux_ini, header=None):
-        """
-        Calculate uncertainty on integrated flux using Monte Carlo.
-        
-        Method:
-        1. Estimate baseline noise from spectrum edges (first 4 and last 4 pixels)
-        2. Do 1000 iterations: add random noise, re-fit gaussian, collect fluxes
-        3. Return std dev of flux distribution
-        
-        Args:
-            x1, x2: Wavelength bounds
-            spectrum_x, spectrum_y: Spectrum wavelength and flux arrays
-            peak_x: Line center wavelength
-            flux_ini: Initial flux (unused, kept for compatibility)
-            header: FITS header for unit conversion (optional)
-        """
-        from .gaussian_fitter import fit_gaussian_to_line
-        
-        # Extract data in region
-        mask = (spectrum_x >= x1) & (spectrum_x <= x2)
-        x_data = spectrum_x[mask]
-        y_data = spectrum_y[mask]
-        
-        if len(y_data) < 4:
-            return 0.0
-        
-        # Step 1: Calculate baseline from edges (first 4 and last 4 pixels)
-        y1 = y_data[0]
-        y2 = y_data[-1]
-        baseline = y1 + (y2 - y1) / (x_data[-1] - x_data[0]) * (x_data - x_data[0])
-        
-        # Calculate noise std from edge residuals
-        edge_residuals = np.concatenate([y_data[:4] - baseline[:4], y_data[-4:] - baseline[-4:]])
-        sd = np.nanstd(edge_residuals)
-        
-        if sd <= 0:
-            return 0.0
-        
-        # Step 2: Monte Carlo: add noise, re-fit, collect fluxes
-        n_step = 1000
-        flux_dist = np.zeros(n_step)
-        
-        for i in range(n_step):
-            # Add random Gaussian noise to spectrum
-            noise = np.random.normal(0, sd, len(y_data))
-            y_noisy = y_data + noise
-            
-            # Re-fit gaussian (without header, so it returns native units)
-            fit_result = fit_gaussian_to_line(
-                x1=x1, x2=x2,
-                spectrum_x=x_data,
-                spectrum_y=y_noisy,
-                peak_x=peak_x,
-                header=None  # Explicitly use native units for consistency
-            )
-            
-            if fit_result.success:
-                flux_dist[i] = fit_result.area
-            else:
-                flux_dist[i] = np.nan
-        
-        # Step 3: Return std dev of valid fluxes
-        valid_fluxes = flux_dist[np.isfinite(flux_dist)]
-        if len(valid_fluxes) > 0:
-            return np.std(valid_fluxes)
-        else:
-            return 0.0
     
     def populate_lines_table(self):
         """Populate the unified table with all columns"""

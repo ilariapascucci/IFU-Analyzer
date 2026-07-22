@@ -1248,6 +1248,78 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
     return equivalent_width
 
 
+def estimate_flux_uncertainty_montecarlo(x1: float, x2: float, spectrum_x: np.ndarray,
+                                          spectrum_y: np.ndarray, peak_x: float,
+                                          n_iterations: int = 1000) -> float:
+    """
+    Estimate uncertainty on integrated line flux via Monte Carlo noise injection.
+
+    Method:
+    1. Estimate baseline noise from spectrum edges (first 4 and last 4 pixels)
+    2. Do n_iterations: add random noise, re-fit gaussian, collect fluxes
+    3. Return std dev of flux distribution
+
+    Args:
+        x1, x2: Wavelength bounds
+        spectrum_x, spectrum_y: Spectrum wavelength and flux arrays
+        peak_x: Line center wavelength
+        n_iterations: Number of Monte Carlo iterations (default 1000)
+
+    Returns:
+        Standard deviation of the fitted-flux distribution, in the same native
+        units as spectrum_y (e.g. MJy/sr*um). 0.0 if not enough data or the
+        edge noise could not be estimated.
+    """
+    # Extract data in region
+    mask = (spectrum_x >= x1) & (spectrum_x <= x2)
+    x_data = spectrum_x[mask]
+    y_data = spectrum_y[mask]
+
+    if len(y_data) < 4:
+        return 0.0
+
+    # Step 1: Calculate baseline from edges (first 4 and last 4 pixels)
+    y1 = y_data[0]
+    y2 = y_data[-1]
+    baseline = y1 + (y2 - y1) / (x_data[-1] - x_data[0]) * (x_data - x_data[0])
+
+    # Calculate noise std from edge residuals
+    edge_residuals = np.concatenate([y_data[:4] - baseline[:4], y_data[-4:] - baseline[-4:]])
+    sd = np.nanstd(edge_residuals)
+
+    if sd <= 0:
+        return 0.0
+
+    # Step 2: Monte Carlo: add noise, re-fit, collect fluxes
+    flux_dist = np.zeros(n_iterations)
+
+    for i in range(n_iterations):
+        # Add random Gaussian noise to spectrum
+        noise = np.random.normal(0, sd, len(y_data))
+        y_noisy = y_data + noise
+
+        # Re-fit gaussian (without header, so it returns native units)
+        fit_result = fit_gaussian_to_line(
+            x1=x1, x2=x2,
+            spectrum_x=x_data,
+            spectrum_y=y_noisy,
+            peak_x=peak_x,
+            header=None  # Explicitly use native units for consistency
+        )
+
+        if fit_result.success:
+            flux_dist[i] = fit_result.area
+        else:
+            flux_dist[i] = np.nan
+
+    # Step 3: Return std dev of valid fluxes
+    valid_fluxes = flux_dist[np.isfinite(flux_dist)]
+    if len(valid_fluxes) > 0:
+        return np.std(valid_fluxes)
+    else:
+        return 0.0
+
+
 def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
                             lam_max: Optional[float] = None,
