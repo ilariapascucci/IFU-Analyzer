@@ -3,7 +3,6 @@ Rotational Diagram Analysis GUI for Molecular data (H2, CO) - SIMPLIFIED
 Single unified interface for selecting molecules, lines, and entering flux data
 """
 
-import os
 import re
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QTableWidget, QTableWidgetItem, QSpinBox, 
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit
+    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -1018,7 +1017,7 @@ class RotationalDiagramWindow(QMainWindow):
             popt2     = plot_data["popt2"]
 
             # Convert ln -> log10
-            y_arr_log10 = np.log10(np.exp(y_arr))
+            y_arr_log10 = y_arr / np.log(10)
             # y_err is fractional (dNu/Nu), convert to log10 scale
             y_err_log10 = y_err / np.log(10)
 
@@ -1046,7 +1045,7 @@ class RotationalDiagramWindow(QMainWindow):
             if popt1 is not None and not is_2T:
                 from .rotational_diagram_fitter import model_1T
                 y1T = model_1T(E_fit, *popt1)
-                ax.plot(E_fit, np.log10(np.exp(y1T)), '--', linewidth=2, label='1T')
+                ax.plot(E_fit, y1T / np.log(10), '--', linewidth=2, label='1T')
 
             # 2T: show two component lines AND combined curve
             if popt2 is not None:
@@ -1054,15 +1053,15 @@ class RotationalDiagramWindow(QMainWindow):
                 a1_2, T1_2, a2_2, T2_2 = popt2
 
                 y_comp1 = a1_2 - E_fit / T1_2
-                ax.plot(E_fit, np.log10(np.exp(y_comp1)), ':', linewidth=2.5,
+                ax.plot(E_fit, y_comp1 / np.log(10), ':', linewidth=2.5,
                         color='blue', label=f'Warm: T={T1_2:.0f} K')
 
                 y_comp2 = a2_2 - E_fit / T2_2
-                ax.plot(E_fit, np.log10(np.exp(y_comp2)), ':', linewidth=2.5,
+                ax.plot(E_fit, y_comp2 / np.log(10), ':', linewidth=2.5,
                         color='orange', label=f'Hot: T={T2_2:.0f} K')
 
                 y2T = model_2T(E_fit, *popt2)
-                ax.plot(E_fit, np.log10(np.exp(y2T)), '-', linewidth=3,
+                ax.plot(E_fit, y2T / np.log(10), '-', linewidth=3,
                         color='red', label='2-component model')
 
             ax.tick_params(axis='both', which='major', labelsize=11)
@@ -1083,216 +1082,3 @@ class RotationalDiagramWindow(QMainWindow):
             layout.addWidget(plot_widget, 1)
 
         dialog.exec_()
-    
-
-
-
-class UpperLimitFitsDialog(QDialog):
-    """Dialog for computing 3-sigma upper limit flux from noise RMS and instrumental line width."""
-
-    def __init__(self, parent, row, line_data):
-        super().__init__(parent)
-        self.row = row
-        self.line_data = line_data
-        self.flux_ul = None
-        self.sigma_noise = None
-        self.fits_file = None
-        self.spectrum = None
-        self.wavelength = None
-        self.fits_header = None
-        self.fits_instrument = None
-        self.cube_data = None  # Store cube data for noise extraction
-
-        self.setWindowTitle(f"Upper Limit: {line_data['wavelength']:.6f} μm")
-        self.setGeometry(100, 100, 600, 200)
-
-        layout = QVBoxLayout()
-
-        # FITS file selection
-        file_layout = QHBoxLayout()
-        file_layout.addWidget(QLabel("FITS File:"))
-        self.file_label = QLabel("No file selected")
-        file_layout.addWidget(self.file_label)
-        load_btn = QPushButton("Load FITS")
-        load_btn.clicked.connect(self.load_fits_file)
-        file_layout.addWidget(load_btn)
-        file_layout.addStretch()
-        layout.addLayout(file_layout)
-
-        # Instructions
-        instructions = QLabel(
-            f"Line: {line_data['wavelength']:.6f} μm\n"
-            "Workflow:\n"
-            "1. Load FITS file\n"
-            "2. Click 'Calculate Upper Limit' → noise estimated from spatially-summed cube, 13 points each side of line"
-        )
-        layout.addWidget(instructions)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-        
-        self.fit_btn = QPushButton("Calculate Upper Limit")
-        self.fit_btn.clicked.connect(self.fit_gaussian)
-        self.fit_btn.setEnabled(False)
-        button_layout.addWidget(self.fit_btn)
-
-        layout.addLayout(button_layout)
-
-        # Result display
-        self.result_display = QLineEdit()
-        self.result_display.setReadOnly(True)
-        layout.addWidget(self.result_display)
-
-        # OK / Cancel
-        dialog_buttons = QHBoxLayout()
-        self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
-        self.ok_btn.setEnabled(False)
-        dialog_buttons.addWidget(self.ok_btn)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        dialog_buttons.addWidget(cancel_btn)
-        layout.addLayout(dialog_buttons)
-
-        self.setLayout(layout)
-
-    
-    def load_fits_file(self):
-        """Load FITS file and extract spectrum from center pixel (using CubeData loader for consistency)"""
-        fits_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select FITS File",
-            "",
-            "FITS Files (*.fits *.fit);;All Files (*.*)"
-        )
-        
-        if not fits_path:
-            return
-        
-        try:
-            # Import CubeData from data_loader to ensure same wavelength extraction as main window
-            from .data_loader import CubeData
-            
-            cube_data = CubeData()
-            cube_data.load_from_file(fits_path)
-            
-            # Extract center pixel spectrum from cube (for wavelength reference)
-            if cube_data.cube.ndim == 3:
-                ny, nx = cube_data.cube.shape[1], cube_data.cube.shape[2]
-                center_y, center_x = ny // 2, nx // 2
-                spectrum = cube_data.cube[:, center_y, center_x]
-            elif cube_data.cube.ndim == 1:
-                spectrum = cube_data.cube
-            else:
-                QMessageBox.warning(self, "Error", f"Unsupported cube shape: {cube_data.cube.shape}")
-                return
-            
-            # Get wavelength with units and convert to plain array
-            wavelength_quantity = cube_data.wavelength
-            if wavelength_quantity is not None:
-                wavelength = wavelength_quantity.value
-
-                # Ensure wavelength is increasing
-                if wavelength[0] > wavelength[-1]:
-                    wavelength = wavelength[::-1]
-                    spectrum = spectrum[::-1]
-                    
-            else:
-                QMessageBox.warning(self, "Error", "Could not extract wavelength from FITS")
-                return
-            
-            # Check if spectrum has any valid data
-            valid_mask = ~np.isnan(spectrum) & ~np.isinf(spectrum)
-            if not np.any(valid_mask):
-                QMessageBox.warning(self, "Error", "No valid data in spectrum (all NaN or inf)")
-                return
-            
-            # Store spectrum and wavelength
-            self.spectrum = spectrum
-            self.wavelength = wavelength
-            self.fits_file = fits_path
-            self.fits_header = cube_data.header
-            self.fits_instrument = cube_data.instrument
-            self.cube_data = cube_data
-            self.file_label.setText(os.path.basename(fits_path))
-            self.fit_btn.setEnabled(True)
-        
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            QMessageBox.critical(self, "Error", f"Failed to load FITS:\n{str(e)}")
-    
-    
-    def fit_gaussian(self):
-        """
-        Calculate 3-sigma upper limit flux from noise RMS and instrumental line width.
-
-        Uses boss's method: sum all spaxels spatially, then estimate noise from
-        13 points on each side of line center with linear continuum subtraction.
-
-        Formula:  F_ul = 3 * sigma_noise * delta_lambda
-        where delta_lambda = lambda / R  (instrumental spectral resolution)
-        """
-        if self.cube_data is None or self.wavelength is None:
-            QMessageBox.warning(self, "Error", "No FITS file loaded")
-            return
-
-        peak = self.line_data['wavelength']
-
-        # --- Sum cube spatially (same as batch calculation) ---
-        if self.cube_data.cube.ndim == 3:
-            spectrum_summed = np.nansum(self.cube_data.cube, axis=(1, 2))
-        else:
-            spectrum_summed = self.cube_data.cube
-
-        # --- Calculate noise on summed spectrum ---
-        sigma_noise = estimate_noise_local(self.wavelength, spectrum_summed, peak, n_pixels=13)
-        if sigma_noise is None:
-            QMessageBox.warning(self, "Error", "Not enough pixels around line to estimate noise")
-            return
-        self.sigma_noise = sigma_noise
-
-        # --- Instrumental delta_lambda ---
-        try:
-            R = get_spectral_resolution(peak, instrument=self.fits_instrument, header=self.fits_header)
-            delta_lambda = peak / R
-        except Exception as e:
-            QMessageBox.warning(
-                self, "Error",
-                f"Could not determine spectral resolution from FITS header.\n"
-                f"Check that INSTRUME and GRATING keywords are present.\n{e}"
-            )
-            return
-
-        # --- Upper limit flux: F_ul = 3 * sigma_noise * delta_lambda ---
-        flux_ul_native = 3.0 * sigma_noise * delta_lambda
-
-        flux_ul_cgs = None
-        if self.fits_header is not None:
-            try:
-                from .rotational_diagram_fitter import convert_flux_upper_limit_to_cgs
-                flux_ul_cgs = convert_flux_upper_limit_to_cgs(
-                    flux_ul_native, peak, self.fits_header, flux_unit='MJy/sr'
-                )
-            except Exception as e:
-                print(f"Could not convert to CGS: {e}")
-
-        self.flux_ul = flux_ul_cgs if flux_ul_cgs is not None else flux_ul_native
-
-        result_parts = [
-            f"σ_noise (summed cube, 13+13 pts): {self.sigma_noise:.6e} MJy/sr",
-            f"Δλ: {delta_lambda:.6f} μm  (λ/R at {peak:.4f} μm)",
-            f"3σ UL (native): {flux_ul_native:.4e} MJy/sr·μm",
-        ]
-        if flux_ul_cgs is not None:
-            result_parts.append(f"3σ UL (CGS): {flux_ul_cgs:.4e} erg/s/cm²")
-
-        self.result_display.setText(" | ".join(result_parts))
-        self.result_display.setStyleSheet("background-color: #90EE90; font-weight: bold;")
-        self.ok_btn.setEnabled(True)
-
-    
-    def get_flux_ul(self):
-        """Return calculated upper limit flux"""
-        return self.flux_ul
