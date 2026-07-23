@@ -140,11 +140,6 @@ class RotationalDiagramWindow(QMainWindow):
         bottom_layout = QHBoxLayout()
         
         bottom_layout.addWidget(QLabel("R (au):"))
-        self.radius_input = QLineEdit()
-        self.radius_input.setText("17")
-        self.radius_input.setMaximumWidth(100)
-        bottom_layout.addWidget(self.radius_input)
-
         self.radius_unknown_check = QCheckBox("Unknown R")
         self.radius_unknown_check.setToolTip(
             "Leave R unspecified: Nu is computed as a total molecule count instead of "
@@ -152,6 +147,11 @@ class RotationalDiagramWindow(QMainWindow):
         )
         self.radius_unknown_check.stateChanged.connect(self.on_radius_unknown_toggled)
         bottom_layout.addWidget(self.radius_unknown_check)
+
+        self.radius_input = QLineEdit()
+        self.radius_input.setText("17")
+        self.radius_input.setMaximumWidth(100)
+        bottom_layout.addWidget(self.radius_input)
 
         bottom_layout.addWidget(QLabel("Distance (pc):"))
         self.distance_input = QLineEdit()
@@ -179,6 +179,50 @@ class RotationalDiagramWindow(QMainWindow):
         self.opr_advanced_btn.clicked.connect(self.on_opr_advanced_toggled)
         bottom_layout.addWidget(self.opr_advanced_btn)
 
+        # Advanced OPR grid controls - hidden until "Advanced" is clicked, expands to the
+        # right in this same row. Only meaningful once "Fit OPR" is checked. Defaults
+        # (0.1, 3.0, 400) match the notebook's own reference grid, not the fitter's
+        # built-in default (0.1, 5.0, 200).
+        self.opr_advanced_frame = QFrame()
+        opr_advanced_layout = QHBoxLayout(self.opr_advanced_frame)
+        opr_advanced_layout.setContentsMargins(10, 0, 0, 0)
+
+        opr_advanced_layout.addWidget(QLabel("OPR min:"))
+        self.opr_min_default_check = QCheckBox("Default")
+        self.opr_min_default_check.setChecked(True)
+        self.opr_min_default_check.stateChanged.connect(self.on_opr_min_default_toggled)
+        opr_advanced_layout.addWidget(self.opr_min_default_check)
+        self.opr_min_input = QLineEdit()
+        self.opr_min_input.setText("0.1")
+        self.opr_min_input.setMaximumWidth(60)
+        self.opr_min_input.setEnabled(False)
+        opr_advanced_layout.addWidget(self.opr_min_input)
+
+        opr_advanced_layout.addWidget(QLabel("max:"))
+        self.opr_max_default_check = QCheckBox("Default")
+        self.opr_max_default_check.setChecked(True)
+        self.opr_max_default_check.stateChanged.connect(self.on_opr_max_default_toggled)
+        opr_advanced_layout.addWidget(self.opr_max_default_check)
+        self.opr_max_input = QLineEdit()
+        self.opr_max_input.setText("3.0")
+        self.opr_max_input.setMaximumWidth(60)
+        self.opr_max_input.setEnabled(False)
+        opr_advanced_layout.addWidget(self.opr_max_input)
+
+        opr_advanced_layout.addWidget(QLabel("steps:"))
+        self.opr_steps_default_check = QCheckBox("Default")
+        self.opr_steps_default_check.setChecked(True)
+        self.opr_steps_default_check.stateChanged.connect(self.on_opr_steps_default_toggled)
+        opr_advanced_layout.addWidget(self.opr_steps_default_check)
+        self.opr_steps_input = QLineEdit()
+        self.opr_steps_input.setText("400")
+        self.opr_steps_input.setMaximumWidth(60)
+        self.opr_steps_input.setEnabled(False)
+        opr_advanced_layout.addWidget(self.opr_steps_input)
+
+        self.opr_advanced_frame.setVisible(False)
+        bottom_layout.addWidget(self.opr_advanced_frame)
+
         bottom_layout.addStretch()
 
         self.run_fit_btn = QPushButton("Run Fit")
@@ -187,50 +231,6 @@ class RotationalDiagramWindow(QMainWindow):
         bottom_layout.addWidget(self.run_fit_btn)
 
         main_layout.addLayout(bottom_layout)
-
-        # Advanced OPR grid controls - hidden until "Advanced" is clicked, and only
-        # meaningful once "Fit OPR" is checked. Defaults (0.1, 3.0, 400) match the
-        # notebook's own reference grid, not the fitter's built-in default (0.1, 5.0, 200).
-        self.opr_advanced_frame = QFrame()
-        opr_advanced_layout = QHBoxLayout(self.opr_advanced_frame)
-        opr_advanced_layout.setContentsMargins(20, 0, 0, 0)
-
-        opr_advanced_layout.addWidget(QLabel("OPR min:"))
-        self.opr_min_input = QLineEdit()
-        self.opr_min_input.setText("0.1")
-        self.opr_min_input.setMaximumWidth(60)
-        self.opr_min_input.setEnabled(False)
-        opr_advanced_layout.addWidget(self.opr_min_input)
-        self.opr_min_default_check = QCheckBox("Default")
-        self.opr_min_default_check.setChecked(True)
-        self.opr_min_default_check.stateChanged.connect(self.on_opr_min_default_toggled)
-        opr_advanced_layout.addWidget(self.opr_min_default_check)
-
-        opr_advanced_layout.addWidget(QLabel("max:"))
-        self.opr_max_input = QLineEdit()
-        self.opr_max_input.setText("3.0")
-        self.opr_max_input.setMaximumWidth(60)
-        self.opr_max_input.setEnabled(False)
-        opr_advanced_layout.addWidget(self.opr_max_input)
-        self.opr_max_default_check = QCheckBox("Default")
-        self.opr_max_default_check.setChecked(True)
-        self.opr_max_default_check.stateChanged.connect(self.on_opr_max_default_toggled)
-        opr_advanced_layout.addWidget(self.opr_max_default_check)
-
-        opr_advanced_layout.addWidget(QLabel("steps:"))
-        self.opr_steps_input = QLineEdit()
-        self.opr_steps_input.setText("400")
-        self.opr_steps_input.setMaximumWidth(60)
-        self.opr_steps_input.setEnabled(False)
-        opr_advanced_layout.addWidget(self.opr_steps_input)
-        self.opr_steps_default_check = QCheckBox("Default")
-        self.opr_steps_default_check.setChecked(True)
-        self.opr_steps_default_check.stateChanged.connect(self.on_opr_steps_default_toggled)
-        opr_advanced_layout.addWidget(self.opr_steps_default_check)
-
-        opr_advanced_layout.addStretch()
-        self.opr_advanced_frame.setVisible(False)
-        main_layout.addWidget(self.opr_advanced_frame)
 
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
