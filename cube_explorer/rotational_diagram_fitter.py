@@ -639,30 +639,41 @@ def Q_total_err(T, dT, OPR, dOPR=0.0):
 
 
 
-def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T=False, R=None, dist=140*pc, upper_limits=None):
+def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
+                        fit2T=False, R=None, dist=140*pc, upper_limits=None):
     """
     Perform rotational diagram analysis on H2 lines.
-    
+
     Args:
         fluxes: Dictionary {J: flux_value} where J is the upper rotational level
         flux_errors: Dictionary {J: flux_error}
         molecular_data: Dictionary with 'wavelengths', 'Aul', 'Eu', 'gu' keys
                        Each value is a dict {J: value}
-        OPR: Ortho-para ratio (None to skip correction)
+        OPR: Fixed ortho-para ratio. Used as-is when fit_opr=False (None defaults to
+             3.0, see apply_OPR). Ignored (overwritten by the search result) when
+             fit_opr=True.
+        fit_opr: Whether to grid-search over OPR to minimize chi-squared. The search
+                 always uses plain curve_fit on detections only (upper-limit points are
+                 excluded from the search itself, since curve_fit has no notion of a
+                 one-sided constraint) - the final fit below still uses the full data,
+                 including upper limits via the censored PyMC path when present.
+        opr_grid: OPR values to search over. Defaults to np.linspace(0.1, 5.0, 200).
         fit2T: Whether to perform 2-temperature fit
         R: Emitting radius (AU or cm).
         dist: Distance (pc or cm).
         upper_limits: Optional dict {J: True} for measurements marked as upper limits.
-                      If present, PyMC censored regression is automatically used.
-    
+                      If present, PyMC censored regression is automatically used for
+                      the final 1T/2T fit.
+
     Returns:
         Dictionary with fitting results
-    
+
     Notes:
-        - If no upper limits: uses fast curve_fit (scipy)
-        - If upper limits present: automatically uses PyMC censored likelihood
+        - If no upper limits: uses fast curve_fit (scipy) for the final fit
+        - If upper limits present: automatically uses PyMC censored likelihood for the final fit
+        - fit_opr's grid search always uses curve_fit on detections only, regardless of upper_limits
     """
-    
+
     global wave, Aul, Eu, gu
 
     if molecular_data is not None:
@@ -671,82 +682,196 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
         Eu = molecular_data.get('Eu', {})
         gu = molecular_data.get('gu', {})
 
-    E_arr, y_arr, y_err = [], [], []
-    is_ul_mask = []
+    # ==========================================================
+    # Build dataset for a given trial OPR
+    # ==========================================================
+    def _build_dataset(opr_value):
+        """Compute excitation diagram arrays for a given OPR."""
+        E_list, y_list, y_err_list, is_ul_list = [], [], [], []
 
-    # =========================
-    # Build dataset
-    # =========================
-    for J in fluxes:
-        if J not in wave:
-            continue
+        for J in sorted(fluxes.keys(), key=lambda j: wave.get(j, float('inf'))):
+            if J not in wave:
+                continue
 
-        F = fluxes[J]
-        Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
-        y = np.log(Nu / gu[J])
+            F = fluxes[J]
+            Nu_no_opr = compute_Nu(F, wave[J], Aul[J], R, dist)
+            Nu = apply_OPR(Nu_no_opr, J, opr_value)
+            y = np.log(Nu / gu[J])
 
-        is_ul = upper_limits is not None and J in upper_limits
+            is_ul = upper_limits is not None and J in upper_limits
+
+            # Skip detections without error data - no defaults allowed
+            if (not is_ul) and (J not in flux_errors):
+                print(f"J={J}: skipping (detection without error data)")
+                continue
+
+            E_list.append(Eu[J])
+            y_list.append(y)
+            is_ul_list.append(is_ul)
+
+            # error handling
+            if (not is_ul) and (J in flux_errors):
+                dF = flux_errors[J]
+                dNu = Nu * (dF / F)
+                y_err = dNu / Nu
+                y_err_list.append(y_err)
+            else:
+                # upper limits: treated as constraints with 0 error
+                y_err_list.append(0.0)
+
+        return (np.array(E_list),
+                np.array(y_list),
+                np.array(y_err_list),
+                np.array(is_ul_list,
+                         dtype=bool))
+
+    # ==========================================================
+    # Bounded curve_fit helpers (used for both the OPR grid search and the
+    # final fit whenever PyMC/censored regression isn't required)
+    # ==========================================================
+    def _bounds_1T(y_arr):
+        """Return bounds for the single-temperature model."""
+        return ([np.min(y_arr), 10],
+                [np.max(y_arr) + 10, 3000])
+
+    def _bounds_2T(y_arr):
+        """Return bounds for the two-temperature model."""
+        lo = np.min(y_arr)
+        hi = np.max(y_arr) + 10
+        return ([lo, 10, lo, 10],
+                [hi, 3000, hi, 3000])
+
+    def _fit_1T_curvefit(E, y, y_err):
+        """Perform a single-temperature fit and return (popt, pcov)."""
+        sigma = y_err if np.any(y_err > 0) else None  # prevent all zeros array
+        p0 = [np.max(y), 500]
+        bounds = _bounds_1T(y)
+
+        popt, pcov = curve_fit(
+            model_1T,
+            E,
+            y,
+            sigma=sigma,
+            absolute_sigma=True,
+            p0=p0,
+            bounds=bounds
+        )
+        return popt, pcov
+
+    def _fit_2T_curvefit(E, y, y_err, a_seed, T_seed):
+        """Perform a two-temperature fit seeded from a 1T solution."""
+        sigma = y_err if np.any(y_err > 0) else None
+        p0 = [a_seed, T_seed, a_seed - 5, T_seed * 2]
+        bounds = _bounds_2T(y)
         
-        # Skip detections without error data - no defaults allowed
-        if (not is_ul) and (J not in flux_errors):
-            print(f"J={J}: skipping (detection without error data)")
-            continue
+        popt, pcov = curve_fit(
+            model_2T,
+            E,
+            y,
+            sigma=sigma,
+            absolute_sigma=True,
+            p0=p0,
+            bounds=bounds,
+            maxfev=10000
+        )
+        return popt, pcov
 
-        print(f"J={J}, Eu={Eu[J]:.1f}, F={F:.4e}, is_ul={is_ul}")
+    def _compute_chi2(E_arr, y_arr, y_err, is_ul_mask, use_2T):
+        """Return chi-squared for a quick fit (1T or 2T), fit on detections only.
+
+        Upper-limit points are excluded here (curve_fit has no censored/one-sided
+        likelihood) - they're only reintroduced in the final fit below, via the
+        censored PyMC path.
+        """
+        keep = ~is_ul_mask  # only consider non-upper limits here
+        E_d, y_d, y_err_d = E_arr[keep], y_arr[keep], y_err[keep]
+
+        n_params = 4 if use_2T else 2
+        if len(E_d) <= n_params:
+            # Not enough detections to constrain the model at this grid point -
+            # avoid a degenerate zero-residual "perfect fit" from winning the search.
+            return np.inf
+
+        try:
+            popt_1t, _ = _fit_1T_curvefit(E_d, y_d, y_err_d)
+            if use_2T:
+                popt, _ = _fit_2T_curvefit(E_d, y_d, y_err_d, popt_1t[0], popt_1t[1])
+                model_vals = model_2T(E_d, *popt)
+            else:
+                model_vals = model_1T(E_d, *popt_1t)
+        except Exception:
+            return np.inf
+
+        residuals = (y_d - model_vals) / np.maximum(y_err_d, 1e-10)
+        return np.sum(residuals**2)
+
+    # ==========================================================
+    # OPR grid search (fast, detections-only, curve_fit)
+    # ==========================================================
+    best_opr = OPR if OPR is not None else 3.0
+    best_opr_err = None
+    opr_search_data = None
+
+    if fit_opr:
+        if opr_grid is None:
+            opr_grid = np.linspace(0.1, 5.0, 200)
+
+        chi2_list = []
+        for opr_try in opr_grid:
+            # consider upper limit as 4th param
+            E_try, y_try, y_err_try, ul_try = _build_dataset(opr_try)
+            chi2_list.append(_compute_chi2(E_try, y_try, y_err_try, ul_try, use_2T=fit2T))
         
-        E_arr.append(Eu[J])
-        y_arr.append(y)
-        is_ul_mask.append(is_ul)
+        chi2_arr = np.array(chi2_list)
+        
+        best_idx = np.argmin(chi2_arr)
+        best_opr = opr_grid[best_idx]
+        within_1sigma = np.where(chi2_arr < chi2_arr[best_idx] + 1)[0]
+        err_opr_pos = opr_grid[within_1sigma[-1]] - best_opr
+        err_opr_neg = best_opr - opr_grid[within_1sigma[0]]
+        best_opr_err = 0.5 * (err_opr_pos + err_opr_neg)
 
-        # error handling
-        if (not is_ul) and (J in flux_errors):
-            dF = flux_errors[J]
-            dNu = Nu * (dF / F)
-            y_err.append(dNu / Nu)
-        else:
-            # upper limits: treated as constraints with 0 error
-            y_err.append(0.0)
+        print("\n--- OPR FIT (curve_fit grid search, detections only) ---")
+        print(f"Best-fit OPR = {best_opr:.3f}")
+        print(f"OPR 1σ error: -{err_opr_neg:.4f} / +{err_opr_pos:.4f} (symm ≈ {best_opr_err:.4f})")
 
-    E_arr = np.array(E_arr)
-    y_arr = np.array(y_arr)
-    y_err = np.array(y_err)
-    is_ul_mask = np.array(is_ul_mask)
+        opr_search_data = {"opr_grid": opr_grid, "chi2_list": chi2_arr}
+
+    # ==========================================================
+    # Build final dataset at best_opr (full data, including upper limits)
+    # ==========================================================
+    E_arr, y_arr, y_err, is_ul_mask = _build_dataset(best_opr)
+
+
+
+
+
+    # censor bayesian
 
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 points")
-    
+
     # Check if we have enough detections for PyMC (at least 2 detections required)
     n_detections = np.sum(~is_ul_mask)
     has_upper_limits = np.any(is_ul_mask)
-    
+
     if has_upper_limits and n_detections < 2:
         if n_detections == 0:
             raise ValueError(f"Cannot fit: all {len(E_arr)} measurements are upper limits. Need at least 2 detections to constrain temperature and column density.")
         else:
             raise ValueError(f"Need at least 2 detections for fitting with upper limits. You have {n_detections} detection(s) and {np.sum(is_ul_mask)} upper limit(s).")
-    
+
     # Decide method: auto-use PyMC if upper limits present
     use_pymc = has_upper_limits
 
     # ==========================================================
-    # 1T FIT
-    # =========================================================
+    # 1T FIT (final)
+    # ==========================================================
     if not use_pymc:
 
         print("\n--- 1T FIT (curve_fit) ---")
 
-        sigma = y_err if np.any(y_err > 0) else None
-
-        print(f"[DEBUG] y_err passed to curve_fit: {y_err}")
-
-        popt1, pcov1 = curve_fit(
-            model_1T,
-            E_arr,
-            y_arr,
-            sigma=sigma,
-            absolute_sigma=True,
-            p0=[np.max(y_arr), 500]
-        )
+        popt1, pcov1 = _fit_1T_curvefit(E_arr, y_arr, y_err)
 
         a1, T1 = popt1
         da1, dT1 = np.sqrt(np.diag(pcov1))
@@ -771,17 +896,29 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
     Ntot1 = Ncol1 * Q_Herbst(T1)
     dNtot1 = Ntot1 * np.sqrt((dNcol1/Ncol1)**2 + (Q_Herbst_err(T1, dT1)/Q_Herbst(T1))**2)
 
+    # chi2 uses detections only - upper limits have no meaningful sigma to weight by
+    # (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)
+    det_mask = ~is_ul_mask
+    y_model1 = model_1T(E_arr[det_mask], a1, T1)
+    chi2_1T = np.sum(((y_arr[det_mask] - y_model1) / np.maximum(y_err[det_mask], 1e-10))**2)
+    dof_1T = max(np.sum(det_mask) - 2, 1)
+
     results = {
+        "OPR": best_opr,
         "1T": {
             "T": T1,
             "dT": dT1,
             "Ncol": Ntot1,
-            "dNcol": dNtot1
+            "dNcol": dNtot1,
+            "chi2": chi2_1T,
+            "red_chi2": chi2_1T / dof_1T,
         }
     }
+    if best_opr_err is not None:
+        results["OPR_err"] = best_opr_err
 
     # ==========================================================
-    # 2T FIT
+    # 2T FIT (final)
     # ==========================================================
     if fit2T:
 
@@ -789,15 +926,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
 
             print("\n--- 2T FIT (curve_fit) ---")
 
-            popt2, pcov2 = curve_fit(
-                model_2T,
-                E_arr,
-                y_arr,
-                sigma=sigma,
-                absolute_sigma=True,
-                p0=[a1, T1, a1-5, T1*2],
-                maxfev=10000
-            )
+            popt2, pcov2 = _fit_2T_curvefit(E_arr, y_arr, y_err, a1, T1)
 
             a1_2, T1_2, a2_2, T2_2 = popt2
             errs = np.sqrt(np.diag(pcov2))
@@ -831,6 +960,11 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             (Q_Herbst_err(T2_2, dT2_2) / Q_Herbst(T2_2))**2
         )
 
+        # chi2 uses detections only, same reasoning as the 1T fit above
+        y_model2 = model_2T(E_arr[det_mask], a1_2, T1_2, a2_2, T2_2)
+        chi2_2T = np.sum(((y_arr[det_mask] - y_model2) / np.maximum(y_err[det_mask], 1e-10))**2)
+        dof_2T = max(np.sum(det_mask) - 4, 1)
+
         results["2T"] = {
             "T1": T1_2,
             "dT1": dT1_2,
@@ -840,6 +974,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             "dNcol1": dN1_tot,
             "Ncol2": N2_tot,
             "dNcol2": dN2_tot,
+            "chi2": chi2_2T,
+            "red_chi2": chi2_2T / dof_2T,
         }
 
         results["_plot_data"] = {
@@ -859,5 +995,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit2T
             "popt1": list(popt1) if not use_pymc else [a1, T1],
             "popt2": None,
         }
+
+    if opr_search_data is not None:
+        results["_plot_data"]["opr_grid"] = opr_search_data["opr_grid"]
+        results["_plot_data"]["chi2_list"] = opr_search_data["chi2_list"]
 
     return results
