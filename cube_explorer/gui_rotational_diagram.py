@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QTableWidget, QTableWidgetItem, QSpinBox, 
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog
+    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -20,7 +20,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 from .line_catalog import fetch_hitran_data
-from .rotational_diagram_fitter import estimate_noise_local, gaussian_flux_upper_limit, get_spectral_resolution
+from .rotational_diagram_fitter import estimate_noise_local, gaussian_flux_upper_limit, get_spectral_resolution, get_gu
 
 
 # Constants
@@ -140,24 +140,37 @@ class RotationalDiagramWindow(QMainWindow):
         bottom_layout = QHBoxLayout()
         
         bottom_layout.addWidget(QLabel("R (au):"))
-        self.radius_input = QDoubleSpinBox()
-        self.radius_input.setRange(0.01, 10000)
-        self.radius_input.setValue(17)
-        self.radius_input.setDecimals(4)
+        self.radius_input = QLineEdit()
+        self.radius_input.setText("17")
+        self.radius_input.setMaximumWidth(100)
         bottom_layout.addWidget(self.radius_input)
-        
+
+        self.radius_unknown_check = QCheckBox("Unknown R")
+        self.radius_unknown_check.setToolTip(
+            "Leave R unspecified: Nu is computed as a total molecule count instead of "
+            "a per-cm^2 column density (e.g. for comparing against PDRTPy)."
+        )
+        self.radius_unknown_check.stateChanged.connect(self.on_radius_unknown_toggled)
+        bottom_layout.addWidget(self.radius_unknown_check)
+
         bottom_layout.addWidget(QLabel("Distance (pc):"))
-        self.distance_input = QDoubleSpinBox()
-        self.distance_input.setRange(0.1, 100000)
-        self.distance_input.setValue(71.5)
-        self.distance_input.setDecimals(4)
+        self.distance_input = QLineEdit()
+        self.distance_input.setText("71.5")
+        self.distance_input.setMaximumWidth(100)
         bottom_layout.addWidget(self.distance_input)
         
         bottom_layout.addWidget(QLabel("Fit:"))
         self.fit_mode = QComboBox()
         self.fit_mode.addItems(["1T", "2T"])
         bottom_layout.addWidget(self.fit_mode)
-        
+
+        self.fit_opr_check = QCheckBox("Fit OPR")
+        self.fit_opr_check.setToolTip(
+            "Grid-search over OPR (0.1-5.0) to minimize chi-squared, instead of "
+            "assuming the fixed equilibrium value OPR=3. Only affects H2 S-branch lines."
+        )
+        bottom_layout.addWidget(self.fit_opr_check)
+
         bottom_layout.addStretch()
         
         self.run_fit_btn = QPushButton("Run Fit")
@@ -271,6 +284,10 @@ class RotationalDiagramWindow(QMainWindow):
         checked = self.include_all_trans_check.isChecked()
         self.v_upper_spin.setEnabled(not checked)
         self.v_lower_spin.setEnabled(not checked)
+
+    def on_radius_unknown_toggled(self):
+        """Disable the R field when R is marked unknown (R=None is passed to the fitter)"""
+        self.radius_input.setEnabled(not self.radius_unknown_check.isChecked())
     
     def on_error_mode_changed(self, mode):
         """Update table edit/read-only based on error input mode"""
@@ -551,6 +568,8 @@ class RotationalDiagramWindow(QMainWindow):
                         'a_coeff': best_match.get('a_coeff', 0.0),
                         'e_upper': best_match.get('e_upper', 0.0),
                         'Gp': best_match.get('Gp', 1.0),
+                        'j_lower': best_match.get('j_lower'),
+                        'branch': best_match.get('branch'),
                         'transition': best_match.get('transition', 'User Data'),
                         'species': species
                     }
@@ -924,7 +943,17 @@ class RotationalDiagramWindow(QMainWindow):
             molecular_data['wavelengths'][j_counter] = line['wavelength']
             molecular_data['Aul'][j_counter] = line.get('a_coeff', 0)
             molecular_data['Eu'][j_counter] = line.get('e_upper', 0)
-            molecular_data['gu'][j_counter] = line.get('Gp', 1)
+
+            # Bare rotational degeneracy (2*Ju+1) for genuine H2 S-branch lines, so
+            # apply_OPR can supply the nuclear-spin weighting variably. Only valid for
+            # H2's S-branch numbering (get_Ju(SJ) = SJ+2) - everything else (CO, other
+            # branches, unmatched CSV rows with no HITRAN j_lower) keeps HITRAN's Gp,
+            # which has no OPR-fittable ortho/para asymmetry to strip out in the first place.
+            j_lower = line.get('j_lower')
+            if self.current_molecule == 'H2' and line.get('branch') == 'S' and j_lower is not None:
+                molecular_data['gu'][j_counter] = get_gu(j_lower)
+            else:
+                molecular_data['gu'][j_counter] = line.get('Gp', 1)
             
             j_counter += 1
         
@@ -932,29 +961,43 @@ class RotationalDiagramWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "No lines selected")
             return
         
-        # Check that R and distance are provided
-        radius_au = self.radius_input.value()
-        distance_pc = self.distance_input.value()
-        
-        if radius_au <= 0:
-            QMessageBox.warning(self, "Error", "Radius (R) must be greater than 0 AU")
+        # Check that R and distance are provided (R may be intentionally left unknown)
+        if self.radius_unknown_check.isChecked():
+            radius_au = None
+        else:
+            try:
+                radius_au = float(self.radius_input.text().strip())
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid radius (R) - must be a number")
+                return
+
+            if radius_au <= 0:
+                QMessageBox.warning(self, "Error", "Radius (R) must be greater than 0 AU")
+                return
+
+        try:
+            distance_pc = float(self.distance_input.text().strip())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid distance - must be a number")
             return
-        
+
         if distance_pc <= 0:
             QMessageBox.warning(self, "Error", "Distance must be greater than 0 pc")
             return
         
         try:
             fit_2t = self.fit_mode.currentText() == "2T"
-            
+            fit_opr = self.fit_opr_check.isChecked()
+
             from .rotational_diagram_fitter import rotational_diagram
-            
+
             # Pass raw AU and pc values (function converts to cm internally)
             results = rotational_diagram(
                 fluxes,
                 flux_errors,
                 molecular_data=molecular_data,
                 OPR=None,
+                fit_opr=fit_opr,
                 fit2T=fit_2t,
                 R=radius_au,       # in AU
                 dist=distance_pc,  # in pc
@@ -971,6 +1014,12 @@ class RotationalDiagramWindow(QMainWindow):
         results_text = "\n" + "="*50 + "\n"
         results_text += "ROTATIONAL DIAGRAM ANALYSIS RESULTS\n"
         results_text += "="*50 + "\n\n"
+
+        if "OPR" in results:
+            if "OPR_err" in results:
+                results_text += f"OPR = {results['OPR']:.3f} ± {results['OPR_err']:.3f} (fitted)\n\n"
+            else:
+                results_text += f"OPR = {results['OPR']:.2f} (fixed)\n\n"
 
         if "1T" in results:
             r1t = results["1T"]

@@ -349,6 +349,8 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
             wl = wavelength[i]
             if wavelength_min <= wl <= wavelength_max:
                 # Parse transition notation from quantum numbers
+                j_lower = None
+                branch = None
                 if global_upper_quanta is not None and local_lower_quanta is not None:
                     try:
                         v_upper_str = str(global_upper_quanta[i]).strip()
@@ -407,6 +409,8 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                     'a_coeff': float(A[i]),
                     'e_upper': float(eupper[i]),
                     'Gp': float(Gp[i]),
+                    'j_lower': j_lower,
+                    'branch': branch,
                 })
 
         print(f"[OK] Retrieved {len(data_rows)} lines\n")
