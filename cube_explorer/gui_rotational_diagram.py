@@ -166,20 +166,72 @@ class RotationalDiagramWindow(QMainWindow):
 
         self.fit_opr_check = QCheckBox("Fit OPR")
         self.fit_opr_check.setToolTip(
-            "Grid-search over OPR (0.1-5.0) to minimize chi-squared, instead of "
+            "Grid-search over OPR to minimize chi-squared, instead of "
             "assuming the fixed equilibrium value OPR=3. Only affects H2 S-branch lines."
         )
+        self.fit_opr_check.stateChanged.connect(self.on_fit_opr_toggled)
         bottom_layout.addWidget(self.fit_opr_check)
 
+        self.opr_advanced_btn = QPushButton("▶ Advanced")
+        self.opr_advanced_btn.setCheckable(True)
+        self.opr_advanced_btn.setMaximumWidth(90)
+        self.opr_advanced_btn.setEnabled(False)
+        self.opr_advanced_btn.clicked.connect(self.on_opr_advanced_toggled)
+        bottom_layout.addWidget(self.opr_advanced_btn)
+
         bottom_layout.addStretch()
-        
+
         self.run_fit_btn = QPushButton("Run Fit")
         self.run_fit_btn.clicked.connect(self.run_rotational_fit)
         self.run_fit_btn.setEnabled(False)
         bottom_layout.addWidget(self.run_fit_btn)
-        
+
         main_layout.addLayout(bottom_layout)
-        
+
+        # Advanced OPR grid controls - hidden until "Advanced" is clicked, and only
+        # meaningful once "Fit OPR" is checked. Defaults (0.1, 3.0, 400) match the
+        # notebook's own reference grid, not the fitter's built-in default (0.1, 5.0, 200).
+        self.opr_advanced_frame = QFrame()
+        opr_advanced_layout = QHBoxLayout(self.opr_advanced_frame)
+        opr_advanced_layout.setContentsMargins(20, 0, 0, 0)
+
+        opr_advanced_layout.addWidget(QLabel("OPR min:"))
+        self.opr_min_input = QLineEdit()
+        self.opr_min_input.setText("0.1")
+        self.opr_min_input.setMaximumWidth(60)
+        self.opr_min_input.setEnabled(False)
+        opr_advanced_layout.addWidget(self.opr_min_input)
+        self.opr_min_default_check = QCheckBox("Default")
+        self.opr_min_default_check.setChecked(True)
+        self.opr_min_default_check.stateChanged.connect(self.on_opr_min_default_toggled)
+        opr_advanced_layout.addWidget(self.opr_min_default_check)
+
+        opr_advanced_layout.addWidget(QLabel("max:"))
+        self.opr_max_input = QLineEdit()
+        self.opr_max_input.setText("3.0")
+        self.opr_max_input.setMaximumWidth(60)
+        self.opr_max_input.setEnabled(False)
+        opr_advanced_layout.addWidget(self.opr_max_input)
+        self.opr_max_default_check = QCheckBox("Default")
+        self.opr_max_default_check.setChecked(True)
+        self.opr_max_default_check.stateChanged.connect(self.on_opr_max_default_toggled)
+        opr_advanced_layout.addWidget(self.opr_max_default_check)
+
+        opr_advanced_layout.addWidget(QLabel("steps:"))
+        self.opr_steps_input = QLineEdit()
+        self.opr_steps_input.setText("400")
+        self.opr_steps_input.setMaximumWidth(60)
+        self.opr_steps_input.setEnabled(False)
+        opr_advanced_layout.addWidget(self.opr_steps_input)
+        self.opr_steps_default_check = QCheckBox("Default")
+        self.opr_steps_default_check.setChecked(True)
+        self.opr_steps_default_check.stateChanged.connect(self.on_opr_steps_default_toggled)
+        opr_advanced_layout.addWidget(self.opr_steps_default_check)
+
+        opr_advanced_layout.addStretch()
+        self.opr_advanced_frame.setVisible(False)
+        main_layout.addWidget(self.opr_advanced_frame)
+
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
     
@@ -288,6 +340,41 @@ class RotationalDiagramWindow(QMainWindow):
     def on_radius_unknown_toggled(self):
         """Disable the R field when R is marked unknown (R=None is passed to the fitter)"""
         self.radius_input.setEnabled(not self.radius_unknown_check.isChecked())
+
+    def on_fit_opr_toggled(self):
+        """Enable the Advanced button only when Fit OPR is checked; collapse it otherwise"""
+        checked = self.fit_opr_check.isChecked()
+        self.opr_advanced_btn.setEnabled(checked)
+        if not checked and self.opr_advanced_btn.isChecked():
+            self.opr_advanced_btn.setChecked(False)
+            self.on_opr_advanced_toggled()
+
+    def on_opr_advanced_toggled(self):
+        """Show/hide the OPR grid range/resolution controls"""
+        expanded = self.opr_advanced_btn.isChecked()
+        self.opr_advanced_frame.setVisible(expanded)
+        self.opr_advanced_btn.setText(("▼" if expanded else "▶") + " Advanced")
+
+    def on_opr_min_default_toggled(self):
+        """Lock OPR min to its default value while 'Default' is checked"""
+        checked = self.opr_min_default_check.isChecked()
+        self.opr_min_input.setEnabled(not checked)
+        if checked:
+            self.opr_min_input.setText("0.1")
+
+    def on_opr_max_default_toggled(self):
+        """Lock OPR max to its default value while 'Default' is checked"""
+        checked = self.opr_max_default_check.isChecked()
+        self.opr_max_input.setEnabled(not checked)
+        if checked:
+            self.opr_max_input.setText("3.0")
+
+    def on_opr_steps_default_toggled(self):
+        """Lock OPR steps to its default value while 'Default' is checked"""
+        checked = self.opr_steps_default_check.isChecked()
+        self.opr_steps_input.setEnabled(not checked)
+        if checked:
+            self.opr_steps_input.setText("400")
     
     def on_error_mode_changed(self, mode):
         """Update table edit/read-only based on error input mode"""
@@ -985,10 +1072,26 @@ class RotationalDiagramWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Distance must be greater than 0 pc")
             return
         
-        try:
-            fit_2t = self.fit_mode.currentText() == "2T"
-            fit_opr = self.fit_opr_check.isChecked()
+        fit_2t = self.fit_mode.currentText() == "2T"
+        fit_opr = self.fit_opr_check.isChecked()
 
+        opr_grid = None
+        if fit_opr:
+            try:
+                opr_min = float(self.opr_min_input.text().strip())
+                opr_max = float(self.opr_max_input.text().strip())
+                opr_steps = int(self.opr_steps_input.text().strip())
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Invalid OPR grid (min/max/steps) - must be numbers")
+                return
+
+            if opr_min >= opr_max or opr_steps < 2:
+                QMessageBox.warning(self, "Error", "OPR min must be less than max, and steps must be >= 2")
+                return
+
+            opr_grid = np.linspace(opr_min, opr_max, opr_steps)
+
+        try:
             from .rotational_diagram_fitter import rotational_diagram
 
             # Pass raw AU and pc values (function converts to cm internally)
@@ -998,6 +1101,7 @@ class RotationalDiagramWindow(QMainWindow):
                 molecular_data=molecular_data,
                 OPR=None,
                 fit_opr=fit_opr,
+                opr_grid=opr_grid,
                 fit2T=fit_2t,
                 R=radius_au,       # in AU
                 dist=distance_pc,  # in pc
@@ -1017,6 +1121,11 @@ class RotationalDiagramWindow(QMainWindow):
 
         if "OPR" in results:
             if "OPR_err" in results:
+                results_text += f"Best-fit OPR = {results['OPR']:.3f}\n"
+                results_text += (
+                    f"OPR 1σ error: -{results['OPR_err_neg']:.4f} / "
+                    f"+{results['OPR_err_pos']:.4f} (symm ≈ {results['OPR_err']:.4f})\n"
+                )
                 results_text += f"OPR = {results['OPR']:.3f} ± {results['OPR_err']:.3f} (fitted)\n\n"
             else:
                 results_text += f"OPR = {results['OPR']:.2f} (fixed)\n\n"

@@ -810,6 +810,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     # ==========================================================
     best_opr = OPR if OPR is not None else 3.0
     best_opr_err = None
+    best_opr_err_pos = None
+    best_opr_err_neg = None
     opr_search_data = None
 
     if fit_opr:
@@ -830,6 +832,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         err_opr_pos = opr_grid[within_1sigma[-1]] - best_opr
         err_opr_neg = best_opr - opr_grid[within_1sigma[0]]
         best_opr_err = 0.5 * (err_opr_pos + err_opr_neg)
+        best_opr_err_pos = err_opr_pos
+        best_opr_err_neg = err_opr_neg
 
         print("\n--- OPR FIT (curve_fit grid search, detections only) ---")
         print(f"Best-fit OPR = {best_opr:.3f}")
@@ -916,6 +920,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     }
     if best_opr_err is not None:
         results["OPR_err"] = best_opr_err
+        results["OPR_err_pos"] = best_opr_err_pos
+        results["OPR_err_neg"] = best_opr_err_neg
 
     # ==========================================================
     # 2T FIT (final)
