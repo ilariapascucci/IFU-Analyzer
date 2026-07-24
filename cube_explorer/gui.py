@@ -9,7 +9,6 @@ import warnings
 import traceback
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from matplotlib.colors import LogNorm, PowerNorm, Normalize
 
 # Suppress FITS warning messages about header formatting
@@ -423,7 +422,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 btn.setChecked(False)
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
-        
+
+        # Reset region-selection state so shape/Edit-Shape buttons don't stay
+        # disabled from a stale "drawing"/"placed"/"editing" state.
+        if hasattr(self, 'region_state'):
+            for side in ["left", "right"]:
+                self._set_region_state(side, "idle")
+
         self.active_target = None
         
         # Clear Doppler shifted line if it exists
@@ -801,6 +806,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.copy_btn_r = make_shape_button("⎘", "right",
             callback=lambda: self.copy_selection(source="right", target="left"))
         self.copy_btn_r.setToolTip("Copy selection from right slice to left")
+
+        # Edit Shape toggle buttons (enable drag/resize on a placed shape)
+        self.edit_shape_btn_l = QPushButton("✎")
+        self.edit_shape_btn_l.setCheckable(True)
+        self.edit_shape_btn_l.setFixedSize(40, 40)
+        self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_l.setEnabled(False)
+        self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
+
+        self.edit_shape_btn_r = QPushButton("✎")
+        self.edit_shape_btn_r.setCheckable(True)
+        self.edit_shape_btn_r.setFixedSize(40, 40)
+        self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_r.setEnabled(False)
+        self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
+
         # Erase (clear) selection buttons
         self.erase_btn_l = QPushButton("✖")
         self.erase_btn_l.setFixedSize(40, 40)
@@ -847,6 +870,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
         left_sidebar.addWidget(self.copy_btn_l)
         left_sidebar.addWidget(self.copy_color_btn_l)
+        left_sidebar.addWidget(self.edit_shape_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
         left_sidebar.addStretch()
 
@@ -872,6 +896,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
         right_sidebar.addWidget(self.copy_btn_r)
         right_sidebar.addWidget(self.copy_color_btn_r)
+        right_sidebar.addWidget(self.edit_shape_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
         right_sidebar.addStretch()
 
@@ -1018,6 +1043,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.last_idx_right = 0
         self.last_selection_left = None
         self.last_selection_right = None
+        # Region-selection interaction state per side: "idle" | "drawing" | "placed" | "editing"
+        self.region_state = {"left": "idle", "right": "idle"}
         self.hitran_lines = []  # Store HITRAN lines separately
         self.plotted_lines = []  # Store currently plotted spectral lines
         self.plotted_artists = []  # Store matplotlib artist objects for plotted lines
@@ -1324,6 +1351,63 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             self.slice2_canvas.draw()
             self.last_idx_right = idx
 
+    def _set_region_state(self, side, new_state):
+        """Central state transition for region-selection interaction on one side.
+
+        Single source of truth for shape-button enablement, the Edit Shape
+        button's enabled/checked state, and InteractivePatch handler wiring -
+        so these can never drift out of sync with each other (which is what
+        previously let stale drag handlers survive an erase, and let editing
+        be always-on with no explicit commit step).
+        """
+        selector = self.region_selector_left if side == "left" else self.region_selector_right
+        edit_btn = self.edit_shape_btn_l if side == "left" else self.edit_shape_btn_r
+        old_state = self.region_state.get(side, "idle")
+
+        # Leaving "editing" always unwires the drag handlers first, regardless
+        # of which state we're moving to (placed or idle).
+        if old_state == "editing" and new_state != "editing" and selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect_handlers()
+
+        self.region_state[side] = new_state
+
+        if new_state == "idle":
+            for btn in self.shape_buttons[side].values():
+                btn.setEnabled(True)
+            edit_btn.setEnabled(False)
+            edit_btn.setChecked(False)
+        elif new_state == "drawing":
+            active_shape = self.active_shape if self.active_target == side else None
+            for shape, btn in self.shape_buttons[side].items():
+                btn.setEnabled(shape == active_shape)
+            edit_btn.setEnabled(False)
+            edit_btn.setChecked(False)
+        elif new_state == "placed":
+            for btn in self.shape_buttons[side].values():
+                btn.setEnabled(False)
+            sel = self.last_selection_left if side == "left" else self.last_selection_right
+            edit_btn.setEnabled(bool(sel) and sel.get("shape") != "*")
+            edit_btn.setChecked(False)
+        elif new_state == "editing":
+            for btn in self.shape_buttons[side].values():
+                btn.setEnabled(False)
+            edit_btn.setEnabled(True)
+            edit_btn.setChecked(True)
+            if selector.interactive_patch is not None:
+                selector.interactive_patch.connect()
+
+    def _toggle_edit_shape(self, side):
+        """Handle the Edit Shape button click for one side."""
+        state = self.region_state.get(side, "idle")
+        if state == "placed":
+            self._set_region_state(side, "editing")
+        elif state == "editing":
+            self._set_region_state(side, "placed")
+        else:
+            # Button should be disabled outside placed/editing; guard defensively.
+            edit_btn = self.edit_shape_btn_l if side == "left" else self.edit_shape_btn_r
+            edit_btn.setChecked(False)
+
     def _set_shape(self, shape, target):
         """Handle shape button activation"""
         # Update active shape and target
@@ -1347,8 +1431,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         )
         if self.active_shape:
             selector.activate_selector(shape)
+            self._set_region_state(target, "drawing")
         else:
             selector.activate_selector(None)
+            self._set_region_state(target, "idle")
 
     def _handle_region_select(self, mask, patch, coords, target):
         """Handle region selection completion"""
@@ -1360,6 +1446,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         image = self.cube_data.get_slice(idx)
         if image is None:
             return
+
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+
+        # This callback also fires on every mouse-move tick of a live
+        # drag/resize while "editing" (not just once when a selection first
+        # completes) - in that case we must NOT tear down the handles or
+        # touch region_state, since the drag is still in progress.
+        is_live_edit_tick = self.region_state.get(target) == "editing"
 
         # Build full-size mask matching the image shape
         if mask.shape == image.shape:
@@ -1380,9 +1474,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             x1 = min(x1, image.shape[1])
             full_mask[y0:y1, x0:x1] = mask[:(y1-y0), :(x1-x0)]
 
-        # Save selection with full mask and label
+        # Save selection with full mask and label. Read the shape from the
+        # selector (not self.active_shape) since copy_selection sets it there
+        # directly without going through self.active_shape.
         selection = {
-            "shape": self.active_shape,
+            "shape": selector.active_shape,
             "coords": coords,
             "mask": full_mask,
             "label": f'{target.capitalize()} Selection',
@@ -1413,21 +1509,23 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                     pass
         plotter.ax.area_artists = []
 
-        # Remove all handle scatter collections so they don't linger
-        for collection in list(plotter.ax.collections):
-            try:
-                if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
-                    collection.remove()
-                    print(f"[DEBUG] Removed lingering handle collection")
-            except Exception as e:
-                print(f"[DEBUG] Error removing lingering handle collection: {e}")
+        # Remove all handle scatter collections so they don't linger - but not
+        # during a live edit-tick, where the only handle collection that
+        # exists IS the one belonging to the shape currently being dragged.
+        if not is_live_edit_tick:
+            for collection in list(plotter.ax.collections):
+                try:
+                    if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
+                        collection.remove()
+                        print(f"[DEBUG] Removed lingering handle collection")
+                except Exception as e:
+                    print(f"[DEBUG] Error removing lingering handle collection: {e}")
 
         # Add the new patch and record it
         plotter.ax.add_patch(patch)
         plotter.ax.area_artists.append(patch)
         
         # Hide the selector handles after selection is complete
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
         if selector.selector is not None:
             try:
                 # Set selector to non-interactive to hide handles
@@ -1451,6 +1549,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             for btn in self.shape_buttons[side].values():
                 btn.setChecked(False)
         selector.activate_selector(None)
+        if not is_live_edit_tick:
+            self._set_region_state(target, "placed")
 
         # Compute stats for the selected area and update label
         selected_area = image[full_mask]
@@ -1574,6 +1674,19 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
     def clear_region(self, target):
         """Clear the current region selection and remove overlays for a side"""
+        state = self.region_state.get(target, "idle")
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+
+        if state == "drawing":
+            # Abort the in-progress draw - nothing has been placed yet.
+            self.active_shape = None
+            self.active_target = None
+            selector.activate_selector(None)
+            for btn in self.shape_buttons[target].values():
+                btn.setChecked(False)
+            self._set_region_state(target, "idle")
+            return
+
         if target == "left":
             sel = self.last_selection_left
             plotter = self.slice1_plotter
@@ -1581,7 +1694,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             sel = self.last_selection_right
             plotter = self.slice2_plotter
 
+        # Disconnect and drop the interactive patch so its drag handlers don't
+        # survive the erase - previously they stayed wired to the canvas and
+        # could resurrect/interfere with a later draw in the same spot.
+        if selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect()
+            selector.interactive_patch = None
+
         if not sel:
+            self._set_region_state(target, "idle")
             return
 
         # Remove patches from the slice axes
@@ -1631,6 +1752,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             self.spec_canvas.draw()
         except Exception:
             pass
+
+        self._set_region_state(target, "idle")
 
     def _handle_pixel_click(self, x, y, target):
         """Handle pixel selection"""
@@ -1683,6 +1806,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 stats_label.setText("\n".join(stats_text))
 
                 # When clicking a pixel remove any existing region patches (exclusive selection)
+                selector = self.region_selector_left if target == "left" else self.region_selector_right
+                if selector.interactive_patch is not None:
+                    selector.interactive_patch.disconnect()
+                    selector.interactive_patch = None
+
                 if hasattr(plotter.ax, 'area_artists'):
                     for artist in getattr(plotter.ax, 'area_artists'):
                         try:
@@ -1736,7 +1864,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                         self.spec_canvas.draw()
                     except Exception:
                         pass
-                    
+
+                self.active_shape = None
+                self.active_target = None
+                self._set_region_state(target, "placed")
+
         except Exception as e:
             print(f"Error handling pixel click: {e}")
 
@@ -1885,73 +2017,47 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             self.active_target = "right" if self.set_right_btn.isChecked() else None
 
     def _recreate_region(self, xmin, xmax, ymin, ymax, mask, target):
-        """Recreate a region selection after changing slices"""
-        if not hasattr(self, 'active_shape'):
-            return
-            
-        # Store current shape
-        current_shape = self.active_shape
-        
-        # Get correct selector and plotter
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-        
-        # Create appropriate shape based on the original selection type
-        if selector.active_shape in ["◯", "⬭"]:  # Circle or ellipse
-            cx = (xmin + xmax) / 2
-            cy = (ymin + ymax) / 2
-            if selector.active_shape == "◯":  # Circle
-                r = min((xmax - xmin)/2, (ymax - ymin)/2)
-                patch = patches.Circle((cx, cy), r, edgecolor='cyan', facecolor='none', lw=1.5)
-            else:  # Ellipse
-                a, b = (xmax - xmin)/2, (ymax - ymin)/2
-                patch = patches.Ellipse((cx, cy), 2*a, 2*b, edgecolor='cyan', facecolor='none', lw=1.5)
-        else:  # Rectangle or default
-            patch = patches.Rectangle(
-                (xmin, ymin), xmax-xmin, ymax-ymin,
-                edgecolor='cyan', facecolor='none', lw=1.5
-            )
-        
-        # Clear old patches
-        if hasattr(plotter.ax, 'area_artists'):
-            for artist in plotter.ax.area_artists:
-                artist.remove()
-            plotter.ax.area_artists = []
+        """Recreate a region selection's visual patch after changing slices.
 
-        # Remove all handle scatter collections
-        for collection in list(plotter.ax.collections):
-            try:
-                if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
-                    collection.remove()
-            except Exception:
-                pass
-        
-        # Add new patch
-        plotter.ax.add_patch(patch)
-        if not hasattr(plotter.ax, 'area_artists'):
-            plotter.ax.area_artists = []
-        plotter.ax.area_artists.append(patch)
-        try:
-            if target == "left":
-                self.slice1_canvas.draw()
+        Delegates to the same RegionSelector.create_region/on_lasso_select
+        pipeline used for an organic draw or a copy_selection() (rather than
+        hand-building a static patch), so the shape type is always correct
+        (read from the stored selection, not selector.active_shape - which is
+        always None here since activate_selector(None) resets it right after
+        any selection completes), lasso is handled, and the result gets a
+        fresh (unconnected) InteractivePatch instead of one pointing at a
+        stale, already-removed artist.
+        """
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        if not sel:
+            return
+        shape = sel.get("shape")
+
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+
+        # Drop any existing interactive patch before rebuilding - its patch
+        # reference is about to become stale the moment a new artist is made.
+        if selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect()
+            selector.interactive_patch = None
+
+        selector.active_shape = shape
+        if shape == "✏":
+            verts = getattr(sel.get("patch"), "lasso_verts", None)
+            if verts is not None:
+                selector.on_lasso_select(verts)
             else:
-                self.slice2_canvas.draw()
-        except Exception:
-            pass
-        
-        # Update the spectrum for the region
-        region_spectrum = self.cube_data.compute_region_spectrum(mask)
-        if region_spectrum is not None:
-            # visualization will plot this region with a side-specific label
-            self.spec_plotter.plot_region_spectrum(
-                region_spectrum,
-                color='cyan' if target == "left" else 'magenta',
-                label=f'{target.capitalize()} Selection'
-            )
-            try:
-                self.spec_canvas.draw()
-            except Exception:
-                pass
+                # No stored vertices to rebuild from - fall back to the
+                # selection's bounding box as a rectangle.
+                selector.active_shape = "▭"
+                selector.create_region((xmin, xmax, ymin, ymax))
+        else:
+            selector.create_region((xmin, xmax, ymin, ymax))
+        selector.active_shape = None
+
+        # create_region/on_lasso_select call back into _handle_region_select,
+        # which redraws the slice/spectrum, updates last_selection_*, and
+        # transitions region_state to "placed".
 
 
 
@@ -2526,18 +2632,33 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.stats1_label.setText("Slice 1 Stats:\n-")
         self.stats2_label.setText("Slice 2 Stats:\n-")
         
-        # Deactivate region selectors
+        # Deactivate region selectors and drop any live interactive patch
+        # (previously only activate_selector(None) was called here, which
+        # stops the mpl selector widget but leaves a connected InteractivePatch
+        # wired to the canvas)
         if hasattr(self, 'region_selector_left'):
+            if self.region_selector_left.interactive_patch is not None:
+                self.region_selector_left.interactive_patch.disconnect()
+                self.region_selector_left.interactive_patch = None
             self.region_selector_left.activate_selector(None)
         if hasattr(self, 'region_selector_right'):
+            if self.region_selector_right.interactive_patch is not None:
+                self.region_selector_right.interactive_patch.disconnect()
+                self.region_selector_right.interactive_patch = None
             self.region_selector_right.activate_selector(None)
-        
+
         # Uncheck shape buttons
         if hasattr(self, 'shape_buttons'):
             for side in ["left", "right"]:
                 for btn in self.shape_buttons[side].values():
                     btn.setChecked(False)
-        
+
+        # Reset region-selection state so shape/Edit-Shape buttons don't stay
+        # disabled from a stale "drawing"/"placed"/"editing" state.
+        if hasattr(self, 'region_state'):
+            for side in ["left", "right"]:
+                self._set_region_state(side, "idle")
+
         print("[DEBUG] Refresh complete - all displays reset to initial state")
 
     def fetch_hitran_lines(self):

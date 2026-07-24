@@ -25,10 +25,13 @@ class InteractivePatch:
         handles: list of Line2D objects for resize handles
     """
     
+    HANDLE_HIT_RADIUS_PX = 8  # click tolerance for resize handles, in screen pixels
+
     def __init__(self, ax, patch, shape_type, on_change_callback, coords=None):
         """
-        Initialize an interactive patch.
-        
+        Initialize an interactive patch. Does NOT connect event handlers or
+        create handles yet - call connect() to make it interactive.
+
         Args:
             ax: matplotlib axes
             patch: matplotlib patch object
@@ -41,22 +44,63 @@ class InteractivePatch:
         self.shape_type = shape_type
         self.on_change_callback = on_change_callback
         self.coords = coords if coords else (0, 10, 0, 10)
-        
+
         self.handles = []
         self.active_handle = None
         self.press_data = None
         self.handle_positions = []  # Store handle positions for click detection
-        
-        # Connect events
+
+        self.cidpress = None
+        self.cidrelease = None
+        self.cidmotion = None
+        self._connected = False
+
+    def connect(self):
+        """Wire up event handlers and show resize handles."""
+        if self._connected:
+            return
+        ax = self.ax
         self.cidpress = ax.figure.canvas.mpl_connect('button_press_event', self.on_press)
         self.cidrelease = ax.figure.canvas.mpl_connect('button_release_event', self.on_release)
         self.cidmotion = ax.figure.canvas.mpl_connect('motion_notify_event', self.on_motion)
-        
+        self._connected = True
+
         # Create resize handles
-        if shape_type != 'polygon':
+        if self.shape_type != 'polygon':
             self._create_handles()
             # Redraw canvas to show handles immediately
             ax.figure.canvas.draw_idle()
+
+    def disconnect_handlers(self):
+        """Unwire event handlers and hide resize handles, keeping the patch itself intact."""
+        if not self._connected:
+            return
+        try:
+            self.ax.figure.canvas.mpl_disconnect(self.cidpress)
+            self.ax.figure.canvas.mpl_disconnect(self.cidrelease)
+            self.ax.figure.canvas.mpl_disconnect(self.cidmotion)
+        except Exception as e:
+            print(f"[DEBUG] Error disconnecting event handlers: {e}")
+
+        self.cidpress = None
+        self.cidrelease = None
+        self.cidmotion = None
+        self.active_handle = None
+        self.press_data = None
+
+        for i, handle in enumerate(self.handles):
+            try:
+                handle.remove()
+            except Exception as e:
+                print(f"[DEBUG] Error removing handle {i}: {e}")
+        self.handles = []
+        self.handle_positions = []
+        self._connected = False
+
+        try:
+            self.ax.figure.canvas.draw_idle()
+        except Exception as e:
+            print(f"[DEBUG] Error redrawing after disconnect_handlers: {e}")
     
     def _create_handles(self):
         """Create visual resize handles for the patch."""
@@ -115,11 +159,14 @@ class InteractivePatch:
         
         print(f"[DEBUG] on_press called: event at ({event.xdata:.1f}, {event.ydata:.1f}), shape type: {self.shape_type}")
         
-        # Check if clicking on a handle (using distance)
+        # Check if clicking on a handle (using screen-pixel distance, so the hit
+        # radius is consistent regardless of the image's data pixel scale or zoom)
         click_x, click_y = event.xdata, event.ydata
+        click_disp = self.ax.transData.transform((click_x, click_y))
         for i, (handle_x, handle_y) in enumerate(self.handle_positions):
-            distance = np.sqrt((click_x - handle_x)**2 + (click_y - handle_y)**2)
-            if distance < 2:  # Within 2 pixels
+            handle_disp = self.ax.transData.transform((handle_x, handle_y))
+            distance = np.hypot(click_disp[0] - handle_disp[0], click_disp[1] - handle_disp[1])
+            if distance < self.HANDLE_HIT_RADIUS_PX:
                 self.active_handle = i
                 self.press_data = {
                     'xpress': event.xdata,
@@ -347,37 +394,12 @@ class InteractivePatch:
 
     
     def disconnect(self):
-        """Disconnect all event handlers and remove handles."""
+        """Fully tear down: unwire handlers, remove handles, and drop the patch
+        reference. Use this when the shape itself is being removed (e.g. erased).
+        Safe to call even if the patch was never connect()-ed."""
         print(f"[DEBUG] Disconnecting InteractivePatch for {self.shape_type}")
-        
-        # Disconnect event handlers
-        try:
-            self.ax.figure.canvas.mpl_disconnect(self.cidpress)
-            self.ax.figure.canvas.mpl_disconnect(self.cidrelease)
-            self.ax.figure.canvas.mpl_disconnect(self.cidmotion)
-        except Exception as e:
-            print(f"[DEBUG] Error disconnecting event handlers: {e}")
-        
-        # Remove all handles (scatter collections)
-        for i, handle in enumerate(self.handles):
-            try:
-                handle.remove()
-                print(f"[DEBUG] Removed handle {i}")
-            except Exception as e:
-                print(f"[DEBUG] Error removing handle {i}: {e}")
-        
-        self.handles = []
-        self.handle_positions = []
-        
-        # Clear patch reference
+        self.disconnect_handlers()
         self.patch = None
-        
-        # Force canvas redraw to ensure handles are gone
-        try:
-            self.ax.figure.canvas.draw_idle()
-        except Exception as e:
-            print(f"[DEBUG] Error redrawing after disconnect: {e}")
-        
         print(f"[DEBUG] InteractivePatch disconnect complete")
 
 class RegionSelector:
