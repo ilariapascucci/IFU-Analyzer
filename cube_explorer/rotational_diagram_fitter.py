@@ -426,6 +426,27 @@ def compute_line_flux(wavelength_arr, spectrum_arr, line_wavelength, header, ins
 # ==========================================================
 # CENSORED MODELS (ONLY USED IF ENABLED)
 # ==========================================================
+def _print_pymc_diagnostics(trace, var_names):
+    """Print divergence count and r_hat for a PyMC trace; return them so
+    callers can also check convergence programmatically instead of just
+    trusting the posterior mean/std.
+    """
+    import arviz as az
+
+    n_divergent = int(trace.sample_stats.diverging.sum())
+    summary = az.summary(trace, var_names=var_names)
+    max_rhat = float(summary["r_hat"].max())
+
+    print(f"  Divergences: {n_divergent}")
+    print(summary[["mean", "sd", "r_hat", "ess_bulk"]].to_string())
+    if n_divergent > 0:
+        print(f"  WARNING: {n_divergent} divergent transition(s) - posterior may be biased/unreliable")
+    if max_rhat > 1.01:
+        print(f"  WARNING: max r_hat = {max_rhat:.3f} (>1.01) - chains have not converged")
+
+    return {"n_divergences": n_divergent, "max_r_hat": max_rhat}
+
+
 def censored_1T(E, y, yerr, is_ul):
     """Bayesian 1-temperature rotational diagram fit with censored upper limits.
     
@@ -467,15 +488,21 @@ def censored_1T(E, y, yerr, is_ul):
             )
 
         # === SAMPLING ===
-        # Draw 500 posterior samples (+ 500 tuning steps) from joint posterior
-        trace = pm.sample(500, tune=500, chains=1, cores=1, progressbar=False)
+        # 2 chains (sequential, cores=1) so r_hat/divergences are actually
+        # checkable instead of trusting a single chain; target_accept raised
+        # from PyMC's default 0.8 to reduce divergences in this a-vs-T ridge.
+        trace = pm.sample(500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False)
+
+    diagnostics = _print_pymc_diagnostics(trace, ["a", "T"])
 
     # === RETURN POSTERIOR ESTIMATES ===
     return {
         "a": float(trace.posterior["a"].mean()),        # log(Ncol)
         "da": float(trace.posterior["a"].std()),        # uncertainty
         "T": float(trace.posterior["T"].mean()),        # temperature
-        "dT": float(trace.posterior["T"].std())         # uncertainty
+        "dT": float(trace.posterior["T"].std()),        # uncertainty
+        "n_divergences": diagnostics["n_divergences"],
+        "max_r_hat": diagnostics["max_r_hat"],
     }
 
 
@@ -530,8 +557,12 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
             )
 
         # === SAMPLING ===
-        # Draw posterior samples
-        trace = pm.sample(500, tune=500, chains=1, cores=1, progressbar=False)
+        # 2 chains (sequential, cores=1) so r_hat/divergences are actually
+        # checkable; target_accept raised to reduce divergences in this
+        # 4-parameter censored mixture (more prone to them than 1T).
+        trace = pm.sample(500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False)
+
+    diagnostics = _print_pymc_diagnostics(trace, ["a1", "T1", "a2", "T2"])
 
     # === RETURN POSTERIOR ESTIMATES ===
     return {
@@ -548,7 +579,9 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
             float(trace.posterior["T1"].std()),      # δT_warm
             float(trace.posterior["a2"].std()),      # δlog(Ncol2)
             float(trace.posterior["T2"].std())       # δT_cool
-        ])
+        ]),
+        "n_divergences": diagnostics["n_divergences"],
+        "max_r_hat": diagnostics["max_r_hat"],
     }
 
 
@@ -892,6 +925,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         a1, T1 = result["a"], result["T"]
         da1, dT1 = result["da"], result["dT"]
+        pymc_diag_1T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
 
     # =========================
     # Derived quantities
@@ -920,6 +954,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "red_chi2": chi2_1T / dof_1T,
         }
     }
+    if use_pymc:
+        results["1T"]["n_divergences"] = pymc_diag_1T["n_divergences"]
+        results["1T"]["max_r_hat"] = pymc_diag_1T["max_r_hat"]
     if best_opr_err is not None:
         results["OPR_err"] = best_opr_err
         results["OPR_err_pos"] = best_opr_err_pos
@@ -953,6 +990,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
             a1_2, T1_2, a2_2, T2_2 = result["popt"]
             errs = result["errs"]
+            pymc_diag_2T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
 
         da1_2, dT1_2, da2_2, dT2_2 = errs
 
@@ -988,6 +1026,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "chi2": chi2_2T,
             "red_chi2": chi2_2T / dof_2T,
         }
+        if use_pymc:
+            results["2T"]["n_divergences"] = pymc_diag_2T["n_divergences"]
+            results["2T"]["max_r_hat"] = pymc_diag_2T["max_r_hat"]
 
         results["_plot_data"] = {
             "E_arr": E_arr,

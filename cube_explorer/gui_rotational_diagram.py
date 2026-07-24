@@ -1138,11 +1138,23 @@ class RotationalDiagramWindow(QMainWindow):
             else:
                 results_text += f"OPR = {results['OPR']:.2f} (fixed)\n\n"
 
+        def _convergence_note(fit_dict):
+            """Return a warning line if the censored PyMC fit shows convergence issues."""
+            n_div = fit_dict.get("n_divergences")
+            if n_div is None:
+                return ""
+            note = f"[PyMC: {n_div} divergence(s), max r_hat = {fit_dict.get('max_r_hat', float('nan')):.3f}]"
+            if n_div > 0 or fit_dict.get("max_r_hat", 1.0) > 1.01:
+                note += "  ⚠ possible non-convergence - treat this result with caution"
+            return note + "\n"
+
         if "1T" in results:
             r1t = results["1T"]
             results_text += "--- 1T FIT ---\n"
             results_text += f"T = {r1t['T']:.1f} ± {r1t['dT']:.1f} K\n"
-            results_text += f"Ncol = {r1t['Ncol']:.2e} ± {r1t['dNcol']:.2e} cm^-2\n\n"
+            results_text += f"Ncol = {r1t['Ncol']:.2e} ± {r1t['dNcol']:.2e} cm^-2\n"
+            results_text += _convergence_note(r1t)
+            results_text += "\n"
 
         if "2T" in results:
             r2t = results["2T"]
@@ -1151,6 +1163,7 @@ class RotationalDiagramWindow(QMainWindow):
             results_text += f"T2 = {r2t['T2']:.1f} ± {r2t.get('dT2', float('nan')):.1f} K\n"
             results_text += f"N1 = {r2t['Ncol1']:.2e} ± {r2t.get('dNcol1', float('nan')):.2e} cm^-2\n"
             results_text += f"N2 = {r2t['Ncol2']:.2e} ± {r2t.get('dNcol2', float('nan')):.2e} cm^-2\n"
+            results_text += _convergence_note(r2t)
 
         results_text += "="*50 + "\n"
 
