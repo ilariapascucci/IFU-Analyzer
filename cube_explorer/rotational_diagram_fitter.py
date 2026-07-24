@@ -5,8 +5,7 @@ Implements single-temperature and two-temperature rotational diagram fits
 
 import numpy as np
 from scipy.stats import linregress
-from scipy.optimize import curve_fit
-import pymc as pm
+from scipy.optimize import curve_fit, minimize
 
 
 
@@ -424,164 +423,154 @@ def compute_line_flux(wavelength_arr, spectrum_arr, line_wavelength, header, ins
 
 
 # ==========================================================
-# CENSORED MODELS (ONLY USED IF ENABLED)
+# CONSTRAINED LEAST-SQUARES MODELS (used whenever upper limits are present)
 # ==========================================================
-def _print_pymc_diagnostics(trace, var_names):
-    """Print divergence count and r_hat for a PyMC trace; return them so
-    callers can also check convergence programmatically instead of just
-    trusting the posterior mean/std.
+def _chi2_1T(params, E, y, yerr):
+    a, T = params
+    return np.sum(((y - model_1T(E, a, T)) / yerr) ** 2)
+
+
+def _ul_ceiling_1T(params, E_ul, y_ul):
+    """>= 0 iff the model prediction stays at or below the upper limit."""
+    a, T = params
+    return y_ul - model_1T(E_ul, a, T)
+
+
+def _chi2_2T(params, E, y, yerr):
+    a1, T1, a2, T2 = params
+    return np.sum(((y - model_2T(E, a1, T1, a2, T2)) / yerr) ** 2)
+
+
+def _ul_ceiling_2T(params, E_ul, y_ul):
+    a1, T1, a2, T2 = params
+    return y_ul - model_2T(E_ul, a1, T1, a2, T2)
+
+
+def constrained_1T(E, y, yerr, is_ul, n_boot=500, seed=0):
+    """1-temperature rotational diagram fit that respects upper limits as
+    one-sided ceiling constraints.
+
+    Fits the detections with ordinary weighted least squares first. If that
+    unconstrained fit already predicts values at or below every upper
+    limit (the common case for a genuine non-detection), it's returned
+    as-is - point estimate and covariance both come straight from
+    curve_fit, identical to the no-upper-limits path. Only when the
+    unconstrained fit would exceed an upper limit does this re-solve under
+    an explicit "prediction <= F_ul" constraint (SLSQP), with uncertainties
+    then estimated via a parametric bootstrap: resample each detection
+    within its flux error, re-solve the same constrained problem, take the
+    spread of solutions.
     """
-    import arviz as az
-
-    n_divergent = int(trace.sample_stats.diverging.sum())
-    summary = az.summary(trace, var_names=var_names)
-    max_rhat = float(summary["r_hat"].max())
-
-    print(f"  Divergences: {n_divergent}")
-    print(summary[["mean", "sd", "r_hat", "ess_bulk"]].to_string())
-    if n_divergent > 0:
-        print(f"  WARNING: {n_divergent} divergent transition(s) - posterior may be biased/unreliable")
-    if max_rhat > 1.01:
-        print(f"  WARNING: max r_hat = {max_rhat:.3f} (>1.01) - chains have not converged")
-
-    return {"n_divergences": n_divergent, "max_r_hat": max_rhat}
-
-
-def censored_1T(E, y, yerr, is_ul):
-    """Bayesian 1-temperature rotational diagram fit with censored upper limits.
-    
-    Uses PyMC to handle mixed detections and upper limits:
-    - Detections: fit normally with likelihood
-    - Upper limits: one-sided constraint (F < F_ul)
-    """
-    # mask = True for detections, False for upper limits
     mask = ~is_ul
+    E_d, y_d, yerr_d = E[mask], y[mask], yerr[mask]
+    E_ul, y_ul = E[is_ul], y[is_ul]
 
-    with pm.Model() as model:
+    lo, hi = np.min(y_d), np.max(y_d) + 10
+    p0 = [np.max(y_d), 500]
 
-        # === PRIORS ===
-        # log(Ncol) ~ Normal(data mean, sigma=5 dex)
-        a = pm.Normal("a", mu=np.mean(y[mask]), sigma=5)
-        # Temperature range: 10 K to 5000 K (reasonable for H2)
-        T = pm.Uniform("T", 10, 5000)
+    popt0, pcov0 = curve_fit(model_1T, E_d, y_d, sigma=yerr_d, absolute_sigma=True,
+                              p0=p0, bounds=([lo, 10], [hi, 3000]))
 
-        # === LINEAR MODEL ===
-        # rotational diagram: ln(N/g) = a - E_u/T
-        mu = a - E / T
+    if len(E_ul) == 0 or np.all(model_1T(E_ul, *popt0) <= y_ul):
+        a, T = popt0
+        da, dT = np.sqrt(np.diag(pcov0))
+        print("  1T: no upper limit is actively binding - identical to the unconstrained fit")
+        return {"a": float(a), "da": float(da), "T": float(T), "dT": float(dT),
+                "n_active_constraints": 0, "used_bootstrap": False}
 
-        # === LIKELIHOOD FOR DETECTIONS ===
-        # Fit only the non-upper-limit points (mask=True)
-        # Assume σ = 1.0 in log space for all detections
-        pm.Normal("obs", mu=mu[mask], sigma=1.0, observed=y[mask])
+    bounds = [(lo, hi), (10, 3000)]
+    constraints = [{"type": "ineq", "fun": _ul_ceiling_1T, "args": (E_ul, y_ul)}]
 
-        # === LIKELIHOOD FOR UPPER LIMITS ===
-        # Censored: treat measured value as upper bound
-        # y_ul < F_ul means ln(N/g)_meas is an upper limit on the true value
-        if np.any(is_ul):
-            pm.Censored(
-                "ul",
-                # Normal distribution centered at model prediction
-                pm.Normal.dist(mu=mu[is_ul], sigma=1.0),
-                # Upper censoring: observed value is upper bound
-                upper=y[is_ul],
-                observed=y[is_ul]
-            )
+    res = minimize(_chi2_1T, x0=popt0, args=(E_d, y_d, yerr_d),
+                    method="SLSQP", bounds=bounds, constraints=constraints)
+    if not res.success:
+        raise RuntimeError(f"Constrained 1T fit failed: {res.message}")
+    a, T = res.x
+    n_active = int(np.sum(model_1T(E_ul, a, T) >= y_ul - 1e-8))
 
-        # === SAMPLING ===
-        # 2 chains (sequential, cores=1) so r_hat/divergences are actually
-        # checkable instead of trusting a single chain; target_accept raised
-        # from PyMC's default 0.8 to reduce divergences in this a-vs-T ridge.
-        trace = pm.sample(500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False)
+    rng = np.random.default_rng(seed)
+    boot_a, boot_T = [], []
+    for _ in range(n_boot):
+        y_d_boot = rng.normal(y_d, yerr_d)
+        res_b = minimize(_chi2_1T, x0=[a, T], args=(E_d, y_d_boot, yerr_d),
+                          method="SLSQP", bounds=bounds, constraints=constraints)
+        if res_b.success:
+            boot_a.append(res_b.x[0])
+            boot_T.append(res_b.x[1])
 
-    diagnostics = _print_pymc_diagnostics(trace, ["a", "T"])
+    da = float(np.std(boot_a)) if boot_a else float("nan")
+    dT = float(np.std(boot_T)) if boot_T else float("nan")
 
-    # === RETURN POSTERIOR ESTIMATES ===
+    print(f"  1T: {n_active} upper limit(s) actively constraining the fit")
+    print(f"  Bootstrap uncertainty: {len(boot_a)}/{n_boot} resamples converged")
+
     return {
-        "a": float(trace.posterior["a"].mean()),        # log(Ncol)
-        "da": float(trace.posterior["a"].std()),        # uncertainty
-        "T": float(trace.posterior["T"].mean()),        # temperature
-        "dT": float(trace.posterior["T"].std()),        # uncertainty
-        "n_divergences": diagnostics["n_divergences"],
-        "max_r_hat": diagnostics["max_r_hat"],
+        "a": float(a), "da": da,
+        "T": float(T), "dT": dT,
+        "n_active_constraints": n_active,
+        "used_bootstrap": True,
     }
 
 
 
 
 
-def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
-    """Bayesian 2-temperature rotational diagram fit with censored upper limits.
-    
-    Fits a mixture of two thermal components:
-    ln(N/g) = log(exp(a1 - E/T1) + exp(a2 - E/T2))
-    
+def constrained_2T(E, y, yerr, is_ul, a1_init, T1_init, n_boot=500, seed=0):
+    """2-temperature analogue of constrained_1T: fits a mixture of two
+    thermal components (see model_2T) subject to the same one-sided
+    upper-limit ceiling constraints, falling back to the plain
+    unconstrained fit when no upper limit is actually violated.
+
     Args:
-        E, y, yerr, is_ul: same as censored_1T
-        a1_init, T1_init: initial guesses from 1T fit (for better prior)
+        E, y, yerr, is_ul: same as constrained_1T
+        a1_init, T1_init: initial guess from the 1T fit (component 1 seed;
+                           component 2 is seeded cooler/fainter from it)
     """
-    # mask = True for detections, False for upper limits
     mask = ~is_ul
+    E_d, y_d, yerr_d = E[mask], y[mask], yerr[mask]
+    E_ul, y_ul = E[is_ul], y[is_ul]
 
-    with pm.Model() as model:
+    lo, hi = np.min(y_d), np.max(y_d) + 10
+    p0 = [a1_init, T1_init, a1_init - 5, T1_init * 2]
 
-        # === PRIORS (2-component model) ===
-        # Component 1: centered near the 1T result
-        a1 = pm.Normal("a1", mu=a1_init, sigma=5)           # log(Ncol) warm component
-        T1 = pm.Uniform("T1", 10, 5000)                     # temp warm component
-        
-        # Component 2: cooler component (a2 is lower, T2 is higher)
-        a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)         # log(Ncol) cool component
-        T2 = pm.Uniform("T2", 10, 5000)                     # temp cool component
+    popt0, pcov0 = curve_fit(model_2T, E_d, y_d, sigma=yerr_d, absolute_sigma=True,
+                              p0=p0, bounds=([lo, 10, lo, 10], [hi, 3000, hi, 3000]),
+                              maxfev=10000)
 
-        # === TWO-TEMPERATURE MODEL ===
-        # Combine two exponential terms in log space:
-        # μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))
-        # This is a mixture of two Boltzmann distributions
-        mu = pm.math.log(
-            pm.math.exp(a1 - E/T1) +
-            pm.math.exp(a2 - E/T2)
-        )
+    if len(E_ul) == 0 or np.all(model_2T(E_ul, *popt0) <= y_ul):
+        errs = np.sqrt(np.diag(pcov0))
+        print("  2T: no upper limit is actively binding - identical to the unconstrained fit")
+        return {"popt": popt0, "errs": errs, "n_active_constraints": 0, "used_bootstrap": False}
 
-        # === LIKELIHOOD FOR DETECTIONS ===
-        # Fit only detections; upper limits are censored
-        pm.Normal("obs", mu=mu[mask], sigma=1.0, observed=y[mask])
+    bounds = [(lo, hi), (10, 3000), (lo, hi), (10, 3000)]
+    constraints = [{"type": "ineq", "fun": _ul_ceiling_2T, "args": (E_ul, y_ul)}]
 
-        # === LIKELIHOOD FOR UPPER LIMITS ===
-        # Same censoring approach: y_measured is upper bound on true value
-        if np.any(is_ul):
-            pm.Censored(
-                "ul",
-                pm.Normal.dist(mu=mu[is_ul], sigma=1.0),
-                upper=y[is_ul],
-                observed=y[is_ul]
-            )
+    res = minimize(_chi2_2T, x0=popt0, args=(E_d, y_d, yerr_d),
+                    method="SLSQP", bounds=bounds, constraints=constraints)
+    if not res.success:
+        raise RuntimeError(f"Constrained 2T fit failed: {res.message}")
+    popt = res.x
+    n_active = int(np.sum(model_2T(E_ul, *popt) >= y_ul - 1e-8))
 
-        # === SAMPLING ===
-        # 2 chains (sequential, cores=1) so r_hat/divergences are actually
-        # checkable; target_accept raised to reduce divergences in this
-        # 4-parameter censored mixture (more prone to them than 1T).
-        trace = pm.sample(500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False)
+    rng = np.random.default_rng(seed)
+    boot = []
+    for _ in range(n_boot):
+        y_d_boot = rng.normal(y_d, yerr_d)
+        res_b = minimize(_chi2_2T, x0=popt, args=(E_d, y_d_boot, yerr_d),
+                          method="SLSQP", bounds=bounds, constraints=constraints)
+        if res_b.success:
+            boot.append(res_b.x)
 
-    diagnostics = _print_pymc_diagnostics(trace, ["a1", "T1", "a2", "T2"])
+    errs = np.std(np.array(boot), axis=0) if boot else np.full(4, np.nan)
 
-    # === RETURN POSTERIOR ESTIMATES ===
+    print(f"  2T: {n_active} upper limit(s) actively constraining the fit")
+    print(f"  Bootstrap uncertainty: {len(boot)}/{n_boot} resamples converged")
+
     return {
-        # Best-fit parameters (posterior means)
-        "popt": np.array([
-            float(trace.posterior["a1"].mean()),     # log(Ncol1)
-            float(trace.posterior["T1"].mean()),     # T_warm
-            float(trace.posterior["a2"].mean()),     # log(Ncol2)
-            float(trace.posterior["T2"].mean())      # T_cool
-        ]),
-        # Uncertainties (posterior stds)
-        "errs": np.array([
-            float(trace.posterior["a1"].std()),      # δlog(Ncol1)
-            float(trace.posterior["T1"].std()),      # δT_warm
-            float(trace.posterior["a2"].std()),      # δlog(Ncol2)
-            float(trace.posterior["T2"].std())       # δT_cool
-        ]),
-        "n_divergences": diagnostics["n_divergences"],
-        "max_r_hat": diagnostics["max_r_hat"],
+        "popt": popt,
+        "errs": errs,
+        "n_active_constraints": n_active,
+        "used_bootstrap": True,
     }
 
 
@@ -689,21 +678,23 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
                  always uses plain curve_fit on detections only (upper-limit points are
                  excluded from the search itself, since curve_fit has no notion of a
                  one-sided constraint) - the final fit below still uses the full data,
-                 including upper limits via the censored PyMC path when present.
+                 including upper limits via the constrained least-squares path when present.
         opr_grid: OPR values to search over. Defaults to np.linspace(0.1, 5.0, 200).
         fit2T: Whether to perform 2-temperature fit
         R: Emitting radius (AU or cm).
         dist: Distance (pc or cm).
         upper_limits: Optional dict {J: True} for measurements marked as upper limits.
-                      If present, PyMC censored regression is automatically used for
-                      the final 1T/2T fit.
+                      If present, a deterministic constrained least-squares fit
+                      (upper limits as one-sided ceilings, see constrained_1T/2T)
+                      is automatically used for the final 1T/2T fit.
 
     Returns:
         Dictionary with fitting results
 
     Notes:
         - If no upper limits: uses fast curve_fit (scipy) for the final fit
-        - If upper limits present: automatically uses PyMC censored likelihood for the final fit
+        - If upper limits present: automatically uses constrained least-squares
+          (upper limits as ceiling constraints) for the final fit - see constrained_1T/2T
         - fit_opr's grid search always uses curve_fit on detections only, regardless of upper_limits
     """
 
@@ -762,7 +753,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
     # ==========================================================
     # Bounded curve_fit helpers (used for both the OPR grid search and the
-    # final fit whenever PyMC/censored regression isn't required)
+    # final fit whenever the constrained least-squares path isn't required)
     # ==========================================================
     def _bounds_1T(y_arr):
         """Return bounds for the single-temperature model."""
@@ -816,7 +807,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         Upper-limit points are excluded here (curve_fit has no censored/one-sided
         likelihood) - they're only reintroduced in the final fit below, via the
-        censored PyMC path.
+        constrained least-squares path.
         """
         keep = ~is_ul_mask  # only consider non-upper limits here
         E_d, y_d, y_err_d = E_arr[keep], y_arr[keep], y_err[keep]
@@ -885,12 +876,10 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
 
 
-    # censor bayesian
-
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 points")
 
-    # Check if we have enough detections for PyMC (at least 2 detections required)
+    # Check if we have enough detections to constrain the fit (at least 2 required)
     n_detections = np.sum(~is_ul_mask)
     has_upper_limits = np.any(is_ul_mask)
 
@@ -900,13 +889,13 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         else:
             raise ValueError(f"Need at least 2 detections for fitting with upper limits. You have {n_detections} detection(s) and {np.sum(is_ul_mask)} upper limit(s).")
 
-    # Decide method: auto-use PyMC if upper limits present
-    use_pymc = has_upper_limits
+    # Decide method: auto-use the constrained least-squares path if upper limits present
+    use_constrained = has_upper_limits
 
     # ==========================================================
     # 1T FIT (final)
     # ==========================================================
-    if not use_pymc:
+    if not use_constrained:
 
         print("\n--- 1T FIT (curve_fit) ---")
 
@@ -917,15 +906,16 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
     else:
 
-        print("\n--- 1T FIT (CENSORED PyMC) ---")
+        print("\n--- 1T FIT (CONSTRAINED LEAST-SQUARES) ---")
 
-        result = censored_1T(
+        result = constrained_1T(
             E_arr, y_arr, y_err, is_ul_mask
         )
 
         a1, T1 = result["a"], result["T"]
         da1, dT1 = result["da"], result["dT"]
-        pymc_diag_1T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
+        constraint_diag_1T = {"n_active_constraints": result["n_active_constraints"],
+                               "used_bootstrap": result["used_bootstrap"]}
 
     # =========================
     # Derived quantities
@@ -954,9 +944,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "red_chi2": chi2_1T / dof_1T,
         }
     }
-    if use_pymc:
-        results["1T"]["n_divergences"] = pymc_diag_1T["n_divergences"]
-        results["1T"]["max_r_hat"] = pymc_diag_1T["max_r_hat"]
+    if use_constrained:
+        results["1T"]["n_active_constraints"] = constraint_diag_1T["n_active_constraints"]
+        results["1T"]["used_bootstrap"] = constraint_diag_1T["used_bootstrap"]
     if best_opr_err is not None:
         results["OPR_err"] = best_opr_err
         results["OPR_err_pos"] = best_opr_err_pos
@@ -970,7 +960,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     # ==========================================================
     if fit2T:
 
-        if not use_pymc:
+        if not use_constrained:
 
             print("\n--- 2T FIT (curve_fit) ---")
 
@@ -981,16 +971,17 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         else:
 
-            print("\n--- 2T FIT (CENSORED PyMC) ---")
+            print("\n--- 2T FIT (CONSTRAINED LEAST-SQUARES) ---")
 
-            result = censored_2T(
+            result = constrained_2T(
                 E_arr, y_arr, y_err, is_ul_mask,
                 a1, T1
             )
 
             a1_2, T1_2, a2_2, T2_2 = result["popt"]
             errs = result["errs"]
-            pymc_diag_2T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
+            constraint_diag_2T = {"n_active_constraints": result["n_active_constraints"],
+                                   "used_bootstrap": result["used_bootstrap"]}
 
         da1_2, dT1_2, da2_2, dT2_2 = errs
 
@@ -1026,17 +1017,17 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "chi2": chi2_2T,
             "red_chi2": chi2_2T / dof_2T,
         }
-        if use_pymc:
-            results["2T"]["n_divergences"] = pymc_diag_2T["n_divergences"]
-            results["2T"]["max_r_hat"] = pymc_diag_2T["max_r_hat"]
+        if use_constrained:
+            results["2T"]["n_active_constraints"] = constraint_diag_2T["n_active_constraints"]
+            results["2T"]["used_bootstrap"] = constraint_diag_2T["used_bootstrap"]
 
         results["_plot_data"] = {
             "E_arr": E_arr,
             "y_arr": y_arr,
             "y_err": y_err,
             "is_ul_mask": is_ul_mask,
-            "popt1": list(popt1) if not use_pymc else [a1, T1],
-            "popt2": list(popt2) if not use_pymc else list(result["popt"]),
+            "popt1": list(popt1) if not use_constrained else [a1, T1],
+            "popt2": list(popt2) if not use_constrained else list(result["popt"]),
         }
     else:
         results["_plot_data"] = {
@@ -1044,7 +1035,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "y_arr": y_arr,
             "y_err": y_err,
             "is_ul_mask": is_ul_mask,
-            "popt1": list(popt1) if not use_pymc else [a1, T1],
+            "popt1": list(popt1) if not use_constrained else [a1, T1],
             "popt2": None,
         }
 

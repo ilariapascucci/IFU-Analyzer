@@ -1139,14 +1139,16 @@ class RotationalDiagramWindow(QMainWindow):
                 results_text += f"OPR = {results['OPR']:.2f} (fixed)\n\n"
 
         def _convergence_note(fit_dict):
-            """Return a warning line if the censored PyMC fit shows convergence issues."""
-            n_div = fit_dict.get("n_divergences")
-            if n_div is None:
+            """Note how the constrained least-squares fit handled any upper limits."""
+            n_active = fit_dict.get("n_active_constraints")
+            if n_active is None:
                 return ""
-            note = f"[PyMC: {n_div} divergence(s), max r_hat = {fit_dict.get('max_r_hat', float('nan')):.3f}]"
-            if n_div > 0 or fit_dict.get("max_r_hat", 1.0) > 1.01:
-                note += "  ⚠ possible non-convergence - treat this result with caution"
-            return note + "\n"
+            if n_active == 0:
+                return "[no upper limit was actively binding - identical to the unconstrained fit]\n"
+            note = f"[{n_active} upper limit(s) actively constraining this fit"
+            if fit_dict.get("used_bootstrap"):
+                note += " - uncertainty from bootstrap resampling"
+            return note + "]\n"
 
         if "1T" in results:
             r1t = results["1T"]

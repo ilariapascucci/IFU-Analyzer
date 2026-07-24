@@ -26,11 +26,6 @@ astropy>=7.1.0             # Astronomy-specific tools (FITS, WCS, units, coordin
 astropy-iers-data>=0.2025.10.6.0.35.25           # Astropy dependency
 
 # ============================================================================
-# BAYESIAN STATISTICS & CENSORED REGRESSION
-# ============================================================================
-pymc>=4.0                  # Bayesian inference (censored regression for upper limits)
-
-# ============================================================================
 # HITRAN DATABASE & SPECTROSCOPY
 # ============================================================================
 hitran-api>=1.2.2.4        # Import for HITRAN

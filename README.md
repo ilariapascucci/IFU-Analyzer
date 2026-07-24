@@ -162,7 +162,7 @@ Bring any number of multi-instrument images to a single common resolution and FO
   - Fetch line data from HITRAN or import a custom CSV of transitions
   - Select/deselect individual H2 lines; per-line flux and flux-error entry
   - Non-detections can be marked as upper limits (calculated directly from a FITS cube via a dedicated dialog)
-  - Automatic method selection: ordinary least-squares (`scipy.curve_fit`) when all points are detections; PyMC Bayesian censored regression when one or more upper limits are present
+  - Automatic method selection: ordinary least-squares (`scipy.curve_fit`) when all points are detections; deterministic constrained least-squares (upper limits as one-sided ceilings, `scipy.optimize.minimize`/SLSQP, with bootstrap uncertainties when a ceiling is actually binding) when one or more upper limits are present
   - Emitting radius and distance inputs (AU / pc) for column-density normalization
   - Results dialog reports fitted temperature(s) and column densities
   - **Save Results:** one-click export of wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum to a single ASCII file (see Export Capabilities below)
@@ -436,7 +436,7 @@ All CLI commands that produce spectra save tab- or comma-delimited `.txt` files 
 pip install -r requirements.txt
 ```
 
-Core dependencies: `PyQt5`, `matplotlib`, `numpy`, `scipy`, `pandas`, `scikit-learn`, `astropy`. `pymc` is required for Bayesian censored-regression fits (rotational diagram upper limits), and `hitran-api` for live HITRAN database queries. See `requirements.txt` for the full, versioned list.
+Core dependencies: `PyQt5`, `matplotlib`, `numpy`, `scipy`, `pandas`, `scikit-learn`, `astropy`. `hitran-api` is required for live HITRAN database queries. See `requirements.txt` for the full, versioned list.
 
 ### Setup
 
@@ -607,7 +607,7 @@ python main.py
    - Select the lines to include, entering measured flux/flux-error per line
    - For non-detections, use "Calculate Upper Limit" to derive a flux limit directly from the loaded cube
    - Enter emitting radius (AU) and distance (pc), then choose 1T or 2T fitting
-   - Click "Run Fit" — if any line is marked as an upper limit, fitting automatically switches to PyMC Bayesian censored regression instead of ordinary least-squares
+   - Click "Run Fit" — if any line is marked as an upper limit, fitting automatically switches to a constrained least-squares fit (upper limits treated as one-sided ceilings) instead of ordinary least-squares
    - Review fitted temperature(s) and column densities in the results dialog
 
 ### Data Export
