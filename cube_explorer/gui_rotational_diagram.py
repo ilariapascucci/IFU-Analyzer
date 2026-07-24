@@ -505,13 +505,7 @@ class RotationalDiagramWindow(QMainWindow):
         
         self.hitran_lines = data
         self.populate_lines_table()
-        
-        # Disable upper limit checkboxes for HITRAN (we auto-calculate them)
-        for row in range(self.lines_table.rowCount()):
-            ul_checkbox = self.lines_table.cellWidget(row, 9)
-            if ul_checkbox:
-                ul_checkbox.setEnabled(False)
-    
+
     def on_hitran_error(self, error_msg, progress):
         progress.close()
         self.fetch_btn.setEnabled(True)
@@ -689,13 +683,7 @@ class RotationalDiagramWindow(QMainWindow):
             self.workflow_mode = 'csv'
             self.fetch_btn.setEnabled(False)  # Disable HITRAN fetch
             self.calculate_fluxes_btn.setVisible(False)  # Hide Calculate Fluxes button
-            
-            # Disable upper limit checkboxes for CSV (user shouldn't calculate fluxes)
-            for row in range(self.lines_table.rowCount()):
-                ul_checkbox = self.lines_table.cellWidget(row, 9)
-                if ul_checkbox:
-                    ul_checkbox.setEnabled(False)
-            
+
             # Count successful matches
             matched = sum(1 for r in rows if r['a_coeff'] > 0)
             QMessageBox.information(
@@ -923,8 +911,14 @@ class RotationalDiagramWindow(QMainWindow):
             # Error % (editable)
             self.lines_table.setItem(row, 8, QTableWidgetItem(""))
             
-            # Upper Limit? (checkbox - auto-filled by batch calculation, disabled for HITRAN)
+            # Upper Limit? (checkbox - auto-suggested by "Calculate Fluxes" for HITRAN
+            # lines based on a 3-sigma noise threshold; always user-editable so the
+            # final call is yours, not just the heuristic's)
             ul_checkbox = QCheckBox()
+            ul_checkbox.setToolTip(
+                "Auto-checked when a line's fit falls below the 3σ noise threshold "
+                "(HITRAN workflow only). You can check/uncheck this yourself either way."
+            )
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
         
         # Set initial edit/read-only status based on current mode
