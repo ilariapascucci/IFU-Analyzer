@@ -1102,8 +1102,22 @@ class RotationalDiagramWindow(QMainWindow):
                 upper_limits=upper_limits
             )
             
+            dropped_J = results.get("dropped_J")
+            if dropped_J:
+                dropped_desc = "\n".join(
+                    f"  • {molecular_data['wavelengths'][j]:.4f} μm"
+                    for j in dropped_J
+                )
+                QMessageBox.warning(
+                    self,
+                    "Lines Excluded From Fit",
+                    "The following detections were excluded from the fit because no "
+                    "flux error was entered for them (upper limits don't need one, but "
+                    "detections do - no default is assumed):\n\n" + dropped_desc
+                )
+
             self.show_results(results)
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Fitting Error", f"Error during fitting:\n{str(e)}")
     

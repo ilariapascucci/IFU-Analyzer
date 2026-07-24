@@ -688,6 +688,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     def _build_dataset(opr_value):
         """Compute excitation diagram arrays for a given OPR."""
         E_list, y_list, y_err_list, is_ul_list = [], [], [], []
+        dropped = []  # J values excluded (detections with no error data)
 
         for J in sorted(fluxes.keys(), key=lambda j: wave.get(j, float('inf'))):
             if J not in wave:
@@ -703,6 +704,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             # Skip detections without error data - no defaults allowed
             if (not is_ul) and (J not in flux_errors):
                 print(f"J={J}: skipping (detection without error data)")
+                dropped.append(J)
                 continue
 
             E_list.append(Eu[J])
@@ -722,8 +724,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         return (np.array(E_list),
                 np.array(y_list),
                 np.array(y_err_list),
-                np.array(is_ul_list,
-                         dtype=bool))
+                np.array(is_ul_list, dtype=bool),
+                dropped)
 
     # ==========================================================
     # Bounded curve_fit helpers (used for both the OPR grid search and the
@@ -821,7 +823,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         chi2_list = []
         for opr_try in opr_grid:
             # consider upper limit as 4th param
-            E_try, y_try, y_err_try, ul_try = _build_dataset(opr_try)
+            E_try, y_try, y_err_try, ul_try, _ = _build_dataset(opr_try)
             chi2_list.append(_compute_chi2(E_try, y_try, y_err_try, ul_try, use_2T=fit2T))
         
         chi2_arr = np.array(chi2_list)
@@ -844,7 +846,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     # ==========================================================
     # Build final dataset at best_opr (full data, including upper limits)
     # ==========================================================
-    E_arr, y_arr, y_err, is_ul_mask = _build_dataset(best_opr)
+    E_arr, y_arr, y_err, is_ul_mask, dropped_detections = _build_dataset(best_opr)
 
 
 
@@ -922,6 +924,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         results["OPR_err"] = best_opr_err
         results["OPR_err_pos"] = best_opr_err_pos
         results["OPR_err_neg"] = best_opr_err_neg
+
+    if dropped_detections:
+        results["dropped_J"] = dropped_detections
 
     # ==========================================================
     # 2T FIT (final)
