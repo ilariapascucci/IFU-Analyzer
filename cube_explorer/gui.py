@@ -17,7 +17,8 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog, QDoubleSpinBox
+    QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog, QDoubleSpinBox,
+    QSizePolicy
 )
 from PyQt5.QtCore import Qt, QPoint, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont
@@ -512,13 +513,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         # Left slice
         self.slice1_fig = Figure(figsize=(4, 4), dpi=100)
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
+        self.slice1_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.slice1_canvas.setMinimumHeight(200)
         self.slice1_plotter = SlicePlotter(self.slice1_fig)
         self.slice1_toolbar = CustomNavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "left"))
-        
+
         # Right slice
         self.slice2_fig = Figure(figsize=(4, 4), dpi=100)
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
+        self.slice2_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.slice2_canvas.setMinimumHeight(200)
         self.slice2_plotter = SlicePlotter(self.slice2_fig)
         self.slice2_toolbar = CustomNavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "right"))
@@ -526,6 +531,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         # Spectrum
         self.spec_fig = Figure(figsize=(8, 3), dpi=100)
         self.spec_canvas = FigureCanvas(self.spec_fig)
+        self.spec_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.spec_canvas.setMinimumHeight(220)
         self.spec_plotter = None  # Will be initialized after loading data
         for ax in self.spec_fig.axes:
             ax.set_clip_on(True)

@@ -28,13 +28,26 @@ Use File->Open to load a FITS data cube.
 """
 
 import sys
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 from cube_explorer.gui import CubeExplorer
 
 if __name__ == "__main__":
+    # Enable High-DPI scaling before the QApplication is constructed so window
+    # and font metrics stay consistent across Retina/scaled displays.
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
     app = QApplication(sys.argv)
     w = CubeExplorer()
-    w.resize(1100, 800)
+
+    # Size relative to the actual screen instead of a fixed pixel size, so the
+    # window fits smaller/laptop displays instead of forcing native widget
+    # chrome (taller on macOS) to squeeze the plots.
+    screen_geometry = app.primaryScreen().availableGeometry()
+    default_width = min(1100, int(screen_geometry.width() * 0.9))
+    default_height = min(800, int(screen_geometry.height() * 0.9))
+    w.resize(default_width, default_height)
     w.show()
     sys.exit(app.exec_())
 
