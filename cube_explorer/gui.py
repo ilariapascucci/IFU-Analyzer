@@ -24,7 +24,6 @@ from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from matplotlib.widgets import SpanSelector
 
 from PyQt5.QtWidgets import QApplication
 
@@ -731,7 +730,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             "*": "Point selection",
             "▭": "Rectangle selection",
             "◯": "Circle selection",
-            "⬭": "Polygon selection",
+            "⬭": "Ellipse selection",
             "✏": "Freehand drawing"
         }
         self.shape_buttons = {
@@ -974,29 +973,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.continuum_action_layout.addStretch()
         main_layout.addLayout(self.continuum_action_layout)
 
-        self.setLayout(main_layout)        
-
-    def _remove_continuum_line(self):
-        """Remove the continuum line from the spectrum plot"""
-        if self.continuum_line is not None:
-            try:
-                self.continuum_line.remove()
-                print("DEBUG: Continuum line removed")
-            except Exception as e:
-                print(f"DEBUG: Error removing continuum line: {e}")
-            self.continuum_line = None
-            # DO NOT clear continuum_fitted here - we need it for subtraction!
-            # self.continuum_fitted = None  # REMOVED THIS LINE
-
-        # Update legend
-        if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
-            self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-            self.spec_canvas.draw()
-
-        # If spectrum was subtracted, restore it
-        if self.continuum_subtracted:
-            self._restore_original_spectrum_internal()            
-            self.subtract_continuum_btn.setChecked(False)
+        self.setLayout(main_layout)
 
     def _cancel_custom_continuum(self):
         """Cancel custom continuum selection"""
@@ -1275,10 +1252,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             "Use HITRAN button to fetch spectral lines."
         )
 
-
-    def on_span_selected(self, xmin, xmax):
-        self.min_wave_input.setText(f"{xmin:.3f}")
-        self.max_wave_input.setText(f"{xmax:.3f}")
 
     def _display_slice(self, idx, target):
         """Display a wavelength/velocity slice with proper title and intensity units"""
@@ -1965,8 +1938,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         
         # Update any active region selections
         if self.active_target == "left" and self.last_selection_left:
-            self.left_region_spectrum = self.cube_data.compute_region_spectrum(
-                self.last_selection_left["mask"])
             if self.last_selection_left["shape"] == "*":
                 x, y = self.last_selection_left["coords"]
                 self._handle_pixel_click(x, y, "left")
@@ -1974,10 +1945,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 xmin, xmax, ymin, ymax = self.last_selection_left["coords"]
                 mask = self.last_selection_left["mask"]
                 self._recreate_region(xmin, xmax, ymin, ymax, mask, "left")
-                
+
         elif self.active_target == "right" and self.last_selection_right:
-            self.right_region_spectrum = self.cube_data.compute_region_spectrum(
-                self.last_selection_right["mask"])
             if self.last_selection_right["shape"] == "*":
                 x, y = self.last_selection_right["coords"]
                 self._handle_pixel_click(x, y, "right")
@@ -2272,12 +2241,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             idx = self.last_idx_left if target == 'left' else self.last_idx_right
             self._display_slice(idx, target)
 
-    def _init_line_search_controls(self):
-        """Initialize the min/max inputs and buttons (for legacy support)."""
-        # Note: These are also created in _init_plots and used in the HITRAN collapsible group
-        # This method is kept for compatibility but the layout is not currently used
-        pass
-
     def show_available_species(self):
         """
         Show available HITRAN species.
@@ -2307,24 +2270,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             if not selected_rows:
                 QMessageBox.information(self, "No Selection", "No lines selected.")
                 return
-            self.plot_selected_lines(selected_rows)
-
-    def on_species_button_clicked(self):
-        species = self.species_combo.currentText()
-        lam_min = float(self.min_edit.text())
-        lam_max = float(self.max_edit.text())
-
-        # Get filtered rows from catalog
-        lines = self.catalog.filter_species_wavelength(species, lam_min, lam_max)
-
-        # Create dialog, passing currently plotted lines for checkbox sync
-        dlg = SpeciesDialog(lines, parent=self, plotted_rows=self.plotted_lines)
-        result = dlg.exec_()
-
-        if result == QDialog.Accepted:
-            selected_rows = dlg.get_selected_rows()
-            
-            # Update the spectrum plot with selected lines
             self.plot_selected_lines(selected_rows)
 
     def plot_selected_lines(self, rows):
@@ -3030,9 +2975,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             two_d_window.resize(self.width(), self.height())
             two_d_window.show()
 
-            if not hasattr(self, "childwindows") or self.childwindows is None:
-                self.childwindows = []
-            self.childwindows.append(two_d_window)
+            if not hasattr(self, "child_windows") or self.child_windows is None:
+                self.child_windows = []
+            self.child_windows.append(two_d_window)
 
         except Exception as e:
             QMessageBox.warning(self, "2D Window Error", f"Could not open 2D window:\n{e}")
@@ -3044,9 +2989,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             rot_diag_window = RotationalDiagramWindow(parent_gui=self)
             rot_diag_window.show()
 
-            if not hasattr(self, "childwindows") or self.childwindows is None:
-                self.childwindows = []
-            self.childwindows.append(rot_diag_window)
+            if not hasattr(self, "child_windows") or self.child_windows is None:
+                self.child_windows = []
+            self.child_windows.append(rot_diag_window)
 
         except Exception as e:
             QMessageBox.warning(self, "Rotational Diagram Error", f"Could not open rotational diagram window:\n{e}")
