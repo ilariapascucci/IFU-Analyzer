@@ -148,6 +148,8 @@ from .gaussian_fitter import (
     fit_gaussian_to_line,
     calculate_equivalent_width,
     fit_hitran_lines as _fit_hitran_lines_internal,
+    fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
+    export_residual_cube_fits as _export_residual_cube_fits_internal,
 )
 from .line_catalog import fetch_hitran_data
 
@@ -306,6 +308,81 @@ def measure_equivalent_width(fit_result, wavelength, continuum_spectrum):
     return calculate_equivalent_width(fit_result, wavelength, continuum_spectrum)
 
 
+def create_gaussian_map(cube_data, lam_min=None, lam_max=None, n_jobs=None, **kwargs):
+    """
+    Fit a Gaussian to every spatial pixel's spectrum in a wavelength window.
+
+    This is the same full-cube fitting used by the GUI's Gaussian mapping
+    dialog. RANSAC outlier rejection is always enabled.
+
+    Args:
+        cube_data (CubeData): Loaded cube from load_cube()
+        lam_min (float, optional): Minimum wavelength for the fit window (default: full range)
+        lam_max (float, optional): Maximum wavelength for the fit window (default: full range)
+        n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)
+        **kwargs: Passed through to fit_gaussians_per_pixel (e.g. fac_above_stdres,
+            noise_min, noise_max, lambda_0, progress_callback)
+
+    Returns:
+        dict: 2D parameter maps - 'amplitude', 'center', 'sigma', 'fwhm', 'area',
+            'r_squared', 'success', 'is_detection', 'is_upper_limit'
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> maps = create_gaussian_map(cube, lam_min=4.65, lam_max=4.70)
+        >>> print(f"Detections: {maps['is_detection'].sum()}")
+    """
+    wl = cube_data.wavelength
+    if hasattr(wl, 'value'):
+        wl = wl.value
+    return _fit_gaussians_per_pixel_internal(
+        cube=cube_data.cube,
+        wavelength=wl,
+        lam_min=lam_min,
+        lam_max=lam_max,
+        n_jobs=n_jobs,
+        header=cube_data.header,
+        wave_unit=cube_data.wave_unit,
+        flux_unit=cube_data.header.get('BUNIT') if cube_data.header else None,
+        **kwargs
+    )
+
+
+def export_residual_cube(cube_data, out_path="residual_cube.fits", lam_min=None,
+                          lam_max=None, n_jobs=None, return_cube=False):
+    """
+    Fit and subtract a Gaussian at every pixel, writing the residual cube to FITS.
+
+    Args:
+        cube_data (CubeData): Loaded cube from load_cube()
+        out_path (str): Output FITS filename (default "residual_cube.fits")
+        lam_min (float, optional): Minimum wavelength for the fit window
+        lam_max (float, optional): Maximum wavelength for the fit window
+        n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)
+        return_cube (bool): If True, also return the residual array in memory
+
+    Returns:
+        str, or (str, array) if return_cube=True: Path to the written FITS file
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> export_residual_cube(cube, out_path="residual.fits", lam_min=4.65, lam_max=4.70)
+    """
+    wl = cube_data.wavelength
+    if hasattr(wl, 'value'):
+        wl = wl.value
+    return _export_residual_cube_fits_internal(
+        cube=cube_data.cube,
+        wavelength=wl,
+        lam_min=lam_min,
+        lam_max=lam_max,
+        n_jobs=n_jobs,
+        out_path=out_path,
+        return_cube=return_cube,
+        header=cube_data.header,
+    )
+
+
 # ============================================================================
 # CO FLUX EXTRACTION API
 # ============================================================================
@@ -452,6 +529,8 @@ __all__ = [
     'fit_multiple_lines',
     'fit_hitran_lines',
     'measure_equivalent_width',
+    'create_gaussian_map',
+    'export_residual_cube',
     # CO Flux
     'extract_co_flux',
     'create_co_flux_map',
