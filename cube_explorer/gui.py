@@ -578,27 +578,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.auto_continuum_toggle.setCheckable(True)
         self.custom_continuum_toggle.setCheckable(True)
 
-        # Style for toggle buttons
-        toggle_style = """
-            QPushButton {
-                background-color: #e0e0e0;
-                border: 2px solid #888;
-                border-radius: 4px;
-                padding: 6px;
-                font-weight: bold;
-            }
-            QPushButton:checked {
-                background-color: #4a90e2;
-                color: white;
-                border: 2px solid #2d73c5;
-            }
-            QPushButton:hover {
-                border: 2px solid #4a90e2;
-            }
-        """
-        self.auto_continuum_toggle.setStyleSheet(toggle_style)
-        self.custom_continuum_toggle.setStyleSheet(toggle_style)
-
         # Action buttons (initially hidden)
         self.continuum_line_btn = QPushButton("Continuum Line")
         self.subtract_continuum_btn = QPushButton("Subtract Continuum")
