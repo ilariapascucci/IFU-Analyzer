@@ -239,7 +239,7 @@ class SpectrumPlotter:
         for artist in self.gauss_fit_artists:
             try:
                 artist.remove()
-            except:
+            except Exception:
                 pass
         self.gauss_fit_artists = []
         
@@ -353,7 +353,7 @@ class SpectrumPlotter:
             # Force redraw
             try:
                 self.fig.canvas.draw_idle()
-            except:
+            except Exception:
                 self.fig.canvas.draw()
         else:
             # If no line exists, plot it

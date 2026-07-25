@@ -84,7 +84,7 @@ class GuiGaussianMixin:
         if self.gauss_mode == 'left':
             if hasattr(self, 'gauss_left_marker') and self.gauss_left_marker:
                 try: self.gauss_left_marker.remove()
-                except: pass
+                except Exception: pass
             self.gauss_left_marker = ax.axvline(x_pos, color='green', linestyle='--', linewidth=1.5, label='Left', alpha=0.7)
             self.gauss_left_x = x_pos
             self.gauss_left_btn.setChecked(False)
@@ -93,7 +93,7 @@ class GuiGaussianMixin:
         elif self.gauss_mode == 'peak':
             if hasattr(self, 'gauss_peak_marker') and self.gauss_peak_marker:
                 try: self.gauss_peak_marker.remove()
-                except: pass
+                except Exception: pass
             self.gauss_peak_marker = ax.axvline(x_pos, color='red', linestyle=':', linewidth=1.0, label='Peak', alpha=0.8)
             self.gauss_peak_x = x_pos
             self.gauss_peak_btn.setChecked(False)
@@ -102,7 +102,7 @@ class GuiGaussianMixin:
         elif self.gauss_mode == 'right':
             if hasattr(self, 'gauss_right_marker') and self.gauss_right_marker:
                 try: self.gauss_right_marker.remove()
-                except: pass
+                except Exception: pass
             self.gauss_right_marker = ax.axvline(x_pos, color='purple', linestyle='--', linewidth=1.5, label='Right', alpha=0.7)
             self.gauss_right_x = x_pos
             self.gauss_right_btn.setChecked(False)
@@ -111,7 +111,7 @@ class GuiGaussianMixin:
         elif self.gauss_mode == 'noise_left':
             if hasattr(self, 'gauss_noise_left_marker') and self.gauss_noise_left_marker:
                 try: self.gauss_noise_left_marker.remove()
-                except: pass
+                except Exception: pass
             self.gauss_noise_left_marker = ax.axvline(x_pos, color='orange', linestyle='--', linewidth=1.3, label='Noise L', alpha=0.7)
             self.gauss_noise_left_x = x_pos
             self.gauss_noise_left_btn.setChecked(False)
@@ -120,7 +120,7 @@ class GuiGaussianMixin:
         elif self.gauss_mode == 'noise_right':
             if hasattr(self, 'gauss_noise_right_marker') and self.gauss_noise_right_marker:
                 try: self.gauss_noise_right_marker.remove()
-                except: pass
+                except Exception: pass
             self.gauss_noise_right_marker = ax.axvline(x_pos, color='sienna', linestyle='--', linewidth=1.3, label='Noise R', alpha=0.7)
             self.gauss_noise_right_x = x_pos
             self.gauss_noise_right_btn.setChecked(False)
@@ -264,7 +264,7 @@ STATUS: {result.message}
             if hasattr(self.spec_plotter, 'gauss_fit_artists'):
                 for artist in self.spec_plotter.gauss_fit_artists:
                     try: artist.remove()
-                    except: pass
+                    except Exception: pass
                 self.spec_plotter.gauss_fit_artists = []
             
             for attr in ['gauss_left_marker', 'gauss_peak_marker', 'gauss_right_marker', 'gauss_noise_left_marker', 'gauss_noise_right_marker']:
@@ -272,12 +272,12 @@ STATUS: {result.message}
                     marker = getattr(self, attr)
                     if marker is not None:
                         try: marker.remove()
-                        except: pass
+                        except Exception: pass
                     setattr(self, attr, None)
             
             for marker in getattr(self, 'gauss_markers', []):
                 try: marker.remove()
-                except: pass
+                except Exception: pass
             self.gauss_markers = []
             
             self.gauss_left_x, self.gauss_peak_x, self.gauss_right_x = None, None, None
@@ -289,7 +289,7 @@ STATUS: {result.message}
             if hasattr(self, 'multi_gauss_artists'):
                 for artist in self.multi_gauss_artists:
                     try: artist.remove()
-                    except: pass
+                    except Exception: pass
                 self.multi_gauss_artists = []
             
             self.multi_gauss_results = None
@@ -360,7 +360,7 @@ STATUS: {result.message}
         if not hasattr(self, 'multi_gauss_artists'): self.multi_gauss_artists = []
         for artist in self.multi_gauss_artists:
             try: artist.remove()
-            except: pass
+            except Exception: pass
         self.multi_gauss_artists = []
         
         norm_factor = 1.0

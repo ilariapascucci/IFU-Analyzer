@@ -114,7 +114,7 @@ class GuiCOFluxMixin:
             return
         
         try: n_jobs = min(os.cpu_count() or 8, 8)
-        except: n_jobs = 8
+        except Exception: n_jobs = 8
         
         if hasattr(self, 'hitran_lines') and self.hitran_lines:
             hitran_df = pd.DataFrame(self.hitran_lines)
@@ -192,7 +192,7 @@ class GuiCOFluxMixin:
                 continuum = fit_continuum_median_peaks(spectrum_wave, preview_flux)
                 if continuum is not None and not np.all(np.isnan(continuum)):
                     preview_flux = preview_flux - continuum
-            except: pass
+            except Exception: pass
         
         dlg = QDialog(self)
         dlg.setWindowTitle("CO Flux Map Preview")

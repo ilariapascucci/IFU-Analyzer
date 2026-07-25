@@ -1453,20 +1453,20 @@ class Ifu_analyzer_2d_window(QWidget):
                 if hasattr(contour_set, 'collections'):
                     for c in contour_set.collections:
                         try: c.remove()
-                        except: pass
+                        except Exception: pass
                 else:
                     try: contour_set.remove()
-                    except: pass
+                    except Exception: pass
             plotter.contours = []
             
         if hasattr(plotter, 'current_contour') and plotter.current_contour:
             if hasattr(plotter.current_contour, 'collections'):
                 for c in plotter.current_contour.collections:
                     try: c.remove()
-                    except: pass
+                    except Exception: pass
             else:
                 try: plotter.current_contour.remove()
-                except: pass
+                except Exception: pass
             plotter.current_contour = None
             
         if target == "left":
@@ -2444,7 +2444,7 @@ class Ifu_analyzer_2d_window(QWidget):
         if hasattr(plotter.ax, 'area_artists'):
             for artist in getattr(plotter.ax, 'area_artists'):
                 try: artist.remove()
-                except: pass
+                except Exception: pass
         plotter.ax.area_artists = []
 
         plotter.ax.add_patch(patch)
@@ -2453,7 +2453,7 @@ class Ifu_analyzer_2d_window(QWidget):
         selector = self.region_selector_left if target == "left" else self.region_selector_right
         if selector.selector is not None:
             try: selector.selector.set_visible(False)
-            except: pass
+            except Exception: pass
         
         # Reset UI button states
         self.active_shape = None
@@ -2503,24 +2503,24 @@ class Ifu_analyzer_2d_window(QWidget):
         if hasattr(plotter.ax, 'area_artists'):
             for artist in plotter.ax.area_artists:
                 try: artist.remove()
-                except: pass
+                except Exception: pass
             plotter.ax.area_artists = []
 
         # Clear pixel marks
         if hasattr(plotter.ax, 'pixel_marker'):
             for marker in plotter.ax.pixel_marker:
                 try: marker.remove()
-                except: pass
+                except Exception: pass
             plotter.ax.pixel_marker = []
             
         if hasattr(plotter, 'current_contour') and plotter.current_contour:
             if hasattr(plotter.current_contour, 'collections'):
                 for c in plotter.current_contour.collections:
                     try: c.remove()
-                    except: pass
+                    except Exception: pass
             else:
                 try: plotter.current_contour.remove()
-                except: pass
+                except Exception: pass
             plotter.current_contour = None
             
         if target == "left":
@@ -2561,7 +2561,7 @@ class Ifu_analyzer_2d_window(QWidget):
             if hasattr(plotter.ax, 'area_artists'):
                 for artist in plotter.ax.area_artists:
                     try: artist.remove()
-                    except: pass
+                    except Exception: pass
                 plotter.ax.area_artists = []
 
             if hasattr(plotter.ax, 'pixel_marker'):

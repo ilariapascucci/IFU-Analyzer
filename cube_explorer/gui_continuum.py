@@ -461,7 +461,7 @@ class GuiContinuumMixin:
             self.subtract_continuum_btn.setChecked(False)
             if hasattr(self, 'continuum_line') and self.continuum_line is not None:
                 try: self.continuum_line.remove()
-                except: pass
+                except Exception: pass
                 self.continuum_line = None
             if hasattr(self, 'continuum_subtracted') and self.continuum_subtracted:
                 self._restore_original_spectrum()
@@ -469,7 +469,7 @@ class GuiContinuumMixin:
             self.continuum_subtracted = False
             if hasattr(self, 'global_continuum_applied'):
                 self.global_continuum_applied = False
-        except: pass
+        except Exception: pass
 
     def clear_custom_progress(self):
         try:
@@ -482,7 +482,7 @@ class GuiContinuumMixin:
                 self._restore_from_custom_subtract()
             self.custom_continuum_active = False
             self.custom_continuum_applied = False
-        except: pass
+        except Exception: pass
 
     def _on_custom_delete_toggled(self, checked):
         if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:

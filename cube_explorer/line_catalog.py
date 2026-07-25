@@ -154,7 +154,7 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
                                             a_coeff = float(fields[i])
                                             coeff_idx = i
                                             break
-                                        except:
+                                        except Exception:
                                             transition_parts.append(fields[i])
                                     else:
                                         transition_parts.append(fields[i])
@@ -162,9 +162,9 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
                                 if coeff_idx >= 0 and coeff_idx + 1 < len(fields):
                                     try:
                                         e_upper = float(fields[coeff_idx + 1])
-                                    except:
+                                    except Exception:
                                         pass
-                        except:
+                        except Exception:
                             pass
                         data_rows.append({
                             'model': model,
@@ -208,7 +208,7 @@ def convert_to_numpy(data):
     if isinstance(data, (list, tuple)):
         try:
             return np.array(data, dtype=float)
-        except:
+        except Exception:
             return np.array(data)
     return np.array([data], dtype=float)
 
@@ -239,7 +239,7 @@ def get_cache_age(table_name):
             mod_time = os.path.getmtime(data_file)
             age_seconds = time.time() - mod_time
             return age_seconds / (24 * 3600)
-    except:
+    except Exception:
         return None
     return None
 
@@ -290,7 +290,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
         try:
             existing_tables = tableList()
             data_cached = table_name in existing_tables
-        except:
+        except Exception:
             data_cached = False
 
         # Non-interactive cache policy: if cached and older than threshold, only refresh when requested
@@ -325,7 +325,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                  'delta_air', 'Gp', 'Gpp', 'global_upper_quanta', 'global_lower_quanta',
                  'local_upper_quanta', 'local_lower_quanta']
             )
-        except:
+        except Exception:
             # Fallback without quantum numbers
             nu, sw, A, gamma_air, gamma_self, elower, n_air, delta_air, Gp, Gpp = getColumns(
                 table_name, 
@@ -360,7 +360,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                         try:
                             v_upper_num = int(re.search(r'\d+', v_upper_str).group())
                             v_lower_num = int(re.search(r'\d+', v_lower_str).group())
-                        except:
+                        except Exception:
                             v_upper_num = None
                             v_lower_num = None
                         

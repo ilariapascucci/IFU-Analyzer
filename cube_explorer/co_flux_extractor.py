@@ -1110,7 +1110,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     flux_map[y_idx, :] = row_fluxes
                     detection_map[y_idx, :] = row_detections
                     wavelength_map[y_idx, :] = row_wavelengths
-                except:
+                except Exception:
                     # Skip this row if cancelled or failed
                     pass
                 

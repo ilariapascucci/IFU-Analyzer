@@ -394,7 +394,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             for marker in self.subtract_markers:
                 try:
                     marker.remove()
-                except:
+                except Exception:
                     pass
             self.subtract_markers = []
 
@@ -434,7 +434,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         if hasattr(self, 'shifted_line') and self.shifted_line is not None:
             try:
                 self.shifted_line.remove()
-            except:
+            except Exception:
                 pass
             self.shifted_line = None
         
@@ -2060,7 +2060,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         if hasattr(self, 'shifted_line') and self.shifted_line is not None:
             try:
                 self.shifted_line.remove()
-            except:
+            except Exception:
                 pass
         
         # Store the shifted spectrum data and wavelength for later application
@@ -2147,7 +2147,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         if hasattr(self, 'shifted_line') and self.shifted_line is not None:
             try:
                 self.shifted_line.remove()
-            except:
+            except Exception:
                 pass
             self.shifted_line = None
         
@@ -2376,7 +2376,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 try:
                     wavelength_converted = convert_wavelength(wavelength, source_unit, cube_unit)
                     wavelength_str = f"λ: {wavelength:.4f} {source_unit} ({wavelength_converted:.4f} {cube_unit})"
-                except:
+                except Exception:
                     wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
             else:
                 wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
@@ -2425,22 +2425,22 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         if hasattr(self, 'gauss_left_marker') and self.gauss_left_marker:
             try:
                 self.gauss_left_marker.remove()
-            except:
+            except Exception:
                 pass
         if hasattr(self, 'gauss_right_marker') and self.gauss_right_marker:
             try:
                 self.gauss_right_marker.remove()
-            except:
+            except Exception:
                 pass
         if hasattr(self, 'gauss_noise_left_marker') and self.gauss_noise_left_marker:
             try:
                 self.gauss_noise_left_marker.remove()
-            except:
+            except Exception:
                 pass
         if hasattr(self, 'gauss_noise_right_marker') and self.gauss_noise_right_marker:
             try:
                 self.gauss_noise_right_marker.remove()
-            except:
+            except Exception:
                 pass
         self.gauss_left_marker = None
         self.gauss_right_marker = None
@@ -2451,7 +2451,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         if hasattr(self, 'continuum_line') and self.continuum_line:
             try:
                 self.continuum_line.remove()
-            except:
+            except Exception:
                 pass
         self.continuum_line = None
         
@@ -2466,7 +2466,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             for artist in self.plotted_artists:
                 try:
                     artist.remove()
-                except:
+                except Exception:
                     pass
             self.plotted_artists = []
             self.plotted_lines = []
@@ -2481,7 +2481,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 for artist in self.spec_plotter.gauss_fit_artists:
                     try:
                         artist.remove()
-                    except:
+                    except Exception:
                         pass
                 self.spec_plotter.gauss_fit_artists = []
             
@@ -2490,7 +2490,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 for line in self.spec_plotter.region_lines.values():
                     try:
                         line.remove()
-                    except:
+                    except Exception:
                         pass
                 self.spec_plotter.region_lines = {}
             
@@ -2506,7 +2506,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 for artist in self.slice1_plotter.ax.area_artists:
                     try:
                         artist.remove()
-                    except:
+                    except Exception:
                         pass
                 self.slice1_plotter.ax.area_artists = []
             # Remove handle scatter collections
@@ -2514,13 +2514,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 try:
                     if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
                         collection.remove()
-                except:
+                except Exception:
                     pass
             if hasattr(self.slice1_plotter.ax, 'pixel_marker'):
                 for marker in self.slice1_plotter.ax.pixel_marker:
                     try:
                         marker.remove()
-                    except:
+                    except Exception:
                         pass
                 self.slice1_plotter.ax.pixel_marker = []
             
@@ -2532,7 +2532,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 for artist in self.slice2_plotter.ax.area_artists:
                     try:
                         artist.remove()
-                    except:
+                    except Exception:
                         pass
                 self.slice2_plotter.ax.area_artists = []
             # Remove handle scatter collections
@@ -2540,13 +2540,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 try:
                     if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
                         collection.remove()
-                except:
+                except Exception:
                     pass
             if hasattr(self.slice2_plotter.ax, 'pixel_marker'):
                 for marker in self.slice2_plotter.ax.pixel_marker:
                     try:
                         marker.remove()
-                    except:
+                    except Exception:
                         pass
                 self.slice2_plotter.ax.pixel_marker = []
             

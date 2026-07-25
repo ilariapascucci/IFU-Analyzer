@@ -145,7 +145,7 @@ class SpeciesDialog(QDialog):
             if a_coeff != "" and a_coeff is not None:
                 try:
                     item = QTableWidgetItem(f"{float(a_coeff):.2e}")
-                except:
+                except Exception:
                     item = QTableWidgetItem(str(a_coeff))
             else:
                 item = QTableWidgetItem("")
@@ -158,7 +158,7 @@ class SpeciesDialog(QDialog):
             if e_upper != "" and e_upper is not None:
                 try:
                     item = QTableWidgetItem(f"{float(e_upper):.2f}")
-                except:
+                except Exception:
                     item = QTableWidgetItem(str(e_upper))
             else:
                 item = QTableWidgetItem("")
