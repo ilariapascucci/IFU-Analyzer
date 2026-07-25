@@ -812,7 +812,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         sigma_guess = local_width / 2.0  # Half of the local window width
     else:
         sigma_guess = (x2 - x1) / 20.0  # Fallback: very narrow
-    print(f"[DEBUG] Peak at λ={peak_x:.4f}: amp={amp_guess:.4e}, σ={sigma_guess:.4e}")
+    print(f"[DEBUG] Peak at lambda={peak_x:.4f}: amp={amp_guess:.4e}, sigma={sigma_guess:.4e}")
 
     # STEP 2b: Validate that a positive peak exists for fitting
     # Check if there's a meaningful peak
@@ -1945,7 +1945,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     n_detections = np.sum(is_detection_map)
     n_upper_limits = np.sum(is_upper_limit_map)
     print(f"Fitting complete: {n_success}/{total_pixels} successful fits ({100*n_success/total_pixels:.1f}%)")
-    print(f"  Detections (>{fac_above_stdres}σ): {n_detections} ({100*n_detections/total_pixels:.1f}%)")
+    print(f"  Detections (>{fac_above_stdres} sigma): {n_detections} ({100*n_detections/total_pixels:.1f}%)")
     print(f"  Upper limits: {n_upper_limits} ({100*n_upper_limits/total_pixels:.1f}%)")
 
     # Convert amplitude to CGS if header available (MJy/sr -> erg/s/cm²/sr)

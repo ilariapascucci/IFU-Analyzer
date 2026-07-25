@@ -1,8 +1,15 @@
 #!/usr/bin/env python
 """
 Consolidated API Test Suite
-Tests both import functionality and vibrational level filtering
+Tests import functionality, vibrational level filtering, and the full-cube
+Gaussian mapping / residual cube export functions.
 """
+
+import os
+import sys
+import types
+
+import numpy as np
 
 print("\n" + "="*70)
 print(" API TEST 1: Import Verification")
@@ -12,7 +19,7 @@ try:
     from cube_explorer.api import (
         load_cube, fit_line, fit_multiple_lines, fit_hitran_lines,
         fit_continuum, measure_equivalent_width, extract_co_flux, create_co_flux_map,
-        rotational_diagram
+        create_gaussian_map, export_residual_cube, rotational_diagram
     )
     print("[OK] All API functions imported successfully")
     print("  Available functions:")
@@ -24,16 +31,16 @@ try:
     print("    - measure_equivalent_width()")
     print("    - extract_co_flux()")
     print("    - create_co_flux_map()")
+    print("    - create_gaussian_map()")
+    print("    - export_residual_cube()")
     print("    - rotational_diagram()")
 except Exception as e:
     print(f"[ERROR] Import failed: {e}")
-    exit(1)
+    sys.exit(1)
 
 print("\n" + "="*70)
 print(" API TEST 2: Vibrational Level Filtering (CO v=1->0)")
 print("="*70)
-
-import numpy as np
 
 # Load cube and extract spectrum
 print("\n[1/3] Loading NIRSpec cube...")
@@ -54,7 +61,7 @@ try:
     print(f"[OK] Loaded {cube.instrument} data ({len(wavelength)} wavelength points)")
 except Exception as e:
     print(f"[ERROR] Failed to load cube: {e}")
-    exit(1)
+    sys.exit(1)
 
 # Test 1: v=1->0 filtering
 print("\n[2/3] Testing v=1->0 filtering...")
@@ -73,7 +80,7 @@ try:
         print(f"  [WARNING] Expected 10 lines, got {len(detected_filtered)}")
 except Exception as e:
     print(f"[ERROR] v=1->0 filtering failed: {e}")
-    exit(1)
+    sys.exit(1)
 
 # Test 2: No filtering (all transitions)
 print("\n[3/3] Testing unfiltered CO lines (all vibrational levels)...")
@@ -88,22 +95,141 @@ try:
     print(f"[OK] Found {len(detected_all)} total CO lines (all vibrational levels)")
     if len(detected_all) < len(detected_filtered):
         print(f"  [ERROR] Unfiltered should have >= filtered lines!")
-        exit(1)
+        sys.exit(1)
 except Exception as e:
     print(f"[ERROR] Unfiltered search failed: {e}")
-    exit(1)
+    sys.exit(1)
 
 # Summary
 print("\n" + "="*70)
-print(" TEST RESULTS SUMMARY")
+print(" TEST 2 RESULTS SUMMARY")
 print("="*70)
 print(f"v=1->0 filtered:      {len(detected_filtered):2d} lines")
 print(f"All transitions:      {len(detected_all):2d} lines")
-print(f"Other vibrational:    {len(detected_all) - len(detected_filtered):2d} lines (v≠1->0)")
-print("\n[OK] ALL TESTS PASSED!")
+print(f"Other vibrational:    {len(detected_all) - len(detected_filtered):2d} lines (v!=1->0)")
+print("[OK] Vibrational level filtering tests passed")
 print("="*70 + "\n")
 
 # Show specific lines
-print("v=1->0 CO lines (4.7-4.8 µm):")
+print("v=1->0 CO lines (4.7-4.8 um):")
 for r in sorted(detected_filtered, key=lambda r: r['wavelength']):
-    print(f"  {r['wavelength']:.6f} µm  {r['transition']:<30s}  J={r['transition'].split('J=')[1] if 'J=' in r['transition'] else 'N/A'}")
+    print(f"  {r['wavelength']:.6f} um  {r['transition']:<30s}  J={r['transition'].split('J=')[1] if 'J=' in r['transition'] else 'N/A'}")
+
+
+print("\n" + "="*70)
+print(" API TEST 3: Full-Cube Gaussian Map / Residual Cube (Synthetic Data)")
+print("="*70)
+print("Builds a synthetic cube with a known Gaussian line (no dependency on any")
+print("local FITS fixture) so results can be checked against ground truth.")
+
+np.random.seed(0)
+
+N_WAVE = 300
+NY, NX = 4, 4
+CONTINUUM = 1000.0
+TRUE_AMP = 80.0
+TRUE_CENTER = 4.675
+TRUE_SIGMA = 0.008
+NOISE_STD = 2.0
+
+synthetic_wavelength = np.linspace(4.60, 4.75, N_WAVE)
+line = TRUE_AMP * np.exp(-0.5 * ((synthetic_wavelength - TRUE_CENTER) / TRUE_SIGMA) ** 2)
+
+synthetic_cube = np.empty((N_WAVE, NY, NX), dtype=np.float64)
+for iy in range(NY):
+    for ix in range(NX):
+        noise = np.random.normal(0, NOISE_STD, size=N_WAVE)
+        synthetic_cube[:, iy, ix] = CONTINUUM + line + noise
+
+# Minimal stand-in for CubeData -- only the attributes the API functions read
+synthetic_cube_data = types.SimpleNamespace(
+    cube=synthetic_cube,
+    wavelength=synthetic_wavelength,
+    header=None,
+    wave_unit="um",
+)
+
+print(f"[OK] Built synthetic cube: shape={synthetic_cube.shape}, "
+      f"true center={TRUE_CENTER}um, true sigma={TRUE_SIGMA}um, true amp={TRUE_AMP}")
+
+print("\n[1/3] Testing create_gaussian_map recovers known parameters...")
+try:
+    maps = create_gaussian_map(synthetic_cube_data, lam_min=4.60, lam_max=4.75, n_jobs=2)
+    required_keys = {'amplitude', 'center', 'sigma', 'fwhm', 'area',
+                     'r_squared', 'success', 'is_detection', 'is_upper_limit'}
+    missing = required_keys - set(maps.keys())
+    if missing:
+        print(f"[ERROR] Missing keys in result: {missing}")
+        sys.exit(1)
+    print(f"[OK] Result contains all expected keys: {sorted(required_keys)}")
+except Exception as e:
+    print(f"[ERROR] create_gaussian_map raised an exception: {e}")
+    sys.exit(1)
+
+n_detections = int(np.sum(maps['is_detection']))
+print(f"  Detections: {n_detections}/{NY * NX} pixels")
+if n_detections != NY * NX:
+    print(f"[ERROR] Expected all {NY * NX} pixels to be detections (amp={TRUE_AMP} >> noise={NOISE_STD})")
+    sys.exit(1)
+print(f"[OK] All {NY * NX} pixels detected as expected")
+
+center_err = np.nanmean(np.abs(maps['center'] - TRUE_CENTER))
+sigma_err = np.nanmean(np.abs(maps['sigma'] - TRUE_SIGMA))
+amp_err = np.nanmean(np.abs(maps['amplitude'] - TRUE_AMP)) / TRUE_AMP
+
+print(f"  Mean |center error|:      {center_err:.6f} um")
+print(f"  Mean |sigma error|:       {sigma_err:.6f} um")
+print(f"  Mean relative amp error:  {amp_err:.4f}")
+
+if center_err > 0.002:
+    print(f"[ERROR] Recovered center off by too much: {center_err:.6f} um")
+    sys.exit(1)
+if sigma_err > 0.003:
+    print(f"[ERROR] Recovered sigma off by too much: {sigma_err:.6f} um")
+    sys.exit(1)
+if amp_err > 0.15:
+    print(f"[ERROR] Recovered amplitude off by too much: {amp_err:.4f} relative error")
+    sys.exit(1)
+print("[OK] Recovered center/sigma/amplitude all within tolerance of injected truth")
+
+print("\n[2/3] Testing export_residual_cube (return_cube=True)...")
+try:
+    residual = export_residual_cube(synthetic_cube_data, lam_min=4.60, lam_max=4.75,
+                                     n_jobs=2, return_cube=True)
+    print(f"[OK] Residual cube returned, shape={residual.shape}")
+except Exception as e:
+    print(f"[ERROR] export_residual_cube(return_cube=True) raised an exception: {e}")
+    sys.exit(1)
+
+if residual.shape != synthetic_cube.shape:
+    print(f"[ERROR] Residual shape {residual.shape} != input cube shape {synthetic_cube.shape}")
+    sys.exit(1)
+
+finite_residuals = residual[np.isfinite(residual)]
+mean_abs_resid = np.nanmean(np.abs(finite_residuals))
+print(f"  Mean |normalized residual|: {mean_abs_resid:.4f}")
+if mean_abs_resid > 1.5:
+    print(f"[ERROR] Residuals too large for a good fit: {mean_abs_resid:.4f}")
+    sys.exit(1)
+print("[OK] Residuals are small, consistent with a good per-pixel fit")
+
+print("\n[3/3] Testing export_residual_cube writes a real FITS file...")
+residual_out_path = os.path.join(
+    os.environ.get("TEMP", "."), "test_api_residual_cube.fits"
+)
+try:
+    export_residual_cube(synthetic_cube_data, out_path=residual_out_path,
+                          lam_min=4.60, lam_max=4.75, n_jobs=2)
+    if not os.path.exists(residual_out_path):
+        print(f"[ERROR] Expected output file not found: {residual_out_path}")
+        sys.exit(1)
+    size = os.path.getsize(residual_out_path)
+    print(f"[OK] FITS file written: {residual_out_path} ({size} bytes)")
+finally:
+    if os.path.exists(residual_out_path):
+        os.remove(residual_out_path)
+        print(f"  Cleaned up {residual_out_path}")
+
+print("\n" + "="*70)
+print(" [OK] ALL TESTS PASSED!")
+print("="*70 + "\n")
