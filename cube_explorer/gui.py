@@ -1522,11 +1522,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             # Get cleaned flux unit
             unit_raw = getattr(self.cube_data, "flux_unit", "")
             unit = clean_flux_unit(unit_raw) if unit_raw else ""
-            unit_str = f" [{unit}]" if unit else ""
-            
-            # Create region stats with sum and std
+
+            # Create region stats with sum and std. The unit goes on its own
+            # line (matching the slice-stats label above) so it is not clipped
+            # by the narrow stats panel.
             region_stats = [
-                f"Selected Area Stats{unit_str}:",
+                "Intensity (Area Selected)" if unit else "Intensity (Area Selected):",
+            ]
+            if unit:
+                region_stats.append(f"[{unit}]:")
+            region_stats += [
                 f"min={mn:.3e}",
                 f"max={mx:.3e}",
                 f"mean={mean:.3e}",

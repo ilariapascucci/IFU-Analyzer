@@ -12,92 +12,107 @@ IFU Analyzer provides five selection tools for different use cases:
 ======================== ==================================================================
 Tool                     Best For
 ======================== ==================================================================
-**Point Select**         Single pixels or precise locations
-**Rectangle Select**     Rectangular areas, embedded sources
-**Circle Select**        Circular features
-**Ellipse Select**       Elongated structures, galaxies
-**Free-Form Draw**       Precise manual outlines
+**\*** Point             Single pixels or precise locations
+**▭** Rectangle          Rectangular areas, embedded sources
+**◯** Circle             Circular features
+**⬭** Ellipse            Elongated structures, galaxies
+**✏** Freehand           Precise manual outlines
 ======================== ==================================================================
 
-Activating Region Selection
-===========================
+Three more buttons sit alongside them in each slice's toolbar:
 
-**Method 1: Toolbar**
+======================== ==================================================================
+Button                   Purpose
+======================== ==================================================================
+**✎** Edit Shape         Toggle drag/resize of the placed region
+**✖** Clear              Remove the region and start over
+**⎘** Copy               Copy the selection to the other slice
+======================== ==================================================================
 
-1. Click figure button in toolbar
-2. Tool is now active
+How Region Selection Works
+==========================
 
-Using Point Select Tool
+Selection follows a strict order of operations, and each slice tracks its own
+state independently. Only **one region per slice** can exist at a time.
+
+1. **Choose a shape.** All five shape buttons are available. Click one to arm it.
+2. **Draw the region.** Only the armed shape stays clickable -- click it again to
+   cancel. The region is placed when you release the mouse.
+
+.. image:: /_static/region_drawing.png
+   :alt: Rectangle tool armed and highlighted, with no region drawn yet
+
+3. **Region placed.** The shape buttons are now *disabled*. This is deliberate:
+   you cannot start a second region while one exists. The stats panel switches
+   to **Intensity (Area Selected)** for the region.
+
+.. image:: /_static/region_placed.png
+   :alt: A placed rectangular region, with all shape buttons greyed out
+
+4. **Edit if needed.** Toggle **✎** to drag or resize. Toggle it off again to
+   commit the change.
+5. **Clear before drawing again.** Press **✖** to remove the region. The shape
+   buttons become available again.
+
+.. note::
+
+   If the shape buttons look greyed out, a region is already placed on that
+   slice. Press **✖** to clear it before selecting a new one.
+
+Editing a Placed Region
 =======================
 
-Select individual point:
+**✎** is a toggle, and it only becomes available once a region has been placed.
 
-1. Click the **\*** from the region selector toolbar
+- **Toggle on**: handles appear; drag to move or resize
+- **Toggle off**: the edit is committed and handles are removed
+
+.. image:: /_static/region_editing.png
+   :alt: The same region in edit mode, showing drag handles at corners and edges
+
+Editing is deliberately opt-in rather than always-on, so a region cannot be
+nudged out of place by an accidental click while you are working with the
+spectrum.
+
+.. note::
+
+   **✎** is not available for **Point** selections -- a single pixel has nothing
+   to resize. Clear it and place a new point instead.
+
+Using the Tools
+===============
+
+Point Select
+------------
+
+1. Click **\*** in the slice toolbar
 2. Click a pixel location
 
-Using Rectangle Select Tool
-============================
+Rectangle, Circle and Ellipse Select
+------------------------------------
 
-Select rectangular regions:
+1. Click **▭**, **◯**, or **⬭** in the slice toolbar
+2. Press and hold at one corner
+3. Drag to the opposite corner
+4. Release to place the region
 
-1. Click the **▭** from the region selector toolbar
-2. Hold upper-left corner
-3. Drag to lower-right corner
-4. Release mouse to finalize
-5. Handles appear for resize/adjust
+To adjust it afterwards, toggle **✎** and drag the handles:
 
-Adjustments:
+- **Drag edge**: resize in one dimension
+- **Drag corner**: resize in two dimensions
+- **Drag interior**: move the whole region
 
-- **Drag edge**: Resize in one dimension
-- **Drag corner**: Resize in two dimensions
-- **Drag interior**: Move entire rectangle
-- **Delete**: Clear and start over
+Freehand Select
+---------------
 
-Using Circle Select Tool
-========================
+1. Click **✏** in the slice toolbar
+2. Draw a closed outline around the feature
+3. Release to place the region
 
-Select circular regions:
-
-1. Click the **◯** from the region selector toolbar
-2. Hold upper-left corner
-3. Drag to lower-right corner
-4. Release mouse to finalize
-5. Handle appears for resize/adjust
-
-Adjustments:
-
-- **Drag edge**: Adjust radius
-- **Drag center**: Move circle
-
-Using Ellipse Select Tool
-=========================
-
-Select elliptical regions (for elongated features):
-
-1. Click the **⬭** from the region selector toolbar
-2. Hold upper-left corner
-3. Drag to lower-right corner
-4. Release mouse to finalize
-5. Handle appears for resize/adjust
-
-Adjustments:
-
-- **Drag corners**: Adjust size
-- **Drag center**: Move ellipse
-
-Using Free-Form Select Tool
-===========================
-
-Select irregular or complex shapes:
-
-1. Click the **✏** from the region selector toolbar
-2. Draw a closed figure
-3. Release mouse to finalize
-
-Tips for free-form:
+Tips for freehand:
 
 - Make closed figures
-- Make figures inside the boundaries
+- Keep the outline inside the slice boundaries
 
 Statistics
 ==========

@@ -55,12 +55,14 @@
 <li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Selecting Regions</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#region-selection-tools">Region Selection Tools</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#activating-region-selection">Activating Region Selection</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#using-point-select-tool">Using Point Select Tool</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#using-rectangle-select-tool">Using Rectangle Select Tool</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#using-circle-select-tool">Using Circle Select Tool</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#using-ellipse-select-tool">Using Ellipse Select Tool</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#using-free-form-select-tool">Using Free-Form Select Tool</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#how-region-selection-works">How Region Selection Works</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#editing-a-placed-region">Editing a Placed Region</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-the-tools">Using the Tools</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#point-select">Point Select</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#rectangle-circle-and-ellipse-select">Rectangle, Circle and Ellipse Select</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#freehand-select">Freehand Select</a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="#statistics">Statistics</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
@@ -129,103 +131,125 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><strong>Point Select</strong></p></td>
+<tr class="row-even"><td><p><strong>*</strong> Point</p></td>
 <td><p>Single pixels or precise locations</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>Rectangle Select</strong></p></td>
+<tr class="row-odd"><td><p><strong>▭</strong> Rectangle</p></td>
 <td><p>Rectangular areas, embedded sources</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>Circle Select</strong></p></td>
+<tr class="row-even"><td><p><strong>◯</strong> Circle</p></td>
 <td><p>Circular features</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>Ellipse Select</strong></p></td>
+<tr class="row-odd"><td><p><strong>⬭</strong> Ellipse</p></td>
 <td><p>Elongated structures, galaxies</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>Free-Form Draw</strong></p></td>
+<tr class="row-even"><td><p><strong>✏</strong> Freehand</p></td>
 <td><p>Precise manual outlines</p></td>
 </tr>
 </tbody>
 </table>
+<p>Three more buttons sit alongside them in each slice’s toolbar:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Button</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>✎</strong> Edit Shape</p></td>
+<td><p>Toggle drag/resize of the placed region</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>✖</strong> Clear</p></td>
+<td><p>Remove the region and start over</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>⎘</strong> Copy</p></td>
+<td><p>Copy the selection to the other slice</p></td>
+</tr>
+</tbody>
+</table>
 </section>
-<section id="activating-region-selection">
-<h2>Activating Region Selection<a class="headerlink" href="#activating-region-selection" title="Link to this heading"></a></h2>
-<p><strong>Method 1: Toolbar</strong></p>
+<section id="how-region-selection-works">
+<h2>How Region Selection Works<a class="headerlink" href="#how-region-selection-works" title="Link to this heading"></a></h2>
+<p>Selection follows a strict order of operations, and each slice tracks its own
+state independently. Only <strong>one region per slice</strong> can exist at a time.</p>
 <ol class="arabic simple">
-<li><p>Click figure button in toolbar</p></li>
-<li><p>Tool is now active</p></li>
+<li><p><strong>Choose a shape.</strong> All five shape buttons are available. Click one to arm it.</p></li>
+<li><p><strong>Draw the region.</strong> Only the armed shape stays clickable – click it again to
+cancel. The region is placed when you release the mouse.</p></li>
 </ol>
+<img alt="Rectangle tool armed and highlighted, with no region drawn yet" src="../_images/region_drawing.png" />
+<ol class="arabic simple" start="3">
+<li><p><strong>Region placed.</strong> The shape buttons are now <em>disabled</em>. This is deliberate:
+you cannot start a second region while one exists. The stats panel switches
+to <strong>Intensity (Area Selected)</strong> for the region.</p></li>
+</ol>
+<img alt="A placed rectangular region, with all shape buttons greyed out" src="../_images/region_placed.png" />
+<ol class="arabic simple" start="4">
+<li><p><strong>Edit if needed.</strong> Toggle <strong>✎</strong> to drag or resize. Toggle it off again to
+commit the change.</p></li>
+<li><p><strong>Clear before drawing again.</strong> Press <strong>✖</strong> to remove the region. The shape
+buttons become available again.</p></li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If the shape buttons look greyed out, a region is already placed on that
+slice. Press <strong>✖</strong> to clear it before selecting a new one.</p>
+</div>
 </section>
-<section id="using-point-select-tool">
-<h2>Using Point Select Tool<a class="headerlink" href="#using-point-select-tool" title="Link to this heading"></a></h2>
-<p>Select individual point:</p>
+<section id="editing-a-placed-region">
+<h2>Editing a Placed Region<a class="headerlink" href="#editing-a-placed-region" title="Link to this heading"></a></h2>
+<p><strong>✎</strong> is a toggle, and it only becomes available once a region has been placed.</p>
+<ul class="simple">
+<li><p><strong>Toggle on</strong>: handles appear; drag to move or resize</p></li>
+<li><p><strong>Toggle off</strong>: the edit is committed and handles are removed</p></li>
+</ul>
+<img alt="The same region in edit mode, showing drag handles at corners and edges" src="../_images/region_editing.png" />
+<p>Editing is deliberately opt-in rather than always-on, so a region cannot be
+nudged out of place by an accidental click while you are working with the
+spectrum.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>✎</strong> is not available for <strong>Point</strong> selections – a single pixel has nothing
+to resize. Clear it and place a new point instead.</p>
+</div>
+</section>
+<section id="using-the-tools">
+<h2>Using the Tools<a class="headerlink" href="#using-the-tools" title="Link to this heading"></a></h2>
+<section id="point-select">
+<h3>Point Select<a class="headerlink" href="#point-select" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click the <strong>*</strong> from the region selector toolbar</p></li>
+<li><p>Click <strong>*</strong> in the slice toolbar</p></li>
 <li><p>Click a pixel location</p></li>
 </ol>
 </section>
-<section id="using-rectangle-select-tool">
-<h2>Using Rectangle Select Tool<a class="headerlink" href="#using-rectangle-select-tool" title="Link to this heading"></a></h2>
-<p>Select rectangular regions:</p>
+<section id="rectangle-circle-and-ellipse-select">
+<h3>Rectangle, Circle and Ellipse Select<a class="headerlink" href="#rectangle-circle-and-ellipse-select" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click the <strong>▭</strong> from the region selector toolbar</p></li>
-<li><p>Hold upper-left corner</p></li>
-<li><p>Drag to lower-right corner</p></li>
-<li><p>Release mouse to finalize</p></li>
-<li><p>Handles appear for resize/adjust</p></li>
+<li><p>Click <strong>▭</strong>, <strong>◯</strong>, or <strong>⬭</strong> in the slice toolbar</p></li>
+<li><p>Press and hold at one corner</p></li>
+<li><p>Drag to the opposite corner</p></li>
+<li><p>Release to place the region</p></li>
 </ol>
-<p>Adjustments:</p>
+<p>To adjust it afterwards, toggle <strong>✎</strong> and drag the handles:</p>
 <ul class="simple">
-<li><p><strong>Drag edge</strong>: Resize in one dimension</p></li>
-<li><p><strong>Drag corner</strong>: Resize in two dimensions</p></li>
-<li><p><strong>Drag interior</strong>: Move entire rectangle</p></li>
-<li><p><strong>Delete</strong>: Clear and start over</p></li>
+<li><p><strong>Drag edge</strong>: resize in one dimension</p></li>
+<li><p><strong>Drag corner</strong>: resize in two dimensions</p></li>
+<li><p><strong>Drag interior</strong>: move the whole region</p></li>
 </ul>
 </section>
-<section id="using-circle-select-tool">
-<h2>Using Circle Select Tool<a class="headerlink" href="#using-circle-select-tool" title="Link to this heading"></a></h2>
-<p>Select circular regions:</p>
+<section id="freehand-select">
+<h3>Freehand Select<a class="headerlink" href="#freehand-select" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click the <strong>◯</strong> from the region selector toolbar</p></li>
-<li><p>Hold upper-left corner</p></li>
-<li><p>Drag to lower-right corner</p></li>
-<li><p>Release mouse to finalize</p></li>
-<li><p>Handle appears for resize/adjust</p></li>
+<li><p>Click <strong>✏</strong> in the slice toolbar</p></li>
+<li><p>Draw a closed outline around the feature</p></li>
+<li><p>Release to place the region</p></li>
 </ol>
-<p>Adjustments:</p>
-<ul class="simple">
-<li><p><strong>Drag edge</strong>: Adjust radius</p></li>
-<li><p><strong>Drag center</strong>: Move circle</p></li>
-</ul>
-</section>
-<section id="using-ellipse-select-tool">
-<h2>Using Ellipse Select Tool<a class="headerlink" href="#using-ellipse-select-tool" title="Link to this heading"></a></h2>
-<p>Select elliptical regions (for elongated features):</p>
-<ol class="arabic simple">
-<li><p>Click the <strong>⬭</strong> from the region selector toolbar</p></li>
-<li><p>Hold upper-left corner</p></li>
-<li><p>Drag to lower-right corner</p></li>
-<li><p>Release mouse to finalize</p></li>
-<li><p>Handle appears for resize/adjust</p></li>
-</ol>
-<p>Adjustments:</p>
-<ul class="simple">
-<li><p><strong>Drag corners</strong>: Adjust size</p></li>
-<li><p><strong>Drag center</strong>: Move ellipse</p></li>
-</ul>
-</section>
-<section id="using-free-form-select-tool">
-<h2>Using Free-Form Select Tool<a class="headerlink" href="#using-free-form-select-tool" title="Link to this heading"></a></h2>
-<p>Select irregular or complex shapes:</p>
-<ol class="arabic simple">
-<li><p>Click the <strong>✏</strong> from the region selector toolbar</p></li>
-<li><p>Draw a closed figure</p></li>
-<li><p>Release mouse to finalize</p></li>
-</ol>
-<p>Tips for free-form:</p>
+<p>Tips for freehand:</p>
 <ul class="simple">
 <li><p>Make closed figures</p></li>
-<li><p>Make figures inside the boundaries</p></li>
+<li><p>Keep the outline inside the slice boundaries</p></li>
 </ul>
+</section>
 </section>
 <section id="statistics">
 <h2>Statistics<a class="headerlink" href="#statistics" title="Link to this heading"></a></h2>
