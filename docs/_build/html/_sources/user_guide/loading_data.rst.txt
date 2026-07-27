@@ -135,27 +135,6 @@ Load and access FITS data programmatically in Python scripts or Jupyter notebook
     plt.grid(True, alpha=0.3)
     plt.show()
 
-**Handle Special Data Cases**
-
-.. code-block:: python
-
-    import numpy as np
-    
-    cube = load_cube("data.fits")
-    
-    # Handle NaN values
-    spectrum = cube.spectrum.copy()
-    valid_indices = ~np.isnan(spectrum)
-    
-    # Normalize spectrum
-    spectrum_normalized = spectrum / np.nanmax(spectrum)
-    
-    # Trim wavelength range
-    wave_min, wave_max = 4.5, 5.0
-    wavelength_mask = (cube.wavelength >= wave_min) & (cube.wavelength <= wave_max)
-    wavelength_subset = cube.wavelength[wavelength_mask]
-    spectrum_subset = cube.spectrum[wavelength_mask]
-
 **Available Cube Properties**
 
 .. code-block:: python

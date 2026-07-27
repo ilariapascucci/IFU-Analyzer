@@ -243,25 +243,6 @@
 <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </pre></div>
 </div>
-<p><strong>Handle Special Data Cases</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-
-<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
-
-<span class="c1"># Handle NaN values</span>
-<span class="n">spectrum</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-<span class="n">valid_indices</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">spectrum</span><span class="p">)</span>
-
-<span class="c1"># Normalize spectrum</span>
-<span class="n">spectrum_normalized</span> <span class="o">=</span> <span class="n">spectrum</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">spectrum</span><span class="p">)</span>
-
-<span class="c1"># Trim wavelength range</span>
-<span class="n">wave_min</span><span class="p">,</span> <span class="n">wave_max</span> <span class="o">=</span> <span class="mf">4.5</span><span class="p">,</span> <span class="mf">5.0</span>
-<span class="n">wavelength_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span> <span class="o">&gt;=</span> <span class="n">wave_min</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span> <span class="o">&lt;=</span> <span class="n">wave_max</span><span class="p">)</span>
-<span class="n">wavelength_subset</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">[</span><span class="n">wavelength_mask</span><span class="p">]</span>
-<span class="n">spectrum_subset</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">[</span><span class="n">wavelength_mask</span><span class="p">]</span>
-</pre></div>
-</div>
 <p><strong>Available Cube Properties</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
 
