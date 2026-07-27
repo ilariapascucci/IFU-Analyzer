@@ -25,7 +25,11 @@ The spectrum panel shows 1D data:
 Color Scales
 ============
 
-Different scales emphasize different aspects of your data:
+Different scales emphasize different aspects of your data. The same slice
+rendered with each of them:
+
+.. image:: /_static/scale_comparison.png
+   :alt: The same MIRI slice rendered with Linear, Log, Sqrt and Power scales
 
 **Linear Scale** (Default)
 
@@ -60,6 +64,9 @@ Colormaps control how intensity is mapped to colors on slices. IFU Analyzer incl
 1. Click **🌈** button in slice toolbar
 2. Select colormap from list
 3. Preview updates immediately
+
+.. image:: /_static/colormap_dialog.png
+   :alt: The Select Colormap dialog, showing the colormap list and preview bar
 
 Zoom Controls
 =============
