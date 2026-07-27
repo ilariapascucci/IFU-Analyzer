@@ -16,8 +16,16 @@ release = '1.0'
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
+import os
+import sys
+
+# autodoc imports the package to read its docstrings, so the repository root
+# needs to be importable from here.
+sys.path.insert(0, os.path.abspath('..'))
+
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.napoleon',   # understands Google-style Args:/Returns:/Raises:
     'sphinx.ext.intersphinx',
     'sphinx.ext.viewcode',
     'sphinx.ext.mathjax',

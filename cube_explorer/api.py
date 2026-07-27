@@ -76,7 +76,7 @@ def load_cube(filename):
     """
     Load a FITS data cube from file.
 
-    This function handles multi-instrument FITS files (MUSE, ALMA, MIRI, NIRSpec)
+    This function handles multi-instrument FITS files (MUSE, MIRI, NIRSpec)
     with automatic instrument detection.
 
     Args:

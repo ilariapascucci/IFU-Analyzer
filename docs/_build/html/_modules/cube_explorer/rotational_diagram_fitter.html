@@ -1,0 +1,1180 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cube_explorer.rotational_diagram_fitter &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../user_guide/index.html">User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../reference/api.html">API Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cube_explorer.rotational_diagram_fitter</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cube_explorer.rotational_diagram_fitter</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Rotational diagram fitting functions for H2 analysis</span>
+<span class="sd">Implements single-temperature and two-temperature rotational diagram fits</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">linregress</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.optimize</span><span class="w"> </span><span class="kn">import</span> <span class="n">curve_fit</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pymc</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pm</span>
+
+
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">CONSTANTS</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="n">erg2ev</span> <span class="o">=</span> <span class="mf">6.24150647996e11</span>  <span class="c1"># erg -&gt; eV</span>
+<span class="n">clight</span> <span class="o">=</span> <span class="mf">2.99792458e10</span>  <span class="c1"># cm/s</span>
+<span class="n">hplanck_eV</span> <span class="o">=</span> <span class="mf">4.135667696e-15</span>  <span class="c1"># eV*s</span>
+<span class="n">hplanck</span> <span class="o">=</span> <span class="n">hplanck_eV</span> <span class="o">/</span> <span class="n">erg2ev</span>  <span class="c1"># erg*s</span>
+<span class="n">pmass</span> <span class="o">=</span> <span class="mf">1.6726219e-24</span>  <span class="c1"># g</span>
+<span class="n">Msun</span> <span class="o">=</span> <span class="mf">1.989e33</span>  <span class="c1"># g</span>
+<span class="n">au</span> <span class="o">=</span> <span class="mf">1.496e13</span>  <span class="c1"># cm</span>
+<span class="n">pc</span> <span class="o">=</span> <span class="mf">3.086e18</span>  <span class="c1"># cm</span>
+
+
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">HITRAN DATA</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="c1"># Molecular data for H2 (from HITRAN - these would be populated dynamically)</span>
+<span class="c1"># For now, we&#39;ll accept these as inputs from the GUI</span>
+<span class="n">wave</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># micron</span>
+<span class="n">Aul</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># s^-1</span>
+<span class="n">Eu</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># K</span>
+<span class="c1">#gu = {}  # unitless</span>
+
+
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">FORMULAS</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">is_ortho</span><span class="p">(</span><span class="n">J</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if rotational level J is ortho (odd J)&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">J</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_Ju</span><span class="p">(</span><span class="n">SJ</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Upper rotational level for H2 S-branch line S(SJ)&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">SJ</span> <span class="o">+</span> <span class="mi">2</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_gu</span><span class="p">(</span><span class="n">SJ</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Rotational-only degeneracy (2*Ju+1), nuclear spin excluded so apply_OPR can supply it&quot;&quot;&quot;</span>
+    <span class="n">Ju</span> <span class="o">=</span> <span class="n">get_Ju</span><span class="p">(</span><span class="n">SJ</span><span class="p">)</span>
+    <span class="c1">#gs = 3 if is_ortho(Ju) else 1</span>
+    <span class="k">return</span> <span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">Ju</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_Nu</span><span class="p">(</span><span class="n">F</span><span class="p">,</span> <span class="n">lam</span><span class="p">,</span> <span class="n">A</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute column density from flux.</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        F: Flux</span>
+<span class="sd">        lam: Wavelength (micron)</span>
+<span class="sd">        A: Einstein coefficient (s^-1)</span>
+<span class="sd">        R: Emitting radius (cm), optional</span>
+<span class="sd">        dist: Distance (cm), optional</span>
+<span class="sd">    </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        Column density Nu</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">lam_cm</span> <span class="o">=</span> <span class="n">lam</span> <span class="o">*</span> <span class="mf">1e-4</span>  <span class="c1"># micron to cm</span>
+    <span class="n">Nu_col</span> <span class="o">=</span> <span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">F</span> <span class="o">*</span> <span class="n">lam_cm</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">hplanck</span> <span class="o">*</span> <span class="n">clight</span> <span class="o">*</span> <span class="n">A</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">R</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">arcsec2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="o">*</span><span class="p">((</span><span class="n">R</span><span class="o">/</span><span class="n">dist</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">sr_arcsec2</span> <span class="o">=</span> <span class="mf">4.25</span><span class="o">*</span><span class="p">(</span><span class="mi">10</span><span class="o">**</span><span class="mi">10</span><span class="p">)</span>
+        <span class="n">sr</span> <span class="o">=</span> <span class="n">arcsec2</span><span class="o">/</span><span class="n">sr_arcsec2</span>
+        <span class="n">Nu_total</span> <span class="o">=</span> <span class="n">Nu_col</span> <span class="o">/</span> <span class="n">sr</span>
+        <span class="k">return</span> <span class="n">Nu_total</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">Nu_col</span><span class="o">*</span><span class="p">((</span><span class="n">dist</span><span class="o">*</span><span class="n">pc</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_OPR</span><span class="p">(</span><span class="n">Nu</span><span class="p">,</span> <span class="n">J</span><span class="p">,</span> <span class="n">OPR</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply ortho-para ratio correction&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">OPR</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">OPR</span> <span class="o">=</span> <span class="mf">3.0</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">OPR</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">)):</span>
+        <span class="n">opr_val</span> <span class="o">=</span> <span class="n">OPR</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;OPR must be None or a float (use &#39;fit&#39; in wrapper)&quot;</span><span class="p">)</span>
+
+    <span class="n">f_ortho</span> <span class="o">=</span> <span class="n">opr_val</span>  <span class="c1"># / (1 + opr_val)</span>
+    <span class="n">f_para</span>  <span class="o">=</span> <span class="mf">1.0</span>  <span class="c1"># / (1 + opr_val)</span>
+
+    <span class="k">return</span> <span class="n">Nu</span> <span class="o">/</span> <span class="p">(</span><span class="n">f_ortho</span> <span class="k">if</span> <span class="n">is_ortho</span><span class="p">(</span><span class="n">J</span><span class="p">)</span> <span class="k">else</span> <span class="n">f_para</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">Q_Herbst</span><span class="p">(</span><span class="n">T</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Herbst partition function for H2&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="mf">0.0247</span> <span class="o">*</span> <span class="n">T</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mi">6000</span><span class="o">/</span><span class="n">T</span><span class="p">))</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">Q_Herbst_err</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">T_err</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Error on partition function&quot;&quot;&quot;</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="mf">6000.0</span>
+    <span class="n">c</span> <span class="o">=</span> <span class="mf">0.0247</span>
+    <span class="n">ea</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">a</span><span class="o">/</span><span class="n">T</span><span class="p">)</span>
+    <span class="n">dQdT</span> <span class="o">=</span> <span class="n">c</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">ea</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">a</span><span class="o">*</span><span class="n">ea</span><span class="p">)</span><span class="o">/</span><span class="p">(</span><span class="n">T</span><span class="o">*</span><span class="p">(</span><span class="mi">1</span><span class="o">-</span><span class="n">ea</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dQdT</span><span class="p">)</span> <span class="o">*</span> <span class="n">T_err</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">model_1T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">T</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Single temperature rotational diagram model&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">a</span> <span class="o">-</span> <span class="n">E</span> <span class="o">/</span> <span class="n">T</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">model_2T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">,</span> <span class="n">a2</span><span class="p">,</span> <span class="n">T2</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Two temperature rotational diagram model&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a1</span> <span class="o">-</span> <span class="n">E</span><span class="o">/</span><span class="n">T1</span><span class="p">)</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a2</span> <span class="o">-</span> <span class="n">E</span><span class="o">/</span><span class="n">T2</span><span class="p">))</span>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">UPPER LIMITS</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_spectral_resolution</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate spectral resolution R(λ) = λ/Δλ for different instruments.</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength: float or array, wavelength in microns</span>
+<span class="sd">        instrument: str, instrument name (&#39;NIRSPEC&#39;, &#39;MIRI&#39;)</span>
+<span class="sd">        header: astropy.io.fits.Header, optional. Required for NIRSpec to get grating info</span>
+<span class="sd">    </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        float or array, spectral resolution R(λ)</span>
+<span class="sd">    </span>
+<span class="sd">    Formulas:</span>
+<span class="sd">        MIRI: R(λ) = 4603 − 128 × λ</span>
+<span class="sd">        NIRSpec (from grating):</span>
+<span class="sd">            - G140H, G235H, G395H: R ~ 2700</span>
+<span class="sd">            - G140M, G235M, G395M: R ~ 1000</span>
+<span class="sd">            - PRISM: R ~ 100</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">instrument</span> <span class="o">=</span> <span class="n">instrument</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+    
+    <span class="k">if</span> <span class="n">instrument</span> <span class="o">==</span> <span class="s1">&#39;MIRI&#39;</span><span class="p">:</span>
+        <span class="c1"># MIRI spectral resolution formula</span>
+        <span class="k">return</span> <span class="mi">4603</span> <span class="o">-</span> <span class="mi">128</span> <span class="o">*</span> <span class="n">wavelength</span>
+    
+    <span class="k">elif</span> <span class="n">instrument</span> <span class="o">==</span> <span class="s1">&#39;NIRSPEC&#39;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">header</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;NIRSpec requires FITS header for grating information&quot;</span><span class="p">)</span>
+        
+        <span class="n">grating</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;GRATING&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+        
+        <span class="c1"># High resolution gratings: R ~ 2700</span>
+        <span class="k">if</span> <span class="n">grating</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;G140H&#39;</span><span class="p">,</span> <span class="s1">&#39;G235H&#39;</span><span class="p">,</span> <span class="s1">&#39;G395H&#39;</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="mi">2700</span>
+        
+        <span class="c1"># Medium resolution gratings: R ~ 1000</span>
+        <span class="k">elif</span> <span class="n">grating</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;G140M&#39;</span><span class="p">,</span> <span class="s1">&#39;G235M&#39;</span><span class="p">,</span> <span class="s1">&#39;G395M&#39;</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="mi">1000</span>
+        
+        <span class="c1"># Low resolution prism: R ~ 100</span>
+        <span class="k">elif</span> <span class="n">grating</span> <span class="o">==</span> <span class="s1">&#39;PRISM&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">100</span>
+        
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown NIRSpec grating: </span><span class="si">{</span><span class="n">grating</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Instrument </span><span class="si">{</span><span class="n">instrument</span><span class="si">}</span><span class="s2"> not yet supported for spectral resolution&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">gaussian_flux_upper_limit</span><span class="p">(</span><span class="n">sigma_noise</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">instrument</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate upper limit flux from noise using spectral resolution.</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        sigma_noise: Noise standard deviation in MJy/sr (per-pixel)</span>
+<span class="sd">        wavelength: Wavelength in microns</span>
+<span class="sd">        instrument: str, instrument name (&#39;NIRSPEC&#39;, &#39;MIRI&#39;). If provided, calculates R automatically</span>
+<span class="sd">        header: astropy.io.fits.Header, required for NIRSpec if instrument is specified</span>
+<span class="sd">        R: float, spectral resolution R(λ) = λ/Δλ. Use if already calculated, overrides auto-calculation</span>
+<span class="sd">    </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        tuple: (F_ul, delta_lambda) - upper limit flux and wavelength resolution</span>
+<span class="sd">    </span>
+<span class="sd">    Formula:</span>
+<span class="sd">        F_ul = 3 × σ_noise × Δλ</span>
+<span class="sd">        where Δλ = λ/R (spectral resolution element)</span>
+<span class="sd">        Result is in [MJy/sr·μm]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Calculate R if not provided</span>
+    <span class="k">if</span> <span class="n">R</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">instrument</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Must provide either R or instrument name&quot;</span><span class="p">)</span>
+        <span class="n">R</span> <span class="o">=</span> <span class="n">get_spectral_resolution</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="p">)</span>
+    
+    <span class="n">delta_lambda</span> <span class="o">=</span> <span class="n">wavelength</span> <span class="o">/</span> <span class="n">R</span>
+    <span class="n">F_ul</span> <span class="o">=</span> <span class="mf">3.0</span> <span class="o">*</span> <span class="n">sigma_noise</span> <span class="o">*</span> <span class="n">delta_lambda</span>
+    <span class="k">return</span> <span class="n">F_ul</span><span class="p">,</span> <span class="n">delta_lambda</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">estimate_noise_local</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">flux_arr</span><span class="p">,</span> <span class="n">line_wavelength</span><span class="p">,</span> <span class="n">n_pixels</span><span class="o">=</span><span class="mi">13</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Estimate per-pixel noise around a line using local continuum subtraction.</span>
+
+<span class="sd">    Takes n_pixels on each side of the line center, fits a straight line</span>
+<span class="sd">    through them, subtracts it, then returns np.nanstd of the residuals.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength_arr: 1D array of wavelengths (microns)</span>
+<span class="sd">        flux_arr:       1D array of flux values (MJy/sr)</span>
+<span class="sd">        line_wavelength: Central wavelength of the line (microns)</span>
+<span class="sd">        n_pixels:       Number of pixels to use on each side (default 13)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        sigma_noise: float, std dev of residuals in same units as flux_arr</span>
+<span class="sd">                     None if not enough pixels</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Find the index closest to the line center</span>
+    <span class="n">center_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">wavelength_arr</span> <span class="o">-</span> <span class="n">line_wavelength</span><span class="p">))</span>
+
+    <span class="c1"># Grab n_pixels on each side, excluding the center pixel itself</span>
+    <span class="n">left_idx</span>  <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">center_idx</span> <span class="o">-</span> <span class="n">n_pixels</span><span class="p">,</span> <span class="n">center_idx</span><span class="p">)</span>
+    <span class="n">right_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">center_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">center_idx</span> <span class="o">+</span> <span class="n">n_pixels</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># Clip to valid array bounds</span>
+    <span class="n">left_idx</span>  <span class="o">=</span> <span class="n">left_idx</span><span class="p">[(</span><span class="n">left_idx</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">left_idx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">))]</span>
+    <span class="n">right_idx</span> <span class="o">=</span> <span class="n">right_idx</span><span class="p">[(</span><span class="n">right_idx</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">right_idx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">))]</span>
+
+    <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">left_idx</span><span class="p">,</span> <span class="n">right_idx</span><span class="p">])</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">4</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="n">wave_region</span> <span class="o">=</span> <span class="n">wavelength_arr</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+    <span class="n">flux_region</span> <span class="o">=</span> <span class="n">flux_arr</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+
+    <span class="c1"># Remove NaNs before fitting</span>
+    <span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">flux_region</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">valid</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">4</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="c1"># Fit and subtract linear continuum</span>
+    <span class="n">coeffs</span>    <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">polyfit</span><span class="p">(</span><span class="n">wave_region</span><span class="p">[</span><span class="n">valid</span><span class="p">],</span> <span class="n">flux_region</span><span class="p">[</span><span class="n">valid</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">residuals</span> <span class="o">=</span> <span class="n">flux_region</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">polyval</span><span class="p">(</span><span class="n">coeffs</span><span class="p">,</span> <span class="n">wave_region</span><span class="p">)</span>
+    
+    <span class="n">sigma_noise</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanstd</span><span class="p">(</span><span class="n">residuals</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">sigma_noise</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_flux_upper_limit_to_cgs</span><span class="p">(</span><span class="n">flux_ul_native</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="s1">&#39;MJy/sr&#39;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Convert upper limit flux from native units to CGS (erg/s/cm²).</span>
+<span class="sd">    </span>
+<span class="sd">    Designed specifically for upper limits computed as: 3σ_noise × Δλ</span>
+<span class="sd">    where Δλ = λ/R (spectral resolution element) and the result is in</span>
+<span class="sd">    [native_flux_unit × wavelength_unit].</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        flux_ul_native: Upper limit flux in native units × wavelength</span>
+<span class="sd">                       (e.g., MJy/sr·μm for NIRSpec)</span>
+<span class="sd">        wavelength: Line wavelength in microns</span>
+<span class="sd">        header: FITS header containing CDELT1, CDELT2 (spatial pixel scales in degrees)</span>
+<span class="sd">        flux_unit: Native flux unit (&#39;MJy/sr&#39; for NIRSpec/MIRI, etc.)</span>
+<span class="sd">    </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        float: Upper limit flux in erg/s/cm², or None if conversion fails</span>
+<span class="sd">    </span>
+<span class="sd">    Formula for MJy/sr·μm → erg/s/cm²:</span>
+<span class="sd">        1. Convert [MJy/sr·μm] → [Jy·μm] using pixel solid angle:</span>
+<span class="sd">           Ω = CDELT1 × CDELT2 × (π/180)² steradians</span>
+<span class="sd">           flux_jy_um = flux_native × Ω × 1e6</span>
+<span class="sd">        2. Convert [Jy·μm] → [erg/s/cm²] using wavelength-to-frequency:</span>
+<span class="sd">           flux_cgs = flux_jy_um × (c / λ²) × 1e-23</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">header</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">flux_ul_native</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">wavelength</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        
+        <span class="c1"># Extract CDELT values (in degrees)</span>
+        <span class="n">cdelt1</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;CDELT1&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">cdelt2</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;CDELT2&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">cdelt1</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">cdelt2</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        
+        <span class="n">cdelt1_abs</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">cdelt1</span><span class="p">))</span>
+        <span class="n">cdelt2_abs</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">cdelt2</span><span class="p">))</span>
+        
+        <span class="c1"># Check if units are MJy/sr</span>
+        <span class="k">if</span> <span class="s1">&#39;MJY&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">flux_unit</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">&#39;SR&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">flux_unit</span><span class="o">.</span><span class="n">upper</span><span class="p">():</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        
+        <span class="c1"># Step 1: Convert [MJy/sr·μm] → [Jy·μm]</span>
+        <span class="c1"># Solid angle of one pixel in steradians</span>
+        <span class="n">steradian_per_degree2</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">/</span> <span class="mf">180.0</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+        <span class="n">omega_pixel_sr</span> <span class="o">=</span> <span class="n">cdelt1_abs</span> <span class="o">*</span> <span class="n">cdelt2_abs</span> <span class="o">*</span> <span class="n">steradian_per_degree2</span>
+        
+        <span class="c1"># Remove &quot;/sr&quot; and convert MJy → Jy</span>
+        <span class="n">flux_jy_um</span> <span class="o">=</span> <span class="n">flux_ul_native</span> <span class="o">*</span> <span class="n">omega_pixel_sr</span> <span class="o">*</span> <span class="mf">1e6</span>
+        
+        <span class="c1"># Step 2: Convert [Jy·μm] → [erg/s/cm²]</span>
+        <span class="c1"># Using F_ν = F_λ × (c / λ²)</span>
+        <span class="n">c_micron_per_s</span> <span class="o">=</span> <span class="mf">2.99792458e14</span>  <span class="c1"># speed of light in μm/s</span>
+        <span class="n">flux_cgs</span> <span class="o">=</span> <span class="n">flux_jy_um</span> <span class="o">*</span> <span class="p">(</span><span class="n">c_micron_per_s</span> <span class="o">/</span> <span class="p">(</span><span class="n">wavelength</span> <span class="o">**</span> <span class="mi">2</span><span class="p">))</span> <span class="o">*</span> <span class="mf">1e-23</span>
+        
+        <span class="k">return</span> <span class="n">flux_cgs</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_line_flux</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">line_wavelength</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">instrument</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fit a single line in an (already spatially-summed) spectrum and compute its</span>
+<span class="sd">    integrated flux, flux uncertainty, and upper-limit status, all in CGS units.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength_arr: 1D wavelength array (microns), increasing order</span>
+<span class="sd">        spectrum_arr: 1D flux array (MJy/sr), matching wavelength_arr</span>
+<span class="sd">        line_wavelength: Target line center wavelength (microns)</span>
+<span class="sd">        header: FITS header (for spectral resolution + unit conversion)</span>
+<span class="sd">        instrument: Instrument name (&#39;MIRI&#39;, &#39;NIRSPEC&#39;, ...)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict with keys:</span>
+<span class="sd">            success (bool), message (str or None),</span>
+<span class="sd">            flux_cgs, flux_error_cgs, is_upper_limit, F_ul_cgs,</span>
+<span class="sd">            sigma_noise, delta_lambda</span>
+<span class="sd">        On failure (fit or unit-conversion failure), success=False, message</span>
+<span class="sd">        explains why, and the numeric fields are absent.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">.gaussian_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_gaussian_to_line</span><span class="p">,</span> <span class="n">convert_area_to_cgs</span><span class="p">,</span> <span class="n">estimate_flux_uncertainty_montecarlo</span>
+
+    <span class="n">wl</span> <span class="o">=</span> <span class="n">line_wavelength</span>
+
+    <span class="c1"># Get spectral resolution and define a wavelength window (+/-2*delta_lambda) around the line</span>
+    <span class="n">R</span> <span class="o">=</span> <span class="n">get_spectral_resolution</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="n">instrument</span><span class="o">=</span><span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+    <span class="n">delta_lambda</span> <span class="o">=</span> <span class="n">wl</span> <span class="o">/</span> <span class="n">R</span>
+    <span class="n">window_width</span> <span class="o">=</span> <span class="n">delta_lambda</span> <span class="o">*</span> <span class="mi">2</span>
+    <span class="n">x1</span> <span class="o">=</span> <span class="n">wl</span> <span class="o">-</span> <span class="n">window_width</span>
+    <span class="n">x2</span> <span class="o">=</span> <span class="n">wl</span> <span class="o">+</span> <span class="n">window_width</span>
+
+    <span class="c1"># Fit gaussian (native units, no header conversion)</span>
+    <span class="n">fit_result</span> <span class="o">=</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span>
+        <span class="n">x1</span><span class="o">=</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="o">=</span><span class="n">x2</span><span class="p">,</span>
+        <span class="n">spectrum_x</span><span class="o">=</span><span class="n">wavelength_arr</span><span class="p">,</span>
+        <span class="n">spectrum_y</span><span class="o">=</span><span class="n">spectrum_arr</span><span class="p">,</span>
+        <span class="n">peak_x</span><span class="o">=</span><span class="n">wl</span><span class="p">,</span>
+        <span class="n">header</span><span class="o">=</span><span class="kc">None</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Gaussian fit failed: </span><span class="si">{</span><span class="n">fit_result</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span>
+
+    <span class="c1"># Convert area to CGS</span>
+    <span class="n">flux_integrated</span> <span class="o">=</span> <span class="n">convert_area_to_cgs</span><span class="p">(</span>
+        <span class="n">fit_result</span><span class="o">.</span><span class="n">amplitude</span><span class="p">,</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">sigma</span><span class="p">,</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">center</span><span class="p">,</span>
+        <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="s1">&#39;UM&#39;</span><span class="p">,</span> <span class="n">flux_unit_input</span><span class="o">=</span><span class="s1">&#39;MJy/sr&#39;</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">flux_integrated</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Could not convert flux to CGS&quot;</span><span class="p">}</span>
+
+    <span class="c1"># Monte Carlo flux uncertainty (native units), converted to CGS using the same factor as flux</span>
+    <span class="n">flux_error_native</span> <span class="o">=</span> <span class="n">estimate_flux_uncertainty_montecarlo</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">wl</span><span class="p">)</span>
+    <span class="n">flux_error</span> <span class="o">=</span> <span class="n">convert_flux_upper_limit_to_cgs</span><span class="p">(</span><span class="n">flux_error_native</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="s1">&#39;MJy/sr&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">flux_error</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Could not convert flux error to CGS&quot;</span><span class="p">}</span>
+
+    <span class="c1"># Auto-detect upper limit</span>
+    <span class="n">sigma_noise</span> <span class="o">=</span> <span class="n">estimate_noise_local</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">n_pixels</span><span class="o">=</span><span class="mi">13</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">sigma_noise</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">sigma_noise</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanstd</span><span class="p">(</span><span class="n">spectrum_arr</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">spectrum_arr</span><span class="p">)</span><span class="o">//</span><span class="mi">2</span><span class="p">:])</span>
+
+    <span class="n">F_ul_native</span><span class="p">,</span> <span class="n">delta_lambda_ul</span> <span class="o">=</span> <span class="n">gaussian_flux_upper_limit</span><span class="p">(</span><span class="n">sigma_noise</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">instrument</span><span class="o">=</span><span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+    <span class="n">F_ul_cgs</span> <span class="o">=</span> <span class="n">convert_flux_upper_limit_to_cgs</span><span class="p">(</span><span class="n">F_ul_native</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="s1">&#39;MJy/sr&#39;</span><span class="p">)</span>
+
+    <span class="n">is_upper_limit</span> <span class="o">=</span> <span class="n">flux_integrated</span> <span class="o">&lt;</span> <span class="n">F_ul_cgs</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[BATCH_FLUX] Line @ </span><span class="si">{</span><span class="n">wl</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> μm:&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  flux = </span><span class="si">{</span><span class="n">flux_integrated</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  error = </span><span class="si">{</span><span class="n">flux_error</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  noise (native) = </span><span class="si">{</span><span class="n">sigma_noise</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> MJy/sr&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  delta_lambda = </span><span class="si">{</span><span class="n">delta_lambda_ul</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> μm&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  F_ul (CGS) = </span><span class="si">{</span><span class="n">F_ul_cgs</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  is_upper_limit = </span><span class="si">{</span><span class="n">is_upper_limit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;flux_cgs&quot;</span><span class="p">:</span> <span class="n">flux_integrated</span><span class="p">,</span>
+        <span class="s2">&quot;flux_error_cgs&quot;</span><span class="p">:</span> <span class="n">flux_error</span><span class="p">,</span>
+        <span class="s2">&quot;is_upper_limit&quot;</span><span class="p">:</span> <span class="n">is_upper_limit</span><span class="p">,</span>
+        <span class="s2">&quot;F_ul_cgs&quot;</span><span class="p">:</span> <span class="n">F_ul_cgs</span><span class="p">,</span>
+        <span class="s2">&quot;sigma_noise&quot;</span><span class="p">:</span> <span class="n">sigma_noise</span><span class="p">,</span>
+        <span class="s2">&quot;delta_lambda&quot;</span><span class="p">:</span> <span class="n">delta_lambda_ul</span><span class="p">,</span>
+    <span class="p">}</span>
+
+
+<span class="c1"># ==========================================================</span>
+<span class="c1"># CENSORED MODELS (ONLY USED IF ENABLED)</span>
+<span class="c1"># ==========================================================</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_print_pymc_diagnostics</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">var_names</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Print divergence count and r_hat for a PyMC trace; return them so</span>
+<span class="sd">    callers can also check convergence programmatically instead of just</span>
+<span class="sd">    trusting the posterior mean/std.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">arviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">az</span>
+
+    <span class="n">n_divergent</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">sample_stats</span><span class="o">.</span><span class="n">diverging</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
+    <span class="n">summary</span> <span class="o">=</span> <span class="n">az</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">var_names</span><span class="o">=</span><span class="n">var_names</span><span class="p">)</span>
+    <span class="n">max_rhat</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">summary</span><span class="p">[</span><span class="s2">&quot;r_hat&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">())</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Divergences: </span><span class="si">{</span><span class="n">n_divergent</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">summary</span><span class="p">[[</span><span class="s2">&quot;mean&quot;</span><span class="p">,</span> <span class="s2">&quot;sd&quot;</span><span class="p">,</span> <span class="s2">&quot;r_hat&quot;</span><span class="p">,</span> <span class="s2">&quot;ess_bulk&quot;</span><span class="p">]]</span><span class="o">.</span><span class="n">to_string</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">n_divergent</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  WARNING: </span><span class="si">{</span><span class="n">n_divergent</span><span class="si">}</span><span class="s2"> divergent transition(s) - posterior may be biased/unreliable&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">max_rhat</span> <span class="o">&gt;</span> <span class="mf">1.01</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  WARNING: max r_hat = </span><span class="si">{</span><span class="n">max_rhat</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> (&gt;1.01) - chains have not converged&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">n_divergent</span><span class="p">,</span> <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">max_rhat</span><span class="p">}</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">censored_1T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">yerr</span><span class="p">,</span> <span class="n">is_ul</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bayesian 1-temperature rotational diagram fit with censored upper limits.</span>
+<span class="sd">    </span>
+<span class="sd">    Uses PyMC to handle mixed detections and upper limits:</span>
+<span class="sd">    - Detections: fit normally with likelihood</span>
+<span class="sd">    - Upper limits: one-sided constraint (F &lt; F_ul)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># mask = True for detections, False for upper limits</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul</span>
+
+    <span class="k">with</span> <span class="n">pm</span><span class="o">.</span><span class="n">Model</span><span class="p">()</span> <span class="k">as</span> <span class="n">model</span><span class="p">:</span>
+
+        <span class="c1"># === PRIORS ===</span>
+        <span class="c1"># log(Ncol) ~ Normal(data mean, sigma=5 dex)</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">]),</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="c1"># Temperature range: 10 K to 5000 K (reasonable for H2)</span>
+        <span class="n">T</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span>
+
+        <span class="c1"># === LINEAR MODEL ===</span>
+        <span class="c1"># rotational diagram: ln(N/g) = a - E_u/T</span>
+        <span class="n">mu</span> <span class="o">=</span> <span class="n">a</span> <span class="o">-</span> <span class="n">E</span> <span class="o">/</span> <span class="n">T</span>
+
+        <span class="c1"># === LIKELIHOOD FOR DETECTIONS ===</span>
+        <span class="c1"># Fit only the non-upper-limit points (mask=True)</span>
+        <span class="c1"># Assume σ = 1.0 in log space for all detections</span>
+        <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;obs&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
+
+        <span class="c1"># === LIKELIHOOD FOR UPPER LIMITS ===</span>
+        <span class="c1"># Censored: treat measured value as upper bound</span>
+        <span class="c1"># y_ul &lt; F_ul means ln(N/g)_meas is an upper limit on the true value</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">is_ul</span><span class="p">):</span>
+            <span class="n">pm</span><span class="o">.</span><span class="n">Censored</span><span class="p">(</span>
+                <span class="s2">&quot;ul&quot;</span><span class="p">,</span>
+                <span class="c1"># Normal distribution centered at model prediction</span>
+                <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+                <span class="c1"># Upper censoring: observed value is upper bound</span>
+                <span class="n">upper</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span>
+                <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span>
+            <span class="p">)</span>
+
+        <span class="c1"># === SAMPLING ===</span>
+        <span class="c1"># 2 chains (sequential, cores=1) so r_hat/divergences are actually</span>
+        <span class="c1"># checkable instead of trusting a single chain; target_accept raised</span>
+        <span class="c1"># from PyMC&#39;s default 0.8 to reduce divergences in this a-vs-T ridge.</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="n">tune</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">chains</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">target_accept</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">progressbar</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="n">diagnostics</span> <span class="o">=</span> <span class="n">_print_pymc_diagnostics</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">])</span>
+
+    <span class="c1"># === RETURN POSTERIOR ESTIMATES ===</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>        <span class="c1"># log(Ncol)</span>
+        <span class="s2">&quot;da&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>        <span class="c1"># uncertainty</span>
+        <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>        <span class="c1"># temperature</span>
+        <span class="s2">&quot;dT&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>        <span class="c1"># uncertainty</span>
+        <span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">diagnostics</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">diagnostics</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">],</span>
+    <span class="p">}</span>
+
+
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">censored_2T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">yerr</span><span class="p">,</span> <span class="n">is_ul</span><span class="p">,</span> <span class="n">a1_init</span><span class="p">,</span> <span class="n">T1_init</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bayesian 2-temperature rotational diagram fit with censored upper limits.</span>
+<span class="sd">    </span>
+<span class="sd">    Fits a mixture of two thermal components:</span>
+<span class="sd">    ln(N/g) = log(exp(a1 - E/T1) + exp(a2 - E/T2))</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        E, y, yerr, is_ul: same as censored_1T</span>
+<span class="sd">        a1_init, T1_init: initial guesses from 1T fit (for better prior)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># mask = True for detections, False for upper limits</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul</span>
+
+    <span class="k">with</span> <span class="n">pm</span><span class="o">.</span><span class="n">Model</span><span class="p">()</span> <span class="k">as</span> <span class="n">model</span><span class="p">:</span>
+
+        <span class="c1"># === PRIORS (2-component model) ===</span>
+        <span class="c1"># Component 1: centered near the 1T result</span>
+        <span class="n">a1</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">a1_init</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>           <span class="c1"># log(Ncol) warm component</span>
+        <span class="n">T1</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T1&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span>                     <span class="c1"># temp warm component</span>
+        
+        <span class="c1"># Component 2: cooler component (a2 is lower, T2 is higher)</span>
+        <span class="n">a2</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">a1_init</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>         <span class="c1"># log(Ncol) cool component</span>
+        <span class="n">T2</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T2&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span>                     <span class="c1"># temp cool component</span>
+
+        <span class="c1"># === TWO-TEMPERATURE MODEL ===</span>
+        <span class="c1"># Combine two exponential terms in log space:</span>
+        <span class="c1"># μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))</span>
+        <span class="c1"># This is a mixture of two Boltzmann distributions</span>
+        <span class="n">mu</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+            <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a1</span> <span class="o">-</span> <span class="n">E</span><span class="o">/</span><span class="n">T1</span><span class="p">)</span> <span class="o">+</span>
+            <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a2</span> <span class="o">-</span> <span class="n">E</span><span class="o">/</span><span class="n">T2</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="c1"># === LIKELIHOOD FOR DETECTIONS ===</span>
+        <span class="c1"># Fit only detections; upper limits are censored</span>
+        <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;obs&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
+
+        <span class="c1"># === LIKELIHOOD FOR UPPER LIMITS ===</span>
+        <span class="c1"># Same censoring approach: y_measured is upper bound on true value</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">is_ul</span><span class="p">):</span>
+            <span class="n">pm</span><span class="o">.</span><span class="n">Censored</span><span class="p">(</span>
+                <span class="s2">&quot;ul&quot;</span><span class="p">,</span>
+                <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+                <span class="n">upper</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span>
+                <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span>
+            <span class="p">)</span>
+
+        <span class="c1"># === SAMPLING ===</span>
+        <span class="c1"># 2 chains (sequential, cores=1) so r_hat/divergences are actually</span>
+        <span class="c1"># checkable; target_accept raised to reduce divergences in this</span>
+        <span class="c1"># 4-parameter censored mixture (more prone to them than 1T).</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="n">tune</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">chains</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">target_accept</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">progressbar</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="n">diagnostics</span> <span class="o">=</span> <span class="n">_print_pymc_diagnostics</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="s2">&quot;T1&quot;</span><span class="p">,</span> <span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="s2">&quot;T2&quot;</span><span class="p">])</span>
+
+    <span class="c1"># === RETURN POSTERIOR ESTIMATES ===</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="c1"># Best-fit parameters (posterior means)</span>
+        <span class="s2">&quot;popt&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>     <span class="c1"># log(Ncol1)</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>     <span class="c1"># T_warm</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>     <span class="c1"># log(Ncol2)</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>      <span class="c1"># T_cool</span>
+        <span class="p">]),</span>
+        <span class="c1"># Uncertainties (posterior stds)</span>
+        <span class="s2">&quot;errs&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># δlog(Ncol1)</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># δT_warm</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># δlog(Ncol2)</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">())</span>       <span class="c1"># δT_cool</span>
+        <span class="p">]),</span>
+        <span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">diagnostics</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">diagnostics</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">],</span>
+    <span class="p">}</span>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">ROTATIONAL DIAGRAM</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="c1">## Partition Function</span>
+<span class="c1">## Popovas &amp; Jorgensen (2016): https://ui.adsabs.harvard.edu/abs/2016A%26A...595A.130P/abstract</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">partitionH2</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">OPR</span><span class="o">=</span><span class="s1">&#39;equilibrium&#39;</span><span class="p">):</span>
+    <span class="n">T</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">T</span><span class="p">,</span><span class="mi">10</span><span class="p">)</span>
+    <span class="c1"># Adjusted from ranges given in paper (which overlap) to minimise jump</span>
+    <span class="n">loT</span> <span class="o">=</span> <span class="p">(</span><span class="n">T</span><span class="o">&gt;=</span><span class="mi">10</span><span class="p">)</span><span class="o">*</span><span class="p">(</span><span class="n">T</span><span class="o">&lt;=</span><span class="mf">237.5</span><span class="p">)</span>
+    <span class="n">miT</span> <span class="o">=</span> <span class="p">(</span><span class="n">T</span><span class="o">&gt;=</span><span class="mf">237.5</span><span class="p">)</span><span class="o">*</span><span class="p">(</span><span class="n">T</span><span class="o">&lt;=</span><span class="mi">1100</span><span class="p">)</span>
+    <span class="n">hiT</span> <span class="o">=</span> <span class="p">(</span><span class="n">T</span><span class="o">&gt;=</span><span class="mi">1100</span><span class="p">)</span><span class="o">*</span><span class="p">(</span><span class="n">T</span><span class="o">&lt;=</span><span class="mi">20000</span><span class="p">)</span>
+    <span class="n">extrapolate</span> <span class="o">=</span> <span class="p">(</span><span class="n">T</span><span class="o">&gt;=</span><span class="mi">20000</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">OPR</span><span class="o">==</span><span class="s1">&#39;normal&#39;</span><span class="p">:</span>
+        <span class="n">loQ</span> <span class="o">=</span>  <span class="mf">2.277668085144430</span>     <span class="o">+</span>  <span class="mf">3.115475456535298e-04</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">1.199204285095701e-05</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">1.348313176588763e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">2.493525433376579e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">miQ</span> <span class="o">=</span>  <span class="mf">1.919800108599199</span>     <span class="o">+</span>  <span class="mf">1.746213811668277e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span>  <span class="mf">7.693197369847348e-06</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="o">-</span><span class="mf">6.504303232753276e-09</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span>  <span class="mf">2.132168610356154e-12</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">hiQ</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1.142827289681385e-01</span> <span class="o">+</span>  <span class="mf">7.245357485089481e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">6.404547049175155e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">3.110974834335349e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">1.642844436813594e-14</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span> <span class="o">+</span> <span class="mf">2.790315674249059e-19</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">5</span>
+    <span class="k">elif</span> <span class="n">OPR</span><span class="o">==</span><span class="s1">&#39;equilibrium&#39;</span><span class="p">:</span>
+        <span class="n">loQ</span> <span class="o">=</span>  <span class="mf">2.673071615415136e-01</span> <span class="o">+</span> <span class="o">-</span><span class="mf">3.495586051757211e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span>  <span class="mf">1.227901619954258e-04</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="o">-</span><span class="mf">5.776440695273789e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span>  <span class="mf">9.251224490175610e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">miQ</span> <span class="o">=</span>  <span class="mf">1.410033600294133e-01</span> <span class="o">+</span>  <span class="mf">6.085738724141971e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">4.096994909866605e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">4.220221708082499e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">8.790594164685680e-14</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">hiQ</span> <span class="o">=</span> <span class="o">-</span><span class="mf">9.661842638994980e-01</span> <span class="o">+</span>  <span class="mf">7.302127874247883e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">6.760893004505151e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">3.128741080316710e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">1.645206030945910e-14</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span> <span class="o">+</span> <span class="mf">2.788597060472472e-19</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">5</span>
+    <span class="k">elif</span> <span class="n">OPR</span><span class="o">==</span><span class="s1">&#39;ortho&#39;</span><span class="p">:</span>
+        <span class="n">loQ</span> <span class="o">=</span>  <span class="mf">2.996425936476927</span>     <span class="o">+</span>  <span class="mf">3.807856081411796e-04</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">8.659737634951350e-06</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">5.779158662343921e-08</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">5.407749218414769e-11</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">miQ</span> <span class="o">=</span>  <span class="mf">2.891845114721733</span>     <span class="o">+</span> <span class="o">-</span><span class="mf">1.243647561012797e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span>  <span class="mf">1.312997140340565e-05</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="o">-</span><span class="mf">1.105110818469195e-08</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span>  <span class="mf">3.562652399419052e-12</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">hiQ</span> <span class="o">=</span>  <span class="mf">2.231696541394133e-01</span> <span class="o">+</span>  <span class="mf">7.190413006059544e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">6.192076726407582e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">3.096074912455146e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">1.640036910200170e-14</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span> <span class="o">+</span> <span class="mf">2.790310846593324e-19</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">5</span>
+    <span class="k">elif</span> <span class="n">OPR</span><span class="o">==</span><span class="s1">&#39;para&#39;</span><span class="p">:</span>
+        <span class="n">loQ</span> <span class="o">=</span>  <span class="mf">9.994339093261912e-01</span> <span class="o">+</span>  <span class="mf">3.135419941617079e-04</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">1.599408560500201e-05</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">2.032015813340736e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">4.090066248229891e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">miQ</span> <span class="o">=</span>  <span class="mf">3.312881928317837e-01</span> <span class="o">+</span>  <span class="mf">4.871438707876421e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span>  <span class="mf">2.339907793941012e-06</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="o">-</span><span class="mf">2.214128676054798e-09</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span>  <span class="mf">8.210809799374644e-13</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span>
+        <span class="n">hiQ</span> <span class="o">=</span> <span class="o">-</span><span class="mf">1.019053774741465e+00</span> <span class="o">+</span>  <span class="mf">7.360074236377774e-03</span><span class="o">*</span><span class="n">T</span> <span class="o">+</span> <span class="o">-</span><span class="mf">6.935790834485644e-07</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>  <span class="mf">3.145274660505019e-10</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">3</span> <span class="o">+</span> <span class="o">-</span><span class="mf">1.646581413255403e-14</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">4</span> <span class="o">+</span> <span class="mf">2.782419680521890e-19</span><span class="o">*</span><span class="n">T</span><span class="o">**</span><span class="mi">5</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Option not recognised&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">loQ</span><span class="o">*</span><span class="n">loT</span><span class="o">+</span><span class="n">miQ</span><span class="o">*</span><span class="n">miT</span><span class="o">+</span><span class="n">hiQ</span><span class="o">*</span><span class="n">hiT</span><span class="o">+</span><span class="n">hiQ</span><span class="o">*</span><span class="n">extrapolate</span><span class="p">,</span> <span class="n">loQ</span><span class="p">,</span> <span class="n">miQ</span><span class="p">,</span> <span class="n">hiQ</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">Q_total</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">OPR</span><span class="o">=</span><span class="mf">3.0</span><span class="p">):</span>
+    <span class="n">Q_ortho</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">partitionH2</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">OPR</span><span class="o">=</span><span class="s1">&#39;ortho&#39;</span><span class="p">)</span>
+    <span class="n">Q_para</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">partitionH2</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">OPR</span><span class="o">=</span><span class="s1">&#39;para&#39;</span><span class="p">)</span>
+
+    <span class="n">f_ortho</span> <span class="o">=</span> <span class="n">OPR</span> <span class="c1">#/ (1.0 + OPR)</span>
+    <span class="n">f_para</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="c1">#/ (1.0 + OPR)</span>
+
+    <span class="k">return</span> <span class="n">f_para</span> <span class="o">*</span> <span class="n">Q_para</span> <span class="o">+</span> <span class="n">f_ortho</span> <span class="o">*</span> <span class="n">Q_ortho</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">Q_total_err</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">dT</span><span class="p">,</span> <span class="n">OPR</span><span class="p">,</span> <span class="n">dOPR</span><span class="o">=</span><span class="mf">0.0</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Uncertainty on Q_total propagated from dT and dOPR.</span>
+<span class="sd">    Uses finite differences.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">eps_T</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="nb">abs</span><span class="p">(</span><span class="n">T</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e-5</span><span class="p">)</span>
+    <span class="n">dQ_dT</span> <span class="o">=</span> <span class="p">(</span><span class="n">Q_total</span><span class="p">(</span><span class="n">T</span> <span class="o">+</span> <span class="n">eps_T</span><span class="p">,</span> <span class="n">OPR</span><span class="p">)</span> <span class="o">-</span> <span class="n">Q_total</span><span class="p">(</span><span class="n">T</span> <span class="o">-</span> <span class="n">eps_T</span><span class="p">,</span> <span class="n">OPR</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">eps_T</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">dOPR</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">eps_OPR</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mf">1e-5</span><span class="p">,</span> <span class="nb">abs</span><span class="p">(</span><span class="n">OPR</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e-5</span><span class="p">)</span>
+        <span class="n">dQ_dOPR</span> <span class="o">=</span> <span class="p">(</span><span class="n">Q_total</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">OPR</span> <span class="o">+</span> <span class="n">eps_OPR</span><span class="p">)</span> <span class="o">-</span> <span class="n">Q_total</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">OPR</span> <span class="o">-</span> <span class="n">eps_OPR</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">eps_OPR</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">dQ_dOPR</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">((</span><span class="n">dQ_dT</span> <span class="o">*</span> <span class="n">dT</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">dQ_dOPR</span> <span class="o">*</span> <span class="n">dOPR</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+
+
+
+
+
+
+<div class="viewcode-block" id="rotational_diagram">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.rotational_diagram">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">rotational_diagram</span><span class="p">(</span><span class="n">fluxes</span><span class="p">,</span> <span class="n">flux_errors</span><span class="p">,</span> <span class="n">molecular_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">OPR</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">fit2T</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist</span><span class="o">=</span><span class="mi">140</span><span class="o">*</span><span class="n">pc</span><span class="p">,</span> <span class="n">upper_limits</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Perform rotational diagram analysis on H2 lines.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fluxes: Dictionary {J: flux_value} where J is the upper rotational level</span>
+<span class="sd">        flux_errors: Dictionary {J: flux_error}</span>
+<span class="sd">        molecular_data: Dictionary with &#39;wavelengths&#39;, &#39;Aul&#39;, &#39;Eu&#39;, &#39;gu&#39; keys</span>
+<span class="sd">                       Each value is a dict {J: value}</span>
+<span class="sd">        OPR: Fixed ortho-para ratio. Used as-is when fit_opr=False (None defaults to</span>
+<span class="sd">             3.0, see apply_OPR). Ignored (overwritten by the search result) when</span>
+<span class="sd">             fit_opr=True.</span>
+<span class="sd">        fit_opr: Whether to grid-search over OPR to minimize chi-squared. The search</span>
+<span class="sd">                 always uses plain curve_fit on detections only (upper-limit points are</span>
+<span class="sd">                 excluded from the search itself, since curve_fit has no notion of a</span>
+<span class="sd">                 one-sided constraint) - the final fit below still uses the full data,</span>
+<span class="sd">                 including upper limits via the censored PyMC path when present.</span>
+<span class="sd">        opr_grid: OPR values to search over. Defaults to np.linspace(0.1, 5.0, 200).</span>
+<span class="sd">        fit2T: Whether to perform 2-temperature fit</span>
+<span class="sd">        R: Emitting radius (AU or cm).</span>
+<span class="sd">        dist: Distance (pc or cm).</span>
+<span class="sd">        upper_limits: Optional dict {J: True} for measurements marked as upper limits.</span>
+<span class="sd">                      If present, PyMC censored regression is automatically used for</span>
+<span class="sd">                      the final 1T/2T fit.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Dictionary with fitting results</span>
+
+<span class="sd">    Notes:</span>
+<span class="sd">        - If no upper limits: uses fast curve_fit (scipy) for the final fit</span>
+<span class="sd">        - If upper limits present: automatically uses PyMC censored likelihood for the final fit</span>
+<span class="sd">        - fit_opr&#39;s grid search always uses curve_fit on detections only, regardless of upper_limits</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">global</span> <span class="n">wave</span><span class="p">,</span> <span class="n">Aul</span><span class="p">,</span> <span class="n">Eu</span><span class="p">,</span> <span class="n">gu</span>
+
+    <span class="k">if</span> <span class="n">molecular_data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">wave</span> <span class="o">=</span> <span class="n">molecular_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;wavelengths&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">Aul</span> <span class="o">=</span> <span class="n">molecular_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;Aul&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">Eu</span> <span class="o">=</span> <span class="n">molecular_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;Eu&#39;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">gu</span> <span class="o">=</span> <span class="n">molecular_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;gu&#39;</span><span class="p">,</span> <span class="p">{})</span>
+
+    <span class="c1"># ==========================================================</span>
+    <span class="c1"># Build dataset for a given trial OPR</span>
+    <span class="c1"># ==========================================================</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_build_dataset</span><span class="p">(</span><span class="n">opr_value</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute excitation diagram arrays for a given OPR.&quot;&quot;&quot;</span>
+        <span class="n">E_list</span><span class="p">,</span> <span class="n">y_list</span><span class="p">,</span> <span class="n">y_err_list</span><span class="p">,</span> <span class="n">is_ul_list</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+        <span class="n">dropped</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># J values excluded (detections with no error data)</span>
+
+        <span class="k">for</span> <span class="n">J</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">fluxes</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">j</span><span class="p">:</span> <span class="n">wave</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">j</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;inf&#39;</span><span class="p">))):</span>
+            <span class="k">if</span> <span class="n">J</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">wave</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">F</span> <span class="o">=</span> <span class="n">fluxes</span><span class="p">[</span><span class="n">J</span><span class="p">]</span>
+            <span class="n">Nu_no_opr</span> <span class="o">=</span> <span class="n">compute_Nu</span><span class="p">(</span><span class="n">F</span><span class="p">,</span> <span class="n">wave</span><span class="p">[</span><span class="n">J</span><span class="p">],</span> <span class="n">Aul</span><span class="p">[</span><span class="n">J</span><span class="p">],</span> <span class="n">R</span><span class="p">,</span> <span class="n">dist</span><span class="p">)</span>
+            <span class="n">Nu</span> <span class="o">=</span> <span class="n">apply_OPR</span><span class="p">(</span><span class="n">Nu_no_opr</span><span class="p">,</span> <span class="n">J</span><span class="p">,</span> <span class="n">opr_value</span><span class="p">)</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">Nu</span> <span class="o">/</span> <span class="n">gu</span><span class="p">[</span><span class="n">J</span><span class="p">])</span>
+
+            <span class="n">is_ul</span> <span class="o">=</span> <span class="n">upper_limits</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">J</span> <span class="ow">in</span> <span class="n">upper_limits</span>
+
+            <span class="c1"># Skip detections without error data - no defaults allowed</span>
+            <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="n">is_ul</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">J</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">flux_errors</span><span class="p">):</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;J=</span><span class="si">{</span><span class="n">J</span><span class="si">}</span><span class="s2">: skipping (detection without error data)&quot;</span><span class="p">)</span>
+                <span class="n">dropped</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">J</span><span class="p">)</span>
+                <span class="k">continue</span>
+
+            <span class="n">E_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Eu</span><span class="p">[</span><span class="n">J</span><span class="p">])</span>
+            <span class="n">y_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+            <span class="n">is_ul_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">is_ul</span><span class="p">)</span>
+
+            <span class="c1"># error handling</span>
+            <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="n">is_ul</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">J</span> <span class="ow">in</span> <span class="n">flux_errors</span><span class="p">):</span>
+                <span class="n">dF</span> <span class="o">=</span> <span class="n">flux_errors</span><span class="p">[</span><span class="n">J</span><span class="p">]</span>
+                <span class="n">dNu</span> <span class="o">=</span> <span class="n">Nu</span> <span class="o">*</span> <span class="p">(</span><span class="n">dF</span> <span class="o">/</span> <span class="n">F</span><span class="p">)</span>
+                <span class="n">y_err</span> <span class="o">=</span> <span class="n">dNu</span> <span class="o">/</span> <span class="n">Nu</span>
+                <span class="n">y_err_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y_err</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># upper limits: treated as constraints with 0 error</span>
+                <span class="n">y_err_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">E_list</span><span class="p">),</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">y_list</span><span class="p">),</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">y_err_list</span><span class="p">),</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">is_ul_list</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">),</span>
+                <span class="n">dropped</span><span class="p">)</span>
+
+    <span class="c1"># ==========================================================</span>
+    <span class="c1"># Bounded curve_fit helpers (used for both the OPR grid search and the</span>
+    <span class="c1"># final fit whenever PyMC/censored regression isn&#39;t required)</span>
+    <span class="c1"># ==========================================================</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_bounds_1T</span><span class="p">(</span><span class="n">y_arr</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return bounds for the single-temperature model.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">y_arr</span><span class="p">),</span> <span class="mi">10</span><span class="p">],</span>
+                <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">y_arr</span><span class="p">)</span> <span class="o">+</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">3000</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_bounds_2T</span><span class="p">(</span><span class="n">y_arr</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return bounds for the two-temperature model.&quot;&quot;&quot;</span>
+        <span class="n">lo</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">y_arr</span><span class="p">)</span>
+        <span class="n">hi</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">y_arr</span><span class="p">)</span> <span class="o">+</span> <span class="mi">10</span>
+        <span class="k">return</span> <span class="p">([</span><span class="n">lo</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="n">lo</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span>
+                <span class="p">[</span><span class="n">hi</span><span class="p">,</span> <span class="mi">3000</span><span class="p">,</span> <span class="n">hi</span><span class="p">,</span> <span class="mi">3000</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_fit_1T_curvefit</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">y_err</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Perform a single-temperature fit and return (popt, pcov).&quot;&quot;&quot;</span>
+        <span class="n">sigma</span> <span class="o">=</span> <span class="n">y_err</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">y_err</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>  <span class="c1"># prevent all zeros array</span>
+        <span class="n">p0</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">y</span><span class="p">),</span> <span class="mi">500</span><span class="p">]</span>
+        <span class="n">bounds</span> <span class="o">=</span> <span class="n">_bounds_1T</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+
+        <span class="n">popt</span><span class="p">,</span> <span class="n">pcov</span> <span class="o">=</span> <span class="n">curve_fit</span><span class="p">(</span>
+            <span class="n">model_1T</span><span class="p">,</span>
+            <span class="n">E</span><span class="p">,</span>
+            <span class="n">y</span><span class="p">,</span>
+            <span class="n">sigma</span><span class="o">=</span><span class="n">sigma</span><span class="p">,</span>
+            <span class="n">absolute_sigma</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">p0</span><span class="o">=</span><span class="n">p0</span><span class="p">,</span>
+            <span class="n">bounds</span><span class="o">=</span><span class="n">bounds</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">popt</span><span class="p">,</span> <span class="n">pcov</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_fit_2T_curvefit</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">a_seed</span><span class="p">,</span> <span class="n">T_seed</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Perform a two-temperature fit seeded from a 1T solution.&quot;&quot;&quot;</span>
+        <span class="n">sigma</span> <span class="o">=</span> <span class="n">y_err</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">y_err</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="n">p0</span> <span class="o">=</span> <span class="p">[</span><span class="n">a_seed</span><span class="p">,</span> <span class="n">T_seed</span><span class="p">,</span> <span class="n">a_seed</span> <span class="o">-</span> <span class="mi">5</span><span class="p">,</span> <span class="n">T_seed</span> <span class="o">*</span> <span class="mi">2</span><span class="p">]</span>
+        <span class="n">bounds</span> <span class="o">=</span> <span class="n">_bounds_2T</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+        
+        <span class="n">popt</span><span class="p">,</span> <span class="n">pcov</span> <span class="o">=</span> <span class="n">curve_fit</span><span class="p">(</span>
+            <span class="n">model_2T</span><span class="p">,</span>
+            <span class="n">E</span><span class="p">,</span>
+            <span class="n">y</span><span class="p">,</span>
+            <span class="n">sigma</span><span class="o">=</span><span class="n">sigma</span><span class="p">,</span>
+            <span class="n">absolute_sigma</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">p0</span><span class="o">=</span><span class="n">p0</span><span class="p">,</span>
+            <span class="n">bounds</span><span class="o">=</span><span class="n">bounds</span><span class="p">,</span>
+            <span class="n">maxfev</span><span class="o">=</span><span class="mi">10000</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">popt</span><span class="p">,</span> <span class="n">pcov</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_chi2</span><span class="p">(</span><span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">is_ul_mask</span><span class="p">,</span> <span class="n">use_2T</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return chi-squared for a quick fit (1T or 2T), fit on detections only.</span>
+
+<span class="sd">        Upper-limit points are excluded here (curve_fit has no censored/one-sided</span>
+<span class="sd">        likelihood) - they&#39;re only reintroduced in the final fit below, via the</span>
+<span class="sd">        censored PyMC path.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">keep</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul_mask</span>  <span class="c1"># only consider non-upper limits here</span>
+        <span class="n">E_d</span><span class="p">,</span> <span class="n">y_d</span><span class="p">,</span> <span class="n">y_err_d</span> <span class="o">=</span> <span class="n">E_arr</span><span class="p">[</span><span class="n">keep</span><span class="p">],</span> <span class="n">y_arr</span><span class="p">[</span><span class="n">keep</span><span class="p">],</span> <span class="n">y_err</span><span class="p">[</span><span class="n">keep</span><span class="p">]</span>
+
+        <span class="n">n_params</span> <span class="o">=</span> <span class="mi">4</span> <span class="k">if</span> <span class="n">use_2T</span> <span class="k">else</span> <span class="mi">2</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">E_d</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">n_params</span><span class="p">:</span>
+            <span class="c1"># Not enough detections to constrain the model at this grid point -</span>
+            <span class="c1"># avoid a degenerate zero-residual &quot;perfect fit&quot; from winning the search.</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">popt_1t</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_fit_1T_curvefit</span><span class="p">(</span><span class="n">E_d</span><span class="p">,</span> <span class="n">y_d</span><span class="p">,</span> <span class="n">y_err_d</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">use_2T</span><span class="p">:</span>
+                <span class="n">popt</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_fit_2T_curvefit</span><span class="p">(</span><span class="n">E_d</span><span class="p">,</span> <span class="n">y_d</span><span class="p">,</span> <span class="n">y_err_d</span><span class="p">,</span> <span class="n">popt_1t</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">popt_1t</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+                <span class="n">model_vals</span> <span class="o">=</span> <span class="n">model_2T</span><span class="p">(</span><span class="n">E_d</span><span class="p">,</span> <span class="o">*</span><span class="n">popt</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">model_vals</span> <span class="o">=</span> <span class="n">model_1T</span><span class="p">(</span><span class="n">E_d</span><span class="p">,</span> <span class="o">*</span><span class="n">popt_1t</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+
+        <span class="n">residuals</span> <span class="o">=</span> <span class="p">(</span><span class="n">y_d</span> <span class="o">-</span> <span class="n">model_vals</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">y_err_d</span><span class="p">,</span> <span class="mf">1e-10</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">residuals</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="c1"># ==========================================================</span>
+    <span class="c1"># OPR grid search (fast, detections-only, curve_fit)</span>
+    <span class="c1"># ==========================================================</span>
+    <span class="n">best_opr</span> <span class="o">=</span> <span class="n">OPR</span> <span class="k">if</span> <span class="n">OPR</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mf">3.0</span>
+    <span class="n">best_opr_err</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">best_opr_err_pos</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">best_opr_err_neg</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">opr_search_data</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">if</span> <span class="n">fit_opr</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">opr_grid</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">opr_grid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mi">200</span><span class="p">)</span>
+
+        <span class="n">chi2_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">opr_try</span> <span class="ow">in</span> <span class="n">opr_grid</span><span class="p">:</span>
+            <span class="c1"># consider upper limit as 4th param</span>
+            <span class="n">E_try</span><span class="p">,</span> <span class="n">y_try</span><span class="p">,</span> <span class="n">y_err_try</span><span class="p">,</span> <span class="n">ul_try</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_build_dataset</span><span class="p">(</span><span class="n">opr_try</span><span class="p">)</span>
+            <span class="n">chi2_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_compute_chi2</span><span class="p">(</span><span class="n">E_try</span><span class="p">,</span> <span class="n">y_try</span><span class="p">,</span> <span class="n">y_err_try</span><span class="p">,</span> <span class="n">ul_try</span><span class="p">,</span> <span class="n">use_2T</span><span class="o">=</span><span class="n">fit2T</span><span class="p">))</span>
+        
+        <span class="n">chi2_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">chi2_list</span><span class="p">)</span>
+        
+        <span class="n">best_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">chi2_arr</span><span class="p">)</span>
+        <span class="n">best_opr</span> <span class="o">=</span> <span class="n">opr_grid</span><span class="p">[</span><span class="n">best_idx</span><span class="p">]</span>
+        <span class="n">within_1sigma</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">chi2_arr</span> <span class="o">&lt;</span> <span class="n">chi2_arr</span><span class="p">[</span><span class="n">best_idx</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">err_opr_pos</span> <span class="o">=</span> <span class="n">opr_grid</span><span class="p">[</span><span class="n">within_1sigma</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span> <span class="o">-</span> <span class="n">best_opr</span>
+        <span class="n">err_opr_neg</span> <span class="o">=</span> <span class="n">best_opr</span> <span class="o">-</span> <span class="n">opr_grid</span><span class="p">[</span><span class="n">within_1sigma</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+        <span class="n">best_opr_err</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">err_opr_pos</span> <span class="o">+</span> <span class="n">err_opr_neg</span><span class="p">)</span>
+        <span class="n">best_opr_err_pos</span> <span class="o">=</span> <span class="n">err_opr_pos</span>
+        <span class="n">best_opr_err_neg</span> <span class="o">=</span> <span class="n">err_opr_neg</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- OPR FIT (curve_fit grid search, detections only) ---&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Best-fit OPR = </span><span class="si">{</span><span class="n">best_opr</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OPR 1σ error: -</span><span class="si">{</span><span class="n">err_opr_neg</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> / +</span><span class="si">{</span><span class="n">err_opr_pos</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> (symm ≈ </span><span class="si">{</span><span class="n">best_opr_err</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+        <span class="n">opr_search_data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;opr_grid&quot;</span><span class="p">:</span> <span class="n">opr_grid</span><span class="p">,</span> <span class="s2">&quot;chi2_list&quot;</span><span class="p">:</span> <span class="n">chi2_arr</span><span class="p">}</span>
+
+    <span class="c1"># ==========================================================</span>
+    <span class="c1"># Build final dataset at best_opr (full data, including upper limits)</span>
+    <span class="c1"># ==========================================================</span>
+    <span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">is_ul_mask</span><span class="p">,</span> <span class="n">dropped_detections</span> <span class="o">=</span> <span class="n">_build_dataset</span><span class="p">(</span><span class="n">best_opr</span><span class="p">)</span>
+
+
+
+
+
+    <span class="c1"># censor bayesian</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">E_arr</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Need at least 2 points&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Check if we have enough detections for PyMC (at least 2 detections required)</span>
+    <span class="n">n_detections</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="o">~</span><span class="n">is_ul_mask</span><span class="p">)</span>
+    <span class="n">has_upper_limits</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">is_ul_mask</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">has_upper_limits</span> <span class="ow">and</span> <span class="n">n_detections</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">n_detections</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Cannot fit: all </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">E_arr</span><span class="p">)</span><span class="si">}</span><span class="s2"> measurements are upper limits. Need at least 2 detections to constrain temperature and column density.&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Need at least 2 detections for fitting with upper limits. You have </span><span class="si">{</span><span class="n">n_detections</span><span class="si">}</span><span class="s2"> detection(s) and </span><span class="si">{</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">is_ul_mask</span><span class="p">)</span><span class="si">}</span><span class="s2"> upper limit(s).&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Decide method: auto-use PyMC if upper limits present</span>
+    <span class="n">use_pymc</span> <span class="o">=</span> <span class="n">has_upper_limits</span>
+
+    <span class="c1"># ==========================================================</span>
+    <span class="c1"># 1T FIT (final)</span>
+    <span class="c1"># ==========================================================</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">use_pymc</span><span class="p">:</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- 1T FIT (curve_fit) ---&quot;</span><span class="p">)</span>
+
+        <span class="n">popt1</span><span class="p">,</span> <span class="n">pcov1</span> <span class="o">=</span> <span class="n">_fit_1T_curvefit</span><span class="p">(</span><span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">)</span>
+
+        <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span> <span class="o">=</span> <span class="n">popt1</span>
+        <span class="n">da1</span><span class="p">,</span> <span class="n">dT1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">pcov1</span><span class="p">))</span>
+
+    <span class="k">else</span><span class="p">:</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- 1T FIT (CENSORED PyMC) ---&quot;</span><span class="p">)</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">censored_1T</span><span class="p">(</span>
+            <span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">is_ul_mask</span>
+        <span class="p">)</span>
+
+        <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;T&quot;</span><span class="p">]</span>
+        <span class="n">da1</span><span class="p">,</span> <span class="n">dT1</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;da&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;dT&quot;</span><span class="p">]</span>
+        <span class="n">pymc_diag_1T</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">],</span> <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]}</span>
+
+    <span class="c1"># =========================</span>
+    <span class="c1"># Derived quantities</span>
+    <span class="c1"># =========================</span>
+    <span class="n">Ncol1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a1</span><span class="p">)</span>
+    <span class="n">dNcol1</span> <span class="o">=</span> <span class="n">Ncol1</span> <span class="o">*</span> <span class="n">da1</span>
+
+    <span class="n">Ntot1</span> <span class="o">=</span> <span class="n">Ncol1</span> <span class="o">*</span> <span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1</span><span class="p">)</span>
+    <span class="n">dNtot1</span> <span class="o">=</span> <span class="n">Ntot1</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">((</span><span class="n">dNcol1</span><span class="o">/</span><span class="n">Ncol1</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">Q_Herbst_err</span><span class="p">(</span><span class="n">T1</span><span class="p">,</span> <span class="n">dT1</span><span class="p">)</span><span class="o">/</span><span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="c1"># chi2 uses detections only - upper limits have no meaningful sigma to weight by</span>
+    <span class="c1"># (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)</span>
+    <span class="n">det_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul_mask</span>
+    <span class="n">y_model1</span> <span class="o">=</span> <span class="n">model_1T</span><span class="p">(</span><span class="n">E_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">)</span>
+    <span class="n">chi2_1T</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(((</span><span class="n">y_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">]</span> <span class="o">-</span> <span class="n">y_model1</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">y_err</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="mf">1e-10</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">dof_1T</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">det_mask</span><span class="p">)</span> <span class="o">-</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+    <span class="n">results</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;OPR&quot;</span><span class="p">:</span> <span class="n">best_opr</span><span class="p">,</span>
+        <span class="s2">&quot;1T&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="n">T1</span><span class="p">,</span>
+            <span class="s2">&quot;dT&quot;</span><span class="p">:</span> <span class="n">dT1</span><span class="p">,</span>
+            <span class="s2">&quot;Ncol&quot;</span><span class="p">:</span> <span class="n">Ntot1</span><span class="p">,</span>
+            <span class="s2">&quot;dNcol&quot;</span><span class="p">:</span> <span class="n">dNtot1</span><span class="p">,</span>
+            <span class="s2">&quot;chi2&quot;</span><span class="p">:</span> <span class="n">chi2_1T</span><span class="p">,</span>
+            <span class="s2">&quot;red_chi2&quot;</span><span class="p">:</span> <span class="n">chi2_1T</span> <span class="o">/</span> <span class="n">dof_1T</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="n">use_pymc</span><span class="p">:</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;1T&quot;</span><span class="p">][</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_1T</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;1T&quot;</span><span class="p">][</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_1T</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">best_opr_err</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;OPR_err&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">best_opr_err</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;OPR_err_pos&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">best_opr_err_pos</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;OPR_err_neg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">best_opr_err_neg</span>
+
+    <span class="k">if</span> <span class="n">dropped_detections</span><span class="p">:</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;dropped_J&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dropped_detections</span>
+
+    <span class="c1"># ==========================================================</span>
+    <span class="c1"># 2T FIT (final)</span>
+    <span class="c1"># ==========================================================</span>
+    <span class="k">if</span> <span class="n">fit2T</span><span class="p">:</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">use_pymc</span><span class="p">:</span>
+
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- 2T FIT (curve_fit) ---&quot;</span><span class="p">)</span>
+
+            <span class="n">popt2</span><span class="p">,</span> <span class="n">pcov2</span> <span class="o">=</span> <span class="n">_fit_2T_curvefit</span><span class="p">(</span><span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">)</span>
+
+            <span class="n">a1_2</span><span class="p">,</span> <span class="n">T1_2</span><span class="p">,</span> <span class="n">a2_2</span><span class="p">,</span> <span class="n">T2_2</span> <span class="o">=</span> <span class="n">popt2</span>
+            <span class="n">errs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">pcov2</span><span class="p">))</span>
+
+        <span class="k">else</span><span class="p">:</span>
+
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- 2T FIT (CENSORED PyMC) ---&quot;</span><span class="p">)</span>
+
+            <span class="n">result</span> <span class="o">=</span> <span class="n">censored_2T</span><span class="p">(</span>
+                <span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">is_ul_mask</span><span class="p">,</span>
+                <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span>
+            <span class="p">)</span>
+
+            <span class="n">a1_2</span><span class="p">,</span> <span class="n">T1_2</span><span class="p">,</span> <span class="n">a2_2</span><span class="p">,</span> <span class="n">T2_2</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;popt&quot;</span><span class="p">]</span>
+            <span class="n">errs</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;errs&quot;</span><span class="p">]</span>
+            <span class="n">pymc_diag_2T</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">],</span> <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]}</span>
+
+        <span class="n">da1_2</span><span class="p">,</span> <span class="n">dT1_2</span><span class="p">,</span> <span class="n">da2_2</span><span class="p">,</span> <span class="n">dT2_2</span> <span class="o">=</span> <span class="n">errs</span>
+
+        <span class="n">N1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a1_2</span><span class="p">)</span>
+        <span class="n">N2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a2_2</span><span class="p">)</span>
+
+        <span class="n">N1_tot</span> <span class="o">=</span> <span class="n">N1</span> <span class="o">*</span> <span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1_2</span><span class="p">)</span>
+        <span class="n">N2_tot</span> <span class="o">=</span> <span class="n">N2</span> <span class="o">*</span> <span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T2_2</span><span class="p">)</span>
+
+        <span class="n">dN1_tot</span> <span class="o">=</span> <span class="n">N1_tot</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">N1</span> <span class="o">*</span> <span class="n">da1_2</span> <span class="o">/</span> <span class="n">N1</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>
+            <span class="p">(</span><span class="n">Q_Herbst_err</span><span class="p">(</span><span class="n">T1_2</span><span class="p">,</span> <span class="n">dT1_2</span><span class="p">)</span> <span class="o">/</span> <span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1_2</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span>
+        <span class="p">)</span>
+        <span class="n">dN2_tot</span> <span class="o">=</span> <span class="n">N2_tot</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">N2</span> <span class="o">*</span> <span class="n">da2_2</span> <span class="o">/</span> <span class="n">N2</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span>
+            <span class="p">(</span><span class="n">Q_Herbst_err</span><span class="p">(</span><span class="n">T2_2</span><span class="p">,</span> <span class="n">dT2_2</span><span class="p">)</span> <span class="o">/</span> <span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T2_2</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span>
+        <span class="p">)</span>
+
+        <span class="c1"># chi2 uses detections only, same reasoning as the 1T fit above</span>
+        <span class="n">y_model2</span> <span class="o">=</span> <span class="n">model_2T</span><span class="p">(</span><span class="n">E_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="n">a1_2</span><span class="p">,</span> <span class="n">T1_2</span><span class="p">,</span> <span class="n">a2_2</span><span class="p">,</span> <span class="n">T2_2</span><span class="p">)</span>
+        <span class="n">chi2_2T</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(((</span><span class="n">y_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">]</span> <span class="o">-</span> <span class="n">y_model2</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">y_err</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="mf">1e-10</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">dof_2T</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">det_mask</span><span class="p">)</span> <span class="o">-</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;2T&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;T1&quot;</span><span class="p">:</span> <span class="n">T1_2</span><span class="p">,</span>
+            <span class="s2">&quot;dT1&quot;</span><span class="p">:</span> <span class="n">dT1_2</span><span class="p">,</span>
+            <span class="s2">&quot;T2&quot;</span><span class="p">:</span> <span class="n">T2_2</span><span class="p">,</span>
+            <span class="s2">&quot;dT2&quot;</span><span class="p">:</span> <span class="n">dT2_2</span><span class="p">,</span>
+            <span class="s2">&quot;Ncol1&quot;</span><span class="p">:</span> <span class="n">N1_tot</span><span class="p">,</span>
+            <span class="s2">&quot;dNcol1&quot;</span><span class="p">:</span> <span class="n">dN1_tot</span><span class="p">,</span>
+            <span class="s2">&quot;Ncol2&quot;</span><span class="p">:</span> <span class="n">N2_tot</span><span class="p">,</span>
+            <span class="s2">&quot;dNcol2&quot;</span><span class="p">:</span> <span class="n">dN2_tot</span><span class="p">,</span>
+            <span class="s2">&quot;chi2&quot;</span><span class="p">:</span> <span class="n">chi2_2T</span><span class="p">,</span>
+            <span class="s2">&quot;red_chi2&quot;</span><span class="p">:</span> <span class="n">chi2_2T</span> <span class="o">/</span> <span class="n">dof_2T</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">use_pymc</span><span class="p">:</span>
+            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;2T&quot;</span><span class="p">][</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_2T</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span>
+            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;2T&quot;</span><span class="p">][</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_2T</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span>
+
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;_plot_data&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;E_arr&quot;</span><span class="p">:</span> <span class="n">E_arr</span><span class="p">,</span>
+            <span class="s2">&quot;y_arr&quot;</span><span class="p">:</span> <span class="n">y_arr</span><span class="p">,</span>
+            <span class="s2">&quot;y_err&quot;</span><span class="p">:</span> <span class="n">y_err</span><span class="p">,</span>
+            <span class="s2">&quot;is_ul_mask&quot;</span><span class="p">:</span> <span class="n">is_ul_mask</span><span class="p">,</span>
+            <span class="s2">&quot;popt1&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">popt1</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">use_pymc</span> <span class="k">else</span> <span class="p">[</span><span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">],</span>
+            <span class="s2">&quot;popt2&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">popt2</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">use_pymc</span> <span class="k">else</span> <span class="nb">list</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s2">&quot;popt&quot;</span><span class="p">]),</span>
+        <span class="p">}</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;_plot_data&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;E_arr&quot;</span><span class="p">:</span> <span class="n">E_arr</span><span class="p">,</span>
+            <span class="s2">&quot;y_arr&quot;</span><span class="p">:</span> <span class="n">y_arr</span><span class="p">,</span>
+            <span class="s2">&quot;y_err&quot;</span><span class="p">:</span> <span class="n">y_err</span><span class="p">,</span>
+            <span class="s2">&quot;is_ul_mask&quot;</span><span class="p">:</span> <span class="n">is_ul_mask</span><span class="p">,</span>
+            <span class="s2">&quot;popt1&quot;</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">popt1</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">use_pymc</span> <span class="k">else</span> <span class="p">[</span><span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">],</span>
+            <span class="s2">&quot;popt2&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">if</span> <span class="n">opr_search_data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;_plot_data&quot;</span><span class="p">][</span><span class="s2">&quot;opr_grid&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">opr_search_data</span><span class="p">[</span><span class="s2">&quot;opr_grid&quot;</span><span class="p">]</span>
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;_plot_data&quot;</span><span class="p">][</span><span class="s2">&quot;chi2_list&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">opr_search_data</span><span class="p">[</span><span class="s2">&quot;chi2_list&quot;</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">results</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -31,6 +31,12 @@ This comprehensive documentation covers everything you need to get started, use 
    features
 
 .. toctree::
+   :maxdepth: 2
+   :caption: API Reference
+
+   reference/api
+
+.. toctree::
    :maxdepth: 1
    :caption: Support
 

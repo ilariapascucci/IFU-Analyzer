@@ -1,0 +1,664 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cube_explorer.api &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../user_guide/index.html">User Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../reference/api.html">API Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cube_explorer.api</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cube_explorer.api</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">IFU Analyzer API - Non-GUI programmatic interface</span>
+
+<span class="sd">This module provides a clean API for using IFU analysis functions without the GUI.</span>
+<span class="sd">All functions in this module work as pure Python functions and can be imported</span>
+<span class="sd">and used in scripts, Jupyter notebooks, or other Python applications.</span>
+
+<span class="sd">Main Categories:</span>
+<span class="sd">1. Data Loading        - Load FITS cubes and extract spectra</span>
+<span class="sd">2. Gaussian Fitting    - Fit spectral lines with Gaussian profiles</span>
+<span class="sd">3. CO Flux Analysis    - Extract CO line fluxes with continuum handling</span>
+<span class="sd">4. Rotational Diagram  - Analyze H2 rotational temperatures from molecular transitions</span>
+<span class="sd">5. Unit Conversion     - Convert between wavelength/velocity/frequency units</span>
+<span class="sd">6. Line Catalogs       - Query and filter spectral line databases</span>
+
+<span class="sd">Example Usage</span>
+<span class="sd">=============</span>
+
+<span class="sd">Basic data loading and spectrum extraction:</span>
+<span class="sd">    &gt;&gt;&gt; from cube_explorer.api import load_cube</span>
+<span class="sd">    &gt;&gt;&gt; cube = load_cube(&quot;my_data.fits&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; spectrum = cube.spectrum</span>
+
+<span class="sd">Gaussian line fitting:</span>
+<span class="sd">    &gt;&gt;&gt; from cube_explorer.api import fit_line</span>
+<span class="sd">    &gt;&gt;&gt; result = fit_line(</span>
+<span class="sd">    ...     wavelength=cube.wavelength,</span>
+<span class="sd">    ...     spectrum=spectrum,</span>
+<span class="sd">    ...     x1=2.292, x2=2.300</span>
+<span class="sd">    ... )</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;Line center: {result.center} µm&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;FWHM: {result.fwhm} µm&quot;)</span>
+
+<span class="sd">CO flux extraction:</span>
+<span class="sd">    &gt;&gt;&gt; from cube_explorer.api import extract_co_flux</span>
+<span class="sd">    &gt;&gt;&gt; co_result = extract_co_flux(</span>
+<span class="sd">    ...     wavelength=cube.wavelength,</span>
+<span class="sd">    ...     spectrum=spectrum,</span>
+<span class="sd">    ...     co_catalog_path=&quot;path/to/CO_catalog.ecsv&quot;</span>
+<span class="sd">    ... )</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;Total CO flux: {co_result[&#39;co_flux&#39;]} erg/s/cm²&quot;)</span>
+
+<span class="sd">Rotational diagram analysis (H2):</span>
+<span class="sd">    &gt;&gt;&gt; from cube_explorer.api import rotational_diagram</span>
+<span class="sd">    &gt;&gt;&gt; molecular_data = {</span>
+<span class="sd">    ...     &#39;wavelengths&#39;: {1: 17.03, 2: 12.28, 3: 9.66},</span>
+<span class="sd">    ...     &#39;Aul&#39;: {1: 4.761e-10, 2: 2.755e-9, 3: 9.836e-9},</span>
+<span class="sd">    ...     &#39;Eu&#39;: {1: 1015.1, 2: 1681.6, 3: 2503.7},</span>
+<span class="sd">    ...     &#39;gu&#39;: {1: 21, 2: 9, 3: 33},</span>
+<span class="sd">    ... }</span>
+<span class="sd">    &gt;&gt;&gt; result = rotational_diagram(</span>
+<span class="sd">    ...     fluxes={1: 178e-16, 2: 55.9e-16, 3: 122e-16},</span>
+<span class="sd">    ...     flux_errors={1: 9e-16, 2: 3.2e-16, 3: 6.3e-16},</span>
+<span class="sd">    ...     molecular_data=molecular_data,</span>
+<span class="sd">    ...     R=8.5,     # AU</span>
+<span class="sd">    ...     dist=71.5, # pc</span>
+<span class="sd">    ...     fit2T=True</span>
+<span class="sd">    ... )</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;1T Temperature: {result[&#39;1T&#39;][&#39;T&#39;]:.1f} K&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;2T Temperatures: {result[&#39;2T&#39;][&#39;T1&#39;]:.1f} K, {result[&#39;2T&#39;][&#39;T2&#39;]:.1f} K&quot;)</span>
+
+<span class="sd">Unit conversion (using astropy):</span>
+<span class="sd">    &gt;&gt;&gt; import astropy.units as u</span>
+<span class="sd">    &gt;&gt;&gt; wavelength = 2.293 * u.um</span>
+<span class="sd">    &gt;&gt;&gt; frequency = wavelength.to(u.Hz, equivalencies=u.spectral_density(wavelength))</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;Frequency: {frequency}&quot;)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># DATA LOADING API</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.data_loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">CubeData</span>
+
+<div class="viewcode-block" id="load_cube">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.load_cube">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_cube</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Load a FITS data cube from file.</span>
+
+<span class="sd">    This function handles multi-instrument FITS files (MUSE, MIRI, NIRSpec)</span>
+<span class="sd">    with automatic instrument detection.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        filename (str): Path to FITS file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        CubeData: Object containing cube data, wavelength, WCS, and metadata</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If instrument cannot be detected or file is invalid</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;Level3_ch1-long_s3d.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(cube.instrument)  # &quot;MIRI&quot;</span>
+<span class="sd">        &gt;&gt;&gt; print(cube.wavelength.shape)  # (1000,)</span>
+<span class="sd">        &gt;&gt;&gt; print(cube.cube.shape)  # (1000, 512, 512)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cube</span> <span class="o">=</span> <span class="n">CubeData</span><span class="p">()</span>
+    <span class="n">cube</span><span class="o">.</span><span class="n">load_from_file</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cube</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># CONTINUUM FITTING API</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.co_flux_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_continuum_median_peaks</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_continuum</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;auto&#39;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fit continuum to a spectrum using automatic peak detection.</span>
+
+<span class="sd">    This is the automated continuum subtraction method used in the GUI.</span>
+<span class="sd">    It detects emission/absorption peaks and fits a smooth continuum</span>
+<span class="sd">    through the remaining points.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
+<span class="sd">        flux (array-like): Flux values</span>
+<span class="sd">        method (str): Fitting method - currently only &#39;auto&#39; is supported</span>
+<span class="sd">        **kwargs: Additional arguments for fine-tuning:</span>
+<span class="sd">            window_size (int): Size of median filter window (default 51, must be odd)</span>
+<span class="sd">            sigma_threshold (float): Prominence threshold in sigma (default 2.0)</span>
+<span class="sd">            peak_width (int): Minimum width of peaks in pixels (default 1)</span>
+<span class="sd">            peak_distance (int): Minimum distance between peaks (default 3)</span>
+<span class="sd">            peak_exclusion (int): Pixels to exclude on each side of peak (default 3)</span>
+<span class="sd">            iterations (int): Iterative clipping iterations (default 2)</span>
+<span class="sd">            smoothing_factor (float): Spline smoothing parameter (default 5)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        array: Fitted continuum values matching input wavelength array</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; wavelength = cube.wavelength</span>
+<span class="sd">        &gt;&gt;&gt; spectrum = cube.spectrum</span>
+<span class="sd">        &gt;&gt;&gt; continuum = fit_continuum(wavelength, spectrum, sigma_threshold=2.0)</span>
+<span class="sd">        &gt;&gt;&gt; line_only = spectrum - continuum</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="o">!=</span> <span class="s1">&#39;auto&#39;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown continuum fitting method: </span><span class="si">{</span><span class="n">method</span><span class="si">}</span><span class="s2">. Use &#39;auto&#39;.&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">fit_continuum_median_peaks</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># GAUSSIAN FITTING API</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.gaussian_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">fit_gaussian_to_line</span><span class="p">,</span>
+    <span class="n">calculate_equivalent_width</span><span class="p">,</span>
+    <span class="n">fit_hitran_lines</span> <span class="k">as</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">,</span>
+    <span class="n">fit_gaussians_per_pixel</span> <span class="k">as</span> <span class="n">_fit_gaussians_per_pixel_internal</span><span class="p">,</span>
+    <span class="n">export_residual_cube_fits</span> <span class="k">as</span> <span class="n">_export_residual_cube_fits_internal</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">fetch_hitran_data</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">line_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">auto_boundaries</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fit a Gaussian to an emission line in a spectrum.</span>
+
+<span class="sd">    Automatically detects line center and estimates parameters using</span>
+<span class="sd">    smart peak detection and noise estimation.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
+<span class="sd">        spectrum (array-like): Flux values</span>
+<span class="sd">        x1 (float): Left boundary of fitting region</span>
+<span class="sd">        x2 (float): Right boundary of fitting region</span>
+<span class="sd">        line_name (str, optional): Name of line for documentation</span>
+<span class="sd">        auto_boundaries (bool): Auto-detect boundaries from peak (default True)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        GaussianFitResult: Object containing:</span>
+<span class="sd">            - amplitude: Peak height</span>
+<span class="sd">            - center: Line center wavelength</span>
+<span class="sd">            - sigma: Gaussian sigma width</span>
+<span class="sd">            - continuum: Fitted continuum baseline</span>
+<span class="sd">            - fwhm: Full width at half maximum</span>
+<span class="sd">            - success: Whether fit was successful</span>
+<span class="sd">            - message: Fitting status message</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; result = fit_line(</span>
+<span class="sd">        ...     wavelength=cube.wavelength,</span>
+<span class="sd">        ...     spectrum=spectrum,</span>
+<span class="sd">        ...     x1=2.292,</span>
+<span class="sd">        ...     x2=2.300,</span>
+<span class="sd">        ...     line_name=&quot;CO(5-4)&quot;</span>
+<span class="sd">        ... )</span>
+<span class="sd">        &gt;&gt;&gt; if result.success:</span>
+<span class="sd">        ...     print(f&quot;Line center: {result.center} µm&quot;)</span>
+<span class="sd">        ...     print(f&quot;FWHM: {result.fwhm:.6f} µm&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_multiple_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">line_list</span><span class="p">,</span> <span class="n">auto_boundaries</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fit multiple spectral lines simultaneously.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
+<span class="sd">        spectrum (array-like): Flux values</span>
+<span class="sd">        line_list (list): List of (x1, x2) tuples defining fitting regions</span>
+<span class="sd">        auto_boundaries (bool): Auto-detect boundaries (default False)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        list: List of GaussianFitResult objects</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; lines = [(2.292, 2.300), (2.310, 2.318), (2.405, 2.413)]</span>
+<span class="sd">        &gt;&gt;&gt; results = fit_multiple_lines(cube.wavelength, spectrum, lines)</span>
+<span class="sd">        &gt;&gt;&gt; for i, result in enumerate(results):</span>
+<span class="sd">        ...     print(f&quot;Line {i}: center={result.center:.6f}, FWHM={result.fwhm:.6f}&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">)</span> <span class="k">for</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span> <span class="ow">in</span> <span class="n">line_list</span><span class="p">]</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_hitran_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">molecule</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">v_upper</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">v_lower</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fit HITRAN spectral lines automatically using database lookup.</span>
+
+<span class="sd">    This is the same workflow as the GUI&#39;s HITRAN line fitting. It automatically</span>
+<span class="sd">    fetches line data from the HITRAN database (or local cache), then fits</span>
+<span class="sd">    Gaussian profiles to all lines in the wavelength range.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
+<span class="sd">        spectrum (array-like): Flux values</span>
+<span class="sd">        molecule (str): Molecule name (e.g., &#39;CO&#39;, &#39;H2O&#39;, &#39;CH4&#39;, &#39;[Fe II]&#39;)</span>
+<span class="sd">        wavelength_min (float, optional): Minimum wavelength to search. If None, uses spectrum min.</span>
+<span class="sd">        wavelength_max (float, optional): Maximum wavelength to search. If None, uses spectrum max.</span>
+<span class="sd">        isotopologue (int): Isotopologue number (default 1 for main isotope)</span>
+<span class="sd">        refresh_cache (bool): Force refresh HITRAN cache (default False)</span>
+<span class="sd">        v_upper (int, optional): Filter by upper vibrational level (e.g., 1 for v=1)</span>
+<span class="sd">        v_lower (int, optional): Filter by lower vibrational level (e.g., 0 for v=0)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        list: List of dicts with fit results for each line:</span>
+<span class="sd">            - wavelength: Line center wavelength</span>
+<span class="sd">            - species: Molecule name</span>
+<span class="sd">            - transition: Transition description</span>
+<span class="sd">            - amplitude: Peak height</span>
+<span class="sd">            - sigma: Gaussian sigma width</span>
+<span class="sd">            - fwhm: Full width at half maximum</span>
+<span class="sd">            - area: Integrated line flux</span>
+<span class="sd">            - r_squared: Fit quality</span>
+<span class="sd">            - success: Whether fit succeeded</span>
+<span class="sd">            - message: Status message</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; # Fit CO v=1-&gt;0 lines only</span>
+<span class="sd">        &gt;&gt;&gt; results = fit_hitran_lines(</span>
+<span class="sd">        ...     wavelength=cube.wavelength,</span>
+<span class="sd">        ...     spectrum=spectrum,</span>
+<span class="sd">        ...     molecule=&#39;CO&#39;,</span>
+<span class="sd">        ...     wavelength_min=4.7,</span>
+<span class="sd">        ...     wavelength_max=4.8,</span>
+<span class="sd">        ...     v_upper=1,</span>
+<span class="sd">        ...     v_lower=0</span>
+<span class="sd">        ... )</span>
+<span class="sd">        &gt;&gt;&gt; detected = [r for r in results if r[&#39;success&#39;]]</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Detected {len(detected)} CO v=1-&gt;0 lines&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+    
+    <span class="c1"># Use spectrum edges if not provided</span>
+    <span class="k">if</span> <span class="n">wavelength_min</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">wavelength_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">wavelength</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">wavelength_max</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">wavelength_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">wavelength</span><span class="p">))</span>
+    
+    <span class="c1"># Fetch HITRAN data for this molecule</span>
+    <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
+        <span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="p">,</span>
+        <span class="n">molecule</span><span class="p">,</span> <span class="n">isotopologue</span><span class="p">,</span>
+        <span class="n">refresh_cache</span><span class="o">=</span><span class="n">refresh_cache</span><span class="p">,</span>
+        <span class="n">v_upper</span><span class="o">=</span><span class="n">v_upper</span><span class="p">,</span>
+        <span class="n">v_lower</span><span class="o">=</span><span class="n">v_lower</span>
+    <span class="p">)</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">hitran_lines</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: No HITRAN lines found for </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> in range </span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    
+    <span class="c1"># Fit Gaussian profiles to all lines</span>
+    <span class="k">return</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">measure_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum_spectrum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate equivalent width from a Gaussian fit result.</span>
+
+<span class="sd">    Equivalent width is the width of an imaginary rectangular line with the</span>
+<span class="sd">    same total area as the observed line.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fit_result (GaussianFitResult): Result from fit_line()</span>
+<span class="sd">        wavelength (array-like): Wavelength array</span>
+<span class="sd">        continuum_spectrum (array-like): Continuum-only spectrum</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        float: Equivalent width in same units as wavelength</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; ew = measure_equivalent_width(result, wavelength, continuum)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Equivalent width: {ew:.6f} µm&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">calculate_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum_spectrum</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_gaussian_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">lam_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">lam_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fit a Gaussian to every spatial pixel&#39;s spectrum in a wavelength window.</span>
+
+<span class="sd">    This is the same full-cube fitting used by the GUI&#39;s Gaussian mapping</span>
+<span class="sd">    dialog. RANSAC outlier rejection is always enabled.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cube_data (CubeData): Loaded cube from load_cube()</span>
+<span class="sd">        lam_min (float, optional): Minimum wavelength for the fit window (default: full range)</span>
+<span class="sd">        lam_max (float, optional): Maximum wavelength for the fit window (default: full range)</span>
+<span class="sd">        n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)</span>
+<span class="sd">        **kwargs: Passed through to fit_gaussians_per_pixel (e.g. fac_above_stdres,</span>
+<span class="sd">            noise_min, noise_max, lambda_0, progress_callback)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: 2D parameter maps - &#39;amplitude&#39;, &#39;center&#39;, &#39;sigma&#39;, &#39;fwhm&#39;, &#39;area&#39;,</span>
+<span class="sd">            &#39;r_squared&#39;, &#39;success&#39;, &#39;is_detection&#39;, &#39;is_upper_limit&#39;</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; maps = create_gaussian_map(cube, lam_min=4.65, lam_max=4.70)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Detections: {maps[&#39;is_detection&#39;].sum()}&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">wl</span> <span class="o">=</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">wavelength</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">):</span>
+        <span class="n">wl</span> <span class="o">=</span> <span class="n">wl</span><span class="o">.</span><span class="n">value</span>
+    <span class="k">return</span> <span class="n">_fit_gaussians_per_pixel_internal</span><span class="p">(</span>
+        <span class="n">cube</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">cube</span><span class="p">,</span>
+        <span class="n">wavelength</span><span class="o">=</span><span class="n">wl</span><span class="p">,</span>
+        <span class="n">lam_min</span><span class="o">=</span><span class="n">lam_min</span><span class="p">,</span>
+        <span class="n">lam_max</span><span class="o">=</span><span class="n">lam_max</span><span class="p">,</span>
+        <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span>
+        <span class="n">header</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>
+        <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+        <span class="n">flux_unit</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;BUNIT&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">header</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">export_residual_cube</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">out_path</span><span class="o">=</span><span class="s2">&quot;residual_cube.fits&quot;</span><span class="p">,</span> <span class="n">lam_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                          <span class="n">lam_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_cube</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fit and subtract a Gaussian at every pixel, writing the residual cube to FITS.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cube_data (CubeData): Loaded cube from load_cube()</span>
+<span class="sd">        out_path (str): Output FITS filename (default &quot;residual_cube.fits&quot;)</span>
+<span class="sd">        lam_min (float, optional): Minimum wavelength for the fit window</span>
+<span class="sd">        lam_max (float, optional): Maximum wavelength for the fit window</span>
+<span class="sd">        n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)</span>
+<span class="sd">        return_cube (bool): If True, also return the residual array in memory</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        str, or (str, array) if return_cube=True: Path to the written FITS file</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; export_residual_cube(cube, out_path=&quot;residual.fits&quot;, lam_min=4.65, lam_max=4.70)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">wl</span> <span class="o">=</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">wavelength</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">):</span>
+        <span class="n">wl</span> <span class="o">=</span> <span class="n">wl</span><span class="o">.</span><span class="n">value</span>
+    <span class="k">return</span> <span class="n">_export_residual_cube_fits_internal</span><span class="p">(</span>
+        <span class="n">cube</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">cube</span><span class="p">,</span>
+        <span class="n">wavelength</span><span class="o">=</span><span class="n">wl</span><span class="p">,</span>
+        <span class="n">lam_min</span><span class="o">=</span><span class="n">lam_min</span><span class="p">,</span>
+        <span class="n">lam_max</span><span class="o">=</span><span class="n">lam_max</span><span class="p">,</span>
+        <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span>
+        <span class="n">out_path</span><span class="o">=</span><span class="n">out_path</span><span class="p">,</span>
+        <span class="n">return_cube</span><span class="o">=</span><span class="n">return_cube</span><span class="p">,</span>
+        <span class="n">header</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># CO FLUX EXTRACTION API</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.co_flux_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">extract_co_flux_from_spectrum</span> <span class="k">as</span> <span class="n">_extract_co_flux_internal</span><span class="p">,</span>
+    <span class="n">create_co_flux_map</span> <span class="k">as</span> <span class="n">_create_co_flux_map_internal</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_CO_line_catalog</span><span class="p">,</span> <span class="n">load_contaminating_lines_catalog</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_co_flux</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">snr_threshold</span><span class="o">=</span><span class="mf">3.0</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extract total CO flux by fitting all CO lines in a spectrum.</span>
+
+<span class="sd">    Fits multiple CO rovibrational lines simultaneously with contaminating</span>
+<span class="sd">    lines and continuum, then integrates total flux.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        wavelength (array-like): Wavelength values in same units as catalog</span>
+<span class="sd">        spectrum (array-like): Flux values</span>
+<span class="sd">        co_catalog_path (str): Path to CO line catalog (ECSV format)</span>
+<span class="sd">        contamination_catalog_path (str, optional): Path to contaminant lines catalog</span>
+<span class="sd">        snr_threshold (float): Minimum signal-to-noise for line detection (default 3.0)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: Results containing:</span>
+<span class="sd">            - &#39;co_flux&#39;: Total CO flux (erg/s/cm²)</span>
+<span class="sd">            - &#39;contam_flux&#39;: Total flux attributed to contaminating lines</span>
+<span class="sd">            - &#39;mean_continuum&#39;: Mean continuum level used for the fit</span>
+<span class="sd">            - &#39;detected_lines&#39;: DataFrame of individual detected line fits</span>
+<span class="sd">            - &#39;residuals&#39;: DataFrame of fit residuals</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; result = extract_co_flux(</span>
+<span class="sd">        ...     wavelength=cube.wavelength,</span>
+<span class="sd">        ...     spectrum=spectrum,</span>
+<span class="sd">        ...     co_catalog_path=&quot;CO/CO_comprehensive_linelist_with_g.ecsv&quot;,</span>
+<span class="sd">        ...     snr_threshold=3.0</span>
+<span class="sd">        ... )</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Total CO flux: {result[&#39;co_flux&#39;]:.4e} erg/s/cm²&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Detected {len(result[&#39;detected_lines&#39;])} lines&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Load catalogs from files</span>
+    <span class="n">co_catalog</span> <span class="o">=</span> <span class="n">load_CO_line_catalog</span><span class="p">(</span><span class="n">co_catalog_path</span><span class="p">)</span>
+    <span class="n">contam_catalog</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">contamination_catalog_path</span><span class="p">:</span>
+        <span class="n">contam_catalog</span> <span class="o">=</span> <span class="n">load_contaminating_lines_catalog</span><span class="p">(</span><span class="n">contamination_catalog_path</span><span class="p">)</span>
+    
+    <span class="c1"># Call internal function</span>
+    <span class="k">return</span> <span class="n">_extract_co_flux_internal</span><span class="p">(</span>
+        <span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span>
+        <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
+        <span class="n">do_duplicate_removal</span><span class="o">=</span><span class="kc">True</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_co_flux_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create a 2D map of CO flux across the entire data cube.</span>
+
+<span class="sd">    Fits CO lines in every pixel and generates output FITS maps. Can use either:</span>
+<span class="sd">    - Automatic HITRAN fetching (default, like fit_hitran_lines)</span>
+<span class="sd">    - Custom CO catalog file (if co_catalog_path provided)</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cube_data (CubeData): Loaded cube from load_cube()</span>
+<span class="sd">        co_catalog_path (str, optional): Path to CO line catalog (ECSV format).</span>
+<span class="sd">                                         If None, automatically fetches from HITRAN.</span>
+<span class="sd">        contamination_catalog_path (str, optional): Path to contaminant lines</span>
+<span class="sd">        n_jobs (int): Number of parallel jobs (default 8)</span>
+<span class="sd">        wavelength_min (float, optional): Min wavelength for HITRAN search (auto-detect if None)</span>
+<span class="sd">        wavelength_max (float, optional): Max wavelength for HITRAN search (auto-detect if None)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: Map data containing:</span>
+<span class="sd">            - &#39;flux_map&#39;: 2D array of CO fluxes</span>
+<span class="sd">            - &#39;detection_map&#39;: 2D array with number of detected CO lines per pixel</span>
+<span class="sd">            - &#39;wavelength&#39;: 1D wavelength array used for fitting</span>
+<span class="sd">            - &#39;header&#39;: FITS header from the original cube</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; co_map = create_co_flux_map(cube, n_jobs=4)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Map shape: {co_map[&#39;flux_map&#39;].shape}&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># If no catalog provided, fetch from HITRAN automatically</span>
+    <span class="k">if</span> <span class="n">co_catalog_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Fetching CO data from HITRAN...&quot;</span><span class="p">)</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+        
+        <span class="c1"># Extract wavelength range, handling Quantity objects</span>
+        <span class="n">wl</span> <span class="o">=</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">wavelength</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">):</span>
+            <span class="n">wl</span> <span class="o">=</span> <span class="n">wl</span><span class="o">.</span><span class="n">value</span>
+        
+        <span class="n">wavelength_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span> <span class="k">if</span> <span class="n">wavelength_min</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">wavelength_min</span>
+        <span class="n">wavelength_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span> <span class="k">if</span> <span class="n">wavelength_max</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">wavelength_max</span>
+        
+        <span class="n">co_catalog</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
+            <span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="p">,</span>
+            <span class="s1">&#39;CO&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">co_catalog</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  ERROR: Could not fetch CO data from HITRAN&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">contam_catalog</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Load catalogs from files (original behavior)</span>
+        <span class="n">co_catalog</span> <span class="o">=</span> <span class="n">load_CO_line_catalog</span><span class="p">(</span><span class="n">co_catalog_path</span><span class="p">)</span>
+        <span class="n">contam_catalog</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">contamination_catalog_path</span><span class="p">:</span>
+            <span class="n">contam_catalog</span> <span class="o">=</span> <span class="n">load_contaminating_lines_catalog</span><span class="p">(</span><span class="n">contamination_catalog_path</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">_create_co_flux_map_internal</span><span class="p">(</span>
+        <span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
+        <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span>
+    <span class="p">)</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># ROTATIONAL DIAGRAM API</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.rotational_diagram_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotational_diagram</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># UNIT CONVERSION API</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="c1"># Note: Standard unit conversion functions like wavelength_to_velocity()</span>
+<span class="c1"># are available but not exported here. Use astropy.units for unit conversions:</span>
+<span class="c1">#   from astropy.units import Quantity</span>
+<span class="c1">#   wavelength = 2.293 * u.um</span>
+<span class="c1">#   frequency = wavelength.to(u.Hz, equivalencies=u.brightness_temperature(wavelength))</span>
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="c1"># Data Loading</span>
+    <span class="s1">&#39;load_cube&#39;</span><span class="p">,</span>
+    <span class="c1"># Continuum</span>
+    <span class="s1">&#39;fit_continuum&#39;</span><span class="p">,</span>
+    <span class="c1"># Gaussian Fitting</span>
+    <span class="s1">&#39;fit_line&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;fit_multiple_lines&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;fit_hitran_lines&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;measure_equivalent_width&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;create_gaussian_map&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;export_residual_cube&#39;</span><span class="p">,</span>
+    <span class="c1"># CO Flux</span>
+    <span class="s1">&#39;extract_co_flux&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;create_co_flux_map&#39;</span><span class="p">,</span>
+    <span class="c1"># Rotational Diagram</span>
+    <span class="s1">&#39;rotational_diagram&#39;</span><span class="p">,</span>
+<span class="p">]</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
