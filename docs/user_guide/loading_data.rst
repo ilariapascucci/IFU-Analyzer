@@ -81,7 +81,7 @@ Load and access FITS data programmatically in Python scripts or Jupyter notebook
     cube = load_cube("Level3_ch1-long_s3d.fits")
     
     print(f"Instrument: {cube.instrument}")
-    print(f"Wavelength range: {cube.wavelength.min():.4f} - {cube.wavelength.max():.4f} µm")
+    print(f"Wavelength range: {cube.wavelength.min():.4f} - {cube.wavelength.max():.4f}")
     print(f"Cube shape (wavelength, x, y): {cube.cube.shape}")
     print(f"Spectrum shape: {cube.spectrum.shape}")
 

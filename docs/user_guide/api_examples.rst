@@ -32,7 +32,7 @@ Load a FITS Cube
     spectrum = cube.spectrum
     full_cube = cube.cube  # Shape: (wavelength, x, y)
     
-    print(f"Wavelength range: {wavelength.min():.4f} - {wavelength.max():.4f} um")
+    print(f"Wavelength range: {wavelength.min():.4f} - {wavelength.max():.4f}")
     print(f"Cube shape: {full_cube.shape}")
 
 
