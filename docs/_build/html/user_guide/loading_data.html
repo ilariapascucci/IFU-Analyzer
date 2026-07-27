@@ -247,21 +247,22 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
 
 <span class="c1"># Data access</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span>         <span class="c1"># Wavelength array (1D)</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span>           <span class="c1"># 1D spectrum (spatially averaged)</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">cube</span>               <span class="c1"># 3D cube (wavelength, x, y)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Wavelength points: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Spectrum points:   </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Cube shape:        </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
 <span class="c1"># Metadata</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">header</span>             <span class="c1"># FITS header (dict-like)</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">wcs</span>                <span class="c1"># World Coordinate System</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">instrument</span>         <span class="c1"># Instrument name</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">observer</span>           <span class="c1"># Observer name</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">target</span>             <span class="c1"># Target name</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">date_obs</span>           <span class="c1"># Observation date</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Instrument:        </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">instrument</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Header cards:      </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;WCS:               </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wcs</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
 <span class="c1"># File information</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">filename</span>           <span class="c1"># Path to loaded file</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">data_shape</span>         <span class="c1"># (n_wavelength, n_x, n_y)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Filename:          </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">filename</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Remaining metadata comes from the FITS header. Keyword names are</span>
+<span class="c1"># instrument-specific, so use .get() rather than indexing.</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Target:            </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;TARGNAME&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Observation date:  </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;DATE-OBS&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

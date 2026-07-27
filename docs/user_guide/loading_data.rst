@@ -140,20 +140,21 @@ Load and access FITS data programmatically in Python scripts or Jupyter notebook
 .. code-block:: python
 
     cube = load_cube("data.fits")
-    
+
     # Data access
-    cube.wavelength         # Wavelength array (1D)
-    cube.spectrum           # 1D spectrum (spatially averaged)
-    cube.cube               # 3D cube (wavelength, x, y)
-    
+    print(f"Wavelength points: {len(cube.wavelength)}")
+    print(f"Spectrum points:   {len(cube.spectrum)}")
+    print(f"Cube shape:        {cube.cube.shape}")
+
     # Metadata
-    cube.header             # FITS header (dict-like)
-    cube.wcs                # World Coordinate System
-    cube.instrument         # Instrument name
-    cube.observer           # Observer name
-    cube.target             # Target name
-    cube.date_obs           # Observation date
-    
+    print(f"Instrument:        {cube.instrument}")
+    print(f"Header cards:      {len(cube.header)}")
+    print(f"WCS:               {type(cube.wcs).__name__}")
+
     # File information
-    cube.filename           # Path to loaded file
-    cube.data_shape         # (n_wavelength, n_x, n_y)
+    print(f"Filename:          {cube.filename}")
+
+    # Remaining metadata comes from the FITS header. Keyword names are
+    # instrument-specific, so use .get() rather than indexing.
+    print(f"Target:            {cube.header.get('TARGNAME')}")
+    print(f"Observation date:  {cube.header.get('DATE-OBS')}")

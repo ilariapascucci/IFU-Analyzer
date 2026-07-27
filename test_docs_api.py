@@ -143,6 +143,35 @@ def extract_spectra_from_regions():
 
 
 # ---------------------------------------------------------------------------
+# AVAILABLE CUBE PROPERTIES
+# ---------------------------------------------------------------------------
+
+@needs_cube
+def available_cube_properties():
+    from cube_explorer.api import load_cube
+
+    cube = load_cube(CUBE)
+
+    # Data access
+    print(f"Wavelength points: {len(cube.wavelength)}")
+    print(f"Spectrum points:   {len(cube.spectrum)}")
+    print(f"Cube shape:        {cube.cube.shape}")
+
+    # Metadata
+    print(f"Instrument:        {cube.instrument}")
+    print(f"Header cards:      {len(cube.header)}")
+    print(f"WCS:               {type(cube.wcs).__name__}")
+
+    # File information
+    print(f"Filename:          {cube.filename}")
+
+    # Remaining metadata comes from the FITS header. Keyword names are
+    # instrument-specific, so use .get() rather than indexing.
+    print(f"Target:            {cube.header.get('TARGNAME')}")
+    print(f"Observation date:  {cube.header.get('DATE-OBS')}")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     print("\n" + "=" * 70)
@@ -152,6 +181,7 @@ def main():
     run("BASIC DATA LOADING", basic_data_loading)
     run("ACCESS CUBE COMPONENTS", access_cube_components)
     run("EXTRACT SPECTRA FROM REGIONS", extract_spectra_from_regions)
+    run("AVAILABLE CUBE PROPERTIES", available_cube_properties)
 
     print("\n" + "=" * 70)
     print(" SUMMARY")
