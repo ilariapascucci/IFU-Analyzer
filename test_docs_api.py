@@ -109,7 +109,7 @@ def access_cube_components():
     print(f"WCS: {type(wcs_info).__name__}")
     print(f"Instrument: {instrument}")
 
-'''
+
 # ---------------------------------------------------------------------------
 # EXTRACT SPECTRA FROM SPECIFIC REGIONS
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ def extract_spectra_from_regions():
     plt.title(f'Spectrum: pixels [{x_start}:{x_end}, {y_start}:{y_end}]')
     plt.grid(True, alpha=0.3)
     plt.show()
-'''
+
 
 # ---------------------------------------------------------------------------
 
@@ -151,7 +151,7 @@ def main():
 
     run("BASIC DATA LOADING", basic_data_loading)
     run("ACCESS CUBE COMPONENTS", access_cube_components)
-    #run("EXTRACT SPECTRA FROM REGIONS", extract_spectra_from_regions)
+    run("EXTRACT SPECTRA FROM REGIONS", extract_spectra_from_regions)
 
     print("\n" + "=" * 70)
     print(" SUMMARY")
