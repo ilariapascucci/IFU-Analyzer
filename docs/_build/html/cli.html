@@ -20,7 +20,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Features" href="features.html" />
-    <link rel="prev" title="Exporting Data" href="user_guide/exporting_data.html" /> 
+    <link rel="prev" title="Using IFU Analyzer Without the GUI" href="user_guide/api_examples.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -46,7 +46,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="introduction.html">Introduction</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
 <ul>
@@ -99,7 +98,7 @@
             <a href="_sources/cli.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
-        <a href="user_guide/exporting_data.html" class="btn btn-neutral float-left" title="Exporting Data" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="user_guide/api_examples.html" class="btn btn-neutral float-left" title="Using IFU Analyzer Without the GUI" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="features.html" class="btn btn-neutral float-right" title="Features" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
@@ -458,11 +457,12 @@ when <code class="docutils literal notranslate"><span class="pre">clip.py</span>
 waiting for input that will never arrive.</p>
 <p>Fix: pipe the filename in via <code class="docutils literal notranslate"><span class="pre">echo</span></code>, or use the Python wrapper
 functions:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Option A — pipe the filename</span>
-<span class="err">!</span><span class="n">echo</span> <span class="n">my_output</span> <span class="o">|</span> <span class="n">python</span> <span class="n">clip</span><span class="o">.</span><span class="n">py</span> <span class="n">auto</span><span class="o">-</span><span class="n">continuum</span> <span class="o">-</span><span class="n">i</span> <span class="n">cube</span><span class="o">.</span><span class="n">fits</span>
-
-<span class="c1"># Option B — use the wrapper (recommended)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">clip</span><span class="w"> </span><span class="kn">import</span> <span class="n">auto_continuum</span>
+<p>Option A — pipe the filename in (Jupyter shell syntax, not Python):</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>!echo my_output | python clip.py auto-continuum -i cube.fits
+</pre></div>
+</div>
+<p>Option B — use the wrapper (recommended):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">clip</span><span class="w"> </span><span class="kn">import</span> <span class="n">auto_continuum</span>
 <span class="n">auto_continuum</span><span class="p">(</span><span class="s2">&quot;cube.fits&quot;</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;my_output&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
@@ -541,7 +541,7 @@ from the GUI.</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="user_guide/exporting_data.html" class="btn btn-neutral float-left" title="Exporting Data" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="user_guide/api_examples.html" class="btn btn-neutral float-left" title="Using IFU Analyzer Without the GUI" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="features.html" class="btn btn-neutral float-right" title="Features" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

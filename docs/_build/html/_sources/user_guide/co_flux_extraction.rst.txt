@@ -82,8 +82,8 @@ Extract CO fluxes programmatically for single spectra or full data cubes.
     )
     
     print(f"Total CO flux: {co_result['co_flux']:.3f} erg/s/cm²")
-    print(f"Number of lines detected: {co_result['detection_count']}")
-    print(f"CO lines used: {co_result['used_lines']}")
+    print(f"Number of lines detected: {len(co_result['detected_lines'])}")
+    print(f"Mean continuum level: {co_result['mean_continuum']:.3f}")
 
 **Create CO Flux Maps**
 
@@ -104,7 +104,7 @@ Generate flux maps for the entire data cube:
     
     print(f"CO flux map shape: {co_flux_map['flux_map'].shape}")
     print(f"Mean CO flux: {co_flux_map['flux_map'][co_flux_map['flux_map'] > 0].mean():.3f} erg/s/cm²")
-    print(f"Pixels with CO detection: {co_flux_map['success_mask'].sum()}")
+    print(f"Pixels with CO detection: {(co_flux_map['detection_map'] > 0).sum()}")
 
 **Expected Catalog Format**
 

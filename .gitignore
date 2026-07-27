@@ -4,6 +4,8 @@
 *.ecsv
 *.pyc
 *.ipynb
+*.txt
+!requirements.txt
 
 # Ignore any large data folders
 /data/

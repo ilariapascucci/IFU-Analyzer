@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CO Flux Extraction &mdash; IFU Analyzer 1.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
 
   
@@ -19,7 +19,7 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Exporting Data" href="exporting_data.html" />
+    <link rel="next" title="Rotational Diagram" href="rotational_diagram.html" />
     <link rel="prev" title="Continuum Subtraction" href="continuum_subtraction.html" /> 
 </head>
 
@@ -63,10 +63,16 @@
 <li class="toctree-l3"><a class="reference internal" href="#using-the-co-flux-api">Using the CO Flux API</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
 </ul>
 </li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
@@ -98,7 +104,7 @@
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
         <a href="continuum_subtraction.html" class="btn btn-neutral float-left" title="Continuum Subtraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="rotational_diagram.html" class="btn btn-neutral float-right" title="Rotational Diagram" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
 </div>
@@ -158,7 +164,7 @@ You can remove a line by clicking on it in the spectrum or by clicking on the <s
 <h2>Using the CO Flux API<a class="headerlink" href="#using-the-co-flux-api" title="Link to this heading"></a></h2>
 <p>Extract CO fluxes programmatically for single spectra or full data cubes.</p>
 <p><strong>Extract CO Flux from a Single Spectrum</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.api</span> <span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_co_flux</span><span class="p">,</span> <span class="n">fit_continuum</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_co_flux</span><span class="p">,</span> <span class="n">fit_continuum</span>
 
 <span class="c1"># Load your data</span>
 <span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
@@ -175,13 +181,13 @@ You can remove a line by clicking on it in the spectrum or by clicking on the <s
 <span class="p">)</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total CO flux: </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;co_flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Number of lines detected: </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;detection_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CO lines used: </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;used_lines&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Number of lines detected: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;detected_lines&#39;</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean continuum level: </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;mean_continuum&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Create CO Flux Maps</strong></p>
 <p>Generate flux maps for the entire data cube:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cube_explorer.api</span> <span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">create_co_flux_map</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">create_co_flux_map</span>
 
 <span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
 
@@ -194,7 +200,7 @@ You can remove a line by clicking on it in the spectrum or by clicking on the <s
 
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CO flux map shape: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean CO flux: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">][</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pixels with CO detection: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;success_mask&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pixels with CO detection: </span><span class="si">{</span><span class="p">(</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;detection_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Expected Catalog Format</strong></p>
@@ -220,7 +226,7 @@ You can remove a line by clicking on it in the spectrum or by clicking on the <s
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="continuum_subtraction.html" class="btn btn-neutral float-left" title="Continuum Subtraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="rotational_diagram.html" class="btn btn-neutral float-right" title="Rotational Diagram" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

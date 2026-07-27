@@ -36,7 +36,7 @@ Displays the currently selected wavelength left and right slices:
   - Copy from adjacent slice
 - **Color & Scale**: Edit color scheme or scale
 
-**4. Spectrum Panel** (Bottom Center)
+**3. Spectrum Panel** (Bottom Center)
 
 Shows 1D spectrum data:
 

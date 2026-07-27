@@ -404,12 +404,16 @@ Jupyter notebook issues
    Fix: pipe the filename in via ``echo``, or use the Python wrapper
    functions:
 
-   .. code-block:: python
+   Option A — pipe the filename in (Jupyter shell syntax, not Python):
 
-      # Option A — pipe the filename
+   .. code-block:: text
+
       !echo my_output | python clip.py auto-continuum -i cube.fits
 
-      # Option B — use the wrapper (recommended)
+   Option B — use the wrapper (recommended):
+
+   .. code-block:: python
+
       from clip import auto_continuum
       auto_continuum("cube.fits", output_name="my_output")
 

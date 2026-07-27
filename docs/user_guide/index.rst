@@ -26,4 +26,5 @@ Choose a topic below to get started, or read through sequentially for a complete
    co_flux_extraction
    rotational_diagram
    exporting_data
+   2d_viewer
    api_examples

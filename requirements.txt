@@ -34,3 +34,13 @@ pymc>=4.0                  # Bayesian inference (censored regression for upper l
 # HITRAN DATABASE & SPECTROSCOPY
 # ============================================================================
 hitran-api>=1.2.2.4        # Import for HITRAN
+
+# ============================================================================
+# DOCUMENTATION (only needed to rebuild docs/ with `cd docs && make html`)
+# ============================================================================
+#sphinx>=7.0                # Documentation generator for docs/*.rst
+#sphinx-rtd-theme>=2.0      # Read the Docs theme, required by docs/conf.py
+# Not needed to run the app -- docs/_build/html/ ships prebuilt.
+# To rebuild after editing docs/*.rst:
+#     pip install sphinx sphinx-rtd-theme
+#     cd docs && make html
