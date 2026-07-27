@@ -27,21 +27,40 @@ The IFU Analyzer window is organized into several key areas:
 Displays the currently selected wavelength left and right slices:
 
 - **Intensity Map**: Color-coded flux data with statistics
-- **Interactive**: Select a specific slice region for analysis
+- **Color & Scale**: Edit color scheme or scale
+- **Region Selection**: Select a region of a slice for analysis
+
   - Pixel
   - Rectangle
-  - Sphere
+  - Circle
   - Ellipse
-  - Free-Form
-  - Copy from adjacent slice
-- **Color & Scale**: Edit color scheme or scale
+  - Free-Form (polygon)
+  - Copy the selection from the adjacent slice
 
 **3. Spectrum Panel** (Bottom Center)
 
-Shows 1D spectrum data:
+Shows the 1D spectrum, with its axes in flux and wavelength. The collapsible
+button groups above the plot hold the analysis tools:
 
-- **Flux & Wavelength**: Axes of spectrum
-- **Interactive**: Various options listed.
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Group
+     - What it does
+   * - **Slice Selection**
+     - Click a slice to set the left or right wavelength from that pixel
+   * - **Gaussian Fit**
+     - Fit lines, mark noise regions, and build full-cube parameter maps
+   * - **Continuum Tools**
+     - Fit and subtract the continuum, automatically or from custom anchor
+       points
+   * - **Rotational Diagram**
+     - Fit H2 rotational temperatures from measured line fluxes
+   * - **HITRAN**
+     - Fetch molecular line lists with transition-level filtering
+   * - **Shifting**
+     - Apply a Doppler shift to the spectrum based on velocity
 
 Getting Help
 ============
