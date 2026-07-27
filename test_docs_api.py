@@ -24,6 +24,11 @@ Run:
 import os
 import sys
 
+# Documented snippets end with plt.show(), which blocks on an interactive
+# backend. Force a headless backend so the suite runs unattended. This is a
+# harness concern -- the snippets themselves stay verbatim.
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
 
 results = []
@@ -73,6 +78,71 @@ def basic_data_loading():
 
 
 # ---------------------------------------------------------------------------
+# ACCESS CUBE COMPONENTS
+# ---------------------------------------------------------------------------
+
+@needs_cube
+def access_cube_components():
+    from cube_explorer.api import load_cube
+
+    cube = load_cube(CUBE)
+
+    # Wavelength array
+    wavelength = cube.wavelength        # Array of wavelength values
+    print(f"Wavelengths: {len(wavelength)} points")
+    print(f"Range: {wavelength.min():.4f} - {wavelength.max():.4f}")
+
+    # 3D spectral cube
+    full_cube = cube.cube              # Shape: (wavelength, x_pixels, y_pixels)
+    print(f"Cube dimensions: {full_cube.shape}")
+
+    # 1D spectrum (summed over all spatial pixels)
+    spectrum_1d = cube.spectrum         # Array of flux values
+
+    # Metadata
+    header_info = cube.header           # FITS header dictionary
+    wcs_info = cube.wcs                 # World Coordinate System
+    instrument = cube.instrument        # Instrument name (MUSE, MIRI, etc.)
+
+    print(f"Spectrum points: {len(spectrum_1d)}")
+    print(f"Header cards: {len(header_info)}")
+    print(f"WCS: {type(wcs_info).__name__}")
+    print(f"Instrument: {instrument}")
+
+'''
+# ---------------------------------------------------------------------------
+# EXTRACT SPECTRA FROM SPECIFIC REGIONS
+# ---------------------------------------------------------------------------
+
+@needs_cube
+def extract_spectra_from_regions():
+    from cube_explorer.api import load_cube
+
+    cube = load_cube(CUBE)
+
+    # Extract spectrum from a single pixel
+    x, y = 20, 25
+    pixel_spectrum = cube.cube[:, x, y]
+
+    # Extract spectrum from a spatial region (average)
+    x_start, x_end = 10, 30
+    y_start, y_end = 15, 35
+    region = cube.cube[:, x_start:x_end, y_start:y_end]
+    averaged_spectrum = region.mean(axis=(1, 2))
+
+    # Plot the spectrum
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(cube.wavelength, averaged_spectrum, 'b-', linewidth=1)
+    plt.xlabel('Wavelength (µm)')
+    plt.ylabel('Flux')
+    plt.title(f'Spectrum: pixels [{x_start}:{x_end}, {y_start}:{y_end}]')
+    plt.grid(True, alpha=0.3)
+    plt.show()
+'''
+
+# ---------------------------------------------------------------------------
 
 def main():
     print("\n" + "=" * 70)
@@ -80,6 +150,8 @@ def main():
     print("=" * 70)
 
     run("BASIC DATA LOADING", basic_data_loading)
+    run("ACCESS CUBE COMPONENTS", access_cube_components)
+    #run("EXTRACT SPECTRA FROM REGIONS", extract_spectra_from_regions)
 
     print("\n" + "=" * 70)
     print(" SUMMARY")

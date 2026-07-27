@@ -94,7 +94,7 @@ Load and access FITS data programmatically in Python scripts or Jupyter notebook
     # Wavelength array
     wavelength = cube.wavelength        # Array of wavelength values
     print(f"Wavelengths: {len(wavelength)} points")
-    print(f"Range: {wavelength.min():.4f} - {wavelength.max():.4f} µm")
+    print(f"Range: {wavelength.min():.4f} - {wavelength.max():.4f}")
     
     # 3D spectral cube
     full_cube = cube.cube              # Shape: (wavelength, x_pixels, y_pixels)
@@ -115,12 +115,12 @@ Load and access FITS data programmatically in Python scripts or Jupyter notebook
     cube = load_cube("data.fits")
     
     # Extract spectrum from a single pixel
-    x, y = 100, 150
+    x, y = 20, 25
     pixel_spectrum = cube.cube[:, x, y]
-    
+
     # Extract spectrum from a spatial region (average)
-    x_start, x_end = 100, 200
-    y_start, y_end = 150, 250
+    x_start, x_end = 10, 30
+    y_start, y_end = 15, 35
     region = cube.cube[:, x_start:x_end, y_start:y_end]
     averaged_spectrum = region.mean(axis=(1, 2))
     

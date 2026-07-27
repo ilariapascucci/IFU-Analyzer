@@ -203,7 +203,7 @@
 <span class="c1"># Wavelength array</span>
 <span class="n">wavelength</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span>        <span class="c1"># Array of wavelength values</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Wavelengths: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span><span class="si">}</span><span class="s2"> points&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Range: </span><span class="si">{</span><span class="n">wavelength</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">wavelength</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Range: </span><span class="si">{</span><span class="n">wavelength</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">wavelength</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
 <span class="c1"># 3D spectral cube</span>
 <span class="n">full_cube</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">cube</span>              <span class="c1"># Shape: (wavelength, x_pixels, y_pixels)</span>
@@ -222,12 +222,12 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
 
 <span class="c1"># Extract spectrum from a single pixel</span>
-<span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">150</span>
+<span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">25</span>
 <span class="n">pixel_spectrum</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">cube</span><span class="p">[:,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">]</span>
 
 <span class="c1"># Extract spectrum from a spatial region (average)</span>
-<span class="n">x_start</span><span class="p">,</span> <span class="n">x_end</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span> <span class="mi">200</span>
-<span class="n">y_start</span><span class="p">,</span> <span class="n">y_end</span> <span class="o">=</span> <span class="mi">150</span><span class="p">,</span> <span class="mi">250</span>
+<span class="n">x_start</span><span class="p">,</span> <span class="n">x_end</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">30</span>
+<span class="n">y_start</span><span class="p">,</span> <span class="n">y_end</span> <span class="o">=</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">35</span>
 <span class="n">region</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">cube</span><span class="p">[:,</span> <span class="n">x_start</span><span class="p">:</span><span class="n">x_end</span><span class="p">,</span> <span class="n">y_start</span><span class="p">:</span><span class="n">y_end</span><span class="p">]</span>
 <span class="n">averaged_spectrum</span> <span class="o">=</span> <span class="n">region</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
 
