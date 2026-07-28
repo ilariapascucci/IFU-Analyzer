@@ -304,7 +304,7 @@ class SpectrumPlotter:
         
         text_str = (
             f"Center: {result.center:.4f} {wave_unit}\n"
-            f"FWHM: {result.fwhm:.4f} {wave_unit}\n"
+            f"FWHM: {result.fwhm:.4g} {wave_unit}\n"
             f"R²: {result.r_squared:.3f}"
         )
         text_obj = self.ax.text(

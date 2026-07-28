@@ -9,6 +9,7 @@ string-based units.
 
 import numpy as np
 import astropy.units as u
+from astropy import constants as const
 from astropy.units import Quantity
 
 
@@ -309,53 +310,145 @@ def format_wavelength_for_display(value, unit=None):
         return f"{value:.4f} {unit}"
 
 
-def integrated_flux_to_cgs(amplitude, sigma, flux_unit, wave_unit):
+CGS_FLUX = u.erg / u.s / u.cm ** 2
+
+
+def pixel_solid_angle(header):
     """
-    Convert a Gaussian line area to erg/s/cm², for flux units where the units cancel.
-
-    Applies to flux densities that are already per unit wavelength, such as MUSE's
-    ``10**(-20)*erg/s/cm**2/Angstrom``. There the area ``A·σ·√(2π)`` carries the flux
-    unit times the wavelength unit, and the per-Å cancels the Å in sigma, reducing to
-    erg/s/cm² on its own.
-
-    Surface brightnesses such as MJy/sr do **not** reduce this way - they still carry a
-    per-steradian and a per-Hz, so they need a pixel solid angle and a
-    wavelength-to-frequency jacobian. This function returns None for them; see
-    ``gaussian_fitter.convert_area_to_cgs`` for that path.
+    Solid angle subtended by one spatial pixel, in steradians.
 
     Args:
-        amplitude: Gaussian peak height, in ``flux_unit``
-        sigma: Gaussian sigma, in ``wave_unit``
-        flux_unit: Flux unit string, typically the BUNIT header keyword. astropy parses
-            the ``10**(-20)`` prefix that MUSE uses.
-        wave_unit: Wavelength unit string, e.g. ``'Angstrom'`` or ``'um'``
+        header: FITS header with CDELT1 and CDELT2 in degrees
 
     Returns:
-        float: Area in erg/s/cm², or None if the units do not reduce to it
-
-    Examples:
-        >>> integrated_flux_to_cgs(1.0, 1.0, 'erg/s/cm**2/Angstrom', 'Angstrom')
-        2.5066282746310002
-        >>> integrated_flux_to_cgs(1.0, 1.0, 'MJy/sr', 'um') is None
-        True
+        astropy Quantity in steradians, or None if the header lacks the pixel scales
     """
-    if amplitude is None or sigma is None or not flux_unit:
+    if header is None:
         return None
-
-    wave_astropy_unit = _string_to_astropy_unit(wave_unit)
-    if wave_astropy_unit is None:
+    cdelt1 = header.get('CDELT1', None)
+    cdelt2 = header.get('CDELT2', None)
+    if cdelt1 is None or cdelt2 is None:
         return None
-
     try:
-        flux_astropy_unit = u.Unit(str(flux_unit), parse_strict='silent')
+        area_deg2 = abs(float(cdelt1)) * abs(float(cdelt2)) * u.deg ** 2
+        return area_deg2.to(u.sr)
     except Exception:
         return None
 
-    area = (amplitude * flux_astropy_unit) * (sigma * wave_astropy_unit) * np.sqrt(2 * np.pi)
-    cgs = u.erg / u.s / u.cm ** 2
-    if not area.unit.is_equivalent(cgs):
+
+def _parse_flux_unit(flux_unit):
+    """Parse a BUNIT string into an astropy unit, or None. Handles MUSE's 10**(-20) prefix."""
+    if not flux_unit:
         return None
-    return float(area.to(cgs).value)
+    try:
+        return u.Unit(str(flux_unit), parse_strict='silent')
+    except Exception:
+        return None
+
+
+def _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header):
+    """
+    Apply instrument corrections until `quantity` matches `target`, or give up.
+
+    Stages, checked for dimensional equivalence after each:
+
+    1. **As-is** - flux densities already per unit wavelength (MUSE's erg/s/cm²/Å)
+       reduce with no correction at all.
+    2. **× pixel solid angle** - removes the per-steradian of a surface brightness.
+    3. **× c/λ²** - converts a per-frequency quantity to per-wavelength.
+
+    Because each stage is checked with ``is_equivalent``, units that cannot reach the
+    target (Jy/beam, which needs a beam area rather than a pixel area) fall out on their
+    own without a hand-maintained list of what is supported.
+    """
+    if quantity.unit.is_equivalent(target):
+        return float(quantity.to(target).value)
+
+    omega = pixel_solid_angle(header)
+    if omega is None or wavelength is None or wave_astropy_unit is None:
+        return None
+
+    quantity = quantity * omega
+    if quantity.unit.is_equivalent(target):
+        return float(quantity.to(target).value)
+
+    quantity = quantity * (const.c / (wavelength * wave_astropy_unit) ** 2)
+    if quantity.unit.is_equivalent(target):
+        return float(quantity.to(target).value)
+
+    return None
+
+
+def integrated_flux_to_cgs(value, flux_unit, wavelength=None, header=None, wave_unit=None):
+    """
+    Convert an integrated line flux to erg/s/cm².
+
+    This is the single conversion used for Gaussian areas, CO fluxes and upper limits.
+    ``value`` is the already-integrated quantity, carrying units of
+    ``flux_unit × wave_unit`` (e.g. a Gaussian's ``A·σ·√(2π)``).
+
+    Two instrument families reach erg/s/cm² by different routes, dispatched
+    dimensionally rather than by name:
+
+    - **erg/s/cm²/Å (MUSE)** - already a flux per unit wavelength, so the Å cancels and
+      no correction is needed.
+    - **MJy/sr (MIRI, NIRSpec)** - a surface brightness per unit frequency, so it needs
+      the pixel solid angle and the ``c/λ²`` jacobian.
+
+    Anything else (Jy/beam for ALMA) returns None, because a beam area is not a pixel
+    area and the two are not interchangeable.
+
+    Args:
+        value: Integrated flux in ``flux_unit × wave_unit``
+        flux_unit: Flux unit string, typically the BUNIT header keyword
+        wavelength: Line centre, in ``wave_unit``. Required for MJy/sr, unused for MUSE.
+        header: FITS header supplying CDELT1/CDELT2. Required for MJy/sr.
+        wave_unit: Wavelength unit string, e.g. ``'Angstrom'`` or ``'um'``
+
+    Returns:
+        float: Flux in erg/s/cm², or None if the units cannot reach it
+
+    Examples:
+        >>> integrated_flux_to_cgs(1.0, 'erg/s/cm**2/Angstrom', wave_unit='Angstrom')
+        1.0
+        >>> integrated_flux_to_cgs(1.0, 'Jy/beam', 7.0, None, 'um') is None
+        True
+    """
+    flux_astropy_unit = _parse_flux_unit(flux_unit)
+    wave_astropy_unit = _string_to_astropy_unit(wave_unit)
+    if value is None or flux_astropy_unit is None or wave_astropy_unit is None:
+        return None
+
+    quantity = value * flux_astropy_unit * wave_astropy_unit
+    return _reduce_to_target(quantity, CGS_FLUX, wavelength, wave_astropy_unit, header)
+
+
+def flux_density_to_cgs(value, flux_unit, wavelength=None, header=None, wave_unit=None):
+    """
+    Convert a flux density (a peak height, not an integral) to erg/s/cm² per wavelength.
+
+    The counterpart to :func:`integrated_flux_to_cgs` for quantities that keep their
+    spectral dependence, such as a Gaussian amplitude. Same dimensional dispatch, but the
+    target retains a per-wavelength: erg/s/cm²/``wave_unit``.
+
+    Args:
+        value: Flux density in ``flux_unit``
+        flux_unit: Flux unit string, typically the BUNIT header keyword
+        wavelength: Line centre, in ``wave_unit``. Required for MJy/sr.
+        header: FITS header supplying CDELT1/CDELT2. Required for MJy/sr.
+        wave_unit: Wavelength unit string, e.g. ``'Angstrom'`` or ``'um'``
+
+    Returns:
+        float: Flux density in erg/s/cm² per ``wave_unit``, or None if unsupported
+    """
+    flux_astropy_unit = _parse_flux_unit(flux_unit)
+    wave_astropy_unit = _string_to_astropy_unit(wave_unit)
+    if value is None or flux_astropy_unit is None or wave_astropy_unit is None:
+        return None
+
+    quantity = value * flux_astropy_unit
+    target = CGS_FLUX / wave_astropy_unit
+    return _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header)
 
 
 def clean_flux_unit(unit_str):

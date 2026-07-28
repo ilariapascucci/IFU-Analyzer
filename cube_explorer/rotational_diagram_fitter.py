@@ -8,6 +8,8 @@ from scipy.stats import linregress
 from scipy.optimize import curve_fit
 import pymc as pm
 
+from .unit_converter import integrated_flux_to_cgs
+
 
 
 '''
@@ -274,7 +276,7 @@ def estimate_noise_local(wavelength_arr, flux_arr, line_wavelength, n_pixels=13)
     return sigma_noise
 
 
-def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_unit='MJy/sr'):
+def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_unit=None):
     """
     Convert upper limit flux from native units to CGS (erg/s/cm²).
     
@@ -287,51 +289,26 @@ def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_uni
                        (e.g., MJy/sr·μm for NIRSpec)
         wavelength: Line wavelength in microns
         header: FITS header containing CDELT1, CDELT2 (spatial pixel scales in degrees)
-        flux_unit: Native flux unit ('MJy/sr' for NIRSpec/MIRI, etc.)
-    
+        flux_unit: Native flux unit. Falls back to the header's BUNIT if None, so MUSE
+                   cubes convert too rather than being assumed to be MJy/sr.
+
     Returns:
         float: Upper limit flux in erg/s/cm², or None if conversion fails
-    
-    Formula for MJy/sr·μm → erg/s/cm²:
-        1. Convert [MJy/sr·μm] → [Jy·μm] using pixel solid angle:
-           Ω = CDELT1 × CDELT2 × (π/180)² steradians
-           flux_jy_um = flux_native × Ω × 1e6
-        2. Convert [Jy·μm] → [erg/s/cm²] using wavelength-to-frequency:
-           flux_cgs = flux_jy_um × (c / λ²) × 1e-23
+
+    The conversion itself lives in ``unit_converter.integrated_flux_to_cgs`` - the same
+    one used for Gaussian areas, so upper limits and detections cannot drift apart.
     """
     try:
-        if header is None or flux_ul_native is None or wavelength is None:
-            return None
-        
-        # Extract CDELT values (in degrees)
-        cdelt1 = header.get('CDELT1', None)
-        cdelt2 = header.get('CDELT2', None)
-        
-        if cdelt1 is None or cdelt2 is None:
-            return None
-        
-        cdelt1_abs = abs(float(cdelt1))
-        cdelt2_abs = abs(float(cdelt2))
-        
-        # Check if units are MJy/sr
-        if 'MJY' not in flux_unit.upper() or 'SR' not in flux_unit.upper():
-            return None
-        
-        # Step 1: Convert [MJy/sr·μm] → [Jy·μm]
-        # Solid angle of one pixel in steradians
-        steradian_per_degree2 = (np.pi / 180.0) ** 2
-        omega_pixel_sr = cdelt1_abs * cdelt2_abs * steradian_per_degree2
-        
-        # Remove "/sr" and convert MJy → Jy
-        flux_jy_um = flux_ul_native * omega_pixel_sr * 1e6
-        
-        # Step 2: Convert [Jy·μm] → [erg/s/cm²]
-        # Using F_ν = F_λ × (c / λ²)
-        c_micron_per_s = 2.99792458e14  # speed of light in μm/s
-        flux_cgs = flux_jy_um * (c_micron_per_s / (wavelength ** 2)) * 1e-23
-        
-        return flux_cgs
+        if flux_unit is None and header is not None:
+            flux_unit = header.get('BUNIT', None)
 
+        return integrated_flux_to_cgs(
+            flux_ul_native,
+            flux_unit,
+            wavelength=wavelength,
+            header=header,
+            wave_unit='um',
+        )
     except Exception:
         return None
 
@@ -379,7 +356,10 @@ def compute_line_flux(wavelength_arr, spectrum_arr, line_wavelength, header, ins
     if not fit_result.success:
         return {"success": False, "message": f"Gaussian fit failed: {fit_result.message}"}
 
-    # Convert area to CGS
+    # Convert area to CGS. The flux unit is passed explicitly rather than read from
+    # BUNIT because this function assumes a micron axis throughout (see wave_unit='UM'
+    # below and the docstring); handing it a MUSE cube would need the wavelength unit
+    # generalised too, so it is pinned to the instruments it actually supports.
     flux_integrated = convert_area_to_cgs(
         fit_result.amplitude, fit_result.sigma, fit_result.center,
         header=header, wave_unit='UM', flux_unit_input='MJy/sr'

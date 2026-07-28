@@ -1,5 +1,4 @@
 from astropy.io import fits
-import astropy.units as u
 from astropy.units import Quantity
 from typing import Optional
 import numpy as np
@@ -7,7 +6,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import RANSACRegressor
 
-from .unit_converter import integrated_flux_to_cgs
+from .unit_converter import integrated_flux_to_cgs, flux_density_to_cgs
 
 def _extract_value_from_quantity(value, unit=None):
     """
@@ -34,27 +33,16 @@ def _extract_value_from_quantity(value, unit=None):
     else:
         return value
 
-# Speed of light in μm/s, used by the wavelength-to-frequency conversions below.
-C_MICRON_PER_S = 2.99792458e14
-
 def _resolve_flux_unit(flux_unit_input: Optional[str], header) -> Optional[str]:
     """
-    Return the flux unit to validate against, falling back to the header's BUNIT.
+    Return the cube's flux unit, falling back to the header's BUNIT.
 
     Callers that don't track the flux unit pass None. Without this fallback the
-    MJy/sr check below would be skipped entirely for them, and the MJy/sr formula
-    would be applied to MUSE (erg/cm²/s/Å) or ALMA (Jy/beam) data.
+    conversion would run without knowing what it was converting from.
     """
     if flux_unit_input is not None:
         return flux_unit_input
     return header.get('BUNIT', None) if header is not None else None
-
-def _is_mjy_per_sr(flux_unit_input: Optional[str]) -> bool:
-    """True if the flux unit looks like MJy/sr, the only input the CGS conversion supports."""
-    if flux_unit_input is None:
-        return True  # unknown unit - preserve historical behaviour and attempt the conversion
-    flux_upper = str(flux_unit_input).upper().replace(' ', '')
-    return "MJY" in flux_upper and "SR" in flux_upper
 
 def _normalize_wave_unit(wave_unit: Optional[str]) -> Optional[str]:
     if not wave_unit:
@@ -121,71 +109,37 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         unit = _normalize_wave_unit(wave_unit)
         if unit == "KM/S":
             return None  # velocity axis needs rest wavelength to convert
-        
-        flux_unit = _resolve_flux_unit(flux_unit_input, header)
 
-        # MUSE-style flux density (erg/s/cm²/Å) is already a flux per unit wavelength,
-        # so the area reduces to erg/s/cm² on its own - no solid angle, no
-        # wavelength-to-frequency jacobian. Returns None for units that don't reduce.
-        area_cgs = integrated_flux_to_cgs(amplitude_mjy_sr, sigma_val, flux_unit, unit)
-        if area_cgs is not None:
-            return area_cgs
+        # Gaussian area in native units: A × σ × √(2π), carrying [flux_unit × wave_unit]
+        area_native = amplitude_mjy_sr * sigma_val * np.sqrt(2 * np.pi)
 
-        # Anything else must be MJy/sr (MIRI, NIRSpec). Input that is neither
-        # (e.g. Jy/beam for ALMA) cannot be reliably converted.
-        if not _is_mjy_per_sr(flux_unit):
-            return None
-
-        # Extract CDELT values from header
-        cdelt1 = header.get('CDELT1', None)
-        cdelt2 = header.get('CDELT2', None)
-        
-        if cdelt1 is None or cdelt2 is None:
-            return None
-        
-        # Convert sigma and center to microns if needed
-        if unit == "ANGSTROM":
-            sigma = (sigma_val * u.AA).to(u.um).value
-            center = (center_val * u.AA).to(u.um).value
-        else:
-            sigma = sigma_val
-            center = center_val
-
-        # Calculate area: A × σ × sqrt(2π) [MJy/sr × μm]
-        area_native = amplitude_mjy_sr * sigma * np.sqrt(2 * np.pi)
-        
-        # Calculate conversion factor: CDELT1 × CDELT2 × 1e6 / (180/π)²
-        # This converts [MJy/sr × μm] to [Jy × μm] by applying pixel solid angle and MJy→Jy scale
-        cdelt1_abs = abs(float(cdelt1))
-        cdelt2_abs = abs(float(cdelt2))
-        conv = cdelt1_abs * cdelt2_abs * 1e6 / (180.0 / np.pi)**2
-        area_jy_micron = area_native * conv
-        
-        # Convert [Jy × μm] to [erg/s/cm²] using wavelength-to-frequency conversion
-        # F_ν = F_λ × (c / λ²), so: [Jy × μm] × (c / λ_c²) × [1e-23 erg/s/cm²/Hz per Jy] = [erg/s/cm²]
-        area_erg_s_cm2 = area_jy_micron * (C_MICRON_PER_S / (center**2)) * 1e-23
-        
-        return area_erg_s_cm2
+        return integrated_flux_to_cgs(
+            area_native,
+            _resolve_flux_unit(flux_unit_input, header),
+            wavelength=center_val,
+            header=header,
+            wave_unit=unit,
+        )
     except Exception:
         return None
 
 def convert_amplitude_to_cgs(amplitude_mjy_sr, center_val, header, wave_unit: Optional[str], flux_unit_input: Optional[str] = None):
     """
-    Convert Gaussian amplitude from MJy/sr to CGS units (erg/s/cm²/sr or erg/s/cm²/Hz/sr).
+    Convert a Gaussian amplitude to erg/s/cm² per wavelength unit.
 
-    For MJy/sr input:
-        amplitude_cgs = amplitude [MJy/sr] × conv × (c / λ²) × 1e-23
-        where conv = CDELT1 × CDELT2 × 1e6 / (180/π)²
+    An amplitude is a flux *density*, so unlike the area it keeps its spectral
+    dependence: the result is erg/s/cm²/μm for a μm axis, erg/s/cm²/Å for an Å axis.
+    Supports the same instruments as :func:`convert_area_to_cgs`.
 
     Args:
-        amplitude_mjy_sr: Peak amplitude in MJy/sr
-        center_val: Line center wavelength in wavelength units (μm or Å) [used for wavelength-to-frequency conversion]
-        header: FITS header to extract CDELT1, CDELT2
+        amplitude_mjy_sr: Peak amplitude in the cube's native flux units
+        center_val: Line center wavelength, in `wave_unit`
+        header: FITS header supplying CDELT1/CDELT2
         wave_unit: Wavelength unit (Å, µm, km/s)
-        flux_unit_input: Flux unit from header (only MJy/sr supported)
+        flux_unit_input: Flux unit from the header. Falls back to BUNIT if None.
 
     Returns:
-        float: Amplitude in CGS units (erg/s/cm²/sr), or None if conversion unsupported or fails
+        float: Amplitude in erg/s/cm² per wavelength unit, or None if unsupported
     """
     if (header is None or amplitude_mjy_sr is None or
         center_val is None or not np.isfinite(center_val)):
@@ -196,33 +150,13 @@ def convert_amplitude_to_cgs(amplitude_mjy_sr, center_val, header, wave_unit: Op
         if unit == "KM/S":
             return None  # velocity axis needs rest wavelength
 
-        # Check input flux unit - only MJy/sr is supported
-        if not _is_mjy_per_sr(_resolve_flux_unit(flux_unit_input, header)):
-            return None
-
-        # Extract CDELT values
-        cdelt1 = header.get('CDELT1', None)
-        cdelt2 = header.get('CDELT2', None)
-        
-        if cdelt1 is None or cdelt2 is None:
-            return None
-
-        # Convert center to microns if needed
-        if unit == "ANGSTROM":
-            center = (center_val * u.AA).to(u.um).value
-        else:
-            center = center_val
-
-        # Calculate conversion factor: CDELT1 × CDELT2 × 1e6 / (180/π)²
-        cdelt1_abs = abs(float(cdelt1))
-        cdelt2_abs = abs(float(cdelt2))
-        conv = cdelt1_abs * cdelt2_abs * 1e6 / (180.0 / np.pi)**2
-
-        # Convert [MJy/sr] to [erg/s/cm²/sr] using wavelength-to-frequency conversion
-        # F_ν = F_λ × (c / λ²), so: [MJy/sr] × conv × (c / λ²) × [1e-23 erg/s/cm²/Hz per Jy] = [erg/s/cm²/sr]
-        amp_erg_s_cm2_sr = amplitude_mjy_sr * conv * (C_MICRON_PER_S / (center**2)) * 1e-23
-
-        return amp_erg_s_cm2_sr
+        return flux_density_to_cgs(
+            amplitude_mjy_sr,
+            _resolve_flux_unit(flux_unit_input, header),
+            wavelength=center_val,
+            header=header,
+            wave_unit=unit,
+        )
     except Exception:
         return None
 
@@ -422,8 +356,8 @@ class GaussianFitResult:
             f"Gaussian Fit Results:\n"
             f"  Center (μ):     {self.center:.4f}\n"
             f"  Amplitude (A):  {self.amplitude:.4e}\n"
-            f"  Sigma (σ):      {self.sigma:.4f}\n"
-            f"  FWHM:           {self.fwhm:.4f}\n"
+            f"  Sigma (σ):      {self.sigma:.6g}\n"
+            f"  FWHM:           {self.fwhm:.6g}\n"
             f"  Area:           {self.area:.4e} {self.area_unit}\n"
             f"  R²:             {self.r_squared:.4f}\n"
             f"  Status:         {self.message}"

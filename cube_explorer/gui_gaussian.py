@@ -250,8 +250,8 @@ class GuiGaussianMixin:
 FITTED PARAMETERS:
   Center ({axis_name}):  {result.center:.6f} {wave_unit}
   Amplitude:             {result.amplitude:.4e} {flux_unit}
-  Sigma (σ):             {result.sigma:.6f} {wave_unit}
-  FWHM:                  {result.fwhm:.6f} {wave_unit}
+  Sigma (σ):             {result.sigma:.6g} {wave_unit}
+  FWHM:                  {result.fwhm:.6g} {wave_unit}
 
 INTEGRATED QUANTITIES:
   Gaussian Area:         {result.area:.4e} {area_unit}
@@ -423,8 +423,8 @@ STATUS: {result.message}
             results_text += f"""Line {idx}: {line.get('species', 'Unknown')}
   Center (λ):            {result.center:.6f} {wave_unit}
   Amplitude:             {result.amplitude:.4e} {flux_unit}
-  Sigma (σ):             {result.sigma:.6f} {wave_unit}
-  FWHM:                  {result.fwhm:.6f} {wave_unit}
+  Sigma (σ):             {result.sigma:.6g} {wave_unit}
+  FWHM:                  {result.fwhm:.6g} {wave_unit}
   Integrated Area:       {result.area:.4e} {result.area_unit or fallback_area_unit}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
         
