@@ -1,0 +1,319 @@
+===================
+1D Spectrum Fitting
+===================
+
+Fit a single Gaussian profile to one spectral line in the currently displayed 1D spectrum.
+
+This is the fast, interactive fit: you pick a wavelength window by hand, get one set of
+parameters back, and use it to understand your data before committing to a full-cube run.
+For fitting every spatial pixel at once, see :doc:`gaussian_fitting_cube`.
+
+Selecting the Fit Region
+========================
+
+Click **Gaussian Fit** on the middle toolbar to reveal the fitting controls. You then mark
+three wavelengths on the spectrum:
+
+- **Left** (λ_left): the shorter-wavelength edge of the fit window
+- **Peak** (λ_peak): the approximate line center, used as the initial guess for the fit
+- **Right** (λ_right): the longer-wavelength edge of the fit window
+
+**These are toggle buttons, not a wizard.** Each of **Left**, **Peak** and **Right** stays
+pressed until you click it again. The workflow is:
+
+1. Click the button for the point you want to set — it stays depressed
+2. Click on the spectrum at that wavelength
+3. Click the button again to release it
+
+You may set the three points in **any order**, and you may re-set any single point without
+starting over: toggle that one button back on and click a new location. Only the most recent
+click for each button is kept.
+
+The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
+constrain the result — it only seeds the optimizer, so a rough click is fine.
+
+.. note::
+
+   λ_peak must lie between λ_left and λ_right. The fitted center is free to move away
+   from your click.
+
+Running the Fit
+===============
+
+Click **Fit Gaussian**. A Gaussian curve overlay appears on the spectrum, and a results
+window opens.
+
+The fit is performed on baseline-subtracted data: a straight line is drawn between the
+flux values at the two window edges and subtracted before the Gaussian is fitted, so a
+sloping continuum does not bias the width or area.
+
+Reading the Results
+===================
+
+The results window is organized into the same blocks the application prints:
+
+USER INPUT
+----------
+
+Echoes back the wavelengths you actually clicked — **Left boundary**, **Peak** and
+**Right boundary** — so you can check the fit against what you asked for, plus the
+**Noise region** and whether it was required (see :ref:`noise-region-1d`).
+
+FITTED PARAMETERS
+-----------------
+
+- **Center** (μ): fitted line center, in the spectral axis unit (µm, Å, etc.)
+- **Amplitude** (A): peak height of the Gaussian above the baseline, in the cube's flux
+  unit (``BUNIT``)
+- **Sigma** (σ): Gaussian standard deviation, in the spectral axis unit
+- **FWHM**: full width at half maximum, ``2.355 × σ``, in the spectral axis unit
+
+INTEGRATED QUANTITIES
+---------------------
+
+- **Gaussian Area**: the integrated line flux, computed analytically as
+  ``A × σ × √(2π)``.
+
+  .. _area-units-1d:
+
+  **Units.** For all three supported instruments the area is reported in
+  **erg/s/cm²**:
+
+  .. list-table::
+     :header-rows: 1
+     :widths: 20 40 40
+
+     * - Instrument
+       - Cube unit (``BUNIT``)
+       - Reported area unit
+     * - MIRI
+       - ``MJy/sr``
+       - ``erg/s/cm²``
+     * - NIRSpec
+       - ``MJy/sr``
+       - ``erg/s/cm²``
+     * - MUSE
+       - ``10**(-20)*erg/s/cm**2/Angstrom``
+       - ``erg/s/cm²``
+
+  ``MJy/sr`` is a *surface brightness*, so converting it to a flux requires multiplying by
+  the solid angle of one spatial pixel (read from ``CDELT1`` and ``CDELT2`` in the header)
+  and applying the ``c/λ²`` conversion from per-frequency to per-wavelength. The result is
+  therefore the flux **from a single spaxel**, not the total flux of the source. To get a
+  source total, sum the area over the spaxels you care about.
+
+  MUSE needs no such correction: its ``BUNIT`` is already a flux density per unit
+  wavelength, so ``A × σ × √(2π)`` lands directly in erg/s/cm² once the ``1e-20`` scale
+  factor is applied.
+
+  If the header is missing or the units are not recognized, the area is reported in the
+  cube's own flux×wavelength units instead, and the displayed unit label says so. The
+  label always states what the number actually is — do not assume erg/s/cm².
+
+- **Equivalent Width**: the width of a rectangle that has the same integrated flux as the
+  fitted line and whose **height is the continuum level**. It is computed as the area in
+  the cube's *native* units divided by the mean fitted baseline across the window, so it
+  comes out in the spectral axis unit (µm, Å, etc.), not in flux units.
+
+BASELINE
+--------
+
+The straight line subtracted before fitting:
+
+- **Slope**: continuum gradient across the fit window, in flux per spectral unit
+- **Left endpoint**: the **flux** value of the fitted baseline at λ_left, in the cube's
+  flux unit. This is a continuum level, *not* a wavelength.
+
+FIT QUALITY
+-----------
+
+- **R² (coefficient)**: coefficient of determination, 0 to 1, higher is better.
+
+  .. warning::
+
+     R² is sensitive to how wide a window you picked. Extending the boundaries out over
+     flat continuum lowers R² even when the fit to the line itself is unchanged, because
+     the extra points add scatter without adding signal. Compare R² only between fits
+     using comparable windows, and judge the overlay by eye as well.
+
+  As a rough guide: above 0.95 is a clean fit, 0.8–0.95 is usable, and below about 0.5
+  the application flags the result as poor fit quality in the status message.
+
+- **Data points**: number of wavelength samples inside the window that entered the fit.
+
+  A Gaussian has three free parameters, so this must be at least 4 for the fit to be
+  meaningful, and you want considerably more. Check the sampling against the width:
+  fewer than roughly 3 points per FWHM means the line is undersampled and the fitted
+  σ, FWHM and area should not be trusted.
+
+STATUS
+------
+
+A message summarizing the outcome — success with the R² value, a poor-fit-quality
+warning, or the reason the fit failed.
+
+.. _noise-region-1d:
+
+The Noise Region
+================
+
+**Noise L** and **Noise R** are toggle buttons like the others, and mark a line-free
+stretch of spectrum used to estimate the noise level.
+
+For a normal 1D fit you can ignore them. They become **mandatory** in one specific case:
+
+.. important::
+
+   If fewer than **15** wavelength samples fall between λ_left and λ_right, the fit will
+   not run until you set both **Noise L** and **Noise R**. You will get:
+
+       *Narrow range (N points, under 15). Define a noise region first, or widen the fit
+       window.*
+
+   The reason is sampling, not arithmetic. A Gaussian has three free parameters, so a
+   window of a dozen points is close to underdetermined, and the application refuses to
+   hand back parameters from it without you having at least looked at the surrounding
+   noise.
+
+**The noise region does not change any fitted value.** Once the fit runs, the noise
+estimate is not used in the optimization, the area, or R² — it only unlocks the narrow
+case. If you hit the warning, widening the window is usually the better fix, since a line
+sampled by fewer than 15 points is marginal regardless of what the noise level turns out
+to be.
+
+The results window states which case applied, so an unset noise region never looks like
+something you forgot:
+
+.. code-block:: text
+
+    Noise region:          not set (not required at 25 points)
+    Noise region:          7.100000 µm - 7.150000 µm (required at 12 points)
+
+Noise L / Noise R carry their full weight in :doc:`gaussian_fitting_cube`, where they are
+always mandatory and set the detection threshold that separates detections from upper
+limits.
+
+Constraints
+===========
+
+1. λ_left < λ_peak < λ_right
+2. The window must contain at least a handful of wavelength samples; the fit raises an
+   error if the window is empty or entirely NaN
+3. Keep the window tight around the line. A window many times wider than the FWHM
+   depresses R² and lets baseline structure far from the line influence the linear
+   baseline subtraction
+4. Windows narrower than 15 samples require a noise region — see
+   :ref:`noise-region-1d` above
+
+Using the API
+=============
+
+The same fit is available without the GUI.
+
+**Fitting one line**
+
+.. code-block:: python
+
+    from cube_explorer.api import load_cube, fit_line
+
+    cube = load_cube("data.fits")
+
+    result = fit_line(
+        wavelength=cube.wavelength,
+        spectrum=cube.spectrum,
+        x1=6.90,               # Left boundary
+        x2=6.95,               # Right boundary
+        line_name="H2 S(5)",   # Label for readability; not stored on the result
+        header=cube.header,    # Required for the erg/s/cm² conversion
+        wave_unit=cube.wave_unit,
+    )
+
+    if result.success:
+        print(f"Center:    {result.center:.6f} {cube.wave_unit}")
+        print(f"Amplitude: {result.amplitude:.4e}")
+        print(f"FWHM:      {result.fwhm:.6g} {cube.wave_unit}")
+        print(f"Area:      {result.area:.4e} {result.area_unit}")
+        print(f"R²:        {result.r_squared:.4f}")
+    else:
+        print(f"Fit failed: {result.message}")
+
+.. important::
+
+   Pass ``header=cube.header`` if you want ``area`` in erg/s/cm². Without it the fitter
+   has no pixel scale to work with and leaves the area in the cube's native
+   flux×wavelength units. Always read ``result.area_unit`` rather than assuming.
+
+   ``peak_x`` is optional — it defaults to the brightest sample inside the window, which
+   is the programmatic equivalent of clicking on the peak.
+
+**Fitting several lines**
+
+There is no GUI equivalent of this — in the application you would simply run the fit
+three times. ``fit_multiple_lines`` is a scripting convenience that loops over
+``fit_line`` for you. Each region is fitted independently, in order; the lines are
+*not* fitted as one simultaneous model.
+
+.. code-block:: python
+
+    from cube_explorer.api import load_cube, fit_multiple_lines
+
+    cube = load_cube("data.fits")
+
+    lines = [
+        (6.90, 6.95),    # H2 S(5)
+        (7.10, 7.15),
+        (7.28, 7.32),
+    ]
+
+    results = fit_multiple_lines(
+        cube.wavelength, cube.spectrum, lines,
+        header=cube.header, wave_unit=cube.wave_unit,
+    )
+
+    for (x1, x2), result in zip(lines, results):
+        if result.success:
+            print(f"[{x1}-{x2}] center={result.center:.6f}, "
+                  f"FWHM={result.fwhm:.6g}, area={result.area:.4e} {result.area_unit}")
+        else:
+            print(f"[{x1}-{x2}] failed: {result.message}")
+
+**Result fields**
+
+.. code-block:: python
+
+    result = fit_line(cube.wavelength, cube.spectrum, 6.90, 6.95,
+                      header=cube.header, wave_unit=cube.wave_unit)
+
+    # Fitted parameters
+    result.center            # Line center, spectral axis unit
+    result.amplitude         # Peak height above baseline, cube flux unit
+    result.sigma             # Gaussian sigma, spectral axis unit
+    result.fwhm              # 2.355 * sigma
+
+    # Integrated flux
+    result.area              # Converted area (erg/s/cm² when possible)
+    result.area_unit         # String naming the unit of `area` - always check this
+    result.area_native       # Area before conversion, in cube flux x wavelength units
+
+    # Baseline
+    result.baseline           # Fitted linear baseline evaluated at each data point
+    result.baseline_slope     # Continuum gradient
+    result.baseline_intercept # Baseline flux at x1 (the "Left endpoint" in the GUI)
+
+    # Quality and status
+    result.r_squared         # Coefficient of determination
+    result.success           # Did the fit converge?
+    result.message           # Human-readable status
+
+.. note::
+
+   Use ``area_native``, not ``area``, whenever you divide by something measured in the
+   cube's own units — an equivalent width, for example. Dividing a converted erg/s/cm²
+   area by a continuum in MJy/sr mixes unit systems and gives a meaningless number.
+
+Next Steps
+==========
+
+- :doc:`gaussian_fitting_cube` — repeat this fit across every spatial pixel
+- :doc:`continuum_subtraction` — remove the continuum before fitting
+- :doc:`exporting_data` — save spectra and fit results

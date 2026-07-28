@@ -63,7 +63,7 @@ After loading your data:
 
 1. Explore :doc:`visualization` options
 2. Learn :doc:`selecting_regions` techniques
-3. Perform :doc:`gaussian_fitting`
+3. Perform :doc:`gaussian_fitting_1d`
 
 
 Using the Data Loading API

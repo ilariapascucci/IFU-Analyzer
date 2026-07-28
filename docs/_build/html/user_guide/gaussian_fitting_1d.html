@@ -1,0 +1,463 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1D Spectrum Fitting &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Pixel-by-Pixel Cube Fitting" href="gaussian_fitting_cube.html" />
+    <link rel="prev" title="Selecting Regions" href="selecting_regions.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">1D Spectrum Fitting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#selecting-the-fit-region">Selecting the Fit Region</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#running-the-fit">Running the Fit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#reading-the-results">Reading the Results</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#user-input">USER INPUT</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fitted-parameters">FITTED PARAMETERS</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#integrated-quantities">INTEGRATED QUANTITIES</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#baseline">BASELINE</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#fit-quality">FIT QUALITY</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#status">STATUS</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#the-noise-region">The Noise Region</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#constraints">Constraints</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/api.html">API Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">1D Spectrum Fitting</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/gaussian_fitting_1d.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="gaussian_fitting_cube.html" class="btn btn-neutral float-right" title="Pixel-by-Pixel Cube Fitting" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="d-spectrum-fitting">
+<h1>1D Spectrum Fitting<a class="headerlink" href="#d-spectrum-fitting" title="Link to this heading"></a></h1>
+<p>Fit a single Gaussian profile to one spectral line in the currently displayed 1D spectrum.</p>
+<p>This is the fast, interactive fit: you pick a wavelength window by hand, get one set of
+parameters back, and use it to understand your data before committing to a full-cube run.
+For fitting every spatial pixel at once, see <a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a>.</p>
+<section id="selecting-the-fit-region">
+<h2>Selecting the Fit Region<a class="headerlink" href="#selecting-the-fit-region" title="Link to this heading"></a></h2>
+<p>Click <strong>Gaussian Fit</strong> on the middle toolbar to reveal the fitting controls. You then mark
+three wavelengths on the spectrum:</p>
+<ul class="simple">
+<li><p><strong>Left</strong> (λ_left): the shorter-wavelength edge of the fit window</p></li>
+<li><p><strong>Peak</strong> (λ_peak): the approximate line center, used as the initial guess for the fit</p></li>
+<li><p><strong>Right</strong> (λ_right): the longer-wavelength edge of the fit window</p></li>
+</ul>
+<p><strong>These are toggle buttons, not a wizard.</strong> Each of <strong>Left</strong>, <strong>Peak</strong> and <strong>Right</strong> stays
+pressed until you click it again. The workflow is:</p>
+<ol class="arabic simple">
+<li><p>Click the button for the point you want to set — it stays depressed</p></li>
+<li><p>Click on the spectrum at that wavelength</p></li>
+<li><p>Click the button again to release it</p></li>
+</ol>
+<p>You may set the three points in <strong>any order</strong>, and you may re-set any single point without
+starting over: toggle that one button back on and click a new location. Only the most recent
+click for each button is kept.</p>
+<p>The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
+constrain the result — it only seeds the optimizer, so a rough click is fine.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>λ_peak must lie between λ_left and λ_right. The fitted center is free to move away
+from your click.</p>
+</div>
+</section>
+<section id="running-the-fit">
+<h2>Running the Fit<a class="headerlink" href="#running-the-fit" title="Link to this heading"></a></h2>
+<p>Click <strong>Fit Gaussian</strong>. A Gaussian curve overlay appears on the spectrum, and a results
+window opens.</p>
+<p>The fit is performed on baseline-subtracted data: a straight line is drawn between the
+flux values at the two window edges and subtracted before the Gaussian is fitted, so a
+sloping continuum does not bias the width or area.</p>
+</section>
+<section id="reading-the-results">
+<h2>Reading the Results<a class="headerlink" href="#reading-the-results" title="Link to this heading"></a></h2>
+<p>The results window is organized into the same blocks the application prints:</p>
+<section id="user-input">
+<h3>USER INPUT<a class="headerlink" href="#user-input" title="Link to this heading"></a></h3>
+<p>Echoes back the wavelengths you actually clicked — <strong>Left boundary</strong>, <strong>Peak</strong> and
+<strong>Right boundary</strong> — so you can check the fit against what you asked for, plus the
+<strong>Noise region</strong> and whether it was required (see <a class="reference internal" href="#noise-region-1d"><span class="std std-ref">The Noise Region</span></a>).</p>
+</section>
+<section id="fitted-parameters">
+<h3>FITTED PARAMETERS<a class="headerlink" href="#fitted-parameters" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Center</strong> (μ): fitted line center, in the spectral axis unit (µm, Å, etc.)</p></li>
+<li><p><strong>Amplitude</strong> (A): peak height of the Gaussian above the baseline, in the cube’s flux
+unit (<code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>)</p></li>
+<li><p><strong>Sigma</strong> (σ): Gaussian standard deviation, in the spectral axis unit</p></li>
+<li><p><strong>FWHM</strong>: full width at half maximum, <code class="docutils literal notranslate"><span class="pre">2.355</span> <span class="pre">×</span> <span class="pre">σ</span></code>, in the spectral axis unit</p></li>
+</ul>
+</section>
+<section id="integrated-quantities">
+<h3>INTEGRATED QUANTITIES<a class="headerlink" href="#integrated-quantities" title="Link to this heading"></a></h3>
+<ul>
+<li><p><strong>Gaussian Area</strong>: the integrated line flux, computed analytically as
+<code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">×</span> <span class="pre">σ</span> <span class="pre">×</span> <span class="pre">√(2π)</span></code>.</p>
+<p id="area-units-1d"><strong>Units.</strong> For all three supported instruments the area is reported in
+<strong>erg/s/cm²</strong>:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 40.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Instrument</p></th>
+<th class="head"><p>Cube unit (<code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>)</p></th>
+<th class="head"><p>Reported area unit</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>MIRI</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">MJy/sr</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">erg/s/cm²</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>NIRSpec</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">MJy/sr</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">erg/s/cm²</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>MUSE</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10**(-20)*erg/s/cm**2/Angstrom</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">erg/s/cm²</span></code></p></td>
+</tr>
+</tbody>
+</table>
+<p><code class="docutils literal notranslate"><span class="pre">MJy/sr</span></code> is a <em>surface brightness</em>, so converting it to a flux requires multiplying by
+the solid angle of one spatial pixel (read from <code class="docutils literal notranslate"><span class="pre">CDELT1</span></code> and <code class="docutils literal notranslate"><span class="pre">CDELT2</span></code> in the header)
+and applying the <code class="docutils literal notranslate"><span class="pre">c/λ²</span></code> conversion from per-frequency to per-wavelength. The result is
+therefore the flux <strong>from a single spaxel</strong>, not the total flux of the source. To get a
+source total, sum the area over the spaxels you care about.</p>
+<p>MUSE needs no such correction: its <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code> is already a flux density per unit
+wavelength, so <code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">×</span> <span class="pre">σ</span> <span class="pre">×</span> <span class="pre">√(2π)</span></code> lands directly in erg/s/cm² once the <code class="docutils literal notranslate"><span class="pre">1e-20</span></code> scale
+factor is applied.</p>
+<p>If the header is missing or the units are not recognized, the area is reported in the
+cube’s own flux×wavelength units instead, and the displayed unit label says so. The
+label always states what the number actually is — do not assume erg/s/cm².</p>
+</li>
+<li><p><strong>Equivalent Width</strong>: the width of a rectangle that has the same integrated flux as the
+fitted line and whose <strong>height is the continuum level</strong>. It is computed as the area in
+the cube’s <em>native</em> units divided by the mean fitted baseline across the window, so it
+comes out in the spectral axis unit (µm, Å, etc.), not in flux units.</p></li>
+</ul>
+</section>
+<section id="baseline">
+<h3>BASELINE<a class="headerlink" href="#baseline" title="Link to this heading"></a></h3>
+<p>The straight line subtracted before fitting:</p>
+<ul class="simple">
+<li><p><strong>Slope</strong>: continuum gradient across the fit window, in flux per spectral unit</p></li>
+<li><p><strong>Left endpoint</strong>: the <strong>flux</strong> value of the fitted baseline at λ_left, in the cube’s
+flux unit. This is a continuum level, <em>not</em> a wavelength.</p></li>
+</ul>
+</section>
+<section id="fit-quality">
+<h3>FIT QUALITY<a class="headerlink" href="#fit-quality" title="Link to this heading"></a></h3>
+<ul>
+<li><p><strong>R² (coefficient)</strong>: coefficient of determination, 0 to 1, higher is better.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>R² is sensitive to how wide a window you picked. Extending the boundaries out over
+flat continuum lowers R² even when the fit to the line itself is unchanged, because
+the extra points add scatter without adding signal. Compare R² only between fits
+using comparable windows, and judge the overlay by eye as well.</p>
+</div>
+<p>As a rough guide: above 0.95 is a clean fit, 0.8–0.95 is usable, and below about 0.5
+the application flags the result as poor fit quality in the status message.</p>
+</li>
+<li><p><strong>Data points</strong>: number of wavelength samples inside the window that entered the fit.</p>
+<p>A Gaussian has three free parameters, so this must be at least 4 for the fit to be
+meaningful, and you want considerably more. Check the sampling against the width:
+fewer than roughly 3 points per FWHM means the line is undersampled and the fitted
+σ, FWHM and area should not be trusted.</p>
+</li>
+</ul>
+</section>
+<section id="status">
+<h3>STATUS<a class="headerlink" href="#status" title="Link to this heading"></a></h3>
+<p>A message summarizing the outcome — success with the R² value, a poor-fit-quality
+warning, or the reason the fit failed.</p>
+</section>
+</section>
+<section id="the-noise-region">
+<span id="noise-region-1d"></span><h2>The Noise Region<a class="headerlink" href="#the-noise-region" title="Link to this heading"></a></h2>
+<p><strong>Noise L</strong> and <strong>Noise R</strong> are toggle buttons like the others, and mark a line-free
+stretch of spectrum used to estimate the noise level.</p>
+<p>For a normal 1D fit you can ignore them. They become <strong>mandatory</strong> in one specific case:</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>If fewer than <strong>15</strong> wavelength samples fall between λ_left and λ_right, the fit will
+not run until you set both <strong>Noise L</strong> and <strong>Noise R</strong>. You will get:</p>
+<blockquote>
+<div><p><em>Narrow range (N points, under 15). Define a noise region first, or widen the fit
+window.</em></p>
+</div></blockquote>
+<p>The reason is sampling, not arithmetic. A Gaussian has three free parameters, so a
+window of a dozen points is close to underdetermined, and the application refuses to
+hand back parameters from it without you having at least looked at the surrounding
+noise.</p>
+</div>
+<p><strong>The noise region does not change any fitted value.</strong> Once the fit runs, the noise
+estimate is not used in the optimization, the area, or R² — it only unlocks the narrow
+case. If you hit the warning, widening the window is usually the better fix, since a line
+sampled by fewer than 15 points is marginal regardless of what the noise level turns out
+to be.</p>
+<p>The results window states which case applied, so an unset noise region never looks like
+something you forgot:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Noise region:          not set (not required at 25 points)
+Noise region:          7.100000 µm - 7.150000 µm (required at 12 points)
+</pre></div>
+</div>
+<p>Noise L / Noise R carry their full weight in <a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a>, where they are
+always mandatory and set the detection threshold that separates detections from upper
+limits.</p>
+</section>
+<section id="constraints">
+<h2>Constraints<a class="headerlink" href="#constraints" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>λ_left &lt; λ_peak &lt; λ_right</p></li>
+<li><p>The window must contain at least a handful of wavelength samples; the fit raises an
+error if the window is empty or entirely NaN</p></li>
+<li><p>Keep the window tight around the line. A window many times wider than the FWHM
+depresses R² and lets baseline structure far from the line influence the linear
+baseline subtraction</p></li>
+<li><p>Windows narrower than 15 samples require a noise region — see
+<a class="reference internal" href="#noise-region-1d"><span class="std std-ref">The Noise Region</span></a> above</p></li>
+</ol>
+</section>
+<section id="using-the-api">
+<h2>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h2>
+<p>The same fit is available without the GUI.</p>
+<p><strong>Fitting one line</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_line</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">fit_line</span><span class="p">(</span>
+    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
+    <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">x1</span><span class="o">=</span><span class="mf">6.90</span><span class="p">,</span>               <span class="c1"># Left boundary</span>
+    <span class="n">x2</span><span class="o">=</span><span class="mf">6.95</span><span class="p">,</span>               <span class="c1"># Right boundary</span>
+    <span class="n">line_name</span><span class="o">=</span><span class="s2">&quot;H2 S(5)&quot;</span><span class="p">,</span>   <span class="c1"># Label for readability; not stored on the result</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>    <span class="c1"># Required for the erg/s/cm² conversion</span>
+    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Center:    </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">center</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Amplitude: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">amplitude</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;FWHM:      </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6g</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Area:      </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;R²:        </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">r_squared</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Fit failed: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">header=cube.header</span></code> if you want <code class="docutils literal notranslate"><span class="pre">area</span></code> in erg/s/cm². Without it the fitter
+has no pixel scale to work with and leaves the area in the cube’s native
+flux×wavelength units. Always read <code class="docutils literal notranslate"><span class="pre">result.area_unit</span></code> rather than assuming.</p>
+<p><code class="docutils literal notranslate"><span class="pre">peak_x</span></code> is optional — it defaults to the brightest sample inside the window, which
+is the programmatic equivalent of clicking on the peak.</p>
+</div>
+<p><strong>Fitting several lines</strong></p>
+<p>There is no GUI equivalent of this — in the application you would simply run the fit
+three times. <code class="docutils literal notranslate"><span class="pre">fit_multiple_lines</span></code> is a scripting convenience that loops over
+<code class="docutils literal notranslate"><span class="pre">fit_line</span></code> for you. Each region is fitted independently, in order; the lines are
+<em>not</em> fitted as one simultaneous model.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_multiple_lines</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+<span class="n">lines</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="mf">6.90</span><span class="p">,</span> <span class="mf">6.95</span><span class="p">),</span>    <span class="c1"># H2 S(5)</span>
+    <span class="p">(</span><span class="mf">7.10</span><span class="p">,</span> <span class="mf">7.15</span><span class="p">),</span>
+    <span class="p">(</span><span class="mf">7.28</span><span class="p">,</span> <span class="mf">7.32</span><span class="p">),</span>
+<span class="p">]</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="n">fit_multiple_lines</span><span class="p">(</span>
+    <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span> <span class="n">lines</span><span class="p">,</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">for</span> <span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">),</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2">] center=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">center</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">, &quot;</span>
+              <span class="sa">f</span><span class="s2">&quot;FWHM=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6g</span><span class="si">}</span><span class="s2">, area=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2">] failed: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Result fields</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">fit_line</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span> <span class="mf">6.90</span><span class="p">,</span> <span class="mf">6.95</span><span class="p">,</span>
+                  <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">)</span>
+
+<span class="c1"># Fitted parameters</span>
+<span class="n">result</span><span class="o">.</span><span class="n">center</span>            <span class="c1"># Line center, spectral axis unit</span>
+<span class="n">result</span><span class="o">.</span><span class="n">amplitude</span>         <span class="c1"># Peak height above baseline, cube flux unit</span>
+<span class="n">result</span><span class="o">.</span><span class="n">sigma</span>             <span class="c1"># Gaussian sigma, spectral axis unit</span>
+<span class="n">result</span><span class="o">.</span><span class="n">fwhm</span>              <span class="c1"># 2.355 * sigma</span>
+
+<span class="c1"># Integrated flux</span>
+<span class="n">result</span><span class="o">.</span><span class="n">area</span>              <span class="c1"># Converted area (erg/s/cm² when possible)</span>
+<span class="n">result</span><span class="o">.</span><span class="n">area_unit</span>         <span class="c1"># String naming the unit of `area` - always check this</span>
+<span class="n">result</span><span class="o">.</span><span class="n">area_native</span>       <span class="c1"># Area before conversion, in cube flux x wavelength units</span>
+
+<span class="c1"># Baseline</span>
+<span class="n">result</span><span class="o">.</span><span class="n">baseline</span>           <span class="c1"># Fitted linear baseline evaluated at each data point</span>
+<span class="n">result</span><span class="o">.</span><span class="n">baseline_slope</span>     <span class="c1"># Continuum gradient</span>
+<span class="n">result</span><span class="o">.</span><span class="n">baseline_intercept</span> <span class="c1"># Baseline flux at x1 (the &quot;Left endpoint&quot; in the GUI)</span>
+
+<span class="c1"># Quality and status</span>
+<span class="n">result</span><span class="o">.</span><span class="n">r_squared</span>         <span class="c1"># Coefficient of determination</span>
+<span class="n">result</span><span class="o">.</span><span class="n">success</span>           <span class="c1"># Did the fit converge?</span>
+<span class="n">result</span><span class="o">.</span><span class="n">message</span>           <span class="c1"># Human-readable status</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Use <code class="docutils literal notranslate"><span class="pre">area_native</span></code>, not <code class="docutils literal notranslate"><span class="pre">area</span></code>, whenever you divide by something measured in the
+cube’s own units — an equivalent width, for example. Dividing a converted erg/s/cm²
+area by a continuum in MJy/sr mixes unit systems and gives a meaningless number.</p>
+</div>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> — repeat this fit across every spatial pixel</p></li>
+<li><p><a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a> — remove the continuum before fitting</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — save spectra and fit results</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="gaussian_fitting_cube.html" class="btn btn-neutral float-right" title="Pixel-by-Pixel Cube Fitting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

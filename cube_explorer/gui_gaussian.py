@@ -10,6 +10,12 @@ from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
 from .co_flux_extractor import fit_continuum_median_peaks
 
+# Below this many samples in the fit window, a 1D fit will not run without a noise
+# region. The noise value itself does not enter the fit; the gate exists because a
+# window this narrow is too poorly sampled to trust on its own.
+NOISE_REQUIRED_BELOW_N_POINTS = 15
+
+
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
     if isinstance(wavelength_quantity_or_array, Quantity):
         if index is not None:
@@ -175,8 +181,13 @@ class GuiGaussianMixin:
         spectrum_x_vals = spectrum_x.value if isinstance(spectrum_x, Quantity) else spectrum_x
         n_points_in_fit = np.count_nonzero((spectrum_x_vals >= lam_min) & (spectrum_x_vals <= lam_max))
         
-        if n_points_in_fit < 15 and (self.gauss_noise_left_x is None or self.gauss_noise_right_x is None):
-            QMessageBox.warning(self, "Noise Region Required", f"Narrow range (<15 points). Define a noise region first.")
+        if n_points_in_fit < NOISE_REQUIRED_BELOW_N_POINTS and (self.gauss_noise_left_x is None or self.gauss_noise_right_x is None):
+            QMessageBox.warning(
+                self, "Noise Region Required",
+                f"Narrow range ({n_points_in_fit} points, under "
+                f"{NOISE_REQUIRED_BELOW_N_POINTS}). Define a noise region first, "
+                f"or widen the fit window."
+            )
             return
         
         if (self.gauss_noise_left_x is None) ^ (self.gauss_noise_right_x is None):
@@ -230,18 +241,23 @@ class GuiGaussianMixin:
         noise_left_x = getattr(self, 'gauss_noise_left_x', None)
         noise_right_x = getattr(self, 'gauss_noise_right_x', None)
 
+        # A noise region is only demanded for narrow windows (<15 points), and even
+        # then it does not feed into the fitted values. Say which case applies so an
+        # unset noise region doesn't read as something the user forgot.
+        n_points = len(result.x_data)
+        requirement = "required" if n_points < NOISE_REQUIRED_BELOW_N_POINTS else "not required"
+        if noise_left_x is not None and noise_right_x is not None:
+            noise_text = (f"{_fmt_input(min(noise_left_x, noise_right_x))} - "
+                          f"{_fmt_input(max(noise_left_x, noise_right_x))} "
+                          f"({requirement} at {n_points} points)")
+        else:
+            noise_text = f"not set ({requirement} at {n_points} points)"
+
         user_input_text = f"""USER INPUT:
   Left boundary:         {_fmt_input(left_x)}
   Peak:                  {_fmt_input(peak_x)}
-  Right boundary:        {_fmt_input(right_x)}"""
-
-        if noise_left_x is not None and noise_right_x is not None:
-            user_input_text += f"""
-  Noise region (left):   {_fmt_input(noise_left_x)}
-  Noise region (right):  {_fmt_input(noise_right_x)}"""
-        else:
-            user_input_text += """
-  Noise region:          not set"""
+  Right boundary:        {_fmt_input(right_x)}
+  Noise region:          {noise_text}"""
 
         results_text = f"""GAUSSIAN FIT RESULTS
 {'='*60}

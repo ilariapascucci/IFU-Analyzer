@@ -1,0 +1,413 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixel-by-Pixel Cube Fitting &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Continuum Subtraction" href="continuum_subtraction.html" />
+    <link rel="prev" title="1D Spectrum Fitting" href="gaussian_fitting_1d.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_1d.html">1D Spectrum Fitting</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Pixel-by-Pixel Cube Fitting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#setting-up-the-fit">Setting Up the Fit</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#wavelength-window-required">Wavelength window (required)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#noise-region-required">Noise region (required)</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#running-the-fit">Running the Fit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#reading-the-results">Reading the Results</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#output-maps">Output Maps</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#upper-limits">Upper limits</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-maps-as-fits">Exporting Maps as FITS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#constraints-and-tips">Constraints and Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/api.html">API Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Pixel-by-Pixel Cube Fitting</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/gaussian_fitting_cube.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="gaussian_fitting_1d.html" class="btn btn-neutral float-left" title="1D Spectrum Fitting" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-right" title="Continuum Subtraction" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="pixel-by-pixel-cube-fitting">
+<h1>Pixel-by-Pixel Cube Fitting<a class="headerlink" href="#pixel-by-pixel-cube-fitting" title="Link to this heading"></a></h1>
+<p>Fit a Gaussian to the spectrum of <strong>every spatial pixel</strong> in the cube, producing 2D parameter
+maps that show how the line properties vary across the field.</p>
+<p>This is the full-cube counterpart to <a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a>. The per-pixel fit is the same
+algorithm, but the workflow, the required inputs and the outputs are different: a noise region
+becomes mandatory, non-detections are turned into upper limits rather than discarded, and the
+result is a set of maps rather than a single number per parameter.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Fit the 1D spectrum first.</strong> Run <a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a> on a representative pixel or
+region before starting a cube fit. That is how you find a sensible wavelength window and
+confirm the line is actually there. A full-cube run over a badly chosen window takes
+minutes and produces maps of noise.</p>
+</div>
+<section id="setting-up-the-fit">
+<h2>Setting Up the Fit<a class="headerlink" href="#setting-up-the-fit" title="Link to this heading"></a></h2>
+<p>The cube fit reuses the same toggle buttons as the 1D fit, but requires a different subset
+of them.</p>
+<section id="wavelength-window-required">
+<h3>Wavelength window (required)<a class="headerlink" href="#wavelength-window-required" title="Link to this heading"></a></h3>
+<p>Set <strong>Left</strong> and <strong>Right</strong> to bracket the line. These become the fit window for every pixel.</p>
+<p><strong>Peak is not required.</strong> Unlike the 1D fit, the cube fit does not use your λ_peak click.
+Instead it fits the summed spectrum of the whole cube once to derive initial guesses, and
+if a HITRAN line list is loaded it will use the nearest catalog line in the window as the
+center seed. This “global 1D fit” is reported back to you in the results window.</p>
+</section>
+<section id="noise-region-required">
+<h3>Noise region (required)<a class="headerlink" href="#noise-region-required" title="Link to this heading"></a></h3>
+<p>Set <strong>Noise L</strong> and <strong>Noise R</strong> over a line-free stretch of spectrum. <strong>The cube fit refuses
+to start without them</strong> — you will get a “Noise Region Required” warning.</p>
+<p>Unlike the 1D fit — where a noise region is only demanded for very narrow windows, and
+does not affect the result even then (see <a class="reference internal" href="gaussian_fitting_1d.html#noise-region-1d"><span class="std std-ref">The Noise Region</span></a>) — here it is always
+required <em>and</em> it directly shapes the output.</p>
+<p>The noise region is not optional decoration here. The standard deviation measured in it sets
+the detection threshold: a pixel counts as a detection when its fitted amplitude exceeds
+<strong>3σ</strong> of the noise <em>and</em> the fit improves on the residuals. Everything else is recorded as
+an upper limit. Choose a region close in wavelength to the line, and genuinely free of
+features — a noise region that clips a line wing inflates σ and silently demotes real
+detections to upper limits.</p>
+</section>
+</section>
+<section id="running-the-fit">
+<h2>Running the Fit<a class="headerlink" href="#running-the-fit" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p>Click <strong>Fit Gaussian Map</strong></p></li>
+<li><p>Confirm at the “Continue with map fitting?” prompt</p></li>
+<li><p>The fit runs on 8 worker threads in the background</p></li>
+</ol>
+<p><strong>Watching progress.</strong> The dialog that appears is an <em>indeterminate</em> busy indicator — it
+does not show a percentage, and the “Hide” button dismisses it without cancelling the run.
+Actual progress is printed to the <strong>console</strong> you launched the application from:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Fitting Gaussians to 122500 pixels in wavelength range [6.9000, 6.9500]
+Using 8 worker threads (122,500 pixels)
+  Progress: 12250/122500 pixels (10.0%)
+  Progress: 24500/122500 pixels (20.0%)
+  ...
+Fitting complete: 98211/122500 successful fits (80.2%)
+  Detections (&gt;3.0 sigma): 41022 (33.5%)
+  Upper limits: 57189 (46.7%)
+</pre></div>
+</div>
+<p>If the window appears frozen, check the console — that is where liveness shows up.</p>
+<p><strong>Results are cached.</strong> Re-running with the same Left/Right <em>and</em> the same Noise L/Noise R
+reuses the previous fit instead of recomputing it, and tells you so. Change any of the four
+boundaries to force a fresh run.</p>
+</section>
+<section id="reading-the-results">
+<h2>Reading the Results<a class="headerlink" href="#reading-the-results" title="Link to this heading"></a></h2>
+<p>The results window opens automatically when the fit completes, headed by a summary:</p>
+<ul class="simple">
+<li><p><strong>Successfully fit N / M pixels</strong> — how many converged at all</p></li>
+<li><p><strong>Detections | Upper limits</strong> — the 3σ split described above</p></li>
+<li><p><strong>Global 1D fit</strong> — the summed-spectrum fit used to seed the per-pixel initial guesses,
+and where its center came from</p></li>
+</ul>
+<p>Below that, a dropdown selects which map to display, with colormap and scale controls
+(Linear, Log, or Percentile 2–98%).</p>
+</section>
+<section id="output-maps">
+<h2>Output Maps<a class="headerlink" href="#output-maps" title="Link to this heading"></a></h2>
+<p>Available in the dropdown:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Map</p></th>
+<th class="head"><p>Contents</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Area (AUC)</strong></p></td>
+<td><p>Integrated line flux per pixel, <code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">×</span> <span class="pre">σ</span> <span class="pre">×</span> <span class="pre">√(2π)</span></code>. In <strong>erg/s/cm²</strong> for MIRI,
+NIRSpec and MUSE (see <a class="reference internal" href="gaussian_fitting_1d.html#area-units-1d"><span class="std std-ref">the unit table on the 1D page</span></a>);
+otherwise in the cube’s native flux×wavelength units.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Amplitude</strong></p></td>
+<td><p>Peak height above the baseline, converted to CGS where the header allows it</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Center</strong></p></td>
+<td><p>Fitted line center wavelength — this is your velocity map, once converted</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Sigma</strong></p></td>
+<td><p>Gaussian σ, in the spectral axis unit</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>FWHM</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2.355</span> <span class="pre">×</span> <span class="pre">σ</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>chi2 (fit quality)</strong></p></td>
+<td><p>Reduced chi-squared per pixel. <code class="docutils literal notranslate"><span class="pre">χ²_red</span> <span class="pre">≈</span> <span class="pre">1</span></code> is a good fit, <code class="docutils literal notranslate"><span class="pre">&gt;&gt;</span> <span class="pre">1</span></code> is poor,
+<code class="docutils literal notranslate"><span class="pre">&lt;&lt;</span> <span class="pre">1</span></code> means overfitting. This is a real χ² — it exists here, and not in the 1D
+fit, precisely because the mandatory noise region supplies the σ it needs.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Success Mask</strong></p></td>
+<td><p>Binary map of which pixels converged</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Residuals</strong></p></td>
+<td><p>Data minus fitted model. Display only — see the export note below.</p></td>
+</tr>
+</tbody>
+</table>
+<section id="upper-limits">
+<h3>Upper limits<a class="headerlink" href="#upper-limits" title="Link to this heading"></a></h3>
+<p>For pixels that fail the detection threshold the area is <strong>not</strong> set to NaN. It is replaced
+with a 1σ upper limit, <code class="docutils literal notranslate"><span class="pre">std_residuals</span> <span class="pre">×</span> <span class="pre">σ_guess</span> <span class="pre">×</span> <span class="pre">√(2π)</span></code>, and the pixel is flagged in the
+<code class="docutils literal notranslate"><span class="pre">is_upper_limit</span></code> mask.</p>
+<p>This matters downstream: <a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> detects censored points and switches from
+ordinary least squares to Bayesian censored regression rather than discarding them. Failed
+fits — as opposed to non-detections — do store NaN.</p>
+</section>
+</section>
+<section id="exporting-maps-as-fits">
+<h2>Exporting Maps as FITS<a class="headerlink" href="#exporting-maps-as-fits" title="Link to this heading"></a></h2>
+<p>With a map selected in the dropdown, click <strong>Save as FITS File</strong>. Each map is written as a
+single-slice FITS file you can reopen in the 2D viewer (<a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Image Viewer</span></a>) or in external
+tools.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>Residuals cannot be exported from this dialog.</strong> It appears in the display dropdown but
+not in the export list, so choosing it and clicking save produces a “Cannot export”
+warning. To get residuals to disk, use <code class="docutils literal notranslate"><span class="pre">export_residual_cube</span></code> from the API (below),
+which writes the full 3D residual cube.</p>
+</div>
+</section>
+<section id="using-the-api">
+<h2>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h2>
+<p><strong>Fitting the cube</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">create_gaussian_map</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+<span class="n">maps</span> <span class="o">=</span> <span class="n">create_gaussian_map</span><span class="p">(</span>
+    <span class="n">cube</span><span class="p">,</span>
+    <span class="n">lam_min</span><span class="o">=</span><span class="mf">6.90</span><span class="p">,</span>
+    <span class="n">lam_max</span><span class="o">=</span><span class="mf">6.95</span><span class="p">,</span>
+    <span class="n">noise_min</span><span class="o">=</span><span class="mf">7.00</span><span class="p">,</span>        <span class="c1"># Line-free region, as in the GUI</span>
+    <span class="n">noise_max</span><span class="o">=</span><span class="mf">7.05</span><span class="p">,</span>
+    <span class="n">fac_above_stdres</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>  <span class="c1"># Detection threshold in sigma</span>
+    <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Converged:    </span><span class="si">{</span><span class="n">maps</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Detections:   </span><span class="si">{</span><span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_detection&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Upper limits: </span><span class="si">{</span><span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_upper_limit&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="n">area_map</span> <span class="o">=</span> <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;area&#39;</span><span class="p">]</span>          <span class="c1"># 2D array, shape (n_y, n_x)</span>
+</pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p><code class="docutils literal notranslate"><span class="pre">fac_above_stdres</span></code> defaults to <strong>2.0</strong> in the API but the GUI passes <strong>3.0</strong>. If you are
+trying to reproduce a GUI result in a script, set it to 3.0 explicitly — otherwise you
+will get more detections than the GUI reported for the same cube.</p>
+<p><code class="docutils literal notranslate"><span class="pre">n_jobs</span></code> defaults to auto-detected CPU count in the API; the GUI hardcodes 8.</p>
+</div>
+<p><strong>Returned keys</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">maps</span><span class="p">[</span><span class="s1">&#39;amplitude&#39;</span><span class="p">]</span>         <span class="c1"># Peak amplitude, CGS where available</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;amp_originalunits&#39;</span><span class="p">]</span> <span class="c1"># Peak amplitude in the cube&#39;s own units</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;center&#39;</span><span class="p">]</span>            <span class="c1"># Line center wavelength</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;sigma&#39;</span><span class="p">]</span>             <span class="c1"># Gaussian sigma</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;fwhm&#39;</span><span class="p">]</span>              <span class="c1"># 2.355 * sigma</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;area&#39;</span><span class="p">]</span>              <span class="c1"># Integrated flux (or 1-sigma upper limit)</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;r_squared&#39;</span><span class="p">]</span>         <span class="c1"># SEE WARNING BELOW - this is reduced chi-squared</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]</span>           <span class="c1"># Boolean: did the fit converge?</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_detection&#39;</span><span class="p">]</span>      <span class="c1"># Boolean: passed the sigma threshold</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_upper_limit&#39;</span><span class="p">]</span>    <span class="c1"># Boolean: area is a 1-sigma upper limit</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;residuals_cube&#39;</span><span class="p">]</span>    <span class="c1"># 3D residuals cached during fitting</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;fac_above_stdres&#39;</span><span class="p">]</span>  <span class="c1"># The threshold that was used</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;wavelength_unit&#39;</span><span class="p">]</span>   <span class="c1"># Spectral axis unit string</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;global_fit&#39;</span><span class="p">]</span>        <span class="c1"># The summed-spectrum fit used for initial guesses</span>
+</pre></div>
+</div>
+<div class="admonition danger">
+<p class="admonition-title">Danger</p>
+<p><strong>The key</strong> <code class="docutils literal notranslate"><span class="pre">'r_squared'</span></code> <strong>does not contain R².</strong> It holds the reduced chi-squared map
+— the same values the GUI correctly labels “chi2 (fit quality)”. The key name is a
+historical misnomer.</p>
+<p>Interpret it as χ²_red: <strong>near 1 is good, large is bad.</strong> Code that treats it like R²
+and keeps pixels above some threshold will select the <em>worst</em> fits in the cube.</p>
+</div>
+<p><strong>Exporting a residual cube</strong></p>
+<p>Fits and subtracts a Gaussian at every pixel, writing the normalized residuals to a 3D FITS
+file:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">export_residual_cube</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+<span class="n">export_residual_cube</span><span class="p">(</span>
+    <span class="n">cube</span><span class="p">,</span>
+    <span class="n">out_path</span><span class="o">=</span><span class="s2">&quot;residual.fits&quot;</span><span class="p">,</span>
+    <span class="n">lam_min</span><span class="o">=</span><span class="mf">6.90</span><span class="p">,</span>
+    <span class="n">lam_max</span><span class="o">=</span><span class="mf">6.95</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Or keep the array in memory as well</span>
+<span class="n">path</span><span class="p">,</span> <span class="n">residuals</span> <span class="o">=</span> <span class="n">export_residual_cube</span><span class="p">(</span>
+    <span class="n">cube</span><span class="p">,</span> <span class="n">out_path</span><span class="o">=</span><span class="s2">&quot;residual.fits&quot;</span><span class="p">,</span>
+    <span class="n">lam_min</span><span class="o">=</span><span class="mf">6.90</span><span class="p">,</span> <span class="n">lam_max</span><span class="o">=</span><span class="mf">6.95</span><span class="p">,</span> <span class="n">return_cube</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="constraints-and-tips">
+<h2>Constraints and Tips<a class="headerlink" href="#constraints-and-tips" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Left &lt; Right</strong>, and the noise region must be set — the run will not start otherwise</p></li>
+<li><p>Keep the noise region <strong>close in wavelength</strong> to the fit window. Detector noise varies
+with wavelength, so a distant noise estimate misstates the detection threshold across
+the whole map</p></li>
+<li><p>Keep the fit window <strong>tight</strong>. Every extra wavelength sample is fitted for every pixel,
+so a window twice as wide costs roughly twice the runtime and degrades χ²_red</p></li>
+<li><p>Always check the <strong>Success Mask</strong> and the detection/upper-limit counts before
+interpreting a parameter map. A beautiful-looking area map built from 15% converged
+pixels is mostly interpolated nothing</p></li>
+<li><p>Use the <strong>chi2</strong> map to find where the model breaks down — blended lines and
+P-Cygni-like profiles show up as coherent high-χ² structure, not as scattered noise</p></li>
+</ol>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> — turn per-pixel line fluxes into temperatures, handling the
+upper limits correctly</p></li>
+<li><p><a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a> — simultaneous multi-line fitting for CO rovibrational bands</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — other export paths</p></li>
+<li><p><a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Image Viewer</span></a> — open the exported parameter maps with WCS support</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="gaussian_fitting_1d.html" class="btn btn-neutral float-left" title="1D Spectrum Fitting" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-right" title="Continuum Subtraction" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

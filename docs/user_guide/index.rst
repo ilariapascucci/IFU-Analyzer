@@ -21,7 +21,8 @@ Choose a topic below to get started, or read through sequentially for a complete
    gui_overview
    visualization
    selecting_regions
-   gaussian_fitting
+   gaussian_fitting_1d
+   gaussian_fitting_cube
    continuum_subtraction
    co_flux_extraction
    rotational_diagram

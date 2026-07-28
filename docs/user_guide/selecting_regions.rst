@@ -127,6 +127,6 @@ Next Steps
 
 After selecting regions:
 
-1. :doc:`gaussian_fitting` to analyze profiles
+1. :doc:`gaussian_fitting_1d` to analyze profiles
 2. :doc:`continuum_subtraction` to remove baselines
 3. :doc:`exporting_data` to save results
