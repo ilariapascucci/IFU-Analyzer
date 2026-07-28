@@ -7,6 +7,8 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import RANSACRegressor
 
+from .unit_converter import integrated_flux_to_cgs
+
 def _extract_value_from_quantity(value, unit=None):
     """
     Extract numeric value from a Quantity object, or return raw value if not a Quantity.
@@ -76,10 +78,17 @@ def get_wave_unit(header, fallback: Optional[str] = None) -> Optional[str]:
 
 def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_unit: Optional[str], flux_unit_input: Optional[str] = None):
     """
-    Convert Gaussian area to erg/s/cm² using FITS header and wavelength-to-frequency conversion.
+    Convert Gaussian area to erg/s/cm².
 
-    Currently supports input flux in [MJy/sr] (MIRI, NIRSpec). For other instruments, returns None.
-    
+    Two supported input flux units, handled by different routes:
+
+    - **erg/s/cm²/Å (MUSE)** - already a flux per unit wavelength, so the area reduces
+      to erg/s/cm² directly. Delegated to ``unit_converter.integrated_flux_to_cgs``.
+    - **MJy/sr (MIRI, NIRSpec)** - a surface brightness per unit frequency, so it needs
+      the pixel solid angle and a wavelength-to-frequency jacobian (below).
+
+    Anything else (e.g. Jy/beam for ALMA) returns None.
+
     For MJy/sr input:
         area_native = amplitude [MJy/sr] × sigma [μm] × sqrt(2π) = [MJy/sr × μm]
         conv = CDELT1 × CDELT2 × 1e6 / (180/π)² [removes /sr and converts MJy→Jy]
@@ -95,13 +104,14 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         center_val: Line center wavelength in wavelength units (μm or Å) [used for wavelength-to-frequency conversion]
         header: FITS header to extract CDELT1, CDELT2 for pixel solid angle calculation
         wave_unit: Wavelength unit (Å, µm, km/s)
-        flux_unit_input: Flux unit from header (e.g., 'MJy/sr', 'Jy/beam', 'erg/cm²/s/Å'). Only MJy/sr is currently supported for conversion.
+        flux_unit_input: Flux unit from header (e.g., 'MJy/sr', 'Jy/beam',
+            '10**(-20)*erg/s/cm**2/Angstrom'). Falls back to the header's BUNIT if None.
 
     Returns:
         float: Area in erg/s/cm², or None if conversion unsupported or fails
-        
-    NOTE: Currently only converts MIRI/NIRSpec data (MJy/sr). For other instruments,
-    returns None. Use native area_native value (MJy/sr·μm) if CGS conversion unavailable.
+
+    NOTE: Returns None for unsupported flux units (e.g. Jy/beam). Callers should fall
+    back to the native area, labelled with the cube's own units.
     """
     if (header is None or amplitude_mjy_sr is None or
         sigma_val is None or center_val is None or not np.isfinite(center_val)):
@@ -112,10 +122,18 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         if unit == "KM/S":
             return None  # velocity axis needs rest wavelength to convert
         
-        # Check input flux unit - only MJy/sr is currently supported for CGS conversion.
-        # Input that is not MJy/sr (e.g., Jy/beam for ALMA, erg/cm²/s/Å for MUSE)
-        # cannot be reliably converted without more information.
-        if not _is_mjy_per_sr(_resolve_flux_unit(flux_unit_input, header)):
+        flux_unit = _resolve_flux_unit(flux_unit_input, header)
+
+        # MUSE-style flux density (erg/s/cm²/Å) is already a flux per unit wavelength,
+        # so the area reduces to erg/s/cm² on its own - no solid angle, no
+        # wavelength-to-frequency jacobian. Returns None for units that don't reduce.
+        area_cgs = integrated_flux_to_cgs(amplitude_mjy_sr, sigma_val, flux_unit, unit)
+        if area_cgs is not None:
+            return area_cgs
+
+        # Anything else must be MJy/sr (MIRI, NIRSpec). Input that is neither
+        # (e.g. Jy/beam for ALMA) cannot be reliably converted.
+        if not _is_mjy_per_sr(flux_unit):
             return None
 
         # Extract CDELT values from header

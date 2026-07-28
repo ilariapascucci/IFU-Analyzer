@@ -309,6 +309,55 @@ def format_wavelength_for_display(value, unit=None):
         return f"{value:.4f} {unit}"
 
 
+def integrated_flux_to_cgs(amplitude, sigma, flux_unit, wave_unit):
+    """
+    Convert a Gaussian line area to erg/s/cm², for flux units where the units cancel.
+
+    Applies to flux densities that are already per unit wavelength, such as MUSE's
+    ``10**(-20)*erg/s/cm**2/Angstrom``. There the area ``A·σ·√(2π)`` carries the flux
+    unit times the wavelength unit, and the per-Å cancels the Å in sigma, reducing to
+    erg/s/cm² on its own.
+
+    Surface brightnesses such as MJy/sr do **not** reduce this way - they still carry a
+    per-steradian and a per-Hz, so they need a pixel solid angle and a
+    wavelength-to-frequency jacobian. This function returns None for them; see
+    ``gaussian_fitter.convert_area_to_cgs`` for that path.
+
+    Args:
+        amplitude: Gaussian peak height, in ``flux_unit``
+        sigma: Gaussian sigma, in ``wave_unit``
+        flux_unit: Flux unit string, typically the BUNIT header keyword. astropy parses
+            the ``10**(-20)`` prefix that MUSE uses.
+        wave_unit: Wavelength unit string, e.g. ``'Angstrom'`` or ``'um'``
+
+    Returns:
+        float: Area in erg/s/cm², or None if the units do not reduce to it
+
+    Examples:
+        >>> integrated_flux_to_cgs(1.0, 1.0, 'erg/s/cm**2/Angstrom', 'Angstrom')
+        2.5066282746310002
+        >>> integrated_flux_to_cgs(1.0, 1.0, 'MJy/sr', 'um') is None
+        True
+    """
+    if amplitude is None or sigma is None or not flux_unit:
+        return None
+
+    wave_astropy_unit = _string_to_astropy_unit(wave_unit)
+    if wave_astropy_unit is None:
+        return None
+
+    try:
+        flux_astropy_unit = u.Unit(str(flux_unit), parse_strict='silent')
+    except Exception:
+        return None
+
+    area = (amplitude * flux_astropy_unit) * (sigma * wave_astropy_unit) * np.sqrt(2 * np.pi)
+    cgs = u.erg / u.s / u.cm ** 2
+    if not area.unit.is_equivalent(cgs):
+        return None
+    return float(area.to(cgs).value)
+
+
 def clean_flux_unit(unit_str):
     """
     Clean and format flux units for better readability.
@@ -368,11 +417,18 @@ def clean_flux_unit(unit_str):
         for part in parts[1:]:
             part = part.strip()
             if part:
-                # Check if already has superscript
-                if '⁻' not in part and '²' not in part and '³' not in part:
-                    formatted += f" {part}⁻¹"
-                else:
+                # Everything after the first slash is a denominator and must end up
+                # negative. A part that already carries '⁻' is inverted; one carrying a
+                # positive exponent (e.g. 'cm²' from '/cm**2') needs that exponent
+                # negated, not left alone.
+                if '⁻' in part:
                     formatted += f" {part}"
+                elif part.endswith('²'):
+                    formatted += f" {part[:-1]}⁻²"
+                elif part.endswith('³'):
+                    formatted += f" {part[:-1]}⁻³"
+                else:
+                    formatted += f" {part}⁻¹"
         result = formatted
     
     # Clean up extra spaces
