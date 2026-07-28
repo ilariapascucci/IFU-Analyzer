@@ -17,7 +17,7 @@ print("="*70)
 
 try:
     from cube_explorer.api import (
-        load_cube, fit_line, fit_multiple_lines, fit_hitran_lines,
+        load_cube, fit_line, fit_hitran_lines,
         fit_continuum, measure_equivalent_width, extract_co_flux, create_co_flux_map,
         create_gaussian_map, export_residual_cube, rotational_diagram
     )
@@ -25,7 +25,6 @@ try:
     print("  Available functions:")
     print("    - load_cube()")
     print("    - fit_line()")
-    print("    - fit_multiple_lines()")
     print("    - fit_hitran_lines()  [NEW: supports v_upper, v_lower filtering]")
     print("    - fit_continuum()")
     print("    - measure_equivalent_width()")
@@ -274,22 +273,28 @@ def _check_fit_continuum(cube):
     return f"continuum of {len(cont)} points", None
 
 
+# A real line in the MIRI ch1-long cube, taken from an actual GUI session rather
+# than guessed: left / peak / right as clicked, giving R^2 = 0.965. The same
+# numbers appear in test_docs_api.py, in docs/user_guide/gaussian_fitting_1d.rst,
+# and in the screenshot on that page (docs/_static/gaussian_1d_fit.png), so all
+# four agree on what a good fit looks like.
+LINE_X1, LINE_PEAK, LINE_X2 = 7.491492, 7.503455, 7.516985
+
+
 @_needs_cube
 def _check_fit_line(cube):
-    r = _api.fit_line(cube.wavelength, cube.spectrum, 6.90, 6.95)
-    return f"success={r.success}, center={r.center:.5f}", None
-
-
-@_needs_cube
-def _check_fit_multiple_lines(cube):
-    rs = _api.fit_multiple_lines(cube.wavelength, cube.spectrum,
-                                 [(6.90, 6.95), (7.10, 7.15)])
-    return f"{len(rs)} results, success={[r.success for r in rs]}", None
+    r = _api.fit_line(cube.wavelength, cube.spectrum, LINE_X1, LINE_X2,
+                      peak_x=LINE_PEAK, header=cube.header,
+                      wave_unit=cube.wave_unit)
+    return (f"success={r.success}, center={r.center:.5f}, "
+            f"R2={r.r_squared:.4f}, area={r.area:.4e} {r.area_unit}"), None
 
 
 @_needs_cube
 def _check_measure_equivalent_width(cube):
-    fit = _api.fit_line(cube.wavelength, cube.spectrum, 6.90, 6.95)
+    fit = _api.fit_line(cube.wavelength, cube.spectrum, LINE_X1, LINE_X2,
+                        peak_x=LINE_PEAK, header=cube.header,
+                        wave_unit=cube.wave_unit)
     cont = _api.fit_continuum(cube.wavelength, cube.spectrum)
     ew = _api.measure_equivalent_width(fit, cube.wavelength, cont)
     return f"EW={ew}", None
@@ -328,7 +333,6 @@ _CHECKS = {
     "load_cube": _check_load_cube,
     "fit_continuum": _check_fit_continuum,
     "fit_line": _check_fit_line,
-    "fit_multiple_lines": _check_fit_multiple_lines,
     "fit_hitran_lines": _check_fit_hitran_lines,
     "measure_equivalent_width": _check_measure_equivalent_width,
     "create_gaussian_map": _check_create_gaussian_map,

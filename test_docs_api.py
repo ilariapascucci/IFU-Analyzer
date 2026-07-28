@@ -13,6 +13,7 @@ documentation does not actually claim.
 Documentation sources:
   - cube_explorer/api.py module docstring ("Example Usage")
   - docs/user_guide/api_examples.rst
+  - docs/user_guide/gaussian_fitting_1d.rst ("Using the API")
 
 data/ is gitignored, so a fresh clone has no cubes. Sections needing a FITS file
 report [SKIP] rather than failing.
@@ -172,6 +173,74 @@ def available_cube_properties():
 
 
 # ---------------------------------------------------------------------------
+# 1D SPECTRUM FITTING -- FITTING ONE LINE
+# ---------------------------------------------------------------------------
+
+@needs_cube
+def fitting_one_line():
+    from cube_explorer.api import load_cube, fit_line
+
+    cube = load_cube(CUBE)
+
+    result = fit_line(
+        wavelength=cube.wavelength,
+        spectrum=cube.spectrum,
+        x1=7.491492,           # Left boundary
+        x2=7.516985,           # Right boundary
+        peak_x=7.503455,       # Centre guess - the GUI's "Peak" click
+        header=cube.header,    # Required for the erg/s/cm2 conversion
+        wave_unit=cube.wave_unit,
+    )
+
+    if result.success:
+        print(f"Center:    {result.center:.6f} {cube.wave_unit}")
+        print(f"Amplitude: {result.amplitude:.4e}")
+        print(f"FWHM:      {result.fwhm:.6g} {cube.wave_unit}")
+        print(f"Area:      {result.area:.4e} {result.area_unit}")
+        print(f"R2:        {result.r_squared:.4f}")
+    else:
+        print(f"Fit failed: {result.message}")
+
+
+# ---------------------------------------------------------------------------
+# 1D SPECTRUM FITTING -- RESULT FIELDS
+# ---------------------------------------------------------------------------
+
+@needs_cube
+def result_fields():
+    from cube_explorer.api import load_cube, fit_line
+
+    cube = load_cube(CUBE)
+
+    result = fit_line(cube.wavelength, cube.spectrum, 7.491492, 7.516985,
+                      peak_x=7.503455,
+                      header=cube.header, wave_unit=cube.wave_unit)
+
+    # Fitted parameters
+    result.center            # Line center, spectral axis unit
+    result.amplitude         # Peak height above baseline, cube flux unit
+    result.sigma             # Gaussian sigma, spectral axis unit
+    result.fwhm              # 2.355 * sigma
+
+    # Integrated flux
+    result.area              # Converted area (erg/s/cm2 when possible)
+    result.area_unit         # String naming the unit of `area` - always check this
+    result.area_native       # Area before conversion, in cube flux x wavelength units
+
+    # Baseline
+    result.baseline           # Fitted linear baseline evaluated at each data point
+    result.baseline_slope     # Continuum gradient
+    result.baseline_intercept # Baseline flux at x1 (the "Left endpoint" in the GUI)
+
+    # Quality and status
+    result.r_squared         # Coefficient of determination
+    result.success           # Did the fit converge?
+    result.message           # Human-readable status
+
+    print(f"All documented fields readable; area_unit={result.area_unit}")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     print("\n" + "=" * 70)
@@ -182,6 +251,8 @@ def main():
     run("ACCESS CUBE COMPONENTS", access_cube_components)
     run("EXTRACT SPECTRA FROM REGIONS", extract_spectra_from_regions)
     run("AVAILABLE CUBE PROPERTIES", available_cube_properties)
+    run("1D FITTING -- ONE LINE", fitting_one_line)
+    run("1D FITTING -- RESULT FIELDS", result_fields)
 
     print("\n" + "=" * 70)
     print(" SUMMARY")

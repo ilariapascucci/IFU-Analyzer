@@ -224,60 +224,29 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
     wl = _as_float_array(wavelength)
     fl = _as_float_array(spectrum)
 
-    lo, hi = (x1, x2) if x1 <= x2 else (x2, x1)
+    # Boundaries are not reordered for you -- the GUI rejects a mis-ordered
+    # selection, and this must behave the same way.
+    if x1 >= x2:
+        raise ValueError(
+            f"x1 ({x1}) must be less than x2 ({x2})."
+        )
 
     if peak_x is None:
-        in_window = (wl >= lo) & (wl <= hi)
+        in_window = (wl >= x1) & (wl <= x2)
         if not np.any(in_window):
             raise ValueError(
-                f"No wavelength samples between {lo} and {hi}. "
+                f"No wavelength samples between {x1} and {x2}. "
                 f"Spectrum covers {wl.min():.4f} to {wl.max():.4f}."
             )
         window_flux = fl[in_window]
         if np.all(np.isnan(window_flux)):
             raise ValueError(
-                f"All flux values between {lo} and {hi} are NaN."
+                f"All flux values between {x1} and {x2} are NaN."
             )
         peak_x = float(wl[in_window][np.nanargmax(window_flux)])
 
-    return fit_gaussian_to_line(lo, hi, wl, fl, peak_x=peak_x,
+    return fit_gaussian_to_line(x1, x2, wl, fl, peak_x=peak_x,
                                 header=header, wave_unit=wave_unit)
-
-
-def fit_multiple_lines(wavelength, spectrum, line_list, header=None,
-                       wave_unit=None):
-    """
-    Fit several spectral lines, one after another.
-
-    Each region is fitted independently by :func:`fit_line`; the lines are not
-    fitted as a single simultaneous model.
-
-    Args:
-        wavelength (array-like): Wavelength/frequency values.
-        spectrum (array-like): Flux values.
-        line_list (list): List of ``(x1, x2)`` tuples defining fitting regions.
-        header (optional): FITS header used for unit conversion.
-        wave_unit (str, optional): Spectral axis unit.
-
-    Returns:
-        list: List of GaussianFitResult objects, in the same order as
-        ``line_list``.
-
-    Raises:
-        ValueError: Propagated from :func:`fit_line` if a region contains no
-            usable samples.
-
-    Example:
-        >>> lines = [(6.90, 6.95), (7.10, 7.15), (7.28, 7.32)]
-        >>> results = fit_multiple_lines(cube.wavelength, cube.spectrum, lines)
-        >>> for i, result in enumerate(results):
-        ...     print(f"Line {i}: center={result.center:.6f}, FWHM={result.fwhm:.6f}")
-    """
-    return [
-        fit_line(wavelength, spectrum, x1, x2,
-                 header=header, wave_unit=wave_unit)
-        for x1, x2 in line_list
-    ]
 
 
 def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None, isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None):
@@ -629,7 +598,6 @@ __all__ = [
     'fit_continuum',
     # Gaussian Fitting
     'fit_line',
-    'fit_multiple_lines',
     'fit_hitran_lines',
     'measure_equivalent_width',
     'create_gaussian_map',

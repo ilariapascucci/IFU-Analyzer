@@ -678,8 +678,24 @@ def estimate_gaussian_params(x_data: np.ndarray,
     return amplitude_guess, center_guess, sigma_guess
 
 
-def fit_gaussian_to_line(x1: float, x2: float, 
-                         spectrum_x: np.ndarray, 
+def _invalid_selection(x_data: np.ndarray, y_data: np.ndarray,
+                       message: str) -> GaussianFitResult:
+    """Failed result for a selection that cannot be fitted, with the reason."""
+    empty = np.array([])
+    return GaussianFitResult(
+        amplitude=0, center=0, sigma=0, fwhm=0, area=0,
+        baseline_slope=0, baseline_intercept=0,
+        x_data=x_data, y_data=y_data,
+        baseline=empty, y_corrected=empty,
+        y_fit=empty, residuals=empty,
+        r_squared=0,
+        success=False,
+        message=message
+    )
+
+
+def fit_gaussian_to_line(x1: float, x2: float,
+                         spectrum_x: np.ndarray,
                          spectrum_y: np.ndarray,
                          peak_x: float,
                          noise_min: Optional[float] = None,
@@ -722,10 +738,16 @@ def fit_gaussian_to_line(x1: float, x2: float,
     noise_min = _extract_value_from_quantity(noise_min)
     noise_max = _extract_value_from_quantity(noise_max)
     
-    # Ensure x1 < x2
-    if x1 > x2:
-        x1, x2 = x2, x1
-    
+    # Boundaries must be given in order. This used to swap them silently, which
+    # meant a mis-ordered selection produced a fit the user never actually asked
+    # for; make the caller fix the input instead.
+    if x1 >= x2:
+        return _invalid_selection(
+            np.array([]), np.array([]),
+            f"Error: Left boundary ({x1:.6f}) must be less than the right "
+            f"boundary ({x2:.6f}). Re-select the boundaries in order."
+        )
+
     # ========== STEP 1: EXTRACT & BASELINE SUBTRACTION ==========
     # Extract data within selected region [x1, x2]
     mask = (spectrum_x >= x1) & (spectrum_x <= x2)
@@ -734,17 +756,22 @@ def fit_gaussian_to_line(x1: float, x2: float,
     
     # Validation checks
     if len(x_data) < 4:
-        return GaussianFitResult(
-            amplitude=0, center=0, sigma=0, fwhm=0, area=0,
-            baseline_slope=0, baseline_intercept=0,
-            x_data=x_data, y_data=y_data,
-            baseline=np.array([]), y_corrected=np.array([]),
-            y_fit=np.array([]), residuals=np.array([]),
-            r_squared=0,
-            success=False,
-            message="Error: Not enough points in selected region (need at least 4)"
+        return _invalid_selection(
+            x_data, y_data,
+            "Error: Not enough points in selected region (need at least 4)"
         )
-    
+
+    # A peak guess outside the window used to be clamped to the nearest boundary,
+    # which returned a confident-looking fit with the centre pinned to the edge and
+    # a negative R^2. Reject it: there is no meaningful fit to give.
+    if not (x1 <= peak_x <= x2):
+        return _invalid_selection(
+            x_data, y_data,
+            f"Error: Peak ({peak_x:.6f}) lies outside the fit window "
+            f"[{x1:.6f}, {x2:.6f}]. Move the Peak marker inside the "
+            f"Left/Right boundaries."
+        )
+
     # Get boundary flux values for baseline
     y1 = y_data[0]
     y2 = y_data[-1]

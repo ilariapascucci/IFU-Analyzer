@@ -286,7 +286,9 @@ STATUS: {result.message}
         
         dlg = QDialog(self)
         dlg.setWindowTitle("Gaussian Fit Results")
-        dlg.setMinimumSize(600, 500)
+        # Tall enough for the whole report without scrolling: 28 lines of Courier
+        # plus the Close button and layout margins.
+        dlg.setMinimumSize(600, 520)
         layout = QVBoxLayout()
         text_edit = QTextEdit()
         text_edit.setPlainText(results_text)

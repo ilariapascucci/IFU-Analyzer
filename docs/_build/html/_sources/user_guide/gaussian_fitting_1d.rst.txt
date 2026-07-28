@@ -30,12 +30,35 @@ starting over: toggle that one button back on and click a new location. Only the
 click for each button is kept.
 
 The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
-constrain the result — it only seeds the optimizer, so a rough click is fine.
+constrain the result — it only seeds the optimizer, and the fitted center is bounded by
+the window edges, not by your click.
 
 .. note::
 
-   λ_peak must lie between λ_left and λ_right. The fitted center is free to move away
-   from your click.
+   **A rough click is genuinely fine.** Anywhere inside the window converges to the same
+   answer — the fitted center, width and area are identical whether you click on the peak
+   or several samples off it.
+
+.. _ordering-rules:
+
+The three points must be in order — ``λ_left < λ_peak < λ_right``. Both rules are
+enforced, and a violation stops the fit rather than producing a result you did not ask
+for:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Selection
+     - What happens
+   * - Left at a longer wavelength than Right
+     - *Error: Left boundary must be less than the right boundary. Re-select the
+       boundaries in order.*
+   * - Peak outside the Left–Right window
+     - *Error: Peak lies outside the fit window. Move the Peak marker inside the
+       Left/Right boundaries.*
+
+Re-toggle the offending button and click again; the other two points are kept.
 
 Running the Fit
 ===============
@@ -46,6 +69,22 @@ window opens.
 The fit is performed on baseline-subtracted data: a straight line is drawn between the
 flux values at the two window edges and subtracted before the Gaussian is fitted, so a
 sloping continuum does not bias the width or area.
+
+.. figure:: ../_static/gaussian_1d_fit.png
+   :alt: A fitted Gaussian on a spectral line, with the integrated area shaded
+   :width: 100%
+
+   A completed fit, zoomed to the selected window. The green and purple dashed lines are
+   the **Left** and **Right** boundaries; the red dotted line is the **Peak** click. The
+   black dashed line is the linear **Baseline** connecting the flux at the two edges, and
+   the shaded region between it and the red **Gaussian Fit** is the **Integrated Area** —
+   the quantity reported as *Gaussian Area* in erg/s/cm².
+
+   This is the same fit the code sample further down produces: Left ``7.491492``, Peak
+   ``7.503455``, Right ``7.516985``.
+
+Note that the area is measured *above the baseline*, not above zero. The continuum under
+the line is not counted, which is why a sloping continuum does not inflate the result.
 
 Reading the Results
 ===================
@@ -196,14 +235,18 @@ limits.
 Constraints
 ===========
 
-1. λ_left < λ_peak < λ_right
-2. The window must contain at least a handful of wavelength samples; the fit raises an
-   error if the window is empty or entirely NaN
+1. ``λ_left < λ_peak < λ_right``, enforced — see
+   :ref:`the ordering rules above <ordering-rules>`
+2. The window needs at least **4** samples, since a Gaussian has three free parameters.
+   Below that the fit fails with "Not enough points in selected region (need at least
+   4)". Through the API, an empty or all-NaN window raises ``ValueError``
 3. Keep the window tight around the line. A window many times wider than the FWHM
    depresses R² and lets baseline structure far from the line influence the linear
    baseline subtraction
 4. Windows narrower than 15 samples require a noise region — see
    :ref:`noise-region-1d` above
+5. The fitted center is bounded to ``[λ_left, λ_right]``. A line whose true center lies
+   outside your window cannot be recovered — you have to move the boundaries
 
 Using the API
 =============
@@ -221,9 +264,9 @@ The same fit is available without the GUI.
     result = fit_line(
         wavelength=cube.wavelength,
         spectrum=cube.spectrum,
-        x1=6.90,               # Left boundary
-        x2=6.95,               # Right boundary
-        line_name="H2 S(5)",   # Label for readability; not stored on the result
+        x1=7.491492,           # Left boundary
+        x2=7.516985,           # Right boundary
+        peak_x=7.503455,       # Centre guess - the GUI's "Peak" click
         header=cube.header,    # Required for the erg/s/cm² conversion
         wave_unit=cube.wave_unit,
     )
@@ -246,42 +289,15 @@ The same fit is available without the GUI.
    ``peak_x`` is optional — it defaults to the brightest sample inside the window, which
    is the programmatic equivalent of clicking on the peak.
 
-**Fitting several lines**
-
-There is no GUI equivalent of this — in the application you would simply run the fit
-three times. ``fit_multiple_lines`` is a scripting convenience that loops over
-``fit_line`` for you. Each region is fitted independently, in order; the lines are
-*not* fitted as one simultaneous model.
-
-.. code-block:: python
-
-    from cube_explorer.api import load_cube, fit_multiple_lines
-
-    cube = load_cube("data.fits")
-
-    lines = [
-        (6.90, 6.95),    # H2 S(5)
-        (7.10, 7.15),
-        (7.28, 7.32),
-    ]
-
-    results = fit_multiple_lines(
-        cube.wavelength, cube.spectrum, lines,
-        header=cube.header, wave_unit=cube.wave_unit,
-    )
-
-    for (x1, x2), result in zip(lines, results):
-        if result.success:
-            print(f"[{x1}-{x2}] center={result.center:.6f}, "
-                  f"FWHM={result.fwhm:.6g}, area={result.area:.4e} {result.area_unit}")
-        else:
-            print(f"[{x1}-{x2}] failed: {result.message}")
+To fit more than one line, call ``fit_line`` again for each region. There is no batch
+function — the lines are independent fits, not one simultaneous model.
 
 **Result fields**
 
 .. code-block:: python
 
-    result = fit_line(cube.wavelength, cube.spectrum, 6.90, 6.95,
+    result = fit_line(cube.wavelength, cube.spectrum, 7.491492, 7.516985,
+                      peak_x=7.503455,
                       header=cube.header, wave_unit=cube.wave_unit)
 
     # Fitted parameters

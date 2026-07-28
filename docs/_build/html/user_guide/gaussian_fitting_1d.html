@@ -153,12 +153,39 @@ pressed until you click it again. The workflow is:</p>
 starting over: toggle that one button back on and click a new location. Only the most recent
 click for each button is kept.</p>
 <p>The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
-constrain the result — it only seeds the optimizer, so a rough click is fine.</p>
+constrain the result — it only seeds the optimizer, and the fitted center is bounded by
+the window edges, not by your click.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>λ_peak must lie between λ_left and λ_right. The fitted center is free to move away
-from your click.</p>
+<p><strong>A rough click is genuinely fine.</strong> Anywhere inside the window converges to the same
+answer — the fitted center, width and area are identical whether you click on the peak
+or several samples off it.</p>
 </div>
+<p id="ordering-rules">The three points must be in order — <code class="docutils literal notranslate"><span class="pre">λ_left</span> <span class="pre">&lt;</span> <span class="pre">λ_peak</span> <span class="pre">&lt;</span> <span class="pre">λ_right</span></code>. Both rules are
+enforced, and a violation stops the fit rather than producing a result you did not ask
+for:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Selection</p></th>
+<th class="head"><p>What happens</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Left at a longer wavelength than Right</p></td>
+<td><p><em>Error: Left boundary must be less than the right boundary. Re-select the
+boundaries in order.</em></p></td>
+</tr>
+<tr class="row-odd"><td><p>Peak outside the Left–Right window</p></td>
+<td><p><em>Error: Peak lies outside the fit window. Move the Peak marker inside the
+Left/Right boundaries.</em></p></td>
+</tr>
+</tbody>
+</table>
+<p>Re-toggle the offending button and click again; the other two points are kept.</p>
 </section>
 <section id="running-the-fit">
 <h2>Running the Fit<a class="headerlink" href="#running-the-fit" title="Link to this heading"></a></h2>
@@ -167,6 +194,23 @@ window opens.</p>
 <p>The fit is performed on baseline-subtracted data: a straight line is drawn between the
 flux values at the two window edges and subtracted before the Gaussian is fitted, so a
 sloping continuum does not bias the width or area.</p>
+<figure class="align-default" id="id1">
+<a class="reference internal image-reference" href="../_images/gaussian_1d_fit.png"><img alt="A fitted Gaussian on a spectral line, with the integrated area shaded" src="../_images/gaussian_1d_fit.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">A completed fit, zoomed to the selected window. The green and purple dashed lines are
+the <strong>Left</strong> and <strong>Right</strong> boundaries; the red dotted line is the <strong>Peak</strong> click. The
+black dashed line is the linear <strong>Baseline</strong> connecting the flux at the two edges, and
+the shaded region between it and the red <strong>Gaussian Fit</strong> is the <strong>Integrated Area</strong> —
+the quantity reported as <em>Gaussian Area</em> in erg/s/cm².</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+<div class="legend">
+<p>This is the same fit the code sample further down produces: Left <code class="docutils literal notranslate"><span class="pre">7.491492</span></code>, Peak
+<code class="docutils literal notranslate"><span class="pre">7.503455</span></code>, Right <code class="docutils literal notranslate"><span class="pre">7.516985</span></code>.</p>
+</div>
+</figcaption>
+</figure>
+<p>Note that the area is measured <em>above the baseline</em>, not above zero. The continuum under
+the line is not counted, which is why a sloping continuum does not inflate the result.</p>
 </section>
 <section id="reading-the-results">
 <h2>Reading the Results<a class="headerlink" href="#reading-the-results" title="Link to this heading"></a></h2>
@@ -312,14 +356,18 @@ limits.</p>
 <section id="constraints">
 <h2>Constraints<a class="headerlink" href="#constraints" title="Link to this heading"></a></h2>
 <ol class="arabic simple">
-<li><p>λ_left &lt; λ_peak &lt; λ_right</p></li>
-<li><p>The window must contain at least a handful of wavelength samples; the fit raises an
-error if the window is empty or entirely NaN</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">λ_left</span> <span class="pre">&lt;</span> <span class="pre">λ_peak</span> <span class="pre">&lt;</span> <span class="pre">λ_right</span></code>, enforced — see
+<a class="reference internal" href="#ordering-rules"><span class="std std-ref">the ordering rules above</span></a></p></li>
+<li><p>The window needs at least <strong>4</strong> samples, since a Gaussian has three free parameters.
+Below that the fit fails with “Not enough points in selected region (need at least
+4)”. Through the API, an empty or all-NaN window raises <code class="docutils literal notranslate"><span class="pre">ValueError</span></code></p></li>
 <li><p>Keep the window tight around the line. A window many times wider than the FWHM
 depresses R² and lets baseline structure far from the line influence the linear
 baseline subtraction</p></li>
 <li><p>Windows narrower than 15 samples require a noise region — see
 <a class="reference internal" href="#noise-region-1d"><span class="std std-ref">The Noise Region</span></a> above</p></li>
+<li><p>The fitted center is bounded to <code class="docutils literal notranslate"><span class="pre">[λ_left,</span> <span class="pre">λ_right]</span></code>. A line whose true center lies
+outside your window cannot be recovered — you have to move the boundaries</p></li>
 </ol>
 </section>
 <section id="using-the-api">
@@ -333,9 +381,9 @@ baseline subtraction</p></li>
 <span class="n">result</span> <span class="o">=</span> <span class="n">fit_line</span><span class="p">(</span>
     <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
     <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
-    <span class="n">x1</span><span class="o">=</span><span class="mf">6.90</span><span class="p">,</span>               <span class="c1"># Left boundary</span>
-    <span class="n">x2</span><span class="o">=</span><span class="mf">6.95</span><span class="p">,</span>               <span class="c1"># Right boundary</span>
-    <span class="n">line_name</span><span class="o">=</span><span class="s2">&quot;H2 S(5)&quot;</span><span class="p">,</span>   <span class="c1"># Label for readability; not stored on the result</span>
+    <span class="n">x1</span><span class="o">=</span><span class="mf">7.491492</span><span class="p">,</span>           <span class="c1"># Left boundary</span>
+    <span class="n">x2</span><span class="o">=</span><span class="mf">7.516985</span><span class="p">,</span>           <span class="c1"># Right boundary</span>
+    <span class="n">peak_x</span><span class="o">=</span><span class="mf">7.503455</span><span class="p">,</span>       <span class="c1"># Centre guess - the GUI&#39;s &quot;Peak&quot; click</span>
     <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>    <span class="c1"># Required for the erg/s/cm² conversion</span>
     <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
 <span class="p">)</span>
@@ -358,36 +406,11 @@ flux×wavelength units. Always read <code class="docutils literal notranslate"><
 <p><code class="docutils literal notranslate"><span class="pre">peak_x</span></code> is optional — it defaults to the brightest sample inside the window, which
 is the programmatic equivalent of clicking on the peak.</p>
 </div>
-<p><strong>Fitting several lines</strong></p>
-<p>There is no GUI equivalent of this — in the application you would simply run the fit
-three times. <code class="docutils literal notranslate"><span class="pre">fit_multiple_lines</span></code> is a scripting convenience that loops over
-<code class="docutils literal notranslate"><span class="pre">fit_line</span></code> for you. Each region is fitted independently, in order; the lines are
-<em>not</em> fitted as one simultaneous model.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_multiple_lines</span>
-
-<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
-
-<span class="n">lines</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="p">(</span><span class="mf">6.90</span><span class="p">,</span> <span class="mf">6.95</span><span class="p">),</span>    <span class="c1"># H2 S(5)</span>
-    <span class="p">(</span><span class="mf">7.10</span><span class="p">,</span> <span class="mf">7.15</span><span class="p">),</span>
-    <span class="p">(</span><span class="mf">7.28</span><span class="p">,</span> <span class="mf">7.32</span><span class="p">),</span>
-<span class="p">]</span>
-
-<span class="n">results</span> <span class="o">=</span> <span class="n">fit_multiple_lines</span><span class="p">(</span>
-    <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span> <span class="n">lines</span><span class="p">,</span>
-    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="k">for</span> <span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">),</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
-    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2">] center=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">center</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">, &quot;</span>
-              <span class="sa">f</span><span class="s2">&quot;FWHM=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6g</span><span class="si">}</span><span class="s2">, area=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2">] failed: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
+<p>To fit more than one line, call <code class="docutils literal notranslate"><span class="pre">fit_line</span></code> again for each region. There is no batch
+function — the lines are independent fits, not one simultaneous model.</p>
 <p><strong>Result fields</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">fit_line</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span> <span class="mf">6.90</span><span class="p">,</span> <span class="mf">6.95</span><span class="p">,</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">fit_line</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span> <span class="mf">7.491492</span><span class="p">,</span> <span class="mf">7.516985</span><span class="p">,</span>
+                  <span class="n">peak_x</span><span class="o">=</span><span class="mf">7.503455</span><span class="p">,</span>
                   <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">)</span>
 
 <span class="c1"># Fitted parameters</span>

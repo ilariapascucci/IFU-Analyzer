@@ -36,7 +36,6 @@ Gaussian Line Fitting
 
 .. autofunction:: cube_explorer.api.fit_line
 
-.. autofunction:: cube_explorer.api.fit_multiple_lines
 
 .. autofunction:: cube_explorer.api.fit_hitran_lines
 

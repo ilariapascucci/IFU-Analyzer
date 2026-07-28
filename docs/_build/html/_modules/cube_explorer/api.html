@@ -324,63 +324,29 @@
     <span class="n">wl</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span>
     <span class="n">fl</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">spectrum</span><span class="p">)</span>
 
-    <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">)</span> <span class="k">if</span> <span class="n">x1</span> <span class="o">&lt;=</span> <span class="n">x2</span> <span class="k">else</span> <span class="p">(</span><span class="n">x2</span><span class="p">,</span> <span class="n">x1</span><span class="p">)</span>
+    <span class="c1"># Boundaries are not reordered for you -- the GUI rejects a mis-ordered</span>
+    <span class="c1"># selection, and this must behave the same way.</span>
+    <span class="k">if</span> <span class="n">x1</span> <span class="o">&gt;=</span> <span class="n">x2</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;x1 (</span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2">) must be less than x2 (</span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2">).&quot;</span>
+        <span class="p">)</span>
 
     <span class="k">if</span> <span class="n">peak_x</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">in_window</span> <span class="o">=</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&gt;=</span> <span class="n">lo</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&lt;=</span> <span class="n">hi</span><span class="p">)</span>
+        <span class="n">in_window</span> <span class="o">=</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&gt;=</span> <span class="n">x1</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&lt;=</span> <span class="n">x2</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">in_window</span><span class="p">):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;No wavelength samples between </span><span class="si">{</span><span class="n">lo</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">hi</span><span class="si">}</span><span class="s2">. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;No wavelength samples between </span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2">. &quot;</span>
                 <span class="sa">f</span><span class="s2">&quot;Spectrum covers </span><span class="si">{</span><span class="n">wl</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">wl</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">.&quot;</span>
             <span class="p">)</span>
         <span class="n">window_flux</span> <span class="o">=</span> <span class="n">fl</span><span class="p">[</span><span class="n">in_window</span><span class="p">]</span>
         <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">window_flux</span><span class="p">)):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;All flux values between </span><span class="si">{</span><span class="n">lo</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">hi</span><span class="si">}</span><span class="s2"> are NaN.&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;All flux values between </span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2"> are NaN.&quot;</span>
             <span class="p">)</span>
         <span class="n">peak_x</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">wl</span><span class="p">[</span><span class="n">in_window</span><span class="p">][</span><span class="n">np</span><span class="o">.</span><span class="n">nanargmax</span><span class="p">(</span><span class="n">window_flux</span><span class="p">)])</span>
 
-    <span class="k">return</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span><span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">fl</span><span class="p">,</span> <span class="n">peak_x</span><span class="o">=</span><span class="n">peak_x</span><span class="p">,</span>
+    <span class="k">return</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">fl</span><span class="p">,</span> <span class="n">peak_x</span><span class="o">=</span><span class="n">peak_x</span><span class="p">,</span>
                                 <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">)</span></div>
-
-
-
-<div class="viewcode-block" id="fit_multiple_lines">
-<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_multiple_lines">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">fit_multiple_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">line_list</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                       <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Fit several spectral lines, one after another.</span>
-
-<span class="sd">    Each region is fitted independently by :func:`fit_line`; the lines are not</span>
-<span class="sd">    fitted as a single simultaneous model.</span>
-
-<span class="sd">    Args:</span>
-<span class="sd">        wavelength (array-like): Wavelength/frequency values.</span>
-<span class="sd">        spectrum (array-like): Flux values.</span>
-<span class="sd">        line_list (list): List of ``(x1, x2)`` tuples defining fitting regions.</span>
-<span class="sd">        header (optional): FITS header used for unit conversion.</span>
-<span class="sd">        wave_unit (str, optional): Spectral axis unit.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        list: List of GaussianFitResult objects, in the same order as</span>
-<span class="sd">        ``line_list``.</span>
-
-<span class="sd">    Raises:</span>
-<span class="sd">        ValueError: Propagated from :func:`fit_line` if a region contains no</span>
-<span class="sd">            usable samples.</span>
-
-<span class="sd">    Example:</span>
-<span class="sd">        &gt;&gt;&gt; lines = [(6.90, 6.95), (7.10, 7.15), (7.28, 7.32)]</span>
-<span class="sd">        &gt;&gt;&gt; results = fit_multiple_lines(cube.wavelength, cube.spectrum, lines)</span>
-<span class="sd">        &gt;&gt;&gt; for i, result in enumerate(results):</span>
-<span class="sd">        ...     print(f&quot;Line {i}: center={result.center:.6f}, FWHM={result.fwhm:.6f}&quot;)</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="p">[</span>
-        <span class="n">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span>
-                 <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span> <span class="ow">in</span> <span class="n">line_list</span>
-    <span class="p">]</span></div>
 
 
 
@@ -751,7 +717,6 @@
     <span class="s1">&#39;fit_continuum&#39;</span><span class="p">,</span>
     <span class="c1"># Gaussian Fitting</span>
     <span class="s1">&#39;fit_line&#39;</span><span class="p">,</span>
-    <span class="s1">&#39;fit_multiple_lines&#39;</span><span class="p">,</span>
     <span class="s1">&#39;fit_hitran_lines&#39;</span><span class="p">,</span>
     <span class="s1">&#39;measure_equivalent_width&#39;</span><span class="p">,</span>
     <span class="s1">&#39;create_gaussian_map&#39;</span><span class="p">,</span>
