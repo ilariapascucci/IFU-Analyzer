@@ -158,6 +158,21 @@
 <span class="sd">    &gt;&gt;&gt; print(f&quot;Frequency: {frequency}&quot;)</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_as_float_array</span><span class="p">(</span><span class="n">values</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return a plain float ndarray, stripping astropy units if present.</span>
+
+<span class="sd">    ``load_cube`` returns ``cube.wavelength`` as an astropy Quantity. Several</span>
+<span class="sd">    of the underlying algorithms do arithmetic that silently produces NaN when</span>
+<span class="sd">    handed a united array, so every public entry point normalises its inputs</span>
+<span class="sd">    through this helper first.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">values</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
+
+
 <span class="c1"># ============================================================================</span>
 <span class="c1"># DATA LOADING API</span>
 <span class="c1"># ============================================================================</span>
@@ -200,6 +215,8 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.co_flux_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_continuum_median_peaks</span>
 
+<div class="viewcode-block" id="fit_continuum">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_continuum">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_continuum</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;auto&#39;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Fit continuum to a spectrum using automatic peak detection.</span>
@@ -232,7 +249,10 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">method</span> <span class="o">!=</span> <span class="s1">&#39;auto&#39;</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown continuum fitting method: </span><span class="si">{</span><span class="n">method</span><span class="si">}</span><span class="s2">. Use &#39;auto&#39;.&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">fit_continuum_median_peaks</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">flux</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">fit_continuum_median_peaks</span><span class="p">(</span>
+        <span class="n">_as_float_array</span><span class="p">(</span><span class="n">wavelength</span><span class="p">),</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">flux</span><span class="p">),</span> <span class="o">**</span><span class="n">kwargs</span>
+    <span class="p">)</span></div>
+
 
 
 <span class="c1"># ============================================================================</span>
@@ -248,68 +268,124 @@
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">fetch_hitran_data</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">line_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">auto_boundaries</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<div class="viewcode-block" id="fit_line">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_line">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">line_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">peak_x</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+             <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Fit a Gaussian to an emission line in a spectrum.</span>
 
-<span class="sd">    Automatically detects line center and estimates parameters using</span>
-<span class="sd">    smart peak detection and noise estimation.</span>
+<span class="sd">    The underlying fitter needs a starting guess for the line center. In the</span>
+<span class="sd">    GUI that comes from the wavelength you click on; here it defaults to the</span>
+<span class="sd">    brightest sample between ``x1`` and ``x2``, or you can pass ``peak_x``</span>
+<span class="sd">    explicitly.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
-<span class="sd">        spectrum (array-like): Flux values</span>
-<span class="sd">        x1 (float): Left boundary of fitting region</span>
-<span class="sd">        x2 (float): Right boundary of fitting region</span>
-<span class="sd">        line_name (str, optional): Name of line for documentation</span>
-<span class="sd">        auto_boundaries (bool): Auto-detect boundaries from peak (default True)</span>
+<span class="sd">        wavelength (array-like): Wavelength/frequency values. Astropy</span>
+<span class="sd">            Quantities are accepted; their units are stripped.</span>
+<span class="sd">        spectrum (array-like): Flux values.</span>
+<span class="sd">        x1 (float): Left boundary of the fitting region.</span>
+<span class="sd">        x2 (float): Right boundary of the fitting region.</span>
+<span class="sd">        line_name (str, optional): Descriptive label for the line. Not stored</span>
+<span class="sd">            on the result; it exists for readability at the call site.</span>
+<span class="sd">        peak_x (float, optional): Initial guess for the line center. Defaults</span>
+<span class="sd">            to the brightest wavelength between ``x1`` and ``x2``.</span>
+<span class="sd">        header (optional): FITS header used for unit conversion. Pass</span>
+<span class="sd">            ``cube.header`` to match what the GUI produces.</span>
+<span class="sd">        wave_unit (str, optional): Spectral axis unit, e.g. ``cube.wave_unit``.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        GaussianFitResult: Object containing:</span>
-<span class="sd">            - amplitude: Peak height</span>
-<span class="sd">            - center: Line center wavelength</span>
-<span class="sd">            - sigma: Gaussian sigma width</span>
-<span class="sd">            - continuum: Fitted continuum baseline</span>
-<span class="sd">            - fwhm: Full width at half maximum</span>
-<span class="sd">            - success: Whether fit was successful</span>
-<span class="sd">            - message: Fitting status message</span>
+<span class="sd">        GaussianFitResult: Object with ``amplitude``, ``center``, ``sigma``,</span>
+<span class="sd">        ``fwhm``, ``area``, ``area_unit``, ``area_native``, ``baseline_slope``,</span>
+<span class="sd">        ``baseline_intercept``, ``r_squared``, ``success`` and ``message``.</span>
+
+<span class="sd">        ``area`` is in erg/s/cm² when ``header`` is supplied and the cube is in</span>
+<span class="sd">        MJy/sr (MIRI, NIRSpec); otherwise it stays in flux×wavelength units.</span>
+<span class="sd">        Check ``area_unit`` rather than assuming — it always states which.</span>
+<span class="sd">        ``area_native`` is the unconverted value, which is what you want when</span>
+<span class="sd">        dividing by a continuum measured in the cube&#39;s own units.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If no wavelength samples lie between ``x1`` and ``x2``, or</span>
+<span class="sd">            if every flux value in that window is NaN.</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; result = fit_line(</span>
 <span class="sd">        ...     wavelength=cube.wavelength,</span>
-<span class="sd">        ...     spectrum=spectrum,</span>
-<span class="sd">        ...     x1=2.292,</span>
-<span class="sd">        ...     x2=2.300,</span>
-<span class="sd">        ...     line_name=&quot;CO(5-4)&quot;</span>
+<span class="sd">        ...     spectrum=cube.spectrum,</span>
+<span class="sd">        ...     x1=6.90,</span>
+<span class="sd">        ...     x2=6.95,</span>
+<span class="sd">        ...     line_name=&quot;H2 S(5)&quot;</span>
 <span class="sd">        ... )</span>
 <span class="sd">        &gt;&gt;&gt; if result.success:</span>
-<span class="sd">        ...     print(f&quot;Line center: {result.center} µm&quot;)</span>
-<span class="sd">        ...     print(f&quot;FWHM: {result.fwhm:.6f} µm&quot;)</span>
+<span class="sd">        ...     print(f&quot;Line center: {result.center} um&quot;)</span>
+<span class="sd">        ...     print(f&quot;FWHM: {result.fwhm:.6f} um&quot;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">)</span>
+    <span class="n">wl</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span>
+    <span class="n">fl</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">spectrum</span><span class="p">)</span>
+
+    <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">)</span> <span class="k">if</span> <span class="n">x1</span> <span class="o">&lt;=</span> <span class="n">x2</span> <span class="k">else</span> <span class="p">(</span><span class="n">x2</span><span class="p">,</span> <span class="n">x1</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">peak_x</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">in_window</span> <span class="o">=</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&gt;=</span> <span class="n">lo</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&lt;=</span> <span class="n">hi</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">in_window</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;No wavelength samples between </span><span class="si">{</span><span class="n">lo</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">hi</span><span class="si">}</span><span class="s2">. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Spectrum covers </span><span class="si">{</span><span class="n">wl</span><span class="o">.</span><span class="n">min</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">wl</span><span class="o">.</span><span class="n">max</span><span class="p">()</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+        <span class="n">window_flux</span> <span class="o">=</span> <span class="n">fl</span><span class="p">[</span><span class="n">in_window</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">window_flux</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;All flux values between </span><span class="si">{</span><span class="n">lo</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">hi</span><span class="si">}</span><span class="s2"> are NaN.&quot;</span>
+            <span class="p">)</span>
+        <span class="n">peak_x</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">wl</span><span class="p">[</span><span class="n">in_window</span><span class="p">][</span><span class="n">np</span><span class="o">.</span><span class="n">nanargmax</span><span class="p">(</span><span class="n">window_flux</span><span class="p">)])</span>
+
+    <span class="k">return</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span><span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">fl</span><span class="p">,</span> <span class="n">peak_x</span><span class="o">=</span><span class="n">peak_x</span><span class="p">,</span>
+                                <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">)</span></div>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">fit_multiple_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">line_list</span><span class="p">,</span> <span class="n">auto_boundaries</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+
+<div class="viewcode-block" id="fit_multiple_lines">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_multiple_lines">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_multiple_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">line_list</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                       <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Fit multiple spectral lines simultaneously.</span>
+<span class="sd">    Fit several spectral lines, one after another.</span>
+
+<span class="sd">    Each region is fitted independently by :func:`fit_line`; the lines are not</span>
+<span class="sd">    fitted as a single simultaneous model.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
-<span class="sd">        spectrum (array-like): Flux values</span>
-<span class="sd">        line_list (list): List of (x1, x2) tuples defining fitting regions</span>
-<span class="sd">        auto_boundaries (bool): Auto-detect boundaries (default False)</span>
+<span class="sd">        wavelength (array-like): Wavelength/frequency values.</span>
+<span class="sd">        spectrum (array-like): Flux values.</span>
+<span class="sd">        line_list (list): List of ``(x1, x2)`` tuples defining fitting regions.</span>
+<span class="sd">        header (optional): FITS header used for unit conversion.</span>
+<span class="sd">        wave_unit (str, optional): Spectral axis unit.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        list: List of GaussianFitResult objects</span>
+<span class="sd">        list: List of GaussianFitResult objects, in the same order as</span>
+<span class="sd">        ``line_list``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: Propagated from :func:`fit_line` if a region contains no</span>
+<span class="sd">            usable samples.</span>
 
 <span class="sd">    Example:</span>
-<span class="sd">        &gt;&gt;&gt; lines = [(2.292, 2.300), (2.310, 2.318), (2.405, 2.413)]</span>
-<span class="sd">        &gt;&gt;&gt; results = fit_multiple_lines(cube.wavelength, spectrum, lines)</span>
+<span class="sd">        &gt;&gt;&gt; lines = [(6.90, 6.95), (7.10, 7.15), (7.28, 7.32)]</span>
+<span class="sd">        &gt;&gt;&gt; results = fit_multiple_lines(cube.wavelength, cube.spectrum, lines)</span>
 <span class="sd">        &gt;&gt;&gt; for i, result in enumerate(results):</span>
 <span class="sd">        ...     print(f&quot;Line {i}: center={result.center:.6f}, FWHM={result.fwhm:.6f}&quot;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="p">[</span><span class="n">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">)</span> <span class="k">for</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span> <span class="ow">in</span> <span class="n">line_list</span><span class="p">]</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span>
+                 <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span> <span class="ow">in</span> <span class="n">line_list</span>
+    <span class="p">]</span></div>
 
 
+
+<div class="viewcode-block" id="fit_hitran_lines">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_hitran_lines">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_hitran_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">molecule</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">v_upper</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">v_lower</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Fit HITRAN spectral lines automatically using database lookup.</span>
@@ -337,7 +413,9 @@
 <span class="sd">            - amplitude: Peak height</span>
 <span class="sd">            - sigma: Gaussian sigma width</span>
 <span class="sd">            - fwhm: Full width at half maximum</span>
-<span class="sd">            - area: Integrated line flux</span>
+<span class="sd">            - area: Integrated line flux, in the units given by ``area_unit``</span>
+<span class="sd">            - area_native: Integrated line flux before any CGS conversion</span>
+<span class="sd">            - area_unit: Units of ``area``, e.g. ``&#39;erg/s/cm²&#39;``</span>
 <span class="sd">            - r_squared: Fit quality</span>
 <span class="sd">            - success: Whether fit succeeded</span>
 <span class="sd">            - message: Status message</span>
@@ -378,31 +456,73 @@
         <span class="k">return</span> <span class="p">[]</span>
     
     <span class="c1"># Fit Gaussian profiles to all lines</span>
-    <span class="k">return</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">)</span></div>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">measure_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum_spectrum</span><span class="p">):</span>
+
+<div class="viewcode-block" id="measure_equivalent_width">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.measure_equivalent_width">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">measure_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">,</span> <span class="n">wavelength</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">continuum_spectrum</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Calculate equivalent width from a Gaussian fit result.</span>
 
 <span class="sd">    Equivalent width is the width of an imaginary rectangular line with the</span>
 <span class="sd">    same total area as the observed line.</span>
 
+<span class="sd">    The underlying calculation needs a single continuum level. If you pass a</span>
+<span class="sd">    full continuum array, it is averaged over the wavelengths that were</span>
+<span class="sd">    actually fitted, so the level reflects the line&#39;s own neighbourhood</span>
+<span class="sd">    rather than the whole spectrum.</span>
+
 <span class="sd">    Args:</span>
-<span class="sd">        fit_result (GaussianFitResult): Result from fit_line()</span>
-<span class="sd">        wavelength (array-like): Wavelength array</span>
-<span class="sd">        continuum_spectrum (array-like): Continuum-only spectrum</span>
+<span class="sd">        fit_result (GaussianFitResult): Result from :func:`fit_line`.</span>
+<span class="sd">        wavelength (array-like, optional): Wavelength array matching</span>
+<span class="sd">            ``continuum_spectrum``. Required when passing a continuum array.</span>
+<span class="sd">        continuum_spectrum (array-like or float, optional): Continuum-only</span>
+<span class="sd">            spectrum, or a single continuum level. If omitted, the fit&#39;s own</span>
+<span class="sd">            baseline is used.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        float: Equivalent width in same units as wavelength</span>
+<span class="sd">        float: Equivalent width in the same units as ``wavelength``. Returns</span>
+<span class="sd">        0.0 if the fit failed or the continuum level is non-positive.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If a continuum array is given without a wavelength array.</span>
 
 <span class="sd">    Example:</span>
-<span class="sd">        &gt;&gt;&gt; ew = measure_equivalent_width(result, wavelength, continuum)</span>
-<span class="sd">        &gt;&gt;&gt; print(f&quot;Equivalent width: {ew:.6f} µm&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; continuum = fit_continuum(cube.wavelength, cube.spectrum)</span>
+<span class="sd">        &gt;&gt;&gt; ew = measure_equivalent_width(result, cube.wavelength, continuum)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Equivalent width: {ew:.6f} um&quot;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">return</span> <span class="n">calculate_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum_spectrum</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">continuum_spectrum</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Fall back to the baseline the fit already determined.</span>
+        <span class="k">return</span> <span class="n">calculate_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">)</span>
+
+    <span class="n">continuum</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">continuum_spectrum</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">continuum</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">calculate_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">continuum</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">wavelength</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">&quot;wavelength is required when continuum_spectrum is an array, &quot;</span>
+            <span class="s2">&quot;so the continuum can be averaged over the fitted region.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">wl</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span>
+
+    <span class="c1"># Average the continuum across the wavelengths that were actually fitted.</span>
+    <span class="n">lo</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">fit_result</span><span class="o">.</span><span class="n">x_data</span><span class="p">))</span>
+    <span class="n">hi</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">fit_result</span><span class="o">.</span><span class="n">x_data</span><span class="p">))</span>
+    <span class="n">in_fit</span> <span class="o">=</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&gt;=</span> <span class="n">lo</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">wl</span> <span class="o">&lt;=</span> <span class="n">hi</span><span class="p">)</span>
+    <span class="n">level</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">continuum</span><span class="p">[</span><span class="n">in_fit</span><span class="p">]</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">in_fit</span><span class="p">)</span> <span class="k">else</span> <span class="n">continuum</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">calculate_equivalent_width</span><span class="p">(</span><span class="n">fit_result</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span></div>
 
 
+
+<div class="viewcode-block" id="create_gaussian_map">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.create_gaussian_map">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">create_gaussian_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">lam_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">lam_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Fit a Gaussian to every spatial pixel&#39;s spectrum in a wavelength window.</span>
@@ -440,9 +560,12 @@
         <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
         <span class="n">flux_unit</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;BUNIT&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">header</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
         <span class="o">**</span><span class="n">kwargs</span>
-    <span class="p">)</span>
+    <span class="p">)</span></div>
 
 
+
+<div class="viewcode-block" id="export_residual_cube">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.export_residual_cube">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">export_residual_cube</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">out_path</span><span class="o">=</span><span class="s2">&quot;residual_cube.fits&quot;</span><span class="p">,</span> <span class="n">lam_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                           <span class="n">lam_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_cube</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -475,7 +598,8 @@
         <span class="n">out_path</span><span class="o">=</span><span class="n">out_path</span><span class="p">,</span>
         <span class="n">return_cube</span><span class="o">=</span><span class="n">return_cube</span><span class="p">,</span>
         <span class="n">header</span><span class="o">=</span><span class="n">cube_data</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>
-    <span class="p">)</span>
+    <span class="p">)</span></div>
+
 
 
 <span class="c1"># ============================================================================</span>
@@ -488,6 +612,8 @@
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_CO_line_catalog</span><span class="p">,</span> <span class="n">load_contaminating_lines_catalog</span>
 
+<div class="viewcode-block" id="extract_co_flux">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.extract_co_flux">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">extract_co_flux</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">snr_threshold</span><span class="o">=</span><span class="mf">3.0</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Extract total CO flux by fitting all CO lines in a spectrum.</span>
@@ -531,9 +657,12 @@
         <span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span>
         <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
         <span class="n">do_duplicate_removal</span><span class="o">=</span><span class="kc">True</span>
-    <span class="p">)</span>
+    <span class="p">)</span></div>
 
 
+
+<div class="viewcode-block" id="create_co_flux_map">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.create_co_flux_map">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">create_co_flux_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create a 2D map of CO flux across the entire data cube.</span>
@@ -595,7 +724,8 @@
     <span class="k">return</span> <span class="n">_create_co_flux_map_internal</span><span class="p">(</span>
         <span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
         <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span>
-    <span class="p">)</span>
+    <span class="p">)</span></div>
+
 
 
 <span class="c1"># ============================================================================</span>

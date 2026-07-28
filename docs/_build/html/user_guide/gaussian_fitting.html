@@ -150,7 +150,6 @@ of interest.</p>
 <li><p><strong>Slope</strong>: Baseline slope (continuum gradient in the fit region)</p></li>
 <li><p><strong>Left Endpoint</strong>: Wavelength value at the left edge of the fit region</p></li>
 <li><p><strong>R²</strong>: Coefficient of determination (ranges 0-1, higher is better)</p></li>
-<li><p><strong>χ²</strong>: Reduced chi-squared fit quality metric (lower is better)</p></li>
 <li><p><strong>Data Points</strong>: Number of wavelength points included in the fit</p></li>
 </ul>
 </li>
@@ -237,7 +236,6 @@ using the IFU Analyzer API.</p>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;FWHM: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Integrated Flux: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Fit Quality (R²): </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">r_squared</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Fit Quality (χ²): </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">chi_squared</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 <p><strong>Fitting Multiple Lines</strong></p>
@@ -295,7 +293,6 @@ using the IFU Analyzer API.</p>
 <span class="n">fitted_fwhm</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">fwhm</span>               <span class="c1"># Full width half maximum</span>
 <span class="n">fitted_area</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">area</span>               <span class="c1"># Integrated area (flux)</span>
 <span class="n">fit_quality_r2</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">r_squared</span>       <span class="c1"># R² value (0-1, higher is better)</span>
-<span class="n">fit_quality_chi2</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">chi_squared</span>   <span class="c1"># χ² value (lower is better)</span>
 
 <span class="c1"># Baseline information</span>
 <span class="n">baseline_flux</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">baseline</span>               <span class="c1"># Fitted linear baseline, evaluated at each data point</span>

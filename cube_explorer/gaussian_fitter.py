@@ -32,6 +32,28 @@ def _extract_value_from_quantity(value, unit=None):
     else:
         return value
 
+# Speed of light in μm/s, used by the wavelength-to-frequency conversions below.
+C_MICRON_PER_S = 2.99792458e14
+
+def _resolve_flux_unit(flux_unit_input: Optional[str], header) -> Optional[str]:
+    """
+    Return the flux unit to validate against, falling back to the header's BUNIT.
+
+    Callers that don't track the flux unit pass None. Without this fallback the
+    MJy/sr check below would be skipped entirely for them, and the MJy/sr formula
+    would be applied to MUSE (erg/cm²/s/Å) or ALMA (Jy/beam) data.
+    """
+    if flux_unit_input is not None:
+        return flux_unit_input
+    return header.get('BUNIT', None) if header is not None else None
+
+def _is_mjy_per_sr(flux_unit_input: Optional[str]) -> bool:
+    """True if the flux unit looks like MJy/sr, the only input the CGS conversion supports."""
+    if flux_unit_input is None:
+        return True  # unknown unit - preserve historical behaviour and attempt the conversion
+    flux_upper = str(flux_unit_input).upper().replace(' ', '')
+    return "MJY" in flux_upper and "SR" in flux_upper
+
 def _normalize_wave_unit(wave_unit: Optional[str]) -> Optional[str]:
     if not wave_unit:
         return None
@@ -90,13 +112,11 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         if unit == "KM/S":
             return None  # velocity axis needs rest wavelength to convert
         
-        # Check input flux unit - only MJy/sr is currently supported for CGS conversion
-        if flux_unit_input is not None:
-            flux_upper = flux_unit_input.upper().replace(' ', '')
-            if "MJY" not in flux_upper or "SR" not in flux_upper:
-                # Input is not MJy/sr (e.g., Jy/beam for ALMA, erg/cm²/s/Å for MUSE)
-                # Cannot reliably convert without more information
-                return None
+        # Check input flux unit - only MJy/sr is currently supported for CGS conversion.
+        # Input that is not MJy/sr (e.g., Jy/beam for ALMA, erg/cm²/s/Å for MUSE)
+        # cannot be reliably converted without more information.
+        if not _is_mjy_per_sr(_resolve_flux_unit(flux_unit_input, header)):
+            return None
 
         # Extract CDELT values from header
         cdelt1 = header.get('CDELT1', None)
@@ -125,8 +145,7 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         
         # Convert [Jy × μm] to [erg/s/cm²] using wavelength-to-frequency conversion
         # F_ν = F_λ × (c / λ²), so: [Jy × μm] × (c / λ_c²) × [1e-23 erg/s/cm²/Hz per Jy] = [erg/s/cm²]
-        c_micron_per_s = 3e14  # speed of light in μm/s
-        area_erg_s_cm2 = area_jy_micron * (c_micron_per_s / (center**2)) * 1e-23
+        area_erg_s_cm2 = area_jy_micron * (C_MICRON_PER_S / (center**2)) * 1e-23
         
         return area_erg_s_cm2
     except Exception:
@@ -159,11 +178,9 @@ def convert_amplitude_to_cgs(amplitude_mjy_sr, center_val, header, wave_unit: Op
         if unit == "KM/S":
             return None  # velocity axis needs rest wavelength
 
-        # Check input flux unit
-        if flux_unit_input is not None:
-            flux_upper = flux_unit_input.upper().replace(' ', '')
-            if "MJY" not in flux_upper or "SR" not in flux_upper:
-                return None
+        # Check input flux unit - only MJy/sr is supported
+        if not _is_mjy_per_sr(_resolve_flux_unit(flux_unit_input, header)):
+            return None
 
         # Extract CDELT values
         cdelt1 = header.get('CDELT1', None)
@@ -185,8 +202,7 @@ def convert_amplitude_to_cgs(amplitude_mjy_sr, center_val, header, wave_unit: Op
 
         # Convert [MJy/sr] to [erg/s/cm²/sr] using wavelength-to-frequency conversion
         # F_ν = F_λ × (c / λ²), so: [MJy/sr] × conv × (c / λ²) × [1e-23 erg/s/cm²/Hz per Jy] = [erg/s/cm²/sr]
-        c_micron_per_s = 3e14  # speed of light in μm/s
-        amp_erg_s_cm2_sr = amplitude_mjy_sr * conv * (c_micron_per_s / (center**2)) * 1e-23
+        amp_erg_s_cm2_sr = amplitude_mjy_sr * conv * (C_MICRON_PER_S / (center**2)) * 1e-23
 
         return amp_erg_s_cm2_sr
     except Exception:
@@ -370,11 +386,18 @@ class GaussianFitResult:
     residuals: np.ndarray  # Fit residuals
     
     # Quality metrics
-    chi_squared: float  # Chi-squared goodness of fit
     r_squared: float  # R-squared coefficient
     success: bool  # Whether fit converged
     message: str  # Status or error message
-    
+
+    # Unit bookkeeping for `area`. The CGS conversion only runs for MJy/sr input
+    # with a header, so `area` is in erg/s/cm² for MIRI/NIRSpec and in native
+    # flux×wavelength units otherwise. `area_unit` says which, so callers never
+    # have to guess; `area_native` is always the unconverted value, which is what
+    # ratios against the baseline (e.g. equivalent width) need.
+    area_unit: str = ""  # Units of `area`, e.g. "erg/s/cm²"
+    area_native: float = 0.0  # Area before any CGS conversion, in flux×wavelength units
+
     def __str__(self):
         """Human-readable summary of fit results"""
         return (
@@ -383,7 +406,7 @@ class GaussianFitResult:
             f"  Amplitude (A):  {self.amplitude:.4e}\n"
             f"  Sigma (σ):      {self.sigma:.4f}\n"
             f"  FWHM:           {self.fwhm:.4f}\n"
-            f"  Area:           {self.area:.4e}\n"
+            f"  Area:           {self.area:.4e} {self.area_unit}\n"
             f"  R²:             {self.r_squared:.4f}\n"
             f"  Status:         {self.message}"
         )
@@ -765,7 +788,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
             x_data=x_data, y_data=y_data,
             baseline=np.array([]), y_corrected=np.array([]),
             y_fit=np.array([]), residuals=np.array([]),
-            chi_squared=np.inf, r_squared=0,
+            r_squared=0,
             success=False,
             message="Error: Not enough points in selected region (need at least 4)"
         )
@@ -823,7 +846,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
             x_data=x_data, y_data=y_data,
             baseline=baseline, y_corrected=y_corrected,
             y_fit=np.zeros_like(x_data), residuals=y_corrected,
-            chi_squared=np.inf, r_squared=0,
+            r_squared=0,
             success=False,
             message="Error: No positive peak found after baseline subtraction"
         )
@@ -883,22 +906,24 @@ def fit_gaussian_to_line(x1: float, x2: float,
         
         # STEP 5d: Convert area to CGS units (erg/s/cm²) if FITS header provided with pixel scales
         unit = get_wave_unit(header, wave_unit)
-        if header is not None:
-            area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit_input=None)
-            area = area_cgs if area_cgs is not None else area_native
-            area_unit = "erg/s/cm²" if area_cgs is not None else "MJy/sr·μm"
+        area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit) if header is not None else None
+        if area_cgs is not None:
+            area = area_cgs
+            area_unit = "erg/s/cm²"
         else:
+            # Conversion unavailable (no header, or flux is not MJy/sr). Report the
+            # native area labelled with the units it is actually in, rather than
+            # assuming MJy/sr.
             area = area_native
-            area_unit = "MJy/sr·μm"
+            flux_unit = (header.get('BUNIT', 'flux') if header is not None else 'flux')
+            area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
         
         # STEP 5e: Calculate goodness-of-fit metrics (quality indicators)
         # R² = 1 - (SS_residuals / SS_total) - measures variance explained by fit
         ss_res = np.sum(residuals**2)
         ss_tot = np.sum((y_corrected - np.mean(y_corrected))**2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-        # χ² = sum of squared residuals / N_points
-        chi_squared = ss_res / len(x_data)
-        
+
         # Check fit quality
         if r_squared < 0.5:
             message = f"Warning: Poor fit quality (R² = {r_squared:.3f})"
@@ -909,12 +934,12 @@ def fit_gaussian_to_line(x1: float, x2: float,
         
         return GaussianFitResult(
             amplitude=amplitude, center=center, sigma=sigma,
-            fwhm=fwhm, area=area,
+            fwhm=fwhm, area=area, area_unit=area_unit, area_native=area_native,
             baseline_slope=baseline_slope, baseline_intercept=y1,
             x_data=x_data, y_data=y_data,
             baseline=baseline, y_corrected=y_corrected,
             y_fit=y_fit, residuals=residuals,
-            chi_squared=chi_squared, r_squared=r_squared,
+            r_squared=r_squared,
             success=success, message=message
         )
         
@@ -927,7 +952,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
             x_data=x_data, y_data=y_data,
             baseline=baseline, y_corrected=y_corrected,
             y_fit=np.zeros_like(x_data), residuals=y_corrected,
-            chi_squared=np.inf, r_squared=0,
+            r_squared=0,
             success=False,
             message=f"Error: Fit failed - {str(e)}"
         )
@@ -1074,6 +1099,7 @@ def fit_hitran_lines(spectrum_x: np.ndarray,
                     'fwhm': 0,
                     'area': 0,
                     'area_native': 0,
+                    'area_unit': '',
                     'r_squared': 0,
                     'success': False,
                     'message': 'Missing wavelength'
@@ -1103,6 +1129,7 @@ def fit_hitran_lines(spectrum_x: np.ndarray,
                     'fwhm': 0,
                     'area': 0,
                     'area_native': 0,
+                    'area_unit': '',
                     'r_squared': 0,
                     'success': False,
                     'message': 'Not enough points in window'
@@ -1130,6 +1157,7 @@ def fit_hitran_lines(spectrum_x: np.ndarray,
                     'fwhm': 0,
                     'area': 0,
                     'area_native': 0,
+                    'area_unit': '',
                     'r_squared': 0,
                     'success': False,
                     'message': 'No significant peak'
@@ -1162,11 +1190,17 @@ def fit_hitran_lines(spectrum_x: np.ndarray,
                 fwhm = 2.355 * sigma
                 area_native = amplitude * sigma * np.sqrt(2 * np.pi)
                 
-                # Try CGS conversion
+                # Try CGS conversion (see fit_gaussian_to_line for the same logic)
                 unit = get_wave_unit(header, wave_unit)
-                area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit_input=None) if header else None
-                area = area_cgs if area_cgs is not None else area_native
-                
+                area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit) if header else None
+                if area_cgs is not None:
+                    area = area_cgs
+                    area_unit = "erg/s/cm²"
+                else:
+                    area = area_native
+                    flux_unit = (header.get('BUNIT', 'flux') if header is not None else 'flux')
+                    area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
+
                 # R² calculation
                 y_fit = gaussian(x_data, amplitude, center, sigma)
                 ss_res = np.sum((y_corrected - y_fit)**2)
@@ -1182,6 +1216,7 @@ def fit_hitran_lines(spectrum_x: np.ndarray,
                     'fwhm': fwhm,
                     'area': area,
                     'area_native': area_native,
+                    'area_unit': area_unit,
                     'r_squared': r_squared,
                     'success': True,
                     'message': 'Success'
@@ -1197,6 +1232,7 @@ def fit_hitran_lines(spectrum_x: np.ndarray,
                     'fwhm': 0,
                     'area': 0,
                     'area_native': 0,
+                    'area_unit': '',
                     'r_squared': 0,
                     'success': False,
                     'message': f'Fit error: {str(e)}'
@@ -1212,6 +1248,7 @@ def fit_hitran_lines(spectrum_x: np.ndarray,
                 'fwhm': 0,
                 'area': 0,
                 'area_native': 0,
+                'area_unit': '',
                 'r_squared': 0,
                 'success': False,
                 'message': f'Error: {str(e)}'
@@ -1243,8 +1280,10 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
     if continuum_level <= 0:
         return 0.0
     
-    # For emission lines: EW = Area / Continuum
-    equivalent_width = fit_result.area / continuum_level
+    # For emission lines: EW = Area / Continuum. Use the native area so numerator and
+    # denominator share the same flux units - `area` may have been converted to CGS,
+    # which would not divide out against a continuum in the cube's native units.
+    equivalent_width = fit_result.area_native / continuum_level
     return equivalent_width
 
 

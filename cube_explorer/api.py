@@ -66,6 +66,21 @@ Unit conversion (using astropy):
     >>> print(f"Frequency: {frequency}")
 """
 
+import numpy as np
+
+
+def _as_float_array(values):
+    """
+    Return a plain float ndarray, stripping astropy units if present.
+
+    ``load_cube`` returns ``cube.wavelength`` as an astropy Quantity. Several
+    of the underlying algorithms do arithmetic that silently produces NaN when
+    handed a united array, so every public entry point normalises its inputs
+    through this helper first.
+    """
+    return np.asarray(getattr(values, "value", values), dtype=float)
+
+
 # ============================================================================
 # DATA LOADING API
 # ============================================================================
@@ -137,7 +152,9 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
     """
     if method != 'auto':
         raise ValueError(f"Unknown continuum fitting method: {method}. Use 'auto'.")
-    return fit_continuum_median_peaks(wavelength, flux, **kwargs)
+    return fit_continuum_median_peaks(
+        _as_float_array(wavelength), _as_float_array(flux), **kwargs
+    )
 
 
 # ============================================================================
@@ -153,66 +170,114 @@ from .gaussian_fitter import (
 )
 from .line_catalog import fetch_hitran_data
 
-def fit_line(wavelength, spectrum, x1, x2, line_name=None, auto_boundaries=True):
+def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
+             header=None, wave_unit=None):
     """
     Fit a Gaussian to an emission line in a spectrum.
 
-    Automatically detects line center and estimates parameters using
-    smart peak detection and noise estimation.
+    The underlying fitter needs a starting guess for the line center. In the
+    GUI that comes from the wavelength you click on; here it defaults to the
+    brightest sample between ``x1`` and ``x2``, or you can pass ``peak_x``
+    explicitly.
 
     Args:
-        wavelength (array-like): Wavelength/frequency values
-        spectrum (array-like): Flux values
-        x1 (float): Left boundary of fitting region
-        x2 (float): Right boundary of fitting region
-        line_name (str, optional): Name of line for documentation
-        auto_boundaries (bool): Auto-detect boundaries from peak (default True)
+        wavelength (array-like): Wavelength/frequency values. Astropy
+            Quantities are accepted; their units are stripped.
+        spectrum (array-like): Flux values.
+        x1 (float): Left boundary of the fitting region.
+        x2 (float): Right boundary of the fitting region.
+        line_name (str, optional): Descriptive label for the line. Not stored
+            on the result; it exists for readability at the call site.
+        peak_x (float, optional): Initial guess for the line center. Defaults
+            to the brightest wavelength between ``x1`` and ``x2``.
+        header (optional): FITS header used for unit conversion. Pass
+            ``cube.header`` to match what the GUI produces.
+        wave_unit (str, optional): Spectral axis unit, e.g. ``cube.wave_unit``.
 
     Returns:
-        GaussianFitResult: Object containing:
-            - amplitude: Peak height
-            - center: Line center wavelength
-            - sigma: Gaussian sigma width
-            - continuum: Fitted continuum baseline
-            - fwhm: Full width at half maximum
-            - success: Whether fit was successful
-            - message: Fitting status message
+        GaussianFitResult: Object with ``amplitude``, ``center``, ``sigma``,
+        ``fwhm``, ``area``, ``area_unit``, ``area_native``, ``baseline_slope``,
+        ``baseline_intercept``, ``r_squared``, ``success`` and ``message``.
+
+        ``area`` is in erg/s/cm² when ``header`` is supplied and the cube is in
+        MJy/sr (MIRI, NIRSpec); otherwise it stays in flux×wavelength units.
+        Check ``area_unit`` rather than assuming — it always states which.
+        ``area_native`` is the unconverted value, which is what you want when
+        dividing by a continuum measured in the cube's own units.
+
+    Raises:
+        ValueError: If no wavelength samples lie between ``x1`` and ``x2``, or
+            if every flux value in that window is NaN.
 
     Example:
         >>> result = fit_line(
         ...     wavelength=cube.wavelength,
-        ...     spectrum=spectrum,
-        ...     x1=2.292,
-        ...     x2=2.300,
-        ...     line_name="CO(5-4)"
+        ...     spectrum=cube.spectrum,
+        ...     x1=6.90,
+        ...     x2=6.95,
+        ...     line_name="H2 S(5)"
         ... )
         >>> if result.success:
-        ...     print(f"Line center: {result.center} µm")
-        ...     print(f"FWHM: {result.fwhm:.6f} µm")
+        ...     print(f"Line center: {result.center} um")
+        ...     print(f"FWHM: {result.fwhm:.6f} um")
     """
-    return fit_gaussian_to_line(x1, x2, wavelength, spectrum)
+    wl = _as_float_array(wavelength)
+    fl = _as_float_array(spectrum)
+
+    lo, hi = (x1, x2) if x1 <= x2 else (x2, x1)
+
+    if peak_x is None:
+        in_window = (wl >= lo) & (wl <= hi)
+        if not np.any(in_window):
+            raise ValueError(
+                f"No wavelength samples between {lo} and {hi}. "
+                f"Spectrum covers {wl.min():.4f} to {wl.max():.4f}."
+            )
+        window_flux = fl[in_window]
+        if np.all(np.isnan(window_flux)):
+            raise ValueError(
+                f"All flux values between {lo} and {hi} are NaN."
+            )
+        peak_x = float(wl[in_window][np.nanargmax(window_flux)])
+
+    return fit_gaussian_to_line(lo, hi, wl, fl, peak_x=peak_x,
+                                header=header, wave_unit=wave_unit)
 
 
-def fit_multiple_lines(wavelength, spectrum, line_list, auto_boundaries=False):
+def fit_multiple_lines(wavelength, spectrum, line_list, header=None,
+                       wave_unit=None):
     """
-    Fit multiple spectral lines simultaneously.
+    Fit several spectral lines, one after another.
+
+    Each region is fitted independently by :func:`fit_line`; the lines are not
+    fitted as a single simultaneous model.
 
     Args:
-        wavelength (array-like): Wavelength/frequency values
-        spectrum (array-like): Flux values
-        line_list (list): List of (x1, x2) tuples defining fitting regions
-        auto_boundaries (bool): Auto-detect boundaries (default False)
+        wavelength (array-like): Wavelength/frequency values.
+        spectrum (array-like): Flux values.
+        line_list (list): List of ``(x1, x2)`` tuples defining fitting regions.
+        header (optional): FITS header used for unit conversion.
+        wave_unit (str, optional): Spectral axis unit.
 
     Returns:
-        list: List of GaussianFitResult objects
+        list: List of GaussianFitResult objects, in the same order as
+        ``line_list``.
+
+    Raises:
+        ValueError: Propagated from :func:`fit_line` if a region contains no
+            usable samples.
 
     Example:
-        >>> lines = [(2.292, 2.300), (2.310, 2.318), (2.405, 2.413)]
-        >>> results = fit_multiple_lines(cube.wavelength, spectrum, lines)
+        >>> lines = [(6.90, 6.95), (7.10, 7.15), (7.28, 7.32)]
+        >>> results = fit_multiple_lines(cube.wavelength, cube.spectrum, lines)
         >>> for i, result in enumerate(results):
         ...     print(f"Line {i}: center={result.center:.6f}, FWHM={result.fwhm:.6f}")
     """
-    return [fit_line(wavelength, spectrum, x1, x2) for x1, x2 in line_list]
+    return [
+        fit_line(wavelength, spectrum, x1, x2,
+                 header=header, wave_unit=wave_unit)
+        for x1, x2 in line_list
+    ]
 
 
 def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None, isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None):
@@ -242,7 +307,9 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             - amplitude: Peak height
             - sigma: Gaussian sigma width
             - fwhm: Full width at half maximum
-            - area: Integrated line flux
+            - area: Integrated line flux, in the units given by ``area_unit``
+            - area_native: Integrated line flux before any CGS conversion
+            - area_unit: Units of ``area``, e.g. ``'erg/s/cm²'``
             - r_squared: Fit quality
             - success: Whether fit succeeded
             - message: Status message
@@ -286,26 +353,62 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     return _fit_hitran_lines_internal(wavelength, spectrum, hitran_lines)
 
 
-def measure_equivalent_width(fit_result, wavelength, continuum_spectrum):
+def measure_equivalent_width(fit_result, wavelength=None, continuum_spectrum=None):
     """
     Calculate equivalent width from a Gaussian fit result.
 
     Equivalent width is the width of an imaginary rectangular line with the
     same total area as the observed line.
 
+    The underlying calculation needs a single continuum level. If you pass a
+    full continuum array, it is averaged over the wavelengths that were
+    actually fitted, so the level reflects the line's own neighbourhood
+    rather than the whole spectrum.
+
     Args:
-        fit_result (GaussianFitResult): Result from fit_line()
-        wavelength (array-like): Wavelength array
-        continuum_spectrum (array-like): Continuum-only spectrum
+        fit_result (GaussianFitResult): Result from :func:`fit_line`.
+        wavelength (array-like, optional): Wavelength array matching
+            ``continuum_spectrum``. Required when passing a continuum array.
+        continuum_spectrum (array-like or float, optional): Continuum-only
+            spectrum, or a single continuum level. If omitted, the fit's own
+            baseline is used.
 
     Returns:
-        float: Equivalent width in same units as wavelength
+        float: Equivalent width in the same units as ``wavelength``. Returns
+        0.0 if the fit failed or the continuum level is non-positive.
+
+    Raises:
+        ValueError: If a continuum array is given without a wavelength array.
 
     Example:
-        >>> ew = measure_equivalent_width(result, wavelength, continuum)
-        >>> print(f"Equivalent width: {ew:.6f} µm")
+        >>> continuum = fit_continuum(cube.wavelength, cube.spectrum)
+        >>> ew = measure_equivalent_width(result, cube.wavelength, continuum)
+        >>> print(f"Equivalent width: {ew:.6f} um")
     """
-    return calculate_equivalent_width(fit_result, wavelength, continuum_spectrum)
+    if continuum_spectrum is None:
+        # Fall back to the baseline the fit already determined.
+        return calculate_equivalent_width(fit_result)
+
+    continuum = _as_float_array(continuum_spectrum)
+
+    if continuum.ndim == 0:
+        return calculate_equivalent_width(fit_result, float(continuum))
+
+    if wavelength is None:
+        raise ValueError(
+            "wavelength is required when continuum_spectrum is an array, "
+            "so the continuum can be averaged over the fitted region."
+        )
+
+    wl = _as_float_array(wavelength)
+
+    # Average the continuum across the wavelengths that were actually fitted.
+    lo = float(np.nanmin(fit_result.x_data))
+    hi = float(np.nanmax(fit_result.x_data))
+    in_fit = (wl >= lo) & (wl <= hi)
+    level = float(np.nanmean(continuum[in_fit] if np.any(in_fit) else continuum))
+
+    return calculate_equivalent_width(fit_result, level)
 
 
 def create_gaussian_map(cube_data, lam_min=None, lam_max=None, n_jobs=None, **kwargs):

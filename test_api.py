@@ -231,5 +231,148 @@ finally:
         print(f"  Cleaned up {residual_out_path}")
 
 print("\n" + "="*70)
+print(" API TEST 4: Public Surface Coverage")
+print("="*70)
+print("Calls every function in cube_explorer.api.__all__ at least once.")
+print("Importing a name proves it exists; only calling it proves it works.")
+print("The function list is read from __all__, so adding a new public")
+print("function without a check here shows up immediately as UNTESTED.\n")
+
+import cube_explorer.api as _api
+
+_SAMPLE_CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
+
+
+def _cube_fixture():
+    """Load the sample cube once, or None if the gitignored data is absent."""
+    if not os.path.exists(_SAMPLE_CUBE):
+        return None
+    return _api.load_cube(_SAMPLE_CUBE)
+
+
+_cube = _cube_fixture()
+_no_data = "sample cube not available (data/ is gitignored)"
+
+
+def _needs_cube(fn):
+    """Wrap a check so it reports UNTESTED instead of failing without data."""
+    def wrapper():
+        if _cube is None:
+            return None, _no_data
+        return fn(_cube)
+    return wrapper
+
+
+@_needs_cube
+def _check_load_cube(cube):
+    return f"{cube.instrument}, {cube.cube.shape}", None
+
+
+@_needs_cube
+def _check_fit_continuum(cube):
+    cont = _api.fit_continuum(cube.wavelength, cube.spectrum)
+    return f"continuum of {len(cont)} points", None
+
+
+@_needs_cube
+def _check_fit_line(cube):
+    r = _api.fit_line(cube.wavelength, cube.spectrum, 6.90, 6.95)
+    return f"success={r.success}, center={r.center:.5f}", None
+
+
+@_needs_cube
+def _check_fit_multiple_lines(cube):
+    rs = _api.fit_multiple_lines(cube.wavelength, cube.spectrum,
+                                 [(6.90, 6.95), (7.10, 7.15)])
+    return f"{len(rs)} results, success={[r.success for r in rs]}", None
+
+
+@_needs_cube
+def _check_measure_equivalent_width(cube):
+    fit = _api.fit_line(cube.wavelength, cube.spectrum, 6.90, 6.95)
+    cont = _api.fit_continuum(cube.wavelength, cube.spectrum)
+    ew = _api.measure_equivalent_width(fit, cube.wavelength, cont)
+    return f"EW={ew}", None
+
+
+def _check_create_gaussian_map():
+    maps = create_gaussian_map(synthetic_cube_data, lam_min=4.60, lam_max=4.75,
+                               n_jobs=2)
+    return f"{len(maps)} maps from synthetic cube", None
+
+
+def _check_export_residual_cube():
+    resid = export_residual_cube(synthetic_cube_data, lam_min=4.60,
+                                 lam_max=4.75, n_jobs=2, return_cube=True)
+    return f"residual cube {resid.shape}", None
+
+
+def _check_fit_hitran_lines():
+    # Exercised in full by API TEST 2 above, against the NIRSpec fixture.
+    return None, "covered by API TEST 2 (needs NIRSpec fixture + HITRAN cache)"
+
+
+def _check_extract_co_flux():
+    return None, "needs a CO line catalog (.ecsv) fixture"
+
+
+def _check_create_co_flux_map():
+    return None, "needs a CO line catalog fixture and a full-cube run"
+
+
+def _check_rotational_diagram():
+    return None, "needs molecular_data + flux dict fixture"
+
+
+_CHECKS = {
+    "load_cube": _check_load_cube,
+    "fit_continuum": _check_fit_continuum,
+    "fit_line": _check_fit_line,
+    "fit_multiple_lines": _check_fit_multiple_lines,
+    "fit_hitran_lines": _check_fit_hitran_lines,
+    "measure_equivalent_width": _check_measure_equivalent_width,
+    "create_gaussian_map": _check_create_gaussian_map,
+    "export_residual_cube": _check_export_residual_cube,
+    "extract_co_flux": _check_extract_co_flux,
+    "create_co_flux_map": _check_create_co_flux_map,
+    "rotational_diagram": _check_rotational_diagram,
+}
+
+_results = {}
+
+for _name in _api.__all__:
+    _check = _CHECKS.get(_name)
+    if _check is None:
+        _results[_name] = ("UNTESTED", "no check defined")
+        continue
+    try:
+        _detail, _skip_reason = _check()
+    except Exception as exc:
+        _results[_name] = ("FAIL", f"{type(exc).__name__}: {exc}")
+    else:
+        if _skip_reason:
+            _results[_name] = ("UNTESTED", _skip_reason)
+        else:
+            _results[_name] = ("PASS", _detail)
+
+print(f"  {'function':<26} {'status':<10} detail")
+print("  " + "-"*68)
+for _name in _api.__all__:
+    _status, _detail = _results[_name]
+    print(f"  {_name:<26} [{_status:<8}] {_detail}")
+
+_passed = sum(1 for s, _ in _results.values() if s == "PASS")
+_failed = [n for n, (s, _) in _results.items() if s == "FAIL"]
+_untested = [n for n, (s, _) in _results.items() if s == "UNTESTED"]
+
+print()
+print(f"  Covered:  {_passed}/{len(_api.__all__)}")
+print(f"  Untested: {len(_untested)}  {_untested if _untested else ''}")
+
+if _failed:
+    print(f"\n[ERROR] {len(_failed)} API function(s) failed when called: {_failed}")
+    sys.exit(1)
+
+print("\n" + "="*70)
 print(" [OK] ALL TESTS PASSED!")
 print("="*70 + "\n")

@@ -213,15 +213,40 @@ class GuiGaussianMixin:
         
         axis_name = "Velocity" if "km/s" in wave_unit or "m/s" in wave_unit else ("Wavelength" if wave_unit in ["Å", "µm", "nm"] else "Spectral axis")
         
-        if wave_unit and (wave_unit in flux_unit or wave_unit.replace('Å', 'Angstrom') in flux_unit_raw):
-            area_unit = flux_unit.replace(f' {wave_unit}⁻¹', '').replace(f'/{wave_unit}', '')
-        else:
-            area_unit = f"{flux_unit}·{wave_unit}"
-        
+        # The fitter knows whether the CGS conversion actually ran, so take the
+        # unit from the result rather than deriving it from the cube's units.
+        area_unit = result.area_unit or f"{flux_unit}·{wave_unit}"
+
         slope_unit = f"{flux_unit}/{wave_unit}" if wave_unit not in flux_unit else flux_unit
-        
+
+        # Echo back the boundaries the user clicked so the fitted values can be
+        # compared against what was actually asked for.
+        def _fmt_input(val):
+            return f"{val:.6f} {wave_unit}" if val is not None else "not set"
+
+        left_x = getattr(self, 'gauss_left_x', None)
+        peak_x = getattr(self, 'gauss_peak_x', None)
+        right_x = getattr(self, 'gauss_right_x', None)
+        noise_left_x = getattr(self, 'gauss_noise_left_x', None)
+        noise_right_x = getattr(self, 'gauss_noise_right_x', None)
+
+        user_input_text = f"""USER INPUT:
+  Left boundary:         {_fmt_input(left_x)}
+  Peak:                  {_fmt_input(peak_x)}
+  Right boundary:        {_fmt_input(right_x)}"""
+
+        if noise_left_x is not None and noise_right_x is not None:
+            user_input_text += f"""
+  Noise region (left):   {_fmt_input(noise_left_x)}
+  Noise region (right):  {_fmt_input(noise_right_x)}"""
+        else:
+            user_input_text += """
+  Noise region:          not set"""
+
         results_text = f"""GAUSSIAN FIT RESULTS
 {'='*60}
+{user_input_text}
+
 FITTED PARAMETERS:
   Center ({axis_name}):  {result.center:.6f} {wave_unit}
   Amplitude:             {result.amplitude:.4e} {flux_unit}
@@ -230,7 +255,7 @@ FITTED PARAMETERS:
 
 INTEGRATED QUANTITIES:
   Gaussian Area:         {result.area:.4e} {area_unit}
-  Equivalent Width:      {result.area/np.mean(result.baseline):.4e} {wave_unit}
+  Equivalent Width:      {result.area_native/np.mean(result.baseline):.4e} {wave_unit}
 
 BASELINE:
   Slope:                 {result.baseline_slope:.4e} {slope_unit}
@@ -238,7 +263,6 @@ BASELINE:
 
 FIT QUALITY:
   R² (coefficient):      {result.r_squared:.4f}
-  χ² (chi-squared):      {result.chi_squared:.4e}
   Data points:           {len(result.x_data)}
 
 STATUS: {result.message}
@@ -390,8 +414,8 @@ STATUS: {result.message}
     def _show_multi_gaussian_results(self, fit_results):
         wave_unit = clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm'))
         flux_unit = clean_flux_unit(getattr(self.cube_data, 'flux_unit', 'MJy/sr'))
-        area_unit = f"{flux_unit}·{wave_unit}"
-        
+        fallback_area_unit = f"{flux_unit}·{wave_unit}"
+
         results_text = f"MULTI-GAUSSIAN FIT RESULTS\n{'='*70}\nSuccessfully fitted {len(fit_results)} lines\n\nFITTED LINES:\n{'='*70}\n"
         
         for idx, fit_info in enumerate(fit_results, 1):
@@ -401,7 +425,7 @@ STATUS: {result.message}
   Amplitude:             {result.amplitude:.4e} {flux_unit}
   Sigma (σ):             {result.sigma:.6f} {wave_unit}
   FWHM:                  {result.fwhm:.6f} {wave_unit}
-  Integrated Area:       {result.area:.4e} {area_unit}
+  Integrated Area:       {result.area:.4e} {result.area_unit or fallback_area_unit}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
         
         results_text += f"\nOVERALL:\n  Total lines fitted:    {len(fit_results)}\n"

@@ -38,7 +38,6 @@ of interest.
    - **Slope**: Baseline slope (continuum gradient in the fit region)
    - **Left Endpoint**: Wavelength value at the left edge of the fit region
    - **R²**: Coefficient of determination (ranges 0-1, higher is better)
-   - **χ²**: Reduced chi-squared fit quality metric (lower is better)
    - **Data Points**: Number of wavelength points included in the fit
 
 6. Close informational window to return to the main interface
@@ -137,7 +136,6 @@ Fit a Gaussian profile to a single spectrum:
         print(f"FWHM: {result.fwhm:.6f} µm")
         print(f"Integrated Flux: {result.area:.3f}")
         print(f"Fit Quality (R²): {result.r_squared:.4f}")
-        print(f"Fit Quality (χ²): {result.chi_squared:.6f}")
 
 **Fitting Multiple Lines**
 
@@ -203,7 +201,6 @@ Automatically fit all lines from a molecular species in your spectrum:
     fitted_fwhm = result.fwhm               # Full width half maximum
     fitted_area = result.area               # Integrated area (flux)
     fit_quality_r2 = result.r_squared       # R² value (0-1, higher is better)
-    fit_quality_chi2 = result.chi_squared   # χ² value (lower is better)
     
     # Baseline information
     baseline_flux = result.baseline               # Fitted linear baseline, evaluated at each data point

@@ -217,28 +217,40 @@ smoothing_factor (float): Spline smoothing parameter (default 5)</p></li>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.measure_equivalent_width">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">measure_equivalent_width</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fit_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_spectrum</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#measure_equivalent_width"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.measure_equivalent_width" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">measure_equivalent_width</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fit_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_spectrum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#measure_equivalent_width"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.measure_equivalent_width" title="Link to this definition"></a></dt>
 <dd><p>Calculate equivalent width from a Gaussian fit result.</p>
 <p>Equivalent width is the width of an imaginary rectangular line with the
 same total area as the observed line.</p>
+<p>The underlying calculation needs a single continuum level. If you pass a
+full continuum array, it is averaged over the wavelengths that were
+actually fitted, so the level reflects the line’s own neighbourhood
+rather than the whole spectrum.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>fit_result</strong> (<em>GaussianFitResult</em>) – Result from fit_line()</p></li>
-<li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength array</p></li>
-<li><p><strong>continuum_spectrum</strong> (<em>array-like</em>) – Continuum-only spectrum</p></li>
+<li><p><strong>fit_result</strong> (<em>GaussianFitResult</em>) – Result from <a class="reference internal" href="#cube_explorer.api.fit_line" title="cube_explorer.api.fit_line"><code class="xref py py-func docutils literal notranslate"><span class="pre">fit_line()</span></code></a>.</p></li>
+<li><p><strong>wavelength</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Wavelength array matching
+<code class="docutils literal notranslate"><span class="pre">continuum_spectrum</span></code>. Required when passing a continuum array.</p></li>
+<li><p><strong>continuum_spectrum</strong> (<em>array-like</em><em> or </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Continuum-only
+spectrum, or a single continuum level. If omitted, the fit’s own
+baseline is used.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Equivalent width in same units as wavelength</p>
+<dd class="field-even"><p>Equivalent width in the same units as <code class="docutils literal notranslate"><span class="pre">wavelength</span></code>. Returns
+0.0 if the fit failed or the continuum level is non-positive.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)">float</a></p>
 </dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If a continuum array is given without a wavelength array.</p>
+</dd>
 </dl>
 <p class="rubric">Example</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">ew</span> <span class="o">=</span> <span class="n">measure_equivalent_width</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Equivalent width: </span><span class="si">{</span><span class="n">ew</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">continuum</span> <span class="o">=</span> <span class="n">fit_continuum</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">ew</span> <span class="o">=</span> <span class="n">measure_equivalent_width</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Equivalent width: </span><span class="si">{</span><span class="n">ew</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -248,78 +260,94 @@ same total area as the observed line.</p>
 <h2>Gaussian Line Fitting<a class="headerlink" href="#gaussian-line-fitting" title="Link to this heading"></a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_line">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_boundaries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_line"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_line" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">peak_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_line"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_line" title="Link to this definition"></a></dt>
 <dd><p>Fit a Gaussian to an emission line in a spectrum.</p>
-<p>Automatically detects line center and estimates parameters using
-smart peak detection and noise estimation.</p>
+<p>The underlying fitter needs a starting guess for the line center. In the
+GUI that comes from the wavelength you click on; here it defaults to the
+brightest sample between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>, or you can pass <code class="docutils literal notranslate"><span class="pre">peak_x</span></code>
+explicitly.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
-<li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>x1</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Left boundary of fitting region</p></li>
-<li><p><strong>x2</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Right boundary of fitting region</p></li>
-<li><p><strong>line_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Name of line for documentation</p></li>
-<li><p><strong>auto_boundaries</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Auto-detect boundaries from peak (default True)</p></li>
+<li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values. Astropy
+Quantities are accepted; their units are stripped.</p></li>
+<li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values.</p></li>
+<li><p><strong>x1</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Left boundary of the fitting region.</p></li>
+<li><p><strong>x2</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Right boundary of the fitting region.</p></li>
+<li><p><strong>line_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Descriptive label for the line. Not stored
+on the result; it exists for readability at the call site.</p></li>
+<li><p><strong>peak_x</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Initial guess for the line center. Defaults
+to the brightest wavelength between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>.</p></li>
+<li><p><strong>header</strong> (<em>optional</em>) – FITS header used for unit conversion. Pass
+<code class="docutils literal notranslate"><span class="pre">cube.header</span></code> to match what the GUI produces.</p></li>
+<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Spectral axis unit, e.g. <code class="docutils literal notranslate"><span class="pre">cube.wave_unit</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><dl class="simple">
-<dt>Object containing:</dt><dd><ul class="simple">
-<li><p>amplitude: Peak height</p></li>
-<li><p>center: Line center wavelength</p></li>
-<li><p>sigma: Gaussian sigma width</p></li>
-<li><p>continuum: Fitted continuum baseline</p></li>
-<li><p>fwhm: Full width at half maximum</p></li>
-<li><p>success: Whether fit was successful</p></li>
-<li><p>message: Fitting status message</p></li>
-</ul>
-</dd>
-</dl>
+<dd class="field-even"><p><p>Object with <code class="docutils literal notranslate"><span class="pre">amplitude</span></code>, <code class="docutils literal notranslate"><span class="pre">center</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma</span></code>,
+<code class="docutils literal notranslate"><span class="pre">fwhm</span></code>, <code class="docutils literal notranslate"><span class="pre">area</span></code>, <code class="docutils literal notranslate"><span class="pre">area_unit</span></code>, <code class="docutils literal notranslate"><span class="pre">area_native</span></code>, <code class="docutils literal notranslate"><span class="pre">baseline_slope</span></code>,
+<code class="docutils literal notranslate"><span class="pre">baseline_intercept</span></code>, <code class="docutils literal notranslate"><span class="pre">r_squared</span></code>, <code class="docutils literal notranslate"><span class="pre">success</span></code> and <code class="docutils literal notranslate"><span class="pre">message</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">area</span></code> is in erg/s/cm² when <code class="docutils literal notranslate"><span class="pre">header</span></code> is supplied and the cube is in
+MJy/sr (MIRI, NIRSpec); otherwise it stays in flux×wavelength units.
+Check <code class="docutils literal notranslate"><span class="pre">area_unit</span></code> rather than assuming — it always states which.
+<code class="docutils literal notranslate"><span class="pre">area_native</span></code> is the unconverted value, which is what you want when
+dividing by a continuum measured in the cube’s own units.</p>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>GaussianFitResult</p>
 </dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If no wavelength samples lie between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>, or
+    if every flux value in that window is NaN.</p>
+</dd>
 </dl>
 <p class="rubric">Example</p>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="n">fit_line</span><span class="p">(</span>
 <span class="gp">... </span>    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">spectrum</span><span class="o">=</span><span class="n">spectrum</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">x1</span><span class="o">=</span><span class="mf">2.292</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">x2</span><span class="o">=</span><span class="mf">2.300</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">line_name</span><span class="o">=</span><span class="s2">&quot;CO(5-4)&quot;</span>
+<span class="gp">... </span>    <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">x1</span><span class="o">=</span><span class="mf">6.90</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">x2</span><span class="o">=</span><span class="mf">6.95</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">line_name</span><span class="o">=</span><span class="s2">&quot;H2 S(5)&quot;</span>
 <span class="gp">... </span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
-<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Line center: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">center</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
-<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;FWHM: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Line center: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">center</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;FWHM: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_multiple_lines">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_multiple_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_boundaries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_multiple_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_multiple_lines" title="Link to this definition"></a></dt>
-<dd><p>Fit multiple spectral lines simultaneously.</p>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_multiple_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_multiple_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_multiple_lines" title="Link to this definition"></a></dt>
+<dd><p>Fit several spectral lines, one after another.</p>
+<p>Each region is fitted independently by <a class="reference internal" href="#cube_explorer.api.fit_line" title="cube_explorer.api.fit_line"><code class="xref py py-func docutils literal notranslate"><span class="pre">fit_line()</span></code></a>; the lines are not
+fitted as a single simultaneous model.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
-<li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>line_list</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a>) – List of (x1, x2) tuples defining fitting regions</p></li>
-<li><p><strong>auto_boundaries</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Auto-detect boundaries (default False)</p></li>
+<li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values.</p></li>
+<li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values.</p></li>
+<li><p><strong>line_list</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a>) – List of <code class="docutils literal notranslate"><span class="pre">(x1,</span> <span class="pre">x2)</span></code> tuples defining fitting regions.</p></li>
+<li><p><strong>header</strong> (<em>optional</em>) – FITS header used for unit conversion.</p></li>
+<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Spectral axis unit.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>List of GaussianFitResult objects</p>
+<dd class="field-even"><p>List of GaussianFitResult objects, in the same order as
+<code class="docutils literal notranslate"><span class="pre">line_list</span></code>.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)">list</a></p>
 </dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – Propagated from <a class="reference internal" href="#cube_explorer.api.fit_line" title="cube_explorer.api.fit_line"><code class="xref py py-func docutils literal notranslate"><span class="pre">fit_line()</span></code></a> if a region contains no
+    usable samples.</p>
+</dd>
 </dl>
 <p class="rubric">Example</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">lines</span> <span class="o">=</span> <span class="p">[(</span><span class="mf">2.292</span><span class="p">,</span> <span class="mf">2.300</span><span class="p">),</span> <span class="p">(</span><span class="mf">2.310</span><span class="p">,</span> <span class="mf">2.318</span><span class="p">),</span> <span class="p">(</span><span class="mf">2.405</span><span class="p">,</span> <span class="mf">2.413</span><span class="p">)]</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">fit_multiple_lines</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">lines</span><span class="p">)</span>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">lines</span> <span class="o">=</span> <span class="p">[(</span><span class="mf">6.90</span><span class="p">,</span> <span class="mf">6.95</span><span class="p">),</span> <span class="p">(</span><span class="mf">7.10</span><span class="p">,</span> <span class="mf">7.15</span><span class="p">),</span> <span class="p">(</span><span class="mf">7.28</span><span class="p">,</span> <span class="mf">7.32</span><span class="p">)]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">fit_multiple_lines</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span> <span class="n">lines</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">results</span><span class="p">):</span>
 <span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Line </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">: center=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">center</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">, FWHM=</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
@@ -356,7 +384,9 @@ Gaussian profiles to all lines in the wavelength range.</p>
 <li><p>amplitude: Peak height</p></li>
 <li><p>sigma: Gaussian sigma width</p></li>
 <li><p>fwhm: Full width at half maximum</p></li>
-<li><p>area: Integrated line flux</p></li>
+<li><p>area: Integrated line flux, in the units given by <code class="docutils literal notranslate"><span class="pre">area_unit</span></code></p></li>
+<li><p>area_native: Integrated line flux before any CGS conversion</p></li>
+<li><p>area_unit: Units of <code class="docutils literal notranslate"><span class="pre">area</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">'erg/s/cm²'</span></code></p></li>
 <li><p>r_squared: Fit quality</p></li>
 <li><p>success: Whether fit succeeded</p></li>
 <li><p>message: Status message</p></li>

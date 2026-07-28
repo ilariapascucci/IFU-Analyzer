@@ -33,7 +33,7 @@ Spectral Analysis
   - Interactive single-pixel spectrum fitting with visual overlay and quality metrics
   - Pixel-by-pixel full-cube fitting with comprehensive parameter extraction
   - Baseline subtraction and continuum removal
-  - Quality assessment through χ², R², FWHM, and area measurements
+  - Quality assessment through R², FWHM, and area measurements
 
 - **Integrated Intensity Maps & Pixel-by-Pixel Gaussian Fitting**:
 
