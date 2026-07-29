@@ -92,9 +92,10 @@ once per cube row.
 .. important::
 
    The **Hide** button dismisses the dialog *without cancelling the run*. The fit continues in
-   the background and the results window still opens when it finishes. There is no way to stop
-   a run in progress short of closing the application, so check your boundaries before starting
-   rather than after.
+   the background and the results window still opens when it finishes. Closing the whole
+   application *does* cancel it — the in-flight rows finish (typically a few seconds) and
+   then the process exits, rather than continuing to compute and print progress to a console
+   nothing is reading anymore.
 
 The same progress is echoed to the console you launched the application from, together with
 the final tallies:
@@ -111,8 +112,19 @@ the final tallies:
       Upper limits: 556 (27.7%)
 
 **Runtime.** That example — a 49 × 41 spaxel MIRI cube, 2,009 pixels, a 0.025 µm window —
-takes roughly three minutes on eight threads. Cost scales as pixels × samples in the window,
-so a wider window or a larger detector is proportionally slower.
+takes about **100 seconds** single-threaded, and **not less** on the GUI's 8 worker threads
+(120s measured). Cost scales roughly with pixels × samples in the window, so a wider window
+or a larger detector is proportionally slower.
+
+.. warning::
+
+   **The 8 worker threads do not currently speed this up, and measured slightly slower than
+   one thread on this machine.** Per-pixel noise estimation (see the chi2 caveat below)
+   runs scikit-learn's ``RANSACRegressor``, which is Python-and-NumPy-heavy rather than a
+   single release-the-GIL C call, and NumPy's own BLAS backend may already be
+   multithreaded — running 8 Python threads on top of that can oversubscribe the machine's
+   cores rather than using them more efficiently. This has not been root-caused; it is
+   reported here because the docs should not claim a speedup that a real run does not show.
 
 **Results are cached.** Re-running with the same Left/Right *and* the same Noise L/Noise R
 reuses the previous fit instead of recomputing it, and tells you so. Change any of the four

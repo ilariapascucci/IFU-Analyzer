@@ -208,9 +208,10 @@ once per cube row.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>The <strong>Hide</strong> button dismisses the dialog <em>without cancelling the run</em>. The fit continues in
-the background and the results window still opens when it finishes. There is no way to stop
-a run in progress short of closing the application, so check your boundaries before starting
-rather than after.</p>
+the background and the results window still opens when it finishes. Closing the whole
+application <em>does</em> cancel it — the in-flight rows finish (typically a few seconds) and
+then the process exits, rather than continuing to compute and print progress to a console
+nothing is reading anymore.</p>
 </div>
 <p>The same progress is echoed to the console you launched the application from, together with
 the final tallies:</p>
@@ -225,8 +226,19 @@ Fitting complete: 957/2009 successful fits (47.6%)
 </pre></div>
 </div>
 <p><strong>Runtime.</strong> That example — a 49 × 41 spaxel MIRI cube, 2,009 pixels, a 0.025 µm window —
-takes roughly three minutes on eight threads. Cost scales as pixels × samples in the window,
-so a wider window or a larger detector is proportionally slower.</p>
+takes about <strong>100 seconds</strong> single-threaded, and <strong>not less</strong> on the GUI’s 8 worker threads
+(120s measured). Cost scales roughly with pixels × samples in the window, so a wider window
+or a larger detector is proportionally slower.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>The 8 worker threads do not currently speed this up, and measured slightly slower than
+one thread on this machine.</strong> Per-pixel noise estimation (see the chi2 caveat below)
+runs scikit-learn’s <code class="docutils literal notranslate"><span class="pre">RANSACRegressor</span></code>, which is Python-and-NumPy-heavy rather than a
+single release-the-GIL C call, and NumPy’s own BLAS backend may already be
+multithreaded — running 8 Python threads on top of that can oversubscribe the machine’s
+cores rather than using them more efficiently. This has not been root-caused; it is
+reported here because the docs should not claim a speedup that a real run does not show.</p>
+</div>
 <p><strong>Results are cached.</strong> Re-running with the same Left/Right <em>and</em> the same Noise L/Noise R
 reuses the previous fit instead of recomputing it, and tells you so. Change any of the four
 boundaries to force a fresh run.</p>

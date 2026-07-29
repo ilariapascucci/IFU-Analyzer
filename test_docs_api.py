@@ -247,9 +247,9 @@ def result_fields():
 # ---------------------------------------------------------------------------
 # PIXEL-BY-PIXEL CUBE FITTING -- FITTING THE CUBE
 # ---------------------------------------------------------------------------
-# Slow: a real full-cube run, ~3 minutes on 8 threads. It stays because the page
-# quotes concrete detection counts, and an example nobody runs is how the counts
-# drift away from the code.
+# Slow-ish: a real full-cube run, ~1-2 minutes. It stays because the page quotes
+# concrete detection counts, and an example nobody runs is how the counts drift
+# away from the code.
 
 @needs_cube
 def cube_fitting_the_cube():
@@ -355,7 +355,7 @@ def main():
     run("AVAILABLE CUBE PROPERTIES", available_cube_properties)
     run("1D FITTING -- ONE LINE", fitting_one_line)
     run("1D FITTING -- RESULT FIELDS", result_fields)
-    run("CUBE FITTING -- FULL CUBE (slow, ~3 min)", cube_fitting_the_cube)
+    run("CUBE FITTING -- FULL CUBE (slow, ~1-2 min)", cube_fitting_the_cube)
     run("CUBE FITTING -- RETURNED KEYS", cube_returned_keys)
 
     print("\n" + "=" * 70)
