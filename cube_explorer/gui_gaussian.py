@@ -471,8 +471,21 @@ STATUS: {result.message}
         if self.gauss_left_x is None or self.gauss_right_x is None:
             QMessageBox.warning(self, "Missing Boundaries", "Please select both LEFT and RIGHT boundaries first.")
             return
-        
+
         if not hasattr(self, 'cube_data') or self.cube_data is None:
+            return
+
+        # A cancelled worker keeps running for a few seconds while its in-flight rows
+        # finish (see cancel() docstring). Starting a second fit on top of that would
+        # briefly run two 8-thread pools at once -- worse than the problem cancel was
+        # meant to solve.
+        prev_worker = getattr(self, 'gauss_worker', None)
+        if prev_worker is not None and prev_worker.isRunning():
+            QMessageBox.warning(
+                self, "Fit Still Stopping",
+                "The previous Gaussian map fit is still shutting down after being "
+                "cancelled. Wait a few seconds and try again."
+            )
             return
         
         cube = self.cube_data.cube
@@ -502,19 +515,23 @@ STATUS: {result.message}
 
         # A real 0-100 bar, not a busy spinner: the worker reports progress once per
         # cube row. autoClose/autoReset are off so reaching 100% does not dismiss the
-        # dialog before the post-fit unit conversion has finished.
+        # dialog before the post-fit unit conversion has finished. The cube is fully
+        # occupying every worker thread while this runs, so "Hide" (dismiss but keep
+        # computing) is not useful here the way it might be for a lighter task --
+        # "Cancel" actually frees the CPU back up.
         n_pixels = cube.shape[1] * cube.shape[2]
         self.gauss_progress = QProgressDialog(
-            f"Fitting Gaussians to {n_pixels:,} pixels...", "Hide", 0, 100, self)
+            f"Fitting Gaussians to {n_pixels:,} pixels...", "Cancel", 0, 100, self)
         self.gauss_progress.setWindowTitle("Gaussian Map Fitting")
         self.gauss_progress.setWindowModality(Qt.NonModal)
         self.gauss_progress.setAutoClose(False)
         self.gauss_progress.setAutoReset(False)
         self.gauss_progress.setValue(0)
+        self.gauss_progress.canceled.connect(self._on_gaussian_map_cancel_clicked)
         self.gauss_progress.show()
 
         self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max) if hasattr(self, 'hitran_lines') else None
-        
+
         self.gauss_worker = GaussianMapWorker(
             cube=cube, wavelength=wavelength, lam_min=lam_min, lam_max=lam_max, n_jobs=8,
             fac_above_stdres=3.0, noise_min=noise_min, noise_max=noise_max,
@@ -525,6 +542,17 @@ STATUS: {result.message}
         self.gauss_worker.error.connect(self._on_gaussian_map_error)
         self.gauss_worker.progress.connect(self._on_gaussian_map_progress)
         self.gauss_worker.start()
+
+    def _on_gaussian_map_cancel_clicked(self):
+        """Stop a running Gaussian map fit. The dialog itself is already hidden by the
+        time this runs (Qt hides it as part of the button click), so there is nothing
+        to update here -- just tell the worker to stop. fit_gaussians_per_pixel prints
+        its own "Fitting cancelled: N/M pixels completed" line once the in-flight rows
+        actually finish, which is the real confirmation it stopped.
+        """
+        worker = getattr(self, 'gauss_worker', None)
+        if worker is not None and worker.isRunning():
+            worker.cancel()
 
     def _on_gaussian_map_progress(self, current, total):
         """Mirror the worker's per-row progress into the progress dialog."""

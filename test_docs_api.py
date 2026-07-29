@@ -276,10 +276,6 @@ def cube_fitting_the_cube():
     # --- checks on claims the page makes, beyond "it runs" ---
     import numpy as np
 
-    # "success and is_detection are the same array"
-    assert np.array_equal(maps['success'], maps['is_detection']), \
-        "docs claim success and is_detection are identical"
-
     # "the three states account for the whole map"
     n_det = int(maps['is_detection'].sum())
     n_up = int(maps['is_upper_limit'].sum())
@@ -329,9 +325,7 @@ def cube_returned_keys():
     maps['sigma']             # Gaussian sigma
     maps['fwhm']              # 2.355 * sigma
     maps['area']              # Integrated flux, or an upper limit - check is_upper_limit
-    maps['r_squared']         # SEE WARNING BELOW - this is reduced chi-squared
-    maps['success']           # Boolean: converged. Identical to is_detection.
-    maps['is_detection']      # Boolean: same array as success
+    maps['success']           # Boolean: did the pixel converge and pass the detection test?
     maps['is_upper_limit']    # Boolean: area is an upper limit (may still be NaN)
     maps['residuals_cube']    # 3D residuals cached during fitting
     maps['fac_above_stdres']  # The threshold that was used

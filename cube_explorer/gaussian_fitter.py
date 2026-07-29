@@ -1800,12 +1800,17 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     area = area_native
 
                 # STEP 5e: Calculate goodness-of-fit metrics
-                # χ²_red = ∑(residuals²) / (degrees_of_freedom × σ_noise²)
+                # χ²_red = ∑(residuals²) / (dof × σ_noise²), using the independently
+                # measured noise (the mandatory noise region, or the per-pixel fallback
+                # in std_val) -- NOT the residuals' own scatter. Normalizing by the
+                # residuals' own std reduces algebraically to (n/dof)*(1 + mean(r)^2 /
+                # std(r)^2): floored at n/dof, incapable of reflecting fit quality
+                # relative to the real noise level. See the "chi2 caveat" this replaced
+                # in docs/user_guide/gaussian_fitting_cube.rst.
                 n_points = len(y_corrected)
                 dof = max(1, n_points - 3)
-                noise_estimate = np.std(residuals, ddof=0)
-                if noise_estimate > 0:
-                    chi_squared_red = np.sum(residuals**2) / (dof * noise_estimate**2)
+                if std_val is not None and np.isfinite(std_val) and std_val > 0:
+                    chi_squared_red = np.sum(residuals**2) / (dof * std_val**2)
                 else:
                     chi_squared_red = np.inf
 
@@ -1813,22 +1818,33 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 # Determine if this is a true detection or upper limit
                 # Check: (1) fit converged, (2) amplitude > SNR threshold, (3) fit improves residuals
                 std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else safe_nanstd(y_corrected, fallback=1.0)
-                std_with_fit = noise_estimate  # std of residuals after fit
+                # Residual scatter after fitting, used only to ask "did the fit reduce
+                # the scatter versus the raw data" -- a different question from chi2
+                # above, which asks "how big are the residuals relative to real noise".
+                residual_scatter = np.std(residuals, ddof=0)
+                std_with_fit = residual_scatter
                 fit_improves = fit_success and (std_with_fit < std_no_fit)
                 
-                # HYBRID DETECTION CRITERION: Combine SNR threshold with fit quality (χ²_red)
-                # Strategy: Accept detections by two criteria:
-                #   (A) High SNR: amplitude >= fac_above_stdres*std AND fit improves [strict detection]
-                #   (B) Good fit + moderate SNR: χ²_red near 1 AND amplitude > 0.5σ [catches weak real lines]
+                # DETECTION CRITERION: two amplitude-based pathways, chi2 NOT involved.
+                #
+                # (A) High SNR: amplitude >= fac_above_stdres*std AND fit improves [strict]
+                # (B) Weak-but-real: fit converged AND amplitude > 0.5*std [lenient]
+                #
+                # chi2 used to gate pathway B (require 0.5 <= chi2_red <= 2.5). It looked
+                # like a quality filter but was not one: the old chi2 formula was floored
+                # at n/dof (~1.1) and never observed above ~2.2, so that gate was inside
+                # [0.5, 2.5] for every real pixel and never once excluded anything. The
+                # detection counts this cube's science is validated against were produced
+                # by pathway B being, in effect, just "converged and amplitude > 0.5*std".
+                #
+                # Now that chi2 above is a real, unfloored reduced chi-squared (see the
+                # comment on its computation), reintroducing it here would silently make
+                # it start gating detections for the first time -- a policy change, not a
+                # bug fix. Keep it out: chi2 is reported as a fit-quality diagnostic, not
+                # used to decide what counts as a detection.
                 snr_passes_threshold = amplitude >= fac_above_stdres * std_val
-                
-                # For quality-based pathway: χ²_red should be reasonable (0.5-2.5)
-                # Wider window allows weak but real signals in noisy data
-                chi_sq_good = (0.5 <= chi_squared_red <= 2.5)  # Reasonable fit window
-                amplitude_weak = amplitude > 0.5 * std_val  # Even weak signals (0.5σ) accepted if fit is good
-                
-                # Detection via SNR pathway (strict) OR via quality+weak signal pathway
-                is_detection = (snr_passes_threshold and fit_improves) or (fit_success and chi_sq_good and amplitude_weak)
+                amplitude_weak = amplitude > 0.5 * std_val
+                is_detection = (snr_passes_threshold and fit_improves) or (fit_success and amplitude_weak)
                 
                 if is_detection:
                     # ===== DETECTION: Store full fitted parameters =====
@@ -1989,7 +2005,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     n_detections = np.sum(is_detection_map)
     n_upper_limits = np.sum(is_upper_limit_map)
     print(f"Fitting complete: {n_success}/{total_pixels} successful fits ({100*n_success/total_pixels:.1f}%)")
-    print(f"  Detections (>{fac_above_stdres} sigma): {n_detections} ({100*n_detections/total_pixels:.1f}%)")
+    print(f"  Detections: {n_detections} ({100*n_detections/total_pixels:.1f}%)")
     print(f"  Upper limits: {n_upper_limits} ({100*n_upper_limits/total_pixels:.1f}%)")
 
     # Convert amplitude to CGS if header available (MJy/sr -> erg/s/cm²/sr)

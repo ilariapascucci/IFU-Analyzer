@@ -64,8 +64,6 @@
 <li class="toctree-l3"><a class="reference internal" href="#running-the-fit">Running the Fit</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#reading-the-results">Reading the Results</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#output-maps">Output Maps</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#what-the-chi2-map-actually-measures">What the chi2 map actually measures</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#bounds-and-railed-pixels">Bounds and railed pixels</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#where-every-pixel-goes">Where every pixel goes</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#upper-limits">Upper limits</a></li>
 </ul>
@@ -171,28 +169,13 @@ required <em>and</em> it directly shapes the output.</p>
 <p>The standard deviation measured in it feeds the detection test and the size of the upper
 limits. Choose a region close in wavelength to the line, and genuinely free of features — a
 noise region that clips a line wing inflates σ and moves the whole detection boundary.</p>
-<div class="admonition danger" id="detection-caveat">
-<p class="admonition-title">Danger</p>
-<p><strong>“Detections (&gt;3.0 sigma)” does not mean 3σ.</strong> The detection test has two pathways and a
-pixel passes if <em>either</em> succeeds:</p>
-<ul class="simple">
-<li><p><strong>A</strong> — amplitude ≥ <code class="docutils literal notranslate"><span class="pre">fac_above_stdres</span> <span class="pre">×</span> <span class="pre">σ</span></code> (3σ) <strong>and</strong> the fit reduces the scatter</p></li>
-<li><p><strong>B</strong> — <code class="docutils literal notranslate"><span class="pre">0.5</span> <span class="pre">≤</span> <span class="pre">χ²_red</span> <span class="pre">≤</span> <span class="pre">2.5</span></code> <strong>and</strong> amplitude &gt; <strong>0.5σ</strong></p></li>
-</ul>
-<p>Because χ²_red is bounded to a narrow range by construction
-(<a class="reference internal" href="#chi2-caveat"><span class="std std-ref">What the chi2 map actually measures</span></a>), the first half of <strong>B</strong> is satisfied by essentially every converged
-fit, so <strong>B collapses to a 0.5σ threshold</strong>.</p>
-<p>On the worked example above, of 960 “detections”:</p>
-<ul class="simple">
-<li><p>156 (16%) cleared 3σ</p></li>
-<li><p>804 (84%) did not — median SNR <strong>1.5</strong>, and 274 of them below <strong>1σ</strong></p></li>
-<li><p>0 passed via <strong>A</strong> alone, so pathway <strong>A</strong> never decides anything on its own</p></li>
-</ul>
-<p>The upper limits are consequently <em>brighter</em> than most detections — median upper limit
-is 1.7× the median detected area, and 530 of 553 upper limits exceed it. A pixel can be
-called a detection at a flux below the limit you would have quoted had it failed.</p>
-<p>Treat the mask as “a positive bump was fitted here”, not as a significance cut, and
-apply your own SNR threshold before using an area map for science.</p>
+<div class="admonition note" id="detection-caveat">
+<p class="admonition-title">Note</p>
+<p><strong>“Detections” is not a strict 3σ cut.</strong> A pixel can also be flagged as a detection with
+a weaker signal (down to about 0.5σ) as long as the fit converges — this is deliberate,
+meant to catch faint-but-real lines a strict cut would drop, at the cost of also letting
+some noise through. Treat the mask as “a Gaussian was fitted here”, not as a significance
+cut, and apply your own SNR threshold before using an area map for science.</p>
 </div>
 </section>
 </section>
@@ -204,15 +187,7 @@ apply your own SNR threshold before using an area map for science.</p>
 <li><p>The fit runs on 8 worker threads in the background</p></li>
 </ol>
 <p><strong>Watching progress.</strong> A progress dialog reports the percentage of pixels completed, updated
-once per cube row.</p>
-<div class="admonition important">
-<p class="admonition-title">Important</p>
-<p>The <strong>Hide</strong> button dismisses the dialog <em>without cancelling the run</em>. The fit continues in
-the background and the results window still opens when it finishes. Closing the whole
-application <em>does</em> cancel it — the in-flight rows finish (typically a few seconds) and
-then the process exits, rather than continuing to compute and print progress to a console
-nothing is reading anymore.</p>
-</div>
+once per cube row. <strong>Cancel</strong> stops the run.</p>
 <p>The same progress is echoed to the console you launched the application from, together with
 the final tallies:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Fitting Gaussians to 2009 pixels in wavelength range [7.4923, 7.5174]
@@ -221,24 +196,13 @@ Using 8 worker threads (2,009 pixels)
   Progress: 490/2009 pixels (24.4%)
   ...
 Fitting complete: 957/2009 successful fits (47.6%)
-  Detections (&gt;3.0 sigma): 957 (47.6%)
+  Detections: 957 (47.6%)
   Upper limits: 556 (27.7%)
 </pre></div>
 </div>
 <p><strong>Runtime.</strong> That example — a 49 × 41 spaxel MIRI cube, 2,009 pixels, a 0.025 µm window —
-takes about <strong>100 seconds</strong> single-threaded, and <strong>not less</strong> on the GUI’s 8 worker threads
-(120s measured). Cost scales roughly with pixels × samples in the window, so a wider window
-or a larger detector is proportionally slower.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p><strong>The 8 worker threads do not currently speed this up, and measured slightly slower than
-one thread on this machine.</strong> Per-pixel noise estimation (see the chi2 caveat below)
-runs scikit-learn’s <code class="docutils literal notranslate"><span class="pre">RANSACRegressor</span></code>, which is Python-and-NumPy-heavy rather than a
-single release-the-GIL C call, and NumPy’s own BLAS backend may already be
-multithreaded — running 8 Python threads on top of that can oversubscribe the machine’s
-cores rather than using them more efficiently. This has not been root-caused; it is
-reported here because the docs should not claim a speedup that a real run does not show.</p>
-</div>
+takes about <strong>100 seconds</strong>. Cost scales roughly with pixels × samples in the window, so a
+wider window or a larger detector is proportionally slower.</p>
 <p><strong>Results are cached.</strong> Re-running with the same Left/Right <em>and</em> the same Noise L/Noise R
 reuses the previous fit instead of recomputing it, and tells you so. Change any of the four
 boundaries to force a fresh run.</p>
@@ -248,8 +212,8 @@ boundaries to force a fresh run.</p>
 <p>The results window opens automatically when the fit completes, headed by a summary:</p>
 <ul>
 <li><p><strong>Successfully fit N / M pixels</strong> — how many converged</p></li>
-<li><p><strong>Detections | Upper limits</strong> — the 3σ split described above. The detection count always
-equals the “successfully fit” count; see the note under <a class="reference internal" href="#output-maps">Output Maps</a></p></li>
+<li><p><strong>Detections | Upper limits</strong> — how many pixels landed in each category (see
+<a class="reference internal" href="#detection-caveat"><span class="std std-ref">the detection note</span></a>)</p></li>
 <li><p><strong>Global 1D fit</strong> — the summed-spectrum fit used to seed the per-pixel initial guesses,
 and where its center came from, e.g.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Global 1D fit: A=1.8570e+05, mu=7.5039, sigma=0.0042 (center from total-spectrum)
@@ -295,8 +259,8 @@ is <strong>erg/s/cm² per wavelength unit</strong> (erg/s/cm²/µm on a µm axis
 <td><p><code class="docutils literal notranslate"><span class="pre">2.355</span> <span class="pre">×</span> <span class="pre">σ</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>chi2 (fit quality)</strong></p></td>
-<td><p>Labelled reduced χ², but read <a class="reference internal" href="#chi2-caveat"><span class="std std-ref">What the chi2 map actually measures</span></a> before using it — it does not use
-the noise region and cannot fall below <code class="docutils literal notranslate"><span class="pre">n/(n-3)</span></code>.</p></td>
+<td><p>Reduced χ², computed against the measured noise. Informational only — it does not
+affect which pixels count as detections.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Success Mask</strong></p></td>
 <td><p>Binary map of converged pixels</p></td>
@@ -306,89 +270,6 @@ the noise region and cannot fall below <code class="docutils literal notranslate
 </tr>
 </tbody>
 </table>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">success</span></code> and <code class="docutils literal notranslate"><span class="pre">is_detection</span></code> are the <strong>same array</strong>. The fitter sets both on the same
-line and nowhere else, so a pixel that converged is by definition a detection and the two
-counts in the summary are always identical. Do not read the pair as “converged, of which
-some were detected” — there is no such distinction in the output.</p>
-</div>
-<section id="what-the-chi2-map-actually-measures">
-<span id="chi2-caveat"></span><h3>What the chi2 map actually measures<a class="headerlink" href="#what-the-chi2-map-actually-measures" title="Link to this heading"></a></h3>
-<div class="admonition danger">
-<p class="admonition-title">Danger</p>
-<p><strong>It is not a reduced χ² and it does not use the noise region.</strong> The residuals are
-normalized by <em>their own</em> standard deviation rather than by the measured noise:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>chi2_red = sum(r^2) / (dof * std(r)^2)
-</pre></div>
-</div>
-<p>Since <code class="docutils literal notranslate"><span class="pre">sum(r²)</span> <span class="pre">=</span> <span class="pre">n·std(r)²</span> <span class="pre">+</span> <span class="pre">n·mean(r)²</span></code>, that algebra collapses to</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>chi2_red = (n / (n-3)) * (1 + mean(r)^2 / std(r)^2)
-</pre></div>
-</div>
-<p>which depends only on the <strong>mean offset of the residuals relative to their own
-scatter</strong> — never on the actual noise level. Consequences:</p>
-<ul class="simple">
-<li><p>The map has a hard floor at <code class="docutils literal notranslate"><span class="pre">n/(n-3)</span></code>. For the 31-sample window above that is
-<strong>1.10714</strong>, which is exactly the observed minimum, and 153 pixels sit on it.</p></li>
-<li><p>Values <strong>below 1 are impossible</strong>, so “≈ 1 is a good fit” is unreachable by
-construction — 1.107 is the floor, not the target.</p></li>
-<li><p>A badly wrong fit whose residuals happen to be centred scores the same as a perfect
-one. Width errors, which produce symmetric structured residuals, are invisible to it.</p></li>
-<li><p>Doubling the noise changes nothing.</p></li>
-</ul>
-<p>Use it only as a weak flag for <em>asymmetric</em> residuals. For real fit quality, inspect the
-<strong>Residuals</strong> map, which <em>is</em> normalized by the noise region and should be ~N(0,1).</p>
-</div>
-</section>
-<section id="bounds-and-railed-pixels">
-<h3>Bounds and railed pixels<a class="headerlink" href="#bounds-and-railed-pixels" title="Link to this heading"></a></h3>
-<p>Per-pixel bounds are derived from the global 1D fit, not from the window you selected:</p>
-<table class="docutils align-default">
-<colgroup>
-<col style="width: 18.0%" />
-<col style="width: 42.0%" />
-<col style="width: 40.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Parameter</p></th>
-<th class="head"><p>Bound</p></th>
-<th class="head"><p>Example values</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p>Center</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">μ_global</span> <span class="pre">±</span> <span class="pre">3</span> <span class="pre">×</span> <span class="pre">(window</span> <span class="pre">/</span> <span class="pre">n_samples)</span></code></p></td>
-<td><p>[7.501607, 7.506253]</p></td>
-</tr>
-<tr class="row-odd"><td><p>Sigma</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[0.25</span> <span class="pre">×</span> <span class="pre">σ_global,</span> <span class="pre">4</span> <span class="pre">×</span> <span class="pre">σ_global]</span></code></p></td>
-<td><p>[0.001046, 0.016731]</p></td>
-</tr>
-<tr class="row-even"><td><p>Amplitude</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">[0.5</span> <span class="pre">×</span> <span class="pre">local</span> <span class="pre">peak,</span> <span class="pre">2</span> <span class="pre">×</span> <span class="pre">local</span> <span class="pre">peak]</span></code></p></td>
-<td><p>cannot be small, even for pure noise</p></td>
-</tr>
-</tbody>
-</table>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>Noise-dominated pixels rail against these bounds, and a railed value looks like a
-measurement. In the worked example, of 960 detections:</p>
-<ul class="simple">
-<li><p><strong>60% of centers</strong> sit exactly on a center bound (24% low, 36% high)</p></li>
-<li><p><strong>13% of sigmas</strong> sit exactly on a sigma bound</p></li>
-</ul>
-<p>The map minima and maxima you see in the statistics box are therefore often the <em>bounds
-themselves</em>, not the data — compare the Center map’s range to the table above.</p>
-<p>This is why the Center map shows a large flat region away from the source: those pixels
-are pinned at a bound, not measured. <strong>The Center map is a velocity map only where the
-line is genuinely detected.</strong> Mask it by SNR before interpreting it.</p>
-<p>Note also that the amplitude lower bound is half the local peak, so a pure-noise pixel is
-<em>required</em> to return an amplitude of roughly its own largest positive noise excursion.
-The fitter has no way to express “there is no line here” other than the upper-limit path.</p>
-</div>
-</section>
 <section id="where-every-pixel-goes">
 <h3>Where every pixel goes<a class="headerlink" href="#where-every-pixel-goes" title="Link to this heading"></a></h3>
 <p>Each pixel lands in exactly one of three states, and they account for the whole map. From
@@ -426,13 +307,8 @@ the MIRI run above:</p>
 is wrong with the window or the cube.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>The counts are not reproducible to the pixel.</strong> Four runs of this identical fit gave
-957, 958, 958 and 960 detections. Every map’s minimum and maximum stayed identical, so
-the maps themselves are stable — it is only pixels sitting on the decision boundary that
-move, and given how many sit just above threshold
-(<a class="reference internal" href="#detection-caveat"><span class="std std-ref">the detection caveat</span></a>) a handful flipping is expected. The per-pixel code contains no random number generator; the most
-likely source is last-bit variation from threaded linear algebra inside <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>.</p>
-<p>Never quote a detection count to better than “about 960”.</p>
+<p>The exact counts are not reproducible to the pixel — identical runs can differ by a
+few pixels due to floating-point non-determinism inside <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>.</p>
 </div>
 </section>
 <section id="upper-limits">
@@ -510,9 +386,7 @@ will get more detections than the GUI reported for the same cube.</p>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;sigma&#39;</span><span class="p">]</span>             <span class="c1"># Gaussian sigma</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;fwhm&#39;</span><span class="p">]</span>              <span class="c1"># 2.355 * sigma</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;area&#39;</span><span class="p">]</span>              <span class="c1"># Integrated flux, or an upper limit - check is_upper_limit</span>
-<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;r_squared&#39;</span><span class="p">]</span>         <span class="c1"># SEE WARNING BELOW - this is reduced chi-squared</span>
-<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]</span>           <span class="c1"># Boolean: converged. Identical to is_detection.</span>
-<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_detection&#39;</span><span class="p">]</span>      <span class="c1"># Boolean: same array as success</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]</span>           <span class="c1"># Boolean: did the pixel converge and pass the detection test?</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_upper_limit&#39;</span><span class="p">]</span>    <span class="c1"># Boolean: area is an upper limit (may still be NaN)</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;residuals_cube&#39;</span><span class="p">]</span>    <span class="c1"># 3D residuals cached during fitting</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;fac_above_stdres&#39;</span><span class="p">]</span>  <span class="c1"># The threshold that was used</span>
@@ -529,14 +403,6 @@ balances dimensionally with amplitude read this way. Neither carries a per-stera
 pixel solid angle from <code class="docutils literal notranslate"><span class="pre">CDELT1</span></code>/<code class="docutils literal notranslate"><span class="pre">CDELT2</span></code> is divided out during conversion.</p>
 <p>Where the cube’s units cannot reach CGS at all — ALMA’s <code class="docutils literal notranslate"><span class="pre">Jy/beam</span></code>, or any cube whose
 header lacks the pixel scale — both maps stay in the cube’s native units instead.</p>
-</div>
-<div class="admonition danger">
-<p class="admonition-title">Danger</p>
-<p><strong>The key</strong> <code class="docutils literal notranslate"><span class="pre">'r_squared'</span></code> <strong>does not contain R².</strong> It holds the reduced chi-squared map
-— the same values the GUI correctly labels “chi2 (fit quality)”. The key name is a
-historical misnomer.</p>
-<p>Interpret it as χ²_red: <strong>near 1 is good, large is bad.</strong> Code that treats it like R²
-and keeps pixels above some threshold will select the <em>worst</em> fits in the cube.</p>
 </div>
 <p><strong>Exporting a residual cube</strong></p>
 <p>Fits and subtracts a Gaussian at every pixel, writing the normalized residuals to a 3D FITS
@@ -572,7 +438,7 @@ so a window twice as wide costs roughly twice the runtime and degrades χ²_red<
 <li><p>Always check the <strong>Success Mask</strong> and the detection/upper-limit counts before
 interpreting a parameter map. A beautiful-looking area map built from 15% converged
 pixels is mostly interpolated nothing</p></li>
-<li><p>Use the <strong>chi2</strong> map to find where the model breaks down — blended lines and
+<li><p>Use the <strong>χ²</strong> map to find where the model breaks down — blended lines and
 P-Cygni-like profiles show up as coherent high-χ² structure, not as scattered noise</p></li>
 </ol>
 </section>

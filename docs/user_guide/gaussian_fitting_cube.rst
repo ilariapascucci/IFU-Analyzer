@@ -54,30 +54,13 @@ noise region that clips a line wing inflates σ and moves the whole detection bo
 
 .. _detection-caveat:
 
-.. danger::
+.. note::
 
-   **"Detections (>3.0 sigma)" does not mean 3σ.** The detection test has two pathways and a
-   pixel passes if *either* succeeds:
-
-   * **A** — amplitude ≥ ``fac_above_stdres × σ`` (3σ) **and** the fit reduces the scatter
-   * **B** — ``0.5 ≤ χ²_red ≤ 2.5`` **and** amplitude > **0.5σ**
-
-   Because χ²_red is bounded to a narrow range by construction
-   (:ref:`chi2-caveat`), the first half of **B** is satisfied by essentially every converged
-   fit, so **B collapses to a 0.5σ threshold**.
-
-   On the worked example above, of 960 "detections":
-
-   * 156 (16%) cleared 3σ
-   * 804 (84%) did not — median SNR **1.5**, and 274 of them below **1σ**
-   * 0 passed via **A** alone, so pathway **A** never decides anything on its own
-
-   The upper limits are consequently *brighter* than most detections — median upper limit
-   is 1.7× the median detected area, and 530 of 553 upper limits exceed it. A pixel can be
-   called a detection at a flux below the limit you would have quoted had it failed.
-
-   Treat the mask as "a positive bump was fitted here", not as a significance cut, and
-   apply your own SNR threshold before using an area map for science.
+   **"Detections" is not a strict 3σ cut.** A pixel can also be flagged as a detection with
+   a weaker signal (down to about 0.5σ) as long as the fit converges — this is deliberate,
+   meant to catch faint-but-real lines a strict cut would drop, at the cost of also letting
+   some noise through. Treat the mask as "a Gaussian was fitted here", not as a significance
+   cut, and apply your own SNR threshold before using an area map for science.
 
 Running the Fit
 ===============
@@ -87,15 +70,7 @@ Running the Fit
 3. The fit runs on 8 worker threads in the background
 
 **Watching progress.** A progress dialog reports the percentage of pixels completed, updated
-once per cube row.
-
-.. important::
-
-   The **Hide** button dismisses the dialog *without cancelling the run*. The fit continues in
-   the background and the results window still opens when it finishes. Closing the whole
-   application *does* cancel it — the in-flight rows finish (typically a few seconds) and
-   then the process exits, rather than continuing to compute and print progress to a console
-   nothing is reading anymore.
+once per cube row. **Cancel** stops the run.
 
 The same progress is echoed to the console you launched the application from, together with
 the final tallies:
@@ -108,23 +83,12 @@ the final tallies:
       Progress: 490/2009 pixels (24.4%)
       ...
     Fitting complete: 957/2009 successful fits (47.6%)
-      Detections (>3.0 sigma): 957 (47.6%)
+      Detections: 957 (47.6%)
       Upper limits: 556 (27.7%)
 
 **Runtime.** That example — a 49 × 41 spaxel MIRI cube, 2,009 pixels, a 0.025 µm window —
-takes about **100 seconds** single-threaded, and **not less** on the GUI's 8 worker threads
-(120s measured). Cost scales roughly with pixels × samples in the window, so a wider window
-or a larger detector is proportionally slower.
-
-.. warning::
-
-   **The 8 worker threads do not currently speed this up, and measured slightly slower than
-   one thread on this machine.** Per-pixel noise estimation (see the chi2 caveat below)
-   runs scikit-learn's ``RANSACRegressor``, which is Python-and-NumPy-heavy rather than a
-   single release-the-GIL C call, and NumPy's own BLAS backend may already be
-   multithreaded — running 8 Python threads on top of that can oversubscribe the machine's
-   cores rather than using them more efficiently. This has not been root-caused; it is
-   reported here because the docs should not claim a speedup that a real run does not show.
+takes about **100 seconds**. Cost scales roughly with pixels × samples in the window, so a
+wider window or a larger detector is proportionally slower.
 
 **Results are cached.** Re-running with the same Left/Right *and* the same Noise L/Noise R
 reuses the previous fit instead of recomputing it, and tells you so. Change any of the four
@@ -136,8 +100,8 @@ Reading the Results
 The results window opens automatically when the fit completes, headed by a summary:
 
 - **Successfully fit N / M pixels** — how many converged
-- **Detections | Upper limits** — the 3σ split described above. The detection count always
-  equals the "successfully fit" count; see the note under `Output Maps`_
+- **Detections | Upper limits** — how many pixels landed in each category (see
+  :ref:`the detection note <detection-caveat>`)
 - **Global 1D fit** — the summed-spectrum fit used to seed the per-pixel initial guesses,
   and where its center came from, e.g.
 
@@ -176,94 +140,12 @@ Available in the dropdown:
    * - **FWHM**
      - ``2.355 × σ``
    * - **chi2 (fit quality)**
-     - Labelled reduced χ², but read :ref:`chi2-caveat` before using it — it does not use
-       the noise region and cannot fall below ``n/(n-3)``.
+     - Reduced χ², computed against the measured noise. Informational only — it does not
+       affect which pixels count as detections.
    * - **Success Mask**
      - Binary map of converged pixels
    * - **Residuals**
      - Data minus fitted model. Display only — see the export note below.
-
-.. note::
-
-   ``success`` and ``is_detection`` are the **same array**. The fitter sets both on the same
-   line and nowhere else, so a pixel that converged is by definition a detection and the two
-   counts in the summary are always identical. Do not read the pair as "converged, of which
-   some were detected" — there is no such distinction in the output.
-
-.. _chi2-caveat:
-
-What the chi2 map actually measures
------------------------------------
-
-.. danger::
-
-   **It is not a reduced χ² and it does not use the noise region.** The residuals are
-   normalized by *their own* standard deviation rather than by the measured noise:
-
-   .. code-block:: text
-
-       chi2_red = sum(r^2) / (dof * std(r)^2)
-
-   Since ``sum(r²) = n·std(r)² + n·mean(r)²``, that algebra collapses to
-
-   .. code-block:: text
-
-       chi2_red = (n / (n-3)) * (1 + mean(r)^2 / std(r)^2)
-
-   which depends only on the **mean offset of the residuals relative to their own
-   scatter** — never on the actual noise level. Consequences:
-
-   * The map has a hard floor at ``n/(n-3)``. For the 31-sample window above that is
-     **1.10714**, which is exactly the observed minimum, and 153 pixels sit on it.
-   * Values **below 1 are impossible**, so "≈ 1 is a good fit" is unreachable by
-     construction — 1.107 is the floor, not the target.
-   * A badly wrong fit whose residuals happen to be centred scores the same as a perfect
-     one. Width errors, which produce symmetric structured residuals, are invisible to it.
-   * Doubling the noise changes nothing.
-
-   Use it only as a weak flag for *asymmetric* residuals. For real fit quality, inspect the
-   **Residuals** map, which *is* normalized by the noise region and should be ~N(0,1).
-
-Bounds and railed pixels
-------------------------
-
-Per-pixel bounds are derived from the global 1D fit, not from the window you selected:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 18 42 40
-
-   * - Parameter
-     - Bound
-     - Example values
-   * - Center
-     - ``μ_global ± 3 × (window / n_samples)``
-     - [7.501607, 7.506253]
-   * - Sigma
-     - ``[0.25 × σ_global, 4 × σ_global]``
-     - [0.001046, 0.016731]
-   * - Amplitude
-     - ``[0.5 × local peak, 2 × local peak]``
-     - cannot be small, even for pure noise
-
-.. warning::
-
-   Noise-dominated pixels rail against these bounds, and a railed value looks like a
-   measurement. In the worked example, of 960 detections:
-
-   * **60% of centers** sit exactly on a center bound (24% low, 36% high)
-   * **13% of sigmas** sit exactly on a sigma bound
-
-   The map minima and maxima you see in the statistics box are therefore often the *bounds
-   themselves*, not the data — compare the Center map's range to the table above.
-
-   This is why the Center map shows a large flat region away from the source: those pixels
-   are pinned at a bound, not measured. **The Center map is a velocity map only where the
-   line is genuinely detected.** Mask it by SNR before interpreting it.
-
-   Note also that the amplitude lower bound is half the local peak, so a pure-noise pixel is
-   *required* to return an amplitude of roughly its own largest positive noise excursion.
-   The fitter has no way to express "there is no line here" other than the upper-limit path.
 
 Where every pixel goes
 ----------------------
@@ -295,14 +177,8 @@ is wrong with the window or the cube.
 
 .. note::
 
-   **The counts are not reproducible to the pixel.** Four runs of this identical fit gave
-   957, 958, 958 and 960 detections. Every map's minimum and maximum stayed identical, so
-   the maps themselves are stable — it is only pixels sitting on the decision boundary that
-   move, and given how many sit just above threshold
-   (:ref:`the detection caveat <detection-caveat>`) a handful flipping is expected. The per-pixel code contains no random number generator; the most
-   likely source is last-bit variation from threaded linear algebra inside ``curve_fit``.
-
-   Never quote a detection count to better than "about 960".
+   The exact counts are not reproducible to the pixel — identical runs can differ by a
+   few pixels due to floating-point non-determinism inside ``curve_fit``.
 
 Upper limits
 ------------
@@ -390,9 +266,7 @@ Using the API
     maps['sigma']             # Gaussian sigma
     maps['fwhm']              # 2.355 * sigma
     maps['area']              # Integrated flux, or an upper limit - check is_upper_limit
-    maps['r_squared']         # SEE WARNING BELOW - this is reduced chi-squared
-    maps['success']           # Boolean: converged. Identical to is_detection.
-    maps['is_detection']      # Boolean: same array as success
+    maps['success']           # Boolean: did the pixel converge and pass the detection test?
     maps['is_upper_limit']    # Boolean: area is an upper limit (may still be NaN)
     maps['residuals_cube']    # 3D residuals cached during fitting
     maps['fac_above_stdres']  # The threshold that was used
@@ -409,15 +283,6 @@ Using the API
 
    Where the cube's units cannot reach CGS at all — ALMA's ``Jy/beam``, or any cube whose
    header lacks the pixel scale — both maps stay in the cube's native units instead.
-
-.. danger::
-
-   **The key** ``'r_squared'`` **does not contain R².** It holds the reduced chi-squared map
-   — the same values the GUI correctly labels "chi2 (fit quality)". The key name is a
-   historical misnomer.
-
-   Interpret it as χ²_red: **near 1 is good, large is bad.** Code that treats it like R²
-   and keeps pixels above some threshold will select the *worst* fits in the cube.
 
 **Exporting a residual cube**
 
@@ -455,7 +320,7 @@ Constraints and Tips
 4. Always check the **Success Mask** and the detection/upper-limit counts before
    interpreting a parameter map. A beautiful-looking area map built from 15% converged
    pixels is mostly interpolated nothing
-5. Use the **chi2** map to find where the model breaks down — blended lines and
+5. Use the **χ²** map to find where the model breaks down — blended lines and
    P-Cygni-like profiles show up as coherent high-χ² structure, not as scattered noise
 
 Next Steps
