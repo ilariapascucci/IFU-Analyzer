@@ -1,6 +1,7 @@
 from astropy.io import fits
 from astropy.units import Quantity
 from typing import Optional
+import threading
 import numpy as np
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
@@ -1350,7 +1351,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             flux_unit: Optional[str] = None,
                             lambda_0: Optional[float] = None,
                             store_wavelength_unit: bool = True,
-                            progress_callback: Optional[callable] = None) -> dict:
+                            progress_callback: Optional[callable] = None,
+                            cancel_event: Optional[threading.Event] = None) -> Optional[dict]:
     """
     Fit a Gaussian to each pixel's spectrum in the cube within a wavelength range.
     
@@ -1379,7 +1381,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         lambda_0: Optional line-list reference wavelength (µm) to seed global 1D fit
         store_wavelength_unit: Whether to store wavelength unit in results (default: True)
         progress_callback: Optional callback function with signature progress_callback(current, total) for progress reporting
-    
+        cancel_event: Optional threading.Event. Checked once per cube row; if set, fitting
+            stops after the in-flight rows finish and the function returns None instead of
+            a results dict. Lets a caller (e.g. a closing GUI window) abort a run that would
+            otherwise keep computing and printing progress after nothing is listening.
+
     Note:
         RANSAC outlier rejection is always enabled with 3 iterations for robust, fast fitting.
     
@@ -1910,9 +1916,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             cpu = 1
         n_jobs = max(1, min(cpu, 8))  # cap to avoid oversubscription
 
+    cancelled = False
+
     if n_jobs <= 1:
         # Serial path
         for iy in range(n_y):
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
             _, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, d_row, u_row, res_row = _fit_row(iy)
             amplitude_map[iy, :] = amp_row
             center_map[iy, :] = ctr_row
@@ -1938,10 +1949,18 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         # ThreadPoolExecutor works with nested functions (unlike ProcessPoolExecutor)
         # and provides good performance for Gaussian fitting
         print(f"Using {n_jobs} worker threads ({total_pixels:,} pixels)")
-        
+
         with ThreadPoolExecutor(max_workers=n_jobs) as ex:
             futures = [ex.submit(_fit_row, iy) for iy in range(n_y)]
             for fut in as_completed(futures):
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled = True
+                    # Drop rows that have not started yet; the executor's own __exit__
+                    # still blocks (wait=True) until whatever is already in flight
+                    # finishes, so a handful of rows complete after this point.
+                    for f in futures:
+                        f.cancel()
+                    break
                 row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, d_row, u_row, res_row = fut.result()
                 amplitude_map[row_idx, :] = amp_row
                 center_map[row_idx, :] = ctr_row
@@ -1960,7 +1979,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     progress_callback(completed, total_pixels)
                 if completed % (n_x * 5) == 0:
                     print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
-    
+
+    if cancelled:
+        print(f"Fitting cancelled: {completed}/{total_pixels} pixels completed before stopping")
+        return None
+
     # Final summary
     n_success = np.sum(success_map)
     n_detections = np.sum(is_detection_map)

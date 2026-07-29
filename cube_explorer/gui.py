@@ -256,6 +256,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self._load_CO_catalogs()
 
     def closeEvent(self, event):
+        # A Gaussian map fit runs in its own QThread and previously kept computing (and
+        # printing to the console) after this window closed, since nothing ever told it
+        # to stop. Request cancellation and give it a few seconds to actually exit
+        # before letting the window go away.
+        worker = getattr(self, 'gauss_worker', None)
+        if worker is not None and worker.isRunning():
+            worker.cancel()
+            worker.wait(5000)
+
         try:
             self.cube_data.free_memory()
         except AttributeError:

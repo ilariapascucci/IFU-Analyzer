@@ -7,6 +7,7 @@ to keep the main GUI file cleaner and more maintainable.
 
 import numpy as np
 import os
+import threading
 from .unit_converter import gaussian_map_unit_labels
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
@@ -54,7 +55,16 @@ class GaussianMapWorker(QThread):
         self.wave_unit = wave_unit
         self.flux_unit = flux_unit
         self.lambda_0 = lambda_0
-    
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        """Request that the run stop after the currently in-flight rows finish.
+
+        Does not block. Call wait() on this QThread afterward if you need the caller
+        to pause until the thread has actually exited.
+        """
+        self._cancel_event.set()
+
     def run(self):
         """Execute fitting in background thread"""
         try:
@@ -72,12 +82,18 @@ class GaussianMapWorker(QThread):
                 wave_unit=self.wave_unit,
                 flux_unit=self.flux_unit,
                 lambda_0=self.lambda_0,
-                progress_callback=self._emit_progress
+                progress_callback=self._emit_progress,
+                cancel_event=self._cancel_event,
             )
-            self.finished.emit(results)
+            # results is None when cancel() was called before completion. Nothing is
+            # listening by then (the window that owned this worker is closing), so
+            # there is nothing useful to emit -- just let the thread end.
+            if results is not None:
+                self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
-    
+
+
     def _emit_progress(self, current, total):
         """Emit progress signal"""
         self.progress.emit(current, total)
