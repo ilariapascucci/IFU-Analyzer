@@ -14,6 +14,7 @@ Documentation sources:
   - cube_explorer/api.py module docstring ("Example Usage")
   - docs/user_guide/api_examples.rst
   - docs/user_guide/gaussian_fitting_1d.rst ("Using the API")
+  - docs/user_guide/gaussian_fitting_cube.rst ("Using the API")
 
 data/ is gitignored, so a fresh clone has no cubes. Sections needing a FITS file
 report [SKIP] rather than failing.
@@ -33,6 +34,9 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
 
 results = []
+
+# A full-cube Gaussian fit takes ~3 minutes, so the two cube sections share one run.
+_CUBE_MAPS = {}
 
 
 def run(name, func):
@@ -241,6 +245,104 @@ def result_fields():
 
 
 # ---------------------------------------------------------------------------
+# PIXEL-BY-PIXEL CUBE FITTING -- FITTING THE CUBE
+# ---------------------------------------------------------------------------
+# Slow: a real full-cube run, ~3 minutes on 8 threads. It stays because the page
+# quotes concrete detection counts, and an example nobody runs is how the counts
+# drift away from the code.
+
+@needs_cube
+def cube_fitting_the_cube():
+    from cube_explorer.api import load_cube, create_gaussian_map
+
+    cube = load_cube(CUBE)
+
+    maps = create_gaussian_map(
+        cube,
+        lam_min=7.492291,        # Left boundary
+        lam_max=7.517421,        # Right boundary
+        noise_min=7.529647,      # Line-free region, as in the GUI
+        noise_max=7.564965,
+        fac_above_stdres=3.0,    # Detection threshold in sigma
+        n_jobs=8,
+    )
+
+    print(f"Detections:   {maps['is_detection'].sum()}")
+    print(f"Upper limits: {maps['is_upper_limit'].sum()}")
+    print(f"No data:      {maps['area'].size - maps['is_detection'].sum() - maps['is_upper_limit'].sum()}")
+
+    area_map = maps['area']          # 2D array, shape (n_y, n_x)
+
+    # --- checks on claims the page makes, beyond "it runs" ---
+    import numpy as np
+
+    # "success and is_detection are the same array"
+    assert np.array_equal(maps['success'], maps['is_detection']), \
+        "docs claim success and is_detection are identical"
+
+    # "the three states account for the whole map"
+    n_det = int(maps['is_detection'].sum())
+    n_up = int(maps['is_upper_limit'].sum())
+    n_none = area_map.size - n_det - n_up
+    assert n_det + n_up + n_none == area_map.size
+    assert not np.any(maps['is_detection'] & maps['is_upper_limit']), \
+        "docs claim the states are mutually exclusive"
+
+    # "amplitude/center/sigma/fwhm/chi2 are NaN wherever area is an upper limit"
+    up = maps['is_upper_limit']
+    if up.any():
+        for key in ('amplitude', 'center', 'sigma', 'fwhm', 'r_squared'):
+            assert np.all(np.isnan(maps[key][up])), \
+                f"docs claim {key} is NaN at upper limits"
+
+    # "area = amplitude * sigma * sqrt(2*pi)" -- the dimensional claim in the note
+    det = maps['is_detection']
+    if det.any():
+        lhs = area_map[det]
+        rhs = maps['amplitude'][det] * maps['sigma'][det] * np.sqrt(2 * np.pi)
+        assert np.allclose(lhs, rhs, rtol=1e-6), \
+            "docs claim area = amplitude * sigma * sqrt(2pi)"
+
+    print(f"Verified: {n_det} detections + {n_up} upper limits + {n_none} no-data "
+          f"= {area_map.size} pixels")
+
+    # Hand the result to the returned-keys test rather than refitting the cube.
+    _CUBE_MAPS['maps'] = maps
+
+
+# ---------------------------------------------------------------------------
+# PIXEL-BY-PIXEL CUBE FITTING -- RETURNED KEYS
+# ---------------------------------------------------------------------------
+
+@needs_cube
+def cube_returned_keys():
+    # Reuses the fit from the previous test: the documented snippet here is the key
+    # list, not the call, and a second full-cube run would cost another three minutes
+    # to re-derive maps we already have.
+    maps = _CUBE_MAPS.get('maps')
+    if maps is None:
+        raise RuntimeError("cube fit unavailable - the preceding cube test must run first")
+
+    maps['amplitude']         # Peak amplitude, erg/s/cm2 PER WAVELENGTH where convertible
+    maps['amp_originalunits'] # Peak amplitude in the cube's own units
+    maps['center']            # Line center wavelength
+    maps['sigma']             # Gaussian sigma
+    maps['fwhm']              # 2.355 * sigma
+    maps['area']              # Integrated flux, or an upper limit - check is_upper_limit
+    maps['r_squared']         # SEE WARNING BELOW - this is reduced chi-squared
+    maps['success']           # Boolean: converged. Identical to is_detection.
+    maps['is_detection']      # Boolean: same array as success
+    maps['is_upper_limit']    # Boolean: area is an upper limit (may still be NaN)
+    maps['residuals_cube']    # 3D residuals cached during fitting
+    maps['fac_above_stdres']  # The threshold that was used
+    maps['wavelength_unit']   # Spectral axis unit string
+    maps['global_fit']        # The summed-spectrum fit used for initial guesses
+
+    print(f"All documented keys present; wavelength_unit={maps['wavelength_unit']!r}, "
+          f"fac_above_stdres={maps['fac_above_stdres']}")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     print("\n" + "=" * 70)
@@ -253,6 +355,8 @@ def main():
     run("AVAILABLE CUBE PROPERTIES", available_cube_properties)
     run("1D FITTING -- ONE LINE", fitting_one_line)
     run("1D FITTING -- RESULT FIELDS", result_fields)
+    run("CUBE FITTING -- FULL CUBE (slow, ~3 min)", cube_fitting_the_cube)
+    run("CUBE FITTING -- RETURNED KEYS", cube_returned_keys)
 
     print("\n" + "=" * 70)
     print(" SUMMARY")

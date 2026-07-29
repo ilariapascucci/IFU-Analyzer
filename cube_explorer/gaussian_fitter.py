@@ -1994,7 +1994,10 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'is_upper_limit': is_upper_limit_map,  # Upper limits (failed detection)
         'residuals_cube': residuals_cube,  # Cached residuals computed during fitting
         'fac_above_stdres': fac_above_stdres,  # Detection threshold used
-        'wavelength_unit': wavelength.unit.to_string() if isinstance(wavelength, Quantity) else 'unknown',  # Store original wavelength unit
+        # Prefer the Quantity's own unit, then the wave_unit argument the caller passed.
+        # Reporting 'unknown' while wave_unit was supplied is just dropping information.
+        'wavelength_unit': (wavelength.unit.to_string() if isinstance(wavelength, Quantity)
+                            else (wave_unit or 'unknown')),
         'global_fit': global_fit_info  # Global 1D fit used for initial guesses
     }
 

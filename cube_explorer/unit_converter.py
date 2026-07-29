@@ -17,27 +17,36 @@ def _string_to_astropy_unit(unit_str):
     """
     Convert a string unit representation to astropy unit object.
     
+    astropy's parser is the authority here. It already understands 'um', *both* micro
+    characters ('µm' U+00B5 MICRO SIGN and 'μm' U+03BC GREEK SMALL LETTER MU), 'Angstrom',
+    'Å', 'AA', 'nm', 'km/s' and 'km s-1'. A hand-written table in front of it can only
+    shadow cases the parser already handles: the previous one went through _normalize_unit,
+    which has no entry for the Greek mu, so a 'μm' cube silently got no unit at all.
+
+    The fallback table below covers only the spellings astropy rejects -- the English
+    plurals and long forms that turn up in hand-written headers.
+
     Args:
         unit_str: String like 'Å', 'µm', 'nm', 'km/s', etc.
-    
+
     Returns:
         astropy.units.Unit object, or None if unrecognized
     """
-    norm_unit = _normalize_unit(unit_str)
-    
-    unit_map = {
-        'angstrom': u.AA,
-        'nm': u.nm,
-        'micron': u.um,
-        'um': u.um,
-        'm': u.m,
-        'km/s': u.km / u.s,
-        'km s-1': u.km / u.s,
-        'm/s': u.m / u.s,
-        'm s-1': u.m / u.s,
-    }
-    
-    return unit_map.get(norm_unit, None)
+    if unit_str is None:
+        return None
+    text = str(unit_str).strip()
+    if not text:
+        return None
+
+    try:
+        # Strict parsing: anything astropy does not recognize raises and falls through.
+        return u.Unit(text)
+    except Exception:
+        pass
+
+    # _normalize_unit folds 'microns'/'micrometers'/'angstroms'/'nanometers' onto these.
+    fallback = {'micron': u.um, 'angstrom': u.AA, 'nm': u.nm, 'm': u.m}
+    return fallback.get(_normalize_unit(text), None)
 
 
 def convert_wavelength(value, from_unit, to_unit):
@@ -449,6 +458,69 @@ def flux_density_to_cgs(value, flux_unit, wavelength=None, header=None, wave_uni
     quantity = value * flux_astropy_unit
     target = CGS_FLUX / wave_astropy_unit
     return _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header)
+
+
+def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None):
+    """
+    Unit labels for fitted Gaussian parameter maps.
+
+    Answers "what units are these numbers actually in?" without duplicating the
+    dimensional dispatch that decides it. Support is probed by running the real
+    conversions on a value of 1.0, so a cube reaches CGS here exactly when it reaches CGS
+    in the fit -- no hand-maintained list of instrument names, and no way for the label to
+    drift away from the number it describes.
+
+    The labels are rendered by astropy from the same target expressions the conversions
+    aim at (:data:`CGS_FLUX`, and ``CGS_FLUX / wave_unit`` for a flux density), so they
+    stay ASCII and are safe to write into a FITS ``BUNIT``.
+
+    Args:
+        flux_unit: Cube flux unit, typically BUNIT (e.g. 'MJy/sr')
+        wave_unit: Spectral axis unit (e.g. 'µm', 'Angstrom')
+        header: FITS header supplying CDELT1/CDELT2. Required for surface brightness
+            units such as MJy/sr; unused for MUSE's erg/s/cm²/Å.
+        wavelength: A representative wavelength in ``wave_unit`` -- the fit window centre
+            is fine. Only its presence matters; the unit does not depend on its value.
+
+    Returns:
+        dict: ``{'wave', 'amplitude', 'area'}``. ``amplitude`` and ``area`` carry CGS
+        units when the cube can reach them, otherwise the cube's own units.
+
+    Examples:
+        >>> labels = gaussian_map_unit_labels('erg/s/cm**2/Angstrom', 'Angstrom')
+        >>> labels['area']
+        'erg / (s cm2)'
+        >>> gaussian_map_unit_labels('Jy/beam', 'um')['area']
+        'Jy um / beam'
+    """
+    wave_astropy_unit = _string_to_astropy_unit(wave_unit)
+    wave_label = wave_astropy_unit.to_string() if wave_astropy_unit is not None \
+        else (str(wave_unit).strip() if wave_unit else '')
+
+    # Probe with the real conversions: whatever they can do, the maps already did.
+    density = flux_density_to_cgs(1.0, flux_unit, wavelength, header, wave_unit)
+    integrated = integrated_flux_to_cgs(1.0, flux_unit, wavelength, header, wave_unit)
+
+    if density is not None and integrated is not None and wave_astropy_unit is not None:
+        return {
+            'wave': wave_label,
+            # An amplitude is a flux *density*, so it keeps a per-wavelength; an area has
+            # integrated the spectral axis away and is a plain flux.
+            'amplitude': (CGS_FLUX / wave_astropy_unit).to_string(),
+            'area': CGS_FLUX.to_string(),
+        }
+
+    # Not convertible (Jy/beam, or a missing header): report the cube's own units.
+    flux_astropy_unit = _parse_flux_unit(flux_unit)
+    if flux_astropy_unit is None:
+        native_amp = str(flux_unit).strip() if flux_unit else 'native'
+        native_area = f'{native_amp}*{wave_label}' if wave_label else native_amp
+    else:
+        native_amp = flux_astropy_unit.to_string()
+        native_area = (flux_astropy_unit * wave_astropy_unit).to_string() \
+            if wave_astropy_unit is not None else native_amp
+
+    return {'wave': wave_label, 'amplitude': native_amp, 'area': native_area}
 
 
 def clean_flux_unit(unit_str):

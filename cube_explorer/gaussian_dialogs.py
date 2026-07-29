@@ -7,7 +7,7 @@ to keep the main GUI file cleaner and more maintainable.
 
 import numpy as np
 import os
-from astropy.units import Quantity
+from .unit_converter import gaussian_map_unit_labels
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -133,34 +133,20 @@ class GaussianMapResultsDialog(QDialog):
         
         Returns dict with parameter -> (unit_label, colormap) pairs
         """
-        wave = self.wave_unit.upper() if isinstance(self.wave_unit, str) else str(self.wave_unit).upper()
-        flux = self.flux_unit.upper() if isinstance(self.flux_unit, str) else str(self.flux_unit).upper()
-        
-        # Normalize wavelength unit for display
-        if 'ANGSTROM' in wave or 'AA' in wave:
-            wave_display = 'Angstrom'
-        elif 'MICRON' in wave or 'UM' in wave:
-            wave_display = 'um'
-        elif 'NM' in wave:
-            wave_display = 'nm'
-        elif 'KM/S' in wave or 'M/S' in wave:
-            wave_display = 'km/s'
-        else:
-            wave_display = wave
-        
-        # Determine flux unit display and whether we have CGS conversion
-        has_cgs = 'MJY' in flux and 'SR' in flux  # Only MJy/sr is converted to CGS
-        
-        if has_cgs:
-            # Data was converted from MJy/sr to CGS units
-            amp_unit = 'erg/(s*cm2*sr)'
-            area_unit = 'erg/(s*cm2)'
-        else:
-            # Native units (not converted)
-            flux_clean = flux.replace(' ', '')
-            amp_unit = flux_clean
-            area_unit = f'{flux_clean}*{wave_display}'
-        
+        # Ask unit_converter what the maps are in rather than pattern-matching BUNIT here.
+        # It probes with the same conversions the fitter used, so the label cannot claim a
+        # unit the numbers are not in -- which is how these maps ended up labelled
+        # "[ΜM]" (from 'µm'.upper()) and "erg/(s*cm2*sr)" (an amplitude that is really
+        # per-wavelength, with the steradian already divided out).
+        header = getattr(self.cube_data, 'header', None)
+        lam_mid = (min(self.gauss_left_x, self.gauss_right_x)
+                   + max(self.gauss_left_x, self.gauss_right_x)) / 2.0
+        labels = gaussian_map_unit_labels(
+            self.flux_unit, self.wave_unit, header=header, wavelength=lam_mid)
+        wave_display = labels['wave']
+        amp_unit = labels['amplitude']
+        area_unit = labels['area']
+
         return {
             'Area (AUC)': (f'Area [{area_unit}]', 'viridis'),
             'Amplitude': (f'Amplitude [{amp_unit}]', 'plasma'),
