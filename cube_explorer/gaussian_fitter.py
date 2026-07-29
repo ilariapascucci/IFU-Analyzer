@@ -1925,12 +1925,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             is_upper_limit_map[iy, :] = u_row
             residuals_cube[:, iy, :] = res_row
 
-            # Progress per row
+            # Progress per row. The callback fires every row so a GUI progress bar
+            # actually moves; the console print stays throttled to every 5th row so a
+            # large cube does not flood the terminal.
             completed += n_x
-            if completed % 1000 == 0:
+            if progress_callback:
+                progress_callback(completed, total_pixels)
+            if completed % (n_x * 5) == 0:
                 print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
-                if progress_callback:
-                    progress_callback(completed, total_pixels)
     else:
         # Parallel path using ThreadPoolExecutor
         # ThreadPoolExecutor works with nested functions (unlike ProcessPoolExecutor)
@@ -1952,11 +1954,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 is_upper_limit_map[row_idx, :] = u_row
                 residuals_cube[:, row_idx, :] = res_row
 
+                # See the serial path: callback every row, console every 5th row.
                 completed += n_x
+                if progress_callback:
+                    progress_callback(completed, total_pixels)
                 if completed % (n_x * 5) == 0:
                     print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
-                    if progress_callback:
-                        progress_callback(completed, total_pixels)
     
     # Final summary
     n_success = np.sum(success_map)

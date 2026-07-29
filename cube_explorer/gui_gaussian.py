@@ -500,8 +500,17 @@ STATUS: {result.message}
         
         if QMessageBox.question(self, "Fit Map", "Continue with map fitting?", QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes: return
 
-        self.gauss_progress = QProgressDialog("Fitting Gaussians...", "Hide", 0, 0, self)
+        # A real 0-100 bar, not a busy spinner: the worker reports progress once per
+        # cube row. autoClose/autoReset are off so reaching 100% does not dismiss the
+        # dialog before the post-fit unit conversion has finished.
+        n_pixels = cube.shape[1] * cube.shape[2]
+        self.gauss_progress = QProgressDialog(
+            f"Fitting Gaussians to {n_pixels:,} pixels...", "Hide", 0, 100, self)
+        self.gauss_progress.setWindowTitle("Gaussian Map Fitting")
         self.gauss_progress.setWindowModality(Qt.NonModal)
+        self.gauss_progress.setAutoClose(False)
+        self.gauss_progress.setAutoReset(False)
+        self.gauss_progress.setValue(0)
         self.gauss_progress.show()
 
         self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max) if hasattr(self, 'hitran_lines') else None
@@ -514,8 +523,19 @@ STATUS: {result.message}
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)
+        self.gauss_worker.progress.connect(self._on_gaussian_map_progress)
         self.gauss_worker.start()
-    
+
+    def _on_gaussian_map_progress(self, current, total):
+        """Mirror the worker's per-row progress into the progress dialog."""
+        dlg = getattr(self, 'gauss_progress', None)
+        if dlg is None or total <= 0 or dlg.wasCanceled():
+            return
+        pct = int(100 * current / total)
+        dlg.setLabelText(
+            f"Fitting Gaussians...\n{current:,} / {total:,} pixels ({pct}%)")
+        dlg.setValue(pct)
+
     def _on_gaussian_map_complete(self, results):
         self.gauss_progress.close()
         self.gauss_cache = results
