@@ -34,7 +34,11 @@ warnings.filterwarnings('ignore', category=RuntimeWarning, message='.*All-NaN sl
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*DataFrame concatenation with empty or all-NA entries.*')
 
 # REUSE: Import helper functions from gaussian_fitter
-from .gaussian_fitter import estimate_gaussian_params, calculate_baseline, compute_noise_std
+from .gaussian_fitter import (
+    estimate_gaussian_params, calculate_baseline, compute_noise_std,
+    get_wave_unit, _resolve_flux_unit,
+)
+from .unit_converter import integrated_flux_to_cgs
 
 
 # ================== Unit Utilities ==================
@@ -622,7 +626,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
                                    subtract_continuum=False, continuum_poly_deg=3, excluded_wavelengths=None,
-                                   continuum_params=None):
+                                   continuum_params=None, snr_threshold=3.0, header=None, wave_unit=None):
     """
     Extract total CO flux from a single spectrum by fitting all CO lines.
 
@@ -655,16 +659,27 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         Override the default fit_continuum_median_peaks() parameters (window_size,
         sigma_threshold, peak_width, peak_distance, peak_exclusion, iterations,
         smoothing_factor). If None, uses the defaults, which work well for typical spectra.
+    snr_threshold : float
+        Minimum signal-to-noise for a line to count as detected (default: 3.0)
+    header : astropy.io.fits.Header, optional
+        FITS header, used to convert 'co_flux'/'contam_flux' to erg/s/cm2 (via
+        unit_converter.integrated_flux_to_cgs -- the same conversion used for Gaussian
+        line areas). Without it, they stay in the cube's native flux units.
+    wave_unit : str, optional
+        Wavelength unit (e.g. 'um'). Required alongside header for the CGS conversion.
 
     Returns
     -------
     dict
         Keys: 'co_flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals',
-        'continuum_curve'
+        'continuum_curve', 'flux_unit' (unit of 'co_flux'/'contam_flux' -- 'erg/s/cm2' if the
+        conversion succeeded, otherwise the cube's native flux unit)
     """
-    # Extract values and units from Quantities if needed
-    spectrum_wave, wave_unit = extract_units(spectrum_wave)
-    spectrum_flux, flux_unit = extract_units(spectrum_flux)
+    # Extract values and units from Quantities if needed. Named separately from the
+    # header/wave_unit CGS-conversion parameters above, which take priority when both
+    # are given (a Quantity's own unit is just a fallback).
+    spectrum_wave, spectrum_wave_unit = extract_units(spectrum_wave)
+    spectrum_flux, spectrum_flux_unit = extract_units(spectrum_flux)
 
     # Apply continuum subtraction if requested (BEFORE line detection)
     # Uses the same median filter + peak detection method as the GUI's Automatic Continuum
@@ -684,7 +699,20 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         except Exception as e:
             print(f"  Warning: Continuum subtraction failed ({e}), using original spectrum")
             continuum_model = None
-    
+
+    # Resolve the wave/flux units once, for the CGS conversion below and for labelling
+    # 'co_flux'/'contam_flux' in every return path (even the zero-flux ones)
+    resolved_wave_unit = get_wave_unit(header, spectrum_wave_unit or wave_unit)
+    resolved_flux_unit = _resolve_flux_unit(spectrum_flux_unit, header)
+
+    def _to_cgs(value, line_center):
+        if header is None or value is None or line_center is None or not np.isfinite(line_center):
+            return None
+        return integrated_flux_to_cgs(
+            value, resolved_flux_unit, wavelength=line_center,
+            header=header, wave_unit=resolved_wave_unit,
+        )
+
     # Auto-determine wavelength range if not provided
     if wave_min is None:
         wave_min = CO_catalog['line_wave_um'].min()
@@ -693,10 +721,17 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     
     print(f"  Extracting CO flux in wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
     print(f"  [DEBUG] Spectrum: {len(spectrum_wave)} wavelength points, flux range {np.nanmin(spectrum_flux):.4e} to {np.nanmax(spectrum_flux):.4e}")
-    if wave_unit:
-        print(f"  Wavelength unit: {wave_unit}")
-    if flux_unit:
-        print(f"  Flux unit: {flux_unit}")
+    if spectrum_wave_unit:
+        print(f"  Wavelength unit: {spectrum_wave_unit}")
+    if spectrum_flux_unit:
+        print(f"  Flux unit: {spectrum_flux_unit}")
+
+    # Whether a CGS conversion is even reachable for this header/flux unit combination
+    # (e.g. ALMA's Jy/beam never is) -- tested once with a dummy value at the band center,
+    # used to label 'co_flux'/'contam_flux' consistently across every return path below
+    flux_unit_label = spectrum_flux_unit or resolved_flux_unit or 'native'
+    if _to_cgs(1.0, (wave_min + wave_max) / 2.0) is not None:
+        flux_unit_label = 'erg/s/cm2'
     
     # Auto-determine boundaries if not provided
     if wave_boundaries is None:
@@ -726,7 +761,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     detected_lines = find_lines(
         spectrum_wave, spectrum_flux, CO_catalog_for_fit,
         contaminating_lines=contam_catalog,
-        remove_duplicate='True' if do_duplicate_removal else 'False'
+        remove_duplicate='True' if do_duplicate_removal else 'False',
+        snr_threshold=snr_threshold
     )
     
     if detected_lines is None or len(detected_lines) == 0:
@@ -742,6 +778,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             'detected_lines': pd.DataFrame(),
             'residuals': pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)}),
             'continuum_curve': pd.DataFrame({'wave': spectrum_wave, 'continuum': no_fit_continuum}),
+            'flux_unit': flux_unit_label,
             'mean_detected_wavelength': np.nan
         }
     
@@ -829,6 +866,14 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         if len(detected_co_only) > 0:
             mean_detected_wavelength = np.mean(detected_co_only['line'].values)
 
+    # Convert co_flux/contam_flux to erg/s/cm2 -- same conversion used for Gaussian line
+    # areas (unit_converter.integrated_flux_to_cgs), keyed on the mean detected line's
+    # wavelength since that's what the flux was actually integrated around
+    co_flux_cgs = _to_cgs(co_flux, mean_detected_wavelength)
+    if co_flux_cgs is not None:
+        contam_flux_cgs = _to_cgs(contam_flux, mean_detected_wavelength)
+        co_flux, contam_flux = co_flux_cgs, contam_flux_cgs if contam_flux_cgs is not None else contam_flux
+
     # continuum_curve so far only holds fit_glines' own per-chunk baseline (a + b*wave), fit
     # against the ALREADY continuum-subtracted spectrum -- so it sits near zero. Add back the
     # upfront continuum_model so the returned curve tracks the original (un-subtracted)
@@ -844,6 +889,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         'detected_lines': detected_lines,
         'residuals': residuals,
         'continuum_curve': continuum_curve,
+        'flux_unit': flux_unit_label,
         'mean_detected_wavelength': mean_detected_wavelength
     }
 
