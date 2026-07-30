@@ -9,6 +9,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 
 from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
 from .co_flux_extractor import fit_continuum_median_peaks
+from .continuum_dialog import ContinuumParametersDialog
 
 class GuiCOFluxMixin:
     """
@@ -29,17 +30,23 @@ class GuiCOFluxMixin:
         
         reply = QMessageBox.question(
             self,
-            "Automatic Continuum Required",
-            "CO Flux extraction requires automatic continuum subtraction.\n\n"
-            "Did you already run:\n"
-            "  Continuum Tools > Automatic Continuum > Continuum Line?\n\n"
-            "If NOT, please do that first before proceeding.",
-            QMessageBox.Yes | QMessageBox.No,
+            "Continuum Subtraction",
+            "CO Flux extraction automatically fits and subtracts a continuum for every "
+            "pixel, using default parameters that work well for typical spectra.\n\n"
+            "Use custom continuum parameters instead?",
+            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
             QMessageBox.No
         )
-        if reply != QMessageBox.Yes:
+        if reply == QMessageBox.Cancel:
             return
-        
+        if reply == QMessageBox.Yes:
+            params_dialog = ContinuumParametersDialog(self)
+            if params_dialog.exec_() != QDialog.Accepted:
+                return
+            self.co_flux_continuum_params = params_dialog.get_parameters()
+        else:
+            self.co_flux_continuum_params = None
+
         try:
             wave_min = float(self.min_wave_input.text())
             wave_max = float(self.max_wave_input.text())
@@ -55,7 +62,7 @@ class GuiCOFluxMixin:
             params_match = (
                 self.co_flux_params_cache.get('wave_min') == wave_min and
                 self.co_flux_params_cache.get('wave_max') == wave_max and
-                self.co_flux_params_cache.get('subtract_continuum') == (hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted)
+                self.co_flux_params_cache.get('continuum_params') == self.co_flux_continuum_params
             )
             hitran_match = (
                 hasattr(self, 'co_flux_hitran_cache') and
@@ -83,7 +90,8 @@ class GuiCOFluxMixin:
                         subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
                         parent=self,
                         excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
-                        flux_unit=self.co_flux_result_cache.get('flux_unit')
+                        flux_unit=self.co_flux_result_cache.get('flux_unit'),
+                        continuum_params=self.co_flux_continuum_params
                     )
                     results_dialog.exec_()
                     return
