@@ -562,6 +562,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             current_sum_contaminating = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
             current_sum_CO = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
             a = np.nanmedian(continuum)
+            df_continuum.loc[idx_xwave, 'continuum'] = continuum
             sum_CO_area = sum_CO_area + current_sum_CO
             sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
             mean_cont = mean_cont + a
@@ -599,6 +600,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             current_sum_contaminating = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
             current_sum_CO = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
             a = np.nanmedian(continuum)
+            df_continuum.loc[idx_xwave, 'continuum'] = continuum
         
         sum_CO_area = sum_CO_area + current_sum_CO
         sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
@@ -728,14 +730,18 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     )
     
     if detected_lines is None or len(detected_lines) == 0:
-        # No lines detected at all
+        # No lines detected at all -- still show the upfront (pre-line-fit) continuum if one
+        # was fit, so the plot has something to compare the raw spectrum against
+        no_fit_continuum = np.full_like(spectrum_flux, np.nan)
+        if continuum_model is not None:
+            no_fit_continuum = continuum_model
         return {
             'co_flux': 0,
             'contam_flux': 0,
             'mean_continuum': np.nanmedian(spectrum_flux),
             'detected_lines': pd.DataFrame(),
             'residuals': pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)}),
-            'continuum_curve': pd.DataFrame({'wave': spectrum_wave, 'continuum': np.full_like(spectrum_flux, np.nan)}),
+            'continuum_curve': pd.DataFrame({'wave': spectrum_wave, 'continuum': no_fit_continuum}),
             'mean_detected_wavelength': np.nan
         }
     
@@ -822,7 +828,15 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         detected_co_only = detected_co[detected_co['disposition'] == 1]
         if len(detected_co_only) > 0:
             mean_detected_wavelength = np.mean(detected_co_only['line'].values)
-    
+
+    # continuum_curve so far only holds fit_glines' own per-chunk baseline (a + b*wave), fit
+    # against the ALREADY continuum-subtracted spectrum -- so it sits near zero. Add back the
+    # upfront continuum_model so the returned curve tracks the original (un-subtracted)
+    # spectrum's baseline, which is what actually gets plotted for inspection.
+    if continuum_model is not None:
+        continuum_curve = continuum_curve.copy()
+        continuum_curve['continuum'] = continuum_model + continuum_curve['continuum'].fillna(0.0).values
+
     return {
         'co_flux': co_flux,
         'contam_flux': contam_flux,
