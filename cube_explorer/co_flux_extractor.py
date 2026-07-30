@@ -617,12 +617,13 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
 # ================== High-Level Extraction ==================
 
-def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog, 
+def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
-                                   subtract_continuum=False, continuum_poly_deg=3, excluded_wavelengths=None):
+                                   subtract_continuum=False, continuum_poly_deg=3, excluded_wavelengths=None,
+                                   continuum_params=None):
     """
     Extract total CO flux from a single spectrum by fitting all CO lines.
-    
+
     Parameters
     ----------
     spectrum_wave : array-like or Quantity
@@ -648,27 +649,30 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         Unused parameter (kept for backward compatibility)
     excluded_wavelengths : set or list, optional
         Set of wavelengths to exclude from CO flux calculation
-    
+    continuum_params : dict, optional
+        Override the default fit_continuum_median_peaks() parameters (window_size,
+        sigma_threshold, peak_width, peak_distance, peak_exclusion, iterations,
+        smoothing_factor). If None, uses the defaults, which work well for typical spectra.
+
     Returns
     -------
     dict
-        Keys: 'co_flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals'
+        Keys: 'co_flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals',
+        'continuum_curve'
     """
     # Extract values and units from Quantities if needed
     spectrum_wave, wave_unit = extract_units(spectrum_wave)
     spectrum_flux, flux_unit = extract_units(spectrum_flux)
-    
+
     # Apply continuum subtraction if requested (BEFORE line detection)
     # Uses the same median filter + peak detection method as the GUI's Automatic Continuum
     continuum_model = None
     if subtract_continuum:
         try:
-            # Use the same continuum fitting method as the GUI
+            # Use the same continuum fitting method as the GUI, with caller-supplied
+            # parameters if given, otherwise the defaults baked into fit_continuum_median_peaks
             continuum_model = fit_continuum_median_peaks(
-                spectrum_wave, spectrum_flux,
-                window_size=51, sigma_threshold=2.0,
-                peak_width=1, peak_distance=3, peak_exclusion=3,
-                iterations=2, smoothing_factor=5
+                spectrum_wave, spectrum_flux, **(continuum_params or {})
             )
             # Subtract continuum from flux
             if continuum_model is not None and not np.all(np.isnan(continuum_model)):
@@ -731,6 +735,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             'mean_continuum': np.nanmedian(spectrum_flux),
             'detected_lines': pd.DataFrame(),
             'residuals': pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)}),
+            'continuum_curve': pd.DataFrame({'wave': spectrum_wave, 'continuum': np.full_like(spectrum_flux, np.nan)}),
             'mean_detected_wavelength': np.nan
         }
     
@@ -798,7 +803,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         
         print(f"  [DEBUG] Before fit_glines: sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
         print(f"  [DEBUG] Fitting {len(detected_co)} CO + {len(detected_contam)} contaminating lines")
-        co_flux, contam_flux, mean_cont, residuals = fit_glines(
+        co_flux, contam_flux, mean_cont, residuals, continuum_curve = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
             detected_co, detected_contam, sigma
         )
@@ -807,6 +812,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     else:
         co_flux, contam_flux, mean_cont = 0, 0, np.nanmedian(spectrum_flux)
         residuals = pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)})
+        continuum_curve = pd.DataFrame({'wave': spectrum_wave, 'continuum': np.full_like(spectrum_flux, np.nan)})
         detected_co = pd.DataFrame()
         # print(f"  No lines to fit, returning 0")
     
@@ -823,6 +829,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         'mean_continuum': mean_cont,
         'detected_lines': detected_lines,
         'residuals': residuals,
+        'continuum_curve': continuum_curve,
         'mean_detected_wavelength': mean_detected_wavelength
     }
 
@@ -830,7 +837,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 # ================== Full Cube Processing ==================
 
 def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None,
-                       subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None):
+                       subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None,
+                       continuum_params=None):
     """
     Create 2D map of total CO rovibrational flux by processing all spatial pixels.
     
@@ -863,7 +871,11 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         Maximum wavelength to fit (μm). If None, uses max of CO_catalog.
     excluded_wavelengths : set or list, optional
         Set of CO wavelengths to exclude from flux calculation
-    
+    continuum_params : dict, optional
+        Override the default fit_continuum_median_peaks() parameters, applied identically
+        to every pixel. If None, uses the defaults, which work well for typical spectra.
+
+
     Returns
     -------
     dict
@@ -1002,7 +1014,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
                 do_duplicate_removal=True,
                 subtract_continuum=subtract_continuum,
-                continuum_poly_deg=continuum_poly_deg
+                continuum_poly_deg=continuum_poly_deg,
+                continuum_params=continuum_params
             )
             if test_result:
                 print(f"      Result: co_flux={test_result['co_flux']:.4e}, detected_lines shape={len(test_result['detected_lines'])}")
@@ -1057,7 +1070,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     do_duplicate_removal=True,
                     subtract_continuum=subtract_continuum,
                     continuum_poly_deg=continuum_poly_deg,
-                    excluded_wavelengths=excluded_wavelengths
+                    excluded_wavelengths=excluded_wavelengths,
+                    continuum_params=continuum_params
                 )
                 
                 # Filter detected lines by wavelength range
