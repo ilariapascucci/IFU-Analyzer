@@ -940,11 +940,14 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     -------
     dict
         Keys:
-        - 'flux_map': 2D array of CO flux for each pixel [counts or flux units × wavelength units]
+        - 'flux_map': 2D array of CO flux for each pixel, in erg/s/cm2 if cube_data.header
+          supports the conversion (see 'flux_unit'), otherwise the cube's native flux unit
         - 'detection_map': 2D array with number of detected CO lines per pixel
         - 'wavelength': 1D wavelength array used
         - 'header': FITS header from original cube
-    
+        - 'wave_range': (wave_min, wave_max) actually used for the fit
+        - 'flux_unit': unit of 'flux_map' -- 'erg/s/cm2' if the conversion succeeded
+
     Notes
     -----
     - Uses ThreadPoolExecutor for parallel processing (row-wise)
@@ -1075,7 +1078,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 do_duplicate_removal=True,
                 subtract_continuum=subtract_continuum,
                 continuum_poly_deg=continuum_poly_deg,
-                continuum_params=continuum_params
+                continuum_params=continuum_params,
+                header=cube_data.header, wave_unit=cube_data.wave_unit
             )
             if test_result:
                 print(f"      Result: co_flux={test_result['co_flux']:.4e}, detected_lines shape={len(test_result['detected_lines'])}")
@@ -1131,7 +1135,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     subtract_continuum=subtract_continuum,
                     continuum_poly_deg=continuum_poly_deg,
                     excluded_wavelengths=excluded_wavelengths,
-                    continuum_params=continuum_params
+                    continuum_params=continuum_params,
+                    header=cube_data.header, wave_unit=cube_data.wave_unit
                 )
                 
                 # Filter detected lines by wavelength range
@@ -1223,63 +1228,22 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     print(f"    Mean CO flux: {np.nanmean(flux_map):.4e}")
     print(f"    Max CO flux: {np.nanmax(flux_map):.4e}")
     
-    # Convert flux from MJy/sr*um to erg/s/cm2 using the same conversion as gaussian_fitter.convert_area_to_cgs
-    # Since flux_map already contains integrated flux (amplitude*sigma*sqrt(2pi)), apply only unit conversion
-    print(f"\n>>> Converting CO flux map to physical units (erg/s/cm2)...")
-    try:
-        flux_map_cgs = np.full_like(flux_map, np.nan)
-        n_converted = 0
-        
-        header = cube_data.header
-        cdelt1 = header.get('CDELT1', None) if header else None
-        cdelt2 = header.get('CDELT2', None) if header else None
-        
-        if cdelt1 is not None and cdelt2 is not None:
-            # Calculate conversion factor: CDELT1 * CDELT2 * 1e6 / (180/pi)^2
-            cdelt1_abs = abs(float(cdelt1))
-            cdelt2_abs = abs(float(cdelt2))
-            conv = cdelt1_abs * cdelt2_abs * 1e6 / (180.0 / np.pi)**2
-            c_micron_per_s = 3e14  # Speed of light in um/s
-            
-            for y in range(flux_map.shape[0]):
-                for x in range(flux_map.shape[1]):
-                    flux_val = flux_map[y, x]
-                    wavelength_val = wavelength_map[y, x]
-                    
-                    # Skip invalid pixels
-                    if not np.isfinite(flux_val) or not np.isfinite(wavelength_val) or wavelength_val <= 0:
-                        continue
-                    
-                    # Apply conversion: [MJy/sr*um] --conv--> [Jy*um] --c/lambda^2--> [erg/s/cm2]
-                    flux_jy_um = flux_val * conv
-                    flux_erg_s_cm2 = flux_jy_um * (c_micron_per_s / (wavelength_val**2)) * 1e-23
-                    
-                    if np.isfinite(flux_erg_s_cm2):
-                        flux_map_cgs[y, x] = flux_erg_s_cm2
-                        n_converted += 1
-            
-            if n_converted > 0:
-                print(f"✓ Successfully converted {n_converted}/{flux_map.size} pixels")
-                print(f"  Range: {np.nanmin(flux_map_cgs):.4e} - {np.nanmax(flux_map_cgs):.4e} erg/s/cm2")
-                flux_map_final = flux_map_cgs
-                flux_unit_output = 'erg/s/cm2'
-            else:
-                print(f"⚠️  Conversion produced no valid values, keeping original MJy/sr*um units")
-                flux_map_final = flux_map
-                flux_unit_output = 'MJy/sr um'
-        else:
-            print(f"⚠️  Cannot convert: FITS header missing CDELT1/CDELT2, keeping original MJy/sr*um units")
-            flux_map_final = flux_map
-            flux_unit_output = 'MJy/sr um'
-    except Exception as e:
-        print(f"⚠️  Conversion failed: {str(e)}, keeping original MJy/sr*um units")
-        import traceback
-        traceback.print_exc()
-        flux_map_final = flux_map
-        flux_unit_output = 'MJy/sr um'
-    
+    # flux_map is already in erg/s/cm2 (or native units) per-pixel -- each extract_co_flux_from_spectrum
+    # call above converted it individually via unit_converter.integrated_flux_to_cgs, using that
+    # pixel's own detected-line wavelength. Determine the map-wide label the same way (dimensional
+    # reachability doesn't vary pixel to pixel; only whether a line was found does).
+    header = cube_data.header
+    resolved_wave_unit = get_wave_unit(header, cube_data.wave_unit)
+    resolved_flux_unit = _resolve_flux_unit(None, header)
+    test_cgs = None
+    if header is not None:
+        test_cgs = integrated_flux_to_cgs(1.0, resolved_flux_unit, wavelength=(wave_min + wave_max) / 2.0,
+                                           header=header, wave_unit=resolved_wave_unit)
+    flux_unit_output = 'erg/s/cm2' if test_cgs is not None else (resolved_flux_unit or 'native')
+    print(f"    Flux map units: {flux_unit_output}")
+
     return {
-        'flux_map': flux_map_final,
+        'flux_map': flux_map,
         'detection_map': detection_map,
         'wavelength': wavelength,
         'header': cube_data.header,
