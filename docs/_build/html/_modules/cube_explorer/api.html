@@ -352,13 +352,16 @@
 
 <div class="viewcode-block" id="fit_hitran_lines">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_hitran_lines">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">fit_hitran_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">molecule</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">v_upper</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">v_lower</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_hitran_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">molecule</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                     <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">v_upper</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">v_lower</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                     <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">continuum</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Fit HITRAN spectral lines automatically using database lookup.</span>
 
-<span class="sd">    This is the same workflow as the GUI&#39;s HITRAN line fitting. It automatically</span>
-<span class="sd">    fetches line data from the HITRAN database (or local cache), then fits</span>
-<span class="sd">    Gaussian profiles to all lines in the wavelength range.</span>
+<span class="sd">    This is the same algorithm as the GUI&#39;s **Multi-Gaussian Fit** button, not a</span>
+<span class="sd">    separate approximation of it: each line gets an independent fit in an</span>
+<span class="sd">    adaptively-sized, continuum-subtracted window, via the same fit_line-style fitter</span>
+<span class="sd">    documented on the 1D fitting page.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
@@ -370,18 +373,26 @@
 <span class="sd">        refresh_cache (bool): Force refresh HITRAN cache (default False)</span>
 <span class="sd">        v_upper (int, optional): Filter by upper vibrational level (e.g., 1 for v=1)</span>
 <span class="sd">        v_lower (int, optional): Filter by lower vibrational level (e.g., 0 for v=0)</span>
+<span class="sd">        header: Optional FITS header for the erg/s/cm2 conversion. Without it, area</span>
+<span class="sd">            stays in the cube&#39;s native units -- same rule as fit_line.</span>
+<span class="sd">        wave_unit: Wavelength unit string, needed alongside header for the conversion.</span>
+<span class="sd">        continuum (array-like, optional): Pre-fitted continuum, same length as</span>
+<span class="sd">            wavelength, subtracted before fitting each line. If None, one is fitted</span>
+<span class="sd">            automatically via ``fit_continuum()`` -- the same fallback the GUI uses</span>
+<span class="sd">            when you have not run Automatic Continuum interactively first.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        list: List of dicts with fit results for each line:</span>
-<span class="sd">            - wavelength: Line center wavelength</span>
+<span class="sd">            - wavelength: Fitted line center wavelength</span>
 <span class="sd">            - species: Molecule name</span>
 <span class="sd">            - transition: Transition description</span>
-<span class="sd">            - amplitude: Peak height</span>
+<span class="sd">            - amplitude: Peak height above the local continuum</span>
 <span class="sd">            - sigma: Gaussian sigma width</span>
 <span class="sd">            - fwhm: Full width at half maximum</span>
 <span class="sd">            - area: Integrated line flux, in the units given by ``area_unit``</span>
 <span class="sd">            - area_native: Integrated line flux before any CGS conversion</span>
-<span class="sd">            - area_unit: Units of ``area``, e.g. ``&#39;erg/s/cm²&#39;``</span>
+<span class="sd">            - area_unit: Units of ``area`` -- ``&#39;erg/s/cm²&#39;`` only when header/wave_unit</span>
+<span class="sd">              let it convert; always check this rather than assuming</span>
 <span class="sd">            - r_squared: Fit quality</span>
 <span class="sd">            - success: Whether fit succeeded</span>
 <span class="sd">            - message: Status message</span>
@@ -395,19 +406,22 @@
 <span class="sd">        ...     wavelength_min=4.7,</span>
 <span class="sd">        ...     wavelength_max=4.8,</span>
 <span class="sd">        ...     v_upper=1,</span>
-<span class="sd">        ...     v_lower=0</span>
+<span class="sd">        ...     v_lower=0,</span>
+<span class="sd">        ...     header=cube.header,</span>
+<span class="sd">        ...     wave_unit=cube.wave_unit,</span>
 <span class="sd">        ... )</span>
 <span class="sd">        &gt;&gt;&gt; detected = [r for r in results if r[&#39;success&#39;]]</span>
 <span class="sd">        &gt;&gt;&gt; print(f&quot;Detected {len(detected)} CO v=1-&gt;0 lines&quot;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-    
+    <span class="n">wl</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span>
+    <span class="n">sp</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">spectrum</span><span class="p">)</span>
+
     <span class="c1"># Use spectrum edges if not provided</span>
     <span class="k">if</span> <span class="n">wavelength_min</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">wavelength_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">wavelength</span><span class="p">))</span>
+        <span class="n">wavelength_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span>
     <span class="k">if</span> <span class="n">wavelength_max</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">wavelength_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">wavelength</span><span class="p">))</span>
-    
+        <span class="n">wavelength_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span>
+
     <span class="c1"># Fetch HITRAN data for this molecule</span>
     <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
         <span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="p">,</span>
@@ -416,13 +430,19 @@
         <span class="n">v_upper</span><span class="o">=</span><span class="n">v_upper</span><span class="p">,</span>
         <span class="n">v_lower</span><span class="o">=</span><span class="n">v_lower</span>
     <span class="p">)</span>
-    
+
     <span class="k">if</span> <span class="ow">not</span> <span class="n">hitran_lines</span><span class="p">:</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: No HITRAN lines found for </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> in range </span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="p">[]</span>
-    
+
+    <span class="k">if</span> <span class="n">continuum</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">continuum_arr</span> <span class="o">=</span> <span class="n">fit_continuum</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">continuum_arr</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">continuum</span><span class="p">)</span>
+
     <span class="c1"># Fit Gaussian profiles to all lines</span>
-    <span class="k">return</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">continuum_arr</span><span class="p">,</span>
+                                       <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">)</span></div>
 
 
 

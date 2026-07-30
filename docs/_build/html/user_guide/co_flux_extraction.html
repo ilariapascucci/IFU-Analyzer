@@ -60,7 +60,11 @@
 <li class="toctree-l2 current"><a class="current reference internal" href="#">CO Flux Extraction</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#starting-co-flux-extraction">Starting CO Flux Extraction</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#load-contaminating-lines">Load Contaminating Lines</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#multi-gaussian-fit">Multi-Gaussian Fit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#multi-gaussian-fit">Multi-Gaussian Fit</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#reading-the-results">Reading the results</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#using-the-api">Using the API</a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-co-flux-api">Using the CO Flux API</a></li>
 </ul>
 </li>
@@ -142,12 +146,73 @@ You can remove a line by clicking on it in the spectrum or by clicking on the <s
 </section>
 <section id="multi-gaussian-fit">
 <h2>Multi-Gaussian Fit<a class="headerlink" href="#multi-gaussian-fit" title="Link to this heading"></a></h2>
-<p>Perform a Gaussian fit for each molecule line in the 1D spectrum.</p>
+<p>Fit each currently-plotted HITRAN line independently on the 1D spectrum — one Gaussian
+per line, using the same fitter as <a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a>. <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code> in
+<code class="docutils literal notranslate"><span class="pre">cube_explorer.api</span></code> runs this exact algorithm (see <em>Using the API</em> below); it is not an
+approximation of the GUI button, the two share the same code path.</p>
 <ol class="arabic simple">
 <li><p>Perform automatic continuum on the 1D spectrum by clicking on <strong>Continuum Tools → Automatic Continuum → Continuum Line</strong></p></li>
 <li><p>Click on <strong>Multi-Gaussian Fit</strong></p></li>
 </ol>
-<p>A Gaussian fit will be highlighted for each line, and the fit statistics will be shown.</p>
+<p>A Gaussian curve is overlaid on the spectrum for each plotted line, and a results window
+opens with one block per line.</p>
+<figure class="align-default" id="id1">
+<a class="reference internal image-reference" href="../_images/co_multigauss_fit.png"><img alt="Ten fitted CO v=1-&gt;0 P-branch Gaussians overlaid on a NIRSpec spectrum" src="../_images/co_multigauss_fit.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Ten CO v=1→0 P-branch lines (J=5→14, 4.70–4.80 µm) fitted simultaneously via
+<strong>Multi-Gaussian Fit</strong> on a NIRSpec G395H spectrum.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<section id="reading-the-results">
+<h3>Reading the results<a class="headerlink" href="#reading-the-results" title="Link to this heading"></a></h3>
+<p>Each line’s block reports two groups of numbers:</p>
+<ul class="simple">
+<li><p><strong>Catalog identification</strong> — <code class="docutils literal notranslate"><span class="pre">Line</span> <span class="pre">λ</span></code>, <code class="docutils literal notranslate"><span class="pre">Transition</span></code>, <code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">coeff</span></code> and <code class="docutils literal notranslate"><span class="pre">E_upper</span></code>,
+copied straight from the HITRAN entry, not measured. Useful for cross-checking that the
+fit actually locked onto the line you think it did.</p></li>
+<li><p><strong>Fitted parameters</strong> — <code class="docutils literal notranslate"><span class="pre">Center</span></code>, <code class="docutils literal notranslate"><span class="pre">Amplitude</span></code>, <code class="docutils literal notranslate"><span class="pre">Sigma</span></code>, <code class="docutils literal notranslate"><span class="pre">FWHM</span></code>, <code class="docutils literal notranslate"><span class="pre">Integrated</span>
+<span class="pre">Area</span></code> and <code class="docutils literal notranslate"><span class="pre">R²</span></code>, exactly as on the single-line results window (see
+<a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a> for what each one means). Units follow the same rules as the
+1D page — <code class="docutils literal notranslate"><span class="pre">Integrated</span> <span class="pre">Area</span></code> is erg/s/cm² wherever the header supports the conversion.</p></li>
+</ul>
+</section>
+<section id="using-the-api">
+<h3>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_hitran_lines</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="n">fit_hitran_lines</span><span class="p">(</span>
+    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
+    <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;CO&#39;</span><span class="p">,</span>
+    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.70</span><span class="p">,</span>
+    <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.80</span><span class="p">,</span>
+    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>             <span class="c1"># v=1-&gt;0 P-branch, same filter as the HITRAN dialog</span>
+    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>    <span class="c1"># Required for the erg/s/cm2 conversion</span>
+    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Fitted </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">detected</span><span class="p">)</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="s2"> lines&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">detected</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um  area=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;area&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;area_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">  R2=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;r_squared&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This reproduces the worked example above exactly: fitted centers, areas and R² match the
+screenshot’s results window to the last reported digit, because it is the same fit.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>As with <code class="docutils literal notranslate"><span class="pre">fit_line</span></code>, pass <code class="docutils literal notranslate"><span class="pre">header</span></code>/<code class="docutils literal notranslate"><span class="pre">wave_unit</span></code> to get <code class="docutils literal notranslate"><span class="pre">area</span></code> in erg/s/cm² —
+without them it stays in the cube’s native units, and <code class="docutils literal notranslate"><span class="pre">area_unit</span></code> always tells you
+which one you got. There is no continuum-fitting step in the example above because
+none was given: leaving <code class="docutils literal notranslate"><span class="pre">continuum</span></code> unset fits one automatically with
+<code class="docutils literal notranslate"><span class="pre">fit_continuum()</span></code>, the same fallback the GUI uses when you have not run <strong>Automatic
+Continuum</strong> interactively. Pass your own <code class="docutils literal notranslate"><span class="pre">continuum</span></code> array to use a continuum you
+already fitted instead.</p>
+</div>
 <p><strong>Analyze CO for All Pixels</strong></p>
 <p>Extract CO flux maps for each pixel:</p>
 <ol class="arabic simple">
@@ -165,9 +230,19 @@ You can remove a line by clicking on it in the spectrum or by clicking on the <s
 <li><p><strong>Detection Count</strong>: Map with count for each pixel</p></li>
 </ul>
 </section>
+</section>
 <section id="using-the-co-flux-api">
 <h2>Using the CO Flux API<a class="headerlink" href="#using-the-co-flux-api" title="Link to this heading"></a></h2>
 <p>Extract CO fluxes programmatically for single spectra or full data cubes.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a <strong>different algorithm</strong> from <strong>Multi-Gaussian Fit</strong> / <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code>
+above, not just a scripted version of it. <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_co_flux_map</span></code> fit
+all lines in a wavelength chunk <em>simultaneously</em> against one shared continuum (via
+<code class="docutils literal notranslate"><span class="pre">co_flux_extractor.py</span></code>), rather than one Gaussian per line independently. The two do
+not currently produce identical numbers for the same spectrum, and only one of them is
+verified below.</p>
+</div>
 <p><strong>Extract CO Flux from a Single Spectrum</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_co_flux</span><span class="p">,</span> <span class="n">fit_continuum</span>
 

@@ -318,11 +318,12 @@ dividing by a continuum measured in the cube’s own units.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_hitran_lines">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_hitran_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_upper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_lower</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_hitran_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_hitran_lines" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_hitran_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_upper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_lower</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_hitran_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_hitran_lines" title="Link to this definition"></a></dt>
 <dd><p>Fit HITRAN spectral lines automatically using database lookup.</p>
-<p>This is the same workflow as the GUI’s HITRAN line fitting. It automatically
-fetches line data from the HITRAN database (or local cache), then fits
-Gaussian profiles to all lines in the wavelength range.</p>
+<p>This is the same algorithm as the GUI’s <strong>Multi-Gaussian Fit</strong> button, not a
+separate approximation of it: each line gets an independent fit in an
+adaptively-sized, continuum-subtracted window, via the same fit_line-style fitter
+documented on the 1D fitting page.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -335,20 +336,28 @@ Gaussian profiles to all lines in the wavelength range.</p>
 <li><p><strong>refresh_cache</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Force refresh HITRAN cache (default False)</p></li>
 <li><p><strong>v_upper</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by upper vibrational level (e.g., 1 for v=1)</p></li>
 <li><p><strong>v_lower</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by lower vibrational level (e.g., 0 for v=0)</p></li>
+<li><p><strong>header</strong> – Optional FITS header for the erg/s/cm2 conversion. Without it, area
+stays in the cube’s native units – same rule as fit_line.</p></li>
+<li><p><strong>wave_unit</strong> – Wavelength unit string, needed alongside header for the conversion.</p></li>
+<li><p><strong>continuum</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Pre-fitted continuum, same length as
+wavelength, subtracted before fitting each line. If None, one is fitted
+automatically via <code class="docutils literal notranslate"><span class="pre">fit_continuum()</span></code> – the same fallback the GUI uses
+when you have not run Automatic Continuum interactively first.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><dl class="simple">
 <dt>List of dicts with fit results for each line:</dt><dd><ul class="simple">
-<li><p>wavelength: Line center wavelength</p></li>
+<li><p>wavelength: Fitted line center wavelength</p></li>
 <li><p>species: Molecule name</p></li>
 <li><p>transition: Transition description</p></li>
-<li><p>amplitude: Peak height</p></li>
+<li><p>amplitude: Peak height above the local continuum</p></li>
 <li><p>sigma: Gaussian sigma width</p></li>
 <li><p>fwhm: Full width at half maximum</p></li>
 <li><p>area: Integrated line flux, in the units given by <code class="docutils literal notranslate"><span class="pre">area_unit</span></code></p></li>
 <li><p>area_native: Integrated line flux before any CGS conversion</p></li>
-<li><p>area_unit: Units of <code class="docutils literal notranslate"><span class="pre">area</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">'erg/s/cm²'</span></code></p></li>
+<li><p>area_unit: Units of <code class="docutils literal notranslate"><span class="pre">area</span></code> – <code class="docutils literal notranslate"><span class="pre">'erg/s/cm²'</span></code> only when header/wave_unit
+let it convert; always check this rather than assuming</p></li>
 <li><p>r_squared: Fit quality</p></li>
 <li><p>success: Whether fit succeeded</p></li>
 <li><p>message: Status message</p></li>
@@ -370,7 +379,9 @@ Gaussian profiles to all lines in the wavelength range.</p>
 <span class="gp">... </span>    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.7</span><span class="p">,</span>
 <span class="gp">... </span>    <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.8</span><span class="p">,</span>
 <span class="gp">... </span>    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span>
+<span class="gp">... </span>    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
 <span class="gp">... </span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Detected </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">detected</span><span class="p">)</span><span class="si">}</span><span class="s2"> CO v=1-&gt;0 lines&quot;</span><span class="p">)</span>

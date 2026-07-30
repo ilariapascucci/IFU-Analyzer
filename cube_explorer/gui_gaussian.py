@@ -1,7 +1,6 @@
 import numpy as np
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
 from astropy.units import Quantity
 
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, auto_detect_boundaries
@@ -438,7 +437,22 @@ STATUS: {result.message}
         
         for idx, fit_info in enumerate(fit_results, 1):
             result, line = fit_info['result'], fit_info['line']
+
+            # Catalog identification -- present for HITRAN-sourced lines, absent for
+            # custom .lst catalogs, so each is only shown when the line dict has it.
+            catalog_wave = line.get('lambda_micron', line.get('wavelength'))
+            catalog_wave_text = f"{catalog_wave:.6f} {wave_unit}" if catalog_wave is not None else "N/A"
+            transition_text = line.get('transition') or "N/A"
+            a_coeff = line.get('a_coeff')
+            a_coeff_text = f"{a_coeff:.4e} s⁻¹" if a_coeff is not None else "N/A"
+            e_upper = line.get('e_upper')
+            e_upper_text = f"{e_upper:.2f} K" if e_upper is not None else "N/A"
+
             results_text += f"""Line {idx}: {line.get('species', 'Unknown')}
+  Line λ (catalog):      {catalog_wave_text}
+  Transition:            {transition_text}
+  A coeff:               {a_coeff_text}
+  E_upper:               {e_upper_text}
   Center (λ):            {result.center:.6f} {wave_unit}
   Amplitude:             {result.amplitude:.4e} {flux_unit}
   Sigma (σ):             {result.sigma:.6g} {wave_unit}
@@ -450,12 +464,16 @@ STATUS: {result.message}
         
         dlg = QDialog(self)
         dlg.setWindowTitle("Multi-Gaussian Fit Results")
-        dlg.setMinimumSize(750, 600)
+        # Each line entry is now 4 rows taller (catalog wavelength, transition, A
+        # coeff, E_upper), so the dialog needs more headroom than before to avoid
+        # scrolling for a typical 5-10 line fit.
+        dlg.setMinimumSize(750, 750)
         layout = QVBoxLayout()
         text_display = QTextEdit()
         text_display.setPlainText(results_text)
         text_display.setReadOnly(True)
-        text_display.setFont(QFont('Courier', 9))
+        # Match the single-line Gaussian Fit Results dialog's font exactly.
+        text_display.setFontFamily("Courier")
         layout.addWidget(text_display)
         
         btn_layout = QHBoxLayout()

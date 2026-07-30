@@ -249,13 +249,16 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
                                 header=header, wave_unit=wave_unit)
 
 
-def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None, isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None):
+def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None,
+                     isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None,
+                     header=None, wave_unit=None, continuum=None):
     """
     Fit HITRAN spectral lines automatically using database lookup.
 
-    This is the same workflow as the GUI's HITRAN line fitting. It automatically
-    fetches line data from the HITRAN database (or local cache), then fits
-    Gaussian profiles to all lines in the wavelength range.
+    This is the same algorithm as the GUI's **Multi-Gaussian Fit** button, not a
+    separate approximation of it: each line gets an independent fit in an
+    adaptively-sized, continuum-subtracted window, via the same fit_line-style fitter
+    documented on the 1D fitting page.
 
     Args:
         wavelength (array-like): Wavelength/frequency values
@@ -267,18 +270,26 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         refresh_cache (bool): Force refresh HITRAN cache (default False)
         v_upper (int, optional): Filter by upper vibrational level (e.g., 1 for v=1)
         v_lower (int, optional): Filter by lower vibrational level (e.g., 0 for v=0)
+        header: Optional FITS header for the erg/s/cm2 conversion. Without it, area
+            stays in the cube's native units -- same rule as fit_line.
+        wave_unit: Wavelength unit string, needed alongside header for the conversion.
+        continuum (array-like, optional): Pre-fitted continuum, same length as
+            wavelength, subtracted before fitting each line. If None, one is fitted
+            automatically via ``fit_continuum()`` -- the same fallback the GUI uses
+            when you have not run Automatic Continuum interactively first.
 
     Returns:
         list: List of dicts with fit results for each line:
-            - wavelength: Line center wavelength
+            - wavelength: Fitted line center wavelength
             - species: Molecule name
             - transition: Transition description
-            - amplitude: Peak height
+            - amplitude: Peak height above the local continuum
             - sigma: Gaussian sigma width
             - fwhm: Full width at half maximum
             - area: Integrated line flux, in the units given by ``area_unit``
             - area_native: Integrated line flux before any CGS conversion
-            - area_unit: Units of ``area``, e.g. ``'erg/s/cm²'``
+            - area_unit: Units of ``area`` -- ``'erg/s/cm²'`` only when header/wave_unit
+              let it convert; always check this rather than assuming
             - r_squared: Fit quality
             - success: Whether fit succeeded
             - message: Status message
@@ -292,19 +303,22 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         ...     wavelength_min=4.7,
         ...     wavelength_max=4.8,
         ...     v_upper=1,
-        ...     v_lower=0
+        ...     v_lower=0,
+        ...     header=cube.header,
+        ...     wave_unit=cube.wave_unit,
         ... )
         >>> detected = [r for r in results if r['success']]
         >>> print(f"Detected {len(detected)} CO v=1->0 lines")
     """
-    import numpy as np
-    
+    wl = _as_float_array(wavelength)
+    sp = _as_float_array(spectrum)
+
     # Use spectrum edges if not provided
     if wavelength_min is None:
-        wavelength_min = float(np.nanmin(wavelength))
+        wavelength_min = float(np.nanmin(wl))
     if wavelength_max is None:
-        wavelength_max = float(np.nanmax(wavelength))
-    
+        wavelength_max = float(np.nanmax(wl))
+
     # Fetch HITRAN data for this molecule
     hitran_lines, _ = fetch_hitran_data(
         wavelength_min, wavelength_max,
@@ -313,13 +327,19 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         v_upper=v_upper,
         v_lower=v_lower
     )
-    
+
     if not hitran_lines:
         print(f"Warning: No HITRAN lines found for {molecule} in range {wavelength_min:.3f}-{wavelength_max:.3f} µm")
         return []
-    
+
+    if continuum is None:
+        continuum_arr = fit_continuum(wl, sp)
+    else:
+        continuum_arr = _as_float_array(continuum)
+
     # Fit Gaussian profiles to all lines
-    return _fit_hitran_lines_internal(wavelength, spectrum, hitran_lines)
+    return _fit_hitran_lines_internal(wl, sp, hitran_lines, continuum_arr,
+                                       header=header, wave_unit=wave_unit)
 
 
 def measure_equivalent_width(fit_result, wavelength=None, continuum_spectrum=None):

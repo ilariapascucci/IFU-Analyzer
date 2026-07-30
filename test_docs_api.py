@@ -15,6 +15,7 @@ Documentation sources:
   - docs/user_guide/api_examples.rst
   - docs/user_guide/gaussian_fitting_1d.rst ("Using the API")
   - docs/user_guide/gaussian_fitting_cube.rst ("Using the API")
+  - docs/user_guide/co_flux_extraction.rst ("Using the API", under Multi-Gaussian Fit)
 
 data/ is gitignored, so a fresh clone has no cubes. Sections needing a FITS file
 report [SKIP] rather than failing.
@@ -32,6 +33,7 @@ import sys
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
+NIRSPEC_CUBE = os.path.join("data", "NIRSpec", "jw01621-o001_t001_nirspec_g395h-f290lp_s3d.fits")
 
 results = []
 
@@ -50,6 +52,11 @@ def run(name, func):
         results.append((name, "SKIP"))
         return
 
+    if getattr(func, "needs_nirspec_cube", False) and not os.path.exists(NIRSPEC_CUBE):
+        print(f"[SKIP] sample cube not found: {NIRSPEC_CUBE}")
+        results.append((name, "SKIP"))
+        return
+
     try:
         func()
     except Exception as exc:
@@ -62,6 +69,11 @@ def run(name, func):
 
 def needs_cube(func):
     func.needs_cube = True
+    return func
+
+
+def needs_nirspec_cube(func):
+    func.needs_nirspec_cube = True
     return func
 
 
@@ -337,6 +349,63 @@ def cube_returned_keys():
 
 
 # ---------------------------------------------------------------------------
+# CO FLUX EXTRACTION -- MULTI-GAUSSIAN FIT, USING THE API
+# ---------------------------------------------------------------------------
+# fit_hitran_lines() runs the same algorithm as the GUI's Multi-Gaussian Fit button
+# (auto_detect_boundaries + fit_gaussian_to_line per line, see gaussian_fitter.py) --
+# this checks the docs' claim that they produce identical results, not just that the
+# call doesn't crash.
+
+@needs_nirspec_cube
+def co_flux_multi_gaussian_api():
+    from cube_explorer.api import load_cube, fit_hitran_lines
+
+    cube = load_cube(NIRSPEC_CUBE)
+
+    results = fit_hitran_lines(
+        wavelength=cube.wavelength,
+        spectrum=cube.spectrum,
+        molecule='CO',
+        wavelength_min=4.70,
+        wavelength_max=4.80,
+        v_upper=1,             # v=1->0 P-branch, same filter as the HITRAN dialog
+        v_lower=0,
+        header=cube.header,    # Required for the erg/s/cm2 conversion
+        wave_unit=cube.wave_unit,
+    )
+
+    detected = [r for r in results if r['success']]
+    print(f"Fitted {len(detected)}/{len(results)} lines")
+    for r in sorted(detected, key=lambda r: r['wavelength']):
+        print(f"  {r['wavelength']:.6f} um  area={r['area']:.4e} {r['area_unit']}  R2={r['r_squared']:.4f}")
+
+    # "This reproduces the worked example above exactly" -- the ten J=5->14 P-branch
+    # centers and areas from the GUI screenshot, to the digit.
+    expected = {
+        4.709034: (9.6275e-16, 0.9934), 4.718023: (9.4950e-16, 0.9965),
+        4.727013: (9.1115e-16, 0.9943), 4.736171: (7.4484e-16, 0.9940),
+        4.745491: (7.2233e-16, 0.9738), 4.754807: (5.8473e-16, 0.9094),
+        4.764288: (5.4873e-16, 0.9317), 4.773898: (5.3648e-16, 0.9703),
+        4.783670: (4.6497e-16, 0.9259), 4.793559: (4.9391e-16, 0.7863),
+    }
+    assert len(detected) == 10, f"docs' worked example has 10 detected lines, got {len(detected)}"
+    for r in detected:
+        match = min(expected, key=lambda c: abs(c - r['wavelength']))
+        assert abs(match - r['wavelength']) < 1e-4, \
+            f"fitted center {r['wavelength']:.6f} doesn't match any documented line"
+        exp_area, exp_r2 = expected[match]
+        assert abs(r['area'] - exp_area) / exp_area < 1e-3, \
+            f"line at {match}: area {r['area']:.4e} != documented {exp_area:.4e}"
+        assert abs(r['r_squared'] - exp_r2) < 1e-3, \
+            f"line at {match}: R2 {r['r_squared']:.4f} != documented {exp_r2:.4f}"
+        assert r['area_unit'] == 'erg/s/cm²', \
+            f"docs claim area_unit is erg/s/cm2 when header/wave_unit are given; got {r['area_unit']!r}"
+
+    print(f"\nVerified: all {len(detected)} lines match the documented worked example "
+          f"(centers, areas, R2, units)")
+
+
+# ---------------------------------------------------------------------------
 
 def main():
     print("\n" + "=" * 70)
@@ -351,6 +420,7 @@ def main():
     run("1D FITTING -- RESULT FIELDS", result_fields)
     run("CUBE FITTING -- FULL CUBE (slow, ~1-2 min)", cube_fitting_the_cube)
     run("CUBE FITTING -- RETURNED KEYS", cube_returned_keys)
+    run("CO FLUX -- MULTI-GAUSSIAN FIT API", co_flux_multi_gaussian_api)
 
     print("\n" + "=" * 70)
     print(" SUMMARY")
