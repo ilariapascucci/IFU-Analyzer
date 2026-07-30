@@ -112,12 +112,21 @@ class GuiCOFluxMixin:
             return
         
         cube_shape = self.cube_data.cube.shape
-        center_y, center_x = cube_shape[1] // 2, cube_shape[2] // 2
-        
-        spectrum_flux = self.cube_data.get_pixel_spectrum(center_x, center_y)
         spectrum_wave = self.cube_data.wavelength.value if hasattr(self.cube_data.wavelength, 'unit') else self.cube_data.wavelength
-        
-        confirmation = self._show_co_flux_confirmation(filtered_lines, spectrum_wave, spectrum_flux, center_x, center_y)
+
+        # Preview the brightest pixel within the fit range rather than the cube's geometric
+        # center, which may have little or no CO signal
+        wave_mask = (spectrum_wave >= wave_min) & (spectrum_wave <= wave_max)
+        preview_y, preview_x = cube_shape[1] // 2, cube_shape[2] // 2
+        if np.any(wave_mask):
+            with np.errstate(all='ignore'):
+                pixel_peak = np.nanmax(self.cube_data.cube[wave_mask, :, :], axis=0)
+            if not np.all(np.isnan(pixel_peak)):
+                preview_y, preview_x = np.unravel_index(np.nanargmax(pixel_peak), pixel_peak.shape)
+
+        spectrum_flux = self.cube_data.get_pixel_spectrum(preview_x, preview_y)
+
+        confirmation = self._show_co_flux_confirmation(filtered_lines, spectrum_wave, spectrum_flux, preview_x, preview_y)
         if confirmation != QMessageBox.Yes:
             return
         
@@ -147,7 +156,8 @@ class GuiCOFluxMixin:
             self.cube_data, use_catalog, self.co_flux_contam_catalog, n_jobs=n_jobs,
             subtract_continuum=True, continuum_poly_deg=3,
             wave_min=wave_min, wave_max=wave_max,
-            excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set())
+            excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
+            continuum_params=self.co_flux_continuum_params
         )
         
         self.co_flux_progress = QProgressDialog("Extracting CO flux from all pixels...", "Cancel", 0, 0, self)
@@ -192,28 +202,26 @@ class GuiCOFluxMixin:
         return filtered
     
     def _show_co_flux_confirmation(self, lines, spectrum_wave, spectrum_flux, pixel_x, pixel_y):
-        use_continuum_subtraction = hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted
+        # CO Flux Map always continuum-subtracts every pixel (with default or custom
+        # parameters, chosen in the popup before this preview), so the preview should too
         preview_flux = spectrum_flux.copy()
-        
-        if use_continuum_subtraction:
-            try:
-                continuum = fit_continuum_median_peaks(spectrum_wave, preview_flux)
-                if continuum is not None and not np.all(np.isnan(continuum)):
-                    preview_flux = preview_flux - continuum
-            except Exception: pass
-        
+        try:
+            continuum = fit_continuum_median_peaks(spectrum_wave, preview_flux, **(self.co_flux_continuum_params or {}))
+            if continuum is not None and not np.all(np.isnan(continuum)):
+                preview_flux = preview_flux - continuum
+        except Exception: pass
+
         dlg = QDialog(self)
         dlg.setWindowTitle("CO Flux Map Preview")
         dlg.setGeometry(100, 100, 1000, 600)
         layout = QVBoxLayout()
-        
-        title = QLabel(f"<b>CO Flux Map Preview</b><br>Pixel ({pixel_x}, {pixel_y}) | {len(lines)} filtered lines")
+
+        title = QLabel(f"<b>CO Flux Map Preview</b><br>Brightest pixel in range: ({pixel_x}, {pixel_y}) | {len(lines)} filtered lines")
         layout.addWidget(title)
-        
+
         fig = Figure(figsize=(10, 4), dpi=100)
         ax = fig.add_subplot(111)
-        spectrum_label = 'Continuum-Subtracted Spectrum' if use_continuum_subtraction else 'Spectrum'
-        ax.plot(spectrum_wave, preview_flux, 'k-', linewidth=1.2, label=spectrum_label, alpha=0.8)
+        ax.plot(spectrum_wave, preview_flux, 'k-', linewidth=1.2, label='Continuum-Subtracted Spectrum', alpha=0.8)
         
         wave_min, wave_max = float(self.min_wave_input.text()), float(self.max_wave_input.text())
         for line in lines:
@@ -236,7 +244,11 @@ class GuiCOFluxMixin:
         plot_widget.setLayout(plot_layout)
         layout.addWidget(plot_widget)
         
-        info_text = QLabel("<b>Filtered Lines Summary:</b><br>Proceed with extraction?")
+        info_text = QLabel(
+            "<b>Filtered Lines:</b> near-duplicate/overlapping HITRAN lines are collapsed to the "
+            "strongest line in each close group before fitting, to avoid blended duplicate fits.<br>"
+            "Proceed with extraction?"
+        )
         layout.addWidget(info_text)
         
         btn_layout = QHBoxLayout()
@@ -263,9 +275,9 @@ class GuiCOFluxMixin:
         self.co_flux_params_cache = {
             'wave_min': float(self.min_wave_input.text()),
             'wave_max': float(self.max_wave_input.text()),
-            'subtract_continuum': hasattr(self, 'auto_continuum_subtracted') and self.auto_continuum_subtracted,
+            'continuum_params': self.co_flux_continuum_params,
         }
-        
+
         results_dialog = COFluxMapResultsDialog(
             result['flux_map'], result['detection_map'], header=result.get('header'),
             wave_range=result.get('wave_range'), wavelength=getattr(self, 'co_flux_wavelength', None),
@@ -273,7 +285,8 @@ class GuiCOFluxMixin:
             contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
             subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
             parent=self, excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
-            flux_unit=result.get('flux_unit')
+            flux_unit=result.get('flux_unit'),
+            continuum_params=self.co_flux_continuum_params
         )
         results_dialog.exec_()
     
