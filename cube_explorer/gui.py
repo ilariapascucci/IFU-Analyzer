@@ -702,10 +702,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.max_wave_input.setDecimals(4)
         self.max_wave_input.setSingleStep(0.1)
         self.max_wave_input.setToolTip("Max wavelength (λ)")
-        self.ok_wave_button = QPushButton("OK")
-        self.ok_wave_button.setFixedWidth(35)
-        self.ok_wave_button.clicked.connect(self.apply_wavelength_range)
-        
+
         # HITRAN collapsible group buttons
         self.hitran_btn = QPushButton("HITRAN")
         self.hitran_btn.setToolTip("Fetch HITRAN lines with transition level filtering")
@@ -944,7 +941,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(self.max_wave_input)
-        self.hitran_group.add_button(self.ok_wave_button)  # was missing
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.load_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
@@ -1239,28 +1235,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             self.header_window.show()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display header: {str(e)}")
-
-    def apply_wavelength_range(self):
-        """Triggered when user confirms wavelength range (OK button - currently not visible)"""
-        # Read min/max wavelength
-        try:
-            min_wave = float(self.min_wave_input.text())
-            max_wave = float(self.max_wave_input.text())
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
-            return
-
-        if min_wave >= max_wave:
-            QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than max wavelength.")
-            return
-
-        # Confirm range is set
-        QMessageBox.information(
-            self, "Range Set", 
-            f"Wavelength range set to {min_wave:.3f} - {max_wave:.3f} µm\n\n"
-            "Use HITRAN button to fetch spectral lines."
-        )
-
 
     def _display_slice(self, idx, target):
         """Display a wavelength/velocity slice with proper title and intensity units"""
