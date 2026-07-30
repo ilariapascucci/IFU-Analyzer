@@ -478,14 +478,21 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         2. the sum of the areas of the contaminating lines Gaussians (sum_contaminating_area)
         3. the mean of the continuum (mean_cont)
         4. a pandas dataframe with the residual which is good to check the results (df_residual)
-    
+        5. a pandas dataframe with the fitted continuum (a + b*wave) per wavelength, NaN outside
+           any fitted chunk (df_continuum) -- useful for plotting the actual continuum trend
+           rather than just its mean
+
     """
     sum_CO_area, sum_contaminating_area, mean_cont = 0, 0, 0
     df_residual = pd.DataFrame({
         'wave': xwave,
         'residual': [0] * len(xwave)
     })
-    
+    df_continuum = pd.DataFrame({
+        'wave': xwave,
+        'continuum': np.full(len(xwave), np.nan)
+    })
+
     print('===== Start fitting...')
     start_time = time.time()
     
@@ -569,7 +576,8 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         try:
             bfit = many_gaussians_list(xwave[idx_xwave], a, b, *par)
             df_residual.loc[idx_xwave, 'residual'] = yflux[idx_xwave] - bfit
-            
+            df_continuum.loc[idx_xwave, 'continuum'] = a + b * xwave[idx_xwave]
+
             # Different approach in case there are contaminating lines
             if ncont_lines > 0:
                 current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
@@ -603,8 +611,8 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     print(f'[FINAL FLUX] Total CO flux: {sum_CO_area:.6e}, Total contam flux: {sum_contaminating_area:.6e}, Mean continuum: {mean_cont/(len(list_wboundaries) - 1):.6e}')
     
     mean_cont = mean_cont / (len(list_wboundaries) - 1)
-    
-    return sum_CO_area, sum_contaminating_area, mean_cont, df_residual
+
+    return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum
 
 
 # ================== High-Level Extraction ==================
