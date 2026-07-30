@@ -24,7 +24,7 @@ class COFluxMapWorker(QThread):
     finished = pyqtSignal(dict)       # Results dict
     error = pyqtSignal(str)           # Error message
     
-    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None):
+    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
         super().__init__()
         self.cube_data = cube_data
         self.CO_catalog = CO_catalog
@@ -35,6 +35,7 @@ class COFluxMapWorker(QThread):
         self.wave_min = wave_min
         self.wave_max = wave_max
         self.excluded_wavelengths = excluded_wavelengths
+        self.continuum_params = continuum_params
         self.cancelled = False  # Flag to stop processing
     
     def run(self):
@@ -57,7 +58,8 @@ class COFluxMapWorker(QThread):
                 continuum_poly_deg=self.continuum_poly_deg,
                 wave_min=self.wave_min,
                 wave_max=self.wave_max,
-                excluded_wavelengths=self.excluded_wavelengths
+                excluded_wavelengths=self.excluded_wavelengths,
+                continuum_params=self.continuum_params
             )
             
             if self.cancelled:
@@ -80,9 +82,10 @@ class COFluxMapWorker(QThread):
 class COFluxMapResultsDialog(QDialog):
     """Display CO flux extraction results with interactive viewer"""
     
-    def __init__(self, flux_map, detection_map, header=None, wave_range=None, 
+    def __init__(self, flux_map, detection_map, header=None, wave_range=None,
                  wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
-                 subtract_continuum=False, parent=None, excluded_wavelengths=None, flux_unit=None):
+                 subtract_continuum=False, parent=None, excluded_wavelengths=None, flux_unit=None,
+                 continuum_params=None):
         super().__init__(parent)
         self.flux_map = flux_map
         self.detection_map = detection_map
@@ -93,6 +96,7 @@ class COFluxMapResultsDialog(QDialog):
         self.CO_catalog = CO_catalog
         self.contam_catalog = contam_catalog
         self.subtract_continuum = subtract_continuum
+        self.continuum_params = continuum_params
         self.selected_pixel = None  # For pixel inspection mode
         self.pixel_selection_enabled = True  # Toggle for pixel clicking
         self.excluded_wavelengths = set(excluded_wavelengths) if excluded_wavelengths else set()  # Track excluded lines
@@ -288,7 +292,8 @@ class COFluxMapResultsDialog(QDialog):
                     self.wavelength, spectrum, self.CO_catalog, self.contam_catalog,
                     wave_min=self.wave_range[0] if self.wave_range else None,
                     wave_max=self.wave_range[1] if self.wave_range else None,
-                    subtract_continuum=self.subtract_continuum
+                    subtract_continuum=self.subtract_continuum,
+                    continuum_params=self.continuum_params
                 )
                 
                 # Create inspection dialog
@@ -318,10 +323,14 @@ class COFluxMapResultsDialog(QDialog):
                 
                 # Plot spectrum
                 ax.plot(self.wavelength, spectrum, 'k-', label='Spectrum', linewidth=1.2, alpha=0.8)
-                
-                # Plot continuum if subtracted
-                if self.subtract_continuum and result.get('mean_continuum'):
-                    ax.axhline(result['mean_continuum'], color='orange', linestyle='--', label='Continuum', alpha=0.7)
+
+                # Plot the actual fitted continuum trend (a + b*wave per fit chunk), not just its
+                # mean -- a flat line at the mean continuum is only meaningful within the fit
+                # window and is misleading once drawn across the full spectrum
+                continuum_curve = result.get('continuum_curve')
+                if continuum_curve is not None and len(continuum_curve) > 0:
+                    ax.plot(continuum_curve['wave'], continuum_curve['continuum'], color='orange',
+                            linestyle='--', linewidth=1.8, label='Continuum', alpha=0.8)
                 
                 # Initialize line tracking dicts
                 self.detected_lines_dict = {}  # Maps wavelength to line info
@@ -365,6 +374,21 @@ class COFluxMapResultsDialog(QDialog):
                         print(f"DEBUG: Error marking lines: {e}\n{traceback.format_exc()}")
                         pass  # Silently skip line marking if it fails
                 
+                # Zoom to the fitted wavelength range so it fills the plot instead of being a
+                # sliver inside the full cube bandpass, and rescale y to that window too
+                if self.wave_range:
+                    pad = 0.02 * (self.wave_range[1] - self.wave_range[0])
+                    xlo, xhi = self.wave_range[0] - pad, self.wave_range[1] + pad
+                    ax.set_xlim(xlo, xhi)
+                    wave_arr = np.asarray(getattr(self.wavelength, 'value', self.wavelength))
+                    visible = (wave_arr >= xlo) & (wave_arr <= xhi)
+                    y_visible = np.asarray(spectrum)[visible]
+                    y_visible = y_visible[np.isfinite(y_visible)]
+                    if len(y_visible) > 0:
+                        ylo, yhi = np.nanmin(y_visible), np.nanmax(y_visible)
+                        ypad = 0.1 * (yhi - ylo) if yhi > ylo else 1.0
+                        ax.set_ylim(ylo - ypad, yhi + ypad)
+
                 ax.set_xlabel('Wavelength (μm)')
                 ax.set_ylabel(f'Flux ({self.bunit_str})')
                 ax.set_title(f'Pixel ({x}, {y}) Spectrum', fontweight='bold')
