@@ -233,37 +233,44 @@ already fitted instead.</p>
 </section>
 <section id="using-the-co-flux-api">
 <h2>Using the CO Flux API<a class="headerlink" href="#using-the-co-flux-api" title="Link to this heading"></a></h2>
-<p>Extract CO fluxes programmatically for single spectra or full data cubes.</p>
+<p>Extract CO fluxes programmatically for single spectra or full data cubes, using
+<code class="docutils literal notranslate"><span class="pre">extract_co_flux()</span></code> and <code class="docutils literal notranslate"><span class="pre">create_co_flux_map()</span></code> – the same algorithm as the GUI’s
+<strong>CO Flux Map</strong> button.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This is a <strong>different algorithm</strong> from <strong>Multi-Gaussian Fit</strong> / <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code>
-above, not just a scripted version of it. <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_co_flux_map</span></code> fit
-all lines in a wavelength chunk <em>simultaneously</em> against one shared continuum (via
+above, not a scripted version of it. <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_co_flux_map</span></code> fit all
+lines in a wavelength chunk <em>simultaneously</em> against one shared continuum (via
 <code class="docutils literal notranslate"><span class="pre">co_flux_extractor.py</span></code>), rather than one Gaussian per line independently. The two do
-not currently produce identical numbers for the same spectrum, and only one of them is
-verified below.</p>
+not produce identical numbers for the same spectrum.</p>
 </div>
 <p><strong>Extract CO Flux from a Single Spectrum</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_co_flux</span><span class="p">,</span> <span class="n">fit_continuum</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_co_flux</span>
 
-<span class="c1"># Load your data</span>
 <span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
 
-<span class="c1"># Step 1: Fit and subtract continuum</span>
-<span class="n">continuum</span> <span class="o">=</span> <span class="n">fit_continuum</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">)</span>
-<span class="n">line_spectrum</span> <span class="o">=</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span> <span class="o">-</span> <span class="n">continuum</span>
-
-<span class="c1"># Step 2: Extract CO flux</span>
 <span class="n">co_result</span> <span class="o">=</span> <span class="n">extract_co_flux</span><span class="p">(</span>
     <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
-    <span class="n">spectrum</span><span class="o">=</span><span class="n">line_spectrum</span><span class="p">,</span>
-    <span class="n">co_catalog_path</span><span class="o">=</span><span class="s2">&quot;path/to/CO_catalog.ecsv&quot;</span>
+    <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">co_catalog_path</span><span class="o">=</span><span class="s2">&quot;path/to/CO_catalog.ecsv&quot;</span><span class="p">,</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>      <span class="c1"># Required for the erg/s/cm2 conversion</span>
+    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total CO flux: </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;co_flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total CO flux: </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;co_flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Number of lines detected: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;detected_lines&#39;</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean continuum level: </span><span class="si">{</span><span class="n">co_result</span><span class="p">[</span><span class="s1">&#39;mean_continuum&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>As with <code class="docutils literal notranslate"><span class="pre">fit_line</span></code>/<code class="docutils literal notranslate"><span class="pre">fit_hitran_lines</span></code>, pass <code class="docutils literal notranslate"><span class="pre">header</span></code>/<code class="docutils literal notranslate"><span class="pre">wave_unit</span></code> to get
+<code class="docutils literal notranslate"><span class="pre">co_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">contam_flux</span></code> in erg/s/cm2 – without them they stay in the cube’s native
+units, and <code class="docutils literal notranslate"><span class="pre">flux_unit</span></code> always tells you which one you got. Continuum subtraction runs
+automatically (<code class="docutils literal notranslate"><span class="pre">subtract_continuum=True</span></code> by default, same defaults as the GUI’s
+Automatic Continuum) – there’s no need to pre-subtract it yourself. Pass your own
+<code class="docutils literal notranslate"><span class="pre">continuum_params</span></code> dict to override those defaults, e.g.
+<code class="docutils literal notranslate"><span class="pre">continuum_params={'window_size':</span> <span class="pre">101}</span></code>.</p>
 </div>
 <p><strong>Create CO Flux Maps</strong></p>
 <p>Generate flux maps for the entire data cube:</p>
@@ -271,29 +278,35 @@ verified below.</p>
 
 <span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
 
-<span class="c1"># Create CO flux map for the entire cube</span>
-<span class="c1"># Uses HITRAN automatically by default, or provide a custom CO catalog</span>
+<span class="c1"># Uses HITRAN automatically by default, or pass co_catalog_path for a custom catalog</span>
 <span class="n">co_flux_map</span> <span class="o">=</span> <span class="n">create_co_flux_map</span><span class="p">(</span>
     <span class="n">cube</span><span class="p">,</span>
-    <span class="n">n_jobs</span><span class="o">=</span><span class="mi">4</span>  <span class="c1"># Parallel jobs for faster processing</span>
+    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.70</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.80</span><span class="p">,</span>
+    <span class="n">n_jobs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CO flux map shape: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean CO flux: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">][</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CO flux map shape: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, unit: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean CO flux: </span><span class="si">{</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">][</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pixels with CO detection: </span><span class="si">{</span><span class="p">(</span><span class="n">co_flux_map</span><span class="p">[</span><span class="s1">&#39;detection_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>Continuum subtraction works the same way as <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code> above – automatic per
+pixel, with the default parameters unless you pass your own via <code class="docutils literal notranslate"><span class="pre">continuum_params</span></code>. There’s
+no separate <code class="docutils literal notranslate"><span class="pre">header</span></code> argument here since <code class="docutils literal notranslate"><span class="pre">cube</span></code> (and its header) is already the first
+argument; the erg/s/cm2 conversion is attempted automatically, and <code class="docutils literal notranslate"><span class="pre">flux_unit</span></code> tells you
+whether it succeeded.</p>
 <p><strong>Expected Catalog Format</strong></p>
 <p>The CO catalog file should be in ECSV (Enhanced Character Separated Values) format with columns:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">wavelength</span></code>: Wavelength in micrometers</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">line_wave_um</span></code>: Wavelength in micrometers</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">species</span></code>: Molecule name (e.g., “CO”)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">transition</span></code>: Transition description (e.g., “J=5-4”)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">einstein_coeff</span></code>: Einstein A coefficient</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">transition</span></code>: Transition description (e.g., “v=1-&gt;0, J=4-&gt;5”)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">a</span></code>: Einstein A coefficient</p></li>
 </ul>
+<p>Columns are loaded as-is, with no validation – a file missing <code class="docutils literal notranslate"><span class="pre">line_wave_um</span></code> or
+<code class="docutils literal notranslate"><span class="pre">species</span></code> won’t fail at load time, only later inside the fit, as a <code class="docutils literal notranslate"><span class="pre">KeyError</span></code>.</p>
 <p><strong>Tips for CO Flux Extraction</strong></p>
 <ul class="simple">
-<li><p>Always apply continuum subtraction before extracting CO flux</p></li>
 <li><p>Ensure your wavelength calibration is accurate (errors affect line identification)</p></li>
 <li><p>The algorithm automatically measures line widths and integrates flux</p></li>
 <li><p>For more control over individual line fits, use <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code> instead</p></li>

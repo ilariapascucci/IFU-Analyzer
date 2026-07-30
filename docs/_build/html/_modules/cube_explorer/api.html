@@ -592,6 +592,7 @@
 <span class="c1"># CO FLUX EXTRACTION API</span>
 <span class="c1"># ============================================================================</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.co_flux_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">extract_co_flux_from_spectrum</span> <span class="k">as</span> <span class="n">_extract_co_flux_internal</span><span class="p">,</span>
     <span class="n">create_co_flux_map</span> <span class="k">as</span> <span class="n">_create_co_flux_map_internal</span><span class="p">,</span>
@@ -600,12 +601,15 @@
 
 <div class="viewcode-block" id="extract_co_flux">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.extract_co_flux">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">extract_co_flux</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">snr_threshold</span><span class="o">=</span><span class="mf">3.0</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_co_flux</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                     <span class="n">snr_threshold</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">subtract_continuum</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">continuum_params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                     <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Extract total CO flux by fitting all CO lines in a spectrum.</span>
 
 <span class="sd">    Fits multiple CO rovibrational lines simultaneously with contaminating</span>
-<span class="sd">    lines and continuum, then integrates total flux.</span>
+<span class="sd">    lines and continuum, then integrates total flux. This is the same algorithm</span>
+<span class="sd">    as the GUI&#39;s CO Flux Map button, run on a single spectrum instead of every pixel.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        wavelength (array-like): Wavelength values in same units as catalog</span>
@@ -613,23 +617,39 @@
 <span class="sd">        co_catalog_path (str): Path to CO line catalog (ECSV format)</span>
 <span class="sd">        contamination_catalog_path (str, optional): Path to contaminant lines catalog</span>
 <span class="sd">        snr_threshold (float): Minimum signal-to-noise for line detection (default 3.0)</span>
+<span class="sd">        subtract_continuum (bool): Fit and subtract a continuum before fitting lines,</span>
+<span class="sd">            using the same method as the GUI&#39;s Automatic Continuum (default True --</span>
+<span class="sd">            matches the GUI, which always does this)</span>
+<span class="sd">        continuum_params (dict, optional): Override the default continuum-fitting</span>
+<span class="sd">            parameters (window_size, sigma_threshold, peak_width, peak_distance,</span>
+<span class="sd">            peak_exclusion, iterations, smoothing_factor). If None, uses the defaults,</span>
+<span class="sd">            which work well for typical spectra.</span>
+<span class="sd">        header: FITS header, used to convert &#39;co_flux&#39;/&#39;contam_flux&#39; to erg/s/cm2.</span>
+<span class="sd">            Without it, they stay in the cube&#39;s native flux units -- &#39;flux_unit&#39; in</span>
+<span class="sd">            the result always tells you which one you got.</span>
+<span class="sd">        wave_unit (str, optional): Wavelength unit (e.g. &#39;um&#39;). Required alongside</span>
+<span class="sd">            header for the CGS conversion.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        dict: Results containing:</span>
-<span class="sd">            - &#39;co_flux&#39;: Total CO flux (erg/s/cm²)</span>
-<span class="sd">            - &#39;contam_flux&#39;: Total flux attributed to contaminating lines</span>
-<span class="sd">            - &#39;mean_continuum&#39;: Mean continuum level used for the fit</span>
+<span class="sd">            - &#39;co_flux&#39;: Total CO flux, in erg/s/cm2 if header/wave_unit were given</span>
+<span class="sd">              and the conversion is supported for this instrument, else native units</span>
+<span class="sd">            - &#39;contam_flux&#39;: Total flux attributed to contaminating lines, same units</span>
+<span class="sd">            - &#39;flux_unit&#39;: unit of &#39;co_flux&#39;/&#39;contam_flux&#39;</span>
+<span class="sd">            - &#39;mean_continuum&#39;: Mean continuum level used for the fit (native units)</span>
 <span class="sd">            - &#39;detected_lines&#39;: DataFrame of individual detected line fits</span>
 <span class="sd">            - &#39;residuals&#39;: DataFrame of fit residuals</span>
+<span class="sd">            - &#39;continuum_curve&#39;: DataFrame of the fitted continuum vs wavelength</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; result = extract_co_flux(</span>
 <span class="sd">        ...     wavelength=cube.wavelength,</span>
-<span class="sd">        ...     spectrum=spectrum,</span>
+<span class="sd">        ...     spectrum=cube.spectrum,</span>
 <span class="sd">        ...     co_catalog_path=&quot;CO/CO_comprehensive_linelist_with_g.ecsv&quot;,</span>
-<span class="sd">        ...     snr_threshold=3.0</span>
+<span class="sd">        ...     header=cube.header,</span>
+<span class="sd">        ...     wave_unit=cube.wave_unit,</span>
 <span class="sd">        ... )</span>
-<span class="sd">        &gt;&gt;&gt; print(f&quot;Total CO flux: {result[&#39;co_flux&#39;]:.4e} erg/s/cm²&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Total CO flux: {result[&#39;co_flux&#39;]:.4e} {result[&#39;flux_unit&#39;]}&quot;)</span>
 <span class="sd">        &gt;&gt;&gt; print(f&quot;Detected {len(result[&#39;detected_lines&#39;])} lines&quot;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="c1"># Load catalogs from files</span>
@@ -637,19 +657,24 @@
     <span class="n">contam_catalog</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">contamination_catalog_path</span><span class="p">:</span>
         <span class="n">contam_catalog</span> <span class="o">=</span> <span class="n">load_contaminating_lines_catalog</span><span class="p">(</span><span class="n">contamination_catalog_path</span><span class="p">)</span>
-    
+
     <span class="c1"># Call internal function</span>
     <span class="k">return</span> <span class="n">_extract_co_flux_internal</span><span class="p">(</span>
         <span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span>
         <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
-        <span class="n">do_duplicate_removal</span><span class="o">=</span><span class="kc">True</span>
+        <span class="n">do_duplicate_removal</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">snr_threshold</span><span class="o">=</span><span class="n">snr_threshold</span><span class="p">,</span>
+        <span class="n">subtract_continuum</span><span class="o">=</span><span class="n">subtract_continuum</span><span class="p">,</span>
+        <span class="n">continuum_params</span><span class="o">=</span><span class="n">continuum_params</span><span class="p">,</span>
+        <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
     <span class="p">)</span></div>
 
 
 
 <div class="viewcode-block" id="create_co_flux_map">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.create_co_flux_map">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">create_co_flux_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_co_flux_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+                        <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">subtract_continuum</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">continuum_params</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create a 2D map of CO flux across the entire data cube.</span>
 
@@ -657,48 +682,65 @@
 <span class="sd">    - Automatic HITRAN fetching (default, like fit_hitran_lines)</span>
 <span class="sd">    - Custom CO catalog file (if co_catalog_path provided)</span>
 
+<span class="sd">    This is the same algorithm as the GUI&#39;s CO Flux Map button: continuum subtraction</span>
+<span class="sd">    (default parameters, or your own via continuum_params) followed by a simultaneous</span>
+<span class="sd">    multi-Gaussian fit per pixel.</span>
+
 <span class="sd">    Args:</span>
 <span class="sd">        cube_data (CubeData): Loaded cube from load_cube()</span>
 <span class="sd">        co_catalog_path (str, optional): Path to CO line catalog (ECSV format).</span>
 <span class="sd">                                         If None, automatically fetches from HITRAN.</span>
 <span class="sd">        contamination_catalog_path (str, optional): Path to contaminant lines</span>
 <span class="sd">        n_jobs (int): Number of parallel jobs (default 8)</span>
-<span class="sd">        wavelength_min (float, optional): Min wavelength for HITRAN search (auto-detect if None)</span>
-<span class="sd">        wavelength_max (float, optional): Max wavelength for HITRAN search (auto-detect if None)</span>
+<span class="sd">        wavelength_min (float, optional): Min wavelength to fit, and for the HITRAN</span>
+<span class="sd">            search when co_catalog_path is None (auto-detect if None)</span>
+<span class="sd">        wavelength_max (float, optional): Max wavelength to fit, and for the HITRAN</span>
+<span class="sd">            search when co_catalog_path is None (auto-detect if None)</span>
+<span class="sd">        subtract_continuum (bool): Fit and subtract a continuum per pixel before fitting</span>
+<span class="sd">            lines, using the same method as the GUI&#39;s Automatic Continuum (default True</span>
+<span class="sd">            -- matches the GUI, which always does this)</span>
+<span class="sd">        continuum_params (dict, optional): Override the default continuum-fitting</span>
+<span class="sd">            parameters, applied identically to every pixel. If None, uses the defaults,</span>
+<span class="sd">            which work well for typical spectra.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        dict: Map data containing:</span>
-<span class="sd">            - &#39;flux_map&#39;: 2D array of CO fluxes</span>
+<span class="sd">            - &#39;flux_map&#39;: 2D array of CO flux per pixel, in erg/s/cm2 if cube_data.header</span>
+<span class="sd">              supports the conversion (see &#39;flux_unit&#39;), else the cube&#39;s native flux unit</span>
 <span class="sd">            - &#39;detection_map&#39;: 2D array with number of detected CO lines per pixel</span>
 <span class="sd">            - &#39;wavelength&#39;: 1D wavelength array used for fitting</span>
 <span class="sd">            - &#39;header&#39;: FITS header from the original cube</span>
+<span class="sd">            - &#39;wave_range&#39;: (wavelength_min, wavelength_max) actually used for the fit</span>
+<span class="sd">            - &#39;flux_unit&#39;: unit of &#39;flux_map&#39;</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
 <span class="sd">        &gt;&gt;&gt; co_map = create_co_flux_map(cube, n_jobs=4)</span>
-<span class="sd">        &gt;&gt;&gt; print(f&quot;Map shape: {co_map[&#39;flux_map&#39;].shape}&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(f&quot;Map shape: {co_map[&#39;flux_map&#39;].shape}, unit: {co_map[&#39;flux_unit&#39;]}&quot;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="c1"># If no catalog provided, fetch from HITRAN automatically</span>
     <span class="k">if</span> <span class="n">co_catalog_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  Fetching CO data from HITRAN...&quot;</span><span class="p">)</span>
-        <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-        
+
         <span class="c1"># Extract wavelength range, handling Quantity objects</span>
         <span class="n">wl</span> <span class="o">=</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">wavelength</span>
         <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">):</span>
             <span class="n">wl</span> <span class="o">=</span> <span class="n">wl</span><span class="o">.</span><span class="n">value</span>
-        
+
         <span class="n">wavelength_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span> <span class="k">if</span> <span class="n">wavelength_min</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">wavelength_min</span>
         <span class="n">wavelength_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span> <span class="k">if</span> <span class="n">wavelength_max</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">wavelength_max</span>
-        
-        <span class="n">co_catalog</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
+
+        <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
             <span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="p">,</span>
             <span class="s1">&#39;CO&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
             <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span>
         <span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">co_catalog</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">hitran_lines</span><span class="p">:</span>
             <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  ERROR: Could not fetch CO data from HITRAN&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="kc">None</span>
+        <span class="c1"># co_flux_extractor expects a DataFrame with a &#39;line_wave_um&#39; column;</span>
+        <span class="c1"># fetch_hitran_data returns a list of dicts with &#39;wavelength&#39; instead</span>
+        <span class="n">co_catalog</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">hitran_lines</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;wavelength&#39;</span><span class="p">:</span> <span class="s1">&#39;line_wave_um&#39;</span><span class="p">})</span>
         <span class="n">contam_catalog</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="c1"># Load catalogs from files (original behavior)</span>
@@ -706,10 +748,13 @@
         <span class="n">contam_catalog</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="n">contamination_catalog_path</span><span class="p">:</span>
             <span class="n">contam_catalog</span> <span class="o">=</span> <span class="n">load_contaminating_lines_catalog</span><span class="p">(</span><span class="n">contamination_catalog_path</span><span class="p">)</span>
-    
+
     <span class="k">return</span> <span class="n">_create_co_flux_map_internal</span><span class="p">(</span>
         <span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
-        <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span>
+        <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span>
+        <span class="n">subtract_continuum</span><span class="o">=</span><span class="n">subtract_continuum</span><span class="p">,</span>
+        <span class="n">continuum_params</span><span class="o">=</span><span class="n">continuum_params</span><span class="p">,</span>
+        <span class="n">wave_min</span><span class="o">=</span><span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wave_max</span><span class="o">=</span><span class="n">wavelength_max</span><span class="p">,</span>
     <span class="p">)</span></div>
 
 

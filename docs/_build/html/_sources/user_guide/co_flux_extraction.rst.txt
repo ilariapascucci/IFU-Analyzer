@@ -122,40 +122,47 @@ Resulting maps:
 Using the CO Flux API
 ======================
 
-Extract CO fluxes programmatically for single spectra or full data cubes.
+Extract CO fluxes programmatically for single spectra or full data cubes, using
+``extract_co_flux()`` and ``create_co_flux_map()`` -- the same algorithm as the GUI's
+**CO Flux Map** button.
 
 .. note::
 
    This is a **different algorithm** from **Multi-Gaussian Fit** / ``fit_hitran_lines()``
-   above, not just a scripted version of it. ``extract_co_flux``/``create_co_flux_map`` fit
-   all lines in a wavelength chunk *simultaneously* against one shared continuum (via
+   above, not a scripted version of it. ``extract_co_flux``/``create_co_flux_map`` fit all
+   lines in a wavelength chunk *simultaneously* against one shared continuum (via
    ``co_flux_extractor.py``), rather than one Gaussian per line independently. The two do
-   not currently produce identical numbers for the same spectrum, and only one of them is
-   verified below.
+   not produce identical numbers for the same spectrum.
 
 **Extract CO Flux from a Single Spectrum**
 
 .. code-block:: python
 
-    from cube_explorer.api import load_cube, extract_co_flux, fit_continuum
-    
-    # Load your data
+    from cube_explorer.api import load_cube, extract_co_flux
+
     cube = load_cube("data.fits")
-    
-    # Step 1: Fit and subtract continuum
-    continuum = fit_continuum(cube.wavelength, cube.spectrum)
-    line_spectrum = cube.spectrum - continuum
-    
-    # Step 2: Extract CO flux
+
     co_result = extract_co_flux(
         wavelength=cube.wavelength,
-        spectrum=line_spectrum,
-        co_catalog_path="path/to/CO_catalog.ecsv"
+        spectrum=cube.spectrum,
+        co_catalog_path="path/to/CO_catalog.ecsv",
+        header=cube.header,      # Required for the erg/s/cm2 conversion
+        wave_unit=cube.wave_unit,
     )
-    
-    print(f"Total CO flux: {co_result['co_flux']:.3f} erg/s/cm²")
+
+    print(f"Total CO flux: {co_result['co_flux']:.4e} {co_result['flux_unit']}")
     print(f"Number of lines detected: {len(co_result['detected_lines'])}")
     print(f"Mean continuum level: {co_result['mean_continuum']:.3f}")
+
+.. important::
+
+   As with ``fit_line``/``fit_hitran_lines``, pass ``header``/``wave_unit`` to get
+   ``co_flux``/``contam_flux`` in erg/s/cm2 -- without them they stay in the cube's native
+   units, and ``flux_unit`` always tells you which one you got. Continuum subtraction runs
+   automatically (``subtract_continuum=True`` by default, same defaults as the GUI's
+   Automatic Continuum) -- there's no need to pre-subtract it yourself. Pass your own
+   ``continuum_params`` dict to override those defaults, e.g.
+   ``continuum_params={'window_size': 101}``.
 
 **Create CO Flux Maps**
 
@@ -164,32 +171,40 @@ Generate flux maps for the entire data cube:
 .. code-block:: python
 
     from cube_explorer.api import load_cube, create_co_flux_map
-    
+
     cube = load_cube("data.fits")
-    
-    # Create CO flux map for the entire cube
-    # Uses HITRAN automatically by default, or provide a custom CO catalog
+
+    # Uses HITRAN automatically by default, or pass co_catalog_path for a custom catalog
     co_flux_map = create_co_flux_map(
         cube,
-        n_jobs=4  # Parallel jobs for faster processing
+        wavelength_min=4.70, wavelength_max=4.80,
+        n_jobs=4,
     )
-    
-    print(f"CO flux map shape: {co_flux_map['flux_map'].shape}")
-    print(f"Mean CO flux: {co_flux_map['flux_map'][co_flux_map['flux_map'] > 0].mean():.3f} erg/s/cm²")
+
+    print(f"CO flux map shape: {co_flux_map['flux_map'].shape}, unit: {co_flux_map['flux_unit']}")
+    print(f"Mean CO flux: {co_flux_map['flux_map'][co_flux_map['flux_map'] > 0].mean():.4e}")
     print(f"Pixels with CO detection: {(co_flux_map['detection_map'] > 0).sum()}")
+
+Continuum subtraction works the same way as ``extract_co_flux`` above -- automatic per
+pixel, with the default parameters unless you pass your own via ``continuum_params``. There's
+no separate ``header`` argument here since ``cube`` (and its header) is already the first
+argument; the erg/s/cm2 conversion is attempted automatically, and ``flux_unit`` tells you
+whether it succeeded.
 
 **Expected Catalog Format**
 
 The CO catalog file should be in ECSV (Enhanced Character Separated Values) format with columns:
 
-- ``wavelength``: Wavelength in micrometers
+- ``line_wave_um``: Wavelength in micrometers
 - ``species``: Molecule name (e.g., "CO")
-- ``transition``: Transition description (e.g., "J=5-4")
-- ``einstein_coeff``: Einstein A coefficient
+- ``transition``: Transition description (e.g., "v=1->0, J=4->5")
+- ``a``: Einstein A coefficient
+
+Columns are loaded as-is, with no validation -- a file missing ``line_wave_um`` or
+``species`` won't fail at load time, only later inside the fit, as a ``KeyError``.
 
 **Tips for CO Flux Extraction**
 
-- Always apply continuum subtraction before extracting CO flux
 - Ensure your wavelength calibration is accurate (errors affect line identification)
 - The algorithm automatically measures line widths and integrates flux
 - For more control over individual line fits, use ``fit_hitran_lines()`` instead
