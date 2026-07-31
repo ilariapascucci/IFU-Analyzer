@@ -783,13 +783,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.scale_combo_right.currentTextChanged.connect(lambda: self._change_scale('right'))
         self.scale_combo_right.setMaximumWidth(120)
 
-        # Add copy buttons
-        self.copy_btn_l = make_shape_button("⎘", "left", 
-            callback=lambda: self.copy_selection(source="left", target="right"))
-        self.copy_btn_l.setToolTip("Copy selection from left slice to right")
-        self.copy_btn_r = make_shape_button("⎘", "right",
+        # Add copy buttons - each pulls the OTHER side's selection onto its own
+        # side, matching the colormap-copy buttons' direction (copy_color_btn_l/r).
+        self.copy_btn_l = make_shape_button("⎘", "left",
             callback=lambda: self.copy_selection(source="right", target="left"))
-        self.copy_btn_r.setToolTip("Copy selection from right slice to left")
+        self.copy_btn_l.setToolTip("Copy selection from right slice to left")
+        self.copy_btn_r = make_shape_button("⎘", "right",
+            callback=lambda: self.copy_selection(source="left", target="right"))
+        self.copy_btn_r.setToolTip("Copy selection from left slice to right")
 
         # Edit Shape toggle buttons (enable drag/resize on a placed shape)
         self.edit_shape_btn_l = QPushButton("✎")
