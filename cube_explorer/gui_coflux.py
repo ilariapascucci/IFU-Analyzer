@@ -101,7 +101,16 @@ class GuiCOFluxMixin:
             return
         
         hitran_in_range = [line for line in self.hitran_lines if wave_min <= float(line.get('wavelength', 0)) <= wave_max]
-        
+
+        # Respect deselected lines the same way extract_co_flux_from_spectrum does, so the
+        # preview shows exactly the lines that will actually be fit -- not the full fetched set
+        excluded = getattr(self, 'co_flux_excluded_wavelengths', set())
+        if excluded:
+            hitran_in_range = [
+                line for line in hitran_in_range
+                if not any(abs(float(line.get('wavelength', 0)) - ew) < 0.001 for ew in excluded)
+            ]
+
         if not hitran_in_range:
             QMessageBox.warning(self, "No HITRAN Lines", f"No HITRAN lines found in wavelength range {wave_min:.4f} - {wave_max:.4f} μm")
             return
