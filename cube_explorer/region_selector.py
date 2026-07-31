@@ -227,7 +227,12 @@ class InteractivePatch:
                 self.press_data = {
                     'xpress': event.xdata,
                     'ypress': event.ydata,
-                    'coords': self.coords
+                    'coords': self.coords,
+                    # Snapshot vertices at press time so each motion tick can
+                    # apply the TOTAL displacement-since-press to a fixed
+                    # baseline, instead of stacking onto the previous tick's
+                    # already-moved vertices (which would compound/drift).
+                    'verts': np.asarray(self.patch.get_xy()).copy()
                 }
                 print(f"[DEBUG] Clicked inside polygon to move")
                 return
@@ -335,14 +340,16 @@ class InteractivePatch:
             self.patch.set_height(2 * b)
         
         elif self.shape_type == 'polygon':
-            # Move polygon by updating vertices
-            if hasattr(self.patch, 'xy') and self.press_data:
+            # Move polygon by applying total displacement-since-press to the
+            # vertex snapshot captured at press time (see on_press) - using
+            # the patch's current (already-moved) vertices here would double
+            # count displacement on every tick after the first.
+            if self.press_data and 'verts' in self.press_data:
                 old_coords = self.press_data['coords']
                 old_xmin, old_xmax, old_ymin, old_ymax = old_coords
                 dx = xmin - old_xmin
                 dy = ymin - old_ymin
-                verts = self.patch.get_xy()
-                new_verts = verts + np.array([dx, dy])
+                new_verts = self.press_data['verts'] + np.array([dx, dy])
                 self.patch.set_xy(new_verts)
         
         # Update handle positions
@@ -710,24 +717,27 @@ class RegionSelector:
         
         # Make lasso interactive (movement only)
         def on_lasso_change(new_coords):
-            """Callback when lasso is moved."""
+            """Callback when lasso is moved.
+
+            Reuses the same `patch` object InteractivePatch._update_patch
+            already moved in place (rather than building a second, separately
+            computed Polygon) - just recomputes the mask from its current
+            vertices and keeps lasso_verts in sync so a later copy or
+            slice-switch-recreate uses the shape's current position.
+            """
             new_xmin, new_xmax, new_ymin, new_ymax = new_coords
-            old_xmin, old_xmax, old_ymin, old_ymax = (xmin, xmax, ymin, ymax)
-            dx = new_xmin - old_xmin
-            dy = new_ymin - old_ymin
-            
-            # Generate new mask from moved shape
-            new_verts = verts + np.array([dx, dy])
+            new_verts = np.asarray(patch.get_xy())
+            patch.lasso_verts = new_verts
+
             nx_new = int(new_xmax - new_xmin + 1)
             ny_new = int(new_ymax - new_ymin + 1)
             x_new, y_new = np.meshgrid(np.arange(nx_new), np.arange(ny_new))
             coords_new = np.vstack((x_new.flatten(), y_new.flatten())).T
-            
+
             path_new = Path(new_verts - [new_xmin, new_ymin])
             new_mask = path_new.contains_points(coords_new).reshape(ny_new, nx_new)
-            
-            new_patch = Polygon(new_verts, edgecolor='cyan', facecolor='none', lw=1.5)
-            self.on_select_callback(new_mask, new_patch, new_coords)
+
+            self.on_select_callback(new_mask, patch, new_coords)
         
         # Disconnect previous interactive patch if any
         if self.interactive_patch is not None:

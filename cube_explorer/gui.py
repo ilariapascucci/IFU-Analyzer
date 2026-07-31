@@ -719,9 +719,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
     def _init_shape_controls(self):
         """Initialize shape selection buttons"""
         # Helper function to create shape buttons
-        def make_shape_button(symbol, target, callback=None):
+        def make_shape_button(symbol, target, callback=None, checkable=True):
             btn = QPushButton(symbol)
-            btn.setCheckable(True)
+            btn.setCheckable(checkable)
             btn.setFixedSize(40, 40)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
             if callback is None:
@@ -785,10 +785,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
         # Add copy buttons - each pulls the OTHER side's selection onto its own
         # side, matching the colormap-copy buttons' direction (copy_color_btn_l/r).
-        self.copy_btn_l = make_shape_button("⎘", "left",
+        self.copy_btn_l = make_shape_button("⎘", "left", checkable=False,
             callback=lambda: self.copy_selection(source="right", target="left"))
         self.copy_btn_l.setToolTip("Copy selection from right slice to left")
-        self.copy_btn_r = make_shape_button("⎘", "right",
+        self.copy_btn_r = make_shape_button("⎘", "right", checkable=False,
             callback=lambda: self.copy_selection(source="left", target="right"))
         self.copy_btn_r.setToolTip("Copy selection from left slice to right")
 
@@ -1310,6 +1310,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         if new_state == "idle":
             for btn in self.shape_buttons[side].values():
                 btn.setEnabled(True)
+                btn.setChecked(False)
             edit_btn.setEnabled(False)
             edit_btn.setChecked(False)
         elif new_state == "drawing":
@@ -1321,6 +1322,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         elif new_state == "placed":
             for btn in self.shape_buttons[side].values():
                 btn.setEnabled(False)
+                btn.setChecked(False)
             sel = self.last_selection_left if side == "left" else self.last_selection_right
             edit_btn.setEnabled(bool(sel) and sel.get("shape") != "*")
             edit_btn.setChecked(False)
@@ -1410,11 +1412,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             x1 = min(x1, image.shape[1])
             full_mask[y0:y1, x0:x1] = mask[:(y1-y0), :(x1-x0)]
 
-        # Save selection with full mask and label. Read the shape from the
-        # selector (not self.active_shape) since copy_selection sets it there
-        # directly without going through self.active_shape.
+        # Determine the shape identity. Normally read from the selector (not
+        # self.active_shape) since copy_selection sets it there directly. But
+        # during a live edit-tick, selector.active_shape is already stale -
+        # activate_selector(None) at the end of the ORIGINAL completed draw
+        # already reset it to None, so re-reading it here on every drag tick
+        # would silently overwrite the selection's shape (e.g. a moved
+        # freeform losing its "✏" identity and degrading to a rectangle).
+        # A live edit is always modifying an already-placed selection, so its
+        # shape can never change mid-edit - reuse the existing one.
+        if is_live_edit_tick:
+            existing_sel = self.last_selection_left if target == "left" else self.last_selection_right
+            shape = existing_sel["shape"] if existing_sel else selector.active_shape
+        else:
+            shape = selector.active_shape
+
+        # Save selection with full mask and label.
         selection = {
-            "shape": selector.active_shape,
+            "shape": shape,
             "coords": coords,
             "mask": full_mask,
             "label": f'{target.capitalize()} Selection',
@@ -1646,6 +1661,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
             self._set_region_state(target, "idle")
             return
 
+        # Remove pixel marker (point/"*" selections don't use area_artists)
+        if hasattr(plotter.ax, 'pixel_marker'):
+            for marker in plotter.ax.pixel_marker:
+                try:
+                    marker.remove()
+                except Exception:
+                    pass
+            plotter.ax.pixel_marker = []
+
         # Remove patches from the slice axes
         if hasattr(plotter.ax, 'area_artists'):
             for artist in plotter.ax.area_artists:
@@ -1712,10 +1736,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
                 intensity = float(image[y, x])  # Ensure it's a regular float
                 
                 # Store selection for later use
+                label = f'{target.capitalize()} Selection'
                 if target == "left":
-                    self.last_selection_left = {"shape": "*", "coords": (x, y), "mask": None}
+                    self.last_selection_left = {"shape": "*", "coords": (x, y), "mask": None, "label": label}
                 else:
-                    self.last_selection_right = {"shape": "*", "coords": (x, y), "mask": None}
+                    self.last_selection_right = {"shape": "*", "coords": (x, y), "mask": None, "label": label}
 
                 # Get coordinates
                 ra, dec = self.cube_data.get_coords(x, y)
