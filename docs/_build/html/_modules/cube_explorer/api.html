@@ -133,16 +133,27 @@
 <span class="sd">    &gt;&gt;&gt; print(f&quot;Total CO flux: {co_result[&#39;co_flux&#39;]} erg/s/cm²&quot;)</span>
 
 <span class="sd">Rotational diagram analysis (H2):</span>
+<span class="sd">    Needs at least 5 lines to meaningfully constrain a 2-temperature fit (4 free</span>
+<span class="sd">    parameters) -- fewer than that and fit2T=True is technically callable but gives</span>
+<span class="sd">    degenerate, meaningless uncertainties. molecular_data below is the standard H2</span>
+<span class="sd">    v=0-&gt;0 S(1)-S(7) pure-rotational set (5.5-17 um), matching data/H2_lines.csv:</span>
+
 <span class="sd">    &gt;&gt;&gt; from cube_explorer.api import rotational_diagram</span>
 <span class="sd">    &gt;&gt;&gt; molecular_data = {</span>
-<span class="sd">    ...     &#39;wavelengths&#39;: {1: 17.03, 2: 12.28, 3: 9.66},</span>
-<span class="sd">    ...     &#39;Aul&#39;: {1: 4.761e-10, 2: 2.755e-9, 3: 9.836e-9},</span>
-<span class="sd">    ...     &#39;Eu&#39;: {1: 1015.1, 2: 1681.6, 3: 2503.7},</span>
-<span class="sd">    ...     &#39;gu&#39;: {1: 21, 2: 9, 3: 33},</span>
+<span class="sd">    ...     &#39;wavelengths&#39;: {1: 17.034846, 2: 12.278612, 3: 9.664911, 4: 8.025041,</span>
+<span class="sd">    ...                     5: 6.909509, 6: 6.108564, 7: 5.511183},</span>
+<span class="sd">    ...     &#39;Aul&#39;: {1: 4.758e-10, 2: 2.753e-9, 3: 9.83e-9, 4: 2.641e-8,</span>
+<span class="sd">    ...             5: 5.876e-8, 6: 1.141e-7, 7: 2.0e-7},</span>
+<span class="sd">    ...     &#39;Eu&#39;: {1: 1015.947, 2: 1683.068, 3: 2505.873, 4: 3477.452,</span>
+<span class="sd">    ...            5: 4589.958, 6: 5834.798, 7: 7202.827},</span>
+<span class="sd">    ...     &#39;gu&#39;: {1: 7, 2: 9, 3: 11, 4: 13, 5: 15, 6: 17, 7: 19},  # bare 2*J_upper+1;</span>
+<span class="sd">    ...         # apply_OPR() applies the ortho/para nuclear-spin weighting on top of this</span>
 <span class="sd">    ... }</span>
 <span class="sd">    &gt;&gt;&gt; result = rotational_diagram(</span>
-<span class="sd">    ...     fluxes={1: 178e-16, 2: 55.9e-16, 3: 122e-16},</span>
-<span class="sd">    ...     flux_errors={1: 9e-16, 2: 3.2e-16, 3: 6.3e-16},</span>
+<span class="sd">    ...     fluxes={1: 178e-16, 2: 55.9e-16, 3: 122e-16, 4: 28.4e-16,</span>
+<span class="sd">    ...             5: 72.3e-16, 6: 14.4e-16, 7: 22.2e-16},</span>
+<span class="sd">    ...     flux_errors={1: 9e-16, 2: 3.2e-16, 3: 6.3e-16, 4: 2.4e-16,</span>
+<span class="sd">    ...                  5: 4e-16, 6: 3.2e-16, 7: 3.8e-16},</span>
 <span class="sd">    ...     molecular_data=molecular_data,</span>
 <span class="sd">    ...     R=8.5,     # AU</span>
 <span class="sd">    ...     dist=71.5, # pc</span>
@@ -150,6 +161,8 @@
 <span class="sd">    ... )</span>
 <span class="sd">    &gt;&gt;&gt; print(f&quot;1T Temperature: {result[&#39;1T&#39;][&#39;T&#39;]:.1f} K&quot;)</span>
 <span class="sd">    &gt;&gt;&gt; print(f&quot;2T Temperatures: {result[&#39;2T&#39;][&#39;T1&#39;]:.1f} K, {result[&#39;2T&#39;][&#39;T2&#39;]:.1f} K&quot;)</span>
+<span class="sd">    1T Temperature: 535.6 K</span>
+<span class="sd">    2T Temperatures: 273.4 K, 863.4 K</span>
 
 <span class="sd">Unit conversion (using astropy):</span>
 <span class="sd">    &gt;&gt;&gt; import astropy.units as u</span>

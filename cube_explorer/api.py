@@ -41,16 +41,27 @@ CO flux extraction:
     >>> print(f"Total CO flux: {co_result['co_flux']} erg/s/cm²")
 
 Rotational diagram analysis (H2):
+    Needs at least 5 lines to meaningfully constrain a 2-temperature fit (4 free
+    parameters) -- fewer than that and fit2T=True is technically callable but gives
+    degenerate, meaningless uncertainties. molecular_data below is the standard H2
+    v=0->0 S(1)-S(7) pure-rotational set (5.5-17 um), matching data/H2_lines.csv:
+
     >>> from cube_explorer.api import rotational_diagram
     >>> molecular_data = {
-    ...     'wavelengths': {1: 17.03, 2: 12.28, 3: 9.66},
-    ...     'Aul': {1: 4.761e-10, 2: 2.755e-9, 3: 9.836e-9},
-    ...     'Eu': {1: 1015.1, 2: 1681.6, 3: 2503.7},
-    ...     'gu': {1: 21, 2: 9, 3: 33},
+    ...     'wavelengths': {1: 17.034846, 2: 12.278612, 3: 9.664911, 4: 8.025041,
+    ...                     5: 6.909509, 6: 6.108564, 7: 5.511183},
+    ...     'Aul': {1: 4.758e-10, 2: 2.753e-9, 3: 9.83e-9, 4: 2.641e-8,
+    ...             5: 5.876e-8, 6: 1.141e-7, 7: 2.0e-7},
+    ...     'Eu': {1: 1015.947, 2: 1683.068, 3: 2505.873, 4: 3477.452,
+    ...            5: 4589.958, 6: 5834.798, 7: 7202.827},
+    ...     'gu': {1: 7, 2: 9, 3: 11, 4: 13, 5: 15, 6: 17, 7: 19},  # bare 2*J_upper+1;
+    ...         # apply_OPR() applies the ortho/para nuclear-spin weighting on top of this
     ... }
     >>> result = rotational_diagram(
-    ...     fluxes={1: 178e-16, 2: 55.9e-16, 3: 122e-16},
-    ...     flux_errors={1: 9e-16, 2: 3.2e-16, 3: 6.3e-16},
+    ...     fluxes={1: 178e-16, 2: 55.9e-16, 3: 122e-16, 4: 28.4e-16,
+    ...             5: 72.3e-16, 6: 14.4e-16, 7: 22.2e-16},
+    ...     flux_errors={1: 9e-16, 2: 3.2e-16, 3: 6.3e-16, 4: 2.4e-16,
+    ...                  5: 4e-16, 6: 3.2e-16, 7: 3.8e-16},
     ...     molecular_data=molecular_data,
     ...     R=8.5,     # AU
     ...     dist=71.5, # pc
@@ -58,6 +69,8 @@ Rotational diagram analysis (H2):
     ... )
     >>> print(f"1T Temperature: {result['1T']['T']:.1f} K")
     >>> print(f"2T Temperatures: {result['2T']['T1']:.1f} K, {result['2T']['T2']:.1f} K")
+    1T Temperature: 535.6 K
+    2T Temperatures: 273.4 K, 863.4 K
 
 Unit conversion (using astropy):
     >>> import astropy.units as u

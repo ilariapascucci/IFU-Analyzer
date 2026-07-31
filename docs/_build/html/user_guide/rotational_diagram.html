@@ -60,6 +60,8 @@
 <li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Rotational Diagram</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-rotational-diagram-tool">Using the Rotational Diagram Tool</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#worked-examples">Worked Examples</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
@@ -115,110 +117,157 @@
              
   <section id="rotational-diagram">
 <h1>Rotational Diagram<a class="headerlink" href="#rotational-diagram" title="Link to this heading"></a></h1>
+<p>Fit rotational excitation temperatures from a set of line fluxes (H2 or CO), using a
+single-temperature (1T) or two-temperature (2T) model, with an optional grid search over
+the ortho-to-para ratio (OPR) for H2.</p>
 <section id="using-the-rotational-diagram-tool">
 <h2>Using the Rotational Diagram Tool<a class="headerlink" href="#using-the-rotational-diagram-tool" title="Link to this heading"></a></h2>
 <p><strong>Accessing the Tool</strong></p>
 <ol class="arabic simple">
-<li><p>Click the <strong>Rot Diag</strong> button in the main toolbar</p></li>
-<li><p>The Rotational Diagram window opens</p></li>
+<li><p>Click the <strong>Rot Diag</strong> button in the main toolbar (<strong>Rotational Diagram</strong> group)</p></li>
 </ol>
-<p><strong>Step 1: Fetch HITRAN Data</strong></p>
-<ol class="arabic simple">
-<li><p>Set wavelength range (μm):</p>
+<p><strong>Step 1: Get Line Data</strong></p>
+<p>Two ways to populate the line table:</p>
 <ul class="simple">
-<li><p><strong>Min Wavelength</strong>: Lower bound of wavelength range</p></li>
-<li><p><strong>Max Wavelength</strong>: Upper bound of wavelength range</p></li>
+<li><p><strong>Fetch from HITRAN</strong> — set the wavelength range (μm), molecule (<strong>H2</strong> or <strong>CO</strong>) and
+isotopologue, and either check <strong>All transitions</strong> or specify <code class="docutils literal notranslate"><span class="pre">v_upper</span></code>/<code class="docutils literal notranslate"><span class="pre">v_lower</span></code>,
+then click <strong>Fetch from HITRAN</strong>. Populates the table with every matching line’s
+wavelength, A coefficient, E<sub>upper</sub> and statistical weight — the flux columns are
+left blank for you to fill in.</p></li>
+<li><p><strong>Import from CSV</strong> — load a file with <code class="docutils literal notranslate"><span class="pre">species</span></code>, <code class="docutils literal notranslate"><span class="pre">wavelength</span></code> and <code class="docutils literal notranslate"><span class="pre">flux</span></code> columns
+(a column with “error” in its name is optional), e.g. <code class="docutils literal notranslate"><span class="pre">data/H2_lines.csv</span></code>. Each row is
+matched to the nearest HITRAN line by wavelength to fill in A/E<sub>upper</sub>/g<sub>upper</sub>
+automatically, and its flux (and error, if present) populate the table directly.</p></li>
 </ul>
-</li>
-<li><p>Select H₂ isotopologue (use <strong>1</strong> for main isotope)</p></li>
-<li><p>(Optional) Filter by vibrational levels:</p>
+<p>A <strong>Calculate Fluxes</strong> button also appears once HITRAN lines are fetched, for measuring
+fluxes directly from the loaded cube instead of entering them by hand.</p>
+<p><strong>Step 2: Select Lines and Enter Flux Data</strong></p>
+<p>The table shows every fetched/imported line:</p>
 <ul class="simple">
-<li><p>Check <strong>“Include all transitions”</strong> to get all v’ → v’’ transitions</p></li>
-<li><p>Uncheck to specify specific v_upper and v_lower values</p></li>
+<li><p><strong>☑</strong> — include this line in the fit</p></li>
+<li><p><strong>λ (μm)</strong>, <strong>Transition</strong>, <strong>A_ul (s⁻¹)</strong>, <strong>E_u (K)</strong>, <strong>g_u</strong> — from HITRAN, not editable</p></li>
+<li><p><strong>Flux</strong>, <strong>Flux Error</strong>, <strong>Error %</strong> — enter a flux and either an absolute error or a
+percentage; the two error columns auto-calculate from each other as you type (toggle
+which one drives the calculation with the <strong>Error input</strong> dropdown above the table)</p></li>
+<li><p><strong>Upper Limit?</strong> — check this instead of entering an error for a non-detection</p></li>
 </ul>
-</li>
-<li><p>Click <strong>Fetch HITRAN Lines</strong></p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>Detections need a flux error — a detection with no error entered is silently dropped
+from the fit rather than assigned a made-up default (you’ll get a popup listing which
+lines were excluded, if any). Upper limits are the exception: they don’t need an error,
+just the checkbox.</p>
+<p>If <em>any</em> line is marked as an upper limit, the fit automatically switches from ordinary
+least-squares to a Bayesian censored regression (PyMC) that treats upper limits as
+one-sided constraints rather than dropping or fudging them — this happens transparently,
+there’s no separate mode to select.</p>
+</div>
+<p><strong>Step 3: Set Physical Parameters and Fit Options</strong></p>
 <ul class="simple">
-<li><p>A background thread fetches molecular data from the HITRAN database</p></li>
-<li><p>Progress shown during fetch</p></li>
-<li><p>Parsed lines appear in the table below</p></li>
+<li><p><strong>R (AU)</strong> — emitting region radius. Check <strong>Unknown R</strong> to skip it entirely; N<sub>u</sub>
+is then reported as a total molecule count rather than a column density (e.g. for
+comparing against PDRToolbox/PDRT).</p></li>
+<li><p><strong>Distance (pc)</strong></p></li>
+<li><p><strong>Fit</strong> — <strong>1T</strong> or <strong>2T</strong></p></li>
+<li><p><strong>Fit OPR</strong> — grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
+fixed equilibrium value <strong>OPR = 3</strong>. Only affects H2 S-branch lines. Click <strong>▶ Advanced</strong>
+to override the search grid (default: OPR from 0.1 to 3.0 in 400 steps).</p></li>
 </ul>
-</li>
-</ol>
-<p><strong>Step 2: Select Lines and Enter Data</strong></p>
-<p>The table displays all fetched H₂ transitions with columns:</p>
+<p><strong>Step 4: Run Fit → Results</strong></p>
+<p>Click <strong>Run Fit</strong>. The results window shows both text and a plot:</p>
 <ul class="simple">
-<li><p><strong>☑</strong>: Checkbox to select/deselect each line</p></li>
-<li><p><strong>λ (μm)</strong>: Wavelength</p></li>
-<li><p><strong>Transition</strong>: v’ J’ → v’’ J’’ notation</p></li>
-<li><p><strong>A_ul (s⁻¹)</strong>: Einstein coefficient</p></li>
-<li><p><strong>E_u (K)</strong>: Upper state energy</p></li>
-<li><p><strong>g_u</strong>: Statistical weight</p></li>
-<li><p><strong>Flux</strong>: Observed line flux (your data - enter here)</p></li>
-<li><p><strong>Flux Error</strong>: Uncertainty in flux</p></li>
-<li><p><strong>Error %</strong>: Percentage uncertainty (auto-calculated)</p></li>
+<li><p><strong>Detections</strong> — black points with error bars</p></li>
+<li><p><strong>Upper limits</strong> — red downward-pointing arrows (no error bar, since the constraint is
+one-sided)</p></li>
+<li><p><strong>1T mode</strong>: a single dashed line through the points</p></li>
+<li><p><strong>2T mode</strong>: dotted <strong>Warm</strong>/<strong>Hot</strong> lines for each component, plus a solid red
+<strong>2-component model</strong> line for their sum</p></li>
+<li><p>Y-axis is log<sub>10</sub>(N<sub>u</sub> / g<sub>u</sub>), not natural log, despite the fit
+internally working in ln space</p></li>
 </ul>
-<p><strong>Entering Flux Values:</strong></p>
-<ol class="arabic">
-<li><p>Check the boxes for lines you want to include in the fit</p></li>
-<li><p>Enter observed line fluxes in the <strong>Flux</strong> column</p></li>
-<li><p>Enter flux errors in either:</p>
+<p>If <strong>Fit OPR</strong> was checked, the text results also report the best-fit OPR and its 1σ range.</p>
+</section>
+<section id="worked-examples">
+<h2>Worked Examples<a class="headerlink" href="#worked-examples" title="Link to this heading"></a></h2>
+<p>The dataset here is the standard H2 v=0→0 S(1)–S(7) pure-rotational line set (5.5–17 µm),
+imported from <code class="docutils literal notranslate"><span class="pre">data/H2_lines.csv</span></code>.</p>
+<figure class="align-default" id="id1">
+<a class="reference internal image-reference" href="../_images/2T.png"><img alt="2T rotational diagram fit with OPR fixed at 3, seven H2 lines" src="../_images/2T.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">2T fit (OPR fixed at 3) on all 7 lines — Warm (273 K) and Hot (863 K) components.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id2">
+<a class="reference internal image-reference" href="../_images/1T.png"><img alt="1T rotational diagram fit on the same seven H2 lines, showing poor agreement" src="../_images/1T.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">1T fit on the <em>same</em> 7 lines. The single line can’t track the curvature — the
+highest-E<sub>u</sub> point sits well below it — which is exactly the signature that
+motivates using 2T here instead.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id3">
+<a class="reference internal image-reference" href="../_images/2T_OPR.png"><img alt="2T rotational diagram fit with OPR fitted, five highest lines, larger error bars" src="../_images/2T_OPR.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">2T fit with <strong>Fit OPR</strong> enabled, on the 5 highest-E<sub>u</sub> lines only and larger
+(75%) flux errors — a messier, more realistic case. The OPR search converged to 1.859.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+</section>
+<section id="using-the-api">
+<h2>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">rotational_diagram()</span></code> is not a separate wrapper — it’s the exact function the GUI calls,
+imported directly. There’s no GUI/API divergence to account for here, unlike CO flux above.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotational_diagram</span>
+
+<span class="c1"># H2 v=0-&gt;0 S(1)-S(7), matching data/H2_lines.csv, matched against HITRAN</span>
+<span class="n">molecular_data</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s1">&#39;wavelengths&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="mf">17.034846</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mf">12.278612</span><span class="p">,</span> <span class="mi">3</span><span class="p">:</span> <span class="mf">9.664911</span><span class="p">,</span> <span class="mi">4</span><span class="p">:</span> <span class="mf">8.025041</span><span class="p">,</span>
+                    <span class="mi">5</span><span class="p">:</span> <span class="mf">6.909509</span><span class="p">,</span> <span class="mi">6</span><span class="p">:</span> <span class="mf">6.108564</span><span class="p">,</span> <span class="mi">7</span><span class="p">:</span> <span class="mf">5.511183</span><span class="p">},</span>
+    <span class="s1">&#39;Aul&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="mf">4.758e-10</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mf">2.753e-9</span><span class="p">,</span> <span class="mi">3</span><span class="p">:</span> <span class="mf">9.83e-9</span><span class="p">,</span> <span class="mi">4</span><span class="p">:</span> <span class="mf">2.641e-8</span><span class="p">,</span>
+            <span class="mi">5</span><span class="p">:</span> <span class="mf">5.876e-8</span><span class="p">,</span> <span class="mi">6</span><span class="p">:</span> <span class="mf">1.141e-7</span><span class="p">,</span> <span class="mi">7</span><span class="p">:</span> <span class="mf">2.0e-7</span><span class="p">},</span>
+    <span class="s1">&#39;Eu&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="mf">1015.947</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mf">1683.068</span><span class="p">,</span> <span class="mi">3</span><span class="p">:</span> <span class="mf">2505.873</span><span class="p">,</span> <span class="mi">4</span><span class="p">:</span> <span class="mf">3477.452</span><span class="p">,</span>
+           <span class="mi">5</span><span class="p">:</span> <span class="mf">4589.958</span><span class="p">,</span> <span class="mi">6</span><span class="p">:</span> <span class="mf">5834.798</span><span class="p">,</span> <span class="mi">7</span><span class="p">:</span> <span class="mf">7202.827</span><span class="p">},</span>
+    <span class="s1">&#39;gu&#39;</span><span class="p">:</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">3</span><span class="p">:</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">4</span><span class="p">:</span> <span class="mi">13</span><span class="p">,</span> <span class="mi">5</span><span class="p">:</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">6</span><span class="p">:</span> <span class="mi">17</span><span class="p">,</span> <span class="mi">7</span><span class="p">:</span> <span class="mi">19</span><span class="p">},</span>  <span class="c1"># bare 2*J_upper+1;</span>
+        <span class="c1"># apply_OPR() applies the ortho/para nuclear-spin weighting on top of this</span>
+<span class="p">}</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">rotational_diagram</span><span class="p">(</span>
+    <span class="n">fluxes</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="mf">178e-16</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mf">55.9e-16</span><span class="p">,</span> <span class="mi">3</span><span class="p">:</span> <span class="mf">122e-16</span><span class="p">,</span> <span class="mi">4</span><span class="p">:</span> <span class="mf">28.4e-16</span><span class="p">,</span>
+            <span class="mi">5</span><span class="p">:</span> <span class="mf">72.3e-16</span><span class="p">,</span> <span class="mi">6</span><span class="p">:</span> <span class="mf">14.4e-16</span><span class="p">,</span> <span class="mi">7</span><span class="p">:</span> <span class="mf">22.2e-16</span><span class="p">},</span>
+    <span class="n">flux_errors</span><span class="o">=</span><span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="mf">9e-16</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mf">3.2e-16</span><span class="p">,</span> <span class="mi">3</span><span class="p">:</span> <span class="mf">6.3e-16</span><span class="p">,</span> <span class="mi">4</span><span class="p">:</span> <span class="mf">2.4e-16</span><span class="p">,</span>
+                 <span class="mi">5</span><span class="p">:</span> <span class="mf">4e-16</span><span class="p">,</span> <span class="mi">6</span><span class="p">:</span> <span class="mf">3.2e-16</span><span class="p">,</span> <span class="mi">7</span><span class="p">:</span> <span class="mf">3.8e-16</span><span class="p">},</span>
+    <span class="n">molecular_data</span><span class="o">=</span><span class="n">molecular_data</span><span class="p">,</span>
+    <span class="n">R</span><span class="o">=</span><span class="mf">8.5</span><span class="p">,</span>      <span class="c1"># AU</span>
+    <span class="n">dist</span><span class="o">=</span><span class="mf">71.5</span><span class="p">,</span>  <span class="c1"># pc</span>
+    <span class="n">fit2T</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;1T Temperature: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;1T&#39;</span><span class="p">][</span><span class="s1">&#39;T&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> K&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;2T Temperatures: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;2T&#39;</span><span class="p">][</span><span class="s1">&#39;T1&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> K, </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;2T&#39;</span><span class="p">][</span><span class="s1">&#39;T2&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> K&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This reproduces the first worked example above exactly (273.4 K / 863.4 K).</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>A 2T fit has 4 free parameters — you need meaningfully more than 4 lines for the fit
+(and its uncertainties) to mean anything. Passing <code class="docutils literal notranslate"><span class="pre">fit2T=True</span></code> with too few points
+doesn’t raise an error; it just silently returns a degenerate fit with huge, useless
+uncertainties.</p>
+<p><code class="docutils literal notranslate"><span class="pre">fluxes</span></code>/<code class="docutils literal notranslate"><span class="pre">flux_errors</span></code>/<code class="docutils literal notranslate"><span class="pre">molecular_data</span></code> are all keyed by an arbitrary integer (the
+GUI uses upper rotational level J, but any hashable key works, as long as it’s
+consistent across the four dicts). Pass <code class="docutils literal notranslate"><span class="pre">upper_limits={key:</span> <span class="pre">True}</span></code> for non-detections
+to switch on the same censored PyMC fit the GUI uses automatically — see the upper-limit
+note in the GUI section above.</p>
+</div>
+<p><strong>Tips</strong></p>
 <ul class="simple">
-<li><p><strong>Flux Error</strong> column (absolute values), OR</p></li>
-<li><p><strong>Error %</strong> column (percentage uncertainties)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">R=None</span></code> (or omitting it) reports N<sub>u</sub> as a total molecule count instead of a
+column density, matching the GUI’s <strong>Unknown R</strong> checkbox.</p></li>
+<li><p>Pass <code class="docutils literal notranslate"><span class="pre">fit_opr=True</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">opr_grid=np.linspace(...)</span></code>) to search for the
+best-fit OPR instead of fixing it at 3 — matching the third worked example above.</p></li>
 </ul>
-<p>Use the <strong>Error Mode</strong> toggle to switch between absolute values and percentages.
-The columns auto-calculate between the two formats as you type.</p>
-</li>
-</ol>
-<p><strong>Step 3: Input Physical Parameters</strong></p>
-<p>At the bottom of the window, provide:</p>
-<ul class="simple">
-<li><p><strong>R (AU)</strong>: Emitting source radius in astronomical units (e.g., disk radius)</p></li>
-<li><p><strong>Distance (pc)</strong>: Distance to source in parsecs</p></li>
-<li><p><strong>Fit Mode</strong>:</p>
-<ul>
-<li><p><strong>1T</strong>: Single-temperature fit (assumes one thermal component)</p></li>
-<li><p><strong>2T</strong>: Two-temperature fit (models warm and hot components)</p></li>
-</ul>
-</li>
-</ul>
-<p><strong>Step 4: Run the Fit</strong></p>
-<ol class="arabic simple">
-<li><p>Click <strong>Run Rotational Fit</strong> button</p></li>
-<li><p>The tool performs the analysis:</p>
-<ul class="simple">
-<li><p>Computes column densities from fluxes</p></li>
-<li><p>Fits 1-temperature and/or 2-temperature models</p></li>
-<li><p>Calculates rotational temperatures and uncertainties</p></li>
-<li><p>Generates visualization</p></li>
-</ul>
-</li>
-</ol>
-<p><strong>Step 5: Interpret Results</strong></p>
-<p>A dialog displays both text results and a plot:</p>
-<p><strong>Text Results:</strong></p>
-<dl class="simple">
-<dt>For <strong>1T fit</strong>:</dt><dd><ul class="simple">
-<li><p><strong>T</strong> (K): Rotational temperature with uncertainty</p></li>
-<li><p><strong>Ncol</strong> (cm⁻²): Total column density from intercept</p></li>
-</ul>
-</dd>
-<dt>For <strong>2T fit</strong>:</dt><dd><ul class="simple">
-<li><p><strong>T₁, T₂</strong> (K): Warm and hot component temperatures</p></li>
-<li><p><strong>N₁, N₂</strong> (cm⁻²): Column densities for each component</p></li>
-</ul>
-</dd>
-</dl>
-<p><strong>Plot Visualization:</strong></p>
-<ul class="simple">
-<li><p><strong>Black dots with error bars</strong>: Observed data (ln(N_u/g_u) vs E_u)</p></li>
-<li><p><strong>Dashed blue line</strong>: Warm component (2T only)</p></li>
-<li><p><strong>Dashed orange line</strong>: Hot component (2T only)</p></li>
-<li><p><strong>Solid red line</strong>: Combined 2-temperature model fit (2T only)</p></li>
-<li><p><strong>Dashed blue line</strong>: 1T model fit (1T mode only)</p></li>
-</ul>
-<p>Use the toolbar to <strong>zoom</strong>, <strong>pan</strong>, and <strong>save</strong> the plot.</p>
 </section>
 </section>
 
