@@ -102,21 +102,56 @@ screenshot's results window to the last reported digit, because it is the same f
 
 **Analyze CO for All Pixels**
 
-Extract CO flux maps for each pixel:
+Extract a CO flux map across every spatial pixel:
 
-1. Complete Automatic Continuum
-2. Click on **CO Flux Map**
+1. Click on **CO Flux Map**.
+2. A popup explains that continuum subtraction runs automatically per pixel, using default
+   parameters that work well for typical spectra. Click **No** to use those defaults, or
+   **Yes** to open the same parameter dialog as the manual Automatic Continuum tool and set
+   your own values instead.
+3. A preview shows the brightest pixel within your wavelength range, with the (deduplicated)
+   HITRAN lines marked -- a sanity check before committing to a full-cube run. Click
+   **YES - Extract Map** to proceed.
+
+If you've already run an extraction with the same wavelength range and continuum choice,
+you'll be offered the cached results instead of re-running.
 
 **Progress Monitoring**
 
-- Progress bar shows % complete
+The progress dialog updates per pixel as the cube is processed.
 
 **Output Products**
 
-Resulting maps:
+.. figure:: ../_static/co_flux_map.png
+   :alt: CO rovibrational flux map, showing a bright compact source
+   :width: 100%
 
-- **CO Flux Map**: Map with integrated flux for each pixel
-- **Detection Count**: Map with count for each pixel
+   Integrated CO flux per pixel.
+
+.. figure:: ../_static/co_detections_map.png
+   :alt: Map of the number of CO lines detected per pixel
+   :width: 100%
+
+   Number of CO lines detected per pixel, for the same cube. Switch between this and the flux
+   map with the **Display** dropdown in the results window.
+
+- **CO Flux Map**: integrated flux per pixel
+- **Detection Count**: number of lines detected per pixel
+- **Export as FITS** / **Show Statistics** buttons in the results window
+
+**Inspecting Individual Pixels**
+
+With **Pixel Select** on (the default), clicking a pixel on either map opens that pixel's fit:
+
+.. figure:: ../_static/co_pixel_spec.png
+   :alt: Pixel spectrum zoomed to the fit range, with continuum and CO line markers
+   :width: 100%
+
+   Spectrum for the brightest pixel, zoomed to the fitted wavelength range, with the fitted
+   continuum and each CO line marked in red.
+
+Turn **Pixel Select** off to zoom/pan the map freely instead of reopening this dialog on every
+click.
 
 
 Using the CO Flux API

@@ -214,21 +214,54 @@ Continuum</strong> interactively. Pass your own <code class="docutils literal no
 already fitted instead.</p>
 </div>
 <p><strong>Analyze CO for All Pixels</strong></p>
-<p>Extract CO flux maps for each pixel:</p>
+<p>Extract a CO flux map across every spatial pixel:</p>
 <ol class="arabic simple">
-<li><p>Complete Automatic Continuum</p></li>
-<li><p>Click on <strong>CO Flux Map</strong></p></li>
+<li><p>Click on <strong>CO Flux Map</strong>.</p></li>
+<li><p>A popup explains that continuum subtraction runs automatically per pixel, using default
+parameters that work well for typical spectra. Click <strong>No</strong> to use those defaults, or
+<strong>Yes</strong> to open the same parameter dialog as the manual Automatic Continuum tool and set
+your own values instead.</p></li>
+<li><p>A preview shows the brightest pixel within your wavelength range, with the (deduplicated)
+HITRAN lines marked – a sanity check before committing to a full-cube run. Click
+<strong>YES - Extract Map</strong> to proceed.</p></li>
 </ol>
+<p>If you’ve already run an extraction with the same wavelength range and continuum choice,
+you’ll be offered the cached results instead of re-running.</p>
 <p><strong>Progress Monitoring</strong></p>
-<ul class="simple">
-<li><p>Progress bar shows % complete</p></li>
-</ul>
+<p>The progress dialog updates per pixel as the cube is processed.</p>
 <p><strong>Output Products</strong></p>
-<p>Resulting maps:</p>
+<figure class="align-default" id="id2">
+<a class="reference internal image-reference" href="../_images/co_flux_map.png"><img alt="CO rovibrational flux map, showing a bright compact source" src="../_images/co_flux_map.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Integrated CO flux per pixel.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id3">
+<a class="reference internal image-reference" href="../_images/co_detections_map.png"><img alt="Map of the number of CO lines detected per pixel" src="../_images/co_detections_map.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Number of CO lines detected per pixel, for the same cube. Switch between this and the flux
+map with the <strong>Display</strong> dropdown in the results window.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
+</figcaption>
+</figure>
 <ul class="simple">
-<li><p><strong>CO Flux Map</strong>: Map with integrated flux for each pixel</p></li>
-<li><p><strong>Detection Count</strong>: Map with count for each pixel</p></li>
+<li><p><strong>CO Flux Map</strong>: integrated flux per pixel</p></li>
+<li><p><strong>Detection Count</strong>: number of lines detected per pixel</p></li>
+<li><p><strong>Export as FITS</strong> / <strong>Show Statistics</strong> buttons in the results window</p></li>
 </ul>
+<p><strong>Inspecting Individual Pixels</strong></p>
+<p>With <strong>Pixel Select</strong> on (the default), clicking a pixel on either map opens that pixel’s fit:</p>
+<figure class="align-default" id="id4">
+<a class="reference internal image-reference" href="../_images/co_pixel_spec.png"><img alt="Pixel spectrum zoomed to the fit range, with continuum and CO line markers" src="../_images/co_pixel_spec.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Spectrum for the brightest pixel, zoomed to the fitted wavelength range, with the fitted
+continuum and each CO line marked in red.</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>Turn <strong>Pixel Select</strong> off to zoom/pan the map freely instead of reopening this dialog on every
+click.</p>
 </section>
 </section>
 <section id="using-the-co-flux-api">
