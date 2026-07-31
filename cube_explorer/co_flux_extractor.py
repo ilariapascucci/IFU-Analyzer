@@ -243,7 +243,11 @@ def many_gaussians_list(xl, a, b, *params):
     """
     Sum of multiple Gaussians with linear continuum.
     Calculates the y-values for a list of x-values for a sum of Gaussian curves with a continuum slope.
-    
+
+    Vectorized with numpy broadcasting rather than a per-point/per-line Python loop -- same
+    formula and floating-point operations as the scalar version (this is what curve_fit calls
+    on every Jacobian evaluation, so the per-call cost matters a lot for a full-cube run).
+
     Parameters
     ----------
     xl : array-like
@@ -256,19 +260,17 @@ def many_gaussians_list(xl, a, b, *params):
         Variable number of Gaussian parameters organized as:
         [amp0, cen0, sig0, amp1, cen1, sig1, ..., ampN, cenN, sigN]
         Each Gaussian uses 3 parameters: amplitude, center, sigma
-    
+
     Returns
     -------
-    list
+    numpy.ndarray
         Sum of all Gaussians plus continuum evaluated at xl
     """
-    N = 3  # Parameters per Gaussian
-    params = np.asarray(params)
-    min_freq = min(xl)
-    retval = [sum(gaussian(x, params[i], params[i + 1], params[i + 2]) 
-                   for i in np.arange(len(params) // N) * N) + a + b * (x - min_freq) 
-              for x in xl]
-    return retval
+    xl = np.asarray(xl, dtype=float)
+    amps, cens, sigs = np.asarray(params, dtype=float).reshape(-1, 3).T  # each shape (n_lines,)
+    min_freq = xl.min()
+    gaussians = amps[:, None] * np.exp(-0.5 * ((xl[None, :] - cens[:, None]) / sigs[:, None]) ** 2)
+    return gaussians.sum(axis=0) + a + b * (xl - min_freq)
 
 
 # ================== Line Detection ==================
@@ -534,7 +536,11 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             [sigma] * len(filtered_lines)
         ))
         p0 = np.ravel(p0_2d)  # 1d array
-        p0base, p0slope = np.min(yflux), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
+        # NaN-safe and scoped to this fit window (idx_xwave), matching p0slope just below --
+        # the original np.min(yflux) took the min of the ENTIRE spectrum with no NaN handling,
+        # so a single NaN anywhere in the full input (routine on real IFU data) propagated into
+        # p0base, making the initial guess infeasible and silently killing the fit
+        p0base, p0slope = np.nanmin(yflux[idx_xwave]), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
         p0 = np.insert(p0, [0, 0], [p0base, p0slope])
         
         # Create NumPy arrays with lower and upper bounds
@@ -581,7 +587,11 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         try:
             bfit = many_gaussians_list(xwave[idx_xwave], a, b, *par)
             df_residual.loc[idx_xwave, 'residual'] = yflux[idx_xwave] - bfit
-            df_continuum.loc[idx_xwave, 'continuum'] = a + b * xwave[idx_xwave]
+            # many_gaussians_list's continuum term is a + b*(x - min_freq), offset from the
+            # window's own minimum wavelength -- not a + b*x -- so this has to match exactly
+            # or the recorded curve is off by b*min_freq (huge, since b is O(1e3) and
+            # min_freq is O(4.7))
+            df_continuum.loc[idx_xwave, 'continuum'] = a + b * (xwave[idx_xwave] - xwave[idx_xwave].min())
 
             # Different approach in case there are contaminating lines
             if ncont_lines > 0:
