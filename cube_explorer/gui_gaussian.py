@@ -366,22 +366,24 @@ STATUS: {result.message}
         else:
             continuum_y = self.continuum_fitted
         
-        fit_pairs = fit_hitran_lines_collective(
+        fit_pairs, contam_pairs = fit_hitran_lines_collective(
             spectrum_x, spectrum_y, self.plotted_lines, continuum_y,
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
             contam_lines=getattr(self, 'contam_lines', None),
         )
         fit_results = [{'line': line, 'result': result} for line, result in fit_pairs if result.success]
+        contam_results = [{'line': line, 'result': result} for line, result in contam_pairs]
 
         if not fit_results:
             QMessageBox.warning(self, "Fit Failed", "Could not fit any HITRAN lines.")
             return
 
         self.multi_gauss_results = fit_results
-        self._plot_multi_gaussian_on_spectrum(fit_results)
-        self._show_multi_gaussian_results(fit_results)
+        self.multi_gauss_contam_results = contam_results
+        self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
+        self._show_multi_gaussian_results(fit_results, contam_results)
 
-    def _plot_multi_gaussian_on_spectrum(self, fit_results):
+    def _plot_multi_gaussian_on_spectrum(self, fit_results, contam_results=None):
         ax = self.spec_plotter.ax
         if not hasattr(self, 'multi_gauss_artists'): self.multi_gauss_artists = []
         for artist in self.multi_gauss_artists:
@@ -409,11 +411,27 @@ STATUS: {result.message}
             gauss_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit' if idx == 0 else '', zorder=11)
             fill = ax.fill_between(result.x_data, baseline_norm, baseline_norm + y_fit_norm, color='red', alpha=0.2, zorder=9)
             self.multi_gauss_artists.extend([gauss_line, fill])
-        
+
+        # Contaminating lines get their own distinctly-colored curve -- these aren't part of
+        # the requested fit_results, so drawing them in red alongside real hits would make it
+        # look like an extra, unreported detection instead of a different species entirely.
+        seen_species = set()
+        for contam_info in (contam_results or []):
+            result = contam_info['result']
+            species = contam_info['line'].get('species', 'Contaminant')
+            baseline_norm = result.baseline / norm_factor
+            y_fit_norm = result.y_fit / norm_factor
+
+            label = f"Contaminant ({species})" if species not in seen_species else ''
+            seen_species.add(species)
+            contam_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, color='green', linewidth=2.5, alpha=0.9, label=label, zorder=12)
+            contam_fill = ax.fill_between(result.x_data, baseline_norm, baseline_norm + y_fit_norm, color='green', alpha=0.25, zorder=8)
+            self.multi_gauss_artists.extend([contam_line, contam_fill])
+
         ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw_idle()
 
-    def _show_multi_gaussian_results(self, fit_results):
+    def _show_multi_gaussian_results(self, fit_results, contam_results=None):
         wave_unit = clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm'))
         flux_unit = clean_flux_unit(getattr(self.cube_data, 'flux_unit', 'MJy/sr'))
         fallback_area_unit = f"{flux_unit}·{wave_unit}"
@@ -446,6 +464,19 @@ STATUS: {result.message}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
         
         results_text += f"\nOVERALL:\n  Total lines fitted:    {len(fit_results)}\n"
+
+        if contam_results:
+            results_text += (
+                f"\nCONTAMINATING LINES (not part of the {len(fit_results)} lines above -- "
+                f"shown in green on the plot):\n{'='*70}\n"
+            )
+            for idx, contam_info in enumerate(contam_results, 1):
+                result, line = contam_info['result'], contam_info['line']
+                results_text += (
+                    f"{idx}. {line.get('species', 'Contaminant')} @ {result.center:.6f} {wave_unit}  "
+                    f"amplitude={result.amplitude:.4e} {flux_unit}  "
+                    f"area={result.area:.4e} {result.area_unit or fallback_area_unit}\n"
+                )
 
         poor_fits = [fit_info for fit_info in fit_results if fit_info['result'].r_squared < 0.5]
         contam_loaded = getattr(self, 'contam_lines', None) is not None and len(self.contam_lines) > 0
