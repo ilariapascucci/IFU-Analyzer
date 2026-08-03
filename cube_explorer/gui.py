@@ -1861,18 +1861,25 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
         # LEFT CLICK: Check if clicking near a plotted spectral line to deselect it
         if event.button == 1 and hasattr(self, 'plotted_lines') and self.plotted_lines:
-            hover_threshold = 0.01  # wavelength units tolerance
+            # Click tolerance in SCREEN pixels (not wavelength units) so it stays
+            # small and consistent regardless of x-axis zoom level - a fixed
+            # wavelength tolerance would span a huge fraction of the visible
+            # plot when zoomed in, making it very easy to graze and deselect a
+            # line while just trying to start a zoom-drag.
+            CLICK_HIT_RADIUS_PX = 5
             mouse_x = event.xdata
-            if mouse_x is not None:
+            if mouse_x is not None and event.x is not None:
                 # Find nearest line within threshold
                 nearest_row = None
                 min_dist = float('inf')
-                
+                ax = self.spec_plotter.ax
+
                 for row in self.plotted_lines:
                     from .species_dialog import SpeciesDialog
                     λ = SpeciesDialog.get_row_wavelength(row)
-                    dist = abs(λ - mouse_x)
-                    if dist < hover_threshold and dist < min_dist:
+                    λ_disp_x = ax.transData.transform((λ, 0))[0]
+                    dist = abs(λ_disp_x - event.x)
+                    if dist < CLICK_HIT_RADIUS_PX and dist < min_dist:
                         min_dist = dist
                         nearest_row = row
                 
