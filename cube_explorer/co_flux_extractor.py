@@ -36,7 +36,8 @@ warnings.filterwarnings('ignore', category=FutureWarning, message='.*DataFrame c
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
     estimate_gaussian_params, calculate_baseline, compute_noise_std,
-    get_wave_unit, _resolve_flux_unit,
+    get_wave_unit, _resolve_flux_unit, GaussianFitResult, convert_area_to_cgs,
+    _extract_value_from_quantity,
 )
 from .unit_converter import integrated_flux_to_cgs
 
@@ -476,7 +477,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     """
     Fit simultaneously many Gaussians and the underlying continuum in given
     chunks of wavelengths (given in list_wboundaries).
-    
+
     Returns:
         1. the sum of the areas of the CO Gaussians (sum_CO_area)
         2. the sum of the areas of the contaminating lines Gaussians (sum_contaminating_area)
@@ -485,6 +486,11 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         5. a pandas dataframe with the fitted continuum (a + b*wave) per wavelength, NaN outside
            any fitted chunk (df_continuum) -- useful for plotting the actual continuum trend
            rather than just its mean
+        6. a list of per-CO-line fit dicts (per_line_fits) -- the individual (amplitude, center,
+           sigma, area) each CO line's own Gaussian component converged to, plus a local
+           x_data/y_data/y_fit slice for plotting. Callers that only need the aggregate flux (e.g.
+           extract_co_flux_from_spectrum) can ignore this; it exists for callers that need per-line
+           detail (e.g. the Multi-Gaussian GUI tool) without re-deriving it from `par`.
 
     """
     sum_CO_area, sum_contaminating_area, mean_cont = 0, 0, 0
@@ -496,6 +502,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         'wave': xwave,
         'continuum': np.full(len(xwave), np.nan)
     })
+    per_line_fits = []
 
     print('===== Start fitting...')
     start_time = time.time()
@@ -570,6 +577,13 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             sum_CO_area = sum_CO_area + current_sum_CO
             sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
             mean_cont = mean_cont + a
+            for _, coline in filtered_colines.iterrows():
+                per_line_fits.append({
+                    'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
+                    'sigma': 0.0, 'area': 0.0, 'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
+                    'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
+                    'success': False, 'message': f"Chunk fit failed: {e}",
+                })
             continue
 
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
@@ -585,19 +599,46 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
             # Different approach in case there are contaminating lines
             if ncont_lines > 0:
-                current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
+                current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
                                     for jj in range(0, len(par) - 3 * ncont_lines, 3))
-                current_sum_contaminating = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
+                current_sum_contaminating = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
                                                for jj in range(len(par) - 3 * ncont_lines, len(par), 3))
             else:
                 current_sum_contaminating = 0  # there are no contaminating lines in this wave range!
-                current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi) 
+                current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
                                     for jj in range(0, len(par), 3))
-            
+
             print(f'  [FLUX DEBUG] Range {ii}: {len(par)//3} fitted lines, CO flux segment={current_sum_CO:.6e}, contam={current_sum_contaminating:.6e}')
             if current_sum_CO < 0:
                 print(f'  [FLUX WARN] Negative CO flux detected! intensities: {[par[jj] for jj in range(0, len(par) - 3 * ncont_lines, 3)]}')
-        
+
+            # Per-line records for callers that need individual (amplitude, center, sigma) rather
+            # than just the chunk's summed flux (e.g. the Multi-Gaussian GUI tool). `filtered_lines`
+            # was built as CO lines first, then contaminating lines (co_flux_extractor.py:530), and
+            # `par` follows that same order in 3-parameter groups -- so filtered_colines.iloc[i]
+            # lines up with par[3*i:3*i+3].
+            min_freq_chunk = np.min(xwave[idx_xwave])
+            for i, (_, coline) in enumerate(filtered_colines.iterrows()):
+                amp_i, cen_i, sig_i = par[3 * i], par[3 * i + 1], par[3 * i + 2]
+                local_mask = (
+                    (xwave >= max(xwave_min, cen_i - 3 * abs(sig_i))) &
+                    (xwave <= min(xwave_max, cen_i + 3 * abs(sig_i)))
+                )
+                x_local = xwave[local_mask]
+                y_local = yflux[local_mask]
+                # Full chunk model (local continuum correction + every Gaussian in the chunk, not
+                # just this line's own) -- honestly reflects what explains the data here, including
+                # any overlap with a neighboring line sharing this chunk.
+                y_fit_local = a + b * (x_local - min_freq_chunk)
+                for jj in range(0, len(par), 3):
+                    y_fit_local = y_fit_local + gaussian(x_local, par[jj], par[jj + 1], par[jj + 2])
+                per_line_fits.append({
+                    'wavelength': coline['line'], 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
+                    'area': amp_i * sig_i * np.sqrt(2 * np.pi),
+                    'x_data': x_local, 'y_data': y_local, 'y_fit': y_fit_local,
+                    'success': True, 'message': 'Success',
+                })
+
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
             continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1, show='False')
@@ -605,7 +646,14 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             current_sum_CO = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
             a = np.nanmedian(continuum)
             df_continuum.loc[idx_xwave, 'continuum'] = continuum
-        
+            for _, coline in filtered_colines.iterrows():
+                per_line_fits.append({
+                    'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
+                    'sigma': 0.0, 'area': 0.0, 'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
+                    'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
+                    'success': False, 'message': f"Chunk model evaluation failed: {e}",
+                })
+
         sum_CO_area = sum_CO_area + current_sum_CO
         sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
         mean_cont = mean_cont + a
@@ -618,7 +666,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     
     mean_cont = mean_cont / (len(list_wboundaries) - 1)
 
-    return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum
+    return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits
 
 
 # ================== High-Level Extraction ==================
@@ -846,7 +894,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         
         print(f"  [DEBUG] Before fit_glines: sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
         print(f"  [DEBUG] Fitting {len(detected_co)} CO + {len(detected_contam)} contaminating lines")
-        co_flux, contam_flux, mean_cont, residuals, continuum_curve = fit_glines(
+        co_flux, contam_flux, mean_cont, residuals, continuum_curve, _per_line_fits = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
             detected_co, detected_contam, sigma
         )
