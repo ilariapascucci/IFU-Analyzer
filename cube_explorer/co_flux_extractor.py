@@ -706,13 +706,21 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         fallback_sigma_pixels: shared Gaussian sigma, as a multiple of the wavelength array's
             own pixel spacing, used only when the instrument's spectral resolution can't be
             determined (no header, or an unsupported instrument).
-        display_window_pixels: half-width, in pixels, of the local x_data/y_data/y_fit slice
-            kept per line for plotting and R² -- purely cosmetic, does not affect the fit
-            itself, which always solves for every line in the selection together.
+        display_window_pixels: outer cap, in pixels, on the local x_data/y_data/y_fit slice
+            kept per line for plotting and R² -- the actual window is min(this, 5 sigma), so
+            it stays tight around each line's own peak rather than sweeping in unrelated
+            nearby structure. Purely cosmetic/R²-scope, does not affect the fit itself, which
+            always solves for every requested (and contaminating) line together.
 
     Returns:
-        list of (line_dict, GaussianFitResult) pairs, one per line with a wavelength, in
-        the same order as `hitran_lines`.
+        (results, contam_results) tuple:
+            results: list of (line_dict, GaussianFitResult) pairs, one per requested line,
+                in the same order as `hitran_lines`.
+            contam_results: list of (contam_line_dict, GaussianFitResult) pairs, one per
+                contaminating line that both fell in range and got a positive amplitude --
+                each GaussianFitResult's y_fit is *just* that contaminant's own component
+                (not the joint model), meant to be drawn as its own distinct curve rather
+                than folded into a requested line's display.
     """
     spectrum_x = _extract_value_from_quantity(spectrum_x)
     spectrum_y = _extract_value_from_quantity(spectrum_y)
@@ -737,7 +745,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         valid.append((idx, float(wl), line))
 
     if not valid or len(spectrum_x) < 4:
-        return [r for r in results if r is not None]
+        return [r for r in results if r is not None], []
 
     y_corrected = spectrum_y - continuum
 
@@ -757,11 +765,11 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     if contam_lines is not None and len(contam_lines) > 0 and len(x_data) > 0:
         contam_wl_all = contam_lines['line_wave_um'].astype(float).values
         contam_mask = (contam_wl_all >= x_data[0]) & (contam_wl_all <= x_data[-1])
-        contam_wavelengths = contam_wl_all[contam_mask]
+        contam_in_range = contam_lines[contam_mask]
     else:
-        contam_wavelengths = np.array([])
+        contam_in_range = contam_lines.iloc[0:0] if contam_lines is not None else pd.DataFrame(columns=['line_wave_um'])
 
-    if len(x_data) < len(valid) + len(contam_wavelengths) + 1:
+    if len(x_data) < len(valid) + len(contam_in_range) + 1:
         # Not enough points to solve for every line (+ contaminant) plus the baseline term --
         # fail all lines rather than silently return an under-determined/meaningless solution.
         for orig_idx, wl, line in valid:
@@ -774,22 +782,30 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                 r_squared=0, success=False,
                 message="Not enough spectral points in this wavelength range to fit",
             ))
-        return [r for r in results if r is not None]
+        return [r for r in results if r is not None], []
 
     # Design matrix: one fixed-position, fixed-width Gaussian template per requested line
     # (amplitude 1, solved for by lstsq), one more per contaminating line in range (so its
     # flux has somewhere to go besides a real line), plus a constant term to absorb any small
     # residual left after the global continuum subtraction.
+    contam_sigmas = [_line_sigma(wl, header, dx, fallback_sigma_pixels) for wl in contam_in_range['line_wave_um']]
     template_cols = [gaussian(x_data, 1.0, wl, sig) for (_, wl, _), sig in zip(valid, line_sigmas)]
-    for contam_wl in contam_wavelengths:
-        contam_sigma = _line_sigma(contam_wl, header, dx, fallback_sigma_pixels)
+    for contam_wl, contam_sigma in zip(contam_in_range['line_wave_um'], contam_sigmas):
         template_cols.append(gaussian(x_data, 1.0, contam_wl, contam_sigma))
     template_cols.append(np.ones_like(x_data))
     A = np.column_stack(template_cols)
 
     coeffs, _, _, _ = np.linalg.lstsq(A, y_data, rcond=None)
-    amplitudes = coeffs[:-1]
-    fitted_curve = A @ coeffs
+    n_lines = len(valid)
+    amplitudes = coeffs[:n_lines]
+    contam_amplitudes = coeffs[n_lines:n_lines + len(contam_in_range)]
+    baseline_const = coeffs[-1]
+    # CO-only reconstruction (excludes every contaminant's own contribution) -- this is what
+    # each requested line's own displayed curve and R2 are judged against, so a nearby
+    # contaminant's flux (now correctly explained by its own component) doesn't inflate or
+    # deflate a CO line's own fit quality, and doesn't visually double up with the
+    # contaminant's own separately-drawn curve.
+    co_curve = A[:, :n_lines] @ amplitudes + baseline_const
 
     unit = get_wave_unit(header, wave_unit)
 
@@ -797,11 +813,14 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         amp = float(amplitudes[i])
         sigma_i = line_sigmas[i]
         fwhm = 2.355 * sigma_i
-        half_width = max(display_half_width, 3 * sigma_i)
+        # Sized off this line's own width, not a fixed pixel count -- these lines are only
+        # ~1 pixel wide, so a fixed generous window used to sweep in unrelated nearby
+        # features (including any contaminant) into what looked like this line's own fit.
+        half_width = min(display_half_width, 5 * sigma_i)
         local_mask = (x_data >= wl - half_width) & (x_data <= wl + half_width)
         x_local = x_data[local_mask]
         y_local = y_data[local_mask]
-        y_fit_local = fitted_curve[local_mask]
+        y_fit_local = co_curve[local_mask]
         baseline_local = baseline_window[local_mask]
         residuals_local = y_local - y_fit_local
 
@@ -840,7 +859,37 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             )
         results[orig_idx] = (line, result)
 
-    return [r for r in results if r is not None]
+    # Contaminants get their own (line-like dict, GaussianFitResult) pairs, using only their
+    # own component -- not the joint model -- so a caller can draw them as a visually distinct
+    # curve rather than have their flux blend invisibly into a nearby requested line's plot.
+    contam_results = []
+    for j, (_, contam_row) in enumerate(contam_in_range.iterrows()):
+        contam_amp = float(contam_amplitudes[j])
+        if contam_amp <= 0:
+            continue
+        contam_wl = float(contam_row['line_wave_um'])
+        contam_sigma = contam_sigmas[j]
+        half_width = min(display_half_width, 5 * contam_sigma)
+        local_mask = (x_data >= contam_wl - half_width) & (x_data <= contam_wl + half_width)
+        x_local = x_data[local_mask]
+        baseline_local = baseline_window[local_mask]
+        y_fit_local = gaussian(x_local, contam_amp, contam_wl, contam_sigma)
+        area_native = contam_amp * contam_sigma * np.sqrt(2 * np.pi)
+        area_cgs = convert_area_to_cgs(contam_amp, contam_sigma, contam_wl, header, unit) if header is not None else None
+        area, contam_area_unit = (area_cgs, "erg/s/cm²") if area_cgs is not None else (area_native, "native")
+        contam_line = {'species': contam_row.get('species', 'Contaminant'), 'wavelength': contam_wl}
+        contam_results.append((contam_line, GaussianFitResult(
+            amplitude=contam_amp, center=contam_wl, sigma=contam_sigma, fwhm=2.355 * contam_sigma,
+            area=area, area_unit=contam_area_unit, area_native=area_native,
+            baseline_slope=0.0, baseline_intercept=float(baseline_local[0]) if len(baseline_local) else 0.0,
+            x_data=x_local, y_data=y_data[local_mask],
+            baseline=baseline_local, y_corrected=y_data[local_mask],
+            y_fit=y_fit_local, residuals=y_data[local_mask] - y_fit_local,
+            r_squared=0, success=True,
+            message=f"Contaminant ({contam_line['species']}), not part of the requested line list",
+        )))
+
+    return [r for r in results if r is not None], contam_results
 
 
 # ================== High-Level Extraction ==================

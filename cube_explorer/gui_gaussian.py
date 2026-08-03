@@ -368,14 +368,15 @@ STATUS: {result.message}
         
         fit_pairs = fit_hitran_lines_collective(
             spectrum_x, spectrum_y, self.plotted_lines, continuum_y,
-            header=self.cube_data.header, wave_unit=self.cube_data.wave_unit
+            header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
+            contam_lines=getattr(self, 'contam_lines', None),
         )
         fit_results = [{'line': line, 'result': result} for line, result in fit_pairs if result.success]
-        
+
         if not fit_results:
             QMessageBox.warning(self, "Fit Failed", "Could not fit any HITRAN lines.")
             return
-        
+
         self.multi_gauss_results = fit_results
         self._plot_multi_gaussian_on_spectrum(fit_results)
         self._show_multi_gaussian_results(fit_results)
@@ -445,7 +446,17 @@ STATUS: {result.message}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
         
         results_text += f"\nOVERALL:\n  Total lines fitted:    {len(fit_results)}\n"
-        
+
+        poor_fits = [fit_info for fit_info in fit_results if fit_info['result'].r_squared < 0.5]
+        contam_loaded = getattr(self, 'contam_lines', None) is not None and len(self.contam_lines) > 0
+        if poor_fits and not contam_loaded:
+            results_text += (
+                f"\nNOTE: {len(poor_fits)} line(s) have R² < 0.5. If any of these overlap a "
+                f"real feature from another species (not in this line list), it has no "
+                f"template of its own and can distort nearby lines' amplitudes. Load one via "
+                f"the \"Contam. Lines\" button, then run Multi-Gaussian Fit again.\n"
+            )
+
         dlg = QDialog(self)
         dlg.setWindowTitle("Multi-Gaussian Fit Results")
         # Each line entry is now 4 rows taller (catalog wavelength, transition, A

@@ -264,15 +264,17 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
 
 def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None,
                      isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None,
-                     header=None, wave_unit=None, continuum=None):
+                     header=None, wave_unit=None, continuum=None, contam_catalog=None):
     """
     Fit HITRAN spectral lines automatically using database lookup.
 
     This is the same algorithm as the GUI's **Multi-Gaussian Fit** button, not a
-    separate approximation of it: lines are fit simultaneously in fixed wavelength
-    chunks with one shared local continuum per chunk (via ``fit_glines``), so lines
-    close enough to share a chunk are disentangled together rather than each getting
-    an independent fit that can double-claim overlapping flux.
+    separate approximation of it: every line's center is fixed at its catalog
+    wavelength and its width comes from the instrument's spectral resolution (not
+    fitted), which turns fitting all of them into a single linear least-squares solve
+    (``np.linalg.lstsq``) instead of an iterative nonlinear fit. Lines that overlap are
+    disentangled by the same solve automatically -- no independent-fit double-claiming
+    of shared flux, and no per-selection cost blowup from fitting many lines together.
 
     Args:
         wavelength (array-like): Wavelength/frequency values
@@ -284,13 +286,19 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         refresh_cache (bool): Force refresh HITRAN cache (default False)
         v_upper (int, optional): Filter by upper vibrational level (e.g., 1 for v=1)
         v_lower (int, optional): Filter by lower vibrational level (e.g., 0 for v=0)
-        header: Optional FITS header for the erg/s/cm2 conversion. Without it, area
+        header: Optional FITS header for the erg/s/cm2 conversion, and for looking up
+            the instrument's spectral resolution (INSTRUME/GRATING). Without it, area
             stays in the cube's native units -- same rule as fit_line.
         wave_unit: Wavelength unit string, needed alongside header for the conversion.
         continuum (array-like, optional): Pre-fitted continuum, same length as
             wavelength, subtracted before fitting each line. If None, one is fitted
             automatically via ``fit_continuum()`` -- the same fallback the GUI uses
             when you have not run Automatic Continuum interactively first.
+        contam_catalog (pd.DataFrame, optional): Non-CO/target lines (a 'line_wave_um'
+            column, same format as ``load_contaminating_lines_catalog()``) to give their
+            own component in the fit so they don't distort a nearby requested line's
+            amplitude -- the same optional catalog ``extract_co_flux``/CO Flux Map
+            already supports. None (default) skips this.
 
     Returns:
         list: List of dicts with fit results for each line:
@@ -351,9 +359,12 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     else:
         continuum_arr = _as_float_array(continuum)
 
-    # Fit Gaussian profiles to all lines, simultaneously within shared wavelength chunks
-    fit_pairs = _fit_hitran_lines_internal(wl, sp, hitran_lines, continuum_arr,
-                                            header=header, wave_unit=wave_unit)
+    # Fit Gaussian profiles to all lines at once via linear least squares. Contaminant fits
+    # (if contam_catalog was given) aren't surfaced here -- they exist to keep the requested
+    # lines' amplitudes honest, not as an additional reportable result.
+    fit_pairs, _contam_pairs = _fit_hitran_lines_internal(wl, sp, hitran_lines, continuum_arr,
+                                                           header=header, wave_unit=wave_unit,
+                                                           contam_lines=contam_catalog)
 
     return [
         {
