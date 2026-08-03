@@ -784,11 +784,35 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             ))
         return [r for r in results if r is not None], []
 
+    # A contaminant whose template is nearly degenerate with a requested line's own template
+    # (same shape, barely-shifted center) can't be reliably split from it by lstsq -- the two
+    # amplitudes become close to interchangeable rather than individually meaningful. Two
+    # same-width Gaussians separated by gap have correlation exp(-gap^2/(4*sigma^2)); below
+    # ~2 sigma that's already >=0.37, rising sharply as they get closer. Rather than report a
+    # split that isn't actually determined by the data, drop the contaminant's own template
+    # entirely when it's this close and flag the requested line it would have been confused
+    # with -- same (understood) blending the line would have had with no catalog loaded at
+    # all, instead of a falsely-confident-looking number.
+    near_coincident_notes = {}  # nearest CO line wavelength -> list of skipped contaminant wavelengths
+    kept_contam_rows = []
+    kept_contam_sigmas = []
+    for _, contam_row in contam_in_range.iterrows():
+        contam_wl = float(contam_row['line_wave_um'])
+        contam_sigma = _line_sigma(contam_wl, header, dx, fallback_sigma_pixels)
+        co_gaps = [(abs(contam_wl - wl), wl) for _, wl, _ in valid]
+        nearest_gap, nearest_co_wl = min(co_gaps) if co_gaps else (np.inf, None)
+        if nearest_gap < 2 * contam_sigma:
+            near_coincident_notes.setdefault(nearest_co_wl, []).append(contam_wl)
+            continue
+        kept_contam_rows.append(contam_row)
+        kept_contam_sigmas.append(contam_sigma)
+    contam_in_range = pd.DataFrame(kept_contam_rows) if kept_contam_rows else contam_in_range.iloc[0:0]
+    contam_sigmas = kept_contam_sigmas
+
     # Design matrix: one fixed-position, fixed-width Gaussian template per requested line
-    # (amplitude 1, solved for by lstsq), one more per contaminating line in range (so its
-    # flux has somewhere to go besides a real line), plus a constant term to absorb any small
-    # residual left after the global continuum subtraction.
-    contam_sigmas = [_line_sigma(wl, header, dx, fallback_sigma_pixels) for wl in contam_in_range['line_wave_um']]
+    # (amplitude 1, solved for by lstsq), one more per (non-degenerate) contaminating line in
+    # range, plus a constant term to absorb any small residual left after the global
+    # continuum subtraction.
     template_cols = [gaussian(x_data, 1.0, wl, sig) for (_, wl, _), sig in zip(valid, line_sigmas)]
     for contam_wl, contam_sigma in zip(contam_in_range['line_wave_um'], contam_sigmas):
         template_cols.append(gaussian(x_data, 1.0, contam_wl, contam_sigma))
@@ -799,13 +823,14 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     n_lines = len(valid)
     amplitudes = coeffs[:n_lines]
     contam_amplitudes = coeffs[n_lines:n_lines + len(contam_in_range)]
-    baseline_const = coeffs[-1]
-    # CO-only reconstruction (excludes every contaminant's own contribution) -- this is what
-    # each requested line's own displayed curve and R2 are judged against, so a nearby
-    # contaminant's flux (now correctly explained by its own component) doesn't inflate or
-    # deflate a CO line's own fit quality, and doesn't visually double up with the
-    # contaminant's own separately-drawn curve.
-    co_curve = A[:, :n_lines] @ amplitudes + baseline_const
+    # Joint reconstruction (every requested line + every contaminant + baseline) -- each
+    # requested line's own R2 is judged against this, so a genuinely close contaminant (now
+    # correctly modeled) doesn't make a fine fit look bad just because the model excludes
+    # real, nearby flux. Contaminants are still drawn as their own separate (own-component-
+    # only) curve, so for a line close enough that the two windows overlap, the red and green
+    # fills will overlap there too -- an accepted trade-off rather than hiding real flux from
+    # the fit-quality metric.
+    fitted_curve = A @ coeffs
 
     unit = get_wave_unit(header, wave_unit)
 
@@ -820,7 +845,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         local_mask = (x_data >= wl - half_width) & (x_data <= wl + half_width)
         x_local = x_data[local_mask]
         y_local = y_data[local_mask]
-        y_fit_local = co_curve[local_mask]
+        y_fit_local = fitted_curve[local_mask]
         baseline_local = baseline_window[local_mask]
         residuals_local = y_local - y_fit_local
 
@@ -848,6 +873,10 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
             message = (f"Warning: Poor fit quality (R² = {r_squared:.3f})" if r_squared < 0.5
                        else f"Success: Good fit (R² = {r_squared:.3f})")
+            if wl in near_coincident_notes:
+                skipped = ', '.join(f"{w:.6f}" for w in near_coincident_notes[wl])
+                message += (f" -- Note: possible unresolved contaminant(s) at {skipped} um, too "
+                            f"close (<2 sigma) to separate reliably; not modeled separately.")
             result = GaussianFitResult(
                 amplitude=amp, center=wl, sigma=sigma_i, fwhm=fwhm,
                 area=area, area_unit=area_unit, area_native=area_native,
