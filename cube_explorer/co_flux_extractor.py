@@ -669,6 +669,136 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits
 
 
+def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
+                                 header=None, wave_unit=None, chunk_size=0.1):
+    """
+    Fit a hand-picked list of HITRAN lines (e.g. from the species dialog) the same way
+    CO Flux Map fits its detected lines: simultaneously, in fixed wavelength chunks, via
+    fit_glines(). Lines that share a chunk are fit together with one local continuum, so
+    close/blended lines no longer get independent, uninformed fits that double-claim
+    overlapping flux -- the source of the flux-total mismatch against CO Flux Map.
+
+    Unlike extract_co_flux_from_spectrum, this does no SNR-based line detection -- the
+    caller has already chosen exactly which lines to fit.
+
+    Args:
+        spectrum_x, spectrum_y: full spectrum arrays (numpy or Quantity)
+        hitran_lines: list of dicts with 'lambda_micron' or 'wavelength', plus whatever
+            metadata (species, transition, ...) the caller wants carried through
+        continuum: continuum array matching spectrum_x/spectrum_y, subtracted before fitting
+        header, wave_unit: for the erg/s/cm^2 area conversion (same rule as fit_line)
+        chunk_size: wavelength chunk width, same units as spectrum_x (default 0.1, matching
+            CO Flux Map's default chunking)
+
+    Returns:
+        list of (line_dict, GaussianFitResult) pairs, one per line with a wavelength, in
+        the same order as `hitran_lines`.
+    """
+    spectrum_x = _extract_value_from_quantity(spectrum_x)
+    spectrum_y = _extract_value_from_quantity(spectrum_y)
+    continuum = _extract_value_from_quantity(continuum)
+
+    valid = []
+    for idx, line in enumerate(hitran_lines):
+        wl = line.get('lambda_micron')
+        if wl is None:
+            wl = line.get('wavelength')
+        if wl is not None:
+            valid.append((idx, float(wl), line))
+
+    if not valid or len(spectrum_x) < 4:
+        return []
+
+    y_corrected = spectrum_y - continuum
+
+    # max_amplitude per line, estimated the same simple way find_lines() does: local
+    # peak-to-trough over a small window around the catalog wavelength.
+    lines_data = []
+    for orig_idx, wl, line in valid:
+        idx_c = int(np.argmin(np.abs(spectrum_x - wl)))
+        w0, w1 = max(0, idx_c - 2), min(len(spectrum_x), idx_c + 3)
+        local = y_corrected[w0:w1]
+        max_amp = float(np.nanmax(local) - np.nanmin(local)) if len(local) else 0.0
+        lines_data.append((orig_idx, wl, line, max(max_amp, 1e-6)))
+
+    detco_lines = pd.DataFrame({
+        'line': [d[1] for d in lines_data],
+        'disposition': [1] * len(lines_data),
+        'max_amplitude': [d[3] for d in lines_data],
+    })
+    detcontaminating_lines = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude'])
+
+    wave_min = min(d[1] for d in lines_data)
+    wave_max = max(d[1] for d in lines_data)
+    n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
+    wave_boundaries = np.linspace(wave_min - chunk_size / 2, wave_max + chunk_size / 2, n_chunks)
+
+    try:
+        y_for_sigma = y_corrected - np.nanmin(y_corrected)
+        _, _, sigma = estimate_gaussian_params(spectrum_x, y_for_sigma)
+        if sigma is None or not np.isfinite(sigma) or sigma < 0.0001 or sigma > 0.1:
+            sigma = 0.005
+    except Exception:
+        sigma = 0.005
+
+    _, _, _, _, _, per_line_fits = fit_glines(
+        spectrum_x, y_corrected, wave_boundaries, detco_lines, detcontaminating_lines, sigma
+    )
+
+    # fit_glines groups/iterates by chunk, not input order -- match records back to their
+    # originating line dict by wavelength so species/transition metadata is preserved and
+    # results come back in the caller's original order.
+    by_wavelength = {round(f['wavelength'], 9): f for f in per_line_fits}
+    unit = get_wave_unit(header, wave_unit)
+
+    results = [None] * len(hitran_lines)
+    for orig_idx, wl, line, _max_amp in lines_data:
+        fit = by_wavelength.get(round(wl, 9))
+        if fit is None:
+            continue
+
+        residuals = fit['y_data'] - fit['y_fit']
+        baseline = continuum[np.isin(spectrum_x, fit['x_data'])]
+
+        if fit['success']:
+            fwhm = 2.355 * fit['sigma']
+            area_native = fit['area']
+            area_cgs = (convert_area_to_cgs(fit['amplitude'], fit['sigma'], fit['center'], header, unit)
+                        if header is not None else None)
+            if area_cgs is not None:
+                area, area_unit = area_cgs, "erg/s/cm²"
+            else:
+                area = area_native
+                flux_unit = header.get('BUNIT', 'flux') if header is not None else 'flux'
+                area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
+            ss_res = np.sum(residuals ** 2)
+            ss_tot = np.sum((fit['y_data'] - np.mean(fit['y_data'])) ** 2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            message = (f"Warning: Poor fit quality (R² = {r_squared:.3f})" if r_squared < 0.5
+                       else f"Success: Good fit (R² = {r_squared:.3f})")
+            result = GaussianFitResult(
+                amplitude=fit['amplitude'], center=fit['center'], sigma=fit['sigma'],
+                fwhm=fwhm, area=area, area_unit=area_unit, area_native=area_native,
+                baseline_slope=0.0, baseline_intercept=float(baseline[0]) if len(baseline) else 0.0,
+                x_data=fit['x_data'], y_data=fit['y_data'],
+                baseline=baseline, y_corrected=fit['y_data'],
+                y_fit=fit['y_fit'], residuals=residuals,
+                r_squared=r_squared, success=True, message=message,
+            )
+        else:
+            result = GaussianFitResult(
+                amplitude=0, center=wl, sigma=0, fwhm=0, area=0,
+                baseline_slope=0.0, baseline_intercept=float(baseline[0]) if len(baseline) else 0.0,
+                x_data=fit['x_data'], y_data=fit['y_data'],
+                baseline=baseline, y_corrected=fit['y_data'],
+                y_fit=fit['y_fit'], residuals=residuals,
+                r_squared=0, success=False, message=fit['message'],
+            )
+        results[orig_idx] = (line, result)
+
+    return [r for r in results if r is not None]
+
+
 # ================== High-Level Extraction ==================
 
 def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog,
