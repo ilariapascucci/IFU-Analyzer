@@ -647,8 +647,8 @@ def _line_sigma(wl, header, dx, fallback_sigma_pixels):
 
 
 def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
-                                 header=None, wave_unit=None, fallback_sigma_pixels=2.5,
-                                 display_window_pixels=20):
+                                 header=None, wave_unit=None, contam_lines=None,
+                                 fallback_sigma_pixels=2.5, display_window_pixels=20):
     """
     Fit a hand-picked list of HITRAN lines (e.g. from the species dialog) all at once via
     linear least squares (np.linalg.lstsq), instead of the nonlinear curve_fit machinery
@@ -682,6 +682,15 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     Unlike extract_co_flux_from_spectrum, this does no SNR-based line detection -- the
     caller has already chosen exactly which lines to fit.
 
+    A non-catalog feature sitting on or near a selected line (a real line from another
+    species that isn't in `hitran_lines`) has no template column of its own, so the solver
+    has nowhere to put its flux except the nearest line(s) it does know about -- inflating
+    their amplitude and dragging down their R². If `contam_lines` is given (the same optional
+    catalog CO Flux Map already supports, e.g. data/ContaminatingLines.csv), each contaminant
+    that falls in the fitted wavelength range gets its own template column too, so its flux is
+    absorbed by its own amplitude instead of leaking into a real CO line. Contaminant fits
+    aren't returned -- they exist purely to keep the requested lines' amplitudes honest.
+
     Args:
         spectrum_x, spectrum_y: full spectrum arrays (numpy or Quantity)
         hitran_lines: list of dicts with 'lambda_micron' or 'wavelength', plus whatever
@@ -690,6 +699,10 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             before fitting -- e.g. from fit_continuum()/fit_continuum_median_peaks().
         header, wave_unit: FITS header (for INSTRUME/GRATING -> spectral resolution, and the
             erg/s/cm^2 area conversion) and wavelength unit string.
+        contam_lines: optional pd.DataFrame with a 'line_wave_um' column (the same format
+            load_contaminating_lines_catalog() returns) -- non-CO lines to give their own
+            template column so they stop distorting nearby requested lines. None (default)
+            skips this entirely, same as when CO Flux Map has no catalog loaded.
         fallback_sigma_pixels: shared Gaussian sigma, as a multiple of the wavelength array's
             own pixel spacing, used only when the instrument's spectral resolution can't be
             determined (no header, or an unsupported instrument).
@@ -741,9 +754,16 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     y_data = y_corrected[win_mask]
     baseline_window = continuum[win_mask]
 
-    if len(x_data) < len(valid) + 1:
-        # Not enough points to solve for every line plus the baseline term -- fail all lines
-        # rather than silently return an under-determined/meaningless solution.
+    if contam_lines is not None and len(contam_lines) > 0 and len(x_data) > 0:
+        contam_wl_all = contam_lines['line_wave_um'].astype(float).values
+        contam_mask = (contam_wl_all >= x_data[0]) & (contam_wl_all <= x_data[-1])
+        contam_wavelengths = contam_wl_all[contam_mask]
+    else:
+        contam_wavelengths = np.array([])
+
+    if len(x_data) < len(valid) + len(contam_wavelengths) + 1:
+        # Not enough points to solve for every line (+ contaminant) plus the baseline term --
+        # fail all lines rather than silently return an under-determined/meaningless solution.
         for orig_idx, wl, line in valid:
             results[orig_idx] = (line, GaussianFitResult(
                 amplitude=0, center=wl, sigma=0, fwhm=0, area=0,
@@ -756,10 +776,14 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             ))
         return [r for r in results if r is not None]
 
-    # Design matrix: one fixed-position, fixed-width Gaussian template per line (amplitude 1,
-    # solved for by lstsq), plus a constant term to absorb any small residual left after the
-    # global continuum subtraction.
+    # Design matrix: one fixed-position, fixed-width Gaussian template per requested line
+    # (amplitude 1, solved for by lstsq), one more per contaminating line in range (so its
+    # flux has somewhere to go besides a real line), plus a constant term to absorb any small
+    # residual left after the global continuum subtraction.
     template_cols = [gaussian(x_data, 1.0, wl, sig) for (_, wl, _), sig in zip(valid, line_sigmas)]
+    for contam_wl in contam_wavelengths:
+        contam_sigma = _line_sigma(contam_wl, header, dx, fallback_sigma_pixels)
+        template_cols.append(gaussian(x_data, 1.0, contam_wl, contam_sigma))
     template_cols.append(np.ones_like(x_data))
     A = np.column_stack(template_cols)
 
