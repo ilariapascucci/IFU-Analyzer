@@ -39,6 +39,7 @@ from .gaussian_fitter import (
     get_wave_unit, _resolve_flux_unit, GaussianFitResult, convert_area_to_cgs,
     _extract_value_from_quantity,
 )
+from .rotational_diagram_fitter import get_spectral_resolution
 from .unit_converter import integrated_flux_to_cgs
 
 
@@ -486,11 +487,6 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         5. a pandas dataframe with the fitted continuum (a + b*wave) per wavelength, NaN outside
            any fitted chunk (df_continuum) -- useful for plotting the actual continuum trend
            rather than just its mean
-        6. a list of per-CO-line fit dicts (per_line_fits) -- the individual (amplitude, center,
-           sigma, area) each CO line's own Gaussian component converged to, plus a local
-           x_data/y_data/y_fit slice for plotting. Callers that only need the aggregate flux (e.g.
-           extract_co_flux_from_spectrum) can ignore this; it exists for callers that need per-line
-           detail (e.g. the Multi-Gaussian GUI tool) without re-deriving it from `par`.
 
     """
     sum_CO_area, sum_contaminating_area, mean_cont = 0, 0, 0
@@ -502,16 +498,15 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         'wave': xwave,
         'continuum': np.full(len(xwave), np.nan)
     })
-    per_line_fits = []
 
     print('===== Start fitting...')
     start_time = time.time()
-    
+
     for ii in range(len(list_wboundaries) - 1):
         xwave_min, xwave_max = list_wboundaries[ii], list_wboundaries[ii + 1]
         idx_xwave = (xwave >= xwave_min) & (xwave <= xwave_max)
         print('> Fitting wave range ', np.around(xwave_min, decimals=4), np.around(xwave_max, decimals=4))
-        
+
         # Filtering the DataFrame based on the disposition and the wavelength range: CO and contaminating lines
         filtered_colines = detco_lines[
             (detco_lines['disposition'] == 1) &
@@ -523,17 +518,17 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             (detcontaminating_lines['line'] >= xwave_min) &
             (detcontaminating_lines['line'] <= xwave_max)
         ]
-        
+
         # Find number of contaminating lines for Gauss fit and store
         ncont_lines = filtered_contaminatinglines.shape[0]
-        
+
         # Append contaminating lines at the end of the CO lines
         filtered_lines = pd.concat([filtered_colines, filtered_contaminatinglines], ignore_index=True)
-        
+
         if len(filtered_lines) == 0:
             print('  No lines to fit in this range')
             continue
-        
+
         # Create the NumPy array with input params
         p0_2d = np.column_stack((
             filtered_lines['max_amplitude'].astype(float),
@@ -543,7 +538,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         p0 = np.ravel(p0_2d)  # 1d array
         p0base, p0slope = np.min(yflux), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
         p0 = np.insert(p0, [0, 0], [p0base, p0slope])
-        
+
         # Create NumPy arrays with lower and upper bounds
         lower_bounds_2d = np.column_stack((
             [0.0] * len(filtered_lines),
@@ -552,7 +547,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         ))
         lower_bounds = np.ravel(lower_bounds_2d)
         lower_bounds = np.insert(lower_bounds, [0, 0], [p0base - 2 * np.abs(p0slope), -2 * np.abs(p0slope)])
-        
+
         upper_bounds_2d = np.column_stack((
             filtered_lines['max_amplitude'].astype(float) * 1.1,
             filtered_lines['line'] + sigma,
@@ -560,10 +555,10 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         ))
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
-        
+
         # Perform the fit
         try:
-            par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0, 
+            par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0,
                                  bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
             print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
         except (ValueError, RuntimeError) as e:
@@ -577,13 +572,6 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             sum_CO_area = sum_CO_area + current_sum_CO
             sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
             mean_cont = mean_cont + a
-            for _, coline in filtered_colines.iterrows():
-                per_line_fits.append({
-                    'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
-                    'sigma': 0.0, 'area': 0.0, 'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
-                    'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
-                    'success': False, 'message': f"Chunk fit failed: {e}",
-                })
             continue
 
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
@@ -591,7 +579,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         print(f'  [FIT DEBUG] continuum: a={a:.6e}, b={b:.6e}; {len(par)//3} Gaussian components')
         if len(par) >= 3:
             print(f'  [FIT DEBUG] First line: amp={par[0]:.6e}, center={par[1]:.6f}, sigma={par[2]:.6e}')
-        
+
         try:
             bfit = many_gaussians_list(xwave[idx_xwave], a, b, *par)
             df_residual.loc[idx_xwave, 'residual'] = yflux[idx_xwave] - bfit
@@ -612,33 +600,6 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             if current_sum_CO < 0:
                 print(f'  [FLUX WARN] Negative CO flux detected! intensities: {[par[jj] for jj in range(0, len(par) - 3 * ncont_lines, 3)]}')
 
-            # Per-line records for callers that need individual (amplitude, center, sigma) rather
-            # than just the chunk's summed flux (e.g. the Multi-Gaussian GUI tool). `filtered_lines`
-            # was built as CO lines first, then contaminating lines (co_flux_extractor.py:530), and
-            # `par` follows that same order in 3-parameter groups -- so filtered_colines.iloc[i]
-            # lines up with par[3*i:3*i+3].
-            min_freq_chunk = np.min(xwave[idx_xwave])
-            for i, (_, coline) in enumerate(filtered_colines.iterrows()):
-                amp_i, cen_i, sig_i = par[3 * i], par[3 * i + 1], par[3 * i + 2]
-                local_mask = (
-                    (xwave >= max(xwave_min, cen_i - 3 * abs(sig_i))) &
-                    (xwave <= min(xwave_max, cen_i + 3 * abs(sig_i)))
-                )
-                x_local = xwave[local_mask]
-                y_local = yflux[local_mask]
-                # Full chunk model (local continuum correction + every Gaussian in the chunk, not
-                # just this line's own) -- honestly reflects what explains the data here, including
-                # any overlap with a neighboring line sharing this chunk.
-                y_fit_local = a + b * (x_local - min_freq_chunk)
-                for jj in range(0, len(par), 3):
-                    y_fit_local = y_fit_local + gaussian(x_local, par[jj], par[jj + 1], par[jj + 2])
-                per_line_fits.append({
-                    'wavelength': coline['line'], 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
-                    'area': amp_i * sig_i * np.sqrt(2 * np.pi),
-                    'x_data': x_local, 'y_data': y_local, 'y_fit': y_fit_local,
-                    'success': True, 'message': 'Success',
-                })
-
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
             continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1, show='False')
@@ -646,37 +607,77 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             current_sum_CO = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
             a = np.nanmedian(continuum)
             df_continuum.loc[idx_xwave, 'continuum'] = continuum
-            for _, coline in filtered_colines.iterrows():
-                per_line_fits.append({
-                    'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
-                    'sigma': 0.0, 'area': 0.0, 'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
-                    'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
-                    'success': False, 'message': f"Chunk model evaluation failed: {e}",
-                })
 
         sum_CO_area = sum_CO_area + current_sum_CO
         sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
         mean_cont = mean_cont + a
         print(f'  [FLUX DEBUG] Cumulative CO flux: {sum_CO_area:.6e}, Cumulative contam: {sum_contaminating_area:.6e}')
-    
+
     end_time = time.time()
     print(f"Fitting took {np.around(end_time - start_time, decimals=1)} seconds")
     print('===== End fitting')
     print(f'[FINAL FLUX] Total CO flux: {sum_CO_area:.6e}, Total contam flux: {sum_contaminating_area:.6e}, Mean continuum: {mean_cont/(len(list_wboundaries) - 1):.6e}')
-    
+
     mean_cont = mean_cont / (len(list_wboundaries) - 1)
 
-    return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits
+    return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum
+
+
+def _line_sigma(wl, header, dx, fallback_sigma_pixels):
+    """
+    Instrumental Gaussian sigma for a line at wavelength `wl`, from the same spectral
+    resolution formulas already used for rotational-diagram upper limits
+    (get_spectral_resolution(), rotational_diagram_fitter.py) -- R(lambda) = lambda/delta_lambda,
+    MIRI/NIRSpec-specific -- converted FWHM (delta_lambda) -> sigma the same way the rest of
+    this codebase does (fwhm = 2.355 * sigma). Falls back to a small multiple of the
+    wavelength array's own pixel spacing when the instrument/grating can't be determined
+    (e.g. no header, or an instrument get_spectral_resolution doesn't cover).
+    """
+    try:
+        instrument = (header.get('INSTRUME', '') if header is not None else '').strip().upper()
+        if 'MIRI' in instrument:
+            R = get_spectral_resolution(wl, 'MIRI', header)
+        elif 'NIRSPEC' in instrument:
+            R = get_spectral_resolution(wl, 'NIRSpec', header)
+        else:
+            raise ValueError(f"No spectral resolution formula for instrument {instrument!r}")
+        return (wl / R) / 2.355
+    except Exception:
+        return fallback_sigma_pixels * dx
 
 
 def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
-                                 header=None, wave_unit=None, chunk_size=0.1):
+                                 header=None, wave_unit=None, fallback_sigma_pixels=2.5,
+                                 display_window_pixels=20):
     """
-    Fit a hand-picked list of HITRAN lines (e.g. from the species dialog) the same way
-    CO Flux Map fits its detected lines: simultaneously, in fixed wavelength chunks, via
-    fit_glines(). Lines that share a chunk are fit together with one local continuum, so
-    close/blended lines no longer get independent, uninformed fits that double-claim
-    overlapping flux -- the source of the flux-total mismatch against CO Flux Map.
+    Fit a hand-picked list of HITRAN lines (e.g. from the species dialog) all at once via
+    linear least squares (np.linalg.lstsq), instead of the nonlinear curve_fit machinery
+    fit_glines() uses. Every line's center is fixed at its catalog wavelength and its sigma
+    is fixed from the instrument's own spectral resolution (get_spectral_resolution(),
+    reused from rotational_diagram_fitter.py) -- these lines are unresolved, so width is a
+    property of the instrument, not something to re-estimate per line or per fit. Fixing
+    both turns the problem into a single design-matrix solve: one Gaussian template column
+    per line (evaluated with gaussian(), reused as-is) plus a constant term for any small
+    residual left after the global continuum subtraction, solved once with lstsq.
+
+    Why this instead of curve_fit (either independent per-line, or grouped/simultaneous):
+    - Speed: a linear solve doesn't need iterative refinement or a numerical Jacobian, so it
+      stays fast regardless of how many lines are selected -- no need to decide which lines
+      are "close enough" to fit together, which is exactly the judgment call that failed
+      twice in earlier attempts (a data-driven sigma estimate breaking down in a crowded
+      window, and curve_fit's cost blowing up for large simultaneous fits).
+    - Blending: ordinary least squares naturally apportions shared flux between overlapping
+      templates on its own -- no clustering step needed for correctness either.
+    - Fixes the original small/weak-line bug directly: a line's template position can't drift
+      away from its catalog wavelength the way auto_detect_boundaries's noisy search could,
+      so a weak line's amplitude is always solved for at the right place.
+
+    Trade-off, so it's explicit: centers are fixed, not fitted, so a small systemic
+    wavelength/velocity offset (a few lines in earlier test output showed ~0.0001-0.0005um
+    shifts from their catalog wavelength) isn't captured -- every line is evaluated exactly
+    at its catalog position. lstsq doesn't constrain amplitudes >= 0 the way curve_fit's
+    bounds do, so a non-detection can come back with a small negative amplitude from noise;
+    that's treated as success=False rather than clipped and reported as a real detection.
 
     Unlike extract_co_flux_from_spectrum, this does no SNR-based line detection -- the
     caller has already chosen exactly which lines to fit.
@@ -685,10 +686,16 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         spectrum_x, spectrum_y: full spectrum arrays (numpy or Quantity)
         hitran_lines: list of dicts with 'lambda_micron' or 'wavelength', plus whatever
             metadata (species, transition, ...) the caller wants carried through
-        continuum: continuum array matching spectrum_x/spectrum_y, subtracted before fitting
-        header, wave_unit: for the erg/s/cm^2 area conversion (same rule as fit_line)
-        chunk_size: wavelength chunk width, same units as spectrum_x (default 0.1, matching
-            CO Flux Map's default chunking)
+        continuum: continuum array matching spectrum_x/spectrum_y, subtracted once, globally,
+            before fitting -- e.g. from fit_continuum()/fit_continuum_median_peaks().
+        header, wave_unit: FITS header (for INSTRUME/GRATING -> spectral resolution, and the
+            erg/s/cm^2 area conversion) and wavelength unit string.
+        fallback_sigma_pixels: shared Gaussian sigma, as a multiple of the wavelength array's
+            own pixel spacing, used only when the instrument's spectral resolution can't be
+            determined (no header, or an unsupported instrument).
+        display_window_pixels: half-width, in pixels, of the local x_data/y_data/y_fit slice
+            kept per line for plotting and R² -- purely cosmetic, does not affect the fit
+            itself, which always solves for every line in the selection together.
 
     Returns:
         list of (line_dict, GaussianFitResult) pairs, one per line with a wavelength, in
@@ -698,101 +705,114 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     spectrum_y = _extract_value_from_quantity(spectrum_y)
     continuum = _extract_value_from_quantity(continuum)
 
+    results = [None] * len(hitran_lines)
     valid = []
     for idx, line in enumerate(hitran_lines):
         wl = line.get('lambda_micron')
         if wl is None:
             wl = line.get('wavelength')
-        if wl is not None:
-            valid.append((idx, float(wl), line))
+        if wl is None:
+            results[idx] = (line, GaussianFitResult(
+                amplitude=0, center=0, sigma=0, fwhm=0, area=0,
+                baseline_slope=0, baseline_intercept=0,
+                x_data=np.array([]), y_data=np.array([]),
+                baseline=np.array([]), y_corrected=np.array([]),
+                y_fit=np.array([]), residuals=np.array([]),
+                r_squared=0, success=False, message='Missing wavelength',
+            ))
+            continue
+        valid.append((idx, float(wl), line))
 
     if not valid or len(spectrum_x) < 4:
-        return []
+        return [r for r in results if r is not None]
 
     y_corrected = spectrum_y - continuum
 
-    # max_amplitude per line, estimated the same simple way find_lines() does: local
-    # peak-to-trough over a small window around the catalog wavelength.
-    lines_data = []
-    for orig_idx, wl, line in valid:
-        idx_c = int(np.argmin(np.abs(spectrum_x - wl)))
-        w0, w1 = max(0, idx_c - 2), min(len(spectrum_x), idx_c + 3)
-        local = y_corrected[w0:w1]
-        max_amp = float(np.nanmax(local) - np.nanmin(local)) if len(local) else 0.0
-        lines_data.append((orig_idx, wl, line, max(max_amp, 1e-6)))
+    # Pixel spacing -- only used as the fallback line-width source, and to pad/size the
+    # cosmetic display window; the fit itself is driven by the physical sigmas below.
+    dx = float(np.median(np.diff(spectrum_x)))
+    line_sigmas = [_line_sigma(wl, header, dx, fallback_sigma_pixels) for _, wl, _ in valid]
+    display_half_width = display_window_pixels * dx
 
-    detco_lines = pd.DataFrame({
-        'line': [d[1] for d in lines_data],
-        'disposition': [1] * len(lines_data),
-        'max_amplitude': [d[3] for d in lines_data],
-    })
-    detcontaminating_lines = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude'])
+    wavelengths = [wl for _, wl, _ in valid]
+    pad = 4 * max(line_sigmas)
+    win_mask = (spectrum_x >= min(wavelengths) - pad) & (spectrum_x <= max(wavelengths) + pad)
+    x_data = spectrum_x[win_mask]
+    y_data = y_corrected[win_mask]
+    baseline_window = continuum[win_mask]
 
-    wave_min = min(d[1] for d in lines_data)
-    wave_max = max(d[1] for d in lines_data)
-    n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
-    wave_boundaries = np.linspace(wave_min - chunk_size / 2, wave_max + chunk_size / 2, n_chunks)
+    if len(x_data) < len(valid) + 1:
+        # Not enough points to solve for every line plus the baseline term -- fail all lines
+        # rather than silently return an under-determined/meaningless solution.
+        for orig_idx, wl, line in valid:
+            results[orig_idx] = (line, GaussianFitResult(
+                amplitude=0, center=wl, sigma=0, fwhm=0, area=0,
+                baseline_slope=0, baseline_intercept=0,
+                x_data=x_data, y_data=y_data,
+                baseline=baseline_window, y_corrected=y_data,
+                y_fit=np.zeros_like(x_data), residuals=y_data,
+                r_squared=0, success=False,
+                message="Not enough spectral points in this wavelength range to fit",
+            ))
+        return [r for r in results if r is not None]
 
-    try:
-        y_for_sigma = y_corrected - np.nanmin(y_corrected)
-        _, _, sigma = estimate_gaussian_params(spectrum_x, y_for_sigma)
-        if sigma is None or not np.isfinite(sigma) or sigma < 0.0001 or sigma > 0.1:
-            sigma = 0.005
-    except Exception:
-        sigma = 0.005
+    # Design matrix: one fixed-position, fixed-width Gaussian template per line (amplitude 1,
+    # solved for by lstsq), plus a constant term to absorb any small residual left after the
+    # global continuum subtraction.
+    template_cols = [gaussian(x_data, 1.0, wl, sig) for (_, wl, _), sig in zip(valid, line_sigmas)]
+    template_cols.append(np.ones_like(x_data))
+    A = np.column_stack(template_cols)
 
-    _, _, _, _, _, per_line_fits = fit_glines(
-        spectrum_x, y_corrected, wave_boundaries, detco_lines, detcontaminating_lines, sigma
-    )
+    coeffs, _, _, _ = np.linalg.lstsq(A, y_data, rcond=None)
+    amplitudes = coeffs[:-1]
+    fitted_curve = A @ coeffs
 
-    # fit_glines groups/iterates by chunk, not input order -- match records back to their
-    # originating line dict by wavelength so species/transition metadata is preserved and
-    # results come back in the caller's original order.
-    by_wavelength = {round(f['wavelength'], 9): f for f in per_line_fits}
     unit = get_wave_unit(header, wave_unit)
 
-    results = [None] * len(hitran_lines)
-    for orig_idx, wl, line, _max_amp in lines_data:
-        fit = by_wavelength.get(round(wl, 9))
-        if fit is None:
-            continue
+    for i, (orig_idx, wl, line) in enumerate(valid):
+        amp = float(amplitudes[i])
+        sigma_i = line_sigmas[i]
+        fwhm = 2.355 * sigma_i
+        half_width = max(display_half_width, 3 * sigma_i)
+        local_mask = (x_data >= wl - half_width) & (x_data <= wl + half_width)
+        x_local = x_data[local_mask]
+        y_local = y_data[local_mask]
+        y_fit_local = fitted_curve[local_mask]
+        baseline_local = baseline_window[local_mask]
+        residuals_local = y_local - y_fit_local
 
-        residuals = fit['y_data'] - fit['y_fit']
-        baseline = continuum[np.isin(spectrum_x, fit['x_data'])]
-
-        if fit['success']:
-            fwhm = 2.355 * fit['sigma']
-            area_native = fit['area']
-            area_cgs = (convert_area_to_cgs(fit['amplitude'], fit['sigma'], fit['center'], header, unit)
-                        if header is not None else None)
+        if amp <= 0:
+            result = GaussianFitResult(
+                amplitude=0, center=wl, sigma=sigma_i, fwhm=fwhm, area=0,
+                baseline_slope=0.0, baseline_intercept=float(baseline_local[0]) if len(baseline_local) else 0.0,
+                x_data=x_local, y_data=y_local,
+                baseline=baseline_local, y_corrected=y_local,
+                y_fit=y_fit_local, residuals=residuals_local,
+                r_squared=0, success=False,
+                message=f"No significant signal (fitted amplitude {amp:.3g} <= 0)",
+            )
+        else:
+            area_native = amp * sigma_i * np.sqrt(2 * np.pi)
+            area_cgs = convert_area_to_cgs(amp, sigma_i, wl, header, unit) if header is not None else None
             if area_cgs is not None:
                 area, area_unit = area_cgs, "erg/s/cm²"
             else:
                 area = area_native
                 flux_unit = header.get('BUNIT', 'flux') if header is not None else 'flux'
                 area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
-            ss_res = np.sum(residuals ** 2)
-            ss_tot = np.sum((fit['y_data'] - np.mean(fit['y_data'])) ** 2)
+            ss_res = np.sum(residuals_local ** 2)
+            ss_tot = np.sum((y_local - np.mean(y_local)) ** 2)
             r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
             message = (f"Warning: Poor fit quality (R² = {r_squared:.3f})" if r_squared < 0.5
                        else f"Success: Good fit (R² = {r_squared:.3f})")
             result = GaussianFitResult(
-                amplitude=fit['amplitude'], center=fit['center'], sigma=fit['sigma'],
-                fwhm=fwhm, area=area, area_unit=area_unit, area_native=area_native,
-                baseline_slope=0.0, baseline_intercept=float(baseline[0]) if len(baseline) else 0.0,
-                x_data=fit['x_data'], y_data=fit['y_data'],
-                baseline=baseline, y_corrected=fit['y_data'],
-                y_fit=fit['y_fit'], residuals=residuals,
+                amplitude=amp, center=wl, sigma=sigma_i, fwhm=fwhm,
+                area=area, area_unit=area_unit, area_native=area_native,
+                baseline_slope=0.0, baseline_intercept=float(baseline_local[0]) if len(baseline_local) else 0.0,
+                x_data=x_local, y_data=y_local,
+                baseline=baseline_local, y_corrected=y_local,
+                y_fit=y_fit_local, residuals=residuals_local,
                 r_squared=r_squared, success=True, message=message,
-            )
-        else:
-            result = GaussianFitResult(
-                amplitude=0, center=wl, sigma=0, fwhm=0, area=0,
-                baseline_slope=0.0, baseline_intercept=float(baseline[0]) if len(baseline) else 0.0,
-                x_data=fit['x_data'], y_data=fit['y_data'],
-                baseline=baseline, y_corrected=fit['y_data'],
-                y_fit=fit['y_fit'], residuals=residuals,
-                r_squared=0, success=False, message=fit['message'],
             )
         results[orig_idx] = (line, result)
 

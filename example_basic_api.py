@@ -14,7 +14,8 @@ from astropy.io import fits
 
 # Direct imports from GUI modules - use what already works
 from cube_explorer.data_loader import CubeData
-from cube_explorer.gaussian_fitter import fit_gaussian_to_line, fit_hitran_lines as fit_hitran_lines_internal
+from cube_explorer.gaussian_fitter import fit_gaussian_to_line
+from cube_explorer.co_flux_extractor import fit_hitran_lines_collective
 from cube_explorer.line_catalog import fetch_hitran_data
 from cube_explorer.continuum_dialog import ContinuumParametersDialog  # Get default params
 from cube_explorer.gui_continuum import GuiContinuumMixin
@@ -194,36 +195,29 @@ def main():
             status = "[DEEP]" if depth > local_continuum * 0.05 else "[SHALLOW]"
             print(f"    {i:2d}. {wl_center:.9f} um  {status}  Continuum={local_continuum:.1f}, Depth={depth:.1f} (at idx={idx})")
         
-        # Now fit all lines
-        print(f"\n  Fitting all lines with gaussian_fitter...")
-        line_results = fit_hitran_lines_internal(
+        # Now fit all lines simultaneously, in shared wavelength chunks (the same
+        # collective approach CO Flux Map uses) rather than one independent fit per line.
+        print(f"\n  Fitting all lines with fit_hitran_lines_collective...")
+        line_pairs = fit_hitran_lines_collective(
             wavelength, spectrum,
             hitran_lines,
+            continuum=np.zeros_like(spectrum),
             header=None,
             wave_unit=None
         )
-        
-        # PROBLEM: fit_hitran_lines is refitting and moving lines
-        # SOLUTION: Use HITRAN wavelengths directly, not the refitted ones!
-        print(f"\n  ** USING HITRAN WAVELENGTHS DIRECTLY (not the misfitted ones)")
-        for i, (hitran_line, fit_result) in enumerate(zip(hitran_lines, line_results), 1):
-            hitran_wl = hitran_line['wavelength']
-            # OVERRIDE: Use the HITRAN wavelength, not the fitted one
-            fit_result['wavelength'] = hitran_wl
-        
-        # DEBUG: Show the corrected comparison
-        print(f"\n  CORRECTED - HITRAN WAVELENGTHS (not refitted):")
-        print(f"  {'#':<3} | {'HITRAN':<11} | {'Using':<11} | {'Transition':<20}")
+
+        print(f"\n  {'#':<3} | {'HITRAN':<11} | {'Fitted':<11} | {'Transition':<20}")
         print(f"  {'-'*60}")
-        for i, (hitran_line, fit_result) in enumerate(zip(hitran_lines, line_results), 1):
+        for i, (hitran_line, result) in enumerate(line_pairs, 1):
             hitran_wl = hitran_line['wavelength']
             transition = hitran_line['transition']
-            print(f"  {i:<3} | {hitran_wl:<11.7f} | {hitran_wl:<11.7f} | {transition:<20}")
-        
-        # Filter to 4.7-4.8 range with small shift tolerance
-        all_lines = [r for r in line_results if r['wavelength'] and 4.7 <= r['wavelength'] <= 4.8]
-        detected = [r for r in all_lines if r['success']]
-        print(f"\n  Using HITRAN wavelengths: {len(all_lines)} lines in 4.7-4.8 um range")
+            fitted_wl = result.center if result.success else float('nan')
+            print(f"  {i:<3} | {hitran_wl:<11.7f} | {fitted_wl:<11.7f} | {transition:<20}")
+
+        # Filter to 4.7-4.8 range
+        all_lines = [r for _, r in line_pairs if 4.7 <= r.center <= 4.8]
+        detected = [r for r in all_lines if r.success]
+        print(f"\n  Lines in 4.7-4.8 um range: {len(all_lines)}")
         print(f"  Successfully fitted (success=True): {len(detected)} lines")
         
         

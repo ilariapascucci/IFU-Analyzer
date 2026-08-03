@@ -177,10 +177,10 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
 from .gaussian_fitter import (
     fit_gaussian_to_line,
     calculate_equivalent_width,
-    fit_hitran_lines as _fit_hitran_lines_internal,
     fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
     export_residual_cube_fits as _export_residual_cube_fits_internal,
 )
+from .co_flux_extractor import fit_hitran_lines_collective as _fit_hitran_lines_internal
 from .line_catalog import fetch_hitran_data
 
 def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
@@ -269,9 +269,10 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     Fit HITRAN spectral lines automatically using database lookup.
 
     This is the same algorithm as the GUI's **Multi-Gaussian Fit** button, not a
-    separate approximation of it: each line gets an independent fit in an
-    adaptively-sized, continuum-subtracted window, via the same fit_line-style fitter
-    documented on the 1D fitting page.
+    separate approximation of it: lines are fit simultaneously in fixed wavelength
+    chunks with one shared local continuum per chunk (via ``fit_glines``), so lines
+    close enough to share a chunk are disentangled together rather than each getting
+    an independent fit that can double-claim overlapping flux.
 
     Args:
         wavelength (array-like): Wavelength/frequency values
@@ -350,9 +351,27 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     else:
         continuum_arr = _as_float_array(continuum)
 
-    # Fit Gaussian profiles to all lines
-    return _fit_hitran_lines_internal(wl, sp, hitran_lines, continuum_arr,
-                                       header=header, wave_unit=wave_unit)
+    # Fit Gaussian profiles to all lines, simultaneously within shared wavelength chunks
+    fit_pairs = _fit_hitran_lines_internal(wl, sp, hitran_lines, continuum_arr,
+                                            header=header, wave_unit=wave_unit)
+
+    return [
+        {
+            'wavelength': result.center if result.success else (line.get('lambda_micron') or line.get('wavelength')),
+            'species': line.get('species', 'Unknown'),
+            'transition': line.get('transition', 'N/A'),
+            'amplitude': result.amplitude,
+            'sigma': result.sigma,
+            'fwhm': result.fwhm,
+            'area': result.area,
+            'area_native': result.area_native,
+            'area_unit': result.area_unit,
+            'r_squared': result.r_squared,
+            'success': result.success,
+            'message': result.message,
+        }
+        for line, result in fit_pairs
+    ]
 
 
 def measure_equivalent_width(fit_result, wavelength=None, continuum_spectrum=None):

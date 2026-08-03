@@ -3,11 +3,11 @@ from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QDialog, QVBoxLayout, 
 from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
-from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, auto_detect_boundaries
+from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
-from .co_flux_extractor import fit_continuum_median_peaks
+from .co_flux_extractor import fit_continuum_median_peaks, fit_hitran_lines_collective
 
 # Below this many samples in the fit window, a 1D fit will not run without a noise
 # region. The noise value itself does not enter the fit; the gate exists because a
@@ -366,27 +366,11 @@ STATUS: {result.message}
         else:
             continuum_y = self.continuum_fitted
         
-        fit_results = []
-        for line in self.plotted_lines:
-            try:
-                line_center = line.get('lambda_micron') or line.get('wavelength')
-                if line_center is None: continue
-                line_center = float(line_center)
-                
-                x1, x2 = auto_detect_boundaries(line_center, spectrum_x, spectrum_y, continuum_y=continuum_y, threshold_percent=15.0)
-                region_mask = (spectrum_x >= x1) & (spectrum_x <= x2)
-                
-                result = fit_gaussian_to_line(
-                    x1, x2, spectrum_x[region_mask], spectrum_y[region_mask] - continuum_y[region_mask],
-                    peak_x=line_center, noise_min=None, noise_max=None,
-                    header=self.cube_data.header, wave_unit=self.cube_data.wave_unit
-                )
-                
-                if result.success:
-                    result.baseline = continuum_y[region_mask].copy()
-                    fit_results.append({'line': line, 'result': result})
-            except Exception:
-                continue
+        fit_pairs = fit_hitran_lines_collective(
+            spectrum_x, spectrum_y, self.plotted_lines, continuum_y,
+            header=self.cube_data.header, wave_unit=self.cube_data.wave_unit
+        )
+        fit_results = [{'line': line, 'result': result} for line, result in fit_pairs if result.success]
         
         if not fit_results:
             QMessageBox.warning(self, "Fit Failed", "Could not fit any HITRAN lines.")
