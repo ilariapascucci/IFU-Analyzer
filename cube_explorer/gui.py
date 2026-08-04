@@ -35,6 +35,7 @@ from .data_loader import CubeData
 from .gui_continuum import GuiContinuumMixin
 from .gui_gaussian import GuiGaussianMixin
 from .gui_coflux import GuiCOFluxMixin
+from .gui_spectrum import GuiSpectrumMixin
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
@@ -246,7 +247,7 @@ class CustomNavigationToolbar(NavigationToolbar):
 
 
 
-class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin):
+class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin, GuiSpectrumMixin):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Cube Explorer")
@@ -472,6 +473,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
 
         # Initialize plots
         self._init_plots()
+
+        # Spectrum tab bar (Full/Left/Right)
+        self._init_spectrum_tabs()
 
         # Shape selection controls
         self._init_shape_controls()
@@ -1007,6 +1011,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin)
         self.last_selection_right = None
         # Region-selection interaction state per side: "idle" | "drawing" | "placed" | "editing"
         self.region_state = {"left": "idle", "right": "idle"}
+        # Which spectrum tab is the active one shown as the main plot trace
+        self.active_spectrum_tab = "full"
         self.hitran_lines = []  # Store HITRAN lines separately
         self.plotted_lines = []  # Store currently plotted spectral lines
         self.plotted_artists = []  # Store matplotlib artist objects for plotted lines
