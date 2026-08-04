@@ -424,9 +424,10 @@ STATUS: {result.message}
 
             label = f"Contaminant ({species})" if species not in seen_species else ''
             seen_species.add(species)
-            contam_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, color='green', linewidth=2.5, alpha=0.9, label=label, zorder=12)
-            contam_fill = ax.fill_between(result.x_data, baseline_norm, baseline_norm + y_fit_norm, color='green', alpha=0.25, zorder=8)
-            self.multi_gauss_artists.extend([contam_line, contam_fill])
+            # Outline only, no fill -- enough to show "this peak is accounted for and it isn't
+            # CO" without visually competing with the red fill for the requested lines.
+            contam_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, color='green', linewidth=2, alpha=0.9, label=label, zorder=12)
+            self.multi_gauss_artists.append(contam_line)
 
         ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw_idle()
