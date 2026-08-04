@@ -1146,7 +1146,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         
         print(f"  [DEBUG] Before fit_glines: sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
         print(f"  [DEBUG] Fitting {len(detected_co)} CO + {len(detected_contam)} contaminating lines")
-        co_flux, contam_flux, mean_cont, residuals, continuum_curve, _per_line_fits = fit_glines(
+        co_flux, contam_flux, mean_cont, residuals, continuum_curve = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
             detected_co, detected_contam, sigma
         )
