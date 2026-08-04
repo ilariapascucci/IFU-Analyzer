@@ -581,7 +581,7 @@ class RegionSelector:
             # absolute center for plotting
             cx_abs = xmin + cx_rel
             cy_abs = ymin + cy_rel
-            patch = Circle((cx_abs, cy_abs), r, edgecolor='cyan', facecolor='none', lw=1.5)
+            patch = Circle((cx_abs, cy_abs), r, edgecolor='lime', facecolor='none', lw=1.5)
             shape_type = 'circle'
 
         elif self.active_shape == "⬭":  # Ellipse
@@ -592,13 +592,13 @@ class RegionSelector:
             mask = ((xx - cx_rel) / a)**2 + ((yy - cy_rel) / b)**2 <= 1
             cx_abs = xmin + cx_rel
             cy_abs = ymin + cy_rel
-            patch = Ellipse((cx_abs, cy_abs), 2*a, 2*b, edgecolor='cyan', facecolor='none', lw=1.5)
+            patch = Ellipse((cx_abs, cy_abs), 2*a, 2*b, edgecolor='lime', facecolor='none', lw=1.5)
             shape_type = 'ellipse'
 
         else:  # Rectangle
             mask = np.ones((height, width), dtype=bool)
             patch = Rectangle((xmin, ymin), width-1, height-1,
-                              edgecolor='cyan', facecolor='none', lw=1.5)
+                              edgecolor='lime', facecolor='none', lw=1.5)
             shape_type = 'rectangle'
 
         # Call the callback with the results
@@ -660,16 +660,16 @@ class RegionSelector:
             cx_abs = xmin + (width - 1) / 2.0
             cy_abs = ymin + (height - 1) / 2.0
             r = min((width - 1) / 2.0, (height - 1) / 2.0)
-            patch = Circle((cx_abs, cy_abs), r, edgecolor='cyan', facecolor='none', lw=1.5)
+            patch = Circle((cx_abs, cy_abs), r, edgecolor='lime', facecolor='none', lw=1.5)
         elif shape_type == 'ellipse':
             cx_abs = xmin + (width - 1) / 2.0
             cy_abs = ymin + (height - 1) / 2.0
             a = (width - 1) / 2.0
             b = (height - 1) / 2.0
-            patch = Ellipse((cx_abs, cy_abs), 2*a, 2*b, edgecolor='cyan', facecolor='none', lw=1.5)
+            patch = Ellipse((cx_abs, cy_abs), 2*a, 2*b, edgecolor='lime', facecolor='none', lw=1.5)
         else:
             patch = Rectangle((xmin, ymin), width-1, height-1,
-                            edgecolor='cyan', facecolor='none', lw=1.5)
+                            edgecolor='lime', facecolor='none', lw=1.5)
         
         return mask, patch, coords
 
@@ -709,7 +709,7 @@ class RegionSelector:
         path = Path(verts - [xmin, ymin])
         mask = path.contains_points(coords).reshape(ny, nx)
         
-        patch = Polygon(verts, edgecolor='cyan', facecolor='none', lw=1.5)
+        patch = Polygon(verts, edgecolor='lime', facecolor='none', lw=1.5)
         # Store vertices on the patch so they can be accessed when copying
         patch.lasso_verts = verts
         

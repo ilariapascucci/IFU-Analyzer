@@ -1136,11 +1136,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     self.spec_canvas.draw()
                 except Exception:
                     pass
-                # New cube: reset to the Full tab (a previously-active Left/Right
-                # tab would otherwise be left pointing at the old cube's stale
+                # New cube: reset slice-indicator "explicitly set" state and
+                # reset to the Full tab (a previously-active Left/Right tab
+                # would otherwise be left pointing at the old cube's stale
                 # selection). setCurrentIndex fires currentChanged, which
                 # refreshes the display - unless it's already 0, in which case
                 # plot_spectrum() above already shows the right thing.
+                self._reset_slice_indicators()
                 self.spec_tab_bar.setCurrentIndex(0)
             except Exception as plot_error:
                 QMessageBox.warning(self, "Plot Error", f"Error plotting spectrum: {str(plot_error)}")
@@ -1922,6 +1924,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         # Update the vertical line in the spectrum plot
         self.spec_plotter.update_slice_indicator(idx, self.active_target)
+        self._mark_slice_indicator_set(self.active_target)
         try:
             self.spec_canvas.draw()
         except Exception:
@@ -2489,6 +2492,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             # so Left/Right will correctly come back empty unless Full is active).
             self._spec_tab_line_left = None
             self._spec_tab_line_right = None
+            self._reset_slice_indicators()
             self._refresh_active_spectrum_tab()
 
             self.spec_canvas.draw()

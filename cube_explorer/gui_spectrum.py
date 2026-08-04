@@ -29,6 +29,22 @@ class GuiSpectrumMixin:
         # (the "Full" trace reuses spec_plotter's own global_line).
         self._spec_tab_line_left = None
         self._spec_tab_line_right = None
+        # Whether the user has explicitly picked a wavelength via "Set
+        # Left/Right Slice" yet - the slice-indicator line for a side stays
+        # hidden until then, rather than appearing at the default first-slice
+        # position immediately on cube load.
+        self._slice_indicator_set = {"left": False, "right": False}
+
+    def _mark_slice_indicator_set(self, target):
+        """Record that the user explicitly picked a wavelength for this side
+        (called from _on_spec_click after update_slice_indicator) and refresh
+        visibility so it now shows up on the appropriate tab(s)."""
+        self._slice_indicator_set[target] = True
+        self._refresh_active_spectrum_tab()
+
+    def _reset_slice_indicators(self):
+        """Reset indicator visibility state - call whenever a cube (re)loads."""
+        self._slice_indicator_set = {"left": False, "right": False}
 
     def _on_spectrum_tab_changed(self, index):
         """Handle the user switching the active spectrum tab."""
@@ -72,12 +88,15 @@ class GuiSpectrumMixin:
         """Lazily (re)create the dedicated Left/Right trace lines, if missing
         or if the spectrum plotter's axes was replaced (e.g. a new cube was
         loaded, which builds a brand-new SpectrumPlotter/axes)."""
+        # Darker shades of the slice-indicator colors (cyan/magenta), so the
+        # region trace and its matching indicator line are visibly related
+        # but still distinguishable when both are showing on the same tab.
         ax = self.spec_plotter.ax
         if self._spec_tab_line_left is None or self._spec_tab_line_left.axes is not ax:
-            self._spec_tab_line_left, = ax.step([], [], where='mid', color='cyan', label='Left', zorder=2)
+            self._spec_tab_line_left, = ax.step([], [], where='mid', color='darkcyan', label='Left', zorder=2)
             self._spec_tab_line_left.set_visible(False)
         if self._spec_tab_line_right is None or self._spec_tab_line_right.axes is not ax:
-            self._spec_tab_line_right, = ax.step([], [], where='mid', color='magenta', label='Right', zorder=2)
+            self._spec_tab_line_right, = ax.step([], [], where='mid', color='darkmagenta', label='Right', zorder=2)
             self._spec_tab_line_right.set_visible(False)
 
     def _refresh_active_spectrum_tab(self):
@@ -86,12 +105,10 @@ class GuiSpectrumMixin:
         Full always shows only the original spectrum (spec_plotter.global_line).
         Left/Right show only their own dedicated line, and only if that side
         currently has a selection - otherwise the tab is empty (no fallback to
-        Full). Y-limits are computed directly from whichever line is actually
-        visible, instead of ax.relim()/autoscale_view(), which factor in ALL
-        lines in the axes (including the slice-indicator vlines, fixed at the
-        original spectrum's scale) and previously left a smaller-amplitude
-        region trace squashed near the bottom of a y-range sized for the
-        original spectrum.
+        Full). Slice-indicator lines only show once explicitly set, and only
+        on the tab(s) they're relevant to (Left's line on Full+Left, Right's
+        on Full+Right) - the OTHER side's indicator has no bearing on what
+        you're looking at, so it stays hidden.
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             return
@@ -119,37 +136,57 @@ class GuiSpectrumMixin:
                     continue
             line.set_visible(False)
 
-        self._rescale_to_visible_lines()
+        indicator_set = getattr(self, '_slice_indicator_set', {"left": False, "right": False})
+        vline_left = getattr(self.spec_plotter, 'vline_left', None)
+        vline_right = getattr(self.spec_plotter, 'vline_right', None)
+        if vline_left is not None:
+            vline_left.set_visible(indicator_set.get("left", False) and tab in ("full", "left"))
+        if vline_right is not None:
+            vline_right.set_visible(indicator_set.get("right", False) and tab in ("full", "right"))
+
+        self._apply_shared_y_scale()
+
+        # Rebuild the legend from only the currently-visible lines, so hidden
+        # traces/indicators don't leave a stale entry behind.
+        ax = self.spec_plotter.ax
+        visible = [
+            line for line in (global_line, self._spec_tab_line_left, self._spec_tab_line_right, vline_left, vline_right)
+            if line is not None and line.get_visible()
+        ]
+        try:
+            ax.legend(handles=visible, loc='upper right', fontsize=8)
+        except Exception:
+            pass
 
         try:
             self.spec_canvas.draw()
         except Exception:
             pass
 
-    def _rescale_to_visible_lines(self):
-        """Set y-limits from only the currently visible trace(s), and resize
-        the slice-indicator vlines to match (they're meant to span the full
-        plot height, not stay fixed at whatever scale was active when they
-        were first drawn)."""
-        ax = self.spec_plotter.ax
-        lines = (self.spec_plotter.global_line, self._spec_tab_line_left, self._spec_tab_line_right)
-        visible_ys = [
-            np.asarray(line.get_ydata(), dtype=float)
-            for line in lines
-            if line is not None and line.get_visible() and len(line.get_ydata())
-        ]
-        if not visible_ys:
-            return
+    def _apply_shared_y_scale(self):
+        """Set y-limits from the ORIGINAL spectrum's range, applied on every
+        tab - not just whichever line happens to be visible.
 
-        all_y = np.concatenate(visible_ys)
-        finite = all_y[np.isfinite(all_y)]
+        A region's flux can never exceed the full spectrum's (it's a subset
+        of the same cube), so a single fixed scale lets you see at a glance
+        how a region's peak compares to the total, instead of each tab
+        auto-scaling to only its own data and hiding that relationship.
+        """
+        original = getattr(self, 'original_spectrum', None)
+        if original is None:
+            return
+        y = np.asarray(original, dtype=float)
+        finite = y[np.isfinite(y)]
         if finite.size == 0:
             return
 
         ymin, ymax = float(finite.min()), float(finite.max())
         pad = (ymax - ymin) * 0.05 if ymax > ymin else (abs(ymin) * 0.05 or 1.0)
-        ax.set_ylim(ymin - pad, ymax + pad)
+        ymin, ymax = ymin - pad, ymax + pad
+
+        ax = self.spec_plotter.ax
+        ax.set_ylim(ymin, ymax)
 
         for vline in (self.spec_plotter.vline_left, self.spec_plotter.vline_right):
             if vline is not None:
-                vline.set_ydata([ymin - pad, ymax + pad])
+                vline.set_ydata([ymin, ymax])

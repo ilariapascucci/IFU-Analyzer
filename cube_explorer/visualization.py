@@ -145,10 +145,15 @@ class SpectrumPlotter:
                 ylabel = "Flux [units unknown]"
             self.ax.set_ylabel(ylabel)
 
-            # Create slice indicator lines spanning current y-limits
+            # Create slice indicator lines spanning current y-limits. Start
+            # hidden - they're only shown once the user explicitly picks a
+            # wavelength via "Set Left/Right Slice", not at the default
+            # first-slice position immediately on load.
             ymin, ymax = self.ax.get_ylim()
             self.vline_left = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='cyan', lw=1.5, label='Left slice', zorder=3)[0]
             self.vline_right = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='magenta', lw=1.5, label='Right slice', zorder=3)[0]
+            self.vline_left.set_visible(False)
+            self.vline_right.set_visible(False)
             self.ax.set_ylim(ymin, ymax)
 
             # Finalize legend
