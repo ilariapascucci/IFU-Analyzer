@@ -21,32 +21,55 @@ You can remove a line by clicking on it in the spectrum or by clicking on the **
 Load Contaminating Lines
 ========================
 
-Additionally (and optionally), you can load contaminating lines to automatically remove unwanted lines.
+Additionally (and optionally), you can load a catalog of contaminating (non-target) lines
+so both **CO Flux Map** and **Multi-Gaussian Fit** (below) can account for them instead of
+letting their flux distort a nearby CO line's measurement.
 
 1. Click on **Load Contaminating Lines** and load a .csv file with unwanted lines
 
 IMPORTANT: Make sure this file has a column called 'wavelength'.
 
+Loading the catalog doesn't retroactively update results you've already produced -- run
+**CO Flux Map** / **Multi-Gaussian Fit** again after loading it for the fit to pick it up.
+
 Multi-Gaussian Fit
 =====================
 
-Fit each currently-plotted HITRAN line independently on the 1D spectrum — one Gaussian
-per line, using the same fitter as :doc:`gaussian_fitting_1d`. ``fit_hitran_lines()`` in
-``cube_explorer.api`` runs this exact algorithm (see *Using the API* below); it is not an
-approximation of the GUI button, the two share the same code path.
+Fit every currently-plotted HITRAN line at once via linear least squares. Each line's
+center is fixed at its catalog wavelength, and its width comes from the instrument's own
+spectral resolution rather than being fitted -- these lines are instrumentally unresolved,
+so width is a property of the instrument, not something to estimate per line or per fit.
+With both fixed, solving for every line's amplitude becomes a single linear solve instead
+of an iterative nonlinear one: no risk of a weak line's fit window drifting off it, and
+overlapping lines are disentangled correctly because they're all solved for together
+rather than one at a time. ``fit_hitran_lines()`` in ``cube_explorer.api`` runs this exact
+algorithm (see *Using the API* below); it is not an approximation of the GUI button, the
+two share the same code path.
+
+If you've loaded a contaminating-lines catalog (above), any contaminant that falls in the
+fitted range *and* is far enough from every requested line (at least ~2σ) gets its own
+component too, so its flux is absorbed there instead of leaking into a nearby CO line's
+amplitude. It's drawn as a green outline on the plot and listed separately in the results
+-- never counted toward the CO line total. A contaminant too close to a requested line to
+reliably tell the two apart (<2σ) isn't given its own component; that CO line's result
+gets a note instead, flagging the unresolved nearby contaminant rather than reporting an
+unreliable split.
 
 1. Perform automatic continuum on the 1D spectrum by clicking on **Continuum Tools → Automatic Continuum → Continuum Line**
 2. Click on **Multi-Gaussian Fit**
 
 A Gaussian curve is overlaid on the spectrum for each plotted line, and a results window
-opens with one block per line.
+opens with one block per line, plus a separate section listing any contaminating lines
+that got their own component.
 
-.. figure:: ../_static/co_multigauss_fit.png
-   :alt: Ten fitted CO v=1->0 P-branch Gaussians overlaid on a NIRSpec spectrum
+.. figure:: ../_static/multigaussian_w_cont_lines.png
+   :alt: 56 fitted CO v=1->0 Gaussians overlaid on a NIRSpec spectrum, with one H2 contaminant shown separately in green
    :width: 100%
 
-   Ten CO v=1→0 P-branch lines (J=5→14, 4.70–4.80 µm) fitted simultaneously via
-   **Multi-Gaussian Fit** on a NIRSpec G395H spectrum.
+   56 CO v=1→0 lines (4.40–4.80 µm) fitted simultaneously via **Multi-Gaussian Fit** on a
+   NIRSpec G395H spectrum. The green curve near 4.69 µm is an H2 line from the loaded
+   contaminating-lines catalog, fit as its own component so it doesn't distort the
+   neighboring CO lines' amplitudes.
 
 Reading the results
 --------------------
@@ -57,9 +80,15 @@ Each line's block reports two groups of numbers:
   copied straight from the HITRAN entry, not measured. Useful for cross-checking that the
   fit actually locked onto the line you think it did.
 - **Fitted parameters** — ``Center``, ``Amplitude``, ``Sigma``, ``FWHM``, ``Integrated
-  Area`` and ``R²``, exactly as on the single-line results window (see
-  :doc:`gaussian_fitting_1d` for what each one means). Units follow the same rules as the
-  1D page — ``Integrated Area`` is erg/s/cm² wherever the header supports the conversion.
+  Area`` and ``R²``. ``Center`` is always exactly the catalog wavelength -- it's fixed, not
+  fitted -- and ``Sigma`` follows the instrument's spectral resolution rather than varying
+  line to line the way a free nonlinear fit's would. Units follow the same rules as the 1D
+  page (:doc:`gaussian_fitting_1d`) — ``Integrated Area`` is erg/s/cm² wherever the header
+  supports the conversion.
+
+A **CONTAMINATING LINES** section follows the fitted lines whenever any contaminant got its
+own component: wavelength, species, amplitude and area for each -- these are not part of
+the CO line count or total above.
 
 Using the API
 --------------
@@ -67,19 +96,22 @@ Using the API
 .. code-block:: python
 
     from cube_explorer.api import load_cube, fit_hitran_lines
+    from cube_explorer.line_catalog import load_contaminating_lines_catalog
 
     cube = load_cube("data.fits")
+    contam = load_contaminating_lines_catalog("path/to/ContaminatingLines.csv")  # optional
 
     results = fit_hitran_lines(
         wavelength=cube.wavelength,
         spectrum=cube.spectrum,
         molecule='CO',
-        wavelength_min=4.70,
+        wavelength_min=4.40,
         wavelength_max=4.80,
-        v_upper=1,             # v=1->0 P-branch, same filter as the HITRAN dialog
+        v_upper=1,              # v=1->0, same filter as the HITRAN dialog
         v_lower=0,
-        header=cube.header,    # Required for the erg/s/cm2 conversion
+        header=cube.header,     # Required for the erg/s/cm2 conversion
         wave_unit=cube.wave_unit,
+        contam_catalog=contam,  # omit (or None) to skip contaminant handling entirely
     )
 
     detected = [r for r in results if r['success']]
@@ -87,8 +119,23 @@ Using the API
     for r in sorted(detected, key=lambda r: r['wavelength']):
         print(f"  {r['wavelength']:.6f} um  area={r['area']:.4e} {r['area_unit']}  R2={r['r_squared']:.4f}")
 
+.. code-block:: text
+
+    Fitted 56/56 lines
+      4.402678 um  area=1.0164e-16 erg/s/cm²  R2=0.3553
+      4.407041 um  area=1.2351e-16 erg/s/cm²  R2=0.8765
+      4.411493 um  area=1.9398e-16 erg/s/cm²  R2=0.8866
+      ...
+      4.773583 um  area=6.2902e-16 erg/s/cm²  R2=0.8193
+      4.783296 um  area=5.7530e-16 erg/s/cm²  R2=0.5895
+      4.793124 um  area=5.8123e-16 erg/s/cm²  R2=0.6617
+
 This reproduces the worked example above exactly: fitted centers, areas and R² match the
-screenshot's results window to the last reported digit, because it is the same fit.
+screenshot's results window to the last reported digit, because it is the same fit
+(``fit_hitran_lines`` is what the GUI button calls). Contaminating lines from ``contam``
+that got their own component aren't in ``results`` at all -- they exist purely to keep the
+CO lines' amplitudes honest; if you need their values too, they're only currently exposed
+through the GUI's results text, not this return value.
 
 .. important::
 
@@ -122,13 +169,13 @@ The progress dialog updates per pixel as the cube is processed.
 
 **Output Products**
 
-.. figure:: ../_static/co_flux_map.png
+.. figure:: ../_static/cofluxmap.png
    :alt: CO rovibrational flux map, showing a bright compact source
    :width: 100%
 
    Integrated CO flux per pixel.
 
-.. figure:: ../_static/co_detections_map.png
+.. figure:: ../_static/detmap.png
    :alt: Map of the number of CO lines detected per pixel
    :width: 100%
 
@@ -143,11 +190,11 @@ The progress dialog updates per pixel as the cube is processed.
 
 With **Pixel Select** on (the default), clicking a pixel on either map opens that pixel's fit:
 
-.. figure:: ../_static/co_pixel_spec.png
+.. figure:: ../_static/co_pixel_spect.png
    :alt: Pixel spectrum zoomed to the fit range, with continuum and CO line markers
    :width: 100%
 
-   Spectrum for the brightest pixel, zoomed to the fitted wavelength range, with the fitted
+   Spectrum for an individual pixel, zoomed to the fitted wavelength range, with the fitted
    continuum and each CO line marked in red.
 
 Turn **Pixel Select** off to zoom/pan the map freely instead of reopening this dialog on every
@@ -164,10 +211,24 @@ Extract CO fluxes programmatically for single spectra or full data cubes, using
 .. note::
 
    This is a **different algorithm** from **Multi-Gaussian Fit** / ``fit_hitran_lines()``
-   above, not a scripted version of it. ``extract_co_flux``/``create_co_flux_map`` fit all
-   lines in a wavelength chunk *simultaneously* against one shared continuum (via
-   ``co_flux_extractor.py``), rather than one Gaussian per line independently. The two do
-   not produce identical numbers for the same spectrum.
+   above, not a scripted version of it, and the two don't produce identical totals for the
+   same spectrum -- expect them to land within roughly 10-20%, not match exactly.
+   ``extract_co_flux``/``create_co_flux_map`` fit every line in a 0.1 µm wavelength chunk
+   *simultaneously* against one shared local continuum, via nonlinear least squares
+   (``curve_fit``), and only count a line if it clears a per-pixel signal-to-noise
+   threshold first (``snr_threshold``, default 3σ). ``fit_hitran_lines`` fits every
+   requested line at once via linear least squares with fixed centers/widths, with no SNR
+   gate at all -- it fits whatever you selected, weak lines included.
+
+   The gap between the two is usually dominated by that SNR gate, not a disagreement about
+   the underlying signal: CO Flux Map fits pixel-by-pixel, and a real but weak line often
+   can't clear 3σ in any single noisy pixel, so it contributes nothing to that pixel's
+   flux. ``fit_hitran_lines`` fits one combined, much higher-SNR spectrum directly, so it
+   can recover that same real flux. Summed over many pixels this adds up to CO Flux Map
+   running systematically lower. Lowering ``snr_threshold`` narrows the gap, but that's
+   trading a real problem (missing weak, real flux) for a different one (counting noise as
+   detections) -- it isn't a way to make either number more correct, just a way to make
+   them agree.
 
 **Extract CO Flux from a Single Spectrum**
 

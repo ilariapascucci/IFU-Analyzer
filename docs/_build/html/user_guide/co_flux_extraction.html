@@ -138,30 +138,51 @@ You can remove a line by clicking on it in the spectrum or by clicking on the <s
 </section>
 <section id="load-contaminating-lines">
 <h2>Load Contaminating Lines<a class="headerlink" href="#load-contaminating-lines" title="Link to this heading"></a></h2>
-<p>Additionally (and optionally), you can load contaminating lines to automatically remove unwanted lines.</p>
+<p>Additionally (and optionally), you can load a catalog of contaminating (non-target) lines
+so both <strong>CO Flux Map</strong> and <strong>Multi-Gaussian Fit</strong> (below) can account for them instead of
+letting their flux distort a nearby CO line’s measurement.</p>
 <ol class="arabic simple">
 <li><p>Click on <strong>Load Contaminating Lines</strong> and load a .csv file with unwanted lines</p></li>
 </ol>
 <p>IMPORTANT: Make sure this file has a column called ‘wavelength’.</p>
+<p>Loading the catalog doesn’t retroactively update results you’ve already produced – run
+<strong>CO Flux Map</strong> / <strong>Multi-Gaussian Fit</strong> again after loading it for the fit to pick it up.</p>
 </section>
 <section id="multi-gaussian-fit">
 <h2>Multi-Gaussian Fit<a class="headerlink" href="#multi-gaussian-fit" title="Link to this heading"></a></h2>
-<p>Fit each currently-plotted HITRAN line independently on the 1D spectrum — one Gaussian
-per line, using the same fitter as <a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a>. <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code> in
-<code class="docutils literal notranslate"><span class="pre">cube_explorer.api</span></code> runs this exact algorithm (see <em>Using the API</em> below); it is not an
-approximation of the GUI button, the two share the same code path.</p>
+<p>Fit every currently-plotted HITRAN line at once via linear least squares. Each line’s
+center is fixed at its catalog wavelength, and its width comes from the instrument’s own
+spectral resolution rather than being fitted – these lines are instrumentally unresolved,
+so width is a property of the instrument, not something to estimate per line or per fit.
+With both fixed, solving for every line’s amplitude becomes a single linear solve instead
+of an iterative nonlinear one: no risk of a weak line’s fit window drifting off it, and
+overlapping lines are disentangled correctly because they’re all solved for together
+rather than one at a time. <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code> in <code class="docutils literal notranslate"><span class="pre">cube_explorer.api</span></code> runs this exact
+algorithm (see <em>Using the API</em> below); it is not an approximation of the GUI button, the
+two share the same code path.</p>
+<p>If you’ve loaded a contaminating-lines catalog (above), any contaminant that falls in the
+fitted range <em>and</em> is far enough from every requested line (at least ~2σ) gets its own
+component too, so its flux is absorbed there instead of leaking into a nearby CO line’s
+amplitude. It’s drawn as a green outline on the plot and listed separately in the results
+– never counted toward the CO line total. A contaminant too close to a requested line to
+reliably tell the two apart (&lt;2σ) isn’t given its own component; that CO line’s result
+gets a note instead, flagging the unresolved nearby contaminant rather than reporting an
+unreliable split.</p>
 <ol class="arabic simple">
 <li><p>Perform automatic continuum on the 1D spectrum by clicking on <strong>Continuum Tools → Automatic Continuum → Continuum Line</strong></p></li>
 <li><p>Click on <strong>Multi-Gaussian Fit</strong></p></li>
 </ol>
 <p>A Gaussian curve is overlaid on the spectrum for each plotted line, and a results window
-opens with one block per line.</p>
+opens with one block per line, plus a separate section listing any contaminating lines
+that got their own component.</p>
 <figure class="align-default" id="id1">
-<a class="reference internal image-reference" href="../_images/co_multigauss_fit.png"><img alt="Ten fitted CO v=1-&gt;0 P-branch Gaussians overlaid on a NIRSpec spectrum" src="../_images/co_multigauss_fit.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/multigaussian_w_cont_lines.png"><img alt="56 fitted CO v=1-&gt;0 Gaussians overlaid on a NIRSpec spectrum, with one H2 contaminant shown separately in green" src="../_images/multigaussian_w_cont_lines.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">Ten CO v=1→0 P-branch lines (J=5→14, 4.70–4.80 µm) fitted simultaneously via
-<strong>Multi-Gaussian Fit</strong> on a NIRSpec G395H spectrum.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+<p><span class="caption-text">56 CO v=1→0 lines (4.40–4.80 µm) fitted simultaneously via <strong>Multi-Gaussian Fit</strong> on a
+NIRSpec G395H spectrum. The green curve near 4.69 µm is an H2 line from the loaded
+contaminating-lines catalog, fit as its own component so it doesn’t distort the
+neighboring CO lines’ amplitudes.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 <section id="reading-the-results">
@@ -172,27 +193,35 @@ opens with one block per line.</p>
 copied straight from the HITRAN entry, not measured. Useful for cross-checking that the
 fit actually locked onto the line you think it did.</p></li>
 <li><p><strong>Fitted parameters</strong> — <code class="docutils literal notranslate"><span class="pre">Center</span></code>, <code class="docutils literal notranslate"><span class="pre">Amplitude</span></code>, <code class="docutils literal notranslate"><span class="pre">Sigma</span></code>, <code class="docutils literal notranslate"><span class="pre">FWHM</span></code>, <code class="docutils literal notranslate"><span class="pre">Integrated</span>
-<span class="pre">Area</span></code> and <code class="docutils literal notranslate"><span class="pre">R²</span></code>, exactly as on the single-line results window (see
-<a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a> for what each one means). Units follow the same rules as the
-1D page — <code class="docutils literal notranslate"><span class="pre">Integrated</span> <span class="pre">Area</span></code> is erg/s/cm² wherever the header supports the conversion.</p></li>
+<span class="pre">Area</span></code> and <code class="docutils literal notranslate"><span class="pre">R²</span></code>. <code class="docutils literal notranslate"><span class="pre">Center</span></code> is always exactly the catalog wavelength – it’s fixed, not
+fitted – and <code class="docutils literal notranslate"><span class="pre">Sigma</span></code> follows the instrument’s spectral resolution rather than varying
+line to line the way a free nonlinear fit’s would. Units follow the same rules as the 1D
+page (<a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a>) — <code class="docutils literal notranslate"><span class="pre">Integrated</span> <span class="pre">Area</span></code> is erg/s/cm² wherever the header
+supports the conversion.</p></li>
 </ul>
+<p>A <strong>CONTAMINATING LINES</strong> section follows the fitted lines whenever any contaminant got its
+own component: wavelength, species, amplitude and area for each – these are not part of
+the CO line count or total above.</p>
 </section>
 <section id="using-the-api">
 <h3>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_hitran_lines</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_contaminating_lines_catalog</span>
 
 <span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+<span class="n">contam</span> <span class="o">=</span> <span class="n">load_contaminating_lines_catalog</span><span class="p">(</span><span class="s2">&quot;path/to/ContaminatingLines.csv&quot;</span><span class="p">)</span>  <span class="c1"># optional</span>
 
 <span class="n">results</span> <span class="o">=</span> <span class="n">fit_hitran_lines</span><span class="p">(</span>
     <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
     <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
     <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;CO&#39;</span><span class="p">,</span>
-    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.70</span><span class="p">,</span>
+    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.40</span><span class="p">,</span>
     <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.80</span><span class="p">,</span>
-    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>             <span class="c1"># v=1-&gt;0 P-branch, same filter as the HITRAN dialog</span>
+    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>              <span class="c1"># v=1-&gt;0, same filter as the HITRAN dialog</span>
     <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>    <span class="c1"># Required for the erg/s/cm2 conversion</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>     <span class="c1"># Required for the erg/s/cm2 conversion</span>
     <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+    <span class="n">contam_catalog</span><span class="o">=</span><span class="n">contam</span><span class="p">,</span>  <span class="c1"># omit (or None) to skip contaminant handling entirely</span>
 <span class="p">)</span>
 
 <span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
@@ -201,8 +230,22 @@ fit actually locked onto the line you think it did.</p></li>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um  area=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;area&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;area_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">  R2=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;r_squared&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Fitted 56/56 lines
+  4.402678 um  area=1.0164e-16 erg/s/cm²  R2=0.3553
+  4.407041 um  area=1.2351e-16 erg/s/cm²  R2=0.8765
+  4.411493 um  area=1.9398e-16 erg/s/cm²  R2=0.8866
+  ...
+  4.773583 um  area=6.2902e-16 erg/s/cm²  R2=0.8193
+  4.783296 um  area=5.7530e-16 erg/s/cm²  R2=0.5895
+  4.793124 um  area=5.8123e-16 erg/s/cm²  R2=0.6617
+</pre></div>
+</div>
 <p>This reproduces the worked example above exactly: fitted centers, areas and R² match the
-screenshot’s results window to the last reported digit, because it is the same fit.</p>
+screenshot’s results window to the last reported digit, because it is the same fit
+(<code class="docutils literal notranslate"><span class="pre">fit_hitran_lines</span></code> is what the GUI button calls). Contaminating lines from <code class="docutils literal notranslate"><span class="pre">contam</span></code>
+that got their own component aren’t in <code class="docutils literal notranslate"><span class="pre">results</span></code> at all – they exist purely to keep the
+CO lines’ amplitudes honest; if you need their values too, they’re only currently exposed
+through the GUI’s results text, not this return value.</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>As with <code class="docutils literal notranslate"><span class="pre">fit_line</span></code>, pass <code class="docutils literal notranslate"><span class="pre">header</span></code>/<code class="docutils literal notranslate"><span class="pre">wave_unit</span></code> to get <code class="docutils literal notranslate"><span class="pre">area</span></code> in erg/s/cm² —
@@ -231,14 +274,14 @@ you’ll be offered the cached results instead of re-running.</p>
 <p>The progress dialog updates per pixel as the cube is processed.</p>
 <p><strong>Output Products</strong></p>
 <figure class="align-default" id="id2">
-<a class="reference internal image-reference" href="../_images/co_flux_map.png"><img alt="CO rovibrational flux map, showing a bright compact source" src="../_images/co_flux_map.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/cofluxmap.png"><img alt="CO rovibrational flux map, showing a bright compact source" src="../_images/cofluxmap.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">Integrated CO flux per pixel.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 <figure class="align-default" id="id3">
-<a class="reference internal image-reference" href="../_images/co_detections_map.png"><img alt="Map of the number of CO lines detected per pixel" src="../_images/co_detections_map.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/detmap.png"><img alt="Map of the number of CO lines detected per pixel" src="../_images/detmap.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">Number of CO lines detected per pixel, for the same cube. Switch between this and the flux
@@ -253,10 +296,10 @@ map with the <strong>Display</strong> dropdown in the results window.</span><a c
 <p><strong>Inspecting Individual Pixels</strong></p>
 <p>With <strong>Pixel Select</strong> on (the default), clicking a pixel on either map opens that pixel’s fit:</p>
 <figure class="align-default" id="id4">
-<a class="reference internal image-reference" href="../_images/co_pixel_spec.png"><img alt="Pixel spectrum zoomed to the fit range, with continuum and CO line markers" src="../_images/co_pixel_spec.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/co_pixel_spect.png"><img alt="Pixel spectrum zoomed to the fit range, with continuum and CO line markers" src="../_images/co_pixel_spect.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">Spectrum for the brightest pixel, zoomed to the fitted wavelength range, with the fitted
+<p><span class="caption-text">Spectrum for an individual pixel, zoomed to the fitted wavelength range, with the fitted
 continuum and each CO line marked in red.</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
 </figcaption>
 </figure>
@@ -272,10 +315,23 @@ click.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This is a <strong>different algorithm</strong> from <strong>Multi-Gaussian Fit</strong> / <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code>
-above, not a scripted version of it. <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_co_flux_map</span></code> fit all
-lines in a wavelength chunk <em>simultaneously</em> against one shared continuum (via
-<code class="docutils literal notranslate"><span class="pre">co_flux_extractor.py</span></code>), rather than one Gaussian per line independently. The two do
-not produce identical numbers for the same spectrum.</p>
+above, not a scripted version of it, and the two don’t produce identical totals for the
+same spectrum – expect them to land within roughly 10-20%, not match exactly.
+<code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_co_flux_map</span></code> fit every line in a 0.1 µm wavelength chunk
+<em>simultaneously</em> against one shared local continuum, via nonlinear least squares
+(<code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>), and only count a line if it clears a per-pixel signal-to-noise
+threshold first (<code class="docutils literal notranslate"><span class="pre">snr_threshold</span></code>, default 3σ). <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines</span></code> fits every
+requested line at once via linear least squares with fixed centers/widths, with no SNR
+gate at all – it fits whatever you selected, weak lines included.</p>
+<p>The gap between the two is usually dominated by that SNR gate, not a disagreement about
+the underlying signal: CO Flux Map fits pixel-by-pixel, and a real but weak line often
+can’t clear 3σ in any single noisy pixel, so it contributes nothing to that pixel’s
+flux. <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines</span></code> fits one combined, much higher-SNR spectrum directly, so it
+can recover that same real flux. Summed over many pixels this adds up to CO Flux Map
+running systematically lower. Lowering <code class="docutils literal notranslate"><span class="pre">snr_threshold</span></code> narrows the gap, but that’s
+trading a real problem (missing weak, real flux) for a different one (counting noise as
+detections) – it isn’t a way to make either number more correct, just a way to make
+them agree.</p>
 </div>
 <p><strong>Extract CO Flux from a Single Spectrum</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_co_flux</span>
