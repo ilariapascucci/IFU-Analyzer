@@ -49,7 +49,6 @@ class SpectrumPlotter:
         ax (matplotlib.axes.Axes): Axes for spectrum plotting
         wavelength (numpy.ndarray): Wavelength/velocity values
         wave_unit (str): Unit for spectral axis (Å, µm, or km/s)
-        region_lines (dict): Storage for plot lines by region label
         original_spectrum_plotted (bool): Track if main spectrum is plotted
         vline_left (matplotlib.lines.Line2D): Left slice indicator line
         vline_right (matplotlib.lines.Line2D): Right slice indicator line
@@ -68,7 +67,6 @@ class SpectrumPlotter:
         self.ax = self.fig.add_subplot(111)
         self.wavelength = wavelength
         self.wave_unit = wave_unit
-        self.region_lines = {}
         self.original_spectrum_plotted = False
         self.vline_left = None
         self.vline_right = None
@@ -118,7 +116,6 @@ class SpectrumPlotter:
                 x = np.arange(len(spectrum))
 
             # Reset line registries
-            self.region_lines = {}
             self.vline_left = None
             self.vline_right = None
 
@@ -163,67 +160,6 @@ class SpectrumPlotter:
         self.fig.tight_layout()
 
         return self.ax
-
-    def plot_region_spectrum(self, spectrum, color='cyan', label=None):
-        """
-        Plot the spectrum from a selected region.
-
-        Handles:
-        - Removing previous region line with same label
-        - Plotting new region spectrum
-        - Maintaining legend entries
-        - Color coding for different regions
-
-        Args:
-            spectrum (numpy.ndarray): 1D array of spectral values for region
-            color (str, optional): Color for the plot line. Defaults to 'cyan'
-            label (str, optional): Label for legend. If None, uses 'Selection'
-
-        Note:
-            - Maintains dictionary of region lines for updating
-            - Updates legend automatically
-            - Preserves original spectrum in plot
-            - Uses consistent color scheme for different sides
-        """
-
-        print(f"DEBUG plot_region_spectrum called for label={label}")
-        print("Existing lines before plotting:", len(self.ax.lines))
-
-        if not hasattr(self, "region_lines"):
-            self.region_lines = {}
-
-        # Use the provided label (e.g. 'Left Selection' or 'Right Selection') so
-        # the legend shows which side the selection came from.
-        plot_label = label if label is not None else 'Selection'
-
-        # Remove previous line for this specific label if present
-        if plot_label in self.region_lines:
-            try:
-                self.region_lines[plot_label].remove()
-            except Exception:
-                pass
-
-        # Use raw spectrum data (no automatic normalization)
-        # Normalization is controlled by the Normalize button
-        y = np.asarray(spectrum).astype(np.float32)
-        print(f"Region spectrum plotted (no auto-normalization)")
-
-        # Plot region line as steps (discrete wavelength bins)
-        if self.wavelength is not None:
-            x = _extract_wavelength_values(self.wavelength)
-        else:
-            x = np.arange(len(spectrum))
-        line, = self.ax.step(x, y, where='mid', color=color, label=plot_label, zorder=2)
-        self.region_lines[plot_label] = line
-
-        # Update legend to include slice vlines and selection lines
-        try:
-            self.ax.legend(loc='upper right', fontsize=8)
-        except Exception:
-            pass
-
-        print(f"DEBUG plot_region_spectrum added line, total lines now: {len(self.ax.lines)}")
-
 
     def plot_gaussian_fit(self, result):
         """

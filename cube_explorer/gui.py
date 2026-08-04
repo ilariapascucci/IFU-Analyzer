@@ -1136,6 +1136,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     self.spec_canvas.draw()
                 except Exception:
                     pass
+                # New cube: reset to the Full tab (a previously-active Left/Right
+                # tab would otherwise be left pointing at the old cube's stale
+                # selection). setCurrentIndex fires currentChanged, which
+                # refreshes the display - unless it's already 0, in which case
+                # plot_spectrum() above already shows the right thing.
+                self.spec_tab_bar.setCurrentIndex(0)
             except Exception as plot_error:
                 QMessageBox.warning(self, "Plot Error", f"Error plotting spectrum: {str(plot_error)}")
             
@@ -1563,31 +1569,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         print(f"REGION DEBUG [{target}] mask pixels={n_pixels}, mask_shape={full_mask.shape}")
         print(f"REGION DEBUG [left] type={type(self.last_selection_left)}, shape={getattr(self.last_selection_left, 'shape', None)}")
 
-        # Compute and plot region spectrum on top of original
-        region_spectrum = self.cube_data.compute_region_spectrum(full_mask)
-        if region_spectrum is not None and hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
-            # Multiply mean by n_pixels to get summed spectrum comparable to the main spectrum
-            try:
-                region_sum = region_spectrum * float(n_pixels) if n_pixels is not None else region_spectrum
-            except Exception:
-                region_sum = region_spectrum
+        # Note: the region spectrum is no longer plotted as an always-visible
+        # overlay here - it's shown only when this side's spectrum tab is
+        # active, via the _refresh_active_spectrum_tab() call below.
 
-            self.spec_plotter.plot_region_spectrum(
-                region_sum,
-                color='cyan' if target == "left" else 'magenta',
-                label=selection['label']
-            )
-            try:
-                # show a quick sample of values for debugging
-                first_vals = region_spectrum[:8] if len(region_spectrum) >= 8 else region_spectrum
-                print(f"REGION SPECTRUM [{target}] n_pixels={n_pixels} first_vals={first_vals[:8]}")
-            except Exception:
-                pass
-            try:
-                self.spec_canvas.draw()
-            except Exception as e:
-                print(f"[DEBUG] Error updating spectrum canvas: {e}")
-        
         # Ensure the slice canvas is redrawn to show handles (use draw() for live updates)
         try:
             if target == "left":
@@ -1705,21 +1690,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             except Exception as e:
                 print(f"[DEBUG] Error removing handle collection: {e}")
 
-        # Remove region spectrum line from the spectrum plotter (side-specific label)
-        try:
-            label = sel.get('label') if isinstance(sel, dict) else None
-            if label and hasattr(self, 'spec_plotter') and label in getattr(self.spec_plotter, 'region_lines', {}):
-                try:
-                    self.spec_plotter.region_lines[label].remove()
-                except Exception:
-                    pass
-                try:
-                    del self.spec_plotter.region_lines[label]
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
         # Redraw slice and spectrum
         if target == "left":
             self.slice1_canvas.draw()
@@ -1737,7 +1707,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         self._set_region_state(target, "idle")
 
-        # Fall back to the original spectrum on this side's tab, if active
+        # This side's tab (if active) now has no selection - _refresh_active_spectrum_tab
+        # will correctly show it as empty rather than falling back to Full.
         if self.active_spectrum_tab == target:
             self._refresh_active_spectrum_tab()
 
@@ -1829,29 +1800,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 else:
                     self.slice2_canvas.draw()
                 
-                # Compute and plot single-pixel spectrum (fast path)
-                region_spectrum = self.cube_data.get_pixel_spectrum(x, y)
-                if region_spectrum is not None and hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
-                    # Remove any existing 'Selection' region line (visualizer will handle canonical label)
-                    try:
-                        # remove any previous region line for this side
-                        prev_label = f'{target.capitalize()} Selection'
-                        if prev_label in getattr(self.spec_plotter, 'region_lines', {}):
-                            self.spec_plotter.region_lines[prev_label].remove()
-                            del self.spec_plotter.region_lines[prev_label]
-                    except Exception:
-                        pass
-
-                    self.spec_plotter.plot_region_spectrum(
-                        region_spectrum,
-                        color='cyan' if target == "left" else 'magenta',
-                        label=f'{target.capitalize()} Selection'
-                    )
-                    try:
-                        self.spec_canvas.draw()
-                    except Exception:
-                        pass
-
                 self.active_shape = None
                 self.active_target = None
                 self._set_region_state(target, "placed")
@@ -2531,18 +2479,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                         pass
                 self.spec_plotter.gauss_fit_artists = []
             
-            # Clear region lines
-            if hasattr(self.spec_plotter, 'region_lines'):
-                for line in self.spec_plotter.region_lines.values():
-                    try:
-                        line.remove()
-                    except Exception:
-                        pass
-                self.spec_plotter.region_lines = {}
-            
             # Reload spectrum from original
             if hasattr(self, 'original_spectrum') and self.original_spectrum is not None:
                 self.spec_plotter.plot_spectrum(self.original_spectrum)
+
+            # ax.clear() above dropped the dedicated Left/Right tab lines too -
+            # force them to be recreated, and show whatever the active tab
+            # should now display (last_selection_left/right were reset above,
+            # so Left/Right will correctly come back empty unless Full is active).
+            self._spec_tab_line_left = None
+            self._spec_tab_line_right = None
+            self._refresh_active_spectrum_tab()
+
             self.spec_canvas.draw()
         
         # Reset slice displays to index 0

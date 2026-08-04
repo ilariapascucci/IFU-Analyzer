@@ -8,8 +8,9 @@ from PyQt5.QtWidgets import QTabBar
 
 class GuiSpectrumMixin:
     """
-    Mixin class handling the Full/Left/Right spectrum tab bar: which spectrum
-    is the "active" one shown as the main trace on the spectrum plot.
+    Mixin class handling the Full/Left/Right spectrum tab bar. Each tab is
+    fully isolated - Full always shows the original spectrum alone, Left/Right
+    show only their own side's selection (nothing, if that side has none).
     """
 
     def _init_spectrum_tabs(self):
@@ -24,6 +25,10 @@ class GuiSpectrumMixin:
 
         # Index -> key mapping. Fixed order, tabs are never inserted/reordered.
         self._spectrum_tab_keys = ["full", "left", "right"]
+        # Dedicated Left/Right trace lines, created lazily in _ensure_tab_lines
+        # (the "Full" trace reuses spec_plotter's own global_line).
+        self._spec_tab_line_left = None
+        self._spec_tab_line_right = None
 
     def _on_spectrum_tab_changed(self, index):
         """Handle the user switching the active spectrum tab."""
@@ -31,64 +36,120 @@ class GuiSpectrumMixin:
             self.active_spectrum_tab = self._spectrum_tab_keys[index]
             self._refresh_active_spectrum_tab()
 
-    def _get_spectrum_for_tab(self, key):
-        """Return the flux array that should be shown for the given tab key.
+    def _get_selection_spectrum(self, sel):
+        """Compute the flux array for one stored selection dict (point or region).
 
-        "full" is always the original spectrum. "left"/"right" mirror that
-        side's current selection (point, region, or - with no selection -
-        falls back to the original spectrum, same as at launch).
+        Region (non-point) spectra are scaled by pixel count to stay on a
+        comparable absolute scale to the summed original spectrum - matching
+        what the region-overlay line always showed before it was replaced by
+        these tabs.
         """
-        if key == "full":
-            return self.original_spectrum
-
-        sel = self.last_selection_left if key == "left" else self.last_selection_right
         if not sel:
-            return self.original_spectrum
-
+            return None
         if sel.get("shape") == "*":
             x, y = sel["coords"]
             return self.cube_data.get_pixel_spectrum(x, y)
 
         mask = sel.get("mask")
         if mask is None:
-            return self.original_spectrum
-        return self.cube_data.compute_region_spectrum(mask)
+            return None
+        mean_spectrum = self.cube_data.compute_region_spectrum(mask)
+        if mean_spectrum is None:
+            return None
+        n_pixels = int(np.count_nonzero(mask))
+        return mean_spectrum * float(n_pixels) if n_pixels else mean_spectrum
+
+    def _get_active_tab_spectrum(self):
+        """Return the flux array currently represented by the active tab, or
+        None if that tab has nothing to show (Left/Right with no selection)."""
+        tab = getattr(self, 'active_spectrum_tab', 'full')
+        if tab == 'full':
+            return getattr(self, 'original_spectrum', None)
+        sel = self.last_selection_left if tab == 'left' else self.last_selection_right
+        return self._get_selection_spectrum(sel)
+
+    def _ensure_tab_lines(self):
+        """Lazily (re)create the dedicated Left/Right trace lines, if missing
+        or if the spectrum plotter's axes was replaced (e.g. a new cube was
+        loaded, which builds a brand-new SpectrumPlotter/axes)."""
+        ax = self.spec_plotter.ax
+        if self._spec_tab_line_left is None or self._spec_tab_line_left.axes is not ax:
+            self._spec_tab_line_left, = ax.step([], [], where='mid', color='cyan', label='Left', zorder=2)
+            self._spec_tab_line_left.set_visible(False)
+        if self._spec_tab_line_right is None or self._spec_tab_line_right.axes is not ax:
+            self._spec_tab_line_right, = ax.step([], [], where='mid', color='magenta', label='Right', zorder=2)
+            self._spec_tab_line_right.set_visible(False)
 
     def _refresh_active_spectrum_tab(self):
-        """Update the plot's main spectrum line to match the active tab.
+        """Show only the active tab's own trace; hide everything else.
 
-        Updates spec_plotter.global_line in place instead of calling
-        spec_plotter.plot_spectrum() (which does a full axis clear and would
-        wipe the region-overlay lines and slice-indicator vlines - that method
-        is meant for "a new cube was loaded," not a lightweight tab swap).
+        Full always shows only the original spectrum (spec_plotter.global_line).
+        Left/Right show only their own dedicated line, and only if that side
+        currently has a selection - otherwise the tab is empty (no fallback to
+        Full). Y-limits are computed directly from whichever line is actually
+        visible, instead of ax.relim()/autoscale_view(), which factor in ALL
+        lines in the axes (including the slice-indicator vlines, fixed at the
+        original spectrum's scale) and previously left a smaller-amplitude
+        region trace squashed near the bottom of a y-range sized for the
+        original spectrum.
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             return
         if not hasattr(self, 'active_spectrum_tab'):
             return
-        if getattr(self, 'original_spectrum', None) is None:
+
+        global_line = getattr(self.spec_plotter, 'global_line', None)
+        if global_line is None:
             return
 
-        spectrum = self._get_spectrum_for_tab(self.active_spectrum_tab)
-        if spectrum is None:
-            return
+        self._ensure_tab_lines()
+        tab = self.active_spectrum_tab
+        x = global_line.get_xdata()
 
-        line = getattr(self.spec_plotter, 'global_line', None)
-        if line is None:
-            return
+        # Full is always just the original spectrum - never repurposed.
+        global_line.set_visible(tab == "full")
 
-        y = np.asarray(spectrum).astype(np.float32)
-        x = line.get_xdata()
-        if len(x) != len(y):
-            # Shape mismatch (e.g. stale mask relative to the current cube) -
-            # skip rather than plot mismatched axes.
-            return
-        line.set_ydata(y)
+        for side, line in (("left", self._spec_tab_line_left), ("right", self._spec_tab_line_right)):
+            sel = self.last_selection_left if side == "left" else self.last_selection_right
+            if tab == side and sel:
+                y = self._get_selection_spectrum(sel)
+                if y is not None and len(y) == len(x):
+                    line.set_data(x, np.asarray(y).astype(np.float32))
+                    line.set_visible(True)
+                    continue
+            line.set_visible(False)
 
-        ax = self.spec_plotter.ax
-        ax.relim()
-        ax.autoscale_view(scalex=False, scaley=True)
+        self._rescale_to_visible_lines()
+
         try:
             self.spec_canvas.draw()
         except Exception:
             pass
+
+    def _rescale_to_visible_lines(self):
+        """Set y-limits from only the currently visible trace(s), and resize
+        the slice-indicator vlines to match (they're meant to span the full
+        plot height, not stay fixed at whatever scale was active when they
+        were first drawn)."""
+        ax = self.spec_plotter.ax
+        lines = (self.spec_plotter.global_line, self._spec_tab_line_left, self._spec_tab_line_right)
+        visible_ys = [
+            np.asarray(line.get_ydata(), dtype=float)
+            for line in lines
+            if line is not None and line.get_visible() and len(line.get_ydata())
+        ]
+        if not visible_ys:
+            return
+
+        all_y = np.concatenate(visible_ys)
+        finite = all_y[np.isfinite(all_y)]
+        if finite.size == 0:
+            return
+
+        ymin, ymax = float(finite.min()), float(finite.max())
+        pad = (ymax - ymin) * 0.05 if ymax > ymin else (abs(ymin) * 0.05 or 1.0)
+        ax.set_ylim(ymin - pad, ymax + pad)
+
+        for vline in (self.spec_plotter.vline_left, self.spec_plotter.vline_right):
+            if vline is not None:
+                vline.set_ydata([ymin - pad, ymax + pad])
