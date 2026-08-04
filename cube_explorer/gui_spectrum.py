@@ -3,18 +3,17 @@ Spectrum tab bar (Full / Left / Right) for the CubeExplorer main window.
 """
 
 import numpy as np
-from PyQt5.QtWidgets import QTabBar, QLineEdit
+from PyQt5.QtWidgets import QTabBar
 
 
 class GuiSpectrumMixin:
     """
     Mixin class handling the Full/Left/Right spectrum tab bar: which spectrum
-    is the "active" one shown as the main trace on the spectrum plot, and
-    inline renaming of tab labels.
+    is the "active" one shown as the main trace on the spectrum plot.
     """
 
     def _init_spectrum_tabs(self):
-        """Create the Full/Left/Right spectrum tab bar (labels are user-editable)."""
+        """Create the Full/Left/Right spectrum tab bar."""
         self.spec_tab_bar = QTabBar()
         self.spec_tab_bar.setExpanding(False)
         self.spec_tab_bar.addTab("Full")
@@ -22,12 +21,9 @@ class GuiSpectrumMixin:
         self.spec_tab_bar.addTab("Right")
         self.spec_tab_bar.setCurrentIndex(0)
         self.spec_tab_bar.currentChanged.connect(self._on_spectrum_tab_changed)
-        self.spec_tab_bar.tabBarDoubleClicked.connect(self._rename_spectrum_tab)
 
-        # Index -> key mapping. Fixed order, tabs are never inserted/reordered,
-        # so this stays valid even after the user renames a tab's label.
+        # Index -> key mapping. Fixed order, tabs are never inserted/reordered.
         self._spectrum_tab_keys = ["full", "left", "right"]
-        self._spectrum_tab_rename_edit = None  # temporary QLineEdit while renaming
 
     def _on_spectrum_tab_changed(self, index):
         """Handle the user switching the active spectrum tab."""
@@ -96,28 +92,3 @@ class GuiSpectrumMixin:
             self.spec_canvas.draw()
         except Exception:
             pass
-
-    def _rename_spectrum_tab(self, index):
-        """Start inline editing of a tab's label (triggered by double-click)."""
-        if self._spectrum_tab_rename_edit is not None:
-            self._spectrum_tab_rename_edit.deleteLater()
-            self._spectrum_tab_rename_edit = None
-
-        rect = self.spec_tab_bar.tabRect(index)
-        edit = QLineEdit(self.spec_tab_bar)
-        edit.setText(self.spec_tab_bar.tabText(index))
-        edit.selectAll()
-        edit.setGeometry(rect)
-
-        def commit():
-            new_text = edit.text().strip()
-            if new_text:
-                self.spec_tab_bar.setTabText(index, new_text)
-            edit.deleteLater()
-            if self._spectrum_tab_rename_edit is edit:
-                self._spectrum_tab_rename_edit = None
-
-        edit.editingFinished.connect(commit)
-        edit.show()
-        edit.setFocus()
-        self._spectrum_tab_rename_edit = edit
