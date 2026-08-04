@@ -962,8 +962,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         collapsible_layout.addStretch()  # Push all groups to the left
         
         main_layout.addLayout(collapsible_layout)
-        
+
         # ===================================================================
+
+        # Spectrum tab bar (Full/Left/Right) - slim strip, left-aligned
+        spec_tab_layout = QHBoxLayout()
+        spec_tab_layout.setContentsMargins(0, 0, 0, 0)
+        spec_tab_layout.addWidget(self.spec_tab_bar)
+        spec_tab_layout.addStretch()
+        main_layout.addLayout(spec_tab_layout)
 
         # Add spectrum at bottom with expanded vertical space
         main_layout.addWidget(self.spec_canvas, 2)
@@ -1590,6 +1597,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         except Exception as e:
             print(f"[DEBUG] Error updating slice canvas: {e}")
 
+        # Keep the spectrum tab live if this side's tab is the active one
+        if self.active_spectrum_tab == target:
+            self._refresh_active_spectrum_tab()
+
     def copy_selection(self, source, target):
         """Copy region selection from one side to the other"""
         source_selection = (
@@ -1726,6 +1737,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         self._set_region_state(target, "idle")
 
+        # Fall back to the original spectrum on this side's tab, if active
+        if self.active_spectrum_tab == target:
+            self._refresh_active_spectrum_tab()
+
     def _handle_pixel_click(self, x, y, target):
         """Handle pixel selection"""
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
@@ -1840,6 +1855,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 self.active_shape = None
                 self.active_target = None
                 self._set_region_state(target, "placed")
+
+                # Keep the spectrum tab live if this side's tab is the active one
+                if self.active_spectrum_tab == target:
+                    self._refresh_active_spectrum_tab()
 
         except Exception as e:
             print(f"Error handling pixel click: {e}")
