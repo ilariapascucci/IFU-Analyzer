@@ -168,14 +168,18 @@ class GuiGaussianMixin:
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None or not hasattr(self, 'cube_data') or self.cube_data is None:
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
             return
-        
-        spectrum_x = _extract_wavelength_value(self.spec_plotter.wavelength)
-        spectrum_y = self.cube_data.spectrum
-        
+
+        # Read the ACTIVE tab's own (possibly shifted) wavelength/flux, not
+        # the pristine cube-wide spectrum - boundaries were clicked against
+        # whatever's currently displayed, so the fit must search the same
+        # coordinate space or lam_min/lam_max end up mismatched.
+        spectrum_x = self._get_tab_wavelength(self.active_spectrum_tab)
+        spectrum_y = self._get_active_tab_spectrum()
+
         if spectrum_x is None or spectrum_y is None or len(spectrum_x) != len(spectrum_y):
             QMessageBox.warning(self, "Data Error", "Spectrum data missing or mismatched.")
             return
-        
+
         lam_min, lam_max = min(self.gauss_left_x, self.gauss_right_x), max(self.gauss_left_x, self.gauss_right_x)
         spectrum_x_vals = spectrum_x.value if isinstance(spectrum_x, Quantity) else spectrum_x
         n_points_in_fit = np.count_nonzero((spectrum_x_vals >= lam_min) & (spectrum_x_vals <= lam_max))
@@ -348,10 +352,12 @@ STATUS: {result.message}
         if not hasattr(self, 'cube_data') or self.cube_data is None or not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
             return
-        
-        spectrum_x = _extract_wavelength_value(self.spec_plotter.wavelength)
-        spectrum_y = self.cube_data.spectrum
-        
+
+        # Read the ACTIVE tab's own (possibly shifted) wavelength/flux - same
+        # reasoning as _fit_gaussian: fit against whatever's actually shown.
+        spectrum_x = self._get_tab_wavelength(self.active_spectrum_tab)
+        spectrum_y = self._get_active_tab_spectrum()
+
         if spectrum_x is None or spectrum_y is None or len(spectrum_x) != len(spectrum_y):
             QMessageBox.warning(self, "Data Error", "Data mismatch.")
             return
@@ -391,13 +397,19 @@ STATUS: {result.message}
             except Exception: pass
         self.multi_gauss_artists = []
         
+        # Use whichever line the ACTIVE tab actually shows - global_line is
+        # hidden (and stale) whenever a non-Full tab is active, so checking
+        # it unconditionally would misjudge whether Left/Right is normalized.
         norm_factor = 1.0
-        if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
-            global_y = self.spec_plotter.global_line.get_ydata()
-            global_median = np.nanmedian(global_y[np.isfinite(global_y)])
-            if 0.5 < global_median < 2.0:
-                fit_median = np.nanmedian(np.concatenate([fit['result'].y_data for fit in fit_results]))
-                norm_factor = fit_median if fit_median > 0 else 1.0
+        active_line = self._get_active_tab_line() if hasattr(self, '_get_active_tab_line') else getattr(self.spec_plotter, 'global_line', None)
+        if active_line is not None:
+            active_y = np.asarray(active_line.get_ydata(), dtype=float)
+            active_y = active_y[np.isfinite(active_y)]
+            if len(active_y):
+                active_median = np.nanmedian(active_y)
+                if 0.5 < active_median < 2.0:
+                    fit_median = np.nanmedian(np.concatenate([fit['result'].y_data for fit in fit_results]))
+                    norm_factor = fit_median if fit_median > 0 else 1.0
         
         for idx, fit_info in enumerate(fit_results):
             result = fit_info['result']
