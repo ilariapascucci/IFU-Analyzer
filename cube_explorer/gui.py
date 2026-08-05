@@ -914,12 +914,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         collapsible_layout.setSpacing(0)
         collapsible_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Group 1: Slice Selection
-        self.slice_group = CollapsibleButtonGroup("Slice Selection")
-        self.slice_group.add_button(self.set_left_btn)
-        self.slice_group.add_button(self.set_right_btn)
-        collapsible_layout.addWidget(self.slice_group)
-        
         # Group 2: Gaussian Fit
         self.gaussian_group = CollapsibleButtonGroup("Gaussian Fit")
         self.gaussian_group.add_button(self.gauss_left_btn)
@@ -953,28 +947,37 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.hitran_group.add_button(self.co_flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
         
-        # Group 6: Shifting
-        self.shifting_group = CollapsibleButtonGroup("Shifting")
-        self.shifting_group.add_button(self.shift_btn)
-        self.shifting_group.add_button(self.apply_shift_btn)
-        collapsible_layout.addWidget(self.shifting_group)
-        
         collapsible_layout.addStretch()  # Push all groups to the left
         
         main_layout.addLayout(collapsible_layout)
 
         # ===================================================================
 
-        # Spectrum tab bar (Full/Left/Right) - slim strip, left-aligned
+        # Spectrum control strip - three zones sharing one row: Slice
+        # Selection (left), the spectrum tabs + view options (middle),
+        # Shifting (right). All three operate through the spectrum itself
+        # rather than the 2D slice images, so they live together here instead
+        # of in the general collapsible-group toolbar above.
         spec_tab_layout = QHBoxLayout()
         spec_tab_layout.setContentsMargins(0, 0, 0, 0)
+
+        spec_tab_layout.addWidget(self.set_left_btn)
+        spec_tab_layout.addWidget(self.set_right_btn)
+
+        spec_tab_layout.addStretch()
+
         spec_tab_layout.addWidget(self.spec_tab_bar)
         spec_tab_layout.addWidget(self.normalize_checkbox)
         spec_tab_layout.addWidget(self.overplot_left_checkbox)
         spec_tab_layout.addWidget(self.overplot_right_checkbox)
         spec_tab_layout.addWidget(self.self_normalize_left_checkbox)
         spec_tab_layout.addWidget(self.self_normalize_right_checkbox)
+
         spec_tab_layout.addStretch()
+
+        spec_tab_layout.addWidget(self.shift_btn)
+        spec_tab_layout.addWidget(self.apply_shift_btn)
+
         main_layout.addLayout(spec_tab_layout)
 
         # Add spectrum at bottom with expanded vertical space
@@ -2075,18 +2078,27 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         # Get current y-axis ticks and limits before plotting
         y_ticks = self.spec_plotter.ax.get_yticks()
         y_limits = self.spec_plotter.ax.get_ylim()
-        
-        # Plot shifted spectrum in purple at shifted wavelength positions
+
+        # Plot shifted spectrum at shifted wavelength positions, matching
+        # whatever scale global_line is currently on (raw or normalized) -
+        # otherwise, with Normalize on, this raw-scale preview would be
+        # plotted against a y-axis clamped to the ~[0,1] normalized range
+        # and effectively vanish off-screen.
+        preview_y = self._maybe_normalize(shifted_spectrum)
+
+        # Orange - distinct from blue (Full), cyan/darkcyan (Left), and
+        # magenta/darkmagenta (Right), so the preview doesn't get confused
+        # with the Right-side trace/indicator.
         self.shifted_line, = self.spec_plotter.ax.plot(
-            shifted_wavelength, 
-            shifted_spectrum,
-            'purple', 
-            linewidth=1.5, 
-            alpha=0.8, 
+            shifted_wavelength,
+            preview_y,
+            'orange',
+            linewidth=1.5,
+            alpha=0.8,
             label=f'Shifted (v={velocity:.1f} km/s)',
             zorder=4
         )
-        
+
         # Explicitly set y-axis ticks and limits to original values
         self.spec_plotter.ax.set_yticks(y_ticks)
         self.spec_plotter.ax.set_ylim(y_limits)
@@ -2102,10 +2114,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
     
     def _apply_shift(self):
         """Apply the shifted spectrum as the new original spectrum.
-        
-        This replaces the original spectrum with the shifted one, allowing
-        the user to fit Gaussians to the shifted spectrum without the original
-        overlay. Preserves y-axis limits and changes spectrum color to purple.
+
+        This replaces the original spectrum with the shifted one (a global
+        wavelength recalibration, so it applies uniformly to Full/Left/Right),
+        auto-fits the x-axis to the new extent, and changes the spectrum
+        line color to orange to indicate it's shifted.
         """
         
         # Check if a shift has been applied
@@ -2130,14 +2143,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             if reply != QMessageBox.Yes:
                 return
         
-        # Preserve current axis limits and ticks before updating spectrum
-        y_limits = self.spec_plotter.ax.get_ylim()
-        y_ticks = self.spec_plotter.ax.get_yticks()
-        x_limits = self.spec_plotter.ax.get_xlim()
-        x_ticks = self.spec_plotter.ax.get_xticks()
         velocity = self.shifted_velocity  # Store velocity before clearing it
-        
-        # Replace original spectrum with shifted spectrum
+
+        # Replace original spectrum with shifted spectrum. This is a global
+        # wavelength recalibration (same channels, new wavelength labels), so
+        # it applies uniformly to Full, Left, and Right - not a per-tab
+        # choice, since Left/Right are just spatial subsets of the same cube
+        # sharing the same wavelength axis.
         self.original_spectrum = self.shifted_spectrum_data.copy()
         
         # Also update the wavelength array to the shifted wavelength
@@ -2164,38 +2176,37 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         # Disable the Apply Shift button
         self.apply_shift_btn.setEnabled(False)
         
-        # Update the spectrum display (replot the new original)
+        # Update the spectrum display's x-data to the new wavelength axis
         self.spec_plotter.update_spectrum(self.original_spectrum)
-        
-        # Adjust x-limits to account for the wavelength shift
-        # Since wavelength was shifted by: wavelength / (1 + v/c)
-        # We need to apply the same shift to the x-axis limits
+
+        # Auto-fit the x-axis to the new spectrum's full extent, rather than
+        # rescaling whatever the previous view window happened to be - the
+        # whole wavelength axis genuinely compresses/expands under this
+        # multiplicative shift, so keeping an old (now-mismatched) view
+        # window looks like part of the spectrum went missing.
+        new_wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+        if new_wavelength is not None and len(new_wavelength) > 0:
+            self.spec_plotter.ax.set_xlim(float(np.min(new_wavelength)), float(np.max(new_wavelength)))
+
+        # Shift Gaussian fit artists by the same factor
         c = 299792.458  # Speed of light in km/s
         shift_factor = 1 / (1 + velocity / c)
-        adjusted_x_min = x_limits[0] * shift_factor
-        adjusted_x_max = x_limits[1] * shift_factor
-        
-        # Restore axis limits and ticks after update
-        self.spec_plotter.ax.set_ylim(y_limits)
-        self.spec_plotter.ax.set_yticks(y_ticks)
-        self.spec_plotter.ax.set_xlim(adjusted_x_min, adjusted_x_max)
-        self.spec_plotter.ax.set_xticks(x_ticks)
-        
-        # Shift all plot elements (Gaussian fit, slice indicators) by the same factor
         self.spec_plotter.shift_plot_elements(shift_factor)
-        
-        # Change the spectrum line color to purple to indicate it's shifted
+
+        # Change the spectrum line color to orange to indicate it's shifted -
+        # matches the preview color, and avoids clashing with Right's
+        # magenta/darkmagenta trace/indicator (purple was too close to it).
         if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
-            self.spec_plotter.global_line.set_color('purple')
-        
-        # Update legend label to indicate this is a shifted spectrum
-        if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
+            self.spec_plotter.global_line.set_color('orange')
             self.spec_plotter.global_line.set_label('Shifted Spectrum')
-        
-        # Update legend and redraw
-        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-        self.spec_canvas.draw()
-        
+
+        # Refresh the active tab: recomputes proper y-limits from the actual
+        # (now-shifted) data instead of the stale/percentile-based values
+        # update_spectrum() leaves behind, keeps Left/Right's traces in sync
+        # with the new wavelength axis, and rebuilds the legend to reflect
+        # the new label/color.
+        self._refresh_active_spectrum_tab()
+
         QMessageBox.information(
             self,
             "Shift Applied",

@@ -235,6 +235,12 @@ class GuiSpectrumMixin:
                 global_line.set_ydata(np.asarray(y, dtype=np.float32))
         global_line.set_visible(tab == "full")
 
+        # A shift is a global wavelength recalibration - Left/Right's traces
+        # end up on the shifted axis too, even though their color stays
+        # side-specific (changing it would break telling them apart when
+        # overplotted). The label says so instead.
+        shifted_suffix = " (Shifted)" if getattr(self, 'is_spectrum_shifted', False) else ""
+
         overplot_flags = {"left": self.overplot_left, "right": self.overplot_right}
         overplot_checkboxes = {"left": self.overplot_left_checkbox, "right": self.overplot_right_checkbox}
         self_normalize_checkboxes = {"left": self.self_normalize_left_checkbox, "right": self.self_normalize_right_checkbox}
@@ -244,6 +250,7 @@ class GuiSpectrumMixin:
             # Self-Normalize is a standalone toggle - only needs a selection
             # to act on, independent of whether Normalize (global) is on.
             self_normalize_checkboxes[side].setEnabled(bool(sel))
+            line.set_label(f"{side.capitalize()}{shifted_suffix}")
 
             show = (tab == side and sel) or (tab == "full" and overplot_flags[side] and sel)
             if show:
