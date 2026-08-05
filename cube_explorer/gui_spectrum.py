@@ -3,7 +3,7 @@ Spectrum tab bar (Full / Left / Right) for the CubeExplorer main window.
 """
 
 import numpy as np
-from PyQt5.QtWidgets import QTabBar
+from PyQt5.QtWidgets import QTabBar, QCheckBox
 
 
 class GuiSpectrumMixin:
@@ -34,6 +34,62 @@ class GuiSpectrumMixin:
         # hidden until then, rather than appearing at the default first-slice
         # position immediately on cube load.
         self._slice_indicator_set = {"left": False, "right": False}
+
+        # Normalize (global, divides everything by Full's own peak) and
+        # overplot (Full-tab-only: overlay Left/Right's trace onto Full).
+        self.spectrum_normalized = False
+        self.overplot_left = False
+        self.overplot_right = False
+
+        self.normalize_checkbox = QCheckBox("Normalize")
+        self.normalize_checkbox.toggled.connect(self._on_normalize_toggled)
+
+        self.overplot_left_checkbox = QCheckBox("Show Left")
+        self.overplot_left_checkbox.setEnabled(False)
+        self.overplot_left_checkbox.toggled.connect(lambda checked: self._on_overplot_toggled("left", checked))
+
+        self.overplot_right_checkbox = QCheckBox("Show Right")
+        self.overplot_right_checkbox.setEnabled(False)
+        self.overplot_right_checkbox.toggled.connect(lambda checked: self._on_overplot_toggled("right", checked))
+
+    def _on_normalize_toggled(self, checked):
+        """Handle the Normalize checkbox - a global toggle, not per-tab."""
+        self.spectrum_normalized = bool(checked)
+        self._refresh_active_spectrum_tab()
+
+    def _on_overplot_toggled(self, side, checked):
+        """Handle the Show Left/Show Right checkboxes (Full-tab-only overlay)."""
+        if side == "left":
+            self.overplot_left = bool(checked)
+        else:
+            self.overplot_right = bool(checked)
+        self._refresh_active_spectrum_tab()
+
+    def _full_spectrum_peak(self):
+        """Return the Full spectrum's own peak value, or None if unavailable."""
+        original = getattr(self, 'original_spectrum', None)
+        if original is None:
+            return None
+        y = np.asarray(original, dtype=float)
+        finite = y[np.isfinite(y)]
+        if finite.size == 0:
+            return None
+        return float(finite.max())
+
+    def _maybe_normalize(self, y):
+        """Divide by Full's peak if Normalize is on; otherwise return as-is.
+
+        This is the ONE shared normalization rule (see gui_spectrum.py module
+        docstring / plan): applied to Full it's self-normalization, applied to
+        Left/Right it's "relative to Full" - never an independent per-tab
+        peak-normalize.
+        """
+        if not self.spectrum_normalized:
+            return y
+        peak = self._full_spectrum_peak()
+        if not peak:
+            return y
+        return np.asarray(y, dtype=float) / peak
 
     def _mark_slice_indicator_set(self, target):
         """Record that the user explicitly picked a wavelength for this side
