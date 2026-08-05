@@ -120,10 +120,10 @@ class GuiSpectrumMixin:
 
     def _maybe_normalize_side(self, side, y):
         """Normalize Left/Right's data, honoring that side's Self-Normalize
-        override if set. Otherwise falls back to _maybe_normalize (relative
-        to Full's peak, or unchanged if Normalize is off entirely)."""
-        if not self.spectrum_normalized:
-            return y
+        override if set - independent of the global Normalize checkbox, since
+        "peak-normalize to my own max" is a complete idea on its own. If
+        Self-Normalize isn't set for this side, falls back to _maybe_normalize
+        (relative to Full's peak, or unchanged if Normalize is off)."""
         self_normalize = self.self_normalize_left if side == "left" else self.self_normalize_right
         if not self_normalize or y is None:
             return self._maybe_normalize(y)
@@ -241,8 +241,9 @@ class GuiSpectrumMixin:
         for side, line in (("left", self._spec_tab_line_left), ("right", self._spec_tab_line_right)):
             sel = self.last_selection_left if side == "left" else self.last_selection_right
             overplot_checkboxes[side].setEnabled(tab == "full" and bool(sel))
-            # Self-Normalize is only meaningful once Normalize is on at all.
-            self_normalize_checkboxes[side].setEnabled(self.spectrum_normalized and bool(sel))
+            # Self-Normalize is a standalone toggle - only needs a selection
+            # to act on, independent of whether Normalize (global) is on.
+            self_normalize_checkboxes[side].setEnabled(bool(sel))
 
             show = (tab == side and sel) or (tab == "full" and overplot_flags[side] and sel)
             if show:
@@ -299,9 +300,9 @@ class GuiSpectrumMixin:
         the union of whatever's actually visible.
         """
         self_normalized_visible = (
-            (self.spectrum_normalized and self.self_normalize_left
+            (self.self_normalize_left
              and self._spec_tab_line_left is not None and self._spec_tab_line_left.get_visible())
-            or (self.spectrum_normalized and self.self_normalize_right
+            or (self.self_normalize_right
                 and self._spec_tab_line_right is not None and self._spec_tab_line_right.get_visible())
         )
 
