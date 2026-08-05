@@ -373,6 +373,21 @@ class GuiSpectrumMixin:
         except Exception:
             pass
 
+    def _fit_xlim_to(self, x_array):
+        """Set the spectrum plot's x-limits to span x_array with ~5% padding
+        on each side - the same breathing room matplotlib's own autoscale
+        gives the unshifted view. Used after applying/reverting a shift,
+        where an exact-bounds set_xlim() is needed (to avoid the axis
+        shrinking/growing to whatever the old view window happened to be),
+        but without padding that pins the data right up against both edges.
+        """
+        if x_array is None or len(x_array) == 0:
+            return
+        data_min, data_max = float(np.min(x_array)), float(np.max(x_array))
+        span = data_max - data_min
+        pad = span * 0.05 if span > 0 else 1.0
+        self.spec_plotter.ax.set_xlim(data_min - pad, data_max + pad)
+
     def _apply_shared_y_scale(self):
         """Set y-limits from the ORIGINAL spectrum's range, applied on every
         tab - not just whichever line happens to be visible.

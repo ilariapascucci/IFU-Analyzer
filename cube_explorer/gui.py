@@ -2128,14 +2128,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             # (unmigrated feature - see plan's deferred section).
             self.spec_plotter.shift_plot_elements(incremental_factor)
 
-        # Auto-fit the x-axis to this tab's new extent, rather than rescaling
-        # whatever the previous view window happened to be - the wavelength
-        # axis genuinely compresses/expands under this multiplicative shift,
-        # so keeping an old (now-mismatched) view window looks like part of
-        # the spectrum went missing.
-        new_x = self._get_tab_wavelength(active_tab)
-        if new_x is not None and len(new_x) > 0:
-            self.spec_plotter.ax.set_xlim(float(np.min(new_x)), float(np.max(new_x)))
+        # Auto-fit the x-axis to this tab's new extent (with the same ~5%
+        # padding the unshifted view gets), rather than rescaling whatever
+        # the previous view window happened to be - the wavelength axis
+        # genuinely compresses/expands under this multiplicative shift, so
+        # keeping an old (now-mismatched) view window looks like part of the
+        # spectrum went missing.
+        self._fit_xlim_to(self._get_tab_wavelength(active_tab))
 
         # Recomputes proper y-limits from the actual (now-shifted) data,
         # redraws this tab's trace in its own color (not orange - that was
@@ -2187,9 +2186,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             self.cube_data.wavelength = np.asarray(self.base_wavelength, dtype=float).copy()
             self.spec_plotter.wavelength = np.asarray(self.base_wavelength, dtype=float).copy()
 
-        new_x = self._get_tab_wavelength(active_tab)
-        if new_x is not None and len(new_x) > 0:
-            self.spec_plotter.ax.set_xlim(float(np.min(new_x)), float(np.max(new_x)))
+        self._fit_xlim_to(self._get_tab_wavelength(active_tab))
 
         self._refresh_active_spectrum_tab()
         print(f"[DEBUG] Reverted shift on '{active_tab}'")
