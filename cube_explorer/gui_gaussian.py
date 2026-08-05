@@ -15,19 +15,6 @@ from .co_flux_extractor import fit_continuum_median_peaks, fit_hitran_lines_coll
 NOISE_REQUIRED_BELOW_N_POINTS = 15
 
 
-def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
-    if isinstance(wavelength_quantity_or_array, Quantity):
-        if index is not None:
-            return wavelength_quantity_or_array[index].value
-        else:
-            return wavelength_quantity_or_array.value
-    else:
-        if index is not None:
-            return wavelength_quantity_or_array[index]
-        else:
-            return wavelength_quantity_or_array
-
-
 class GuiGaussianMixin:
     """
     Mixin class handling all Gaussian Fitting logic (Single, Multi, and Map) for the CubeExplorer.

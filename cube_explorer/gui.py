@@ -1069,6 +1069,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.gauss_cache_lam_max = None
         self.gauss_cache_noise_min = None
         self.gauss_cache_noise_max = None
+        self.gauss_cache_tab = None  # Which tab the cached fit/mask belongs to
+
+        # Per-tab Gaussian boundary state, saved/restored by
+        # _swap_gaussian_boundaries_for_tab whenever the active tab changes.
+        self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
         
         # Continuum line state
         self.continuum_line = None  # Store continuum line artist
@@ -2434,7 +2439,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.gauss_right_marker = None
         self.gauss_noise_left_marker = None
         self.gauss_noise_right_marker = None
-        
+
+        # Reset per-tab Gaussian boundary state and the map-fit cache - a new
+        # cube invalidates both (stale marker artists belong to the old axes,
+        # and a cached map/tab key would otherwise wrongly appear "current").
+        self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
+        self.gauss_cache = None
+        self.gauss_cache_tab = None
+        self.gauss_cache_lam_min = None
+        self.gauss_cache_lam_max = None
+        self.gauss_cache_noise_min = None
+        self.gauss_cache_noise_max = None
+
         # Clear any plotted continuum line
         if hasattr(self, 'continuum_line') and self.continuum_line:
             try:
