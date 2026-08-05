@@ -1131,6 +1131,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             # Copy spectrum
             self.original_spectrum = self.cube_data.spectrum.copy()
 
+            # Permanent, never-mutated reference wavelength for the per-tab
+            # shift system (each tab's displayed wavelength is derived from
+            # this, never from a mutated-in-place shared array).
+            self.base_wavelength = np.array(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
+
             # Update instrument label with filename
             filename = os.path.basename(self.cube_data.filename)
             self.instrument_label.setText(f"Instrument: {self.cube_data.instrument} [{filename}]")
