@@ -165,7 +165,14 @@ class GuiSpectrumMixin:
     def _on_spectrum_tab_changed(self, index):
         """Handle the user switching the active spectrum tab."""
         if 0 <= index < len(self._spectrum_tab_keys):
-            self.active_spectrum_tab = self._spectrum_tab_keys[index]
+            new_tab = self._spectrum_tab_keys[index]
+            old_tab = getattr(self, 'active_spectrum_tab', 'full')
+            # Swap out Gaussian boundary state for the outgoing tab and load
+            # the incoming tab's own - guarded by hasattr since GuiGaussianMixin
+            # owns this, not GuiSpectrumMixin (loose, optional coupling).
+            if new_tab != old_tab and hasattr(self, '_swap_gaussian_boundaries_for_tab'):
+                self._swap_gaussian_boundaries_for_tab(old_tab, new_tab)
+            self.active_spectrum_tab = new_tab
             self._refresh_active_spectrum_tab()
 
     def _get_selection_spectrum(self, sel):
@@ -199,6 +206,17 @@ class GuiSpectrumMixin:
             return getattr(self, 'original_spectrum', None)
         sel = self.last_selection_left if tab == 'left' else self.last_selection_right
         return self._get_selection_spectrum(sel)
+
+    def _get_active_tab_line(self):
+        """Return the Line2D currently representing the active tab's own
+        trace (global_line for Full, the dedicated Left/Right line
+        otherwise) - for code that needs to inspect what's actually plotted
+        (e.g. checking if it's normalized) without hardcoding global_line,
+        which is hidden whenever a non-Full tab is active."""
+        tab = getattr(self, 'active_spectrum_tab', 'full')
+        if tab == 'full':
+            return getattr(self.spec_plotter, 'global_line', None)
+        return self._spec_tab_line_left if tab == 'left' else self._spec_tab_line_right
 
     def _get_tab_wavelength(self, tab):
         """Return this tab's own (possibly independently-shifted) wavelength
