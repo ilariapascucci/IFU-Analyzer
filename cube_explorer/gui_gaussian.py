@@ -133,6 +133,35 @@ class GuiGaussianMixin:
         
         self.spec_canvas.draw()
 
+    def _swap_gaussian_boundaries_for_tab(self, old_tab, new_tab):
+        """Save the outgoing tab's Gaussian boundary state, then load the
+        incoming tab's - keeps gauss_left_x/peak_x/etc. and their markers as a
+        live view of "the active tab's boundaries" without touching every
+        other place in this file that reads them.
+        """
+        if not hasattr(self, 'gauss_boundaries'):
+            self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
+
+        boundary_names = ['gauss_left_x', 'gauss_peak_x', 'gauss_right_x', 'gauss_noise_left_x', 'gauss_noise_right_x']
+        marker_names = ['gauss_left_marker', 'gauss_peak_marker', 'gauss_right_marker', 'gauss_noise_left_marker', 'gauss_noise_right_marker']
+
+        saved = {name: getattr(self, name, None) for name in boundary_names + marker_names}
+        self.gauss_boundaries[old_tab] = saved
+        for name in marker_names:
+            marker = saved.get(name)
+            if marker is not None:
+                try: marker.set_visible(False)
+                except Exception: pass
+
+        restored = self.gauss_boundaries.get(new_tab, {})
+        for name in boundary_names + marker_names:
+            setattr(self, name, restored.get(name))
+        for name in marker_names:
+            marker = getattr(self, name, None)
+            if marker is not None:
+                try: marker.set_visible(True)
+                except Exception: pass
+
     def _find_nearest_line_in_range(self, lam_min, lam_max):
         if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
             return None
@@ -545,27 +574,52 @@ STATUS: {result.message}
             )
             return
         
+        # A Gaussian map needs the whole cube fit (fit_gaussians_per_pixel/
+        # GaussianMapWorker have no mask support), but Left/Right's DISPLAYED
+        # map is masked to that side's region afterward (see
+        # _mask_gaussian_map_results_for_tab) - so a real, multi-pixel region
+        # selection is required on those tabs, same as apply_doppler_shift's
+        # "select a region on this side first" guard.
+        active_tab = self.active_spectrum_tab
+        tab_label = active_tab.capitalize()
+        region_mask = None
+        if active_tab in ("left", "right"):
+            sel = self.last_selection_left if active_tab == "left" else self.last_selection_right
+            if not sel or sel.get("shape") == "*":
+                QMessageBox.warning(
+                    self, "Region Selection Required",
+                    f"A Gaussian map needs multiple pixels - select a region "
+                    f"(not a single point) on the {tab_label} side first."
+                )
+                return
+            region_mask = sel.get("mask")
+
         cube = self.cube_data.cube
-        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-        
+        wavelength = self._get_tab_wavelength(active_tab)
+
         if cube is None or wavelength is None: return
-        
+
         lam_min, lam_max = min(self.gauss_left_x, self.gauss_right_x), max(self.gauss_left_x, self.gauss_right_x)
         # if np.count_nonzero((wavelength >= lam_min) & (wavelength <= lam_max)) < 50:
         #     if QMessageBox.warning(self, "Narrow Fit Region", "Region is very narrow (<50 points). Continue?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.No:
         #         return
-        
+
         if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
             QMessageBox.warning(self, "Noise Region Required", "You MUST define a noise region for map fitting.")
             return
 
         noise_min, noise_max = min(self.gauss_noise_left_x, self.gauss_noise_right_x), max(self.gauss_noise_left_x, self.gauss_noise_right_x)
-        
-        if (getattr(self, 'gauss_cache', None) is not None and 
+
+        # gauss_cache_tab is required alongside the existing bounds: two tabs
+        # can share the same lam/noise bounds but need different result maps
+        # (masked differently), so a bounds-only match would wrongly serve
+        # one tab's cached map to another.
+        if (getattr(self, 'gauss_cache', None) is not None and
+            getattr(self, 'gauss_cache_tab', None) == active_tab and
             self.gauss_cache_lam_min == lam_min and self.gauss_cache_lam_max == lam_max and
             self.gauss_cache_noise_min == noise_min and self.gauss_cache_noise_max == noise_max):
             QMessageBox.information(self, "Cached Results", "Using previously fitted Gaussian map.")
-            self._on_gaussian_map_complete(self.gauss_cache)
+            self._show_gaussian_map_results(self.gauss_cache, tab=active_tab)
             return
         
         if QMessageBox.question(self, "Fit Map", "Continue with map fitting?", QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes: return
@@ -588,6 +642,12 @@ STATUS: {result.message}
         self.gauss_progress.show()
 
         self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max) if hasattr(self, 'hitran_lines') else None
+
+        # Capture which tab/mask this run belongs to now, not read it back
+        # later from self.active_spectrum_tab - the fit runs in a background
+        # QThread, so the user could switch tabs before it finishes.
+        self._gauss_map_fit_tab = active_tab
+        self._gauss_map_fit_mask = region_mask
 
         self.gauss_worker = GaussianMapWorker(
             cube=cube, wavelength=wavelength, lam_min=lam_min, lam_max=lam_max, n_jobs=8,
@@ -621,19 +681,54 @@ STATUS: {result.message}
             f"Fitting Gaussians...\n{current:,} / {total:,} pixels ({pct}%)")
         dlg.setValue(pct)
 
+    def _mask_gaussian_map_results_for_tab(self, results, tab, mask):
+        """Copy results and set every spatial parameter map to NaN (False for
+        boolean maps) outside the region mask - Full always passes through
+        unmasked. The fit itself is never restricted (fit_gaussians_per_pixel
+        has no mask support), so this only changes what's cached/displayed
+        for Left/Right, not what's computed.
+        """
+        if tab not in ("left", "right") or mask is None or results is None:
+            return results
+        mask = np.asarray(mask, dtype=bool)
+        masked = {}
+        for key, value in results.items():
+            if isinstance(value, np.ndarray) and value.ndim >= 2 and value.shape[-2:] == mask.shape:
+                arr = value.copy()
+                if np.issubdtype(arr.dtype, np.bool_):
+                    arr[..., ~mask] = False
+                else:
+                    arr = arr.astype(float, copy=False)
+                    arr[..., ~mask] = np.nan
+                masked[key] = arr
+            else:
+                masked[key] = value
+        return masked
+
     def _on_gaussian_map_complete(self, results):
         self.gauss_progress.close()
-        self.gauss_cache = results
+        tab = getattr(self, '_gauss_map_fit_tab', self.active_spectrum_tab)
+        mask = getattr(self, '_gauss_map_fit_mask', None)
+        masked_results = self._mask_gaussian_map_results_for_tab(results, tab, mask)
+        self.gauss_cache = masked_results
+        self.gauss_cache_tab = tab
         self.gauss_cache_lam_min = min(self.gauss_left_x, self.gauss_right_x)
         self.gauss_cache_lam_max = max(self.gauss_left_x, self.gauss_right_x)
         self.gauss_cache_noise_min = min(self.gauss_noise_left_x, self.gauss_noise_right_x)
         self.gauss_cache_noise_max = max(self.gauss_noise_left_x, self.gauss_noise_right_x)
-        self._show_gaussian_map_results(results)
-    
+        self._show_gaussian_map_results(masked_results, tab=tab)
+
     def _on_gaussian_map_error(self, error_msg):
         self.gauss_progress.close()
         QMessageBox.critical(self, "Error", f"Gaussian map fitting error:\n{error_msg}")
-    
-    def _show_gaussian_map_results(self, results: dict):
-        dlg = GaussianMapResultsDialog(self, results, self.cube_data, self.gauss_left_x, self.gauss_right_x, wavelength=self.spec_plotter.wavelength)
+
+    def _show_gaussian_map_results(self, results: dict, tab=None):
+        # tab defaults to whichever is active NOW, but callers with a result
+        # tied to a specific tab (a background fit that finished after the
+        # user switched tabs, or a cache hit) pass it explicitly so the
+        # wavelength axis shown always matches the results being displayed.
+        if tab is None:
+            tab = self.active_spectrum_tab
+        wavelength = self._get_tab_wavelength(tab)
+        dlg = GaussianMapResultsDialog(self, results, self.cube_data, self.gauss_left_x, self.gauss_right_x, wavelength=wavelength)
         dlg.exec_()
