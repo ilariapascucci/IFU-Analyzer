@@ -440,21 +440,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         self.active_target = None
         
-        # Clear Doppler shifted line if it exists
-        if hasattr(self, 'shifted_line') and self.shifted_line is not None:
+        # Reset per-tab Doppler shift state - new cube, new base wavelength.
+        self.base_wavelength = None
+        if hasattr(self, 'spectrum_shift_factor'):
+            self.spectrum_shift_factor = {"full": 1.0, "left": 1.0, "right": 1.0}
+        if hasattr(self, 'spectrum_shift_preview'):
+            self.spectrum_shift_preview = {"full": None, "left": None, "right": None}
+        if hasattr(self, '_shift_preview_line') and self._shift_preview_line is not None:
             try:
-                self.shifted_line.remove()
+                self._shift_preview_line.remove()
             except Exception:
                 pass
-            self.shifted_line = None
-        
-        # Reset Doppler shift state
-        self.shifted_spectrum_data = None
-        self.shifted_wavelength_data = None
-        self.shifted_velocity = None
-        self.is_spectrum_shifted = False
+            self._shift_preview_line = None
         if hasattr(self, 'apply_shift_btn'):
             self.apply_shift_btn.setEnabled(False)
+        if hasattr(self, 'cancel_shift_btn'):
+            self.cancel_shift_btn.setEnabled(False)
+        if hasattr(self, 'revert_shift_btn'):
+            self.revert_shift_btn.setEnabled(False)
         
         print("[DEBUG] Unchecking all buttons")
 
@@ -571,8 +574,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.set_right_btn = QPushButton("Set Right Slice")
         self.shift_btn = QPushButton("Shift")
         self.apply_shift_btn = QPushButton("Apply Shift")
-        
-        
+        self.cancel_shift_btn = QPushButton("Cancel Preview")
+        self.revert_shift_btn = QPushButton("Revert Shift")
+
+
         # Gaussian fitting buttons
         self.gauss_left_btn = QPushButton("Left")
         self.gauss_peak_btn = QPushButton("Peak")
@@ -656,7 +661,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.shift_btn.clicked.connect(self.apply_doppler_shift)
         self.apply_shift_btn.clicked.connect(self._apply_shift)
         self.apply_shift_btn.setEnabled(False)
-        self.apply_shift_btn.setToolTip("Replace original spectrum with the shifted version")
+        self.apply_shift_btn.setToolTip("Apply the previewed shift to the active tab's spectrum")
+        self.cancel_shift_btn.clicked.connect(self._cancel_shift_preview)
+        self.cancel_shift_btn.setEnabled(False)
+        self.cancel_shift_btn.setToolTip("Cancel the pending shift preview without applying it")
+        self.revert_shift_btn.clicked.connect(self._revert_shift)
+        self.revert_shift_btn.setEnabled(False)
+        self.revert_shift_btn.setToolTip("Revert the active tab back to its original (unshifted) wavelength")
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
         self.gauss_right_btn.clicked.connect(self._activate_gaussian_right)
@@ -672,7 +683,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         # Set tooltips for all buttons
         self.set_left_btn.setToolTip("Click on the left slice to set the wavelength from that pixel")
         self.set_right_btn.setToolTip("Click on the right slice to set the wavelength from that pixel")
-        self.shift_btn.setToolTip("Apply Doppler shift to the spectrum based on velocity")
+        self.shift_btn.setToolTip("Preview a Doppler shift for the active tab's spectrum")
         self.gauss_left_btn.setToolTip("Click on spectrum to set left boundary of Gaussian fit")
         self.gauss_peak_btn.setToolTip("Click on spectrum to set peak center of Gaussian fit")
         self.gauss_right_btn.setToolTip("Click on spectrum to set right boundary of Gaussian fit")
@@ -977,6 +988,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         spec_tab_layout.addWidget(self.shift_btn)
         spec_tab_layout.addWidget(self.apply_shift_btn)
+        spec_tab_layout.addWidget(self.cancel_shift_btn)
+        spec_tab_layout.addWidget(self.revert_shift_btn)
 
         main_layout.addLayout(spec_tab_layout)
 
@@ -1071,13 +1084,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         self.continuum_subtracted = False  # Track if continuum is currently subtracted
         self.original_spectrum_backup = None
-        
-        # Doppler shift state
-        self.shifted_line = None  # Store shifted spectrum line artist
-        self.shifted_spectrum_data = None  # Store shifted spectrum data for application
-        self.shifted_wavelength_data = None  # Store shifted wavelength data for application
-        self.shifted_velocity = None  # Store the velocity used for shifting
-        self.is_spectrum_shifted = False  # Track if current spectrum is a shifted version
+
+        # Note: per-tab Doppler shift state (base_wavelength, spectrum_shift_factor,
+        # spectrum_shift_preview) is initialized in _init_spectrum_tabs (GuiSpectrumMixin).
 
         # Keep references to spawned child windows to prevent garbage collection
         self.child_windows = []
@@ -2015,206 +2024,170 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
 
     def apply_doppler_shift(self):
-        """Apply multiplicative Doppler shift to spectrum based on user-provided velocity.
-        
-        Uses formula: lambda_0 = lambda / (1 + v/c)
-        This scales the entire wavelength array uniformly.
+        """Preview a multiplicative Doppler shift for whichever spectrum tab
+        is currently active (Full, Left, or Right) - never the others.
+
+        Uses formula: lambda_0 = lambda / (1 + v/c), composed on top of that
+        tab's already-applied shift factor (if any), so repeated previews
+        refine incrementally rather than always starting from scratch.
         """
-        
-        # Check if spectrum is loaded
         if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
             QMessageBox.warning(self, "No Spectrum", "Load a data cube first.")
             return
-        
-        # Check if wavelength data is available
-        wavelength_values = _extract_wavelength_value(self.spec_plotter.wavelength)
-        if wavelength_values is None or len(wavelength_values) == 0:
-            QMessageBox.warning(self, "No Wavelength Data", 
+        if getattr(self, 'base_wavelength', None) is None:
+            QMessageBox.warning(self, "No Wavelength Data",
                               "Wavelength data is not available for this cube.")
             return
-        
+
+        active_tab = self.active_spectrum_tab
+        tab_label = active_tab.capitalize()
+
+        if active_tab in ("left", "right"):
+            sel = self.last_selection_left if active_tab == "left" else self.last_selection_right
+            if not sel:
+                QMessageBox.warning(self, "No Selection",
+                                  f"Select a region on the {tab_label} side first.")
+                return
+
         # Ask user for velocity in km/s
         velocity, ok = QInputDialog.getDouble(
-            self, 
-            "Doppler Shift (Multiplicative)",
+            self,
+            f"Doppler Shift (Multiplicative) - {tab_label}",
             "Enter systemic velocity (km/s):",
             value=0.0,
             decimals=2
         )
-        
         if not ok:
             return
-        
-        # Constants
+
         c = 299792.458  # Speed of light in km/s
-        
-        # Get current wavelength and spectrum
-        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-        
-        # Use current spectrum
-        current_spectrum = self.original_spectrum
-        
-        # MULTIPLICATIVE METHOD: Global wavelength scaling
-        # lambda_0 = lambda / (1 + v/c)
-        shifted_wavelength = wavelength / (1 + velocity / c)
-        
-        # Use current spectrum (shifted spectrum will be at shifted wavelength positions)
-        shifted_spectrum = current_spectrum
-        
-        # Remove any existing shifted spectrum line
-        if hasattr(self, 'shifted_line') and self.shifted_line is not None:
-            try:
-                self.shifted_line.remove()
-            except Exception:
-                pass
-        
-        # Store the shifted spectrum data and wavelength for later application
-        self.shifted_spectrum_data = shifted_spectrum.copy()
-        self.shifted_wavelength_data = shifted_wavelength.copy()
-        self.shifted_velocity = velocity
-        # Reset the shifted flag since this is a preview
-        self.is_spectrum_shifted = False
-        
-        # Get current y-axis ticks and limits before plotting
-        y_ticks = self.spec_plotter.ax.get_yticks()
-        y_limits = self.spec_plotter.ax.get_ylim()
+        current_factor = self.spectrum_shift_factor.get(active_tab, 1.0)
+        new_factor = current_factor * (1 / (1 + velocity / c))
 
-        # Plot shifted spectrum at shifted wavelength positions, matching
-        # whatever scale global_line is currently on (raw or normalized) -
-        # otherwise, with Normalize on, this raw-scale preview would be
-        # plotted against a y-axis clamped to the ~[0,1] normalized range
-        # and effectively vanish off-screen.
-        preview_y = self._maybe_normalize(shifted_spectrum)
+        self.spectrum_shift_preview[active_tab] = {"velocity": velocity, "factor": new_factor}
 
-        # Orange - distinct from blue (Full), cyan/darkcyan (Left), and
-        # magenta/darkmagenta (Right), so the preview doesn't get confused
-        # with the Right-side trace/indicator.
-        self.shifted_line, = self.spec_plotter.ax.plot(
-            shifted_wavelength,
-            preview_y,
-            'orange',
-            linewidth=1.5,
-            alpha=0.8,
-            label=f'Shifted (v={velocity:.1f} km/s)',
-            zorder=4
-        )
+        # _refresh_active_spectrum_tab draws the orange preview overplotted
+        # against this tab's own trace/color, applies Normalize consistently,
+        # and enables the Apply Shift / Cancel Preview buttons.
+        self._refresh_active_spectrum_tab()
 
-        # Explicitly set y-axis ticks and limits to original values
-        self.spec_plotter.ax.set_yticks(y_ticks)
-        self.spec_plotter.ax.set_ylim(y_limits)
-        
-        # Enable the Apply Shift button
-        self.apply_shift_btn.setEnabled(True)
-        
-        # Update legend and redraw
-        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-        self.spec_canvas.draw()
-        
-        print(f"[DEBUG] Applied multiplicative Doppler shift: v={velocity} km/s")
-    
+        print(f"[DEBUG] Previewing Doppler shift on '{active_tab}': v={velocity} km/s (cumulative factor={new_factor:.6f})")
+
     def _apply_shift(self):
-        """Apply the shifted spectrum as the new original spectrum.
+        """Commit whichever tab's pending shift preview is active.
 
-        This replaces the original spectrum with the shifted one (a global
-        wavelength recalibration, so it applies uniformly to Full/Left/Right),
-        auto-fits the x-axis to the new extent, and changes the spectrum
-        line color to orange to indicate it's shifted.
+        Each tab's shift is independent - applying Left's preview never
+        touches Full or Right. The trace stays in its own original color
+        (orange is a preview-only cue, not a permanent state). If the active
+        tab is Full, cube_data.wavelength is also kept in sync, since
+        Gaussian fitting/continuum/HITRAN/CO-flux all read it directly and
+        haven't been migrated to ask "which tab" yet (see plan).
         """
-        
-        # Check if a shift has been applied
-        if not hasattr(self, 'shifted_spectrum_data') or self.shifted_spectrum_data is None:
+        active_tab = self.active_spectrum_tab
+        preview = self.spectrum_shift_preview.get(active_tab)
+        if not preview:
             QMessageBox.warning(
-                self, 
+                self,
                 "No Shift Applied",
-                "Please apply a Doppler shift first using the 'Shift' button."
+                "Please preview a Doppler shift first using the 'Shift' button."
             )
             return
-        
-        # Confirm with user
-        if self.shifted_velocity is not None:
-            reply = QMessageBox.question(
-                self,
-                "Apply Shift",
-                f"Replace original spectrum with shifted version (v={self.shifted_velocity:.1f} km/s)?\n\n"
-                "The original spectrum will be replaced and the shift will be permanent.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply != QMessageBox.Yes:
-                return
-        
-        velocity = self.shifted_velocity  # Store velocity before clearing it
 
-        # Replace original spectrum with shifted spectrum. This is a global
-        # wavelength recalibration (same channels, new wavelength labels), so
-        # it applies uniformly to Full, Left, and Right - not a per-tab
-        # choice, since Left/Right are just spatial subsets of the same cube
-        # sharing the same wavelength axis.
-        self.original_spectrum = self.shifted_spectrum_data.copy()
-        
-        # Also update the wavelength array to the shifted wavelength
-        if hasattr(self, 'shifted_wavelength_data') and self.shifted_wavelength_data is not None:
-            self.cube_data.wavelength = self.shifted_wavelength_data.copy()
-            self.spec_plotter.wavelength = self.shifted_wavelength_data.copy()
-        
-        # Remove the shifted spectrum line from the plot
-        if hasattr(self, 'shifted_line') and self.shifted_line is not None:
-            try:
-                self.shifted_line.remove()
-            except Exception:
-                pass
-            self.shifted_line = None
-        
-        # Clear shifted spectrum data
-        self.shifted_spectrum_data = None
-        self.shifted_wavelength_data = None
-        self.shifted_velocity = None
-        
-        # Mark that current spectrum is shifted
-        self.is_spectrum_shifted = True
-        
-        # Disable the Apply Shift button
-        self.apply_shift_btn.setEnabled(False)
-        
-        # Update the spectrum display's x-data to the new wavelength axis
-        self.spec_plotter.update_spectrum(self.original_spectrum)
+        tab_label = active_tab.capitalize()
+        reply = QMessageBox.question(
+            self,
+            "Apply Shift",
+            f"Apply this Doppler shift to the {tab_label} spectrum (v={preview['velocity']:.1f} km/s)?\n\n"
+            "This will be permanent until reverted.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
 
-        # Auto-fit the x-axis to the new spectrum's full extent, rather than
-        # rescaling whatever the previous view window happened to be - the
-        # whole wavelength axis genuinely compresses/expands under this
-        # multiplicative shift, so keeping an old (now-mismatched) view
-        # window looks like part of the spectrum went missing.
-        new_wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-        if new_wavelength is not None and len(new_wavelength) > 0:
-            self.spec_plotter.ax.set_xlim(float(np.min(new_wavelength)), float(np.max(new_wavelength)))
+        # Incremental factor from THIS specific shift (needed for
+        # shift_plot_elements, which moves Gaussian fit artists by a
+        # relative amount, not an absolute position).
+        old_factor = self.spectrum_shift_factor.get(active_tab, 1.0)
+        new_factor = preview["factor"]
+        incremental_factor = new_factor / old_factor if old_factor else new_factor
 
-        # Shift Gaussian fit artists by the same factor
-        c = 299792.458  # Speed of light in km/s
-        shift_factor = 1 / (1 + velocity / c)
-        self.spec_plotter.shift_plot_elements(shift_factor)
+        self.spectrum_shift_factor[active_tab] = new_factor
+        self.spectrum_shift_preview[active_tab] = None
 
-        # Change the spectrum line color to orange to indicate it's shifted -
-        # matches the preview color, and avoids clashing with Right's
-        # magenta/darkmagenta trace/indicator (purple was too close to it).
-        if hasattr(self.spec_plotter, 'global_line') and self.spec_plotter.global_line is not None:
-            self.spec_plotter.global_line.set_color('orange')
-            self.spec_plotter.global_line.set_label('Shifted Spectrum')
+        if active_tab == "full":
+            new_wavelength = self._get_tab_wavelength("full")
+            self.cube_data.wavelength = new_wavelength.copy()
+            self.spec_plotter.wavelength = new_wavelength.copy()
+            # Gaussian fit artists are drawn against Full's axis only
+            # (unmigrated feature - see plan's deferred section).
+            self.spec_plotter.shift_plot_elements(incremental_factor)
 
-        # Refresh the active tab: recomputes proper y-limits from the actual
-        # (now-shifted) data instead of the stale/percentile-based values
-        # update_spectrum() leaves behind, keeps Left/Right's traces in sync
-        # with the new wavelength axis, and rebuilds the legend to reflect
-        # the new label/color.
+        # Auto-fit the x-axis to this tab's new extent, rather than rescaling
+        # whatever the previous view window happened to be - the wavelength
+        # axis genuinely compresses/expands under this multiplicative shift,
+        # so keeping an old (now-mismatched) view window looks like part of
+        # the spectrum went missing.
+        new_x = self._get_tab_wavelength(active_tab)
+        if new_x is not None and len(new_x) > 0:
+            self.spec_plotter.ax.set_xlim(float(np.min(new_x)), float(np.max(new_x)))
+
+        # Recomputes proper y-limits from the actual (now-shifted) data,
+        # redraws this tab's trace in its own color (not orange - that was
+        # only ever a preview cue) at the new position, updates its
+        # "(Shifted)" label, and rebuilds the legend.
         self._refresh_active_spectrum_tab()
 
         QMessageBox.information(
             self,
             "Shift Applied",
-            "Original spectrum has been replaced with the shifted version.\n"
-            "You can now fit Gaussians to the shifted spectrum."
+            f"Shift applied to the {tab_label} spectrum."
         )
-        
-        print(f"[DEBUG] Shift applied - original spectrum replaced with shifted spectrum")
+
+        print(f"[DEBUG] Shift applied to '{active_tab}': cumulative factor={new_factor:.6f}")
+
+    def _cancel_shift_preview(self):
+        """Cancel whichever tab's pending shift preview is active, without
+        applying it - removes the orange overplot, leaves the applied
+        factor (if any) untouched."""
+        active_tab = self.active_spectrum_tab
+        if not self.spectrum_shift_preview.get(active_tab):
+            return
+        self.spectrum_shift_preview[active_tab] = None
+        self._refresh_active_spectrum_tab()
+        print(f"[DEBUG] Cancelled shift preview on '{active_tab}'")
+
+    def _revert_shift(self):
+        """Revert whichever tab is active back to its original (unshifted)
+        wavelength - a full reset to factor 1.0, not a step-wise undo."""
+        active_tab = self.active_spectrum_tab
+        if self.spectrum_shift_factor.get(active_tab, 1.0) == 1.0:
+            return
+
+        tab_label = active_tab.capitalize()
+        reply = QMessageBox.question(
+            self,
+            "Revert Shift",
+            f"Revert the {tab_label} spectrum back to its original (unshifted) wavelength?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self.spectrum_shift_factor[active_tab] = 1.0
+        self.spectrum_shift_preview[active_tab] = None
+
+        if active_tab == "full":
+            self.cube_data.wavelength = np.asarray(self.base_wavelength, dtype=float).copy()
+            self.spec_plotter.wavelength = np.asarray(self.base_wavelength, dtype=float).copy()
+
+        new_x = self._get_tab_wavelength(active_tab)
+        if new_x is not None and len(new_x) > 0:
+            self.spec_plotter.ax.set_xlim(float(np.min(new_x)), float(np.max(new_x)))
+
+        self._refresh_active_spectrum_tab()
+        print(f"[DEBUG] Reverted shift on '{active_tab}'")
 
     def _open_colormap_dialog(self, target):
         dialog = ColorMapDialog(self)

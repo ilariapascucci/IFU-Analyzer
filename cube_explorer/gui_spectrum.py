@@ -399,7 +399,8 @@ class GuiSpectrumMixin:
         )
 
         if self_normalized_visible:
-            lines = (self.spec_plotter.global_line, self._spec_tab_line_left, self._spec_tab_line_right)
+            lines = (self.spec_plotter.global_line, self._spec_tab_line_left, self._spec_tab_line_right,
+                     self._shift_preview_line)
             visible_ys = [
                 np.asarray(line.get_ydata(), dtype=float)
                 for line in lines
