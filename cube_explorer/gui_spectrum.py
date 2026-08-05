@@ -87,7 +87,11 @@ class GuiSpectrumMixin:
         if not self.spectrum_normalized:
             return y
         peak = self._full_spectrum_peak()
-        if not peak:
+        # peak <= 0 means the whole spectrum is non-positive (degenerate/
+        # broken data) - dividing by a negative or zero peak would flip
+        # every sign (a downward noise dip would invert into a false
+        # positive bump), so fall back to raw values instead.
+        if not peak or peak <= 0:
             return y
         return np.asarray(y, dtype=float) / peak
 
@@ -156,15 +160,16 @@ class GuiSpectrumMixin:
             self._spec_tab_line_right.set_visible(False)
 
     def _refresh_active_spectrum_tab(self):
-        """Show only the active tab's own trace; hide everything else.
+        """Show the active tab's own trace, plus any Full-tab overplots.
 
-        Full always shows only the original spectrum (spec_plotter.global_line).
-        Left/Right show only their own dedicated line, and only if that side
-        currently has a selection - otherwise the tab is empty (no fallback to
-        Full). Slice-indicator lines only show once explicitly set, and only
-        on the tab(s) they're relevant to (Left's line on Full+Left, Right's
-        on Full+Right) - the OTHER side's indicator has no bearing on what
-        you're looking at, so it stays hidden.
+        Full always shows only the original spectrum (spec_plotter.global_line),
+        normalized if Normalize is on. Left/Right show their own dedicated
+        line whenever (a) their own tab is active, or (b) the Full tab is
+        active and their "Show Left"/"Show Right" checkbox is on - in both
+        cases only if that side currently has a selection, otherwise nothing
+        renders (no fallback to Full). Slice-indicator lines only show once
+        explicitly set, and only on the tab(s) they're relevant to (Left's
+        line on Full+Left, Right's on Full+Right).
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             return
@@ -180,12 +185,21 @@ class GuiSpectrumMixin:
         x = global_line.get_xdata()
 
         # Full is always just the original spectrum - never repurposed.
+        if tab == "full":
+            y = self._maybe_normalize(getattr(self, 'original_spectrum', None))
+            if y is not None:
+                global_line.set_ydata(np.asarray(y, dtype=np.float32))
         global_line.set_visible(tab == "full")
 
+        overplot_flags = {"left": self.overplot_left, "right": self.overplot_right}
+        overplot_checkboxes = {"left": self.overplot_left_checkbox, "right": self.overplot_right_checkbox}
         for side, line in (("left", self._spec_tab_line_left), ("right", self._spec_tab_line_right)):
             sel = self.last_selection_left if side == "left" else self.last_selection_right
-            if tab == side and sel:
-                y = self._get_selection_spectrum(sel)
+            overplot_checkboxes[side].setEnabled(tab == "full" and bool(sel))
+
+            show = (tab == side and sel) or (tab == "full" and overplot_flags[side] and sel)
+            if show:
+                y = self._maybe_normalize(self._get_selection_spectrum(sel))
                 if y is not None and len(y) == len(x):
                     line.set_data(x, np.asarray(y).astype(np.float32))
                     line.set_visible(True)
@@ -227,11 +241,15 @@ class GuiSpectrumMixin:
         of the same cube), so a single fixed scale lets you see at a glance
         how a region's peak compares to the total, instead of each tab
         auto-scaling to only its own data and hiding that relationship.
+
+        Uses the normalized range (via _maybe_normalize) when Normalize is on,
+        so the axis correctly spans ~[0, 1] instead of the raw flux range.
         """
         original = getattr(self, 'original_spectrum', None)
         if original is None:
             return
-        y = np.asarray(original, dtype=float)
+        y = self._maybe_normalize(original)
+        y = np.asarray(y, dtype=float)
         finite = y[np.isfinite(y)]
         if finite.size == 0:
             return

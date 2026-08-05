@@ -969,6 +969,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         spec_tab_layout = QHBoxLayout()
         spec_tab_layout.setContentsMargins(0, 0, 0, 0)
         spec_tab_layout.addWidget(self.spec_tab_bar)
+        spec_tab_layout.addWidget(self.normalize_checkbox)
+        spec_tab_layout.addWidget(self.overplot_left_checkbox)
+        spec_tab_layout.addWidget(self.overplot_right_checkbox)
         spec_tab_layout.addStretch()
         main_layout.addLayout(spec_tab_layout)
 
