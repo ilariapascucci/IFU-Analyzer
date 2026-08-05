@@ -67,6 +67,18 @@ class GuiSpectrumMixin:
         self.self_normalize_right_checkbox.setEnabled(False)
         self.self_normalize_right_checkbox.toggled.connect(lambda checked: self._on_self_normalize_toggled("right", checked))
 
+        # Per-tab Doppler shift: each of Full/Left/Right can be shifted
+        # independently. base_wavelength is the permanent, never-mutated
+        # reference (captured once per cube load); spectrum_shift_factor is
+        # each tab's currently-APPLIED cumulative factor; spectrum_shift_preview
+        # holds a pending, not-yet-applied shift being compared via the
+        # orange preview line. Every shift operation acts only on whichever
+        # tab is active when it's triggered - never propagated across tabs.
+        self.base_wavelength = None
+        self.spectrum_shift_factor = {"full": 1.0, "left": 1.0, "right": 1.0}
+        self.spectrum_shift_preview = {"full": None, "left": None, "right": None}
+        self._shift_preview_line = None
+
     def _on_normalize_toggled(self, checked):
         """Handle the Normalize checkbox - a global toggle, not per-tab."""
         self.spectrum_normalized = bool(checked)
@@ -188,6 +200,21 @@ class GuiSpectrumMixin:
         sel = self.last_selection_left if tab == 'left' else self.last_selection_right
         return self._get_selection_spectrum(sel)
 
+    def _get_tab_wavelength(self, tab):
+        """Return this tab's own (possibly independently-shifted) wavelength
+        array: base_wavelength * spectrum_shift_factor[tab].
+
+        This is the general getter a future region-aware Gaussian fitting
+        pass would call instead of reading cube_data.wavelength directly -
+        Full's factor stays mirrored into cube_data.wavelength (see
+        _apply_shift/_revert_shift in gui.py) so unmigrated features keep
+        working unchanged for Full.
+        """
+        if self.base_wavelength is None:
+            return None
+        factor = self.spectrum_shift_factor.get(tab, 1.0)
+        return np.asarray(self.base_wavelength, dtype=float) * factor
+
     def _ensure_tab_lines(self):
         """Lazily (re)create the dedicated Left/Right trace lines, if missing
         or if the spectrum plotter's axes was replaced (e.g. a new cube was
@@ -202,6 +229,19 @@ class GuiSpectrumMixin:
         if self._spec_tab_line_right is None or self._spec_tab_line_right.axes is not ax:
             self._spec_tab_line_right, = ax.step([], [], where='mid', color='darkmagenta', label='Right', zorder=2)
             self._spec_tab_line_right.set_visible(False)
+
+    def _ensure_shift_preview_line(self):
+        """Lazily (re)create the single shared shift-preview line (orange).
+
+        Reused across tabs - only the active tab's own preview is ever shown
+        at once, so one line is enough. Always a preview cue, never a
+        permanent state: colors/labels of the real per-tab traces are
+        untouched by shifting.
+        """
+        ax = self.spec_plotter.ax
+        if self._shift_preview_line is None or self._shift_preview_line.axes is not ax:
+            self._shift_preview_line, = ax.plot([], [], color='orange', linewidth=1.5, alpha=0.8, zorder=4)
+            self._shift_preview_line.set_visible(False)
 
     def _refresh_active_spectrum_tab(self):
         """Show the active tab's own trace, plus any Full-tab overplots.
