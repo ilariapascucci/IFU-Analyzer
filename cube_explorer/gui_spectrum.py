@@ -52,6 +52,21 @@ class GuiSpectrumMixin:
         self.overplot_right_checkbox.setEnabled(False)
         self.overplot_right_checkbox.toggled.connect(lambda checked: self._on_overplot_toggled("right", checked))
 
+        # Self-normalize: per-side override of Normalize's "divide by Full's
+        # peak" rule - divide by that side's OWN peak instead, for studying a
+        # region's own line shape independent of its contribution to the
+        # total. Only meaningful while Normalize is on.
+        self.self_normalize_left = False
+        self.self_normalize_right = False
+
+        self.self_normalize_left_checkbox = QCheckBox("Self-Normalize Left")
+        self.self_normalize_left_checkbox.setEnabled(False)
+        self.self_normalize_left_checkbox.toggled.connect(lambda checked: self._on_self_normalize_toggled("left", checked))
+
+        self.self_normalize_right_checkbox = QCheckBox("Self-Normalize Right")
+        self.self_normalize_right_checkbox.setEnabled(False)
+        self.self_normalize_right_checkbox.toggled.connect(lambda checked: self._on_self_normalize_toggled("right", checked))
+
     def _on_normalize_toggled(self, checked):
         """Handle the Normalize checkbox - a global toggle, not per-tab."""
         self.spectrum_normalized = bool(checked)
@@ -63,6 +78,14 @@ class GuiSpectrumMixin:
             self.overplot_left = bool(checked)
         else:
             self.overplot_right = bool(checked)
+        self._refresh_active_spectrum_tab()
+
+    def _on_self_normalize_toggled(self, side, checked):
+        """Handle the Self-Normalize Left/Right checkboxes."""
+        if side == "left":
+            self.self_normalize_left = bool(checked)
+        else:
+            self.self_normalize_right = bool(checked)
         self._refresh_active_spectrum_tab()
 
     def _full_spectrum_peak(self):
@@ -94,6 +117,27 @@ class GuiSpectrumMixin:
         if not peak or peak <= 0:
             return y
         return np.asarray(y, dtype=float) / peak
+
+    def _maybe_normalize_side(self, side, y):
+        """Normalize Left/Right's data, honoring that side's Self-Normalize
+        override if set. Otherwise falls back to _maybe_normalize (relative
+        to Full's peak, or unchanged if Normalize is off entirely)."""
+        if not self.spectrum_normalized:
+            return y
+        self_normalize = self.self_normalize_left if side == "left" else self.self_normalize_right
+        if not self_normalize or y is None:
+            return self._maybe_normalize(y)
+
+        arr = np.asarray(y, dtype=float)
+        finite = arr[np.isfinite(arr)]
+        if finite.size == 0:
+            return y
+        own_peak = float(finite.max())
+        # Same degenerate-data guard as _maybe_normalize: a non-positive own
+        # peak would flip every sign if divided through.
+        if own_peak <= 0:
+            return y
+        return arr / own_peak
 
     def _mark_slice_indicator_set(self, target):
         """Record that the user explicitly picked a wavelength for this side
@@ -193,13 +237,16 @@ class GuiSpectrumMixin:
 
         overplot_flags = {"left": self.overplot_left, "right": self.overplot_right}
         overplot_checkboxes = {"left": self.overplot_left_checkbox, "right": self.overplot_right_checkbox}
+        self_normalize_checkboxes = {"left": self.self_normalize_left_checkbox, "right": self.self_normalize_right_checkbox}
         for side, line in (("left", self._spec_tab_line_left), ("right", self._spec_tab_line_right)):
             sel = self.last_selection_left if side == "left" else self.last_selection_right
             overplot_checkboxes[side].setEnabled(tab == "full" and bool(sel))
+            # Self-Normalize is only meaningful once Normalize is on at all.
+            self_normalize_checkboxes[side].setEnabled(self.spectrum_normalized and bool(sel))
 
             show = (tab == side and sel) or (tab == "full" and overplot_flags[side] and sel)
             if show:
-                y = self._maybe_normalize(self._get_selection_spectrum(sel))
+                y = self._maybe_normalize_side(side, self._get_selection_spectrum(sel))
                 if y is not None and len(y) == len(x):
                     line.set_data(x, np.asarray(y).astype(np.float32))
                     line.set_visible(True)
@@ -244,12 +291,37 @@ class GuiSpectrumMixin:
 
         Uses the normalized range (via _maybe_normalize) when Normalize is on,
         so the axis correctly spans ~[0, 1] instead of the raw flux range.
+
+        Exception: if a currently-visible Left/Right trace is Self-Normalized,
+        the "region <= full" guarantee that justifies sharing Full's scale no
+        longer holds (self-normalizing deliberately breaks that comparison to
+        show the region's own shape instead) - in that case, fit the axis to
+        the union of whatever's actually visible.
         """
-        original = getattr(self, 'original_spectrum', None)
-        if original is None:
-            return
-        y = self._maybe_normalize(original)
-        y = np.asarray(y, dtype=float)
+        self_normalized_visible = (
+            (self.spectrum_normalized and self.self_normalize_left
+             and self._spec_tab_line_left is not None and self._spec_tab_line_left.get_visible())
+            or (self.spectrum_normalized and self.self_normalize_right
+                and self._spec_tab_line_right is not None and self._spec_tab_line_right.get_visible())
+        )
+
+        if self_normalized_visible:
+            lines = (self.spec_plotter.global_line, self._spec_tab_line_left, self._spec_tab_line_right)
+            visible_ys = [
+                np.asarray(line.get_ydata(), dtype=float)
+                for line in lines
+                if line is not None and line.get_visible() and len(line.get_ydata())
+            ]
+            if not visible_ys:
+                return
+            y = np.concatenate(visible_ys)
+        else:
+            original = getattr(self, 'original_spectrum', None)
+            if original is None:
+                return
+            y = self._maybe_normalize(original)
+            y = np.asarray(y, dtype=float)
+
         finite = y[np.isfinite(y)]
         if finite.size == 0:
             return

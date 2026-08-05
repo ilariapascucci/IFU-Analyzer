@@ -972,6 +972,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         spec_tab_layout.addWidget(self.normalize_checkbox)
         spec_tab_layout.addWidget(self.overplot_left_checkbox)
         spec_tab_layout.addWidget(self.overplot_right_checkbox)
+        spec_tab_layout.addWidget(self.self_normalize_left_checkbox)
+        spec_tab_layout.addWidget(self.self_normalize_right_checkbox)
         spec_tab_layout.addStretch()
         main_layout.addLayout(spec_tab_layout)
 
