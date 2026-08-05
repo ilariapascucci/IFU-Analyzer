@@ -244,7 +244,8 @@ class GuiSpectrumMixin:
             self._shift_preview_line.set_visible(False)
 
     def _refresh_active_spectrum_tab(self):
-        """Show the active tab's own trace, plus any Full-tab overplots.
+        """Show the active tab's own trace, plus any Full-tab overplots and
+        the active tab's own pending shift preview, if any.
 
         Full always shows only the original spectrum (spec_plotter.global_line),
         normalized if Normalize is on. Left/Right show their own dedicated
@@ -254,6 +255,10 @@ class GuiSpectrumMixin:
         renders (no fallback to Full). Slice-indicator lines only show once
         explicitly set, and only on the tab(s) they're relevant to (Left's
         line on Full+Left, Right's on Full+Right).
+
+        Each tab has its own independent shift factor, so each line's x-data
+        is computed from _get_tab_wavelength(that tab) rather than a single
+        shared x-array.
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             return
@@ -265,21 +270,27 @@ class GuiSpectrumMixin:
             return
 
         self._ensure_tab_lines()
+        self._ensure_shift_preview_line()
         tab = self.active_spectrum_tab
-        x = global_line.get_xdata()
+
+        # Fallback x-array for the (should-be-rare) case base_wavelength
+        # isn't captured yet - keeps this method from breaking outright.
+        fallback_x = global_line.get_xdata()
+
+        def tab_x(t):
+            x = self._get_tab_wavelength(t)
+            return x if x is not None else fallback_x
+
+        x_full = tab_x("full")
 
         # Full is always just the original spectrum - never repurposed.
         if tab == "full":
             y = self._maybe_normalize(getattr(self, 'original_spectrum', None))
-            if y is not None:
-                global_line.set_ydata(np.asarray(y, dtype=np.float32))
+            if y is not None and len(y) == len(x_full):
+                global_line.set_data(x_full, np.asarray(y, dtype=np.float32))
+        full_shifted = self.spectrum_shift_factor.get("full", 1.0) != 1.0
+        global_line.set_label("Shifted Spectrum" if full_shifted else "Total Spectrum")
         global_line.set_visible(tab == "full")
-
-        # A shift is a global wavelength recalibration - Left/Right's traces
-        # end up on the shifted axis too, even though their color stays
-        # side-specific (changing it would break telling them apart when
-        # overplotted). The label says so instead.
-        shifted_suffix = " (Shifted)" if getattr(self, 'is_spectrum_shifted', False) else ""
 
         overplot_flags = {"left": self.overplot_left, "right": self.overplot_right}
         overplot_checkboxes = {"left": self.overplot_left_checkbox, "right": self.overplot_right_checkbox}
@@ -290,16 +301,49 @@ class GuiSpectrumMixin:
             # Self-Normalize is a standalone toggle - only needs a selection
             # to act on, independent of whether Normalize (global) is on.
             self_normalize_checkboxes[side].setEnabled(bool(sel))
-            line.set_label(f"{side.capitalize()}{shifted_suffix}")
+            # Each tab's OWN shift, independent of the others.
+            side_shifted = self.spectrum_shift_factor.get(side, 1.0) != 1.0
+            line.set_label(f"{side.capitalize()}{' (Shifted)' if side_shifted else ''}")
 
             show = (tab == side and sel) or (tab == "full" and overplot_flags[side] and sel)
             if show:
+                x_side = tab_x(side)
                 y = self._maybe_normalize_side(side, self._get_selection_spectrum(sel))
-                if y is not None and len(y) == len(x):
-                    line.set_data(x, np.asarray(y).astype(np.float32))
+                if y is not None and len(y) == len(x_side):
+                    line.set_data(x_side, np.asarray(y).astype(np.float32))
                     line.set_visible(True)
                     continue
             line.set_visible(False)
+
+        # Shift preview: only the ACTIVE tab's own pending preview ever
+        # shows, overplotted (in orange) against that tab's own trace/color.
+        preview = self.spectrum_shift_preview.get(tab)
+        if preview and self.base_wavelength is not None:
+            preview_x = np.asarray(self.base_wavelength, dtype=float) * preview["factor"]
+            if tab == "full":
+                preview_y = self._maybe_normalize(getattr(self, 'original_spectrum', None))
+            else:
+                sel = self.last_selection_left if tab == "left" else self.last_selection_right
+                preview_y = self._maybe_normalize_side(tab, self._get_selection_spectrum(sel))
+            if preview_y is not None and len(preview_y) == len(preview_x):
+                self._shift_preview_line.set_data(preview_x, np.asarray(preview_y, dtype=np.float32))
+                self._shift_preview_line.set_label(f"Preview (v={preview['velocity']:.1f} km/s)")
+                self._shift_preview_line.set_visible(True)
+            else:
+                self._shift_preview_line.set_visible(False)
+        else:
+            self._shift_preview_line.set_visible(False)
+
+        # Shift button enablement follows whichever tab is active - a
+        # preview/applied-shift on one tab has no bearing on the others.
+        has_preview = bool(preview)
+        has_shift = self.spectrum_shift_factor.get(tab, 1.0) != 1.0
+        if hasattr(self, 'apply_shift_btn'):
+            self.apply_shift_btn.setEnabled(has_preview)
+        if hasattr(self, 'cancel_shift_btn'):
+            self.cancel_shift_btn.setEnabled(has_preview)
+        if hasattr(self, 'revert_shift_btn'):
+            self.revert_shift_btn.setEnabled(has_shift)
 
         indicator_set = getattr(self, '_slice_indicator_set', {"left": False, "right": False})
         vline_left = getattr(self.spec_plotter, 'vline_left', None)
@@ -315,7 +359,8 @@ class GuiSpectrumMixin:
         # traces/indicators don't leave a stale entry behind.
         ax = self.spec_plotter.ax
         visible = [
-            line for line in (global_line, self._spec_tab_line_left, self._spec_tab_line_right, vline_left, vline_right)
+            line for line in (global_line, self._spec_tab_line_left, self._spec_tab_line_right,
+                              vline_left, vline_right, self._shift_preview_line)
             if line is not None and line.get_visible()
         ]
         try:
