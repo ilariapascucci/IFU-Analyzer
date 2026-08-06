@@ -94,13 +94,13 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
     Otherwise perform case-insensitive exact or bracketed element matching.
     """
     if not os.path.exists(file_path):
-        print(f"❌ Error: File '{file_path}' not found.")
+        print(f"Error: File '{file_path}' not found.")
         return [], {}
     try:
         with open(file_path, 'r') as f:
             lines = f.readlines()
     except Exception as e:
-        print(f"❌ Error reading file: {e}")
+        print(f"Error reading file: {e}")
         return [], {}
     
     data_rows = []
@@ -217,7 +217,7 @@ def delete_cache_properly(table_name):
     try:
         from hapi import purgeCache
         purgeCache(table_name)
-        print(f"✓ Purged cache for {table_name}")
+        print(f"Purged cache for {table_name}")
     except Exception as e:
         # Fallback: manually delete just the table files
         try:
@@ -225,12 +225,12 @@ def delete_cache_properly(table_name):
             header_file = f'hitran_local/{table_name}.header'
             if os.path.exists(data_file):
                 os.remove(data_file)
-                print(f"✓ Removed {data_file}")
+                print(f"Removed {data_file}")
             if os.path.exists(header_file):
                 os.remove(header_file)
-                print(f"✓ Removed {header_file}")
+                print(f"Removed {header_file}")
         except Exception as e2:
-            print(f"⚠️ Could not delete cache files: {e2}")
+            print(f"Could not delete cache files: {e2}")
 
 def get_cache_age(table_name):
     try:
@@ -263,13 +263,13 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
     try:
         from hapi import db_begin, fetch, getColumns, tableList
     except ImportError:
-        print("❌ Error: HAPI not installed!")
-        print("📦 Install with: pip install hitran-api")
+        print("Error: HAPI not installed!")
+        print("Install with: pip install hitran-api")
         return [], {}
 
     mol_numbers = get_available_molecules()
     if molecule not in mol_numbers:
-        print(f"❌ Molecule '{molecule}' not found in HITRAN")
+        print(f"Molecule '{molecule}' not found in HITRAN")
         return [], {}
 
     M = mol_numbers[molecule]
@@ -426,7 +426,7 @@ def display_results(results):
     and upper energy level for each line, sorted by wavelength.
     """
     if not results:
-        print("❌ No entries found.")
+        print("No entries found.")
         return
     
     print("="*115)
@@ -446,7 +446,7 @@ def display_results(results):
             f"{row['e_upper']:>11.2f}"
         )
     print("="*115)
-    print(f"✓ Total entries: {len(results)}\n")
+    print(f"Total entries: {len(results)}\n")
 
 def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None):
     """
@@ -467,7 +467,7 @@ def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=
         )
         return results
     except Exception as e:
-        print(f"❌ Error in HITRAN GUI interface: {e}")
+        print(f"Error in HITRAN GUI interface: {e}")
         return []
 
 # Example GUI integration point (to be connected to the main GUI application):
@@ -521,7 +521,7 @@ def load_contaminating_lines_catalog(filepath):
     """
     try:
         if not os.path.exists(filepath):
-            print(f"❌ Error: File '{filepath}' not found.")
+            print(f"Error: File '{filepath}' not found.")
             return None
         
         print(f">>> Loading contaminating lines catalog from {filepath}...")
@@ -530,7 +530,7 @@ def load_contaminating_lines_catalog(filepath):
         # VALIDATE: 'wavelength' column MUST exist
         if 'wavelength' not in contam_lines.columns:
             error_msg = (
-                f"❌ CSV file is missing required 'wavelength' column.\n"
+                f"CSV file is missing required 'wavelength' column.\n"
                 f"Columns found: {', '.join(contam_lines.columns.tolist())}"
             )
             print(error_msg)
@@ -538,8 +538,8 @@ def load_contaminating_lines_catalog(filepath):
         
         # Rename 'wavelength' column to 'line_wave_um' for consistency with CO catalog
         contam_lines = contam_lines.rename(columns={'wavelength': 'line_wave_um'})
-        print(f"✓ Loaded {len(contam_lines)} contaminating lines")
+        print(f"Loaded {len(contam_lines)} contaminating lines")
         return contam_lines
     except Exception as e:
-        print(f"❌ Error loading contaminating lines catalog: {e}")
+        print(f"Error loading contaminating lines catalog: {e}")
         return None

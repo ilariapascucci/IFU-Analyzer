@@ -1100,29 +1100,18 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         print(f"  [DEBUG] CO line wavelengths: {detected_co['line'].values[:5].tolist()}...")
         print(f"  [DEBUG] CO line max amplitudes: {detected_co['max_amplitude'].values[:5].tolist()}...")
     
-    # Filter contam_catalog to only include detected lines
-    if len(detected_lines) > 0 and 'line' in detected_lines.columns:
-        detected_wavelengths = detected_lines.loc[detected_lines['disposition'] == 1, 'line'].values
-        if len(detected_wavelengths) > 0 and contam_catalog is not None and 'line_wave_um' in contam_catalog.columns:
-            detected_contam = contam_catalog[
-                contam_catalog['line_wave_um'].isin(detected_wavelengths)
-            ].copy()
-        else:
-            detected_contam = pd.DataFrame()
-    else:
-        detected_contam = pd.DataFrame()
-    
-    # CRITICAL: Normalize detected_contam to match detected_co structure
-    if len(detected_contam) > 0:
-        # Rename 'line_wave_um' to 'line' if needed
-        if 'line_wave_um' in detected_contam.columns and 'line' not in detected_contam.columns:
-            detected_contam = detected_contam.rename(columns={'line_wave_um': 'line'})
-        # Add 'disposition' column if missing
-        if 'disposition' not in detected_contam.columns:
-            detected_contam['disposition'] = 1
-        # Add 'max_amplitude' column if missing (estimate from local spectrum)
-        if 'max_amplitude' not in detected_contam.columns:
-            detected_contam['max_amplitude'] = np.nanmax(spectrum_flux) - np.nanmin(spectrum_flux)
+    # Run peak detection against the contaminating-line catalog itself (same pattern used
+    # for CO_catalog_for_fit above), rather than checking for wavelength coincidence with
+    # CO detections -- a real contaminant (e.g. H2) sits at a different wavelength than any
+    # CO line, so that coincidence check never matched and detected_contam was always empty
+    if contam_catalog is not None and len(contam_catalog) > 0:
+        detected_contam_lines = find_lines(
+            spectrum_wave, spectrum_flux, contam_catalog,
+            contaminating_lines=CO_catalog_for_fit,
+            remove_duplicate='True' if do_duplicate_removal else 'False',
+            snr_threshold=snr_threshold
+        )
+        detected_contam = detected_contam_lines[detected_contam_lines['disposition'] == 1].copy()
     else:
         # Empty DataFrame - still needs the right columns for fit_glines
         detected_contam = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'species'])
