@@ -269,12 +269,14 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     Fit HITRAN spectral lines automatically using database lookup.
 
     This is the same algorithm as the GUI's **Multi-Gaussian Fit** button, not a
-    separate approximation of it: every line's center is fixed at its catalog
-    wavelength and its width comes from the instrument's spectral resolution (not
-    fitted), which turns fitting all of them into a single linear least-squares solve
-    (``np.linalg.lstsq``) instead of an iterative nonlinear fit. Lines that overlap are
-    disentangled by the same solve automatically -- no independent-fit double-claiming
-    of shared flux, and no per-selection cost blowup from fitting many lines together.
+    separate approximation of it: every line's width comes from the instrument's
+    spectral resolution (not fitted), and its center is fixed at its catalog
+    wavelength plus one shared velocity shift estimated from these lines' own peaks
+    (see ``fit_hitran_lines_collective``'s docstring), which turns fitting all of them
+    into a single linear least-squares solve (``np.linalg.lstsq``) instead of an
+    iterative nonlinear fit. Lines that overlap are disentangled by the same solve
+    automatically -- no independent-fit double-claiming of shared flux, and no
+    per-selection cost blowup from fitting many lines together.
 
     Args:
         wavelength (array-like): Wavelength/frequency values
@@ -362,9 +364,14 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     # Fit Gaussian profiles to all lines at once via linear least squares. Contaminant fits
     # (if contam_catalog was given) aren't surfaced here -- they exist to keep the requested
     # lines' amplitudes honest, not as an additional reportable result.
-    fit_pairs, _contam_pairs = _fit_hitran_lines_internal(wl, sp, hitran_lines, continuum_arr,
-                                                           header=header, wave_unit=wave_unit,
-                                                           contam_lines=contam_catalog)
+    fit_pairs, _contam_pairs, velocity_shift_kms = _fit_hitran_lines_internal(
+        wl, sp, hitran_lines, continuum_arr,
+        header=header, wave_unit=wave_unit,
+        contam_lines=contam_catalog)
+    if velocity_shift_kms is not None:
+        print(f"Applied a {velocity_shift_kms:+.2f} km/s wavelength shift to every line's fixed "
+              f"center (estimated from these lines' own peaks) -- each result's 'wavelength' "
+              f"reflects this, not the unshifted catalog value.")
 
     return [
         {

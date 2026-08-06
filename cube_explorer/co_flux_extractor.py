@@ -641,6 +641,45 @@ def _line_sigma(wl, header, dx, fallback_sigma_pixels):
         return fallback_sigma_pixels * dx
 
 
+def _estimate_velocity_shift(x_data, y_data, candidate_wavelengths, search_samples=3, min_lines=3):
+    """
+    Estimate one shared systemic velocity (km/s) for fit_hitran_lines_collective's fixed
+    line centers, from how far each candidate line's own local peak actually sits from its
+    catalog wavelength -- computed fresh from whatever spectrum is passed in, never a fixed
+    number. Same velocity/wavelength convention as the GUI's manual Doppler-shift feature
+    (gui.py _apply_shift: factor = 1/(1+v/c) applied to the wavelength axis) -- here solved
+    for the other side, shifting fixed line centers to match the (unshifted) observed data
+    instead of shifting the data to rest frame, so a positive v means the same physical
+    thing in both places.
+
+    For each candidate wavelength, finds the local peak within +/- search_samples wavelength
+    samples (not spatial pixels) and converts the offset to a velocity. Returns the median
+    across all candidates: with more than half genuinely near their catalog position, a
+    median is already robust to the rest being noise/blending, without needing a separate
+    per-line noise check.
+
+    Returns None (caller should skip correction) if fewer than min_lines candidates are given
+    -- a shift estimated from too few lines is worse than no shift at all.
+    """
+    c = 299792.458  # km/s
+    if len(candidate_wavelengths) < min_lines:
+        return None
+
+    velocities = []
+    for wl in candidate_wavelengths:
+        idx = np.argmin(np.abs(x_data - wl))
+        lo, hi = max(0, idx - search_samples), min(len(x_data), idx + search_samples + 1)
+        local_x, local_y = x_data[lo:hi], y_data[lo:hi]
+        if len(local_y) == 0:
+            continue
+        peak_wl = local_x[np.argmax(local_y)]
+        velocities.append(c * (peak_wl - wl) / wl)
+
+    if len(velocities) < min_lines:
+        return None
+    return float(np.median(velocities))
+
+
 def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                                  header=None, wave_unit=None, contam_lines=None,
                                  fallback_sigma_pixels=2.5, display_window_pixels=20):
@@ -667,12 +706,16 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
       away from its catalog wavelength the way auto_detect_boundaries's noisy search could,
       so a weak line's amplitude is always solved for at the right place.
 
-    Trade-off, so it's explicit: centers are fixed, not fitted, so a small systemic
-    wavelength/velocity offset (a few lines in earlier test output showed ~0.0001-0.0005um
-    shifts from their catalog wavelength) isn't captured -- every line is evaluated exactly
-    at its catalog position. lstsq doesn't constrain amplitudes >= 0 the way curve_fit's
-    bounds do, so a non-detection can come back with a small negative amplitude from noise;
-    that's treated as success=False rather than clipped and reported as a real detection.
+    Trade-off, so it's explicit: centers are fixed, not independently fitted -- but a real
+    source usually has some net systemic velocity offset from the HITRAN rest frame, and
+    fixing every center exactly at its unshifted catalog wavelength would silently underfit
+    every line the same way. So before building the design matrix, _estimate_velocity_shift()
+    measures one shared shift from these lines' own peaks and applies it to every center
+    (requested lines and contaminants alike) -- see that function's docstring for why a single
+    shared estimate is used instead of letting each line's position drift independently.
+    lstsq doesn't constrain amplitudes >= 0 the way curve_fit's bounds do, so a non-detection
+    can come back with a small negative amplitude from noise; that's treated as success=False
+    rather than clipped and reported as a real detection.
 
     Unlike extract_co_flux_from_spectrum, this does no SNR-based line detection -- the
     caller has already chosen exactly which lines to fit.
@@ -708,7 +751,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             always solves for every requested (and contaminating) line together.
 
     Returns:
-        (results, contam_results) tuple:
+        (results, contam_results, velocity_shift_kms) tuple:
             results: list of (line_dict, GaussianFitResult) pairs, one per requested line,
                 in the same order as `hitran_lines`.
             contam_results: list of (contam_line_dict, GaussianFitResult) pairs, one per
@@ -716,6 +759,9 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                 each GaussianFitResult's y_fit is *just* that contaminant's own component
                 (not the joint model), meant to be drawn as its own distinct curve rather
                 than folded into a requested line's display.
+            velocity_shift_kms: the shared shift applied to every fixed center (see above),
+                or None if too few lines were given to estimate one -- callers should surface
+                this to the user rather than let a silent center shift go unreported.
     """
     spectrum_x = _extract_value_from_quantity(spectrum_x)
     spectrum_y = _extract_value_from_quantity(spectrum_y)
@@ -740,7 +786,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         valid.append((idx, float(wl), line))
 
     if not valid or len(spectrum_x) < 4:
-        return [r for r in results if r is not None], []
+        return [r for r in results if r is not None], [], None
 
     y_corrected = spectrum_y - continuum
 
@@ -751,6 +797,18 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     display_half_width = display_window_pixels * dx
 
     wavelengths = [wl for _, wl, _ in valid]
+
+    # Centers are fixed at catalog wavelength (see docstring), which assumes the source has
+    # no net velocity offset from the HITRAN rest frame. Real sources usually do -- estimate
+    # one shared shift from how far these lines' own peaks actually sit from their catalog
+    # positions, and apply it to every center (requested lines and contaminants alike), same
+    # velocity/wavelength convention as the GUI's manual Doppler-shift feature.
+    v_shift = _estimate_velocity_shift(spectrum_x, y_corrected, wavelengths)
+    if v_shift is not None:
+        shift_factor = 1 + v_shift / 299792.458
+        wavelengths = [wl * shift_factor for wl in wavelengths]
+        valid = [(orig_idx, wl, line) for (orig_idx, _, line), wl in zip(valid, wavelengths)]
+
     pad = 4 * max(line_sigmas)
     win_mask = (spectrum_x >= min(wavelengths) - pad) & (spectrum_x <= max(wavelengths) + pad)
     x_data = spectrum_x[win_mask]
@@ -759,8 +817,12 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
 
     if contam_lines is not None and len(contam_lines) > 0 and len(x_data) > 0:
         contam_wl_all = contam_lines['line_wave_um'].astype(float).values
+        if v_shift is not None:
+            contam_wl_all = contam_wl_all * shift_factor
         contam_mask = (contam_wl_all >= x_data[0]) & (contam_wl_all <= x_data[-1])
-        contam_in_range = contam_lines[contam_mask]
+        contam_in_range = contam_lines[contam_mask].copy()
+        if v_shift is not None:
+            contam_in_range['line_wave_um'] = contam_wl_all[contam_mask]
     else:
         contam_in_range = contam_lines.iloc[0:0] if contam_lines is not None else pd.DataFrame(columns=['line_wave_um'])
 
@@ -777,7 +839,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                 r_squared=0, success=False,
                 message="Not enough spectral points in this wavelength range to fit",
             ))
-        return [r for r in results if r is not None], []
+        return [r for r in results if r is not None], [], v_shift
 
     # A contaminant whose template is nearly degenerate with a requested line's own template
     # (same shape, barely-shifted center) can't be reliably split from it by lstsq -- the two
@@ -913,7 +975,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             message=f"Contaminant ({contam_line['species']}), not part of the requested line list",
         )))
 
-    return [r for r in results if r is not None], contam_results
+    return [r for r in results if r is not None], contam_results, v_shift
 
 
 # ================== High-Level Extraction ==================

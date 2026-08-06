@@ -388,7 +388,7 @@ STATUS: {result.message}
         else:
             continuum_y = self.continuum_fitted
         
-        fit_pairs, contam_pairs = fit_hitran_lines_collective(
+        fit_pairs, contam_pairs, velocity_shift_kms = fit_hitran_lines_collective(
             spectrum_x, spectrum_y, self.plotted_lines, continuum_y,
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
             contam_lines=getattr(self, 'contam_lines', None),
@@ -403,7 +403,7 @@ STATUS: {result.message}
         self.multi_gauss_results = fit_results
         self.multi_gauss_contam_results = contam_results
         self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
-        self._show_multi_gaussian_results(fit_results, contam_results)
+        self._show_multi_gaussian_results(fit_results, contam_results, velocity_shift_kms)
 
     def _plot_multi_gaussian_on_spectrum(self, fit_results, contam_results=None):
         ax = self.spec_plotter.ax
@@ -460,12 +460,17 @@ STATUS: {result.message}
         ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw_idle()
 
-    def _show_multi_gaussian_results(self, fit_results, contam_results=None):
+    def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None):
         wave_unit = clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm'))
         flux_unit = clean_flux_unit(getattr(self.cube_data, 'flux_unit', 'MJy/sr'))
         fallback_area_unit = f"{flux_unit}·{wave_unit}"
 
-        results_text = f"MULTI-GAUSSIAN FIT RESULTS\n{'='*70}\nSuccessfully fitted {len(fit_results)} lines\n\nFITTED LINES:\n{'='*70}\n"
+        results_text = f"MULTI-GAUSSIAN FIT RESULTS\n{'='*70}\nSuccessfully fitted {len(fit_results)} lines\n"
+        if velocity_shift_kms is not None:
+            results_text += (f"Applied a {velocity_shift_kms:+.2f} km/s wavelength shift to every line's "
+                              f"fixed center (estimated from these lines' own peaks) -- "
+                              f"'Center (λ)' below reflects this, 'Line λ (catalog)' does not.\n")
+        results_text += f"\nFITTED LINES:\n{'='*70}\n"
         
         for idx, fit_info in enumerate(fit_results, 1):
             result, line = fit_info['result'], fit_info['line']
