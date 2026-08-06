@@ -42,7 +42,6 @@ from .gaussian_fitter import (
 from .rotational_diagram_fitter import get_spectral_resolution
 from .unit_converter import integrated_flux_to_cgs
 
-
 # ================== Unit Utilities ==================
 
 def extract_units(data):
@@ -536,7 +535,12 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             [sigma] * len(filtered_lines)
         ))
         p0 = np.ravel(p0_2d)  # 1d array
-        p0base, p0slope = np.min(yflux), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
+        # np.nanmin, not np.min: yflux here is the caller's full passed-in spectrum (e.g.
+        # create_co_flux_map hands over the whole cube-wide spectrum, not just this chunk),
+        # and it commonly has a NaN *somewhere* in it (detector gaps, footprint edges) even
+        # when this specific chunk's data is clean -- np.min over the full array would return
+        # NaN and poison this parameter's initial guess, making curve_fit reject it as infeasible
+        p0base, p0slope = np.nanmin(yflux), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
         p0 = np.insert(p0, [0, 0], [p0base, p0slope])
 
         # Create NumPy arrays with lower and upper bounds
@@ -556,23 +560,14 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
 
-        # Perform the fit
-        try:
-            par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0,
-                                 bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
-            print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
-        except (ValueError, RuntimeError) as e:
-            # Bounds are invalid or fit failed - use 3-sigma fallback
-            print(f"  curve_fit failed ({str(e)}), using 3-sigma upper limit")
-            continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1, show='False')
-            current_sum_contaminating = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
-            current_sum_CO = 3 * np.median(std_residuals) * sigma * np.sqrt(2 * np.pi)
-            a = np.nanmedian(continuum)
-            df_continuum.loc[idx_xwave, 'continuum'] = continuum
-            sum_CO_area = sum_CO_area + current_sum_CO
-            sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
-            mean_cont = mean_cont + a
-            continue
+        # Perform the fit -- matches Pascucci's fit_Glines, which calls curve_fit
+        # unguarded here; a chunk whose data is NaN/Inf (e.g. a spaxel straddling the
+        # edge of the instrument's rotated footprint) raises, and propagates up to
+        # whichever caller invoked extract_co_flux_from_spectrum, which is always
+        # already wrapped in its own per-pixel/per-call error handling
+        par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0,
+                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
+        print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
 
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
         par = par[2:]  # Extracts which parameters relate to the Gaussians
@@ -1039,7 +1034,17 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         chunk_size = 0.1  # microns
         n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
         wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
-    
+
+    # Narrow to the requested fit range now that continuum subtraction (which benefits from
+    # the wider spectrum, e.g. create_co_flux_map hands over the whole cube-wide spectrum)
+    # is done. Everything below -- find_lines' noise estimate, the Gaussian sigma estimate,
+    # and fit_glines' own chunk fits -- only ever needs [wave_min, wave_max]; leaving the
+    # full spectrum in past this point just means those steps run on (and can be skewed by)
+    # thousands of irrelevant points from elsewhere in the cube's spectral range.
+    fit_range_mask = (spectrum_wave >= wave_min) & (spectrum_wave <= wave_max)
+    spectrum_wave = spectrum_wave[fit_range_mask]
+    spectrum_flux = spectrum_flux[fit_range_mask]
+
     # Filter out excluded wavelengths from CO catalog
     CO_catalog_for_fit = CO_catalog
     if excluded_wavelengths and len(excluded_wavelengths) > 0:
@@ -1393,7 +1398,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         row_fluxes = np.full(n_x, np.nan, dtype=np.float32)
         row_detections = np.full(n_x, 0, dtype=np.int32)
         row_wavelengths = np.full(n_x, np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
-        
+
         # DIAGNOSTIC: Count successes and failures
         num_success = 0
         num_failures = 0
