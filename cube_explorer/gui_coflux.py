@@ -139,8 +139,12 @@ class GuiCOFluxMixin:
         if confirmation != QMessageBox.Yes:
             return
         
-        try: n_jobs = min(os.cpu_count() or 8, 8)
-        except Exception: n_jobs = 8
+        # Capped at 4, not higher: measured directly on this workload (many small,
+        # independent per-pixel curve_fit calls) -- above 4 concurrent threads, throughput
+        # gets *worse*, not better (BLAS-internal threading inside each curve_fit call
+        # contends with the outer ThreadPoolExecutor threads for the same cores).
+        try: n_jobs = min(os.cpu_count() or 4, 4)
+        except Exception: n_jobs = 4
         
         if hasattr(self, 'hitran_lines') and self.hitran_lines:
             hitran_df = pd.DataFrame(self.hitran_lines)

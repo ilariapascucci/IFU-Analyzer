@@ -564,9 +564,14 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         # unguarded here; a chunk whose data is NaN/Inf (e.g. a spaxel straddling the
         # edge of the instrument's rotated footprint) raises, and propagates up to
         # whichever caller invoked extract_co_flux_from_spectrum, which is always
-        # already wrapped in its own per-pixel/per-call error handling
+        # already wrapped in its own per-pixel/per-call error handling.
+        # maxfev capped well below curve_fit's own default for a full-cube fit's sake --
+        # same reasoning gaussian_fitter.py's own full-cube fits already use a reduced
+        # maxfev (800-1000) for: a pixel that hasn't converged by ~1000 evaluations is
+        # very unlikely to converge usefully by 10000 either, so the extra budget mostly
+        # just makes the hard pixels slow rather than making them succeed.
         par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0,
-                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=10000)
+                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=1000)
         print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
 
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
@@ -1106,6 +1111,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     fit_range_mask = (spectrum_wave >= wave_min) & (spectrum_wave <= wave_max)
     spectrum_wave = spectrum_wave[fit_range_mask]
     spectrum_flux = spectrum_flux[fit_range_mask]
+    if continuum_model is not None:
+        continuum_model = continuum_model[fit_range_mask]
 
     # Filter out excluded wavelengths from CO catalog
     CO_catalog_for_fit = CO_catalog
