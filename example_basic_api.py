@@ -138,7 +138,7 @@ def main():
         cube = CubeData()
         cube.load_from_file(filepath)
         print(f"  SUCCESS! Loaded {filepath}")
-        print(f"  Wavelength range: {cube.wavelength.min():.4f} - {cube.wavelength.max():.4f} µm")
+        print(f"  Wavelength range: {cube.wavelength.min():.4f} - {cube.wavelength.max():.4f} um")
         print(f"  Cube shape: {cube.cube.shape}")
     except Exception as e:
         print(f"  ERROR: {e}")

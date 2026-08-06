@@ -665,7 +665,7 @@ class RotationalDiagramWindow(QMainWindow):
                         'transition': 'User Data (no HITRAN match)',
                         'species': species
                     }
-                    print(f"Warning: No HITRAN match for {species} at {wavelength:.4f} μm")
+                    print(f"Warning: No HITRAN match for {species} at {wavelength:.4f} um")
                 
                 # Add error if available
                 if 'flux_error' in csv_row:
@@ -802,7 +802,7 @@ class RotationalDiagramWindow(QMainWindow):
                     break
 
             if cube_data is None:
-                print(f"Warning: No FITS file covers wavelength {wl:.4f} μm for line {row+1}")
+                print(f"Warning: No FITS file covers wavelength {wl:.4f} um for line {row+1}")
                 QMessageBox.warning(self, "No FITS Match", f"No FITS file covers {wl:.4f} μm")
                 return
 

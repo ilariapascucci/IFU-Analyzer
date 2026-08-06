@@ -28,8 +28,8 @@ Gaussian line fitting:
     ...     spectrum=spectrum,
     ...     x1=2.292, x2=2.300
     ... )
-    >>> print(f"Line center: {result.center} µm")
-    >>> print(f"FWHM: {result.fwhm} µm")
+    >>> print(f"Line center: {result.center} um")
+    >>> print(f"FWHM: {result.fwhm} um")
 
 CO flux extraction:
     >>> from cube_explorer.api import extract_co_flux
@@ -38,7 +38,7 @@ CO flux extraction:
     ...     spectrum=spectrum,
     ...     co_catalog_path="path/to/CO_catalog.ecsv"
     ... )
-    >>> print(f"Total CO flux: {co_result['co_flux']} erg/s/cm²")
+    >>> print(f"Total CO flux: {co_result['co_flux']} erg/s/cm^2")
 
 Rotational diagram analysis (H2):
     Needs at least 5 lines to meaningfully constrain a 2-temperature fit (4 free
@@ -351,7 +351,7 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     )
 
     if not hitran_lines:
-        print(f"Warning: No HITRAN lines found for {molecule} in range {wavelength_min:.3f}-{wavelength_max:.3f} µm")
+        print(f"Warning: No HITRAN lines found for {molecule} in range {wavelength_min:.3f}-{wavelength_max:.3f} um")
         return []
 
     if continuum is None:

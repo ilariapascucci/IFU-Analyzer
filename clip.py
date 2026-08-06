@@ -60,7 +60,7 @@ def save_output(cube, wavelength, data, data_type="continuum", output_name=None)
                     fit_val = orig_val - sub_val
                     f.write(f"{w:.6e}\t{orig_val:.6e}\t{fit_val:.6e}\t{sub_val:.6e}\n")
 
-    print(f"✓ Task: Exported {data_type} to {out_name} using {instrument} calibration.")
+    print(f"[OK] Task: Exported {data_type} to {out_name} using {instrument} calibration.")
 
 
 def run_subtract_continuum(args):
@@ -91,7 +91,7 @@ def run_subtract_continuum(args):
             return
             
         if is_fitted_continuum:
-            print("✓ Detected fitted continuum file. Mapping values...")
+            print("[OK] Detected fitted continuum file. Mapping values...")
             try:
                 cont_data = np.genfromtxt(args.continuum, delimiter='\t', comments='#')
                 if cont_data.shape[1] >= 2:
@@ -104,7 +104,7 @@ def run_subtract_continuum(args):
                 return
                 
         else:
-            print("✓ No headers detected. Assuming raw custom points file...")
+            print("[OK] No headers detected. Assuming raw custom points file...")
             print("Fitting Cubic Spline to the provided points...")
             try:
                 points = np.genfromtxt(args.continuum, delimiter=',', comments='#')
@@ -249,7 +249,7 @@ def run_2d_rotate(args):
     out_name = f"{fname}.fits"
     
     fits.writeto(out_name, array_out, header, overwrite=True)
-    print(f"✓ Saved rotated FITS to {out_name}")
+    print(f"[OK] Saved rotated FITS to {out_name}")
 
 
 def run_2d_contour(args):
@@ -296,7 +296,7 @@ def run_2d_contour(args):
     
     with open(out_name, 'w') as f:
         f.writelines(rows)
-    print(f"✓ Saved contour map to {out_name}")
+    print(f"[OK] Saved contour map to {out_name}")
     plt.close(fig)  # Release figure; prevents stale figures in Jupyter
 
 # =============================================================================

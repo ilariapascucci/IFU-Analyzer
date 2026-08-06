@@ -430,7 +430,7 @@ def display_results(results):
         return
     
     print("="*115)
-    print(f"{'MODEL':<10} | {'Wavelength λ [μm]':<19} | {'Wavenumber ν [cm⁻¹]':<20} | {'L-species':<10} | {'Transition':<20} | {'A-coeff(1/sec)':<14} | {'E_upper [K]':<12}")
+    print(f"{'MODEL':<10} | {'Wavelength [um]':<19} | {'Wavenumber [cm^-1]':<20} | {'L-species':<10} | {'Transition':<20} | {'A-coeff(1/sec)':<14} | {'E_upper [K]':<12}")
     print("="*115)
     
     # Sort by wavelength for organized output

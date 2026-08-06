@@ -383,12 +383,12 @@ def compute_line_flux(wavelength_arr, spectrum_arr, line_wavelength, header, ins
 
     is_upper_limit = flux_integrated < F_ul_cgs
 
-    print(f"[BATCH_FLUX] Line @ {wl:.6f} μm:")
-    print(f"  flux = {flux_integrated:.4e} erg/s/cm²")
-    print(f"  error = {flux_error:.4e} erg/s/cm²")
+    print(f"[BATCH_FLUX] Line @ {wl:.6f} um:")
+    print(f"  flux = {flux_integrated:.4e} erg/s/cm^2")
+    print(f"  error = {flux_error:.4e} erg/s/cm^2")
     print(f"  noise (native) = {sigma_noise:.4e} MJy/sr")
-    print(f"  delta_lambda = {delta_lambda_ul:.4e} μm")
-    print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm²")
+    print(f"  delta_lambda = {delta_lambda_ul:.4e} um")
+    print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm^2")
     print(f"  is_upper_limit = {is_upper_limit}")
 
     return {
@@ -852,7 +852,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         print("\n--- OPR FIT (curve_fit grid search, detections only) ---")
         print(f"Best-fit OPR = {best_opr:.3f}")
-        print(f"OPR 1σ error: -{err_opr_neg:.4f} / +{err_opr_pos:.4f} (symm ≈ {best_opr_err:.4f})")
+        print(f"OPR 1-sigma error: -{err_opr_neg:.4f} / +{err_opr_pos:.4f} (symm ~= {best_opr_err:.4f})")
 
         opr_search_data = {"opr_grid": opr_grid, "chi2_list": chi2_arr}
 

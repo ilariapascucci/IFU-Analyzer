@@ -1968,10 +1968,10 @@ class Ifu_analyzer_2d_window(QWidget):
             wcs_obj = WCS(ch, naxis=2)
 
             wcs_for_projection = wcs_obj.celestial if wcs_obj.has_celestial else wcs_obj
-            print(f"DEBUG rebuild_axes [{target}]: WCS parsed OK → {wcs_for_projection}")
+            print(f"DEBUG rebuild_axes [{target}]: WCS parsed OK -> {wcs_for_projection}")
 
         except Exception as e:
-            print(f"DEBUG rebuild_axes [{target}]: WCS parse FAILED → {e}")
+            print(f"DEBUG rebuild_axes [{target}]: WCS parse FAILED -> {e}")
             wcs_for_projection = None
             
         # Store so hover readout can use it
@@ -1985,9 +1985,9 @@ class Ifu_analyzer_2d_window(QWidget):
             if wcs_for_projection is None:
                 raise ValueError("No valid WCS available for projection")
             plotter.ax = plotter.fig.add_axes(ax_rect, projection=wcs_for_projection)
-            print(f"DEBUG rebuild_axes [{target}]: WCSAxes created ✓")
+            print(f"DEBUG rebuild_axes [{target}]: WCSAxes created OK")
         except Exception as e:
-            print(f"DEBUG rebuild_axes [{target}]: WCSAxes FAILED, using plain axes → {e}")
+            print(f"DEBUG rebuild_axes [{target}]: WCSAxes FAILED, using plain axes -> {e}")
             plotter.ax = plotter.fig.add_axes(ax_rect)
 
         plotter.cbar_ax = plotter.fig.add_axes(cbar_rect)

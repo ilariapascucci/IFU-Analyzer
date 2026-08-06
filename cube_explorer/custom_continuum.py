@@ -239,9 +239,9 @@ class CustomContinuumSelector:
         print(f"[DEBUG] Added point at ({x:.3f}, {y:.3e}). Total: {len(self.continuum_points)}")
         
         if len(self.continuum_points) == self.min_points:
-            print(f"[DEBUG] ✓ Minimum points reached ({self.min_points})")
+            print(f"[DEBUG] [OK] Minimum points reached ({self.min_points})")
         elif len(self.continuum_points) == self.recommended_points:
-            print(f"[DEBUG] ✓✓ Recommended points reached ({self.recommended_points})")
+            print(f"[DEBUG] [OK] Recommended points reached ({self.recommended_points})")
 
             
     def _remove_point(self, artist):
@@ -324,9 +324,9 @@ class CustomContinuumSelector:
             
             self.fitted_continuum = continuum
             
-            print(f"[DEBUG] ✓ Cubic spline fitted successfully")
+            print(f"[DEBUG] [OK] Cubic spline fitted successfully")
             print(f"[DEBUG] Continuum range: {np.nanmin(continuum):.3e} to {np.nanmax(continuum):.3e}")
-            print(f"[DEBUG] Ready for subtraction: I_subtracted(λ) = I_observed(λ) - I_continuum(λ)")
+            print(f"[DEBUG] Ready for subtraction: I_subtracted(lambda) = I_observed(lambda) - I_continuum(lambda)")
             
             return continuum
             

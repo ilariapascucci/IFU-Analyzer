@@ -1889,7 +1889,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     # Found a line to deselect
                     line_wave = SpeciesDialog.get_row_wavelength(nearest_row)
                     species = nearest_row.get('species', 'Unknown')
-                    print(f"✓ Deselected: {species} at {line_wave:.6f} μm")
+                    print(f"[OK] Deselected: {species} at {line_wave:.6f} um")
                     
                     # Remove from plotted lines by wavelength comparison with tolerance
                     self.plotted_lines = [
@@ -2856,13 +2856,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     self.contam_lines = None
                     return
                 
-                print(f"✓ Loaded {len(self.contam_lines)} contaminating lines from {os.path.basename(file_path)}")
-                
+                print(f"[OK] Loaded {len(self.contam_lines)} contaminating lines from {os.path.basename(file_path)}")
+
                 # Show wavelength range of loaded lines
                 min_wave = self.contam_lines['line_wave_um'].min()
                 max_wave = self.contam_lines['line_wave_um'].max()
-                print(f"  Wavelength range: {min_wave:.4f} - {max_wave:.4f} μm")
-                
+                print(f"  Wavelength range: {min_wave:.4f} - {max_wave:.4f} um")
+
                 QMessageBox.information(
                     self,
                     "Success",

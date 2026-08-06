@@ -343,7 +343,7 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         if (cflux_max > cflux_min) and (cwave[cflux_idx_max] <= cline + xres) and (cwave[cflux_idx_max] >= cline - xres):
             # Apply SNR threshold: peak must be significant above noise
             if peak_amplitude > snr_threshold * noise_std:
-                print(f"    [LINE {ii}] {cline:.6f} μm: DETECTED! amplitude={peak_amplitude:.6e} (threshold={snr_threshold * noise_std:.6e})")
+                print(f"    [LINE {ii}] {cline:.6f} um: DETECTED! amplitude={peak_amplitude:.6e} (threshold={snr_threshold * noise_std:.6e})")
                 if isinstance(contaminating_lines, pd.DataFrame):
                     # Check if peak is away from contaminating lines
                     if all(np.abs(cwave[cflux_idx_max] - iline) > xres for iline in contaminating_lines['line_wave_um']):
@@ -363,10 +363,10 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
                 if cflux_max <= cflux_min:
                     reason = "No flux variation"
                 elif not (cwave[cflux_idx_max] <= cline + xres and cwave[cflux_idx_max] >= cline - xres):
-                    reason = f"Peak at {cwave[cflux_idx_max]:.6f} μm, outside range {cline - xres:.6f}-{cline + xres:.6f}"
+                    reason = f"Peak at {cwave[cflux_idx_max]:.6f} um, outside range {cline - xres:.6f}-{cline + xres:.6f}"
                 elif peak_amplitude <= snr_threshold * noise_std:
                     reason = f"amplitude={peak_amplitude:.6e} < threshold={snr_threshold * noise_std:.6e}"
-                print(f"    [LINE {ii}] {cline:.6f} μm: REJECTED - {reason}")
+                print(f"    [LINE {ii}] {cline:.6f} um: REJECTED - {reason}")
     
     # Remove duplicates: keep strongest line in each close group
     if remove_duplicate == 'True':
@@ -1019,7 +1019,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     if wave_max is None:
         wave_max = CO_catalog['line_wave_um'].max()
     
-    print(f"  Extracting CO flux in wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+    print(f"  Extracting CO flux in wavelength range: {wave_min:.4f} - {wave_max:.4f} um")
     print(f"  [DEBUG] Spectrum: {len(spectrum_wave)} wavelength points, flux range {np.nanmin(spectrum_flux):.4e} to {np.nanmax(spectrum_flux):.4e}")
     if spectrum_wave_unit:
         print(f"  Wavelength unit: {spectrum_wave_unit}")
@@ -1247,7 +1247,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     """
     
     if cube_data.cube is None:
-        print("❌ Error: No cube data loaded")
+        print("[ERROR] No cube data loaded")
         return None
     
     # Get cube dimensions
@@ -1288,8 +1288,8 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
     wavelength_map = np.full((n_y, n_x), np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
     
-    print(f">>> Creating CO flux map: {n_y}×{n_x} pixels, {n_wave} wavelength elements")
-    print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f} μm")
+    print(f">>> Creating CO flux map: {n_y}x{n_x} pixels, {n_wave} wavelength elements")
+    print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f} um")
     print(f"    Continuum subtraction: {'ENABLED' if subtract_continuum else 'DISABLED'}")
     
     # DIAGNOSTIC: Print cube metadata
@@ -1335,7 +1335,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     print(f"      Pixel ({test_x}, {test_y}): returned None")
         
         if not found_valid:
-            print(f"    ⚠️  WARNING: No valid pixels found in sample!")
+            print(f"    [WARNING] No valid pixels found in sample!")
             # Try sampling middle of cube instead of edges
             print(f"    Trying middle pixels...")
             mid_y, mid_x = n_y // 2, n_x // 2
@@ -1351,7 +1351,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                             found_valid = True
         
         if found_valid:
-            print(f"    ✓ Found valid pixels in center region")
+            print(f"    [OK] Found valid pixels in center region")
         
         sys.stdout.flush()
         
@@ -1454,7 +1454,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             except Exception as e:
                 # Log error for debugging - CRITICAL: need to see what's failing
                 import traceback
-                print(f"  ❌ Extraction failed at pixel ({x_idx}, {y_idx}): {str(e)}")
+                print(f"  [ERROR] Extraction failed at pixel ({x_idx}, {y_idx}): {str(e)}")
                 traceback.print_exc()
                 num_failures += 1
                 continue
@@ -1473,7 +1473,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             for i, future in enumerate(as_completed(futures)):
                 # Check if cancellation was requested
                 if cancel_flag and cancel_flag.cancelled:
-                    print("⚠️  Extraction cancelled by user - stopping all remaining tasks")
+                    print("[WARNING] Extraction cancelled by user - stopping all remaining tasks")
                     # Cancel remaining futures
                     for f in futures:
                         f.cancel()
@@ -1507,7 +1507,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 import sys
                 sys.stdout.flush()
     except Exception as e:
-        print(f"❌ Error during CO flux extraction: {e}")
+        print(f"[ERROR] Error during CO flux extraction: {e}")
         import traceback
         traceback.print_exc()
     
@@ -1630,13 +1630,13 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         hdul = fits.HDUList([primary_hdu, detection_hdu])
         hdul.writeto(output_path, overwrite=True)
         
-        print(f"✓ Flux map saved to {output_path}")
-        print(f"  - PRIMARY HDU: {map_type} ({flux_map.shape[0]}×{flux_map.shape[1]})")
+        print(f"[OK] Flux map saved to {output_path}")
+        print(f"  - PRIMARY HDU: {map_type} ({flux_map.shape[0]}x{flux_map.shape[1]})")
         print(f"  - ERROR HDU: Uncertainty map")
         print(f"  - DETECTION HDU: Line counts per pixel")
         
         return True
     
     except Exception as e:
-        print(f"❌ Error saving FITS file: {e}")
+        print(f"[ERROR] Error saving FITS file: {e}")
         return False
