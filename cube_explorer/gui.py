@@ -725,7 +725,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         self.load_custom_lines_btn = QPushButton("Import Lines")
         self.load_custom_lines_btn.setToolTip(
-            "Load your own line list CSV (wavelength required, species optional) "
+            "Load your own line list CSV (wavelength + species required) "
             "when HITRAN isn't reachable"
         )
         self.load_custom_lines_btn.clicked.connect(self._load_custom_lines_dialog)
@@ -1052,8 +1052,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.active_spectrum_tab = "full"
         self.hitran_lines = []  # Store HITRAN lines separately
         self.plotted_lines = []  # Store currently plotted spectral lines
-        self.plotted_artists = []  # Store matplotlib artist objects for plotted lines
-        self.contam_plotted_artists = []  # Store matplotlib artist objects for contaminating-line markers
+        self.plotted_artists = []  # Store matplotlib artist objects for plotted lines (detection + contaminant)
         self.scale_left = 'Linear'
         self.scale_right = 'Linear'
         
@@ -2244,30 +2243,53 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             idx = self.last_idx_left if target == 'left' else self.last_idx_right
             self._display_slice(idx, target)
 
+    def _contam_rows(self):
+        """
+        Convert the loaded contaminating-line catalog into row dicts shaped like
+        HITRAN/custom detection-line rows (tagged 'source': 'Contaminant'), so
+        they can share the same Lines table, plotting, and hover code as
+        detection lines instead of a separate parallel path.
+        """
+        if self.contam_lines is None or len(self.contam_lines) == 0:
+            return []
+        rows = []
+        for _, row in self.contam_lines.iterrows():
+            rows.append({
+                'model': 'Contaminant',
+                'source': 'Contaminant',
+                'wavelength': float(row['line_wave_um']),
+                'wavelength_unit': 'µm',
+                'species': row.get('species', 'Contaminant'),
+            })
+        return rows
+
+    def _combined_line_rows(self):
+        """All currently loaded lines -- detection (HITRAN/custom) plus any
+        loaded contaminants -- combined and wavelength-sorted, for the shared
+        Lines selection dialog."""
+        rows = list(getattr(self, 'hitran_lines', None) or []) + self._contam_rows()
+        rows.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
+        return rows
+
     def show_available_species(self):
         """
-        Show available HITRAN species.
-        This is the main species viewing button.
+        Show the combined Lines table: detection lines (HITRAN or custom-imported)
+        plus any loaded contaminating lines, with "Detection Only"/"Contaminating
+        Only" buttons to select either set separately.
         """
-        # Check if HITRAN data exists
-        if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
-            QMessageBox.warning(self, "No HITRAN Data", "Click the HITRAN button first to fetch HITRAN lines.")
-            return
-        
-        # Use only HITRAN lines
-        all_lines = list(self.hitran_lines)
-        
+        all_lines = self._combined_line_rows()
+
         if not all_lines:
-            QMessageBox.information(self, "No Data", "No spectral lines available.")
+            QMessageBox.warning(
+                self, "No Lines Loaded",
+                "Fetch HITRAN lines, import a custom line list, or load contaminating lines first."
+            )
             return
-        
-        # Sort by wavelength
-        all_lines.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
-        
+
         # Show selection dialog
         dlg = SpeciesDialog(all_lines, parent=self, plotted_rows=self.plotted_lines)
         result = dlg.exec_()
-        
+
         if result == QDialog.Accepted:
             selected_rows = dlg.get_selected_rows()
             if not selected_rows:
@@ -2276,19 +2298,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             self.plot_selected_lines(selected_rows)
 
     def plot_selected_lines(self, rows):
-        ax = self.spec_plotter.ax
-
-        # Remove old lines/text
-        for artist in self.plotted_artists:
-            try:
-                artist.remove()
-            except Exception as e:
-                print("DEBUG: could not remove artist", e)
-        self.plotted_artists = []
-
-        # Update currently plotted rows
+        """Replace the full set of plotted lines (detection + contaminant alike)
+        with exactly what's checked in the Lines dialog, then redraw."""
         self.plotted_lines = rows.copy()
-        
+
         # Sync the excluded wavelengths set:
         # Remove any wavelengths from excluded that are now being plotted (re-selection)
         if hasattr(self, 'co_flux_excluded_wavelengths') and self.co_flux_excluded_wavelengths:
@@ -2297,21 +2310,53 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             )
             # Remove from excluded any that are now plotted
             self.co_flux_excluded_wavelengths = {
-                w for w in self.co_flux_excluded_wavelengths 
+                w for w in self.co_flux_excluded_wavelengths
                 if not any(abs(w - pw) < 1e-6 for pw in plotted_wavelengths)
             }
-        
+
+        self._draw_plotted_lines()
+
+    def plot_contaminating_lines(self):
+        """
+        Merge the loaded contaminating-line catalog into the currently-plotted
+        lines -- replacing only the previously-plotted contaminant markers,
+        leaving any detection lines already on the spectrum untouched -- and
+        redraw. Called right after a contaminating-lines CSV loads.
+        """
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            return
+        if not hasattr(self, 'plotted_lines'):
+            self.plotted_lines = []
+
+        non_contam = [r for r in self.plotted_lines if r.get('source') != 'Contaminant']
+        self.plotted_lines = non_contam + self._contam_rows()
+
+        self._draw_plotted_lines()
+
+    def _draw_plotted_lines(self):
+        """
+        Redraw every currently-plotted line marker from self.plotted_lines.
+        Detection lines (HITRAN/Custom) use the darkred/orange scheme; lines
+        tagged 'source': 'Contaminant' use black/dimgray instead, so the two
+        stay visually distinct despite sharing one plotted-lines list.
+        """
+        ax = self.spec_plotter.ax
+
+        for artist in self.plotted_artists:
+            try:
+                artist.remove()
+            except Exception as e:
+                print("DEBUG: could not remove artist", e)
+        self.plotted_artists = []
+
         # Get cube wavelength unit
         cube_unit = getattr(self.cube_data, 'wave_unit', 'µm') if hasattr(self, 'cube_data') else 'µm'
 
-        # Plot new selection with hover metadata
-        for row in rows:
+        for row in self.plotted_lines:
             λ = SpeciesDialog.get_row_wavelength(row)
-            
-            # Determine source unit (HITRAN)
-            source_unit = row.get('wavelength_unit', 'µm')
-            
+
             # Convert wavelength to cube units if needed
+            source_unit = row.get('wavelength_unit', 'µm')
             try:
                 if cube_unit != source_unit and are_units_compatible(source_unit, cube_unit):
                     λ_converted = convert_wavelength(λ, source_unit, cube_unit)
@@ -2320,9 +2365,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             except Exception as e:
                 print(f"[DEBUG] Unit conversion failed for {row.get('species', 'Unknown')}: {e}")
                 # Use original wavelength if conversion fails
-            
-            # Use HITRAN color (darkred)
-            line = ax.axvline(λ, color="darkred", linestyle="--", alpha=0.6, picker=5)
+
+            is_contam = row.get('source') == 'Contaminant'
+            line_color = "black" if is_contam else "darkred"
+            line_alpha = 0.7 if is_contam else 0.6
+            text_color = "black" if is_contam else "orange"
+
+            line = ax.axvline(λ, color=line_color, linestyle="--", alpha=line_alpha, picker=5)
             # Store row data in the line for hover access
             line.row_data = row
             # Blended transform (x in data coords, y in axes-fraction coords) instead of a
@@ -2334,55 +2383,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             text = ax.text(
                 λ, 1.01, row["species"], transform=ax.get_xaxis_transform(),
                 rotation=90, va="bottom", ha="center",
-                fontsize=7, color="orange"
+                fontsize=7, color=text_color
             )
             self.plotted_artists.extend([line, text])
-
-        self.spec_canvas.draw()
-
-    def plot_contaminating_lines(self):
-        """
-        Draw markers for the loaded contaminating-line catalog on the spectrum,
-        mirroring plot_selected_lines() but in a dark grey/grey scheme (rather than
-        the darkred/orange HITRAN scheme) so contaminants read as clearly distinct
-        from the requested lines.
-        """
-        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
-            return
-        ax = self.spec_plotter.ax
-
-        # Clear any previously plotted contaminant markers
-        if hasattr(self, 'contam_plotted_artists'):
-            for artist in self.contam_plotted_artists:
-                try:
-                    artist.remove()
-                except Exception:
-                    pass
-        self.contam_plotted_artists = []
-
-        if self.contam_lines is None or len(self.contam_lines) == 0:
-            self.spec_canvas.draw()
-            return
-
-        for _, row in self.contam_lines.iterrows():
-            λ = float(row['line_wave_um'])
-            species = row.get('species', 'Contaminant')
-
-            line = ax.axvline(λ, color="black", linestyle="--", alpha=0.7, picker=5)
-            # Only species + wavelength -- that's all a contaminant CSV actually supplies
-            # (everything else in the file is unused), so the hover tooltip stays minimal
-            # rather than showing blank/N-A HITRAN-only fields like Transition or A-coeff.
-            line.row_data = {'species': species, 'wavelength': λ, 'wavelength_unit': 'µm', 'source': 'Contaminant'}
-            # Blended transform, same as the HITRAN labels above -- keeps this flush with
-            # the axes' top edge instead of a stale ax.get_ylim()[1] snapshot. y=1.01 (not
-            # 1.0) so the label's first character clears the top spine instead of sitting
-            # right on top of it.
-            text = ax.text(
-                λ, 1.01, species, transform=ax.get_xaxis_transform(),
-                rotation=90, va="bottom", ha="center",
-                fontsize=7, color="black"
-            )
-            self.contam_plotted_artists.extend([line, text])
 
         self.spec_canvas.draw()
 
@@ -2394,9 +2397,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         if event.inaxes != self.spec_plotter.ax:
             return
 
-        plotted_lines = getattr(self, 'plotted_lines', None) or []
-        contam_artists = getattr(self, 'contam_plotted_artists', None) or []
-        if not plotted_lines and not contam_artists:
+        if not hasattr(self, 'plotted_lines') or not self.plotted_lines:
             return
 
         # Check if hovering near any plotted lines
@@ -2405,25 +2406,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         if mouse_x is None:
             return
 
-        # Find nearest line within threshold -- HITRAN selections and contaminant
-        # markers compete on the same distance check, whichever is closer wins
+        # Find nearest line within threshold -- detection lines and contaminant
+        # markers share plotted_lines, so they compete on the same distance check
         nearest_row = None
         min_dist = float('inf')
 
-        for row in plotted_lines:
+        for row in self.plotted_lines:
             λ = SpeciesDialog.get_row_wavelength(row)
-            dist = abs(λ - mouse_x)
-            if dist < hover_threshold and dist < min_dist:
-                min_dist = dist
-                nearest_row = row
-
-        for artist in contam_artists:
-            row = getattr(artist, 'row_data', None)
-            if row is None:
-                continue
-            λ = row.get('wavelength')
-            if λ is None:
-                continue
             dist = abs(λ - mouse_x)
             if dist < hover_threshold and dist < min_dist:
                 min_dist = dist
@@ -2553,7 +2542,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.gauss_left_btn.setChecked(False)
         self.gauss_right_btn.setChecked(False)
         
-        # Clear all plotted lines (HITRAN)
+        # Clear all plotted lines (detection + contaminant)
         if hasattr(self, 'plotted_artists'):
             for artist in self.plotted_artists:
                 try:
@@ -2562,15 +2551,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     pass
             self.plotted_artists = []
             self.plotted_lines = []
-
-        # Clear contaminating-line markers
-        if hasattr(self, 'contam_plotted_artists'):
-            for artist in self.contam_plotted_artists:
-                try:
-                    artist.remove()
-                except Exception:
-                    pass
-            self.contam_plotted_artists = []
 
         # Clear spectrum plot and reload
         if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
@@ -2725,18 +2705,33 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 QMessageBox.warning(self, "Unknown Molecule", f"'{molecule}' is not in the HITRAN list.")
                 return
 
-            # Isotopologue selection
-            isotopologue, ok = QInputDialog.getInt(
+            # Isotopologue selection -- optional: someone unsure which isotopologue
+            # a line belongs to can search every isotopologue HITRAN has for this
+            # molecule instead of having to guess a number up front. Each result
+            # row stays individually tagged with its own isotopologue afterward.
+            know_iso = QMessageBox.question(
                 self,
                 "Isotopologue",
-                "Enter isotopologue number:",
-                1,
-                1,
-                100,
-                1
-            )
-            if not ok:
-                return
+                "Do you know the isotopologue number for this molecule?\n\n"
+                "Choose No to search all isotopologues at once instead.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            ) == QMessageBox.Yes
+
+            if know_iso:
+                isotopologue, ok = QInputDialog.getInt(
+                    self,
+                    "Isotopologue",
+                    "Enter isotopologue number:",
+                    1,
+                    1,
+                    100,
+                    1
+                )
+                if not ok:
+                    return
+            else:
+                isotopologue = None
 
             # Ask if user wants to filter by transition numbers (optional)
             filter_quantum = QMessageBox.question(
@@ -2902,11 +2897,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             # Store HITRAN lines
             self.hitran_lines = results
 
-            # Sort by wavelength (ascending)
-            results.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
-
-            # Show HITRAN results in selection dialog
-            dlg = SpeciesDialog(results, parent=self, plotted_rows=self.plotted_lines)
+            # Show HITRAN results (plus any loaded contaminants) in selection dialog
+            dlg = SpeciesDialog(self._combined_line_rows(), parent=self, plotted_rows=self.plotted_lines)
             if dlg.exec_() == QDialog.Accepted:
                 selected_rows = dlg.get_selected_rows()
                 if not selected_rows:
@@ -2920,8 +2912,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
     def _load_custom_lines_dialog(self):
         """
         Load a user-supplied line list CSV as a stand-in for a live HITRAN fetch
-        (e.g. no internet access). Only 'wavelength' is required; 'species' and any
-        HITRAN-style columns (transition, a_coeff, e_upper, isotopologue,
+        (e.g. no internet access). 'wavelength' and 'species' are required; any
+        other HITRAN-style columns (transition, a_coeff, e_upper, isotopologue,
         isotopologue_name) are optional and only shown where present. Feeds into
         the same Lines table / plotting flow as fetch_hitran_lines(), replacing
         whatever was previously loaded there.
@@ -2945,16 +2937,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     self,
                     "Invalid CSV Format",
                     "❌ Couldn't load any lines from this file.\n\n"
-                    "The CSV MUST have a column named 'wavelength' (case-sensitive, in µm)."
+                    "The CSV MUST have columns named 'wavelength' (µm) and 'species' "
+                    "(case-sensitive), with both filled in for every row you want loaded."
                 )
                 return
 
             print(f"[OK] Loaded {len(rows)} custom lines from {os.path.basename(file_path)}")
 
             self.hitran_lines = rows
-            rows.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
 
-            dlg = SpeciesDialog(rows, parent=self, plotted_rows=self.plotted_lines)
+            dlg = SpeciesDialog(self._combined_line_rows(), parent=self, plotted_rows=self.plotted_lines)
             if dlg.exec_() == QDialog.Accepted:
                 selected_rows = dlg.get_selected_rows()
                 if not selected_rows:
@@ -3048,7 +3040,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         # Also clear Gaussian fit visualization
         self.clear_gaussian_fit()
 
-        # Clear any plotted HITRAN line markers/labels
+        # Clear any plotted line markers/labels (detection + contaminant)
         if hasattr(self, 'plotted_artists') and self.plotted_artists:
             for artist in self.plotted_artists:
                 try:
@@ -3057,16 +3049,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     pass
             self.plotted_artists = []
             self.plotted_lines = []
-            self.spec_canvas.draw()
-
-        # Clear any plotted contaminating-line markers/labels
-        if hasattr(self, 'contam_plotted_artists') and self.contam_plotted_artists:
-            for artist in self.contam_plotted_artists:
-                try:
-                    artist.remove()
-                except Exception:
-                    pass
-            self.contam_plotted_artists = []
             self.spec_canvas.draw()
 
     def _save_results_ascii(self):

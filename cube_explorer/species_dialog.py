@@ -62,12 +62,18 @@ class SpeciesDialog(QDialog):
         self.unselect_all_btn = QPushButton("Unselect All")
         self.unselect_all_btn.clicked.connect(self.unselect_all_rows)
         
-        self.hitran_only_btn = QPushButton("HITRAN Only")
-        self.hitran_only_btn.clicked.connect(self.select_hitran_only)
+        self.detection_only_btn = QPushButton("Detection Only")
+        self.detection_only_btn.setToolTip("Check only the lines you're trying to detect (HITRAN/custom-imported), uncheck contaminants")
+        self.detection_only_btn.clicked.connect(self.select_detection_only)
+
+        self.contaminating_only_btn = QPushButton("Contaminating Only")
+        self.contaminating_only_btn.setToolTip("Check only contaminating lines, uncheck the detection lines")
+        self.contaminating_only_btn.clicked.connect(self.select_contaminating_only)
 
         btn_layout2.addWidget(self.select_all_btn)
         btn_layout2.addWidget(self.unselect_all_btn)
-        btn_layout2.addWidget(self.hitran_only_btn)
+        btn_layout2.addWidget(self.detection_only_btn)
+        btn_layout2.addWidget(self.contaminating_only_btn)
         layout.addLayout(btn_layout2)
 
         # ---- OK / Cancel Buttons ----
@@ -110,24 +116,25 @@ class SpeciesDialog(QDialog):
             layout.setAlignment(Qt.AlignCenter)
             layout.setContentsMargins(0, 0, 0, 0)
             checkbox_widget.setLayout(layout)
-            
-            # Apply background color for HITRAN rows
-            if row.get('source') == 'HITRAN':
-                checkbox_widget.setStyleSheet("background-color: rgba(255, 200, 200, 80);")
-            
+
+            # Tint rows by source so HITRAN / contaminant / custom-imported lines
+            # read apart at a glance, echoing the same colors used on the spectrum
+            # itself (darkred/orange for HITRAN, black/dimgray for contaminants).
+            tint = self._row_tint(row)
+            if tint is not None:
+                checkbox_widget.setStyleSheet(
+                    f"background-color: rgba({tint.red()}, {tint.green()}, {tint.blue()}, {tint.alpha()});"
+                )
+
             self.table.setCellWidget(i, 0, checkbox_widget)
 
-            # Check if this is a HITRAN line for background coloring
-            is_hitran = row.get('source') == 'HITRAN'
-            hitran_color = QColor(255, 200, 200, 80)  # Faint red background
-            
             # Wavelength
             lam = row.get('lambda_micron') if 'lambda_micron' in row else row.get('wavelength')
             item = QTableWidgetItem(f"{float(lam):.6f}")
-            if is_hitran:
-                item.setBackground(hitran_color)
+            if tint is not None:
+                item.setBackground(tint)
             self.table.setItem(i, 1, item)
-            
+
             # Species (append isotopologue formula/number when available, e.g. "CO (¹²C¹⁶O)")
             species_text = row.get("species", "")
             iso_name = row.get("isotopologue_name")
@@ -137,16 +144,16 @@ class SpeciesDialog(QDialog):
             elif iso_num:
                 species_text = f"{species_text} (iso {iso_num})"
             item = QTableWidgetItem(species_text)
-            if is_hitran:
-                item.setBackground(hitran_color)
+            if tint is not None:
+                item.setBackground(tint)
             self.table.setItem(i, 2, item)
-            
+
             # Transition
             item = QTableWidgetItem(row.get("transition", ""))
-            if is_hitran:
-                item.setBackground(hitran_color)
+            if tint is not None:
+                item.setBackground(tint)
             self.table.setItem(i, 3, item)
-            
+
             # A-coeff
             a_coeff = row.get("a_coeff", "")
             if a_coeff != "" and a_coeff is not None:
@@ -156,10 +163,10 @@ class SpeciesDialog(QDialog):
                     item = QTableWidgetItem(str(a_coeff))
             else:
                 item = QTableWidgetItem("")
-            if is_hitran:
-                item.setBackground(hitran_color)
+            if tint is not None:
+                item.setBackground(tint)
             self.table.setItem(i, 4, item)
-            
+
             # E_upper
             e_upper = row.get("e_upper", "")
             if e_upper != "" and e_upper is not None:
@@ -169,12 +176,22 @@ class SpeciesDialog(QDialog):
                     item = QTableWidgetItem(str(e_upper))
             else:
                 item = QTableWidgetItem("")
-            if is_hitran:
-                item.setBackground(hitran_color)
+            if tint is not None:
+                item.setBackground(tint)
             self.table.setItem(i, 5, item)
 
         # Narrow first column
         self.table.setColumnWidth(0, 30)
+
+    @staticmethod
+    def _row_tint(row):
+        """Faint background tint by source, or None for an untinted (Custom) row."""
+        source = row.get('source')
+        if source == 'HITRAN':
+            return QColor(255, 200, 200, 80)  # Faint red, matches the darkred/orange marker
+        if source == 'Contaminant':
+            return QColor(190, 190, 190, 80)  # Faint grey, matches the black/dimgray marker
+        return None
 
     def get_selected_rows(self):
         selected = []
@@ -208,13 +225,20 @@ class SpeciesDialog(QDialog):
             cb = widget.layout().itemAt(0).widget()
             cb.setChecked(False)
 
-    def select_hitran_only(self):
-        """Check only HITRAN rows, uncheck others."""
+    def select_detection_only(self):
+        """Check only the lines being detected (HITRAN or custom-imported), uncheck contaminants."""
         for i in range(self.table.rowCount()):
             widget = self.table.cellWidget(i, 0)
             if widget is None:
                 continue
             cb = widget.layout().itemAt(0).widget()
-            # Check if this row is HITRAN
-            is_hitran = self.rows[i].get('source') == 'HITRAN'
-            cb.setChecked(is_hitran)
+            cb.setChecked(self.rows[i].get('source') != 'Contaminant')
+
+    def select_contaminating_only(self):
+        """Check only contaminating lines, uncheck the detection lines."""
+        for i in range(self.table.rowCount()):
+            widget = self.table.cellWidget(i, 0)
+            if widget is None:
+                continue
+            cb = widget.layout().itemAt(0).widget()
+            cb.setChecked(self.rows[i].get('source') == 'Contaminant')

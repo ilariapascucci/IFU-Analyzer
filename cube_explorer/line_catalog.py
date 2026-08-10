@@ -264,23 +264,66 @@ def get_cache_age(table_name):
         return None
     return None
 
+def get_available_isotopologues(molecule):
+    """
+    List the isotopologue numbers HITRAN has data for, for a given molecule
+    (e.g. CO -> [1, 2, 3, 4, 5, 6]). Used to support isotopologue=None ("any
+    isotopologue") in fetch_hitran_data(). Returns [] if HAPI isn't installed
+    or the molecule isn't recognized.
+    """
+    try:
+        from hapi import ISO
+    except ImportError:
+        return []
+    M = get_available_molecules().get(molecule)
+    if M is None:
+        return []
+    return sorted(i for (m, i) in ISO.keys() if m == M)
+
+
 def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None):
     """
     Retrieves molecular spectroscopic line data from the HITRAN database using HAPI.
-    Implements smart caching to minimize downloads, converts wavelength ranges to 
-    wavenumbers, extracts quantum numbers for transition labeling, and calculates 
-    upper energy levels. Handles both cached and fresh data with user prompts for 
+    Implements smart caching to minimize downloads, converts wavelength ranges to
+    wavenumbers, extracts quantum numbers for transition labeling, and calculates
+    upper energy levels. Handles both cached and fresh data with user prompts for
     cache refresh based on age.
-    
+
     Args:
         wavelength_min, wavelength_max: Wavelength range in µm
         molecule: Molecule name (e.g., 'CO')
-        isotopologue: Isotopologue number (default 1)
+        isotopologue: Isotopologue number (default 1), or None to fetch every
+            isotopologue HITRAN has for this molecule in range (e.g. for a user
+            who doesn't know/care which isotopologue a line belongs to) -- each
+            result row is still individually tagged with its own 'isotopologue'
+            / 'isotopologue_name', so they stay distinguishable afterward.
         refresh_cache: Force cache refresh
         cache_days: Cache age threshold
         v_upper: Filter by upper vibrational level (optional, e.g., 1 for v=1)
         v_lower: Filter by lower vibrational level (optional, e.g., 0 for v=0)
     """
+    if isotopologue is None:
+        iso_list = get_available_isotopologues(molecule)
+        if not iso_list:
+            print(f"Molecule '{molecule}' not found in HITRAN")
+            return [], {}
+        combined_rows = []
+        for iso_num in iso_list:
+            rows, _ = _fetch_hitran_data_single_iso(
+                wavelength_min, wavelength_max, molecule, iso_num,
+                refresh_cache, cache_days, v_upper, v_lower,
+            )
+            combined_rows.extend(rows)
+        combined_rows.sort(key=lambda r: r['wavelength'])
+        return combined_rows, {}
+
+    return _fetch_hitran_data_single_iso(
+        wavelength_min, wavelength_max, molecule, isotopologue,
+        refresh_cache, cache_days, v_upper, v_lower,
+    )
+
+
+def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None):
     try:
         from hapi import db_begin, fetch, getColumns, tableList, ISO
     except ImportError:
@@ -481,7 +524,8 @@ def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=
     Args:
         wavelength_min, wavelength_max: Wavelength range in µm
         molecule: Molecule name
-        isotopologue: Isotopologue number (default 1)
+        isotopologue: Isotopologue number (default 1), or None for every
+            isotopologue HITRAN has for this molecule
         refresh_cache: Force cache refresh
         v_upper: Optional upper vibrational level filter (None = include all)
         v_lower: Optional lower vibrational level filter (None = include all)
@@ -579,13 +623,16 @@ def load_custom_line_catalog(filepath):
     lines drop into the existing Lines table / plotting / multi-Gaussian fitting
     exactly like a live HITRAN fetch would.
 
-    Only 'wavelength' (µm) is required. fit_hitran_lines_collective() only ever
-    fixes each line's *center* from the catalog -- its width comes from the
-    instrument's own spectral resolution, not a catalog value -- so nothing else is
-    needed to fit these lines. Everything past that is optional and purely for
-    display (species dialog table, hover tooltip, results text), each already
-    tolerant of missing values via .get(key, default) at every call site:
-        species, transition, a_coeff, e_upper, isotopologue, isotopologue_name,
+    'wavelength' (µm) and 'species' are required. fit_hitran_lines_collective()
+    only ever fixes each line's *center* from the catalog -- its width comes from
+    the instrument's own spectral resolution, not a catalog value -- so wavelength
+    is the only thing physically needed to fit these lines; species is required
+    anyway so every imported line is actually identifiable in the table/tooltips/
+    results, rather than a wall of indistinguishable "Unknown" entries. Everything
+    past those two is optional and purely for display (species dialog table, hover
+    tooltip, results text), each already tolerant of missing values via
+    .get(key, default) at every call site:
+        transition, a_coeff, e_upper, isotopologue, isotopologue_name,
         wavelength_unit (defaults to 'µm' if the column is absent).
 
     Parameters
@@ -598,12 +645,14 @@ def load_custom_line_catalog(filepath):
     list of dict
         One dict per row, tagged 'source': 'Custom' (so the species dialog's
         HITRAN-only filter and pink row-highlighting correctly treat these as
-        non-HITRAN). None if the file is missing, empty, or lacks 'wavelength'.
+        non-HITRAN). None if the file is missing, empty, or lacks 'wavelength'/
+        'species'. Rows missing either value are skipped individually (with a
+        console note) rather than failing the whole file.
 
     Raises
     ------
     ValueError
-        If the CSV file does not contain a 'wavelength' column.
+        If the CSV file does not contain a 'wavelength' or 'species' column.
     """
     try:
         if not os.path.exists(filepath):
@@ -613,9 +662,10 @@ def load_custom_line_catalog(filepath):
         print(f">>> Loading custom line list from {filepath}...")
         df = pd.read_csv(filepath)
 
-        if 'wavelength' not in df.columns:
+        missing_cols = [c for c in ('wavelength', 'species') if c not in df.columns]
+        if missing_cols:
             error_msg = (
-                f"CSV file is missing required 'wavelength' column.\n"
+                f"CSV file is missing required column(s): {', '.join(missing_cols)}.\n"
                 f"Columns found: {', '.join(df.columns.tolist())}"
             )
             print(error_msg)
@@ -625,18 +675,20 @@ def load_custom_line_catalog(filepath):
             return None if pd.isna(value) else value
 
         rows = []
+        skipped = 0
         for _, row in df.iterrows():
             wl = _clean(row.get('wavelength'))
-            if wl is None:
-                continue  # No center to fit/plot -- can't use this row at all
+            species = _clean(row.get('species'))
+            if wl is None or species is None or not str(species).strip():
+                skipped += 1
+                continue  # Missing center or identity -- not usable, and species
+                          # is required so this isn't defaulted to "Unknown".
             entry = {
                 'model': 'Custom',
                 'source': 'Custom',
                 'wavelength': float(wl),
                 'wavelength_unit': str(_clean(row.get('wavelength_unit')) or 'µm'),
-                # Direct-keyed (not .get()) by plot_selected_lines, so this must
-                # always be present -- 'Unknown' rather than skipping the row.
-                'species': str(_clean(row.get('species')) or 'Unknown'),
+                'species': str(species).strip(),
             }
             transition = _clean(row.get('transition'))
             if transition is not None:
@@ -663,8 +715,11 @@ def load_custom_line_catalog(filepath):
                 entry['isotopologue_name'] = str(iso_name)
             rows.append(entry)
 
+        if skipped:
+            print(f"[WARN] Skipped {skipped} row(s) missing 'wavelength' or 'species'")
+
         if not rows:
-            print("No valid rows (all missing 'wavelength').")
+            print("No valid rows (all missing 'wavelength' and/or 'species').")
             return None
 
         print(f"[OK] Loaded {len(rows)} custom lines")
