@@ -258,14 +258,14 @@ class RotationalDiagramWindow(QMainWindow):
         self.wl_min_input = QDoubleSpinBox()
         self.wl_min_input.setRange(0.1, 1000)
         self.wl_min_input.setValue(5.0)
-        self.wl_min_input.setDecimals(4)
+        self.wl_min_input.setDecimals(6)
         input_layout.addWidget(self.wl_min_input)
         
         input_layout.addWidget(QLabel("λ_max (μm):"))
         self.wl_max_input = QDoubleSpinBox()
         self.wl_max_input.setRange(0.1, 1000)
         self.wl_max_input.setValue(20.0)
-        self.wl_max_input.setDecimals(4)
+        self.wl_max_input.setDecimals(6)
         input_layout.addWidget(self.wl_max_input)
         
         input_layout.addWidget(QLabel("Isotopologue:"))
@@ -665,7 +665,7 @@ class RotationalDiagramWindow(QMainWindow):
                         'transition': 'User Data (no HITRAN match)',
                         'species': species
                     }
-                    print(f"Warning: No HITRAN match for {species} at {wavelength:.4f} um")
+                    print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um")
                 
                 # Add error if available
                 if 'flux_error' in csv_row:
@@ -802,8 +802,8 @@ class RotationalDiagramWindow(QMainWindow):
                     break
 
             if cube_data is None:
-                print(f"Warning: No FITS file covers wavelength {wl:.4f} um for line {row+1}")
-                QMessageBox.warning(self, "No FITS Match", f"No FITS file covers {wl:.4f} μm")
+                print(f"Warning: No FITS file covers wavelength {wl:.6f} um for line {row+1}")
+                QMessageBox.warning(self, "No FITS Match", f"No FITS file covers {wl:.6f} μm")
                 return
 
             try:
@@ -820,7 +820,7 @@ class RotationalDiagramWindow(QMainWindow):
                 result = compute_line_flux(wavelength, spectrum, wl, header, instrument)
 
                 if not result["success"]:
-                    print(f"Warning: {result['message']} for line {wl:.4f}")
+                    print(f"Warning: {result['message']} for line {wl:.6f}")
                     continue
 
                 flux_integrated = result["flux_cgs"]
@@ -1105,7 +1105,7 @@ class RotationalDiagramWindow(QMainWindow):
             dropped_J = results.get("dropped_J")
             if dropped_J:
                 dropped_desc = "\n".join(
-                    f"  • {molecular_data['wavelengths'][j]:.4f} μm"
+                    f"  • {molecular_data['wavelengths'][j]:.6f} μm"
                     for j in dropped_J
                 )
                 QMessageBox.warning(

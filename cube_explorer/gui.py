@@ -708,14 +708,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.min_wave_input.setFixedWidth(70)
         self.min_wave_input.setFixedHeight(28)
         self.min_wave_input.setRange(0.1, 1000)
-        self.min_wave_input.setDecimals(4)
+        self.min_wave_input.setDecimals(6)
         self.min_wave_input.setSingleStep(0.1)
         self.min_wave_input.setToolTip("Min wavelength (λ)")
         self.max_wave_input = QDoubleSpinBox(self)
         self.max_wave_input.setFixedWidth(70)
         self.max_wave_input.setFixedHeight(28)
         self.max_wave_input.setRange(0.1, 1000)
-        self.max_wave_input.setDecimals(4)
+        self.max_wave_input.setDecimals(6)
         self.max_wave_input.setSingleStep(0.1)
         self.max_wave_input.setToolTip("Max wavelength (λ)")
 
@@ -1308,9 +1308,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             # Extract wavelength value, handling Quantity objects
             wave = _extract_wavelength_value(self.cube_data.wavelength, idx)
             if self.cube_data.wave_unit == "Å":
-                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.1f} Å"
+                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.6f} Å"
             elif self.cube_data.wave_unit == "µm":
-                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.3f} µm"
+                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.6f} µm"
             elif self.cube_data.wave_unit == "km/s":
                 title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.1f} km/s"
             else:
@@ -1792,13 +1792,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     # Extract wavelength value, handling Quantity objects
                     wave = _extract_wavelength_value(self.cube_data.wavelength, idx)
                     if self.cube_data.wave_unit == "Å":
-                        stats_text.append(f"λ={wave:.2f} Å")
+                        stats_text.append(f"λ={wave:.6f} Å")
                     elif self.cube_data.wave_unit == "µm":
-                        stats_text.append(f"λ={wave:.3f} µm")
+                        stats_text.append(f"λ={wave:.6f} µm")
                     elif self.cube_data.wave_unit == "km/s":
                         stats_text.append(f"v={wave:.1f} km/s")
                     else:
-                        stats_text.append(f"λ={wave:.3f}")
+                        stats_text.append(f"λ={wave:.6f}")
 
                 stats_label.setText("\n".join(stats_text))
 
@@ -2393,7 +2393,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             try:
                 if cube_unit != source_unit and are_units_compatible(source_unit, cube_unit):
                     λ_converted = convert_wavelength(λ, source_unit, cube_unit)
-                    print(f"[DEBUG] Converted line {row.get('species', 'Unknown')}: {λ:.4f} {source_unit} -> {λ_converted:.4f} {cube_unit}")
+                    print(f"[DEBUG] Converted line {row.get('species', 'Unknown')}: {λ:.6f} {source_unit} -> {λ_converted:.6f} {cube_unit}")
                     λ = λ_converted
             except Exception as e:
                 print(f"[DEBUG] Unit conversion failed for {row.get('species', 'Unknown')}: {e}")
@@ -3085,7 +3085,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 QMessageBox.information(
                     self, "No Lines In Range",
                     f"Loaded {total_loaded} line(s) from this file, but none fall within "
-                    f"the current range ({wavelength_min:.4f}-{wavelength_max:.4f} µm)."
+                    f"the current range ({wavelength_min:.6f}-{wavelength_max:.6f} µm)."
                 )
                 return
 
@@ -3105,7 +3105,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
             print(
                 f"[OK] Loaded {len(rows)} of {total_loaded} custom lines from "
-                f"{os.path.basename(file_path)} within {wavelength_min:.4f}-{wavelength_max:.4f} µm"
+                f"{os.path.basename(file_path)} within {wavelength_min:.6f}-{wavelength_max:.6f} µm"
             )
 
             # A fresh import replaces the working line set entirely -- clear any
@@ -3173,7 +3173,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     QMessageBox.information(
                         self, "No Lines In Range",
                         f"Loaded {total_loaded} line(s) from this file, but none fall within "
-                        f"the current range ({wavelength_min:.4f}-{wavelength_max:.4f} µm)."
+                        f"the current range ({wavelength_min:.6f}-{wavelength_max:.6f} µm)."
                     )
                     self.contam_lines = None
                     return
@@ -3181,13 +3181,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
                 print(
                     f"[OK] Loaded {len(self.contam_lines)} of {total_loaded} contaminating lines from "
-                    f"{os.path.basename(file_path)} within {wavelength_min:.4f}-{wavelength_max:.4f} µm"
+                    f"{os.path.basename(file_path)} within {wavelength_min:.6f}-{wavelength_max:.6f} µm"
                 )
 
                 # Show wavelength range of loaded lines
                 min_wave = self.contam_lines['line_wave_um'].min()
                 max_wave = self.contam_lines['line_wave_um'].max()
-                print(f"  Wavelength range: {min_wave:.4f} - {max_wave:.4f} um")
+                print(f"  Wavelength range: {min_wave:.6f} - {max_wave:.6f} um")
 
                 # Mark them on the spectrum right away (dark grey), same as HITRAN selections
                 self.plot_contaminating_lines()
@@ -3196,8 +3196,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     self,
                     "Success",
                     f"✓ Loaded {len(self.contam_lines)} of {total_loaded} contaminating lines "
-                    f"(within {wavelength_min:.4f}-{wavelength_max:.4f} µm)\n\n"
-                    f"Wavelength range: {min_wave:.4f} - {max_wave:.4f} μm\n\n"
+                    f"(within {wavelength_min:.6f}-{wavelength_max:.6f} µm)\n\n"
+                    f"Wavelength range: {min_wave:.6f} - {max_wave:.6f} μm\n\n"
                     f"These lines will be used when extracting CO flux."
                 )
             else:

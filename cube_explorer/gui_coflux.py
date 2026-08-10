@@ -112,7 +112,7 @@ class GuiCOFluxMixin:
             ]
 
         if not hitran_in_range:
-            QMessageBox.warning(self, "No HITRAN Lines", f"No HITRAN lines found in wavelength range {wave_min:.4f} - {wave_max:.4f} μm")
+            QMessageBox.warning(self, "No HITRAN Lines", f"No HITRAN lines found in wavelength range {wave_min:.6f} - {wave_max:.6f} μm")
             return
         
         filtered_lines = self._filter_co_flux_lines(hitran_in_range)

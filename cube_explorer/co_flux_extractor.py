@@ -1081,7 +1081,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     if wave_max is None:
         wave_max = CO_catalog['line_wave_um'].max()
     
-    print(f"  Extracting CO flux in wavelength range: {wave_min:.4f} - {wave_max:.4f} um")
+    print(f"  Extracting CO flux in wavelength range: {wave_min:.6f} - {wave_max:.6f} um")
     print(f"  [DEBUG] Spectrum: {len(spectrum_wave)} wavelength points, flux range {np.nanmin(spectrum_flux):.4e} to {np.nanmax(spectrum_flux):.4e}")
     if spectrum_wave_unit:
         print(f"  Wavelength unit: {spectrum_wave_unit}")
@@ -1363,7 +1363,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     wavelength_map = np.full((n_y, n_x), np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
     
     print(f">>> Creating CO flux map: {n_y}x{n_x} pixels, {n_wave} wavelength elements")
-    print(f"    Wavelength range: {wave_min:.4f} - {wave_max:.4f} um")
+    print(f"    Wavelength range: {wave_min:.6f} - {wave_max:.6f} um")
     print(f"    Continuum subtraction: {'ENABLED' if subtract_continuum else 'DISABLED'}")
     
     # DIAGNOSTIC: Print cube metadata

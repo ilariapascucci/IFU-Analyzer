@@ -353,7 +353,7 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     )
 
     if not hitran_lines:
-        print(f"Warning: No HITRAN lines found for {molecule} in range {wavelength_min:.3f}-{wavelength_max:.3f} um")
+        print(f"Warning: No HITRAN lines found for {molecule} in range {wavelength_min:.6f}-{wavelength_max:.6f} um")
         return []
 
     if continuum is None:
