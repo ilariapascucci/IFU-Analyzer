@@ -149,33 +149,34 @@ class SpeciesDialog(QDialog):
             self.table.setItem(i, 2, item)
 
             # Transition
-            item = QTableWidgetItem(row.get("transition", ""))
+            item = QTableWidgetItem(row.get("transition") or "N/A")
             if tint is not None:
                 item.setBackground(tint)
             self.table.setItem(i, 3, item)
 
-            # A-coeff
-            a_coeff = row.get("a_coeff", "")
-            if a_coeff != "" and a_coeff is not None:
+            # A-coeff -- "N/A" (not blank/0) when missing, since 0 is itself a
+            # meaningful value and shouldn't be confused with "not provided".
+            a_coeff = row.get("a_coeff")
+            if a_coeff is not None:
                 try:
                     item = QTableWidgetItem(f"{float(a_coeff):.2e}")
                 except Exception:
                     item = QTableWidgetItem(str(a_coeff))
             else:
-                item = QTableWidgetItem("")
+                item = QTableWidgetItem("N/A")
             if tint is not None:
                 item.setBackground(tint)
             self.table.setItem(i, 4, item)
 
-            # E_upper
-            e_upper = row.get("e_upper", "")
-            if e_upper != "" and e_upper is not None:
+            # E_upper -- same "N/A when missing" treatment as A-coeff above.
+            e_upper = row.get("e_upper")
+            if e_upper is not None:
                 try:
                     item = QTableWidgetItem(f"{float(e_upper):.2f}")
                 except Exception:
                     item = QTableWidgetItem(str(e_upper))
             else:
-                item = QTableWidgetItem("")
+                item = QTableWidgetItem("N/A")
             if tint is not None:
                 item.setBackground(tint)
             self.table.setItem(i, 5, item)

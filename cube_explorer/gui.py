@@ -2448,15 +2448,21 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 elif iso_num:
                     species = f"{species} (iso {iso_num})"
                 transition = nearest_row.get('transition', 'N/A')
-                a_coeff = nearest_row.get('a_coeff', 0)
-                e_upper = nearest_row.get('e_upper', 0)
+                # Default to None (not 0) -- 0 is a real value (e.g. E_upper=0 for a
+                # ground-state line), so a genuinely missing field (e.g. a custom-
+                # imported line whose CSV didn't include these optional columns)
+                # must format as "N/A" rather than silently print as "0.00e+00".
+                a_coeff = nearest_row.get('a_coeff')
+                e_upper = nearest_row.get('e_upper')
+                a_coeff_text = f"{a_coeff:.2e} s⁻¹" if a_coeff is not None else "N/A"
+                e_upper_text = f"{e_upper:.2f} K" if e_upper is not None else "N/A"
 
                 tooltip_text = (
                     f"Species: {species}\n"
                     f"{wavelength_str}\n"
                     f"Transition: {transition}\n"
-                    f"A-coeff: {a_coeff:.2e} s⁻¹\n"
-                    f"E_upper: {e_upper:.2f} K"
+                    f"A-coeff: {a_coeff_text}\n"
+                    f"E_upper: {e_upper_text}"
                 )
 
             # Use QToolTip for floating box - convert matplotlib event coords to global screen coords
