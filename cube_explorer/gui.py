@@ -2267,7 +2267,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 'source': 'Contaminant',
                 'wavelength': float(row['line_wave_um']),
                 'wavelength_unit': 'µm',
-                'species': row.get('species', 'Contaminant'),
+                # No fallback -- load_contaminating_lines_catalog() now requires
+                # every row to have a real species, same as custom detection lines.
+                'species': row['species'],
             }
             transition = row.get('transition')
             if pd.notna(transition):
@@ -3037,6 +3039,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         irrelevant lines into the table. Unlike contaminating lines, a
         detection line just outside the range has no fit-suppression role
         that would justify padding it back in.
+
+        Rejected outright if more than one species falls in range: a live
+        HITRAN fetch is always single-molecule by construction (one QInputDialog
+        selection), and fit_hitran_lines_collective()'s single shared velocity
+        shift (estimated from these lines' own peaks) is only physically
+        meaningful for one species at a time -- pooling two species' peaks
+        together would silently average across what could be two unrelated
+        offsets. Contaminating lines have no such restriction (see
+        _load_contaminating_lines_dialog()) since they're never pooled into
+        that shift estimate.
         """
         wave_range = self._current_wavelength_range()
         if wave_range is None:
@@ -3074,6 +3086,20 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     self, "No Lines In Range",
                     f"Loaded {total_loaded} line(s) from this file, but none fall within "
                     f"the current range ({wavelength_min:.4f}-{wavelength_max:.4f} µm)."
+                )
+                return
+
+            distinct_species = sorted({r['species'] for r in rows})
+            if len(distinct_species) > 1:
+                QMessageBox.critical(
+                    self, "Multiple Species Found",
+                    "❌ This file has more than one species within the current wavelength "
+                    f"range: {', '.join(distinct_species)}.\n\n"
+                    "Detection lines must be a single species at a time -- the multi-Gaussian "
+                    "fit's velocity-shift estimate is pooled across every selected detection "
+                    "line, which only makes sense for one species. Split this into one file "
+                    "per species, or use \"Contam. Lines\" instead if some of these are meant "
+                    "to be excluded from the fit rather than detected."
                 )
                 return
 
@@ -3139,17 +3165,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             loaded = load_contaminating_lines_catalog(file_path)
 
             if loaded is not None and len(loaded) > 0:
-                # Validate that loading succeeded (the CSV had the required 'wavelength' column)
-                if 'line_wave_um' not in loaded.columns:
-                    QMessageBox.critical(
-                        self,
-                        "Invalid CSV Format",
-                        "❌ The contaminating lines CSV file is missing the required 'wavelength' column.\n\n"
-                        "The CSV MUST have a column named 'wavelength' (case-sensitive)."
-                    )
-                    self.contam_lines = None
-                    return
-
                 total_loaded = len(loaded)
                 in_range = loaded[
                     (loaded['line_wave_um'] >= wavelength_min) & (loaded['line_wave_um'] <= wavelength_max)

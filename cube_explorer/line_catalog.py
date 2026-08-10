@@ -572,44 +572,67 @@ def load_CO_line_catalog(filepath):
 def load_contaminating_lines_catalog(filepath):
     """
     Load contaminating lines catalog from CSV format.
-    
+
+    'wavelength' and 'species' are both required (same as load_custom_line_catalog()
+    -- every imported line needs to be identifiable, contaminant or not). Everything
+    else is optional and carried through as-is if present.
+
     Parameters
     ----------
     filepath : str
         Path to the CSV file (e.g., 'data/CO/ContaminatingLines.csv')
-    
+
     Returns
     -------
     pandas.DataFrame
-        DataFrame with columns: wavelength (required), species, and other optional columns.
-        The 'wavelength' column is internally renamed to 'line_wave_um' for consistency.
-        
+        DataFrame with columns: line_wave_um (renamed from 'wavelength'), species,
+        and any other columns the CSV had. Rows missing wavelength or species are
+        dropped individually (with a console note) rather than failing the whole
+        file. None if the file is missing, empty, or every row is dropped.
+
     Raises
     ------
     ValueError
-        If the CSV file does not contain a 'wavelength' column.
+        If the CSV file does not contain a 'wavelength' or 'species' column.
     """
     try:
         if not os.path.exists(filepath):
             print(f"Error: File '{filepath}' not found.")
             return None
-        
+
         print(f">>> Loading contaminating lines catalog from {filepath}...")
         contam_lines = pd.read_csv(filepath)
-        
-        # VALIDATE: 'wavelength' column MUST exist
-        if 'wavelength' not in contam_lines.columns:
+
+        # VALIDATE: 'wavelength' and 'species' columns MUST exist
+        missing_cols = [c for c in ('wavelength', 'species') if c not in contam_lines.columns]
+        if missing_cols:
             error_msg = (
-                f"CSV file is missing required 'wavelength' column.\n"
+                f"CSV file is missing required column(s): {', '.join(missing_cols)}.\n"
                 f"Columns found: {', '.join(contam_lines.columns.tolist())}"
             )
             print(error_msg)
             raise ValueError(error_msg)
-        
+
+        # Drop rows missing either value -- unlike other optional columns, these two
+        # aren't defaulted, since every imported line needs a real, distinguishable
+        # identity rather than a generic placeholder.
+        total = len(contam_lines)
+        contam_lines = contam_lines[contam_lines['wavelength'].notna() & contam_lines['species'].notna()]
+        contam_lines = contam_lines[contam_lines['species'].astype(str).str.strip() != '']
+        skipped = total - len(contam_lines)
+        if skipped:
+            print(f"[WARN] Skipped {skipped} row(s) missing 'wavelength' or 'species'")
+
+        if len(contam_lines) == 0:
+            print("No valid rows (all missing 'wavelength' and/or 'species').")
+            return None
+
         # Rename 'wavelength' column to 'line_wave_um' for consistency with CO catalog
-        contam_lines = contam_lines.rename(columns={'wavelength': 'line_wave_um'})
+        contam_lines = contam_lines.rename(columns={'wavelength': 'line_wave_um'}).reset_index(drop=True)
         print(f"Loaded {len(contam_lines)} contaminating lines")
         return contam_lines
+    except ValueError:
+        raise
     except Exception as e:
         print(f"Error loading contaminating lines catalog: {e}")
         return None
