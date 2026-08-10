@@ -2900,6 +2900,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         # Also clear Gaussian fit visualization
         self.clear_gaussian_fit()
 
+        # Clear any plotted HITRAN line markers/labels
+        if hasattr(self, 'plotted_artists') and self.plotted_artists:
+            for artist in self.plotted_artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+            self.plotted_artists = []
+            self.plotted_lines = []
+            self.spec_canvas.draw()
+
     def _save_results_ascii(self):
         """Save the full continuum-subtraction result to an ASCII file.
 
