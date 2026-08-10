@@ -22,6 +22,27 @@ def _extract_wavelength_value(wavelength):
     return wavelength
 
 
+_ISO_SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+_ISO_SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+
+def format_isotopologue_name(iso_name):
+    """
+    Convert a HITRAN/HAPI isotopologue formula (e.g. '(13C)(16O)') into a
+    readable isotope-labeled formula with mass numbers as superscripts and
+    atom counts as subscripts (e.g. '¹³C¹⁶O').
+    """
+    if not iso_name:
+        return ""
+    s = re.sub(
+        r'\((\d+)([A-Za-z]+)\)',
+        lambda m: m.group(1).translate(_ISO_SUPERSCRIPT) + m.group(2),
+        iso_name,
+    )
+    s = re.sub(r'(?<=[A-Za-z])(\d+)', lambda m: m.group(1).translate(_ISO_SUBSCRIPT), s)
+    return s
+
+
 # -------------------- Species Normalization --------------------
 def normalize_species_input(user_input):
     """
@@ -261,7 +282,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
         v_lower: Filter by lower vibrational level (optional, e.g., 0 for v=0)
     """
     try:
-        from hapi import db_begin, fetch, getColumns, tableList
+        from hapi import db_begin, fetch, getColumns, tableList, ISO
     except ImportError:
         print("Error: HAPI not installed!")
         print("Install with: pip install hitran-api")
@@ -274,6 +295,9 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
 
     M = mol_numbers[molecule]
     I = isotopologue
+    # Isotopologue formula (e.g. '(13C)(16O)') for display in the GUI table/tooltips
+    iso_entry = ISO.get((M, I))
+    iso_name_pretty = format_isotopologue_name(iso_entry[1]) if iso_entry else None
     # Convert wavelength (μm) to wavenumber (cm⁻¹)
     wavelength_min_val = _extract_wavelength_value(wavelength_min)
     wavelength_max_val = _extract_wavelength_value(wavelength_max)
@@ -411,6 +435,8 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
                     'Gp': float(Gp[i]),
                     'j_lower': j_lower,
                     'branch': branch,
+                    'isotopologue': I,
+                    'isotopologue_name': iso_name_pretty,
                 })
 
         print(f"[OK] Retrieved {len(data_rows)} lines\n")

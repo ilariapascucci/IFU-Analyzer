@@ -2359,6 +2359,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             
             # Format tooltip with line information
             species = nearest_row.get('species', 'Unknown')
+            iso_name = nearest_row.get('isotopologue_name')
+            iso_num = nearest_row.get('isotopologue')
+            if iso_name:
+                species = f"{species} ({iso_name})"
+            elif iso_num:
+                species = f"{species} (iso {iso_num})"
             wavelength = nearest_row.get('wavelength', 0)
             source_unit = nearest_row.get('wavelength_unit', 'µm')
             transition = nearest_row.get('transition', 'N/A')

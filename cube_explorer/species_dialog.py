@@ -128,8 +128,15 @@ class SpeciesDialog(QDialog):
                 item.setBackground(hitran_color)
             self.table.setItem(i, 1, item)
             
-            # Species
-            item = QTableWidgetItem(row.get("species", ""))
+            # Species (append isotopologue formula/number when available, e.g. "CO (¹²C¹⁶O)")
+            species_text = row.get("species", "")
+            iso_name = row.get("isotopologue_name")
+            iso_num = row.get("isotopologue")
+            if iso_name:
+                species_text = f"{species_text} ({iso_name})"
+            elif iso_num:
+                species_text = f"{species_text} (iso {iso_num})"
+            item = QTableWidgetItem(species_text)
             if is_hitran:
                 item.setBackground(hitran_color)
             self.table.setItem(i, 2, item)
