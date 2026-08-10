@@ -18,8 +18,8 @@ class GuiSpectrumMixin:
         self.spec_tab_bar = QTabBar()
         self.spec_tab_bar.setExpanding(False)
         self.spec_tab_bar.addTab("Full")
-        self.spec_tab_bar.addTab("Left")
-        self.spec_tab_bar.addTab("Right")
+        self.spec_tab_bar.addTab("Left Slice")
+        self.spec_tab_bar.addTab("Right Slice")
         self.spec_tab_bar.setCurrentIndex(0)
         self.spec_tab_bar.currentChanged.connect(self._on_spectrum_tab_changed)
 

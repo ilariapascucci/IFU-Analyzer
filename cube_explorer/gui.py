@@ -977,6 +977,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         spec_tab_layout.addStretch()
 
+        spec_tab_layout.addWidget(QLabel("Spectrum:"))
         spec_tab_layout.addWidget(self.spec_tab_bar)
         spec_tab_layout.addWidget(self.normalize_checkbox)
         spec_tab_layout.addWidget(self.overplot_left_checkbox)
