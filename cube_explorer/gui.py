@@ -2849,7 +2849,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 "Transition Number Filtering",
                 "Do you want to filter by transition numbers for this molecule?",
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.Yes
             ) == QMessageBox.Yes
 
             # Cache refresh option
@@ -2858,7 +2858,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 "Cache Option",
                 "Refresh the HITRAN cache for this query?",
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                QMessageBox.Yes
             ) == QMessageBox.Yes
 
             # Fetch HITRAN data
