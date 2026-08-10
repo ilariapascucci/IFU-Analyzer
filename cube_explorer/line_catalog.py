@@ -569,3 +569,108 @@ def load_contaminating_lines_catalog(filepath):
     except Exception as e:
         print(f"Error loading contaminating lines catalog: {e}")
         return None
+
+
+def load_custom_line_catalog(filepath):
+    """
+    Load a user-supplied, HITRAN-like line list from CSV -- for offline use (e.g. no
+    internet access to query HITRAN directly), or to hand-pick lines HITRAN doesn't
+    have. Populates the same row-dict shape fetch_hitran_data() returns, so these
+    lines drop into the existing Lines table / plotting / multi-Gaussian fitting
+    exactly like a live HITRAN fetch would.
+
+    Only 'wavelength' (µm) is required. fit_hitran_lines_collective() only ever
+    fixes each line's *center* from the catalog -- its width comes from the
+    instrument's own spectral resolution, not a catalog value -- so nothing else is
+    needed to fit these lines. Everything past that is optional and purely for
+    display (species dialog table, hover tooltip, results text), each already
+    tolerant of missing values via .get(key, default) at every call site:
+        species, transition, a_coeff, e_upper, isotopologue, isotopologue_name,
+        wavelength_unit (defaults to 'µm' if the column is absent).
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the CSV file.
+
+    Returns
+    -------
+    list of dict
+        One dict per row, tagged 'source': 'Custom' (so the species dialog's
+        HITRAN-only filter and pink row-highlighting correctly treat these as
+        non-HITRAN). None if the file is missing, empty, or lacks 'wavelength'.
+
+    Raises
+    ------
+    ValueError
+        If the CSV file does not contain a 'wavelength' column.
+    """
+    try:
+        if not os.path.exists(filepath):
+            print(f"Error: File '{filepath}' not found.")
+            return None
+
+        print(f">>> Loading custom line list from {filepath}...")
+        df = pd.read_csv(filepath)
+
+        if 'wavelength' not in df.columns:
+            error_msg = (
+                f"CSV file is missing required 'wavelength' column.\n"
+                f"Columns found: {', '.join(df.columns.tolist())}"
+            )
+            print(error_msg)
+            raise ValueError(error_msg)
+
+        def _clean(value):
+            return None if pd.isna(value) else value
+
+        rows = []
+        for _, row in df.iterrows():
+            wl = _clean(row.get('wavelength'))
+            if wl is None:
+                continue  # No center to fit/plot -- can't use this row at all
+            entry = {
+                'model': 'Custom',
+                'source': 'Custom',
+                'wavelength': float(wl),
+                'wavelength_unit': str(_clean(row.get('wavelength_unit')) or 'µm'),
+                # Direct-keyed (not .get()) by plot_selected_lines, so this must
+                # always be present -- 'Unknown' rather than skipping the row.
+                'species': str(_clean(row.get('species')) or 'Unknown'),
+            }
+            transition = _clean(row.get('transition'))
+            if transition is not None:
+                entry['transition'] = str(transition)
+            for float_col in ('a_coeff', 'e_upper'):
+                value = _clean(row.get(float_col))
+                if value is not None:
+                    try:
+                        entry[float_col] = float(value)
+                    except (TypeError, ValueError):
+                        pass
+            iso_num = _clean(row.get('isotopologue'))
+            if iso_num is not None:
+                try:
+                    entry['isotopologue'] = int(iso_num)
+                except (TypeError, ValueError):
+                    pass
+            # Not run through format_isotopologue_name() -- that assumes HITRAN's
+            # own '(13C)(16O)'-style bracket notation, and would misformat plain
+            # user text (e.g. subscripting a mass number it mistakes for a count).
+            # Shown exactly as given instead.
+            iso_name = _clean(row.get('isotopologue_name'))
+            if iso_name is not None:
+                entry['isotopologue_name'] = str(iso_name)
+            rows.append(entry)
+
+        if not rows:
+            print("No valid rows (all missing 'wavelength').")
+            return None
+
+        print(f"[OK] Loaded {len(rows)} custom lines")
+        return rows
+    except ValueError:
+        raise
+    except Exception as e:
+        print(f"Error loading custom line catalog: {e}")
+        return None

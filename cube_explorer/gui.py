@@ -41,7 +41,7 @@ from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
-from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog
+from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, auto_detect_boundaries
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
@@ -722,7 +722,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.hitran_btn = QPushButton("HITRAN")
         self.hitran_btn.setToolTip("Fetch HITRAN lines with transition level filtering")
         self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
-        
+
+        self.load_custom_lines_btn = QPushButton("Import Lines")
+        self.load_custom_lines_btn.setToolTip(
+            "Load your own line list CSV (wavelength required, species optional) "
+            "when HITRAN isn't reachable"
+        )
+        self.load_custom_lines_btn.clicked.connect(self._load_custom_lines_dialog)
+
         self.load_contam_btn = QPushButton("Contam. Lines")
         self.load_contam_btn.setToolTip("(Optional) Load CSV file with contaminating lines")
         self.load_contam_btn.clicked.connect(self._load_contaminating_lines_dialog)
@@ -952,6 +959,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(self.max_wave_input)
         self.hitran_group.add_button(self.hitran_btn)
+        self.hitran_group.add_button(self.load_custom_lines_btn)
         self.hitran_group.add_button(self.load_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.show_species_btn)
@@ -2908,6 +2916,54 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while fetching HITRAN lines:\n{e}")
+
+    def _load_custom_lines_dialog(self):
+        """
+        Load a user-supplied line list CSV as a stand-in for a live HITRAN fetch
+        (e.g. no internet access). Only 'wavelength' is required; 'species' and any
+        HITRAN-style columns (transition, a_coeff, e_upper, isotopologue,
+        isotopologue_name) are optional and only shown where present. Feeds into
+        the same Lines table / plotting flow as fetch_hitran_lines(), replacing
+        whatever was previously loaded there.
+        """
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        default_path = os.path.join(base_path, 'data')
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Custom Line List CSV",
+            default_path,
+            "CSV Files (*.csv);;All Files (*.*)"
+        )
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            rows = load_custom_line_catalog(file_path)
+            if not rows:
+                QMessageBox.critical(
+                    self,
+                    "Invalid CSV Format",
+                    "❌ Couldn't load any lines from this file.\n\n"
+                    "The CSV MUST have a column named 'wavelength' (case-sensitive, in µm)."
+                )
+                return
+
+            print(f"[OK] Loaded {len(rows)} custom lines from {os.path.basename(file_path)}")
+
+            self.hitran_lines = rows
+            rows.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
+
+            dlg = SpeciesDialog(rows, parent=self, plotted_rows=self.plotted_lines)
+            if dlg.exec_() == QDialog.Accepted:
+                selected_rows = dlg.get_selected_rows()
+                if not selected_rows:
+                    QMessageBox.information(self, "No Selection", "No lines selected for plotting.")
+                    return
+                self.plot_selected_lines(selected_rows)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load custom line list:\n{e}")
 
     def _load_contaminating_lines_dialog(self):
         """
