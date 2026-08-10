@@ -1045,6 +1045,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.hitran_lines = []  # Store HITRAN lines separately
         self.plotted_lines = []  # Store currently plotted spectral lines
         self.plotted_artists = []  # Store matplotlib artist objects for plotted lines
+        self.contam_plotted_artists = []  # Store matplotlib artist objects for contaminating-line markers
         self.scale_left = 'Linear'
         self.scale_right = 'Linear'
         
@@ -2316,12 +2317,64 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             line = ax.axvline(λ, color="darkred", linestyle="--", alpha=0.6, picker=5)
             # Store row data in the line for hover access
             line.row_data = row
+            # Blended transform (x in data coords, y in axes-fraction coords) instead of a
+            # one-time ax.get_ylim()[1] snapshot -- keeps the label flush with the axes' top
+            # edge even if the y-limit later changes (e.g. via _apply_shared_y_scale), rather
+            # than leaving it anchored to a now-stale, possibly lower, y value. y=1.01 (not
+            # 1.0) so the label's first character clears the top spine instead of sitting
+            # right on top of it.
             text = ax.text(
-                λ, ax.get_ylim()[1],
-                row["species"], rotation=90, va="bottom", ha="center",
+                λ, 1.01, row["species"], transform=ax.get_xaxis_transform(),
+                rotation=90, va="bottom", ha="center",
                 fontsize=7, color="orange"
             )
             self.plotted_artists.extend([line, text])
+
+        self.spec_canvas.draw()
+
+    def plot_contaminating_lines(self):
+        """
+        Draw markers for the loaded contaminating-line catalog on the spectrum,
+        mirroring plot_selected_lines() but in a dark grey/grey scheme (rather than
+        the darkred/orange HITRAN scheme) so contaminants read as clearly distinct
+        from the requested lines.
+        """
+        if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
+            return
+        ax = self.spec_plotter.ax
+
+        # Clear any previously plotted contaminant markers
+        if hasattr(self, 'contam_plotted_artists'):
+            for artist in self.contam_plotted_artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+        self.contam_plotted_artists = []
+
+        if self.contam_lines is None or len(self.contam_lines) == 0:
+            self.spec_canvas.draw()
+            return
+
+        for _, row in self.contam_lines.iterrows():
+            λ = float(row['line_wave_um'])
+            species = row.get('species', 'Contaminant')
+
+            line = ax.axvline(λ, color="black", linestyle="--", alpha=0.7, picker=5)
+            # Only species + wavelength -- that's all a contaminant CSV actually supplies
+            # (everything else in the file is unused), so the hover tooltip stays minimal
+            # rather than showing blank/N-A HITRAN-only fields like Transition or A-coeff.
+            line.row_data = {'species': species, 'wavelength': λ, 'wavelength_unit': 'µm', 'source': 'Contaminant'}
+            # Blended transform, same as the HITRAN labels above -- keeps this flush with
+            # the axes' top edge instead of a stale ax.get_ylim()[1] snapshot. y=1.01 (not
+            # 1.0) so the label's first character clears the top spine instead of sitting
+            # right on top of it.
+            text = ax.text(
+                λ, 1.01, species, transform=ax.get_xaxis_transform(),
+                rotation=90, va="bottom", ha="center",
+                fontsize=7, color="black"
+            )
+            self.contam_plotted_artists.extend([line, text])
 
         self.spec_canvas.draw()
 
@@ -2332,45 +2385,50 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             return
         if event.inaxes != self.spec_plotter.ax:
             return
-        
-        if not hasattr(self, 'plotted_lines') or not self.plotted_lines:
+
+        plotted_lines = getattr(self, 'plotted_lines', None) or []
+        contam_artists = getattr(self, 'contam_plotted_artists', None) or []
+        if not plotted_lines and not contam_artists:
             return
-        
+
         # Check if hovering near any plotted lines
         hover_threshold = 0.01  # wavelength units tolerance
         mouse_x = event.xdata
         if mouse_x is None:
             return
-        
-        # Find nearest line within threshold
+
+        # Find nearest line within threshold -- HITRAN selections and contaminant
+        # markers compete on the same distance check, whichever is closer wins
         nearest_row = None
         min_dist = float('inf')
-        
-        for row in self.plotted_lines:
+
+        for row in plotted_lines:
             λ = SpeciesDialog.get_row_wavelength(row)
             dist = abs(λ - mouse_x)
             if dist < hover_threshold and dist < min_dist:
                 min_dist = dist
                 nearest_row = row
-        
+
+        for artist in contam_artists:
+            row = getattr(artist, 'row_data', None)
+            if row is None:
+                continue
+            λ = row.get('wavelength')
+            if λ is None:
+                continue
+            dist = abs(λ - mouse_x)
+            if dist < hover_threshold and dist < min_dist:
+                min_dist = dist
+                nearest_row = row
+
         if nearest_row:
             # Get cube wavelength unit
             cube_unit = getattr(self.cube_data, 'wave_unit', 'µm') if hasattr(self, 'cube_data') else 'µm'
-            
-            # Format tooltip with line information
+
             species = nearest_row.get('species', 'Unknown')
-            iso_name = nearest_row.get('isotopologue_name')
-            iso_num = nearest_row.get('isotopologue')
-            if iso_name:
-                species = f"{species} ({iso_name})"
-            elif iso_num:
-                species = f"{species} (iso {iso_num})"
             wavelength = nearest_row.get('wavelength', 0)
             source_unit = nearest_row.get('wavelength_unit', 'µm')
-            transition = nearest_row.get('transition', 'N/A')
-            a_coeff = nearest_row.get('a_coeff', 0)
-            e_upper = nearest_row.get('e_upper', 0)
-            
+
             # Show both original and converted wavelength if units differ
             if cube_unit != source_unit:
                 try:
@@ -2380,15 +2438,30 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
             else:
                 wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
-            
-            tooltip_text = (
-                f"Species: {species}\n"
-                f"{wavelength_str}\n"
-                f"Transition: {transition}\n"
-                f"A-coeff: {a_coeff:.2e} s⁻¹\n"
-                f"E_upper: {e_upper:.2f} K"
-            )
-            
+
+            if nearest_row.get('source') == 'Contaminant':
+                # Contaminant CSVs only ever supply species + wavelength -- keep the
+                # tooltip to just that instead of showing blank/N-A HITRAN-only fields.
+                tooltip_text = f"Species: {species}\n{wavelength_str}"
+            else:
+                iso_name = nearest_row.get('isotopologue_name')
+                iso_num = nearest_row.get('isotopologue')
+                if iso_name:
+                    species = f"{species} ({iso_name})"
+                elif iso_num:
+                    species = f"{species} (iso {iso_num})"
+                transition = nearest_row.get('transition', 'N/A')
+                a_coeff = nearest_row.get('a_coeff', 0)
+                e_upper = nearest_row.get('e_upper', 0)
+
+                tooltip_text = (
+                    f"Species: {species}\n"
+                    f"{wavelength_str}\n"
+                    f"Transition: {transition}\n"
+                    f"A-coeff: {a_coeff:.2e} s⁻¹\n"
+                    f"E_upper: {e_upper:.2f} K"
+                )
+
             # Use QToolTip for floating box - convert matplotlib event coords to global screen coords
             cursor_pos = self.spec_canvas.mapToGlobal(QPoint(int(event.x), int(self.spec_canvas.height() - event.y)))
             QToolTip.showText(cursor_pos, tooltip_text, self.spec_canvas)
@@ -2481,7 +2554,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     pass
             self.plotted_artists = []
             self.plotted_lines = []
-        
+
+        # Clear contaminating-line markers
+        if hasattr(self, 'contam_plotted_artists'):
+            for artist in self.contam_plotted_artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+            self.contam_plotted_artists = []
+
         # Clear spectrum plot and reload
         if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
             # Clear all lines and artists
@@ -2870,6 +2952,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 max_wave = self.contam_lines['line_wave_um'].max()
                 print(f"  Wavelength range: {min_wave:.4f} - {max_wave:.4f} um")
 
+                # Mark them on the spectrum right away (dark grey), same as HITRAN selections
+                self.plot_contaminating_lines()
+
                 QMessageBox.information(
                     self,
                     "Success",
@@ -2916,6 +3001,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     pass
             self.plotted_artists = []
             self.plotted_lines = []
+            self.spec_canvas.draw()
+
+        # Clear any plotted contaminating-line markers/labels
+        if hasattr(self, 'contam_plotted_artists') and self.contam_plotted_artists:
+            for artist in self.contam_plotted_artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+            self.contam_plotted_artists = []
             self.spec_canvas.draw()
 
     def _save_results_ascii(self):

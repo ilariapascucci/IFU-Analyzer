@@ -453,8 +453,10 @@ STATUS: {result.message}
             label = f"Contaminant ({species})" if species not in seen_species else ''
             seen_species.add(species)
             # Outline only, no fill -- enough to show "this peak is accounted for and it isn't
-            # CO" without visually competing with the red fill for the requested lines.
-            contam_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, color='green', linewidth=2, alpha=0.9, label=label, zorder=12)
+            # CO" without visually competing with the red fill for the requested lines. Grey
+            # (rather than red) mirrors the black/dimgray marker used for this same
+            # contaminant on the spectrum before fitting.
+            contam_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, color='dimgray', linewidth=2, alpha=1.0, label=label, zorder=12)
             self.multi_gauss_artists.append(contam_line)
 
         ax.legend(loc='upper right', fontsize=8)
@@ -502,7 +504,7 @@ STATUS: {result.message}
         if contam_results:
             results_text += (
                 f"\nCONTAMINATING LINES (not part of the {len(fit_results)} lines above -- "
-                f"shown in green on the plot):\n{'='*70}\n"
+                f"shown in grey on the plot):\n{'='*70}\n"
             )
             for idx, contam_info in enumerate(contam_results, 1):
                 result, line = contam_info['result'], contam_info['line']
