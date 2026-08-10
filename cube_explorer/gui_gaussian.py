@@ -364,7 +364,18 @@ STATUS: {result.message}
         if not hasattr(self, 'plotted_lines') or not self.plotted_lines:
             QMessageBox.warning(self, "No Lines Selected", "Please first select HITRAN lines to fit.")
             return
-        
+
+        # plotted_lines mixes detection lines with any checked contaminant markers
+        # (both share one list for the Lines table/plot). Contaminants are already
+        # handled separately below via contam_lines=self.contam_lines -- passing
+        # them again here too would also fit them as if they were real requested
+        # lines (red, with their own amplitude/area reported) instead of staying
+        # in their own grey "accounted for, not reported" role.
+        detection_lines = [r for r in self.plotted_lines if r.get('source') != 'Contaminant']
+        if not detection_lines:
+            QMessageBox.warning(self, "No Detection Lines Selected", "Please select at least one detection line (not just contaminants) to fit.")
+            return
+
         if not hasattr(self, 'cube_data') or self.cube_data is None or not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
             return
@@ -389,7 +400,7 @@ STATUS: {result.message}
             continuum_y = self.continuum_fitted
         
         fit_pairs, contam_pairs, velocity_shift_kms = fit_hitran_lines_collective(
-            spectrum_x, spectrum_y, self.plotted_lines, continuum_y,
+            spectrum_x, spectrum_y, detection_lines, continuum_y,
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
             contam_lines=getattr(self, 'contam_lines', None),
         )

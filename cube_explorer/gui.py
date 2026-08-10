@@ -8,6 +8,7 @@ import gc
 import warnings
 import traceback
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, PowerNorm, Normalize
 
@@ -2249,18 +2250,48 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         HITRAN/custom detection-line rows (tagged 'source': 'Contaminant'), so
         they can share the same Lines table, plotting, and hover code as
         detection lines instead of a separate parallel path.
+
+        Same optional-column treatment as load_custom_line_catalog(): only
+        'species'/'wavelength' are required of a contaminant CSV, but if it
+        also happens to carry transition/a_coeff/e_upper/isotopologue(_name)
+        columns, those are shown too -- there's no reason to hide real
+        metadata just because a line is tagged as a contaminant rather than a
+        detection.
         """
         if self.contam_lines is None or len(self.contam_lines) == 0:
             return []
         rows = []
         for _, row in self.contam_lines.iterrows():
-            rows.append({
+            entry = {
                 'model': 'Contaminant',
                 'source': 'Contaminant',
                 'wavelength': float(row['line_wave_um']),
                 'wavelength_unit': 'µm',
                 'species': row.get('species', 'Contaminant'),
-            })
+            }
+            transition = row.get('transition')
+            if pd.notna(transition):
+                entry['transition'] = str(transition)
+            for float_col in ('a_coeff', 'e_upper'):
+                value = row.get(float_col)
+                if pd.notna(value):
+                    try:
+                        entry[float_col] = float(value)
+                    except (TypeError, ValueError):
+                        pass
+            iso_num = row.get('isotopologue')
+            if pd.notna(iso_num):
+                try:
+                    entry['isotopologue'] = int(iso_num)
+                except (TypeError, ValueError):
+                    pass
+            # Not run through format_isotopologue_name() -- same reasoning as
+            # load_custom_line_catalog(): that assumes HITRAN's own bracket
+            # notation and would misformat plain user text. Shown as given.
+            iso_name = row.get('isotopologue_name')
+            if pd.notna(iso_name):
+                entry['isotopologue_name'] = str(iso_name)
+            rows.append(entry)
         return rows
 
     def _combined_line_rows(self):
@@ -2426,44 +2457,45 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             wavelength = nearest_row.get('wavelength', 0)
             source_unit = nearest_row.get('wavelength_unit', 'µm')
 
-            # Show both original and converted wavelength if units differ
+            # Same precision as the Lines table (species_dialog.py's wavelength
+            # column uses .6f) -- not rounded to fewer digits here.
             if cube_unit != source_unit:
                 try:
                     wavelength_converted = convert_wavelength(wavelength, source_unit, cube_unit)
-                    wavelength_str = f"λ: {wavelength:.4f} {source_unit} ({wavelength_converted:.4f} {cube_unit})"
+                    wavelength_str = f"λ: {wavelength:.6f} {source_unit} ({wavelength_converted:.6f} {cube_unit})"
                 except Exception:
-                    wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
+                    wavelength_str = f"λ: {wavelength:.6f} {source_unit}"
             else:
-                wavelength_str = f"λ: {wavelength:.4f} {source_unit}"
+                wavelength_str = f"λ: {wavelength:.6f} {source_unit}"
 
-            if nearest_row.get('source') == 'Contaminant':
-                # Contaminant CSVs only ever supply species + wavelength -- keep the
-                # tooltip to just that instead of showing blank/N-A HITRAN-only fields.
-                tooltip_text = f"Species: {species}\n{wavelength_str}"
-            else:
-                iso_name = nearest_row.get('isotopologue_name')
-                iso_num = nearest_row.get('isotopologue')
-                if iso_name:
-                    species = f"{species} ({iso_name})"
-                elif iso_num:
-                    species = f"{species} (iso {iso_num})"
-                transition = nearest_row.get('transition', 'N/A')
-                # Default to None (not 0) -- 0 is a real value (e.g. E_upper=0 for a
-                # ground-state line), so a genuinely missing field (e.g. a custom-
-                # imported line whose CSV didn't include these optional columns)
-                # must format as "N/A" rather than silently print as "0.00e+00".
-                a_coeff = nearest_row.get('a_coeff')
-                e_upper = nearest_row.get('e_upper')
-                a_coeff_text = f"{a_coeff:.2e} s⁻¹" if a_coeff is not None else "N/A"
-                e_upper_text = f"{e_upper:.2f} K" if e_upper is not None else "N/A"
+            # Detection and contaminant rows are formatted identically -- a
+            # contaminant CSV can carry transition/a_coeff/e_upper/isotopologue
+            # columns too (see _contam_rows()), so there's no reason to hard-code
+            # a stripped-down tooltip just because a line is tagged 'Contaminant'.
+            # Whatever's actually missing already shows "N/A" below.
+            iso_name = nearest_row.get('isotopologue_name')
+            iso_num = nearest_row.get('isotopologue')
+            if iso_name:
+                species = f"{species} ({iso_name})"
+            elif iso_num:
+                species = f"{species} (iso {iso_num})"
+            transition = nearest_row.get('transition', 'N/A')
+            # Default to None (not 0) -- 0 is a real value (e.g. E_upper=0 for a
+            # ground-state line), so a genuinely missing field (e.g. a custom-
+            # imported or contaminant line whose CSV didn't include these optional
+            # columns) must format as "N/A" rather than silently print as "0.00e+00".
+            a_coeff = nearest_row.get('a_coeff')
+            e_upper = nearest_row.get('e_upper')
+            a_coeff_text = f"{a_coeff:.2e} s⁻¹" if a_coeff is not None else "N/A"
+            e_upper_text = f"{e_upper:.2f} K" if e_upper is not None else "N/A"
 
-                tooltip_text = (
-                    f"Species: {species}\n"
-                    f"{wavelength_str}\n"
-                    f"Transition: {transition}\n"
-                    f"A-coeff: {a_coeff_text}\n"
-                    f"E_upper: {e_upper_text}"
-                )
+            tooltip_text = (
+                f"Species: {species}\n"
+                f"{wavelength_str}\n"
+                f"Transition: {transition}\n"
+                f"A-coeff: {a_coeff_text}\n"
+                f"E_upper: {e_upper_text}"
+            )
 
             # Use QToolTip for floating box - convert matplotlib event coords to global screen coords
             cursor_pos = self.spec_canvas.mapToGlobal(QPoint(int(event.x), int(self.spec_canvas.height() - event.y)))
@@ -2673,23 +2705,95 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         print("[DEBUG] Refresh complete - all displays reset to initial state")
 
+    def _current_wavelength_range(self):
+        """
+        Read + validate the Min/Max wavelength (µm) fields shared by the
+        HITRAN/custom-lines/contaminating-lines loaders. Pops a warning dialog
+        and returns None on invalid input (not a valid number, or min >= max).
+        """
+        try:
+            wavelength_min = float(self.min_wave_input.text())
+            wavelength_max = float(self.max_wave_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
+            return None
+
+        if wavelength_min >= wavelength_max:
+            QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
+            return None
+
+        return wavelength_min, wavelength_max
+
+    def _line_range_edge_pad(self):
+        """
+        Safety margin (µm) added around the Min/Max wavelength range when filtering
+        custom/contaminating lines at load time, so a line just outside the typed
+        range but still close enough to bleed into an edge line's own Gaussian isn't
+        silently dropped from the catalog entirely (which -- unlike display -- would
+        also remove it from what the fitter can use as a template).
+
+        Computed the same way fit_hitran_lines_collective() pads its own fit window
+        (4x the instrument's line sigma, from _line_sigma()) rather than a separate
+        guessed-at constant, so "close enough to matter to the fit" means the same
+        thing in both places. Returns 0.0 (no padding) if no cube is loaded yet --
+        there's no spectrum to reason about a sigma from.
+        """
+        if not hasattr(self, 'cube_data') or self.cube_data is None:
+            return 0.0
+        try:
+            from .co_flux_extractor import _line_sigma
+            wave = np.asarray(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
+            dx = abs(float(np.median(np.diff(wave))))  # magnitude only -- a descending
+            # wavelength array must not flip this into a negative (range-shrinking) pad
+            header = getattr(self.cube_data, 'header', None)
+            edge_sigmas = [
+                _line_sigma(float(np.nanmin(wave)), header, dx, 2.5),
+                _line_sigma(float(np.nanmax(wave)), header, dx, 2.5),
+            ]
+            return 4 * max(edge_sigmas)
+        except Exception:
+            return 0.0
+
+    def _reset_lines_state(self):
+        """
+        Clear everything downstream of the current detection-line catalog --
+        plotted line markers, any multi-Gaussian fit, and the loaded
+        contaminating-line catalog -- whenever the detection-line source
+        changes (a new HITRAN fetch or custom import). Otherwise a stale fit
+        or a contaminant catalog filtered/padded around the *previous*
+        wavelength range would silently stick around next to a newly loaded,
+        unrelated set of lines. Contaminants specifically must be reloaded
+        for the new range rather than carried over -- their fit-time
+        correctness depends on being filtered to the range actually in use
+        (see _load_contaminating_lines_dialog()).
+        """
+        if hasattr(self, 'clear_gaussian_fit'):
+            self.clear_gaussian_fit()
+
+        if hasattr(self, 'plotted_artists'):
+            for artist in self.plotted_artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+            self.plotted_artists = []
+            self.plotted_lines = []
+
+        self.contam_lines = None
+
+        if hasattr(self, 'spec_canvas'):
+            self.spec_canvas.draw()
+
     def fetch_hitran_lines(self):
         """
         Fetch HITRAN lines based on user input from the GUI.
         Now includes transition level (vibrational quantum number) filtering.
         """
         try:
-            # Get wavelength range from GUI inputs
-            try:
-                wavelength_min = float(self.min_wave_input.text())
-                wavelength_max = float(self.max_wave_input.text())
-            except ValueError:
-                QMessageBox.warning(self, "Invalid Input", "Enter valid wavelength numbers.")
+            wave_range = self._current_wavelength_range()
+            if wave_range is None:
                 return
-
-            if wavelength_min >= wavelength_max:
-                QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
-                return
+            wavelength_min, wavelength_max = wave_range
             
             mol_map = get_available_molecules()
             molecules = sorted(mol_map.keys())
@@ -2900,6 +3004,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             for line in results:
                 line['source'] = 'HITRAN'
 
+            # A fresh fetch replaces the working line set entirely -- clear any
+            # stale fit/plotted markers/contaminant catalog from before it.
+            self._reset_lines_state()
+
             # Store HITRAN lines
             self.hitran_lines = results
 
@@ -2922,8 +3030,19 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         other HITRAN-style columns (transition, a_coeff, e_upper, isotopologue,
         isotopologue_name) are optional and only shown where present. Feeds into
         the same Lines table / plotting flow as fetch_hitran_lines(), replacing
-        whatever was previously loaded there.
+        whatever was previously loaded there. Only lines within the current
+        Min/Max wavelength range are kept -- exactly, no edge padding, same as
+        a live HITRAN fetch (which queries that exact range) -- a catalog
+        covering a wider band than what's being searched shouldn't dump
+        irrelevant lines into the table. Unlike contaminating lines, a
+        detection line just outside the range has no fit-suppression role
+        that would justify padding it back in.
         """
+        wave_range = self._current_wavelength_range()
+        if wave_range is None:
+            return
+        wavelength_min, wavelength_max = wave_range
+
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         default_path = os.path.join(base_path, 'data')
 
@@ -2948,7 +3067,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 )
                 return
 
-            print(f"[OK] Loaded {len(rows)} custom lines from {os.path.basename(file_path)}")
+            total_loaded = len(rows)
+            rows = [r for r in rows if wavelength_min <= r['wavelength'] <= wavelength_max]
+            if not rows:
+                QMessageBox.information(
+                    self, "No Lines In Range",
+                    f"Loaded {total_loaded} line(s) from this file, but none fall within "
+                    f"the current range ({wavelength_min:.4f}-{wavelength_max:.4f} µm)."
+                )
+                return
+
+            print(
+                f"[OK] Loaded {len(rows)} of {total_loaded} custom lines from "
+                f"{os.path.basename(file_path)} within {wavelength_min:.4f}-{wavelength_max:.4f} µm"
+            )
+
+            # A fresh import replaces the working line set entirely -- clear any
+            # stale fit/plotted markers/contaminant catalog from before it.
+            self._reset_lines_state()
 
             self.hitran_lines = rows
 
@@ -2967,11 +3103,26 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         """
         Allow user to load an optional contaminating lines CSV file.
         This should be done AFTER setting wavelength range and loading HITRAN.
+
+        Filtered down to the current Min/Max wavelength range (plus a small
+        edge margin -- see _line_range_edge_pad()) before storing, same as
+        custom detection lines -- a catalog covering a wider band than what's
+        actually being analyzed (in either the multi-Gaussian fit or CO Flux
+        Map, both of which are themselves scoped to this same range in the
+        GUI) shouldn't clutter the table/plot or slow down fitting with
+        contaminants that can never matter here.
         """
+        wave_range = self._current_wavelength_range()
+        if wave_range is None:
+            return
+        wavelength_min, wavelength_max = wave_range
+        pad = self._line_range_edge_pad()
+        wavelength_min, wavelength_max = wavelength_min - pad, wavelength_max + pad
+
         # Suggest default location
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         default_path = os.path.join(base_path, 'data', 'CO')
-        
+
         # Open file browser
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -2979,17 +3130,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             default_path,
             "CSV Files (*.csv);;All Files (*.*)"
         )
-        
+
         if not file_path:
             return  # User cancelled
-        
+
         try:
             # Load the contaminating lines catalog
-            self.contam_lines = load_contaminating_lines_catalog(file_path)
-            
-            if self.contam_lines is not None and len(self.contam_lines) > 0:
+            loaded = load_contaminating_lines_catalog(file_path)
+
+            if loaded is not None and len(loaded) > 0:
                 # Validate that loading succeeded (the CSV had the required 'wavelength' column)
-                if 'line_wave_um' not in self.contam_lines.columns:
+                if 'line_wave_um' not in loaded.columns:
                     QMessageBox.critical(
                         self,
                         "Invalid CSV Format",
@@ -2998,8 +3149,25 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     )
                     self.contam_lines = None
                     return
-                
-                print(f"[OK] Loaded {len(self.contam_lines)} contaminating lines from {os.path.basename(file_path)}")
+
+                total_loaded = len(loaded)
+                in_range = loaded[
+                    (loaded['line_wave_um'] >= wavelength_min) & (loaded['line_wave_um'] <= wavelength_max)
+                ].reset_index(drop=True)
+                if len(in_range) == 0:
+                    QMessageBox.information(
+                        self, "No Lines In Range",
+                        f"Loaded {total_loaded} line(s) from this file, but none fall within "
+                        f"the current range ({wavelength_min:.4f}-{wavelength_max:.4f} µm)."
+                    )
+                    self.contam_lines = None
+                    return
+                self.contam_lines = in_range
+
+                print(
+                    f"[OK] Loaded {len(self.contam_lines)} of {total_loaded} contaminating lines from "
+                    f"{os.path.basename(file_path)} within {wavelength_min:.4f}-{wavelength_max:.4f} µm"
+                )
 
                 # Show wavelength range of loaded lines
                 min_wave = self.contam_lines['line_wave_um'].min()
@@ -3012,14 +3180,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 QMessageBox.information(
                     self,
                     "Success",
-                    f"✓ Loaded {len(self.contam_lines)} contaminating lines\n\n"
+                    f"✓ Loaded {len(self.contam_lines)} of {total_loaded} contaminating lines "
+                    f"(within {wavelength_min:.4f}-{wavelength_max:.4f} µm)\n\n"
                     f"Wavelength range: {min_wave:.4f} - {max_wave:.4f} μm\n\n"
                     f"These lines will be used when extracting CO flux."
                 )
             else:
                 QMessageBox.warning(self, "Empty File", "The CSV file is empty or has no valid lines.")
                 self.contam_lines = None
-                
+
         except Exception as e:
             QMessageBox.critical(
                 self,
