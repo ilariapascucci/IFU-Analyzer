@@ -987,7 +987,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
 
 def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
-                                   subtract_continuum=False, continuum_poly_deg=3, excluded_wavelengths=None,
+                                   continuum_poly_deg=3, excluded_wavelengths=None,
                                    continuum_params=None, snr_threshold=3.0, header=None, wave_unit=None):
     """
     Extract total CO flux from a single spectrum by fitting all CO lines.
@@ -1010,9 +1010,6 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         Maximum wavelength to fit. If None, uses max of CO_catalog line_wave_um.
     do_duplicate_removal : bool
         Whether to remove duplicate line detections
-    subtract_continuum : bool
-        Whether to subtract continuum before fitting lines using median filter + peak
-        detection method (same as GUI's Automatic Continuum) (default: False)
     continuum_poly_deg : int
         Unused parameter (kept for backward compatibility)
     excluded_wavelengths : set or list, optional
@@ -1043,24 +1040,21 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     spectrum_wave, spectrum_wave_unit = extract_units(spectrum_wave)
     spectrum_flux, spectrum_flux_unit = extract_units(spectrum_flux)
 
-    # Apply continuum subtraction if requested (BEFORE line detection)
-    # Uses the same median filter + peak detection method as the GUI's Automatic Continuum
+    # Subtract continuum before line detection (BEFORE line detection).
+    # Uses the same median filter + peak detection method as the GUI's Automatic Continuum,
+    # with caller-supplied parameters if given, otherwise the defaults baked into fit_auto_continuum
     continuum_model = None
-    if subtract_continuum:
-        try:
-            # Use the same continuum fitting method as the GUI, with caller-supplied
-            # parameters if given, otherwise the defaults baked into fit_auto_continuum
-            continuum_model = fit_auto_continuum(
-                spectrum_wave, spectrum_flux, **(continuum_params or {})
-            )
-            # Subtract continuum from flux
-            if continuum_model is not None and not np.all(np.isnan(continuum_model)):
-                spectrum_flux = spectrum_flux - continuum_model
-            else:
-                print(f"  Warning: Continuum fitting returned NaN, using original spectrum")
-        except Exception as e:
-            print(f"  Warning: Continuum subtraction failed ({e}), using original spectrum")
-            continuum_model = None
+    try:
+        continuum_model = fit_auto_continuum(
+            spectrum_wave, spectrum_flux, **(continuum_params or {})
+        )
+        if continuum_model is not None and not np.all(np.isnan(continuum_model)):
+            spectrum_flux = spectrum_flux - continuum_model
+        else:
+            print(f"  Warning: Continuum fitting returned NaN, using original spectrum")
+    except Exception as e:
+        print(f"  Warning: Continuum subtraction failed ({e}), using original spectrum")
+        continuum_model = None
 
     # Resolve the wave/flux units once, for the CGS conversion below and for labelling
     # 'co_flux'/'contam_flux' in every return path (even the zero-flux ones)
@@ -1260,7 +1254,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 # ================== Full Cube Processing ==================
 
 def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None,
-                       subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None,
+                       continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None,
                        continuum_params=None):
     """
     Create 2D map of total CO rovibrational flux by processing all spatial pixels.
@@ -1283,9 +1277,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         Number of parallel jobs for processing rows
     progress_callback : callable, optional
         Callback function to report progress: progress_callback(current, total)
-    subtract_continuum : bool
-        Whether to subtract continuum from each pixel using median filter + peak
-        detection method (same as GUI's Automatic Continuum) before fitting lines
     continuum_poly_deg : int
         Unused parameter (kept for backward compatibility)
     wave_min : float, optional
@@ -1317,7 +1308,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     - Skips pixels with all NaN spectra
     - Returns NaN for failed fits or edge cases
     - Gaussian sigma is estimated from each spectrum's data
-    - If subtract_continuum=True, applies median filter + peak detection continuum fit to each pixel
+    - Applies median filter + peak detection continuum fit to each pixel before line fitting
     """
     
     if cube_data.cube is None:
@@ -1364,7 +1355,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     
     print(f">>> Creating CO flux map: {n_y}x{n_x} pixels, {n_wave} wavelength elements")
     print(f"    Wavelength range: {wave_min:.6f} - {wave_max:.6f} um")
-    print(f"    Continuum subtraction: {'ENABLED' if subtract_continuum else 'DISABLED'}")
+    print(f"    Continuum subtraction: ENABLED")
     
     # DIAGNOSTIC: Print cube metadata
     print(f"    === CUBE DIAGNOSTICS ===")
@@ -1439,7 +1430,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 wavelength, test_spectrum, CO_catalog, contam_catalog,
                 wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
                 do_duplicate_removal=True,
-                subtract_continuum=subtract_continuum,
                 continuum_poly_deg=continuum_poly_deg,
                 continuum_params=continuum_params,
                 header=cube_data.header, wave_unit=cube_data.wave_unit
@@ -1495,7 +1485,6 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     wavelength, spectrum_flux, CO_catalog, contam_catalog,
                     wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
                     do_duplicate_removal=True,
-                    subtract_continuum=subtract_continuum,
                     continuum_poly_deg=continuum_poly_deg,
                     excluded_wavelengths=excluded_wavelengths,
                     continuum_params=continuum_params,

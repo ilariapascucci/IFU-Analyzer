@@ -537,7 +537,7 @@ from .co_flux_extractor import (
 from .line_catalog import load_CO_line_catalog, load_contaminating_lines_catalog
 
 def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog_path=None,
-                     snr_threshold=3.0, subtract_continuum=True, continuum_params=None,
+                     snr_threshold=3.0, continuum_params=None,
                      header=None, wave_unit=None):
     """
     Extract total CO flux by fitting all CO lines in a spectrum.
@@ -545,6 +545,8 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
     Fits multiple CO rovibrational lines simultaneously with contaminating
     lines and continuum, then integrates total flux. This is the same algorithm
     as the GUI's CO Flux Map button, run on a single spectrum instead of every pixel.
+    Always fits and subtracts a continuum before fitting lines, using the same
+    method as the GUI's Automatic Continuum.
 
     Args:
         wavelength (array-like): Wavelength values in same units as catalog
@@ -552,9 +554,6 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
         co_catalog_path (str): Path to CO line catalog (ECSV format)
         contamination_catalog_path (str, optional): Path to contaminant lines catalog
         snr_threshold (float): Minimum signal-to-noise for line detection (default 3.0)
-        subtract_continuum (bool): Fit and subtract a continuum before fitting lines,
-            using the same method as the GUI's Automatic Continuum (default True --
-            matches the GUI, which always does this)
         continuum_params (dict, optional): Override the default continuum-fitting
             parameters (window_size, sigma_threshold, peak_width, peak_distance,
             peak_exclusion, iterations, smoothing_factor). If None, uses the defaults,
@@ -599,14 +598,13 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
         co_catalog, contam_catalog,
         do_duplicate_removal=True,
         snr_threshold=snr_threshold,
-        subtract_continuum=subtract_continuum,
         continuum_params=continuum_params,
         header=header, wave_unit=wave_unit,
     )
 
 
 def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_path=None, n_jobs=8,
-                        wavelength_min=None, wavelength_max=None, subtract_continuum=True, continuum_params=None):
+                        wavelength_min=None, wavelength_max=None, continuum_params=None):
     """
     Create a 2D map of CO flux across the entire data cube.
 
@@ -628,9 +626,6 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
             search when co_catalog_path is None (auto-detect if None)
         wavelength_max (float, optional): Max wavelength to fit, and for the HITRAN
             search when co_catalog_path is None (auto-detect if None)
-        subtract_continuum (bool): Fit and subtract a continuum per pixel before fitting
-            lines, using the same method as the GUI's Automatic Continuum (default True
-            -- matches the GUI, which always does this)
         continuum_params (dict, optional): Override the default continuum-fitting
             parameters, applied identically to every pixel. If None, uses the defaults,
             which work well for typical spectra.
@@ -684,7 +679,6 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
     return _create_co_flux_map_internal(
         cube_data, co_catalog, contam_catalog,
         n_jobs=n_jobs,
-        subtract_continuum=subtract_continuum,
         continuum_params=continuum_params,
         wave_min=wavelength_min, wave_max=wavelength_max,
     )

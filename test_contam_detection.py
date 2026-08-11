@@ -59,7 +59,6 @@ print(f"[INFO] Contaminating catalog: {len(contam_in_range)} H2 lines in range "
 result = extract_co_flux_from_spectrum(
     spectrum_wave, spectrum_flux, CO_catalog, contam_catalog,
     wave_min=WAVE_MIN, wave_max=WAVE_MAX,
-    subtract_continuum=True,
     snr_threshold=3.0,
     header=cube.header, wave_unit=cube.wave_unit,
 )

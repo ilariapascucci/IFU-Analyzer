@@ -87,7 +87,6 @@ class GuiCOFluxMixin:
                         cube_data=self.cube_data,
                         CO_catalog=getattr(self, 'co_flux_catalog', None),
                         contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
-                        subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
                         parent=self,
                         excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
                         flux_unit=self.co_flux_result_cache.get('flux_unit'),
@@ -163,11 +162,10 @@ class GuiCOFluxMixin:
         self.co_flux_contam_catalog = self.contam_lines if (hasattr(self, 'contam_lines') and self.contam_lines is not None and len(self.contam_lines) > 0) else None
         self.co_flux_wave_min = wave_min
         self.co_flux_wave_max = wave_max
-        self.co_flux_subtract_continuum = True 
-        
+
         self.co_flux_worker = COFluxMapWorker(
             self.cube_data, use_catalog, self.co_flux_contam_catalog, n_jobs=n_jobs,
-            subtract_continuum=True, continuum_poly_deg=3,
+            continuum_poly_deg=3,
             wave_min=wave_min, wave_max=wave_max,
             excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
             continuum_params=self.co_flux_continuum_params
@@ -303,7 +301,6 @@ class GuiCOFluxMixin:
             wave_range=result.get('wave_range'), wavelength=getattr(self, 'co_flux_wavelength', None),
             cube_data=self.cube_data, CO_catalog=getattr(self, 'co_flux_catalog', None),
             contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
-            subtract_continuum=getattr(self, 'co_flux_subtract_continuum', False),
             parent=self, excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
             flux_unit=result.get('flux_unit'),
             continuum_params=self.co_flux_continuum_params

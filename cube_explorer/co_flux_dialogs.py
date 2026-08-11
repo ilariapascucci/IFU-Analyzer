@@ -24,13 +24,12 @@ class COFluxMapWorker(QThread):
     finished = pyqtSignal(dict)       # Results dict
     error = pyqtSignal(str)           # Error message
     
-    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, subtract_continuum=False, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
+    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
         super().__init__()
         self.cube_data = cube_data
         self.CO_catalog = CO_catalog
         self.contam_catalog = contam_catalog
         self.n_jobs = n_jobs
-        self.subtract_continuum = subtract_continuum
         self.continuum_poly_deg = continuum_poly_deg
         self.wave_min = wave_min
         self.wave_max = wave_max
@@ -54,7 +53,6 @@ class COFluxMapWorker(QThread):
                 n_jobs=self.n_jobs,
                 progress_callback=self._emit_progress,
                 cancel_flag=self,  # Pass self so extraction can check cancelled flag
-                subtract_continuum=self.subtract_continuum,
                 continuum_poly_deg=self.continuum_poly_deg,
                 wave_min=self.wave_min,
                 wave_max=self.wave_max,
@@ -84,7 +82,7 @@ class COFluxMapResultsDialog(QDialog):
     
     def __init__(self, flux_map, detection_map, header=None, wave_range=None,
                  wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
-                 subtract_continuum=False, parent=None, excluded_wavelengths=None, flux_unit=None,
+                 parent=None, excluded_wavelengths=None, flux_unit=None,
                  continuum_params=None):
         super().__init__(parent)
         self.flux_map = flux_map
@@ -95,7 +93,6 @@ class COFluxMapResultsDialog(QDialog):
         self.cube_data = cube_data
         self.CO_catalog = CO_catalog
         self.contam_catalog = contam_catalog
-        self.subtract_continuum = subtract_continuum
         self.continuum_params = continuum_params
         self.selected_pixel = None  # For pixel inspection mode
         self.pixel_selection_enabled = True  # Toggle for pixel clicking
@@ -292,7 +289,6 @@ class COFluxMapResultsDialog(QDialog):
                     self.wavelength, spectrum, self.CO_catalog, self.contam_catalog,
                     wave_min=self.wave_range[0] if self.wave_range else None,
                     wave_max=self.wave_range[1] if self.wave_range else None,
-                    subtract_continuum=self.subtract_continuum,
                     continuum_params=self.continuum_params
                 )
                 
