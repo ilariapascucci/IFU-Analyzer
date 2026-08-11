@@ -218,6 +218,7 @@ class GuiCOFluxMixin:
         # CO Flux Map always continuum-subtracts every pixel (with default or custom
         # parameters, chosen in the popup before this preview), so the preview should too
         preview_flux = spectrum_flux.copy()
+        continuum = None
         try:
             continuum = fit_auto_continuum(spectrum_wave, preview_flux, **(self.co_flux_continuum_params or {}))
             if continuum is not None and not np.all(np.isnan(continuum)):
@@ -234,8 +235,14 @@ class GuiCOFluxMixin:
 
         fig = Figure(figsize=(10, 4), dpi=100)
         ax = fig.add_subplot(111)
-        ax.plot(spectrum_wave, preview_flux, 'k-', linewidth=1.2, label='Continuum-Subtracted Spectrum', alpha=0.8)
-        
+        # Raw spectrum + the fitted continuum drawn on top (same style as the pixel-inspect
+        # dialog) -- lets you judge whether the continuum fit itself looks right before
+        # committing to the full extraction, which the continuum-subtracted view alone can't show.
+        ax.plot(spectrum_wave, spectrum_flux, 'k-', linewidth=1.2, label='Spectrum', alpha=0.8)
+        if continuum is not None and not np.all(np.isnan(continuum)):
+            ax.plot(spectrum_wave, continuum, color='orange', linestyle='--', linewidth=1.8,
+                    label='Continuum', alpha=0.8)
+
         wave_min, wave_max = float(self.min_wave_input.text()), float(self.max_wave_input.text())
         for line in lines:
             wave = float(line.get('wavelength', 0))
