@@ -274,13 +274,13 @@ def many_gaussians_list(xl, a, b, *params):
 
 # ================== Line Detection ==================
 
-def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate='False', snr_threshold=3.0):
+def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate='False', snr_threshold=3.0, noise_std=None):
     """
     Identify which spectral lines are detected in a spectrum and assign a starting max_amplitude.
-    
+
     Performs peak detection on a fine wavelength grid around each line and compares
     to local noise. Handles duplicate/close lines and contaminating line avoidance.
-    
+
     Parameters
     ----------
     xwave : array-like
@@ -295,7 +295,14 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         'True' to remove duplicate detections (keep strongest line in close groups)
     snr_threshold : float
         Signal-to-noise threshold for line detection (default: 3.0 sigma)
-    
+    noise_std : float, optional
+        Precomputed noise estimate for (xwave, yflux), to skip recomputing it below. Only
+        worth passing when a caller is about to call find_lines() more than once on the
+        *same* (xwave, yflux) -- e.g. extract_co_flux_from_spectrum's separate CO/contaminant
+        detection passes, which would otherwise redundantly recompute an identical value
+        (now that compute_noise_std() is seeded, the two calls' own computations would agree
+        anyway -- this just skips doing the same RANSAC fit twice). If None, computed fresh.
+
     Returns
     -------
     pd.DataFrame
@@ -304,17 +311,18 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
     # Suppress repetitive output (called for every pixel)
     # print('>>> Finding lines and removing duplicates...')
     xres = np.nanmean(np.diff(xwave))
-    
+
     # Estimate noise level for significance testing
-    try:
-        noise_std = compute_noise_std(xwave, yflux, pdeg=1)
-        if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
+    if noise_std is None:
+        try:
+            noise_std = compute_noise_std(xwave, yflux, pdeg=1)
+            if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
+                # Fallback: use median absolute deviation as noise estimate
+                noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
+        except Exception:
             # Fallback: use median absolute deviation as noise estimate
             noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
-    except Exception:
-        # Fallback: use median absolute deviation as noise estimate
-        noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
-    
+
     print(f"    [FIND_LINES DEBUG] noise_std={noise_std:.6e}, SNR threshold={snr_threshold * noise_std:.6e}")
     
     # at start all lines are assumed to be non-detections and assigned NAN for max_amplitude
@@ -491,7 +499,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     sum_CO_area, sum_contaminating_area, mean_cont = 0, 0, 0
     df_residual = pd.DataFrame({
         'wave': xwave,
-        'residual': [0] * len(xwave)
+        'residual': np.zeros(len(xwave))
     })
     df_continuum = pd.DataFrame({
         'wave': xwave,
@@ -1124,13 +1132,25 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             print(f"  Excluding {n_excluded} CO lines from extraction")
     
     print(f"  [DEBUG] CO catalog size: {len(CO_catalog_for_fit)} lines")
-    
+
+    # Computed once and reused for both find_lines() calls below (CO and contaminant
+    # detection both run on this same (spectrum_wave, spectrum_flux)) -- avoids running the
+    # RANSAC noise fit twice for an identical result. Same fallback logic find_lines() uses
+    # internally when noise_std isn't passed in.
+    try:
+        shared_noise_std = compute_noise_std(spectrum_wave, spectrum_flux, pdeg=1)
+        if shared_noise_std is None or not np.isfinite(shared_noise_std) or shared_noise_std <= 0:
+            shared_noise_std = np.nanmedian(np.abs(spectrum_flux - np.nanmedian(spectrum_flux))) * 1.4826
+    except Exception:
+        shared_noise_std = np.nanmedian(np.abs(spectrum_flux - np.nanmedian(spectrum_flux))) * 1.4826
+
     # Find detected lines (contam_catalog can be None if user didn't upload contaminating lines)
     detected_lines = find_lines(
         spectrum_wave, spectrum_flux, CO_catalog_for_fit,
         contaminating_lines=contam_catalog,
         remove_duplicate='True' if do_duplicate_removal else 'False',
-        snr_threshold=snr_threshold
+        snr_threshold=snr_threshold,
+        noise_std=shared_noise_std
     )
     
     if detected_lines is None or len(detected_lines) == 0:
@@ -1177,7 +1197,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             spectrum_wave, spectrum_flux, contam_catalog,
             contaminating_lines=CO_catalog_for_fit,
             remove_duplicate='True' if do_duplicate_removal else 'False',
-            snr_threshold=snr_threshold
+            snr_threshold=snr_threshold,
+            noise_std=shared_noise_std
         )
         detected_contam = detected_contam_lines[detected_contam_lines['disposition'] == 1].copy()
     else:

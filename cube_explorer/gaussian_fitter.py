@@ -475,10 +475,13 @@ def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, pdeg: int = 1) -> 
         return None
 
     try:
-        # Create RANSAC pipeline with polynomial features
+        # random_state fixed: RANSACRegressor's default draws from numpy's global random
+        # state, so the exact same (x_data, y_data) can return a different noise_std on every
+        # call -- confirmed empirically (10 calls on identical real data spanned ~148.8-150.3).
+        # Nothing here benefits from that variability; fixing the seed makes this reproducible.
         ransac_pipeline = make_pipeline(
             PolynomialFeatures(degree=pdeg),
-            RANSACRegressor()
+            RANSACRegressor(random_state=42)
         )
         
         # Fit the pipeline and calculate std of residuals
