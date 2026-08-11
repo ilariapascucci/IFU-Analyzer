@@ -1206,6 +1206,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             filename = os.path.basename(self.cube_data.filename)
             self.instrument_label.setText(f"Instrument: {self.cube_data.instrument} [{filename}]")
 
+            # Clear spec AND TICKS from previous spec
+            self.spec_fig.clf()
+
             # Initialize the spectrum plotter with wavelength information
             self.spec_plotter = SpectrumPlotter(
                 self.spec_fig,
