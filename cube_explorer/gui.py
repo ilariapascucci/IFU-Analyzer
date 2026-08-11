@@ -247,6 +247,29 @@ class CustomNavigationToolbar(NavigationToolbar):
             super().save_figure(*args)
 
 
+class WavelengthSpinBox(QDoubleSpinBox):
+    """QDoubleSpinBox whose up/down arrows (and Up/Down/PageUp/PageDown keys)
+    step to the next/previous wavelength actually present in the cube,
+    instead of a fixed increment - real wavelength grids aren't evenly
+    spaced, so a fixed step would often skip past or land between samples.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._wavelengths = None  # sorted ascending numpy array, or None
+
+    def set_wavelength_grid(self, wavelengths):
+        self._wavelengths = wavelengths
+
+    def stepBy(self, steps):
+        wl = self._wavelengths
+        if wl is None or len(wl) == 0:
+            super().stepBy(steps)
+            return
+        idx = int(np.abs(wl - self.value()).argmin())
+        idx = max(0, min(len(wl) - 1, idx + steps))
+        self.setValue(float(wl[idx]))
+
 
 class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin, GuiSpectrumMixin):
     def __init__(self):
@@ -573,6 +596,30 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         # Slice selection buttons
         self.set_left_btn = QPushButton("Set Left Slice")
         self.set_right_btn = QPushButton("Set Right Slice")
+
+        # Direct wavelength entry for each slice - typing a value (or using
+        # the spin arrows) jumps that slice to the closest available
+        # wavelength, kept in sync with clicking on the spectrum/slice.
+        self.left_wave_input = WavelengthSpinBox()
+        self.left_wave_input.setFixedWidth(100)
+        self.left_wave_input.setDecimals(6)
+        self.left_wave_input.setKeyboardTracking(False)
+        self.left_wave_input.setEnabled(False)
+        self.left_wave_input.setToolTip(
+            "Type a wavelength (or use the arrows) to jump the left slice "
+            "to the closest available value"
+        )
+
+        self.right_wave_input = WavelengthSpinBox()
+        self.right_wave_input.setFixedWidth(100)
+        self.right_wave_input.setDecimals(6)
+        self.right_wave_input.setKeyboardTracking(False)
+        self.right_wave_input.setEnabled(False)
+        self.right_wave_input.setToolTip(
+            "Type a wavelength (or use the arrows) to jump the right slice "
+            "to the closest available value"
+        )
+
         self.shift_btn = QPushButton("Shift")
         self.apply_shift_btn = QPushButton("Apply Shift")
         self.cancel_shift_btn = QPushButton("Cancel Preview")
@@ -659,6 +706,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         
         self.set_left_btn.clicked.connect(lambda: self._select_target("left"))
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
+        self.left_wave_input.valueChanged.connect(lambda _v: self._on_wave_input_changed("left"))
+        self.right_wave_input.valueChanged.connect(lambda _v: self._on_wave_input_changed("right"))
         self.shift_btn.clicked.connect(self.apply_doppler_shift)
         self.apply_shift_btn.clicked.connect(self._apply_shift)
         self.apply_shift_btn.setEnabled(False)
@@ -982,7 +1031,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         spec_tab_layout.setContentsMargins(0, 0, 0, 0)
 
         spec_tab_layout.addWidget(self.set_left_btn)
+        spec_tab_layout.addWidget(self.left_wave_input)
         spec_tab_layout.addWidget(self.set_right_btn)
+        spec_tab_layout.addWidget(self.right_wave_input)
 
         spec_tab_layout.addStretch()
 
@@ -1190,6 +1241,19 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 self._display_slice(0, "right")
             except Exception as slice_error:
                 QMessageBox.warning(self, "Display Error", f"Error displaying slices: {str(slice_error)}")
+
+            # Wire up left/right wavelength spin boxes to this cube's grid
+            wavelength = _extract_wavelength_value(self.cube_data.wavelength)
+            if wavelength is not None:
+                wl = np.asarray(wavelength, dtype=float)
+                for spin in (self.left_wave_input, self.right_wave_input):
+                    spin.set_wavelength_grid(wl)
+                    spin.setRange(float(np.min(wl)), float(np.max(wl)))
+                    spin.setSuffix(f" {self.cube_data.wave_unit}")
+                    spin.blockSignals(True)
+                    spin.setValue(float(wl[0]))
+                    spin.blockSignals(False)
+                    spin.setEnabled(True)
 
         except MemoryError:
             QMessageBox.critical(self, "Memory Error", 
@@ -1953,25 +2017,43 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         else:
             idx = (np.abs(wavelength - click_x)).argmin()
 
-        # Store the index
-        if self.active_target == "left":
+        self._set_slice_index(idx, self.active_target)
+
+    def _set_slice_index(self, idx, target):
+        """Set the left/right slice to wavelength index `idx` and refresh
+        every synced UI element - the spectrum indicator line, the slice
+        image, the wavelength spin box, and any active region selection.
+
+        This is the single place clicking the spectrum, clicking a slice
+        pixel, and typing into left/right_wave_input all funnel through, so
+        they stay in sync with each other no matter which one is used.
+        """
+        if target == "left":
             self.last_idx_left = idx
         else:
             self.last_idx_right = idx
 
         # Update the vertical line in the spectrum plot
-        self.spec_plotter.update_slice_indicator(idx, self.active_target)
-        self._mark_slice_indicator_set(self.active_target)
+        self.spec_plotter.update_slice_indicator(idx, target)
+        self._mark_slice_indicator_set(target)
         try:
             self.spec_canvas.draw()
         except Exception:
             pass
 
         # Display the new slice
-        self._display_slice(idx, self.active_target)
-        
+        self._display_slice(idx, target)
+
+        # Snap the wavelength spin box to this slice's exact wavelength
+        wavelength = _extract_wavelength_value(self.cube_data.wavelength)
+        if wavelength is not None:
+            spin = self.left_wave_input if target == "left" else self.right_wave_input
+            spin.blockSignals(True)
+            spin.setValue(float(wavelength[idx]))
+            spin.blockSignals(False)
+
         # Update any active region selections
-        if self.active_target == "left" and self.last_selection_left:
+        if target == "left" and self.last_selection_left:
             if self.last_selection_left["shape"] == "*":
                 x, y = self.last_selection_left["coords"]
                 self._handle_pixel_click(x, y, "left")
@@ -1980,7 +2062,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 mask = self.last_selection_left["mask"]
                 self._recreate_region(xmin, xmax, ymin, ymax, mask, "left")
 
-        elif self.active_target == "right" and self.last_selection_right:
+        elif target == "right" and self.last_selection_right:
             if self.last_selection_right["shape"] == "*":
                 x, y = self.last_selection_right["coords"]
                 self._handle_pixel_click(x, y, "right")
@@ -1988,6 +2070,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 xmin, xmax, ymin, ymax = self.last_selection_right["coords"]
                 mask = self.last_selection_right["mask"]
                 self._recreate_region(xmin, xmax, ymin, ymax, mask, "right")
+
+    def _on_wave_input_changed(self, target):
+        """Handle the user typing/stepping a value in left/right_wave_input -
+        jump that slice to the closest wavelength actually in the cube."""
+        if not hasattr(self, 'cube_data') or not hasattr(self.cube_data, 'wavelength'):
+            return
+        wavelength = _extract_wavelength_value(self.cube_data.wavelength)
+        if wavelength is None:
+            return
+        spin = self.left_wave_input if target == "left" else self.right_wave_input
+        idx = int(np.abs(wavelength - spin.value()).argmin())
+        self._set_slice_index(idx, target)
 
     def _select_target(self, target):
         """Handle slice selection mode"""
