@@ -8,7 +8,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
 from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
-from .co_flux_extractor import fit_continuum_median_peaks
+from .co_flux_extractor import fit_auto_continuum
 from .continuum_dialog import ContinuumParametersDialog
 
 class GuiCOFluxMixin:
@@ -219,7 +219,7 @@ class GuiCOFluxMixin:
         # parameters, chosen in the popup before this preview), so the preview should too
         preview_flux = spectrum_flux.copy()
         try:
-            continuum = fit_continuum_median_peaks(spectrum_wave, preview_flux, **(self.co_flux_continuum_params or {}))
+            continuum = fit_auto_continuum(spectrum_wave, preview_flux, **(self.co_flux_continuum_params or {}))
             if continuum is not None and not np.all(np.isnan(continuum)):
                 preview_flux = preview_flux - continuum
         except Exception: pass

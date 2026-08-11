@@ -66,7 +66,7 @@ def extract_units(data):
         return np.asarray(data), None
 
 
-def fit_continuum_median_peaks(wavelength, flux, window_size=51, sigma_threshold=2.0,
+def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
                                 peak_width=1, peak_distance=3, peak_exclusion=3,
                                 iterations=2, smoothing_factor=5):
     """
@@ -739,7 +739,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         hitran_lines: list of dicts with 'lambda_micron' or 'wavelength', plus whatever
             metadata (species, transition, ...) the caller wants carried through
         continuum: continuum array matching spectrum_x/spectrum_y, subtracted once, globally,
-            before fitting -- e.g. from fit_continuum()/fit_continuum_median_peaks().
+            before fitting -- e.g. from fit_continuum()/fit_auto_continuum().
         header, wave_unit: FITS header (for INSTRUME/GRATING -> spectral resolution, and the
             erg/s/cm^2 area conversion) and wavelength unit string.
         contam_lines: optional pd.DataFrame with a 'line_wave_um' column (the same format
@@ -1018,7 +1018,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     excluded_wavelengths : set or list, optional
         Set of wavelengths to exclude from CO flux calculation
     continuum_params : dict, optional
-        Override the default fit_continuum_median_peaks() parameters (window_size,
+        Override the default fit_auto_continuum() parameters (window_size,
         sigma_threshold, peak_width, peak_distance, peak_exclusion, iterations,
         smoothing_factor). If None, uses the defaults, which work well for typical spectra.
     snr_threshold : float
@@ -1049,8 +1049,8 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     if subtract_continuum:
         try:
             # Use the same continuum fitting method as the GUI, with caller-supplied
-            # parameters if given, otherwise the defaults baked into fit_continuum_median_peaks
-            continuum_model = fit_continuum_median_peaks(
+            # parameters if given, otherwise the defaults baked into fit_auto_continuum
+            continuum_model = fit_auto_continuum(
                 spectrum_wave, spectrum_flux, **(continuum_params or {})
             )
             # Subtract continuum from flux
@@ -1295,7 +1295,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     excluded_wavelengths : set or list, optional
         Set of CO wavelengths to exclude from flux calculation
     continuum_params : dict, optional
-        Override the default fit_continuum_median_peaks() parameters, applied identically
+        Override the default fit_auto_continuum() parameters, applied identically
         to every pixel. If None, uses the defaults, which work well for typical spectra.
 
 

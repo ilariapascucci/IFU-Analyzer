@@ -131,7 +131,7 @@ def load_cube(filename):
 # CONTINUUM FITTING API
 # ============================================================================
 
-from .co_flux_extractor import fit_continuum_median_peaks
+from .co_flux_extractor import fit_auto_continuum
 
 def fit_continuum(wavelength, flux, method='auto', **kwargs):
     """
@@ -165,7 +165,7 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
     """
     if method != 'auto':
         raise ValueError(f"Unknown continuum fitting method: {method}. Use 'auto'.")
-    return fit_continuum_median_peaks(
+    return fit_auto_continuum(
         _as_float_array(wavelength), _as_float_array(flux), **kwargs
     )
 

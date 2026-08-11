@@ -7,7 +7,7 @@ from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
-from .co_flux_extractor import fit_continuum_median_peaks, fit_hitran_lines_collective
+from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
 
 # Below this many samples in the fit window, a 1D fit will not run without a noise
 # region. The noise value itself does not enter the fit; the gate exists because a
@@ -392,7 +392,7 @@ STATUS: {result.message}
         # Auto-compute continuum with default values if not already fitted
         if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
             try:
-                continuum_y = fit_continuum_median_peaks(spectrum_x, spectrum_y)
+                continuum_y = fit_auto_continuum(spectrum_x, spectrum_y)
             except Exception as e:
                 QMessageBox.warning(self, "Continuum Error", f"Could not compute continuum automatically:\n{str(e)}")
                 return

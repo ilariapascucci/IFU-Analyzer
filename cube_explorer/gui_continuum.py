@@ -1,13 +1,11 @@
 import numpy as np
 import traceback
 from PyQt5.QtWidgets import QMessageBox, QApplication, QFileDialog
-from scipy.ndimage import median_filter
-from scipy.interpolate import UnivariateSpline
-from scipy.signal import find_peaks
 
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
 from .unit_converter import clean_flux_unit, clean_wave_unit
+from .co_flux_extractor import fit_auto_continuum
 
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
     # Standard helper function used across the app
@@ -88,65 +86,11 @@ class GuiContinuumMixin:
             
             if self.original_spectrum_backup is None:
                 self.original_spectrum_backup = cube.spectrum.copy()
-            
-            mask = np.isfinite(wavelength) & np.isfinite(flux)
-            wavelength_clean = wavelength[mask]
-            flux_clean = flux[mask]
-            
-            if len(wavelength_clean) < 10: return
-            
-            window_size = params['window_size']
-            flux_smoothed = median_filter(flux_clean, size=window_size, mode='reflect')
-            peaks, properties = find_peaks(
-                flux_clean, prominence=np.std(flux_clean) * params['sigma_threshold'],
-                width=params['peak_width'], distance=params['peak_distance']
-            )
 
-            exclude_mask = np.zeros(len(flux_clean), dtype=bool)
-            for peak_idx in peaks:
-                exclusion = params['peak_exclusion']
-                left_edge = max(0, peak_idx - exclusion)
-                right_edge = min(len(flux_clean), peak_idx + exclusion + 1)
-                exclude_mask[left_edge:right_edge] = True
-            
-            flux_for_continuum = flux_clean.copy()
-            good_indices = np.where(~exclude_mask)[0]
-            if len(good_indices) < 10:
-                exclude_mask = np.zeros(len(flux_clean), dtype=bool)
-            
-            flux_good = flux_clean.copy()
-            flux_good[exclude_mask] = np.nan
-            
-            if np.any(exclude_mask):
-                flux_good[exclude_mask] = np.interp(
-                    wavelength_clean[exclude_mask], wavelength_clean[~exclude_mask], flux_clean[~exclude_mask]
-                )
-            
-            continuum = median_filter(flux_good, size=window_size, mode='reflect')
-            
-            for iteration in range(params['iterations']):
-                residuals = flux_clean - continuum
-                sigma = np.std(residuals[~exclude_mask])
-                outliers = (residuals > 2.0 * sigma) & (~exclude_mask)
-                if np.sum(outliers) == 0: break
-                exclude_mask |= outliers
-                flux_good = flux_clean.copy()
-                flux_good[exclude_mask] = np.interp(
-                    wavelength_clean[exclude_mask], wavelength_clean[~exclude_mask], flux_clean[~exclude_mask]
-                )
-                continuum = median_filter(flux_good, size=window_size, mode='reflect')
-            
-            try:
-                spline = UnivariateSpline(
-                    wavelength_clean[~exclude_mask], continuum[~exclude_mask], 
-                    s=len(wavelength_clean) / params['smoothing_factor'], k=3
-                )
-                continuum_smooth = spline(wavelength_clean)
-            except Exception:
-                continuum_smooth = continuum
-            
-            continuum_values = np.full_like(wavelength, np.nan)
-            continuum_values[mask] = continuum_smooth
+            # Same algorithm CO Flux Map/the API use (fit_auto_continuum) -- one
+            # shared, GUI-independent implementation instead of two copies that could
+            # silently drift apart.
+            continuum_values = fit_auto_continuum(wavelength, flux, **params)
             self.continuum_fitted = continuum_values
             
             ax = self.spec_plotter.ax
