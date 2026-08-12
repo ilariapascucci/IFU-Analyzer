@@ -309,7 +309,7 @@ class RotationalDiagramWindow(QMainWindow):
         
         self.calculate_fluxes_btn = QPushButton("Calculate Fluxes")
         self.calculate_fluxes_btn.clicked.connect(self.open_batch_flux_dialog)
-        self.calculate_fluxes_btn.setVisible(False)  # Hidden until HITRAN lines fetched
+        self.calculate_fluxes_btn.setVisible(False)  # Hidden until lines are loaded (HITRAN fetch or CSV import)
         button_layout.addWidget(self.calculate_fluxes_btn)
         
         button_layout.addStretch()
@@ -536,19 +536,24 @@ class RotationalDiagramWindow(QMainWindow):
                     QMessageBox.warning(self, "Error", "CSV file is empty")
                     return
                 
-                # Check for required columns (case-insensitive)
+                # Check for required columns (case-insensitive). Flux is optional —
+                # a CSV with just species + wavelength is enough; missing fluxes get
+                # filled in later via "Calculate Fluxes", same as the HITRAN workflow.
                 available_cols = {col.strip().lower(): col.strip() for col in reader.fieldnames if col}
-                required_cols = {'species', 'wavelength', 'flux'}
-                
+                required_cols = {'species', 'wavelength'}
+
                 if not required_cols.issubset(available_cols.keys()):
                     missing = required_cols - available_cols.keys()
                     QMessageBox.warning(
                         self,
                         "Missing Columns",
-                        f"CSV must have 'species', 'wavelength', and 'flux' columns.\nMissing: {', '.join(missing)}"
+                        f"CSV must have 'species' and 'wavelength' columns.\nMissing: {', '.join(missing)}"
                     )
                     return
-                
+
+                has_flux = 'flux' in available_cols
+                flux_col = available_cols.get('flux')
+
                 # Check for optional error column
                 has_error = False
                 error_col = None
@@ -557,24 +562,31 @@ class RotationalDiagramWindow(QMainWindow):
                         has_error = True
                         error_col = col_actual
                         break
-                
+
                 # Map column names (case-insensitive)
                 species_col = available_cols['species']
                 wavelength_col = available_cols['wavelength']
-                flux_col = available_cols['flux']
-                
+
                 for row_dict in reader:
                     try:
                         species = row_dict.get(species_col, '').strip().upper()
                         wavelength = float(row_dict.get(wavelength_col, '').strip())
-                        flux = float(row_dict.get(flux_col, '').strip())
-                        
+
                         row_info = {
                             'species': species,
                             'wavelength': wavelength,
-                            'flux': flux
                         }
-                        
+
+                        # Flux is best-effort: a blank/missing value just leaves the
+                        # row without one, to be filled in later via Calculate Fluxes
+                        if has_flux and flux_col:
+                            flux_str = row_dict.get(flux_col, '').strip()
+                            if flux_str:
+                                try:
+                                    row_info['flux'] = float(flux_str)
+                                except ValueError:
+                                    pass
+
                         # Add error if available
                         if has_error and error_col:
                             try:
@@ -582,10 +594,10 @@ class RotationalDiagramWindow(QMainWindow):
                                 row_info['flux_error'] = flux_error
                             except (ValueError, AttributeError):
                                 pass
-                        
+
                         csv_data.append(row_info)
                     except (ValueError, TypeError):
-                        # Skip rows with invalid data
+                        # Skip rows with invalid species/wavelength
                         continue
             
             if not csv_data:
@@ -645,7 +657,6 @@ class RotationalDiagramWindow(QMainWindow):
                 if best_match:
                     row_data = {
                         'wavelength': wavelength,  # Keep original CSV value
-                        'flux': csv_row['flux'],
                         'a_coeff': best_match.get('a_coeff', 0.0),
                         'e_upper': best_match.get('e_upper', 0.0),
                         'Gp': best_match.get('Gp', 1.0),
@@ -658,7 +669,6 @@ class RotationalDiagramWindow(QMainWindow):
                     # No matching HITRAN line found, use defaults
                     row_data = {
                         'wavelength': wavelength,
-                        'flux': csv_row['flux'],
                         'a_coeff': 0.0,  # Unknown
                         'e_upper': 0.0,  # Unknown
                         'Gp': 1.0,
@@ -666,31 +676,42 @@ class RotationalDiagramWindow(QMainWindow):
                         'species': species
                     }
                     print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um")
-                
+
+                # Flux is optional in the CSV — only set it if the row actually had one
+                if 'flux' in csv_row:
+                    row_data['flux'] = csv_row['flux']
+
                 # Add error if available
                 if 'flux_error' in csv_row:
                     row_data['flux_error'] = csv_row['flux_error']
-                
+
                 rows.append(row_data)
-            
+
             self.hitran_lines = rows
             self.populate_lines_table()
-            
+
             # Pre-fill errors if they were provided in CSV
             self.populate_csv_errors()
-            
+
             # Set workflow mode to CSV
             self.workflow_mode = 'csv'
             self.fetch_btn.setEnabled(False)  # Disable HITRAN fetch
-            self.calculate_fluxes_btn.setVisible(False)  # Hide Calculate Fluxes button
+            self.calculate_fluxes_btn.setVisible(True)  # Show Calculate Fluxes button (fills in any missing fluxes)
 
             # Count successful matches
             matched = sum(1 for r in rows if r['a_coeff'] > 0)
+            with_flux = sum(1 for r in rows if 'flux' in r)
+            flux_note = (
+                "All rows already have a flux.\n" if with_flux == len(rows)
+                else f"{len(rows) - with_flux}/{len(rows)} rows have no flux yet — "
+                     f"select them and use Calculate Fluxes to fill them in.\n"
+            )
             QMessageBox.information(
                 self,
                 "Import Successful",
                 f"Imported {len(rows)} rows from CSV\n"
-                f"Matched {matched}/{len(rows)} lines to HITRAN data"
+                f"Matched {matched}/{len(rows)} lines to HITRAN data\n"
+                f"{flux_note}"
             )
         
         except Exception as e:
@@ -725,34 +746,46 @@ class RotationalDiagramWindow(QMainWindow):
     
     def open_batch_flux_dialog(self):
         """Open dialog for batch flux calculation from multiple FITS files"""
-        # Get selected lines
-        selected_lines = []
+        # Get selected lines that don't already have a flux -- Calculate Fluxes fills
+        # in blanks, it never overwrites a value the user typed in or imported from
+        # CSV. To recompute a row, clear its Flux cell first, then select and run.
         selected_rows = []
+        skipped_rows = []
         for row in range(self.lines_table.rowCount()):
             checkbox = self.lines_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                selected_lines.append(self.hitran_lines[row])
-                selected_rows.append(row)
-        
-        if not selected_lines:
-            QMessageBox.warning(self, "No Lines Selected", "Please select lines to calculate fluxes for.")
+                flux_item = self.lines_table.item(row, 6)
+                if flux_item and flux_item.text().strip():
+                    skipped_rows.append(row)
+                else:
+                    selected_rows.append(row)
+
+        if not selected_rows:
+            if skipped_rows:
+                QMessageBox.information(
+                    self, "Nothing To Calculate",
+                    f"All {len(skipped_rows)} selected line(s) already have a flux value. "
+                    "Clear a row's Flux cell first if you want to recompute it."
+                )
+            else:
+                QMessageBox.warning(self, "No Lines Selected", "Please select lines to calculate fluxes for.")
             return
-        
+
         # Open file dialog for FITS files
         fits_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            f"Select FITS Files (for {len(selected_lines)} lines)",
+            f"Select FITS Files (for {len(selected_rows)} lines)",
             "",
             "FITS Files (*.fits *.fit);;All Files (*.*)"
         )
-        
+
         if not fits_paths:
             return
-        
+
         # Calculate fluxes using FITS files
-        self.calculate_fluxes_batch(selected_rows, fits_paths)
+        self.calculate_fluxes_batch(selected_rows, fits_paths, skipped_rows)
     
-    def calculate_fluxes_batch(self, selected_rows, fits_paths):
+    def calculate_fluxes_batch(self, selected_rows, fits_paths, skipped_rows=None):
         """Calculate fluxes for all selected lines using their matched FITS files"""
         from .data_loader import CubeData
         from .rotational_diagram_fitter import compute_line_flux
@@ -857,7 +890,10 @@ class RotationalDiagramWindow(QMainWindow):
                 QMessageBox.critical(self, "Calculation Error", f"Error processing line {row+1}:\n{e}")
 
         progress.close()
-        QMessageBox.information(self, "Complete", "Flux calculation complete!")
+        msg = "Flux calculation complete!"
+        if skipped_rows:
+            msg += f"\n\n{len(skipped_rows)} selected line(s) already had a flux and were left unchanged."
+        QMessageBox.information(self, "Complete", msg)
     
     def populate_lines_table(self):
         """Populate the unified table with all columns"""
@@ -911,13 +947,13 @@ class RotationalDiagramWindow(QMainWindow):
             # Error % (editable)
             self.lines_table.setItem(row, 8, QTableWidgetItem(""))
             
-            # Upper Limit? (checkbox - auto-suggested by "Calculate Fluxes" for HITRAN
-            # lines based on a 3-sigma noise threshold; always user-editable so the
+            # Upper Limit? (checkbox - auto-suggested by "Calculate Fluxes" (HITRAN or
+            # CSV) based on a 3-sigma noise threshold; always user-editable so the
             # final call is yours, not just the heuristic's)
             ul_checkbox = QCheckBox()
             ul_checkbox.setToolTip(
                 "Auto-checked when a line's fit falls below the 3σ noise threshold "
-                "(HITRAN workflow only). You can check/uncheck this yourself either way."
+                "(via Calculate Fluxes). You can check/uncheck this yourself either way."
             )
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
         
