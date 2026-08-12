@@ -82,6 +82,8 @@ class RotationalDiagramWindow(QMainWindow):
         self.fetch_thread = None
         self.updating_error_columns = False  # Flag to prevent recursive updates
         self.updating_flux_flag = False  # Same, for the Flux column's red/clear flag
+        self.updating_manual_stats = False  # Same, for manually-entered A_ul/E_u/g_u
+        self.updating_flux_error_flag = False  # Same, for the Flux Error column's red/clear flag
         
         # Track workflow: None=unset, 'csv'=import, 'hitran'=fetch
         self.workflow_mode = None
@@ -417,6 +419,9 @@ class RotationalDiagramWindow(QMainWindow):
         if col == 6:
             self.sync_flux_flag(row)
 
+        if col == 7:
+            self.sync_flux_error_flag(row)
+
         if self.updating_error_columns:
             return
 
@@ -487,42 +492,57 @@ class RotationalDiagramWindow(QMainWindow):
         if line.get('hitran_matched', True):
             return  # A_ul/E_u/g_u are read-only HITRAN values here, nothing to sync
 
-        def _parse(col):
-            cell = self.lines_table.item(row, col)
-            text = cell.text().strip() if cell else ""
-            if not text:
-                return None
-            try:
-                return float(text)
-            except ValueError:
-                return None
+        if self.updating_manual_stats:
+            return  # setBackground() below re-fires itemChanged -- don't recurse
+        self.updating_manual_stats = True
 
-        a_val, e_val, g_val = _parse(3), _parse(4), _parse(5)
-        complete = a_val is not None and e_val is not None and g_val is not None and a_val > 0 and g_val > 0
+        try:
+            def _parse(col):
+                cell = self.lines_table.item(row, col)
+                text = cell.text().strip() if cell else ""
+                if not text:
+                    return None
+                try:
+                    return float(text)
+                except ValueError:
+                    return None
 
-        checkbox = self.lines_table.cellWidget(row, 0)
+            a_val, e_val, g_val = _parse(3), _parse(4), _parse(5)
+            complete = a_val is not None and e_val is not None and g_val is not None and a_val > 0 and g_val > 0
 
-        if complete:
-            line['a_coeff'] = a_val
-            line['e_upper'] = e_val
-            line['Gp'] = g_val
-            if checkbox:
-                checkbox.setEnabled(True)
-                checkbox.setToolTip("")
-        else:
-            line.pop('a_coeff', None)
-            line.pop('e_upper', None)
-            line.pop('Gp', None)
-            if checkbox:
-                checkbox.blockSignals(True)
-                checkbox.setChecked(False)
-                checkbox.blockSignals(False)
-                checkbox.setEnabled(False)
-                checkbox.setToolTip(
-                    "No HITRAN match -- enter A_ul, E_u, and g_u manually to include this line."
-                )
+            checkbox = self.lines_table.cellWidget(row, 0)
+            cells = [self.lines_table.item(row, c) for c in (3, 4, 5)]
 
-        self.on_line_selected()
+            if complete:
+                line['a_coeff'] = a_val
+                line['e_upper'] = e_val
+                line['Gp'] = g_val
+                for cell in cells:
+                    if cell:
+                        cell.setBackground(QBrush())
+                        cell.setToolTip("")
+                if checkbox:
+                    checkbox.setEnabled(True)
+                    checkbox.setToolTip("")
+            else:
+                line.pop('a_coeff', None)
+                line.pop('e_upper', None)
+                line.pop('Gp', None)
+                tip = "No HITRAN match -- enter A_ul, E_u, and g_u manually to include this line."
+                for cell in cells:
+                    if cell:
+                        cell.setBackground(QColor(255, 214, 214))
+                        cell.setToolTip(tip)
+                if checkbox:
+                    checkbox.blockSignals(True)
+                    checkbox.setChecked(False)
+                    checkbox.blockSignals(False)
+                    checkbox.setEnabled(False)
+                    checkbox.setToolTip(tip)
+
+            self.on_line_selected()
+        finally:
+            self.updating_manual_stats = False
 
     def sync_flux_flag(self, row):
         """Flag the Flux cell red while empty (flux is required for the fit); clear
@@ -543,6 +563,35 @@ class RotationalDiagramWindow(QMainWindow):
                 item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
         finally:
             self.updating_flux_flag = False
+
+    def sync_flux_error_flag(self, row):
+        """Flag the Flux Error cell red when blank and the line isn't marked as an
+        Upper Limit: rotational_diagram_fitter._build_dataset excludes any such
+        detection from the fit entirely rather than assuming an error (no unweighted
+        fallback), so this surfaces that before Run Fit instead of via the post-fit
+        "Lines Excluded" dialog. Marking a line as Upper Limit clears the flag, since
+        upper limits use a fixed 0 error by design and don't need one."""
+        if self.updating_flux_error_flag:
+            return
+        self.updating_flux_error_flag = True
+        try:
+            item = self.lines_table.item(row, 7)
+            if not item:
+                return
+            ul_checkbox = self.lines_table.cellWidget(row, 9)
+            is_upper_limit = bool(ul_checkbox and ul_checkbox.isChecked())
+
+            if item.text().strip() or is_upper_limit:
+                item.setBackground(QBrush())
+                item.setToolTip("")
+            else:
+                item.setBackground(QColor(255, 214, 214))
+                item.setToolTip(
+                    "No flux error entered -- this detection will be excluded from "
+                    "the fit unless you enter one or mark it as an Upper Limit."
+                )
+        finally:
+            self.updating_flux_error_flag = False
 
     def fetch_hitran_lines(self):
         """Fetch molecular lines from HITRAN"""
@@ -1060,21 +1109,21 @@ class RotationalDiagramWindow(QMainWindow):
             self.lines_table.setItem(row, 5, g_item)
             
             # Flux (editable) -- required for the fit, so flagged red while empty.
-            # Flux Error is NOT flagged: it's genuinely optional (a missing error
-            # just means unweighted fitting, not a broken row).
             flux_val = line.get('flux', '')
             flux_item = QTableWidgetItem(f"{flux_val:.4e}" if flux_val else "")
             if not flux_val:
                 flux_item.setBackground(unmatched_bg)
                 flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
             self.lines_table.setItem(row, 6, flux_item)
-            
-            # Flux Error (editable)
+
+            # Flux Error (editable) -- flagged red while empty and not an Upper
+            # Limit; see sync_flux_error_flag for why. Flag is set below, once the
+            # Upper Limit checkbox (needed to evaluate it) also exists.
             self.lines_table.setItem(row, 7, QTableWidgetItem(""))
-            
+
             # Error % (editable)
             self.lines_table.setItem(row, 8, QTableWidgetItem(""))
-            
+
             # Upper Limit? (checkbox - auto-suggested by "Calculate Fluxes" (HITRAN or
             # CSV) based on a 3-sigma noise threshold; always user-editable so the
             # final call is yours, not just the heuristic's)
@@ -1083,7 +1132,10 @@ class RotationalDiagramWindow(QMainWindow):
                 "Auto-checked when a line's fit falls below the 3σ noise threshold "
                 "(via Calculate Fluxes). You can check/uncheck this yourself either way."
             )
+            ul_checkbox.stateChanged.connect(lambda _state, r=row: self.sync_flux_error_flag(r))
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
+
+            self.sync_flux_error_flag(row)
         
         # Set initial edit/read-only status based on current mode
         self.update_error_columns()
@@ -1093,14 +1145,19 @@ class RotationalDiagramWindow(QMainWindow):
         pass
     
     def on_line_selected(self):
-        """Enable Run Fit button if lines selected"""
-        has_selection = False
+        """Enable Run Fit only once >=2 lines are checked -- a rotational-diagram
+        line fit needs at least 2 points (rotational_diagram_fitter.py raises "Need
+        at least 2 points" otherwise), so this surfaces that requirement up front
+        instead of letting the user click Run Fit and get an error back."""
+        checked_count = 0
         for row in range(self.lines_table.rowCount()):
             checkbox = self.lines_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
-                has_selection = True
-                break
-        self.run_fit_btn.setEnabled(has_selection)
+                checked_count += 1
+        self.run_fit_btn.setEnabled(checked_count >= 2)
+        self.run_fit_btn.setToolTip(
+            "" if checked_count >= 2 else "Select at least 2 lines -- a line fit needs 2+ points."
+        )
     
     def select_all_lines(self):
         """Select all lines in the table (skips rows disabled for missing HITRAN data)"""
@@ -1166,8 +1223,12 @@ class RotationalDiagramWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Invalid flux at row {row+1}")
                 return
             
-            # Get error from either column (whichever is populated)
-            # Errors are OPTIONAL - if missing, flux_error will be None (unweighted fitting)
+            # Get error from either column (whichever is populated). If both are
+            # blank, flux_error stays None -- rotational_diagram_fitter._build_dataset
+            # then EXCLUDES this line from the fit entirely if it's not an upper limit
+            # (no unweighted fallback; a missing error is never defaulted), reported
+            # back afterward via results['dropped_J'] in the "Lines Excluded" dialog.
+            # Upper limits are exempt since they use a fixed 0 error by design.
             error_text = self.lines_table.item(row, 7).text().strip()
             error_pct_text = self.lines_table.item(row, 8).text().strip()
             
