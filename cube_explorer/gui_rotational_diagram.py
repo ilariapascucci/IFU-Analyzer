@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QColor, QBrush
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -80,6 +81,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.hitran_lines = []
         self.fetch_thread = None
         self.updating_error_columns = False  # Flag to prevent recursive updates
+        self.updating_flux_flag = False  # Same, for the Flux column's red/clear flag
         
         # Track workflow: None=unset, 'csv'=import, 'hitran'=fetch
         self.workflow_mode = None
@@ -399,19 +401,28 @@ class RotationalDiagramWindow(QMainWindow):
                     error_pct_item.setFlags(error_pct_item.flags() | Qt.ItemIsEditable)
     
     def on_table_item_changed(self, item):
-        """Auto-calculate flux error or percentage when user enters value, clear the other when empty"""
+        """Auto-calculate flux error or percentage; sync manually-entered A_ul/E_u/g_u"""
+        if self.lines_table.rowCount() == 0:
+            return
+
+        row = item.row()
+        col = item.column()
+
+        # A_ul / E_u / g_u are only editable on rows with no HITRAN match -- keep
+        # self.hitran_lines and the row's fit checkbox in sync with what's typed.
+        if col in (3, 4, 5):
+            self.sync_manual_line_stats(row)
+            return
+
+        if col == 6:
+            self.sync_flux_flag(row)
+
         if self.updating_error_columns:
             return
-        
+
         self.updating_error_columns = True
-        
+
         try:
-            if self.lines_table.rowCount() == 0:
-                return
-            
-            row = item.row()
-            col = item.column()
-            
             # Columns 7 and 8 are flux error and error %
             if col not in (7, 8):
                 return
@@ -462,7 +473,77 @@ class RotationalDiagramWindow(QMainWindow):
                         pass
         finally:
             self.updating_error_columns = False
-    
+
+    def sync_manual_line_stats(self, row):
+        """For a row with no HITRAN match, write manually-typed A_ul/E_u/g_u back into
+        self.hitran_lines and enable that row's fit checkbox only once all three are
+        present and physically valid (A_ul > 0, g_u > 0). Never assumes a value for
+        a field the user hasn't actually filled in.
+        """
+        if row >= len(self.hitran_lines):
+            return
+
+        line = self.hitran_lines[row]
+        if line.get('hitran_matched', True):
+            return  # A_ul/E_u/g_u are read-only HITRAN values here, nothing to sync
+
+        def _parse(col):
+            cell = self.lines_table.item(row, col)
+            text = cell.text().strip() if cell else ""
+            if not text:
+                return None
+            try:
+                return float(text)
+            except ValueError:
+                return None
+
+        a_val, e_val, g_val = _parse(3), _parse(4), _parse(5)
+        complete = a_val is not None and e_val is not None and g_val is not None and a_val > 0 and g_val > 0
+
+        checkbox = self.lines_table.cellWidget(row, 0)
+
+        if complete:
+            line['a_coeff'] = a_val
+            line['e_upper'] = e_val
+            line['Gp'] = g_val
+            if checkbox:
+                checkbox.setEnabled(True)
+                checkbox.setToolTip("")
+        else:
+            line.pop('a_coeff', None)
+            line.pop('e_upper', None)
+            line.pop('Gp', None)
+            if checkbox:
+                checkbox.blockSignals(True)
+                checkbox.setChecked(False)
+                checkbox.blockSignals(False)
+                checkbox.setEnabled(False)
+                checkbox.setToolTip(
+                    "No HITRAN match -- enter A_ul, E_u, and g_u manually to include this line."
+                )
+
+        self.on_line_selected()
+
+    def sync_flux_flag(self, row):
+        """Flag the Flux cell red while empty (flux is required for the fit); clear
+        the flag as soon as a value is present, whether typed by hand or written by
+        Calculate Fluxes (setText() there fires the same itemChanged signal)."""
+        if self.updating_flux_flag:
+            return
+        self.updating_flux_flag = True
+        try:
+            item = self.lines_table.item(row, 6)
+            if not item:
+                return
+            if item.text().strip():
+                item.setBackground(QBrush())
+                item.setToolTip("")
+            else:
+                item.setBackground(QColor(255, 214, 214))
+                item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
+        finally:
+            self.updating_flux_flag = False
+
     def fetch_hitran_lines(self):
         """Fetch molecular lines from HITRAN"""
         wl_min = self.wl_min_input.value()
@@ -569,8 +650,12 @@ class RotationalDiagramWindow(QMainWindow):
 
                 for row_dict in reader:
                     try:
-                        species = row_dict.get(species_col, '').strip().upper()
-                        wavelength = float(row_dict.get(wavelength_col, '').strip())
+                        # csv.DictReader fills columns missing from a short/ragged row
+                        # with None (not '') -- guard every .get() the same way so a
+                        # row that only has species+wavelength doesn't crash on
+                        # None.strip().
+                        species = (row_dict.get(species_col) or '').strip().upper()
+                        wavelength = float((row_dict.get(wavelength_col) or '').strip())
 
                         row_info = {
                             'species': species,
@@ -580,7 +665,7 @@ class RotationalDiagramWindow(QMainWindow):
                         # Flux is best-effort: a blank/missing value just leaves the
                         # row without one, to be filled in later via Calculate Fluxes
                         if has_flux and flux_col:
-                            flux_str = row_dict.get(flux_col, '').strip()
+                            flux_str = (row_dict.get(flux_col) or '').strip()
                             if flux_str:
                                 try:
                                     row_info['flux'] = float(flux_str)
@@ -589,11 +674,12 @@ class RotationalDiagramWindow(QMainWindow):
 
                         # Add error if available
                         if has_error and error_col:
-                            try:
-                                flux_error = float(row_dict.get(error_col, '').strip())
-                                row_info['flux_error'] = flux_error
-                            except (ValueError, AttributeError):
-                                pass
+                            error_str = (row_dict.get(error_col) or '').strip()
+                            if error_str:
+                                try:
+                                    row_info['flux_error'] = float(error_str)
+                                except ValueError:
+                                    pass
 
                         csv_data.append(row_info)
                     except (ValueError, TypeError):
@@ -657,6 +743,7 @@ class RotationalDiagramWindow(QMainWindow):
                 if best_match:
                     row_data = {
                         'wavelength': wavelength,  # Keep original CSV value
+                        'hitran_matched': True,
                         'a_coeff': best_match.get('a_coeff', 0.0),
                         'e_upper': best_match.get('e_upper', 0.0),
                         'Gp': best_match.get('Gp', 1.0),
@@ -666,16 +753,19 @@ class RotationalDiagramWindow(QMainWindow):
                         'species': species
                     }
                 else:
-                    # No matching HITRAN line found, use defaults
+                    # No matching HITRAN line -- A_ul/E_u/g_u are hard physics inputs
+                    # (Nu = 4*pi*F*lam/(h*c*A_ul), E_u is the plot's x-axis), so we never
+                    # assume a value for them. The row is flagged in the table and its
+                    # checkbox stays disabled until the user types in all three by hand.
                     row_data = {
                         'wavelength': wavelength,
-                        'a_coeff': 0.0,  # Unknown
-                        'e_upper': 0.0,  # Unknown
-                        'Gp': 1.0,
-                        'transition': 'User Data (no HITRAN match)',
+                        'hitran_matched': False,
+                        'transition': 'NA',
                         'species': species
                     }
-                    print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um")
+                    print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um "
+                          f"-- A_ul/E_u/g_u left blank; this line is excluded from fitting "
+                          f"until they're entered manually.")
 
                 # Flux is optional in the CSV — only set it if the row actually had one
                 if 'flux' in csv_row:
@@ -699,18 +789,25 @@ class RotationalDiagramWindow(QMainWindow):
             self.calculate_fluxes_btn.setVisible(True)  # Show Calculate Fluxes button (fills in any missing fluxes)
 
             # Count successful matches
-            matched = sum(1 for r in rows if r['a_coeff'] > 0)
+            matched = sum(1 for r in rows if r.get('hitran_matched', True))
             with_flux = sum(1 for r in rows if 'flux' in r)
             flux_note = (
                 "All rows already have a flux.\n" if with_flux == len(rows)
                 else f"{len(rows) - with_flux}/{len(rows)} rows have no flux yet — "
                      f"select them and use Calculate Fluxes to fill them in.\n"
             )
+            unmatched_note = (
+                "" if matched == len(rows)
+                else f"{len(rows) - matched} row(s) have no HITRAN match and are "
+                     f"disabled (shown in red) until you enter A_ul, E_u, and g_u "
+                     f"manually.\n"
+            )
             QMessageBox.information(
                 self,
                 "Import Successful",
                 f"Imported {len(rows)} rows from CSV\n"
                 f"Matched {matched}/{len(rows)} lines to HITRAN data\n"
+                f"{unmatched_note}"
                 f"{flux_note}"
             )
         
@@ -900,46 +997,77 @@ class RotationalDiagramWindow(QMainWindow):
         self.lines_table.setRowCount(len(self.hitran_lines))
         
         for row, line in enumerate(self.hitran_lines):
+            # A line with no HITRAN match has no real A_ul/E_u/g_u -- these are hard
+            # physics inputs (Nu = 4*pi*F*lam/(h*c*A_ul), E_u is the plot's x-axis), so
+            # we never assume a value for them. The row is flagged and excluded from
+            # fitting until the user supplies all three by hand.
+            matched = line.get('hitran_matched', True)
+            unmatched_bg = QColor(255, 214, 214)
+            unmatched_tip = (
+                "No HITRAN match for this line -- enter A_ul, E_u, and g_u manually "
+                "to include it in the fit."
+            )
+
             # Checkbox
             checkbox = QCheckBox()
             checkbox.stateChanged.connect(self.on_line_selected)
+            if not matched:
+                checkbox.setEnabled(False)
+                checkbox.setToolTip(unmatched_tip)
             self.lines_table.setCellWidget(row, 0, checkbox)
-            
+
             # Wavelength (read-only)
             wl_item = QTableWidgetItem(f"{line['wavelength']:.6f}")
             wl_item.setFlags(wl_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 1, wl_item)
-            
+
             # Transition (read-only)
             trans = line.get('transition', 'N/A')
             trans_item = QTableWidgetItem(trans)
             trans_item.setFlags(trans_item.flags() & ~Qt.ItemIsEditable)
+            if not matched:
+                trans_item.setBackground(unmatched_bg)
+                trans_item.setToolTip(unmatched_tip)
             self.lines_table.setItem(row, 2, trans_item)
-            
-            # A_ul (read-only)
-            a_ul = line.get('a_coeff', 0)
-            a_item = QTableWidgetItem(f"{a_ul:.4e}")
-            a_item.setFlags(a_item.flags() & ~Qt.ItemIsEditable)
+
+            if matched:
+                # A_ul (read-only)
+                a_ul = line.get('a_coeff', 0)
+                a_item = QTableWidgetItem(f"{a_ul:.4e}")
+                a_item.setFlags(a_item.flags() & ~Qt.ItemIsEditable)
+
+                # E_u (read-only)
+                e_u = line.get('e_upper', 0)
+                e_item = QTableWidgetItem(f"{e_u:.2f}")
+                e_item.setFlags(e_item.flags() & ~Qt.ItemIsEditable)
+
+                # g_u (read-only)
+                g_u = line.get('Gp', 1)
+                g_item = QTableWidgetItem(f"{g_u:.0f}")
+                g_item.setFlags(g_item.flags() & ~Qt.ItemIsEditable)
+            else:
+                # A_ul / E_u / g_u (editable) -- left blank, not defaulted, and
+                # flagged red until the user fills in a real value for all three
+                a_item = QTableWidgetItem("")
+                e_item = QTableWidgetItem("")
+                g_item = QTableWidgetItem("")
+                for it in (a_item, e_item, g_item):
+                    it.setBackground(unmatched_bg)
+                    it.setToolTip(unmatched_tip)
+
             self.lines_table.setItem(row, 3, a_item)
-            
-            # E_u (read-only)
-            e_u = line.get('e_upper', 0)
-            e_item = QTableWidgetItem(f"{e_u:.2f}")
-            e_item.setFlags(e_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 4, e_item)
-            
-            # g_u (read-only)
-            g_u = line.get('Gp', 1)
-            g_item = QTableWidgetItem(f"{g_u:.0f}")
-            g_item.setFlags(g_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 5, g_item)
             
-            # Flux (editable)
+            # Flux (editable) -- required for the fit, so flagged red while empty.
+            # Flux Error is NOT flagged: it's genuinely optional (a missing error
+            # just means unweighted fitting, not a broken row).
             flux_val = line.get('flux', '')
-            if flux_val:
-                self.lines_table.setItem(row, 6, QTableWidgetItem(f"{flux_val:.4e}"))
-            else:
-                self.lines_table.setItem(row, 6, QTableWidgetItem(""))
+            flux_item = QTableWidgetItem(f"{flux_val:.4e}" if flux_val else "")
+            if not flux_val:
+                flux_item.setBackground(unmatched_bg)
+                flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
+            self.lines_table.setItem(row, 6, flux_item)
             
             # Flux Error (editable)
             self.lines_table.setItem(row, 7, QTableWidgetItem(""))
@@ -975,10 +1103,10 @@ class RotationalDiagramWindow(QMainWindow):
         self.run_fit_btn.setEnabled(has_selection)
     
     def select_all_lines(self):
-        """Select all lines in the table"""
+        """Select all lines in the table (skips rows disabled for missing HITRAN data)"""
         for row in range(self.lines_table.rowCount()):
             checkbox = self.lines_table.cellWidget(row, 0)
-            if checkbox:
+            if checkbox and checkbox.isEnabled():
                 checkbox.blockSignals(True)
                 checkbox.setChecked(True)
                 checkbox.blockSignals(False)
@@ -1011,8 +1139,20 @@ class RotationalDiagramWindow(QMainWindow):
             checkbox = self.lines_table.cellWidget(row, 0)
             if not checkbox or not checkbox.isChecked():
                 continue
-            
+
             line = self.hitran_lines[row]
+
+            # Belt-and-suspenders: never fit a line with no real A_ul/E_u/g_u, even
+            # if something else managed to check its (normally disabled) box.
+            if not line.get('hitran_matched', True) and (
+                'a_coeff' not in line or 'e_upper' not in line or 'Gp' not in line
+            ):
+                QMessageBox.warning(
+                    self, "Error",
+                    f"Row {row+1} has no HITRAN match and is missing A_ul/E_u/g_u. "
+                    f"Enter them manually or deselect this line."
+                )
+                return
             
             # Get flux
             flux_text = self.lines_table.item(row, 6).text().strip()
