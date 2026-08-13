@@ -336,10 +336,8 @@ class RotationalDiagramWindow(QMainWindow):
             "on every click, instead of re-prompting each time."
         )
         self.load_fits_btn.clicked.connect(self.load_batch_fits_files)
+        self.load_fits_btn.setVisible(False)  # Hidden until lines are loaded, same as Calculate Fluxes
         button_layout.addWidget(self.load_fits_btn)
-
-        self.fits_status_label = QLabel("No FITS files loaded")
-        button_layout.addWidget(self.fits_status_label)
 
         self.load_contam_btn = QPushButton("Load Contaminating Lines")
         self.load_contam_btn.setToolTip(
@@ -348,9 +346,11 @@ class RotationalDiagramWindow(QMainWindow):
             "the main Gaussian-fit window's contaminating-lines loader."
         )
         self.load_contam_btn.clicked.connect(self.load_contaminating_lines_for_batch)
+        self.load_contam_btn.setVisible(False)  # Hidden until lines are loaded, same as Calculate Fluxes
         button_layout.addWidget(self.load_contam_btn)
 
-        self.contam_status_label = QLabel("No contaminating lines loaded")
+        self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
+        self.contam_status_label.setVisible(False)  # Hidden until lines are loaded, same as Calculate Fluxes
         button_layout.addWidget(self.contam_status_label)
 
         button_layout.addStretch()
@@ -680,11 +680,14 @@ class RotationalDiagramWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"No {self.current_molecule} lines found in this wavelength range")
             return
         
-        # Set workflow mode to HITRAN
+        # Set workflow mode to HITRAN. Fetch/Import stay both enabled -- doing the
+        # other one later just replaces these lines rather than being locked out.
         self.workflow_mode = 'hitran'
-        self.import_csv_btn.setEnabled(False)  # Disable CSV import
-        self.calculate_fluxes_btn.setVisible(True)  # Show Calculate Fluxes button
-        
+        self.calculate_fluxes_btn.setVisible(True)
+        self.load_fits_btn.setVisible(True)
+        self.load_contam_btn.setVisible(True)
+        self.contam_status_label.setVisible(True)
+
         self.hitran_lines = data
         self.populate_lines_table()
 
@@ -884,10 +887,13 @@ class RotationalDiagramWindow(QMainWindow):
             # Pre-fill errors if they were provided in CSV
             self.populate_csv_errors()
 
-            # Set workflow mode to CSV
+            # Set workflow mode to CSV. Fetch/Import stay both enabled -- doing the
+            # other one later just replaces these lines rather than being locked out.
             self.workflow_mode = 'csv'
-            self.fetch_btn.setEnabled(False)  # Disable HITRAN fetch
-            self.calculate_fluxes_btn.setVisible(True)  # Show Calculate Fluxes button (fills in any missing fluxes)
+            self.calculate_fluxes_btn.setVisible(True)
+            self.load_fits_btn.setVisible(True)
+            self.load_contam_btn.setVisible(True)
+            self.contam_status_label.setVisible(True)
 
             # Count successful matches
             matched = sum(1 for r in rows if r.get('hitran_matched', True))
@@ -971,9 +977,11 @@ class RotationalDiagramWindow(QMainWindow):
         self.loaded_batch_cubes = loaded_cubes
         self.loaded_batch_spectra = loaded_spectra
 
-        names = ", ".join(os.path.basename(p) for p in loaded_paths)
-        self.fits_status_label.setText(f"{len(loaded_paths)} file(s) loaded" if loaded_paths else "No FITS files loaded")
-        self.fits_status_label.setToolTip(names)
+        # Which files are loaded lives on the button's own tooltip rather than a
+        # separate label -- the count next to the button was redundant with what
+        # you just picked in the file dialog
+        names = "\n".join(os.path.basename(p) for p in loaded_paths)
+        self.load_fits_btn.setToolTip(names if names else "Select the source FITS cube(s) for Calculate Fluxes.")
 
         if failed:
             failed_msg = "\n".join(f"  {os.path.basename(p)}: {err}" for p, err in failed)
@@ -1006,12 +1014,12 @@ class RotationalDiagramWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error Loading File", f"Failed to load contaminating lines:\n{e}")
             self.contam_lines = None
-            self.contam_status_label.setText("No contaminating lines loaded")
+            self.contam_status_label.setText("")
             return
 
         if loaded is None or len(loaded) == 0:
             self.contam_lines = None
-            self.contam_status_label.setText("No contaminating lines loaded")
+            self.contam_status_label.setText("")
             QMessageBox.warning(self, "Empty File", "The CSV file is empty or has no valid lines.")
             return
 
@@ -1021,16 +1029,20 @@ class RotationalDiagramWindow(QMainWindow):
 
     def open_batch_flux_dialog(self):
         """Open dialog for batch flux calculation from multiple FITS files"""
-        # Get selected lines that don't already have a flux -- Calculate Fluxes fills
-        # in blanks, it never overwrites a value the user typed in or imported from
-        # CSV. To recompute a row, clear its Flux cell first, then select and run.
+        # Get selected lines that need (re-)calculating. A flux typed by hand or
+        # imported from CSV is real user data and never gets overwritten -- clear
+        # that row's Flux cell first if you want to recompute it. A flux the system
+        # calculated itself (the Calculated? column) is fair game to redo, e.g.
+        # after loading a contaminating-lines catalog or different FITS files.
         selected_rows = []
         skipped_rows = []
         for row in range(self.lines_table.rowCount()):
             checkbox = self.lines_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
                 flux_item = self.lines_table.item(row, 6)
-                if flux_item and flux_item.text().strip():
+                calc_checkbox = self.lines_table.cellWidget(row, 10)
+                was_calculated = bool(calc_checkbox and calc_checkbox.isChecked())
+                if flux_item and flux_item.text().strip() and not was_calculated:
                     skipped_rows.append(row)
                 else:
                     selected_rows.append(row)
@@ -1039,8 +1051,8 @@ class RotationalDiagramWindow(QMainWindow):
             if skipped_rows:
                 QMessageBox.information(
                     self, "Nothing To Calculate",
-                    f"All {len(skipped_rows)} selected line(s) already have a flux value. "
-                    "Clear a row's Flux cell first if you want to recompute it."
+                    f"All {len(skipped_rows)} selected line(s) already have a manually-entered "
+                    "flux value. Clear a row's Flux cell first if you want to recompute it."
                 )
             else:
                 QMessageBox.warning(self, "No Lines Selected", "Please select lines to calculate fluxes for.")
@@ -1171,7 +1183,7 @@ class RotationalDiagramWindow(QMainWindow):
         progress.close()
         msg = "Flux calculation complete!"
         if skipped_rows:
-            msg += f"\n\n{len(skipped_rows)} selected line(s) already had a flux and were left unchanged."
+            msg += f"\n\n{len(skipped_rows)} selected line(s) already had a manually-entered flux and were left unchanged."
         QMessageBox.information(self, "Complete", msg)
     
     def populate_lines_table(self):
