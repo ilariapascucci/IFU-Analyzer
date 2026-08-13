@@ -22,7 +22,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 from .line_catalog import fetch_hitran_data
-from .rotational_diagram_fitter import estimate_noise_local, gaussian_flux_upper_limit, get_spectral_resolution, get_gu
+from .rotational_diagram_fitter import gaussian_flux_upper_limit, get_spectral_resolution, get_gu
 
 
 # Constants

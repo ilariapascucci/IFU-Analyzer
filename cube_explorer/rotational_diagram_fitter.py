@@ -227,55 +227,6 @@ def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=N
     return F_ul, delta_lambda
 
 
-def estimate_noise_local(wavelength_arr, flux_arr, line_wavelength, n_pixels=13):
-    """
-    Estimate per-pixel noise around a line using local continuum subtraction.
-
-    Takes n_pixels on each side of the line center, fits a straight line
-    through them, subtracts it, then returns np.nanstd of the residuals.
-
-    Args:
-        wavelength_arr: 1D array of wavelengths (microns)
-        flux_arr:       1D array of flux values (MJy/sr)
-        line_wavelength: Central wavelength of the line (microns)
-        n_pixels:       Number of pixels to use on each side (default 13)
-
-    Returns:
-        sigma_noise: float, std dev of residuals in same units as flux_arr
-                     None if not enough pixels
-    """
-    # Find the index closest to the line center
-    center_idx = np.argmin(np.abs(wavelength_arr - line_wavelength))
-
-    # Grab n_pixels on each side, excluding the center pixel itself
-    left_idx  = np.arange(center_idx - n_pixels, center_idx)
-    right_idx = np.arange(center_idx + 1, center_idx + n_pixels + 1)
-
-    # Clip to valid array bounds
-    left_idx  = left_idx[(left_idx >= 0) & (left_idx < len(wavelength_arr))]
-    right_idx = right_idx[(right_idx >= 0) & (right_idx < len(wavelength_arr))]
-
-    idx = np.concatenate([left_idx, right_idx])
-    if len(idx) < 4:
-        return None
-
-    wave_region = wavelength_arr[idx]
-    flux_region = flux_arr[idx]
-
-    # Remove NaNs before fitting
-    valid = np.isfinite(flux_region)
-    if valid.sum() < 4:
-        return None
-
-    # Fit and subtract linear continuum
-    coeffs    = np.polyfit(wave_region[valid], flux_region[valid], 1)
-    residuals = flux_region - np.polyval(coeffs, wave_region)
-    
-    sigma_noise = float(np.nanstd(residuals))
-
-    return sigma_noise
-
-
 def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_unit=None):
     """
     Convert upper limit flux from native units to CGS (erg/s/cm²).
@@ -313,18 +264,20 @@ def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_uni
         return None
 
 
-def _collective_amplitude_error(fit_result):
+def _collective_local_noise_stats(fit_result):
     """
     Closed-form (no Monte Carlo, no re-fitting) standard error on a fixed-center/
-    fixed-sigma Gaussian amplitude, from the residuals fit_hitran_lines_collective
-    already returned for this line.
+    fixed-sigma Gaussian amplitude, AND the underlying per-pixel noise level used
+    for the upper-limit threshold -- both derived from the same residuals
+    fit_hitran_lines_collective already returned for this line, so the two numbers
+    can't disagree about what "noise" means here the way they used to.
 
-    Why not Monte Carlo noise injection (re-fit with a nonlinear, free-center/
-    free-sigma model many times and take the std dev of the results): that model
-    is different from the one that actually produced this amplitude (fixed
-    center/sigma, linear lstsq), so it would estimate the error of a different fit
-    than the one being reported, and does so far more slowly. For a linear model
-    the parameter covariance has a direct closed form -- no re-fitting needed.
+    Why not Monte Carlo noise injection for the amplitude error (re-fit with a
+    nonlinear, free-center/free-sigma model many times and take the std dev of the
+    results): that model is different from the one that actually produced this
+    amplitude (fixed center/sigma, linear lstsq), so it would estimate the error
+    of a different fit than the one being reported, and does so far more slowly.
+    For a linear model the parameter covariance has a direct closed form.
 
     Amplitude was NOT estimated alone: fit_hitran_lines_collective's design matrix
     always appends a constant column ("a constant term for any small residual left
@@ -345,7 +298,16 @@ def _collective_amplitude_error(fit_result):
         Cov(beta) = noise_var * (X^T X)^-1,   X = [template, 1]
 
     amplitude's variance is the (0,0) entry. noise_var = sum(residuals^2)/dof,
-    dof = n - 2 (two parameters: amplitude and the local constant).
+    dof = n - 2 (two parameters: amplitude and the local constant). Its square
+    root is also exactly what the upper-limit threshold needs: a per-pixel noise
+    level measured against the *same* model the flux itself came from, rather
+    than estimate_noise_local's old approach of re-deriving a separate, cruder
+    straight-line fit against the raw (not continuum-subtracted) spectrum -- which
+    could pick up real unmodeled structure (a PAH bump, continuum curvature) as if
+    it were noise, inflating the threshold and mislabeling a good detection as a
+    non-detection (this is what was happening at 5.51 um: the real fitted flux
+    nearly exactly matched an independent reference value, but got flagged as an
+    upper limit anyway because that local window's noise estimate was inflated).
 
     noise_var deliberately comes from this line's own *local* residuals rather
     than np.linalg.lstsq's own (currently unused) whole-fit SSE: that would be one
@@ -362,29 +324,30 @@ def _collective_amplitude_error(fit_result):
     a requested line's (<2 sigma apart), which is exactly the case where that
     correlation would matter most, so what's left out here should be small.
 
-    Returns the amplitude's 1-sigma uncertainty (native flux units), or None if
-    there isn't enough local data to estimate it.
+    Returns (amp_error, noise_std), both native flux units, or (None, None) if
+    there isn't enough local data to estimate them.
     """
     from .co_flux_extractor import gaussian
 
     x = fit_result.x_data
     if len(x) < 3:
-        return None
+        return None, None
 
     template = gaussian(x, 1.0, fit_result.center, fit_result.sigma)
     design = np.column_stack([template, np.ones_like(template)])
 
     dof = len(x) - design.shape[1]
     if dof < 1:
-        return None
+        return None, None
     noise_var = np.sum(fit_result.residuals ** 2) / dof
+    noise_std = float(np.sqrt(noise_var))
 
     try:
         cov = noise_var * np.linalg.inv(design.T @ design)
     except np.linalg.LinAlgError:
-        return None
+        return None, noise_std
 
-    return float(np.sqrt(cov[0, 0]))
+    return float(np.sqrt(cov[0, 0])), noise_std
 
 
 def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header, instrument,
@@ -449,9 +412,12 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         flux_integrated = fit_result.area
 
         # Closed-form error consistent with the fixed-center/sigma model that
-        # produced flux_integrated -- see _collective_amplitude_error's docstring
+        # produced flux_integrated -- see _collective_local_noise_stats's docstring
         # for why this replaces a Monte Carlo re-fit with a free-parameter model.
-        amp_error = _collective_amplitude_error(fit_result)
+        # sigma_noise (for the upper-limit threshold below) comes from the exact
+        # same residuals, so "how uncertain is this" and "is this even real" can no
+        # longer disagree about what counts as noise in this window.
+        amp_error, sigma_noise = _collective_local_noise_stats(fit_result)
         if amp_error is None:
             results.append({"success": False, "message": "Could not estimate flux error"})
             continue
@@ -459,10 +425,6 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         if flux_error is None:
             results.append({"success": False, "message": "Could not convert flux error to CGS"})
             continue
-
-        sigma_noise = estimate_noise_local(wavelength_arr, spectrum_arr, wl, n_pixels=13)
-        if sigma_noise is None:
-            sigma_noise = np.nanstd(spectrum_arr[len(spectrum_arr)//2:])
 
         F_ul_native, delta_lambda_ul = gaussian_flux_upper_limit(sigma_noise, wl, instrument=instrument, header=header)
         F_ul_cgs = convert_flux_upper_limit_to_cgs(F_ul_native, wl, header, flux_unit='MJy/sr')
