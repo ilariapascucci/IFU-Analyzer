@@ -129,10 +129,10 @@ class RotationalDiagramWindow(QMainWindow):
         main_layout.addLayout(toggle_layout)
         
         self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(12)
+        self.lines_table.setColumnCount(13)
         self.lines_table.setHorizontalHeaderLabels(
             ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
-             "Error %", "Upper Limit?", "Calculated?", "Source"]
+             "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source"]
         )
         # Every column sizes itself to its widest current cell and stays there --
         # no manual dragging, no guessed pixel widths to keep in sync as columns
@@ -460,6 +460,9 @@ class RotationalDiagramWindow(QMainWindow):
         if col == 7:
             self.sync_flux_error_flag(row)
 
+        if col == 10:
+            self.sync_calculated_flag(row)
+
         if self.updating_error_columns:
             return
 
@@ -609,10 +612,10 @@ class RotationalDiagramWindow(QMainWindow):
         makes; that function then explicitly re-checks the box and re-fills Source
         right after, so a fresh auto-calculation still ends up marked calculated --
         only an actual manual edit is left unmarked."""
-        calc_checkbox = self.lines_table.cellWidget(row, 10)
+        calc_checkbox = self.lines_table.cellWidget(row, 11)
         if calc_checkbox:
             calc_checkbox.setChecked(False)
-        source_item = self.lines_table.item(row, 11)
+        source_item = self.lines_table.item(row, 12)
         if source_item:
             source_item.setText("")
 
@@ -1040,7 +1043,7 @@ class RotationalDiagramWindow(QMainWindow):
             checkbox = self.lines_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
                 flux_item = self.lines_table.item(row, 6)
-                calc_checkbox = self.lines_table.cellWidget(row, 10)
+                calc_checkbox = self.lines_table.cellWidget(row, 11)
                 was_calculated = bool(calc_checkbox and calc_checkbox.isChecked())
                 if flux_item and flux_item.text().strip() and not was_calculated:
                     skipped_rows.append(row)
@@ -1141,13 +1144,14 @@ class RotationalDiagramWindow(QMainWindow):
                     is_upper_limit = result["is_upper_limit"]
                     F_ul_cgs = result["F_ul_cgs"]
 
-                    # Use upper limit value if detected as upper limit
-                    flux_to_display = F_ul_cgs if is_upper_limit else flux_integrated
-
-                    # Populate table
+                    # Flux always gets the real fitted value now, never swapped for
+                    # the ceiling -- UL Flux (col 10) carries the ceiling instead, so
+                    # both stay visible. Which one actually feeds the rotational-
+                    # diagram fit is decided in run_rotational_fit by the Upper Limit
+                    # checkbox, not by what's displayed here.
                     flux_item = self.lines_table.item(row, 6)
                     if flux_item:
-                        flux_item.setText(f"{flux_to_display:.4e}")
+                        flux_item.setText(f"{flux_integrated:.4e}")
 
                     error_item = self.lines_table.item(row, 7)
                     if error_item:
@@ -1157,6 +1161,12 @@ class RotationalDiagramWindow(QMainWindow):
                     if pct_item and flux_integrated > 0:
                         pct = (flux_error / flux_integrated) * 100
                         pct_item.setText(f"{pct:.1f}")
+
+                    # UL Flux: always filled in, detection or not -- useful context
+                    # either way (e.g. "this detection cleared the threshold by 5x")
+                    ul_flux_item = self.lines_table.item(row, 10)
+                    if ul_flux_item:
+                        ul_flux_item.setText(f"{F_ul_cgs:.4e}")
 
                     # Auto-check upper limit if detected
                     ul_checkbox = self.lines_table.cellWidget(row, 9)
@@ -1168,10 +1178,10 @@ class RotationalDiagramWindow(QMainWindow):
                     # Mark this row as system-calculated and record its source --
                     # overrides the "manual" reset that flux_item.setText() above
                     # just triggered via sync_calculated_flag
-                    calc_checkbox = self.lines_table.cellWidget(row, 10)
+                    calc_checkbox = self.lines_table.cellWidget(row, 11)
                     if calc_checkbox:
                         calc_checkbox.setChecked(True)
-                    source_item = self.lines_table.item(row, 11)
+                    source_item = self.lines_table.item(row, 12)
                     if source_item:
                         filename = os.path.basename(cube_data.filename) if cube_data.filename else "?"
                         source_item.setText(f"{instrument} [{filename}]")
@@ -1280,6 +1290,16 @@ class RotationalDiagramWindow(QMainWindow):
             ul_checkbox.stateChanged.connect(lambda _state, r=row: self.sync_flux_error_flag(r))
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
 
+            # UL Flux (editable): the 3-sigma noise ceiling, always filled in by
+            # Calculate Fluxes regardless of whether the line ended up flagged --
+            # kept alongside the real fitted Flux (col 6) rather than replacing it
+            # there, so both numbers stay visible and inspectable. Which one
+            # actually feeds the fit is decided by the Upper Limit checkbox in
+            # run_rotational_fit: checked -> use this column, unchecked -> use
+            # Flux. Editable so a CSV/manual row can have its own ceiling entered
+            # by hand if the user has one from elsewhere.
+            self.lines_table.setItem(row, 10, QTableWidgetItem(""))
+
             # Calculated? (read-only status badge, not user-editable -- set/cleared
             # by calculate_fluxes_batch and by editing the Flux cell by hand)
             calc_checkbox = QCheckBox()
@@ -1288,13 +1308,13 @@ class RotationalDiagramWindow(QMainWindow):
                 "Checked when this line's flux was computed by Calculate Fluxes, rather "
                 "than typed in by hand or imported from CSV."
             )
-            self.lines_table.setCellWidget(row, 10, calc_checkbox)
+            self.lines_table.setCellWidget(row, 11, calc_checkbox)
 
             # Source (read-only): instrument + FITS filename the flux was computed
             # from, filled in by calculate_fluxes_batch alongside the Calculated? flag
             source_item = QTableWidgetItem("")
             source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
-            self.lines_table.setItem(row, 11, source_item)
+            self.lines_table.setItem(row, 12, source_item)
 
             self.sync_flux_error_flag(row)
         
@@ -1372,18 +1392,33 @@ class RotationalDiagramWindow(QMainWindow):
                 )
                 return
             
-            # Get flux
-            flux_text = self.lines_table.item(row, 6).text().strip()
+            # Check if this is an upper limit FIRST -- it decides which column the
+            # flux comes from. Checked: use UL Flux (col 10), the 3-sigma ceiling --
+            # that's what makes the fit's censoring ("true value <= this") mean what
+            # it says. Falls back to Flux (col 6) if UL Flux is blank, e.g. a
+            # manually-flagged CSV/typed row that never went through Calculate
+            # Fluxes and has no computed ceiling. Unchecked: use Flux, the real
+            # fitted (or manually-entered) value.
+            ul_checkbox = self.lines_table.cellWidget(row, 9)
+            is_upper_limit = bool(ul_checkbox and ul_checkbox.isChecked())
+
+            flux_col = 6
+            if is_upper_limit:
+                ul_flux_text = self.lines_table.item(row, 10).text().strip()
+                if ul_flux_text:
+                    flux_col = 10
+
+            flux_text = self.lines_table.item(row, flux_col).text().strip()
             if not flux_text:
                 QMessageBox.warning(self, "Error", f"Missing flux for row {row+1}")
                 return
-            
+
             try:
                 flux = float(flux_text)
             except ValueError:
                 QMessageBox.warning(self, "Error", f"Invalid flux at row {row+1}")
                 return
-            
+
             # Get error from either column (whichever is populated). If both are
             # blank, flux_error stays None -- rotational_diagram_fitter._build_dataset
             # then EXCLUDES this line from the fit entirely if it's not an upper limit
@@ -1392,9 +1427,9 @@ class RotationalDiagramWindow(QMainWindow):
             # Upper limits are exempt since they use a fixed 0 error by design.
             error_text = self.lines_table.item(row, 7).text().strip()
             error_pct_text = self.lines_table.item(row, 8).text().strip()
-            
+
             flux_error = None
-            
+
             if error_text:
                 try:
                     flux_error = float(error_text)
@@ -1408,10 +1443,6 @@ class RotationalDiagramWindow(QMainWindow):
                 except ValueError:
                     QMessageBox.warning(self, "Error", f"Invalid error % at row {row+1}")
                     return
-            
-            # Check if this is an upper limit
-            ul_checkbox = self.lines_table.cellWidget(row, 9)
-            is_upper_limit = ul_checkbox and ul_checkbox.isChecked()
             
             fluxes[j_counter] = flux
             if flux_error is not None:
