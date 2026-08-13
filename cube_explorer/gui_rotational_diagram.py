@@ -3,6 +3,7 @@ Rotational Diagram Analysis GUI for Molecular data (H2, CO) - SIMPLIFIED
 Single unified interface for selecting molecules, lines, and entering flux data
 """
 
+import os
 import re
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,7 +13,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
     QTableWidget, QTableWidgetItem, QSpinBox, 
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit
+    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit, QHeaderView
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
@@ -121,17 +122,23 @@ class RotationalDiagramWindow(QMainWindow):
         main_layout.addLayout(toggle_layout)
         
         self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(10)
+        self.lines_table.setColumnCount(12)
         self.lines_table.setHorizontalHeaderLabels(
-            ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error", "Error %", "Upper Limit?"]
+            ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
+             "Error %", "Upper Limit?", "Calculated?", "Source"]
         )
-        self.lines_table.setColumnWidth(0, 40)
-        self.lines_table.setColumnWidth(1, 80)
-        self.lines_table.setColumnWidth(2, 120)
-        self.lines_table.setColumnWidth(3, 110)
-        self.lines_table.setColumnWidth(4, 80)
-        self.lines_table.setColumnWidth(5, 60)
-        self.lines_table.setColumnWidth(9, 85)
+        # Every column sizes itself to its widest current cell and stays there --
+        # no manual dragging, no guessed pixel widths to keep in sync as columns
+        # get added/renamed. Re-fits automatically whenever cell content changes
+        # (e.g. populate_lines_table, or Source getting filled in), not just once.
+        self.lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        # A little breathing room around cell/header text -- Qt includes QSS
+        # padding in the size hint ResizeToContents measures, so this stays
+        # correct on every re-fit rather than needing a one-off pixel bump.
+        self.lines_table.setStyleSheet(
+            "QTableWidget::item { padding: 2px 6px; } "
+            "QHeaderView::section { padding: 2px 6px; }"
+        )
         main_layout.addWidget(self.lines_table)
         
         # Connect table changes for auto-calculation
@@ -418,6 +425,7 @@ class RotationalDiagramWindow(QMainWindow):
 
         if col == 6:
             self.sync_flux_flag(row)
+            self.sync_calculated_flag(row)
 
         if col == 7:
             self.sync_flux_error_flag(row)
@@ -563,6 +571,20 @@ class RotationalDiagramWindow(QMainWindow):
                 item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
         finally:
             self.updating_flux_flag = False
+
+    def sync_calculated_flag(self, row):
+        """Editing the Flux cell means its value is no longer (only) what Calculate
+        Fluxes computed -- reset Calculated?/Source to unset by default. This runs
+        on every Flux edit, including the setText() calculate_fluxes_batch itself
+        makes; that function then explicitly re-checks the box and re-fills Source
+        right after, so a fresh auto-calculation still ends up marked calculated --
+        only an actual manual edit is left unmarked."""
+        calc_checkbox = self.lines_table.cellWidget(row, 10)
+        if calc_checkbox:
+            calc_checkbox.setChecked(False)
+        source_item = self.lines_table.item(row, 11)
+        if source_item:
+            source_item.setText("")
 
     def sync_flux_error_flag(self, row):
         """Flag the Flux Error cell red when blank and the line isn't marked as an
@@ -1045,6 +1067,17 @@ class RotationalDiagramWindow(QMainWindow):
                         ul_checkbox.setChecked(True)
                         ul_checkbox.blockSignals(False)
 
+                    # Mark this row as system-calculated and record its source --
+                    # overrides the "manual" reset that flux_item.setText() above
+                    # just triggered via sync_calculated_flag
+                    calc_checkbox = self.lines_table.cellWidget(row, 10)
+                    if calc_checkbox:
+                        calc_checkbox.setChecked(True)
+                    source_item = self.lines_table.item(row, 11)
+                    if source_item:
+                        filename = os.path.basename(cube_data.filename) if cube_data.filename else "?"
+                        source_item.setText(f"{instrument} [{filename}]")
+
             except Exception as e:
                 print(f"Error processing lines from cube {cube_idx}: {e}")
                 QMessageBox.critical(self, "Calculation Error", f"Error processing lines from FITS file:\n{e}")
@@ -1148,6 +1181,22 @@ class RotationalDiagramWindow(QMainWindow):
             )
             ul_checkbox.stateChanged.connect(lambda _state, r=row: self.sync_flux_error_flag(r))
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
+
+            # Calculated? (read-only status badge, not user-editable -- set/cleared
+            # by calculate_fluxes_batch and by editing the Flux cell by hand)
+            calc_checkbox = QCheckBox()
+            calc_checkbox.setEnabled(False)
+            calc_checkbox.setToolTip(
+                "Checked when this line's flux was computed by Calculate Fluxes, rather "
+                "than typed in by hand or imported from CSV."
+            )
+            self.lines_table.setCellWidget(row, 10, calc_checkbox)
+
+            # Source (read-only): instrument + FITS filename the flux was computed
+            # from, filled in by calculate_fluxes_batch alongside the Calculated? flag
+            source_item = QTableWidgetItem("")
+            source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
+            self.lines_table.setItem(row, 11, source_item)
 
             self.sync_flux_error_flag(row)
         
