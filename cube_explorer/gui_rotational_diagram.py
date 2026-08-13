@@ -932,9 +932,14 @@ class RotationalDiagramWindow(QMainWindow):
         self.calculate_fluxes_batch(selected_rows, fits_paths, skipped_rows)
     
     def calculate_fluxes_batch(self, selected_rows, fits_paths, skipped_rows=None):
-        """Calculate fluxes for all selected lines using their matched FITS files"""
+        """Calculate fluxes for all selected lines using their matched FITS files.
+        Lines sharing a covering FITS file are fit together, simultaneously, via
+        compute_line_fluxes_collective -- see that function's docstring for why a
+        joint linear-least-squares solve is preferred here over an independent
+        per-line fit (mainly: it keeps a weak line's flux from silently absorbing a
+        nearby unrelated feature)."""
         from .data_loader import CubeData
-        from .rotational_diagram_fitter import compute_line_flux
+        from .rotational_diagram_fitter import compute_line_fluxes_collective
 
         progress = QProgressDialog(
             "Loading FITS files...",
@@ -964,26 +969,30 @@ class RotationalDiagramWindow(QMainWindow):
             progress.close()
             return
 
-        # --- Process each line ---
-        for idx, row in enumerate(selected_rows):
-            progress.setValue(len(fits_paths) + idx)
-            line = self.hitran_lines[row]
-            wl = line['wavelength']
-
-            # Find matching cube by wavelength range (no re-loading)
-            cube_data = None
-            spectrum = None
-            for cube, summed in zip(loaded_cubes, summed_spectra):
+        # --- Find each line's covering cube (first match wins, same as before) ---
+        rows_by_cube_idx = {}
+        for row in selected_rows:
+            wl = self.hitran_lines[row]['wavelength']
+            matched_idx = None
+            for i, cube in enumerate(loaded_cubes):
                 wav = cube.wavelength.value
                 if wav[0] <= wl <= wav[-1]:
-                    cube_data = cube
-                    spectrum = summed
+                    matched_idx = i
                     break
 
-            if cube_data is None:
+            if matched_idx is None:
                 print(f"Warning: No FITS file covers wavelength {wl:.6f} um for line {row+1}")
                 QMessageBox.warning(self, "No FITS Match", f"No FITS file covers {wl:.6f} μm")
+                progress.close()
                 return
+
+            rows_by_cube_idx.setdefault(matched_idx, []).append(row)
+
+        # --- Fit every line sharing a cube together, one group per FITS file ---
+        for group_idx, (cube_idx, rows) in enumerate(rows_by_cube_idx.items()):
+            progress.setValue(len(fits_paths) + group_idx)
+            cube_data = loaded_cubes[cube_idx]
+            spectrum = summed_spectra[cube_idx]
 
             try:
                 wavelength = cube_data.wavelength.value
@@ -995,45 +1004,50 @@ class RotationalDiagramWindow(QMainWindow):
                     wavelength = wavelength[::-1]
                     spectrum = spectrum[::-1]
 
-                # Fit the line and compute flux, error, and upper-limit status (CGS)
-                result = compute_line_flux(wavelength, spectrum, wl, header, instrument)
+                line_wavelengths = [self.hitran_lines[row]['wavelength'] for row in rows]
+                group_results = compute_line_fluxes_collective(
+                    wavelength, spectrum, line_wavelengths, header, instrument
+                )
 
-                if not result["success"]:
-                    print(f"Warning: {result['message']} for line {wl:.6f}")
-                    continue
+                for row, result in zip(rows, group_results):
+                    wl = self.hitran_lines[row]['wavelength']
 
-                flux_integrated = result["flux_cgs"]
-                flux_error = result["flux_error_cgs"]
-                is_upper_limit = result["is_upper_limit"]
-                F_ul_cgs = result["F_ul_cgs"]
+                    if not result["success"]:
+                        print(f"Warning: {result['message']} for line {wl:.6f}")
+                        continue
 
-                # Use upper limit value if detected as upper limit
-                flux_to_display = F_ul_cgs if is_upper_limit else flux_integrated
+                    flux_integrated = result["flux_cgs"]
+                    flux_error = result["flux_error_cgs"]
+                    is_upper_limit = result["is_upper_limit"]
+                    F_ul_cgs = result["F_ul_cgs"]
 
-                # Populate table
-                flux_item = self.lines_table.item(row, 6)
-                if flux_item:
-                    flux_item.setText(f"{flux_to_display:.4e}")
+                    # Use upper limit value if detected as upper limit
+                    flux_to_display = F_ul_cgs if is_upper_limit else flux_integrated
 
-                error_item = self.lines_table.item(row, 7)
-                if error_item:
-                    error_item.setText(f"{flux_error:.4e}")
+                    # Populate table
+                    flux_item = self.lines_table.item(row, 6)
+                    if flux_item:
+                        flux_item.setText(f"{flux_to_display:.4e}")
 
-                pct_item = self.lines_table.item(row, 8)
-                if pct_item and flux_integrated > 0:
-                    pct = (flux_error / flux_integrated) * 100
-                    pct_item.setText(f"{pct:.1f}")
+                    error_item = self.lines_table.item(row, 7)
+                    if error_item:
+                        error_item.setText(f"{flux_error:.4e}")
 
-                # Auto-check upper limit if detected
-                ul_checkbox = self.lines_table.cellWidget(row, 9)
-                if ul_checkbox and is_upper_limit:
-                    ul_checkbox.blockSignals(True)
-                    ul_checkbox.setChecked(True)
-                    ul_checkbox.blockSignals(False)
+                    pct_item = self.lines_table.item(row, 8)
+                    if pct_item and flux_integrated > 0:
+                        pct = (flux_error / flux_integrated) * 100
+                        pct_item.setText(f"{pct:.1f}")
+
+                    # Auto-check upper limit if detected
+                    ul_checkbox = self.lines_table.cellWidget(row, 9)
+                    if ul_checkbox and is_upper_limit:
+                        ul_checkbox.blockSignals(True)
+                        ul_checkbox.setChecked(True)
+                        ul_checkbox.blockSignals(False)
 
             except Exception as e:
-                print(f"Error processing row {row}: {e}")
-                QMessageBox.critical(self, "Calculation Error", f"Error processing line {row+1}:\n{e}")
+                print(f"Error processing lines from cube {cube_idx}: {e}")
+                QMessageBox.critical(self, "Calculation Error", f"Error processing lines from FITS file:\n{e}")
 
         progress.close()
         msg = "Flux calculation complete!"
