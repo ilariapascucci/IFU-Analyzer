@@ -387,7 +387,8 @@ def _collective_amplitude_error(fit_result):
     return float(np.sqrt(cov[0, 0]))
 
 
-def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header, instrument):
+def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header, instrument,
+                                    contam_lines=None):
     """
     Fit every line in `line_wavelengths` simultaneously in one (already spatially-
     summed) spectrum, via fit_hitran_lines_collective's linear least-squares solve:
@@ -397,17 +398,16 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
     often weak/high-J and can sit close to other species' features, which an
     independent per-line fit has no way to keep from leaking in.
 
-    Note: this does NOT pass a contaminating-lines catalog through (unlike CO Flux
-    Map / the main Gaussian-fit window, which can) -- gui_rotational_diagram.py has
-    no UI to load one yet. Blending with a real but uncataloged nearby line is still
-    possible; only lines actually listed in `line_wavelengths` get their own
-    template column here.
-
     Args:
         wavelength_arr, spectrum_arr: 1D arrays for the (spatially-summed) spectrum
         line_wavelengths: list of target line center wavelengths (microns)
         header: FITS header (for spectral resolution + unit conversion)
         instrument: Instrument name ('MIRI', 'NIRSPEC', ...)
+        contam_lines: optional pd.DataFrame (same 'line_wave_um' format
+            load_contaminating_lines_catalog() returns) -- non-target lines that get
+            their own template column so they stop leaking into a requested line's
+            amplitude, passed straight through to fit_hitran_lines_collective. None
+            (default) skips this, same as if no catalog were loaded.
 
     Returns:
         list of dicts, same length/order as line_wavelengths. Each dict has keys
@@ -425,7 +425,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
     hitran_lines = [{'wavelength': wl} for wl in line_wavelengths]
     fit_pairs, _, velocity_shift_kms = fit_hitran_lines_collective(
         wavelength_arr, spectrum_arr, hitran_lines, continuum,
-        header=header, wave_unit='um',
+        header=header, wave_unit='um', contam_lines=contam_lines,
     )
     if velocity_shift_kms is not None:
         print(f"[BATCH_FLUX] Collective fit shared velocity shift: {velocity_shift_kms:.2f} km/s")

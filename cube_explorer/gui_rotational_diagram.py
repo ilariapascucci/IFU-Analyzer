@@ -85,7 +85,14 @@ class RotationalDiagramWindow(QMainWindow):
         self.updating_flux_flag = False  # Same, for the Flux column's red/clear flag
         self.updating_manual_stats = False  # Same, for manually-entered A_ul/E_u/g_u
         self.updating_flux_error_flag = False  # Same, for the Flux Error column's red/clear flag
-        
+
+        # Loaded once via "Load FITS Files" / "Load Contaminating Lines", reused by
+        # every Calculate Fluxes click instead of re-prompting/re-loading each time
+        self.loaded_batch_fits_paths = []
+        self.loaded_batch_cubes = []
+        self.loaded_batch_spectra = []
+        self.contam_lines = None
+
         # Track workflow: None=unset, 'csv'=import, 'hitran'=fetch
         self.workflow_mode = None
         
@@ -322,7 +329,30 @@ class RotationalDiagramWindow(QMainWindow):
         self.calculate_fluxes_btn.clicked.connect(self.open_batch_flux_dialog)
         self.calculate_fluxes_btn.setVisible(False)  # Hidden until lines are loaded (HITRAN fetch or CSV import)
         button_layout.addWidget(self.calculate_fluxes_btn)
-        
+
+        self.load_fits_btn = QPushButton("Load FITS Files")
+        self.load_fits_btn.setToolTip(
+            "Select the source FITS cube(s) for Calculate Fluxes. Loaded once and reused "
+            "on every click, instead of re-prompting each time."
+        )
+        self.load_fits_btn.clicked.connect(self.load_batch_fits_files)
+        button_layout.addWidget(self.load_fits_btn)
+
+        self.fits_status_label = QLabel("No FITS files loaded")
+        button_layout.addWidget(self.fits_status_label)
+
+        self.load_contam_btn = QPushButton("Load Contaminating Lines")
+        self.load_contam_btn.setToolTip(
+            "Optional: a catalog of nearby non-target lines, so Calculate Fluxes can keep "
+            "them from leaking into a requested line's amplitude. Same catalog format as "
+            "the main Gaussian-fit window's contaminating-lines loader."
+        )
+        self.load_contam_btn.clicked.connect(self.load_contaminating_lines_for_batch)
+        button_layout.addWidget(self.load_contam_btn)
+
+        self.contam_status_label = QLabel("No contaminating lines loaded")
+        button_layout.addWidget(self.contam_status_label)
+
         button_layout.addStretch()
         layout.addLayout(button_layout)
         
@@ -912,6 +942,83 @@ class RotationalDiagramWindow(QMainWindow):
                             except ValueError:
                                 pass
     
+    def load_batch_fits_files(self):
+        """Select and cache the FITS cube(s) Calculate Fluxes will use -- loaded once
+        here instead of re-prompting/re-loading from disk on every Calculate Fluxes
+        click. Replaces whatever was previously loaded rather than accumulating."""
+        fits_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Load FITS Files For Flux Calculation", "",
+            "FITS Files (*.fits *.fit);;All Files (*.*)"
+        )
+        if not fits_paths:
+            return
+
+        from .data_loader import CubeData
+
+        loaded_paths, loaded_cubes, loaded_spectra, failed = [], [], [], []
+        for fits_path in fits_paths:
+            try:
+                cube = CubeData()
+                cube.load_from_file(fits_path)
+                summed = np.nansum(cube.cube, axis=(1, 2)) if cube.cube.ndim == 3 else cube.cube
+                loaded_paths.append(fits_path)
+                loaded_cubes.append(cube)
+                loaded_spectra.append(summed)
+            except Exception as e:
+                failed.append((fits_path, str(e)))
+
+        self.loaded_batch_fits_paths = loaded_paths
+        self.loaded_batch_cubes = loaded_cubes
+        self.loaded_batch_spectra = loaded_spectra
+
+        names = ", ".join(os.path.basename(p) for p in loaded_paths)
+        self.fits_status_label.setText(f"{len(loaded_paths)} file(s) loaded" if loaded_paths else "No FITS files loaded")
+        self.fits_status_label.setToolTip(names)
+
+        if failed:
+            failed_msg = "\n".join(f"  {os.path.basename(p)}: {err}" for p, err in failed)
+            QMessageBox.warning(
+                self, "Some Files Failed To Load",
+                f"{len(failed)} file(s) could not be loaded:\n\n{failed_msg}"
+            )
+        elif loaded_paths:
+            QMessageBox.information(self, "FITS Files Loaded", f"Loaded {len(loaded_paths)} file(s):\n\n{names}")
+
+    def load_contaminating_lines_for_batch(self):
+        """Load a contaminating-lines catalog so Calculate Fluxes can keep a nearby
+        uncataloged feature from leaking into a requested line's amplitude -- same
+        load_contaminating_lines_catalog() the main Gaussian-fit window uses. Unlike
+        that window, this doesn't filter to a single spectrum's wavelength range at
+        load time: our lines can span several different FITS files/ranges at once,
+        and fit_hitran_lines_collective already filters per-group to whatever falls
+        in that group's own fit window."""
+        from .line_catalog import load_contaminating_lines_catalog
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Contaminating Lines CSV", "",
+            "CSV Files (*.csv);;All Files (*.*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            loaded = load_contaminating_lines_catalog(file_path)
+        except Exception as e:
+            QMessageBox.critical(self, "Error Loading File", f"Failed to load contaminating lines:\n{e}")
+            self.contam_lines = None
+            self.contam_status_label.setText("No contaminating lines loaded")
+            return
+
+        if loaded is None or len(loaded) == 0:
+            self.contam_lines = None
+            self.contam_status_label.setText("No contaminating lines loaded")
+            QMessageBox.warning(self, "Empty File", "The CSV file is empty or has no valid lines.")
+            return
+
+        self.contam_lines = loaded
+        self.contam_status_label.setText(f"{len(loaded)} contaminating line(s) loaded")
+        self.contam_status_label.setToolTip(os.path.basename(file_path))
+
     def open_batch_flux_dialog(self):
         """Open dialog for batch flux calculation from multiple FITS files"""
         # Get selected lines that don't already have a flux -- Calculate Fluxes fills
@@ -939,57 +1046,35 @@ class RotationalDiagramWindow(QMainWindow):
                 QMessageBox.warning(self, "No Lines Selected", "Please select lines to calculate fluxes for.")
             return
 
-        # Open file dialog for FITS files
-        fits_paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            f"Select FITS Files (for {len(selected_rows)} lines)",
-            "",
-            "FITS Files (*.fits *.fit);;All Files (*.*)"
-        )
-
-        if not fits_paths:
+        if not self.loaded_batch_cubes:
+            QMessageBox.warning(
+                self, "No FITS Files Loaded",
+                "Click 'Load FITS Files' first to select the source spectra for these lines."
+            )
             return
 
-        # Calculate fluxes using FITS files
-        self.calculate_fluxes_batch(selected_rows, fits_paths, skipped_rows)
-    
-    def calculate_fluxes_batch(self, selected_rows, fits_paths, skipped_rows=None):
-        """Calculate fluxes for all selected lines using their matched FITS files.
-        Lines sharing a covering FITS file are fit together, simultaneously, via
-        compute_line_fluxes_collective -- see that function's docstring for why a
-        joint linear-least-squares solve is preferred here over an independent
-        per-line fit (mainly: it keeps a weak line's flux from silently absorbing a
-        nearby unrelated feature)."""
-        from .data_loader import CubeData
+        # Calculate fluxes using the cached FITS files
+        self.calculate_fluxes_batch(selected_rows, skipped_rows)
+
+    def calculate_fluxes_batch(self, selected_rows, skipped_rows=None):
+        """Calculate fluxes for all selected lines using the cached FITS files from
+        load_batch_fits_files(). Lines sharing a covering FITS file are fit together,
+        simultaneously, via compute_line_fluxes_collective -- see that function's
+        docstring for why a joint linear-least-squares solve is preferred here over
+        an independent per-line fit (mainly: it keeps a weak line's flux from
+        silently absorbing a nearby unrelated feature). self.contam_lines, if
+        loaded, is passed through so a nearby non-target line gets its own template
+        instead of leaking into a requested line's amplitude."""
         from .rotational_diagram_fitter import compute_line_fluxes_collective
 
+        loaded_cubes = self.loaded_batch_cubes
+        summed_spectra = self.loaded_batch_spectra
+
         progress = QProgressDialog(
-            "Loading FITS files...",
-            None, 0, len(fits_paths) + len(selected_rows), self
+            "Calculating fluxes...",
+            None, 0, len(selected_rows), self
         )
         progress.setWindowModality(Qt.WindowModal)
-
-        # --- Load each FITS file once and pre-sum spatially ---
-        loaded_cubes = []
-        summed_spectra = []
-        for i, fits_path in enumerate(fits_paths):
-            progress.setValue(i)
-            try:
-                cube = CubeData()
-                cube.load_from_file(fits_path)
-                if cube.cube.ndim == 3:
-                    summed = np.nansum(cube.cube, axis=(1, 2))
-                else:
-                    summed = cube.cube
-                loaded_cubes.append(cube)
-                summed_spectra.append(summed)
-            except Exception as e:
-                print(f"Skipping {fits_path}: {e}")
-
-        if not loaded_cubes:
-            QMessageBox.warning(self, "Error", "Could not load any FITS files.")
-            progress.close()
-            return
 
         # --- Find each line's covering cube (first match wins, same as before) ---
         rows_by_cube_idx = {}
@@ -1012,7 +1097,7 @@ class RotationalDiagramWindow(QMainWindow):
 
         # --- Fit every line sharing a cube together, one group per FITS file ---
         for group_idx, (cube_idx, rows) in enumerate(rows_by_cube_idx.items()):
-            progress.setValue(len(fits_paths) + group_idx)
+            progress.setValue(group_idx)
             cube_data = loaded_cubes[cube_idx]
             spectrum = summed_spectra[cube_idx]
 
@@ -1028,7 +1113,8 @@ class RotationalDiagramWindow(QMainWindow):
 
                 line_wavelengths = [self.hitran_lines[row]['wavelength'] for row in rows]
                 group_results = compute_line_fluxes_collective(
-                    wavelength, spectrum, line_wavelengths, header, instrument
+                    wavelength, spectrum, line_wavelengths, header, instrument,
+                    contam_lines=self.contam_lines,
                 )
 
                 for row, result in zip(rows, group_results):
