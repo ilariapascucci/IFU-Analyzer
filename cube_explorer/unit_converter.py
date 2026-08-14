@@ -15,6 +15,28 @@ from functools import lru_cache
 from typing import Optional
 
 
+def extract_units(data):
+    """
+    Extract value and unit from astropy Quantity or numpy array.
+
+    Parameters
+    ----------
+    data : Quantity or array-like
+        Data that may have units
+
+    Returns
+    -------
+    tuple
+        (values, unit_str) where values is numpy array and unit_str is string representation
+    """
+    if hasattr(data, 'unit'):
+        # It's an astropy Quantity
+        return data.value, str(data.unit)
+    else:
+        # Plain numpy array or list
+        return np.asarray(data), None
+
+
 @lru_cache(maxsize=64)
 def _string_to_astropy_unit(unit_str):
     """
