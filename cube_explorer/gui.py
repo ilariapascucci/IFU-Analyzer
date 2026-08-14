@@ -405,23 +405,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             self.custom_continuum_selector.deactivate()
             self.custom_continuum_selector = None
             self.custom_continuum_active = False
+            self._custom_continuum_tab = None
 
         # Uncheck custom subtract button
         if hasattr(self, 'custom_subtract_btn'):
             self.custom_subtract_btn.setChecked(False)
 
-        # Clear continuum line artist
-        self.continuum_line = None
-
-        # Clear fitted continuum data
-        self.continuum_fitted = None
-
-        # Clear backup spectrum
-        self.original_spectrum_backup = None
-
-        # Reset subtraction state
-        self.continuum_subtracted = False
-        self.auto_continuum_subtracted = False
+        # Reset per-tab continuum state - a new cube invalidates every tab's
+        # fitted/subtracted continuum, not just whichever tab was active.
+        self.continuum_fitted = {"full": None, "left": None, "right": None}
+        self.continuum_subtracted = {"full": False, "left": False, "right": False}
+        self.continuum_mode_applied = {"full": None, "left": None, "right": None}
 
         # Clear subtraction markers
         if hasattr(self, 'subtract_markers'):
@@ -1136,20 +1130,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         # _swap_gaussian_boundaries_for_tab whenever the active tab changes.
         self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
         
-        # Continuum line state
-        self.continuum_line = None  # Store continuum line artist
-        self.continuum_fitted = None # Continuum subtraction state
-        self.global_continuum_applied = False # Track if global continuum subtraction was applied
-        self.custom_continuum_applied = False # Track if custom continuum was applied
+        # Continuum subtraction state - independent per Full/Left/Right tab,
+        # so fitting/subtracting a continuum on one tab never bleeds into
+        # another (each tab derives its own raw flux on demand via
+        # _get_tab_raw_flux, so there's no shared "backup" to restore -
+        # continuum_subtracted[tab]=False just means "don't subtract").
+        self.continuum_fitted = {"full": None, "left": None, "right": None}
+        self.continuum_subtracted = {"full": False, "left": False, "right": False}
+        self.continuum_mode_applied = {"full": None, "left": None, "right": None}  # 'auto' | 'custom' | None
         self.custom_continuum_selector = None
         self.custom_continuum_active = False
+        # Which tab a custom-continuum point-selection session belongs to -
+        # captured when the session starts, so it stays correct even if the
+        # active tab changes before the session is confirmed/cancelled.
+        self._custom_continuum_tab = None
         self.subtract_mode = None  # 'left' or 'right'
         self.subtract_left_x = None
         self.subtract_right_x = None
         self.subtract_markers = []  # Store marker artists
-
-        self.continuum_subtracted = False  # Track if continuum is currently subtracted
-        self.original_spectrum_backup = None
 
         # Note: per-tab Doppler shift state (base_wavelength, spectrum_shift_factor,
         # spectrum_shift_preview) is initialized in _init_spectrum_tabs (GuiSpectrumMixin).
@@ -2665,14 +2663,22 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.gauss_cache_noise_min = None
         self.gauss_cache_noise_max = None
 
-        # Clear any plotted continuum line
-        if hasattr(self, 'continuum_line') and self.continuum_line:
-            try:
-                self.continuum_line.remove()
-            except Exception:
-                pass
-        self.continuum_line = None
-        
+        # Reset per-tab continuum state (the fitted/subtracted continuum
+        # artist itself is recreated lazily by _refresh_active_spectrum_tab -
+        # ax.clear() below drops it, same as the Gaussian/tab-line artists).
+        self.continuum_fitted = {"full": None, "left": None, "right": None}
+        self.continuum_subtracted = {"full": False, "left": False, "right": False}
+        self.continuum_mode_applied = {"full": None, "left": None, "right": None}
+        self.continuum_line_btn.setChecked(False)
+        self.subtract_continuum_btn.setChecked(False)
+        self.custom_subtract_btn.setChecked(False)
+        if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
+            self.custom_continuum_selector.clear_all()
+            self.custom_continuum_selector.deactivate()
+            self.custom_continuum_selector = None
+        self.custom_continuum_active = False
+        self._custom_continuum_tab = None
+
         # Uncheck all buttons
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
@@ -2713,6 +2719,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             # so Left/Right will correctly come back empty unless Full is active).
             self._spec_tab_line_left = None
             self._spec_tab_line_right = None
+            self._continuum_line_artist = None
             self._reset_slice_indicators()
             self._refresh_active_spectrum_tab()
 
@@ -3313,8 +3320,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         """Custom home action for spectrum: show original spectrum and clear overlays"""
         print("[DEBUG] Spectrum home button clicked - restoring original spectrum")
         
-        # Restore original spectrum if it has been modified
-        if self.original_spectrum_backup is not None:
+        # Restore original spectrum if the active tab has a continuum subtracted
+        if self.continuum_subtracted.get(self.active_spectrum_tab, False):
             self._restore_original_spectrum()
         
         # Call the original NavigationToolbar home method to reset zoom
@@ -3339,36 +3346,31 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             self.spec_canvas.draw()
 
     def _save_results_ascii(self):
-        """Save the full continuum-subtraction result to an ASCII file.
+        """Save the active tab's continuum-subtraction result to an ASCII file.
 
         Columns: wavelength, original_spectrum, fitted_continuum, subtracted
-        Missing columns (e.g. no continuum fitted) are written as NaN.
+        Missing columns (e.g. no continuum fitted for this tab) are written as NaN.
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             QMessageBox.warning(self, "No Data", "No spectrum loaded.")
             return
 
-        wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+        tab = self.active_spectrum_tab
+        wavelength = self._get_tab_wavelength(tab)
         if wavelength is None:
             QMessageBox.warning(self, "No Data", "No wavelength data available.")
             return
 
-        # Original spectrum = the pre-subtraction values.  If a subtraction
-        # has been applied, the backup holds the original; otherwise the
-        # cube's current spectrum IS the original.
-        if getattr(self, 'original_spectrum_backup', None) is not None:
-            original = self.original_spectrum_backup
-        else:
-            original = self.cube_data.spectrum if hasattr(self, 'cube_data') and self.cube_data is not None else None
+        # Original spectrum = the active tab's own raw (pre-subtraction) flux.
+        original = self._get_tab_raw_flux(tab)
 
         if original is None:
-            QMessageBox.warning(self, "No Data", "No spectrum to save.")
+            QMessageBox.warning(self, "No Data", "No spectrum to save for the active tab.")
             return
 
-        # Continuum may not exist if the user never fitted one.
-        if hasattr(self, 'continuum_fitted') and self.continuum_fitted is not None:
-            continuum = self.continuum_fitted
-        else:
+        # Continuum may not exist if the user never fitted one for this tab.
+        continuum = self.continuum_fitted.get(tab)
+        if continuum is None:
             continuum = np.full_like(original, np.nan, dtype=float)
 
         # Subtracted column = original - continuum, where the continuum is
@@ -3395,6 +3397,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
             with open(file_path, 'w') as f:
                 f.write("# Results Export from Cube Explorer\n")
                 f.write(f"# Instrument: {instrument}\n")
+                f.write(f"# Spectrum tab: {tab}\n")
                 f.write("# Type: full_results\n")
                 f.write(f"# Wavelength unit: {wave_unit}\n")
                 f.write(f"# Flux unit: {flux_unit}\n")

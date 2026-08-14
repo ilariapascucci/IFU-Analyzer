@@ -25,6 +25,17 @@ class GuiContinuumMixin:
     """
     Mixin class handling all Continuum Subtraction logic for the CubeExplorer.
     Assumes it is mixed into a class that has self.spec_plotter, self.cube_data, etc.
+
+    Continuum fitting/subtraction is independent per Full/Left/Right spectrum
+    tab: self.continuum_fitted, self.continuum_subtracted, and
+    self.continuum_mode_applied (all dicts keyed "full"/"left"/"right",
+    initialized in gui.py's _init_state) are only ever read/written for
+    whichever tab an operation targets, never a single shared state. Actually
+    drawing the result is delegated to _refresh_active_spectrum_tab
+    (GuiSpectrumMixin), which applies each tab's own continuum subtraction as
+    one more per-tab transform - the same pipeline normalization/shifting
+    already go through - instead of this module hand-drawing directly onto
+    the shared spec_plotter axes.
     """
 
     def _on_continuum_line_clicked(self, checked):
@@ -33,13 +44,12 @@ class GuiContinuumMixin:
             self.continuum_line_btn.setChecked(False)
             return
 
-        cube = getattr(self, 'cube_data', None) or getattr(self, 'cubedata', None)
-
-        if cube is None or cube.spectrum is None:
-            QMessageBox.warning(self, "No Spectrum", "No spectrum data available.")
+        tab = self.active_spectrum_tab
+        if self._get_tab_raw_flux(tab) is None:
+            QMessageBox.warning(self, "No Spectrum", "No spectrum data available for this tab.")
             self.continuum_line_btn.setChecked(False)
             return
-        
+
         if checked:
             if self.subtract_continuum_btn.isChecked():
                 self._restore_original_spectrum()
@@ -52,53 +62,34 @@ class GuiContinuumMixin:
             else:
                 self.continuum_line_btn.setChecked(False)
         else:
-            if hasattr(self, 'continuum_line') and self.continuum_line is not None:
-                try:
-                    self.continuum_line.remove()
-                except Exception:
-                    pass
-                self.continuum_line = None
-
-            if hasattr(self, 'spec_plotter') and self.spec_plotter is not None:
-                self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-                self.spec_canvas.draw()
-            
-            # Additional cleanup if needed
-            if hasattr(self, 'continuum_subtracted') and self.continuum_subtracted:
+            if self.continuum_subtracted.get(tab, False):
                 self._restore_original_spectrum()
                 self.subtract_continuum_btn.setEnabled(False)
                 self.subtract_continuum_btn.setChecked(False)
+            else:
+                self._refresh_active_spectrum_tab()
 
     def _fit_and_display_continuum(self, params=None):
         if params is None:
-            params = {'window_size': 51, 'sigma_threshold': 2.0, 'peak_width': 1, 
+            params = {'window_size': 51, 'sigma_threshold': 2.0, 'peak_width': 1,
                       'peak_distance': 3, 'peak_exclusion': 3, 'iterations': 2, 'smoothing_factor': 5}
-        try:            
-            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-            cube = getattr(self, 'cube_data', None) or getattr(self, 'cubedata', None)
-            if cube is None: return
-            if self.original_spectrum_backup is not None:
-                flux = self.original_spectrum_backup.copy()
-            else:
-                flux = cube.spectrum
-            
-            if wavelength is None or flux is None: return
-            
-            if self.original_spectrum_backup is None:
-                self.original_spectrum_backup = cube.spectrum.copy()
+
+        tab = self.active_spectrum_tab
+        try:
+            wavelength = self._get_tab_wavelength(tab)
+            flux = self._get_tab_raw_flux(tab)
+
+            if wavelength is None or flux is None:
+                return
 
             # Same algorithm CO Flux Map/the API use (fit_auto_continuum) -- one
             # shared, GUI-independent implementation instead of two copies that could
             # silently drift apart.
             continuum_values = fit_auto_continuum(wavelength, flux, **params)
-            self.continuum_fitted = continuum_values
-            
-            ax = self.spec_plotter.ax
-            self.continuum_line = ax.plot(wavelength, continuum_values, color='orange',
-                                        linewidth=2, linestyle='-', label='Continuum', zorder=10)[0]
-            ax.legend(loc='upper right', fontsize=8)
-            self.spec_canvas.draw()
-            
+            self.continuum_fitted[tab] = continuum_values
+            self.continuum_mode_applied[tab] = 'auto'
+            self._refresh_active_spectrum_tab()
+
         except Exception as e:
             QMessageBox.critical(self, "Fitting Error", f"Error fitting continuum:\n{str(e)}")
             self.continuum_line_btn.setChecked(False)
@@ -112,24 +103,26 @@ class GuiContinuumMixin:
             self.subtract_continuum_btn.setChecked(False)
             return
 
+        tab = self.active_spectrum_tab
+
         if self.subtract_continuum_btn.isChecked():
-            if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+            if self.continuum_fitted.get(tab) is None:
                 QMessageBox.warning(self, "No Continuum", "Please create the continuum line first.")
                 self.subtract_continuum_btn.setChecked(False)
                 return
 
-            if self.continuum_subtracted and hasattr(self, 'global_continuum_applied') and self.global_continuum_applied:
+            if self.continuum_subtracted.get(tab, False) and self.continuum_mode_applied.get(tab) == 'auto':
                 self._restore_original_spectrum()
                 self.subtract_continuum_btn.setChecked(False)
                 return
 
-            if self.custom_subtract_btn.isChecked() or (hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied):
+            if self.custom_subtract_btn.isChecked() or self.continuum_mode_applied.get(tab) == 'custom':
                 reply = QMessageBox.question(self, "Custom Active", "This will clear custom progress. Continue?",
                                              QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                 if reply == QMessageBox.No:
                     self.subtract_continuum_btn.setChecked(False)
                     return
-                if hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+                if self.continuum_mode_applied.get(tab) == 'custom':
                     self._restore_from_custom_subtract()
                 self.custom_subtract_btn.setChecked(False)
 
@@ -139,13 +132,13 @@ class GuiContinuumMixin:
             self._restore_original_spectrum()
 
     def _perform_global_continuum_subtraction(self):
+        tab = self.active_spectrum_tab
         try:
-            if self.original_spectrum_backup is None:
-                self.original_spectrum_backup = self.cube_data.spectrum.copy()
+            flux = self._get_tab_raw_flux(tab)
+            continuum = self.continuum_fitted.get(tab)
 
-            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-            flux = self.original_spectrum_backup.copy()
-            continuum = self.continuum_fitted
+            if flux is None or continuum is None:
+                return
 
             if flux.shape != continuum.shape:
                 QMessageBox.warning(
@@ -156,35 +149,9 @@ class GuiContinuumMixin:
                 )
                 return
 
-            flux_subtracted = flux - continuum
-            self.cube_data.spectrum = flux_subtracted
-
-            ax = self.spec_plotter.ax
-            ax.clear()
-            ax.plot(wavelength, flux_subtracted, 'b-', label='Continuum-Subtracted Spectrum',
-                    linewidth=1, zorder=5)
-            ax.axhline(0, color='lightgrey', linestyle=':', linewidth=1.5, alpha=0.8,
-                    label='Zero Level', zorder=3)
-
-            ax.relim()
-            ax.autoscale_view()
-
-            y_min, y_max = ax.get_ylim()
-            x_min, x_max = ax.get_xlim()
-            ax.set_ylim(y_min - (y_max - y_min) * 0.10, y_max + (y_max - y_min) * 0.10)
-            ax.set_xlim(x_min - (x_max - x_min) * 0.01, x_max + (x_max - x_min) * 0.01)
-
-            ax.set_xlabel(self.spec_plotter.ax.get_xlabel())
-            ax.set_ylabel(self.spec_plotter.ax.get_ylabel())
-            ax.legend(loc='upper right', fontsize=8)
-            ax.grid(True, alpha=0.3)
-
-            self.spec_canvas.draw()
-            QApplication.processEvents()
-
-            self.continuum_subtracted = True
-            self.global_continuum_applied = True
-            self.auto_continuum_subtracted = True
+            self.continuum_subtracted[tab] = True
+            self.continuum_mode_applied[tab] = 'auto'
+            self._refresh_active_spectrum_tab()
 
         except Exception as e:
             traceback.print_exc()
@@ -199,35 +166,41 @@ class GuiContinuumMixin:
             self.custom_subtract_btn.setChecked(False)
             return
 
+        tab = self.active_spectrum_tab
+
         if self.custom_subtract_btn.isChecked():
-            if self.continuum_subtracted and hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+            if self.continuum_subtracted.get(tab, False) and self.continuum_mode_applied.get(tab) == 'custom':
                 self._restore_from_custom_subtract()
                 self.custom_subtract_btn.setChecked(False)
                 return
 
-            if self.continuum_subtracted and self.original_spectrum_backup is not None:
-                self.cube_data.spectrum = self.original_spectrum_backup.copy()
-                self.continuum_subtracted = False
+            if self.continuum_subtracted.get(tab, False):
+                # An auto subtraction is active for this tab - drop it before starting a custom session.
+                self.continuum_subtracted[tab] = False
+                self.continuum_mode_applied[tab] = None
 
             if self.subtract_continuum_btn.isChecked():
                 self.subtract_continuum_btn.setChecked(False)
 
-            if self.original_spectrum_backup is None:
-                self.original_spectrum_backup = self.cube_data.spectrum.copy()
+            base_flux = self._get_tab_raw_flux(tab)
+            base_wavelength = self._get_tab_wavelength(tab)
+            if base_flux is None or base_wavelength is None:
+                QMessageBox.warning(self, "No Spectrum", "No spectrum data available for this tab.")
+                self.custom_subtract_btn.setChecked(False)
+                return
 
-            base_flux = (self.original_spectrum_backup.copy()
-                         if self.original_spectrum_backup is not None
-                         else self.cube_data.spectrum)
+            # Remember which tab this custom session belongs to - it stays
+            # tied to that tab even if the user switches tabs mid-selection.
+            self._custom_continuum_tab = tab
 
             if self.custom_continuum_selector is None:
                 self.custom_continuum_selector = CustomContinuumSelector(
                     ax=self.spec_plotter.ax, canvas=self.spec_canvas,
-                    wavelength=_extract_wavelength_value(self.spec_plotter.wavelength),
-                    flux=self.cube_data.spectrum, parent_widget=self
+                    wavelength=base_wavelength, flux=base_flux, parent_widget=self
                 )
             else:
-                self.custom_continuum_selector.flux = self.cube_data.spectrum
-                self.custom_continuum_selector.wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+                self.custom_continuum_selector.flux = base_flux
+                self.custom_continuum_selector.wavelength = base_wavelength
                 self.custom_continuum_selector.ax = self.spec_plotter.ax
 
             self.custom_continuum_selector.activate()
@@ -236,7 +209,7 @@ class GuiContinuumMixin:
             self.custom_continuum_selector.set_delete_mode(False)
 
         else:
-            if self.continuum_subtracted and hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+            if self.continuum_subtracted.get(tab, False) and self.continuum_mode_applied.get(tab) == 'custom':
                 self._restore_from_custom_subtract()
             else:
                 if self.custom_continuum_selector is not None:
@@ -244,60 +217,18 @@ class GuiContinuumMixin:
                 self.custom_continuum_active = False
 
     def _restore_from_custom_subtract(self):
-        if self.original_spectrum_backup is None: return
-        self.cube_data.spectrum = self.original_spectrum_backup.copy()
-        self.spec_plotter.plot_spectrum(self.cube_data.spectrum)
-
-        if self.continuum_fitted is not None and self.continuum_line_btn.isChecked():
-            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-            ax = self.spec_plotter.ax
-            self.continuum_line = ax.plot(wavelength, self.continuum_fitted, color='orange',
-                                          linewidth=2, linestyle='-', label='Continuum', zorder=10)[0]
-
-        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-        self.spec_canvas.draw()
-        self.continuum_subtracted = False
-        self.custom_continuum_applied = False
+        tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
+        self.continuum_subtracted[tab] = False
+        self.continuum_mode_applied[tab] = None
+        self._refresh_active_spectrum_tab()
 
     def _perform_custom_subtraction(self, continuum):
+        tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
         try:
-            if self.original_spectrum_backup is None:
-                self.original_spectrum_backup = self.cube_data.spectrum.copy()
-
-            subtracted = self.original_spectrum_backup - continuum
-            self.cube_data.spectrum = subtracted
-            self.continuum_fitted = continuum
-            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-
-            ax = self.spec_plotter.ax
-            ax.clear()
-            ax.plot(wavelength, subtracted, color='blue', linewidth=1.0,
-                    label='Custom Continuum-Subtracted Spectrum', zorder=5)
-            ax.axhline(0, color='lightgrey', linestyle=':', linewidth=1.5, alpha=0.8,
-                    label='Zero Level', zorder=3)
-
-            ax.clear()
-            ax.plot(wavelength, subtracted, color='blue', linewidth=1.0,
-                    label='Custom Continuum-Subtracted Spectrum', zorder=5)
-            ax.axhline(0, color='lightgrey', linestyle=':', linewidth=1.5, alpha=0.8,
-                    label='Zero Level', zorder=3)
-
-            ax.relim()
-            ax.autoscale_view()
-
-            y_min, y_max = ax.get_ylim()
-            x_min, x_max = ax.get_xlim()
-            ax.set_ylim(y_min - (y_max - y_min) * 0.10, y_max + (y_max - y_min) * 0.10)
-            ax.set_xlim(x_min - (x_max - x_min) * 0.01, x_max + (x_max - x_min) * 0.01)
-
-            ax.set_xlabel(self.spec_plotter.ax.get_xlabel())
-            ax.set_ylabel(self.spec_plotter.ax.get_ylabel())
-            ax.grid(True, alpha=0.3, linestyle=':')
-            ax.legend(loc='upper right', fontsize=8)
-            self.spec_canvas.draw()
-
-            self.continuum_subtracted = True
-            self.custom_continuum_applied = True
+            self.continuum_fitted[tab] = continuum
+            self.continuum_subtracted[tab] = True
+            self.continuum_mode_applied[tab] = 'custom'
+            self._refresh_active_spectrum_tab()
         except Exception as e:
             traceback.print_exc()
             QMessageBox.warning(
@@ -306,25 +237,10 @@ class GuiContinuumMixin:
             )
 
     def _restore_original_spectrum(self):
-        if self.original_spectrum_backup is None: return
-        self.cube_data.spectrum = self.original_spectrum_backup.copy()
-        self.spec_plotter.plot_spectrum(self.cube_data.spectrum)
-
-        if self.continuum_fitted is not None and self.continuum_line_btn.isChecked():
-            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
-            ax = self.spec_plotter.ax
-            self.continuum_line = ax.plot(wavelength, self.continuum_fitted, color='orange',
-                                          linewidth=2, linestyle='-', label='Continuum', zorder=10)[0]
-
-        if self.continuum_line is not None and not self.continuum_line_btn.isChecked():
-            try: self.continuum_line.remove()
-            except Exception: pass
-            self.continuum_line = None
-
-        self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-        self.spec_canvas.draw()
-        self.continuum_subtracted = False
-        self.global_continuum_applied = False
+        tab = self.active_spectrum_tab
+        self.continuum_subtracted[tab] = False
+        self.continuum_mode_applied[tab] = None
+        self._refresh_active_spectrum_tab()
 
     def on_auto_continuum_toggle(self):
         if self.auto_continuum_toggle.isChecked():
@@ -390,29 +306,27 @@ class GuiContinuumMixin:
         self.custom_ok_btn.hide()
 
     def has_automatic_progress(self):
-        return (self.continuum_line_btn.isChecked() or self.subtract_continuum_btn.isChecked() or 
-               (hasattr(self, 'continuum_fitted') and self.continuum_fitted is not None) or 
-               (hasattr(self, 'continuum_subtracted') and self.continuum_subtracted))
+        tab = self.active_spectrum_tab
+        return (self.continuum_line_btn.isChecked() or self.subtract_continuum_btn.isChecked() or
+               self.continuum_fitted.get(tab) is not None or
+               self.continuum_subtracted.get(tab, False))
 
     def has_custom_progress(self):
-        return (self.custom_subtract_btn.isChecked() or 
-               (hasattr(self, 'custom_continuum_active') and self.custom_continuum_active) or 
-               (hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied))
+        return (self.custom_subtract_btn.isChecked() or
+               (hasattr(self, 'custom_continuum_active') and self.custom_continuum_active) or
+               self.continuum_mode_applied.get(self.active_spectrum_tab) == 'custom')
 
     def clear_automatic_progress(self):
         try:
+            tab = self.active_spectrum_tab
             self.continuum_line_btn.setChecked(False)
             self.subtract_continuum_btn.setChecked(False)
-            if hasattr(self, 'continuum_line') and self.continuum_line is not None:
-                try: self.continuum_line.remove()
-                except Exception: pass
-                self.continuum_line = None
-            if hasattr(self, 'continuum_subtracted') and self.continuum_subtracted:
+            if self.continuum_subtracted.get(tab, False):
                 self._restore_original_spectrum()
-            self.continuum_fitted = None
-            self.continuum_subtracted = False
-            if hasattr(self, 'global_continuum_applied'):
-                self.global_continuum_applied = False
+            self.continuum_fitted[tab] = None
+            self.continuum_subtracted[tab] = False
+            self.continuum_mode_applied[tab] = None
+            self._refresh_active_spectrum_tab()
         except Exception: pass
 
     def clear_custom_progress(self):
@@ -422,16 +336,16 @@ class GuiContinuumMixin:
             if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
                 self.custom_continuum_selector.clear_all()
                 self.custom_continuum_selector.deactivate()
-            if hasattr(self, 'custom_continuum_applied') and self.custom_continuum_applied:
+            tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
+            if self.continuum_mode_applied.get(tab) == 'custom':
                 self._restore_from_custom_subtract()
             self.custom_continuum_active = False
-            self.custom_continuum_applied = False
         except Exception: pass
 
     def _on_custom_delete_toggled(self, checked):
         if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
             self.custom_continuum_selector.set_delete_mode(checked)
-    
+
     def _finalize_custom_continuum(self):
         """Keyboard ENTER alternative to clicking the OK button.
 
@@ -456,7 +370,8 @@ class GuiContinuumMixin:
             if continuum is None:
                 return
 
-            wavelength = _extract_wavelength_value(self.spec_plotter.wavelength)
+            tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
+            wavelength = self._get_tab_wavelength(tab)
             ax = self.spec_plotter.ax
 
             # ── Remove any stale preview line from a previous OK click ──
@@ -496,13 +411,13 @@ class GuiContinuumMixin:
                 self.custom_continuum_selector.deactivate()
                 self.custom_continuum_active = False
             else:
-                # User wants to keep editing — redraw clean spectrum with points still visible
-                self.spec_canvas.draw()
+                # User wants to keep editing - redraw the clean tab with points still visible
+                self._refresh_active_spectrum_tab()
 
         except Exception:
             traceback.print_exc()
 
-    
+
     def _save_custom_points(self):
         if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
             QMessageBox.warning(self, "Not Active", "Start a custom continuum session first by clicking 'Custom Subtract'.")

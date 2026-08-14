@@ -79,6 +79,14 @@ class GuiSpectrumMixin:
         self.spectrum_shift_preview = {"full": None, "left": None, "right": None}
         self._shift_preview_line = None
 
+        # Continuum-fit/preview artists, shared across tabs the same way as
+        # _shift_preview_line - only the active tab's own continuum ever
+        # shows at once. The per-tab continuum_fitted/continuum_subtracted/
+        # continuum_mode_applied dicts themselves live in gui.py's
+        # _init_state (GuiContinuumMixin owns the fitting/subtracting logic).
+        self._continuum_line_artist = None
+        self._continuum_zero_line = None
+
     def _on_normalize_toggled(self, checked):
         """Handle the Normalize checkbox - a global toggle, not per-tab."""
         self.spectrum_normalized = bool(checked)
@@ -198,14 +206,39 @@ class GuiSpectrumMixin:
         n_pixels = int(np.count_nonzero(mask))
         return mean_spectrum * float(n_pixels) if n_pixels else mean_spectrum
 
-    def _get_active_tab_spectrum(self):
-        """Return the flux array currently represented by the active tab, or
-        None if that tab has nothing to show (Left/Right with no selection)."""
-        tab = getattr(self, 'active_spectrum_tab', 'full')
+    def _get_tab_raw_flux(self, tab):
+        """Return `tab`'s own raw flux array (before continuum subtraction or
+        normalization), or None if that tab has nothing to show (Left/Right
+        with no selection). Full is always original_spectrum; Left/Right are
+        each derived fresh from their own stored selection every call, so
+        there's nothing to accidentally share or overwrite between tabs."""
         if tab == 'full':
             return getattr(self, 'original_spectrum', None)
         sel = self.last_selection_left if tab == 'left' else self.last_selection_right
         return self._get_selection_spectrum(sel)
+
+    def _apply_continuum(self, tab, y):
+        """Subtract `tab`'s own fitted continuum from y, if a continuum
+        subtraction is currently active for that specific tab - otherwise
+        return y unchanged. This is what keeps Full/Left/Right's continuum
+        subtractions independent: each tab's entry in continuum_fitted/
+        continuum_subtracted is only ever read/written for that tab."""
+        if y is None:
+            return y
+        if not self.continuum_subtracted.get(tab, False):
+            return y
+        continuum = self.continuum_fitted.get(tab)
+        if continuum is None or len(continuum) != len(y):
+            return y
+        return np.asarray(y, dtype=float) - np.asarray(continuum, dtype=float)
+
+    def _get_active_tab_spectrum(self):
+        """Return the raw flux array currently represented by the active
+        tab, or None if that tab has nothing to show (Left/Right with no
+        selection). Callers (Gaussian fitting) intentionally get the raw,
+        pre-continuum-subtraction flux - continuum subtraction only affects
+        what's drawn on the spectrum plot."""
+        return self._get_tab_raw_flux(getattr(self, 'active_spectrum_tab', 'full'))
 
     def _get_active_tab_line(self):
         """Return the Line2D currently representing the active tab's own
@@ -261,6 +294,24 @@ class GuiSpectrumMixin:
             self._shift_preview_line, = ax.plot([], [], color='orange', linewidth=1.5, alpha=0.8, zorder=4)
             self._shift_preview_line.set_visible(False)
 
+    def _ensure_continuum_artists(self):
+        """Lazily (re)create the shared continuum-fit and zero-level lines.
+
+        One of each is enough since only the active tab's own continuum is
+        ever shown at once - same reuse pattern as _shift_preview_line.
+        """
+        ax = self.spec_plotter.ax
+        if self._continuum_line_artist is None or self._continuum_line_artist.axes is not ax:
+            self._continuum_line_artist, = ax.plot(
+                [], [], color='orange', linewidth=2, linestyle='-', label='Continuum', zorder=10
+            )
+            self._continuum_line_artist.set_visible(False)
+        if self._continuum_zero_line is None or self._continuum_zero_line.axes is not ax:
+            self._continuum_zero_line = ax.axhline(
+                0, color='lightgrey', linestyle=':', linewidth=1.5, alpha=0.8, label='Zero Level', zorder=3
+            )
+            self._continuum_zero_line.set_visible(False)
+
     def _refresh_active_spectrum_tab(self):
         """Show the active tab's own trace, plus any Full-tab overplots and
         the active tab's own pending shift preview, if any.
@@ -289,6 +340,7 @@ class GuiSpectrumMixin:
 
         self._ensure_tab_lines()
         self._ensure_shift_preview_line()
+        self._ensure_continuum_artists()
         tab = self.active_spectrum_tab
 
         # Fallback x-array for the (should-be-rare) case base_wavelength
@@ -302,8 +354,11 @@ class GuiSpectrumMixin:
         x_full = tab_x("full")
 
         # Full is always just the original spectrum - never repurposed.
+        # Each tab's own continuum subtraction (if active) applies before
+        # normalization, same as every other per-tab transform here.
         if tab == "full":
-            y = self._maybe_normalize(getattr(self, 'original_spectrum', None))
+            y = self._apply_continuum("full", getattr(self, 'original_spectrum', None))
+            y = self._maybe_normalize(y)
             if y is not None and len(y) == len(x_full):
                 global_line.set_data(x_full, np.asarray(y, dtype=np.float32))
         full_shifted = self.spectrum_shift_factor.get("full", 1.0) != 1.0
@@ -326,12 +381,31 @@ class GuiSpectrumMixin:
             show = (tab == side and sel) or (tab == "full" and overplot_flags[side] and sel)
             if show:
                 x_side = tab_x(side)
-                y = self._maybe_normalize_side(side, self._get_selection_spectrum(sel))
+                y = self._apply_continuum(side, self._get_selection_spectrum(sel))
+                y = self._maybe_normalize_side(side, y)
                 if y is not None and len(y) == len(x_side):
                     line.set_data(x_side, np.asarray(y).astype(np.float32))
                     line.set_visible(True)
                     continue
             line.set_visible(False)
+
+        # Continuum-fit preview: only the ACTIVE tab's own fitted continuum
+        # ever shows, and only while the "Continuum Line" toggle is on.
+        continuum_fit = self.continuum_fitted.get(tab)
+        if getattr(self, 'continuum_line_btn', None) is not None and self.continuum_line_btn.isChecked() and continuum_fit is not None:
+            x_t = tab_x(tab)
+            if len(continuum_fit) == len(x_t):
+                self._continuum_line_artist.set_data(x_t, np.asarray(continuum_fit, dtype=float))
+                self._continuum_line_artist.set_visible(True)
+            else:
+                self._continuum_line_artist.set_visible(False)
+        else:
+            self._continuum_line_artist.set_visible(False)
+
+        # Zero-level reference line: shown whenever the active tab currently
+        # has a continuum subtracted, since subtracted values should hover
+        # around zero.
+        self._continuum_zero_line.set_visible(bool(self.continuum_subtracted.get(tab, False)))
 
         # Shift preview: only the ACTIVE tab's own pending preview ever
         # shows, overplotted (in orange) against that tab's own trace/color.
@@ -339,10 +413,12 @@ class GuiSpectrumMixin:
         if preview and self.base_wavelength is not None:
             preview_x = np.asarray(self.base_wavelength, dtype=float) * preview["factor"]
             if tab == "full":
-                preview_y = self._maybe_normalize(getattr(self, 'original_spectrum', None))
+                preview_y = self._apply_continuum("full", getattr(self, 'original_spectrum', None))
+                preview_y = self._maybe_normalize(preview_y)
             else:
                 sel = self.last_selection_left if tab == "left" else self.last_selection_right
-                preview_y = self._maybe_normalize_side(tab, self._get_selection_spectrum(sel))
+                preview_y = self._apply_continuum(tab, self._get_selection_spectrum(sel))
+                preview_y = self._maybe_normalize_side(tab, preview_y)
             if preview_y is not None and len(preview_y) == len(preview_x):
                 self._shift_preview_line.set_data(preview_x, np.asarray(preview_y, dtype=np.float32))
                 self._shift_preview_line.set_label(f"Preview (v={preview['velocity']:.1f} km/s)")
@@ -378,7 +454,8 @@ class GuiSpectrumMixin:
         ax = self.spec_plotter.ax
         visible = [
             line for line in (global_line, self._spec_tab_line_left, self._spec_tab_line_right,
-                              vline_left, vline_right, self._shift_preview_line)
+                              vline_left, vline_right, self._shift_preview_line,
+                              self._continuum_line_artist, self._continuum_zero_line)
             if line is not None and line.get_visible()
         ]
         try:
@@ -419,10 +496,11 @@ class GuiSpectrumMixin:
         so the axis correctly spans ~[0, 1] instead of the raw flux range.
 
         Exception: if a currently-visible Left/Right trace is Self-Normalized,
-        the "region <= full" guarantee that justifies sharing Full's scale no
-        longer holds (self-normalizing deliberately breaks that comparison to
-        show the region's own shape instead) - in that case, fit the axis to
-        the union of whatever's actually visible.
+        or the active tab currently has a continuum subtracted, the
+        "region <= full" guarantee that justifies sharing Full's scale no
+        longer holds (subtracted values sit near zero, self-normalizing
+        rescales to another region's own peak) - in that case, fit the axis
+        to the union of whatever's actually visible instead.
         """
         self_normalized_visible = (
             (self.self_normalize_left
@@ -430,8 +508,11 @@ class GuiSpectrumMixin:
             or (self.self_normalize_right
                 and self._spec_tab_line_right is not None and self._spec_tab_line_right.get_visible())
         )
+        continuum_active_on_shown = self.continuum_subtracted.get(
+            getattr(self, 'active_spectrum_tab', 'full'), False
+        )
 
-        if self_normalized_visible:
+        if self_normalized_visible or continuum_active_on_shown:
             lines = (self.spec_plotter.global_line, self._spec_tab_line_left, self._spec_tab_line_right,
                      self._shift_preview_line)
             visible_ys = [
