@@ -19,7 +19,6 @@ import pandas as pd
 import time
 import warnings
 from scipy.optimize import curve_fit
-from scipy.ndimage import gaussian_filter1d
 from astropy.io import fits
 from astropy import units as u
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,11 +35,10 @@ warnings.filterwarnings('ignore', category=FutureWarning, message='.*DataFrame c
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
     estimate_gaussian_params, calculate_baseline, compute_noise_std,
-    get_wave_unit, _resolve_flux_unit, GaussianFitResult, convert_area_to_cgs,
-    _extract_value_from_quantity,
+    GaussianFitResult, _extract_value_from_quantity,
 )
-from .rotational_diagram_fitter import get_spectral_resolution
-from .unit_converter import integrated_flux_to_cgs
+from .utils import get_spectral_resolution
+from .unit_converter import integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs
 
 # ================== Unit Utilities ==================
 

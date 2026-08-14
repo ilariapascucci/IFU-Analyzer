@@ -72,3 +72,53 @@ def detect_instrument(hdul):
             return "NIRSpec"
 
     return None  # if no match found
+
+
+def get_spectral_resolution(wavelength, instrument, header=None):
+    """
+    Calculate spectral resolution R(λ) = λ/Δλ for different instruments.
+
+    Args:
+        wavelength: float or array, wavelength in microns
+        instrument: str, instrument name ('NIRSPEC', 'MIRI')
+        header: astropy.io.fits.Header, optional. Required for NIRSpec to get grating info
+
+    Returns:
+        float or array, spectral resolution R(λ)
+
+    Formulas:
+        MIRI: R(λ) = 4603 - 128 * λ
+        NIRSpec (from grating):
+            - G140H, G235H, G395H: R ~ 2700
+            - G140M, G235M, G395M: R ~ 1000
+            - PRISM: R ~ 100
+    """
+    instrument = instrument.upper()
+
+    if instrument == 'MIRI':
+        # MIRI spectral resolution formula
+        return 4603 - 128 * wavelength
+
+    elif instrument == 'NIRSPEC':
+        if header is None:
+            raise ValueError("NIRSpec requires FITS header for grating information")
+
+        grating = header.get('GRATING', '').upper()
+
+        # High resolution gratings: R ~ 2700
+        if grating in ['G140H', 'G235H', 'G395H']:
+            return 2700
+
+        # Medium resolution gratings: R ~ 1000
+        elif grating in ['G140M', 'G235M', 'G395M']:
+            return 1000
+
+        # Low resolution prism: R ~ 100
+        elif grating == 'PRISM':
+            return 100
+
+        else:
+            raise ValueError(f"Unknown NIRSpec grating: {grating}")
+
+    else:
+        raise ValueError(f"Instrument {instrument} not yet supported for spectral resolution")

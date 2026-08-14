@@ -4,13 +4,13 @@ Implements single-temperature and two-temperature rotational diagram fits
 """
 
 import numpy as np
-from scipy.stats import linregress
 from scipy.optimize import curve_fit
 import pymc as pm
+import arviz as az
 
-from .unit_converter import integrated_flux_to_cgs
-
-
+from .unit_converter import integrated_flux_to_cgs, get_wave_unit, convert_area_to_cgs
+from .utils import get_spectral_resolution
+from .co_flux_extractor import gaussian, fit_auto_continuum, fit_hitran_lines_collective
 
 '''
 CONSTANTS
@@ -25,7 +25,7 @@ Msun = 1.989e33  # g
 au = 1.496e13  # cm
 pc = 3.086e18  # cm
 
-
+_PYMC_RANDOM_SEED = 42  # PyMC random seed for deterministic approach
 
 '''
 HITRAN DATA
@@ -147,56 +147,6 @@ def model_2T(E, a1, T1, a2, T2):
 UPPER LIMITS
 '''
 
-def get_spectral_resolution(wavelength, instrument, header=None):
-    """
-    Calculate spectral resolution R(λ) = λ/Δλ for different instruments.
-    
-    Args:
-        wavelength: float or array, wavelength in microns
-        instrument: str, instrument name ('NIRSPEC', 'MIRI')
-        header: astropy.io.fits.Header, optional. Required for NIRSpec to get grating info
-    
-    Returns:
-        float or array, spectral resolution R(λ)
-    
-    Formulas:
-        MIRI: R(λ) = 4603 − 128 × λ
-        NIRSpec (from grating):
-            - G140H, G235H, G395H: R ~ 2700
-            - G140M, G235M, G395M: R ~ 1000
-            - PRISM: R ~ 100
-    """
-    instrument = instrument.upper()
-    
-    if instrument == 'MIRI':
-        # MIRI spectral resolution formula
-        return 4603 - 128 * wavelength
-    
-    elif instrument == 'NIRSPEC':
-        if header is None:
-            raise ValueError("NIRSpec requires FITS header for grating information")
-        
-        grating = header.get('GRATING', '').upper()
-        
-        # High resolution gratings: R ~ 2700
-        if grating in ['G140H', 'G235H', 'G395H']:
-            return 2700
-        
-        # Medium resolution gratings: R ~ 1000
-        elif grating in ['G140M', 'G235M', 'G395M']:
-            return 1000
-        
-        # Low resolution prism: R ~ 100
-        elif grating == 'PRISM':
-            return 100
-        
-        else:
-            raise ValueError(f"Unknown NIRSpec grating: {grating}")
-    
-    else:
-        raise ValueError(f"Instrument {instrument} not yet supported for spectral resolution")
-
-
 def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=None, R=None):
     """
     Calculate upper limit flux from noise using spectral resolution.
@@ -212,7 +162,7 @@ def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=N
         tuple: (F_ul, delta_lambda) - upper limit flux and wavelength resolution
     
     Formula:
-        F_ul = 3 × σ_noise × Δλ
+        F_ul = 3sig_noise * Δλ
         where Δλ = λ/R (spectral resolution element)
         Result is in [MJy/sr·μm]
     """
@@ -227,107 +177,21 @@ def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=N
     return F_ul, delta_lambda
 
 
-def convert_flux_upper_limit_to_cgs(flux_ul_native, wavelength, header, flux_unit=None):
-    """
-    Convert upper limit flux from native units to CGS (erg/s/cm²).
-    
-    Designed specifically for upper limits computed as: 3σ_noise × Δλ
-    where Δλ = λ/R (spectral resolution element) and the result is in
-    [native_flux_unit × wavelength_unit].
-    
-    Args:
-        flux_ul_native: Upper limit flux in native units × wavelength
-                       (e.g., MJy/sr·μm for NIRSpec)
-        wavelength: Line wavelength in microns
-        header: FITS header containing CDELT1, CDELT2 (spatial pixel scales in degrees)
-        flux_unit: Native flux unit. Falls back to the header's BUNIT if None, so MUSE
-                   cubes convert too rather than being assumed to be MJy/sr.
-
-    Returns:
-        float: Upper limit flux in erg/s/cm², or None if conversion fails
-
-    The conversion itself lives in ``unit_converter.integrated_flux_to_cgs`` - the same
-    one used for Gaussian areas, so upper limits and detections cannot drift apart.
-    """
-    try:
-        if flux_unit is None and header is not None:
-            flux_unit = header.get('BUNIT', None)
-
-        return integrated_flux_to_cgs(
-            flux_ul_native,
-            flux_unit,
-            wavelength=wavelength,
-            header=header,
-            wave_unit='um',
-        )
-    except Exception:
-        return None
-
-
 def _collective_local_noise_stats(fit_result):
     """
-    Closed-form (no Monte Carlo, no re-fitting) standard error on a fixed-center/
-    fixed-sigma Gaussian amplitude, AND the underlying per-pixel noise level used
-    for the upper-limit threshold -- both derived from the same residuals
-    fit_hitran_lines_collective already returned for this line, so the two numbers
-    can't disagree about what "noise" means here the way they used to.
-
-    Why not Monte Carlo noise injection for the amplitude error (re-fit with a
-    nonlinear, free-center/free-sigma model many times and take the std dev of the
-    results): that model is different from the one that actually produced this
-    amplitude (fixed center/sigma, linear lstsq), so it would estimate the error
-    of a different fit than the one being reported, and does so far more slowly.
-    For a linear model the parameter covariance has a direct closed form.
-
-    Amplitude was NOT estimated alone: fit_hitran_lines_collective's design matrix
-    always appends a constant column ("a constant term for any small residual left
-    after the global continuum subtraction"), even for a single requested line
-    with no contaminants -- global continuum subtraction is one smooth curve fit
-    across the whole spectrum, so it isn't guaranteed to land at exactly zero in
-    the specific pixels under any one line. Without that column, a real leftover
-    offset there has nowhere to go except into the amplitude itself, biasing it
-    (verified numerically: an amplitude-only fit against data with a genuine small
-    offset came out measurably too high, while the 2-parameter fit recovered the
-    true amplitude and identified the offset separately). So the coefficients
-    that actually came out of the real lstsq solve are [amplitude, local
-    baseline], jointly and correlated -- estimating amplitude's error as if it
-    were the only unknown ignores that correlation and understates it. This
-    reconstructs the same 2-parameter design matrix and gets the standard OLS
-    parameter covariance:
+    No Monte Carlo as we are using a Multigaussian approach given we have
+    a fixed center and sigma (only 2 free parameters: amplitude and residual constant).
+    
+    We use the covariance formula for two parameters:
 
         Cov(beta) = noise_var * (X^T X)^-1,   X = [template, 1]
 
-    amplitude's variance is the (0,0) entry. noise_var = sum(residuals^2)/dof,
-    dof = n - 2 (two parameters: amplitude and the local constant). Its square
-    root is also exactly what the upper-limit threshold needs: a per-pixel noise
-    level measured against the *same* model the flux itself came from, rather
-    than estimate_noise_local's old approach of re-deriving a separate, cruder
-    straight-line fit against the raw (not continuum-subtracted) spectrum -- which
-    could pick up real unmodeled structure (a PAH bump, continuum curvature) as if
-    it were noise, inflating the threshold and mislabeling a good detection as a
-    non-detection (this is what was happening at 5.51 um: the real fitted flux
-    nearly exactly matched an independent reference value, but got flagged as an
-    upper limit anyway because that local window's noise estimate was inflated).
+    noise_var = sum(residuals^2)/dof, dof = n - 2 (two parameters: amplitude and the local constant).
+    
+    noise_var comes from this line's own local residuals rather than np.linalg.lstsq's own.
 
-    noise_var deliberately comes from this line's own *local* residuals rather
-    than np.linalg.lstsq's own (currently unused) whole-fit SSE: that would be one
-    noise number averaged over the entire joint fit -- every line, every
-    contaminant, the whole padded window -- diluting exactly the kind of localized
-    excess noise (blending, a poorly-tracked continuum near just this line) that
-    should inflate THIS line's error specifically, not get smoothed away by
-    cleaner data elsewhere in the spectrum.
-
-    This is still a local approximation of the *full* joint covariance -- it
-    doesn't account for correlation with *other* lines'/contaminants' templates
-    when more than one shares the design matrix. fit_hitran_lines_collective
-    already drops a contaminant's template entirely when it's near-degenerate with
-    a requested line's (<2 sigma apart), which is exactly the case where that
-    correlation would matter most, so what's left out here should be small.
-
-    Returns (amp_error, noise_std), both native flux units, or (None, None) if
-    there isn't enough local data to estimate them.
+    Returns (amp_error, noise_std) or (None, None).
     """
-    from .co_flux_extractor import gaussian
 
     x = fit_result.x_data
     if len(x) < 3:
@@ -353,33 +217,22 @@ def _collective_local_noise_stats(fit_result):
 def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header, instrument,
                                     contam_lines=None):
     """
-    Fit every line in `line_wavelengths` simultaneously in one (already spatially-
-    summed) spectrum, via fit_hitran_lines_collective's linear least-squares solve:
-    fixed center + fixed instrument-resolution sigma, one design-matrix solve for
-    every line's amplitude at once (as opposed to an independent per-line nonlinear
-    curve_fit). For rotational-diagram lines this is usually the better fit: they're
-    often weak/high-J and can sit close to other species' features, which an
-    independent per-line fit has no way to keep from leaking in.
+    Fit every line in `line_wavelengths` simultaneously in one spectrum (fit_hitran_lines_collective).
+    For rotational-diagram lines this is usually the better fit.
 
     Args:
         wavelength_arr, spectrum_arr: 1D arrays for the (spatially-summed) spectrum
         line_wavelengths: list of target line center wavelengths (microns)
         header: FITS header (for spectral resolution + unit conversion)
         instrument: Instrument name ('MIRI', 'NIRSPEC', ...)
-        contam_lines: optional pd.DataFrame (same 'line_wave_um' format
-            load_contaminating_lines_catalog() returns) -- non-target lines that get
-            their own template column so they stop leaking into a requested line's
-            amplitude, passed straight through to fit_hitran_lines_collective. None
-            (default) skips this, same as if no catalog were loaded.
+        contam_lines: optional pd.DataFrame
+            None (default) skips this, same as if no catalog were loaded.
 
     Returns:
         list of dicts, same length/order as line_wavelengths. Each dict has keys
         success (bool), message (str or None), and on success also flux_cgs,
         flux_error_cgs, is_upper_limit, F_ul_cgs, sigma_noise, delta_lambda.
     """
-    from .gaussian_fitter import get_wave_unit, convert_area_to_cgs
-    from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
-
     try:
         continuum = fit_auto_continuum(wavelength_arr, spectrum_arr)
     except Exception as e:
@@ -399,24 +252,15 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
     for line, fit_result in fit_pairs:
         wl = line['wavelength']
 
-        # amp <= 0 ("No significant signal") is a real, expected outcome for a weak
-        # or non-detected line, not a fit failure to abort on -- area is 0 in that
-        # case, which flows straight into the upper-limit check below. Only bail out
-        # here if there wasn't even enough spectral data to attempt a fit.
+        # edge case for amp <= 0
         if not fit_result.success and "Not enough spectral points" in (fit_result.message or ""):
             results.append({"success": False, "message": fit_result.message})
             continue
 
-        # Already CGS (erg/s/cm^2): fit_hitran_lines_collective calls
-        # convert_area_to_cgs internally when a header is given.
+        # Already CGS (erg/s/cm^2)
         flux_integrated = fit_result.area
 
-        # Closed-form error consistent with the fixed-center/sigma model that
-        # produced flux_integrated -- see _collective_local_noise_stats's docstring
-        # for why this replaces a Monte Carlo re-fit with a free-parameter model.
-        # sigma_noise (for the upper-limit threshold below) comes from the exact
-        # same residuals, so "how uncertain is this" and "is this even real" can no
-        # longer disagree about what counts as noise in this window.
+        # get noise
         amp_error, sigma_noise = _collective_local_noise_stats(fit_result)
         if amp_error is None:
             results.append({"success": False, "message": "Could not estimate flux error"})
@@ -427,8 +271,12 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             continue
 
         F_ul_native, delta_lambda_ul = gaussian_flux_upper_limit(sigma_noise, wl, instrument=instrument, header=header)
-        F_ul_cgs = convert_flux_upper_limit_to_cgs(F_ul_native, wl, header, flux_unit='MJy/sr')
+        try:
+            F_ul_cgs = integrated_flux_to_cgs(F_ul_native, 'MJy/sr', wavelength=wl, header=header, wave_unit='um')
+        except Exception:
+            F_ul_cgs = None
 
+        # determine if a line is upper limit by its flux
         is_upper_limit = flux_integrated < F_ul_cgs
 
         print(f"[BATCH_FLUX] Line @ {wl:.6f} um (collective):")
@@ -457,11 +305,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
 # CENSORED MODELS (ONLY USED IF ENABLED)
 # ==========================================================
 def _print_pymc_diagnostics(trace, var_names):
-    """Print divergence count and r_hat for a PyMC trace; return them so
-    callers can also check convergence programmatically instead of just
-    trusting the posterior mean/std.
-    """
-    import arviz as az
+    """Show PyMC stats in GUI"""
 
     n_divergent = int(trace.sample_stats.diverging.sum())
     summary = az.summary(trace, var_names=var_names)
@@ -476,31 +320,9 @@ def _print_pymc_diagnostics(trace, var_names):
 
     return {"n_divergences": n_divergent, "max_r_hat": max_rhat}
 
-
-# Fixes pm.sample()'s random state (init jitter + HMC trajectories + accept/reject)
-# so the exact same inputs always produce the exact same trace. This does NOT fix
-# borderline convergence (a run that lands at r_hat=1.02 with this seed will land
-# there every time, not improve) -- it only makes results reproducible, so two runs
-# on the same data can be compared directly instead of each being an independent
-# random draw that might disagree for no reason other than luck.
-_PYMC_RANDOM_SEED = 42
-
-
 def _pymc_progress_callback(label, tune, draws, chains, progress_callback=None):
-    """Build a pm.sample() callback that reports periodic sampling progress.
+    """Enables progress bar"""
 
-    Always prints to console (real sampling progress -- draws actually
-    completed out of the actual total -- not a stand-in count of upper-limit
-    lines, since a single joint MCMC run has no per-line breakdown for that to
-    correspond to). If `progress_callback(current, total)` is also given (e.g.
-    a QThread worker's signal emitter -- same (current, total) convention
-    fit_gaussians_per_pixel's progress_callback already uses), it's called
-    alongside the print, so a GUI caller can drive a real progress bar instead
-    of just reading console liveness.
-
-    Reports roughly every 10% rather than every draw, to stay readable/cheap
-    across a run of thousands of draws.
-    """
     total_per_chain = tune + draws
     total = total_per_chain * chains
     next_milestone = [max(1, total // 10)]
@@ -529,34 +351,19 @@ def censored_1T(E, y, yerr, is_ul, progress_callback=None):
 
     with pm.Model() as model:
 
-        # === PRIORS ===
-        # log(Ncol) ~ Normal(data mean, sigma=5 dex)
+        # PRIORS: log(Ncol) ~ Normal(data mean, sigma=5 dex)
         a = pm.Normal("a", mu=np.mean(y[mask]), sigma=5)
         # Temperature range: 10 K to 5000 K (reasonable for H2)
         T = pm.Uniform("T", 10, 5000)
 
-        # === LINEAR MODEL ===
-        # rotational diagram: ln(N/g) = a - E_u/T
+        # LINEAR: rotational diagram: ln(N/g) = a - E_u/T
         mu = a - E / T
 
-        # === LIKELIHOOD FOR DETECTIONS ===
-        # Fit only the non-upper-limit points (mask=True), weighted by each
-        # point's own measured uncertainty (yerr = dNu/Nu, already the correct
-        # log-space sigma via the delta method). rotational_diagram() already
-        # rejects any detection with yerr <= 0 before this is ever called -- no
-        # floor needed here; trust that guarantee rather than silently covering
-        # for invalid input a caller should have refused earlier.
+        # LIKELIHOOD: Fit only the non-upper-limit points.
         pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
-        # === LIKELIHOOD FOR UPPER LIMITS ===
+        # LIKELIHOOD FOR UPPER LIMITS
         # Censored: treat measured value as upper bound
-        # y_ul < F_ul means ln(N/g)_meas is an upper limit on the true value.
-        # sigma stays a fixed 1.0 here deliberately, unlike the detections above:
-        # an upper limit has no real per-point measurement uncertainty to use --
-        # _build_dataset sets its yerr to a placeholder 0.0 (not a real sigma),
-        # and pm.Normal.dist(sigma=0) would be degenerate. 1.0 is a weakly-
-        # informative width for "how sharply the model expects mass below the
-        # ceiling," not a measured quantity.
         if np.any(is_ul):
             pm.Censored(
                 "ul",
@@ -567,10 +374,7 @@ def censored_1T(E, y, yerr, is_ul, progress_callback=None):
                 observed=y[is_ul]
             )
 
-        # === SAMPLING ===
-        # 2 chains (sequential, cores=1) so r_hat/divergences are actually
-        # checkable instead of trusting a single chain; target_accept raised
-        # from PyMC's default 0.8 to reduce divergences in this a-vs-T ridge.
+        # SAMPLING: 2 chains (sequential, cores=1) so r_hat/divergences are checkable
         trace = pm.sample(
             500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False,
             random_seed=_PYMC_RANDOM_SEED,
@@ -580,7 +384,6 @@ def censored_1T(E, y, yerr, is_ul, progress_callback=None):
 
     diagnostics = _print_pymc_diagnostics(trace, ["a", "T"])
 
-    # === RETURN POSTERIOR ESTIMATES ===
     return {
         "a": float(trace.posterior["a"].mean()),        # log(Ncol)
         "da": float(trace.posterior["a"].std()),        # uncertainty
@@ -609,44 +412,28 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None):
 
     with pm.Model() as model:
 
-        # === PRIORS (2-component model) ===
-        # Component 1 = the cooler component, seeded near the 1T result.
+        # PRIORS:
+        # Component 1 = the cooler component
         a1 = pm.Normal("a1", mu=a1_init, sigma=5)           # log(Ncol), cool component
         T1 = pm.Uniform("T1", 10, 5000)                     # temp, cool component
 
-        # Component 2 = the hotter component (a2 seeded 5 dex lower: less
-        # populated, as expected for the hot component). T2's lower bound is T1
-        # itself, not a fixed number -- this forces T2 > T1 always, rather than
-        # leaving both as identical, unordered Uniform(10, 5000) priors. Without
-        # that constraint, nothing stops the sampler from calling the hot
-        # population "component 1" in one draw and "component 2" in another --
-        # classic MCMC "label switching" for a 2-component mixture. Two chains
-        # that agree on the physics but disagree on which label they gave each
-        # component look like they disagree entirely (bad r_hat, low ESS), which
-        # is exactly the non-convergence warning this fit was producing before.
+        # Component 2 = the hotter component (T2>T1)
+        # Avoid label switching
         a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)         # log(Ncol), hot component
         T2 = pm.Uniform("T2", T1, 5000)                     # temp, hot component (> T1)
 
-        # === TWO-TEMPERATURE MODEL ===
-        # Combine two exponential terms in log space:
-        # μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))
+        # TWO-TEMPERATURE MODEL: μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))
         # This is a mixture of two Boltzmann distributions
         mu = pm.math.log(
             pm.math.exp(a1 - E/T1) +
             pm.math.exp(a2 - E/T2)
         )
 
-        # === LIKELIHOOD FOR DETECTIONS ===
-        # Fit only detections; weighted by each point's own measured uncertainty
-        # -- see censored_1T's identical line for why no floor is needed (yerr is
-        # already the right log-space sigma, and rotational_diagram() already
-        # rejected any detection with yerr <= 0 before this is ever called).
+        # LIKELIHOOD: Fit only detections
         pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
-        # === LIKELIHOOD FOR UPPER LIMITS ===
-        # Same censoring approach: y_measured is upper bound on true value. sigma
-        # stays a fixed 1.0 here -- see censored_1T for why (no real per-point
-        # uncertainty exists for a non-detection to plug in instead).
+        # LIKELIHOOD FOR UPPER LIMITS
+        # Censored: treat measured value as upper bound
         if np.any(is_ul):
             pm.Censored(
                 "ul",
@@ -655,10 +442,7 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None):
                 observed=y[is_ul]
             )
 
-        # === SAMPLING ===
-        # 2 chains (sequential, cores=1) so r_hat/divergences are actually
-        # checkable; target_accept raised to reduce divergences in this
-        # 4-parameter censored mixture (more prone to them than 1T).
+        # SAMPLING: 2 chains (sequential, cores=1) so r_hat/divergences are checkable.
         trace = pm.sample(
             500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False,
             random_seed=_PYMC_RANDOM_SEED,
@@ -668,21 +452,20 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None):
 
     diagnostics = _print_pymc_diagnostics(trace, ["a1", "T1", "a2", "T2"])
 
-    # === RETURN POSTERIOR ESTIMATES ===
     return {
-        # Best-fit parameters (posterior means)
+        # Best-fit parameters
         "popt": np.array([
             float(trace.posterior["a1"].mean()),     # log(Ncol1)
             float(trace.posterior["T1"].mean()),     # T_warm
             float(trace.posterior["a2"].mean()),     # log(Ncol2)
             float(trace.posterior["T2"].mean())      # T_cool
         ]),
-        # Uncertainties (posterior stds)
+        # Uncertainties
         "errs": np.array([
-            float(trace.posterior["a1"].std()),      # δlog(Ncol1)
-            float(trace.posterior["T1"].std()),      # δT_warm
-            float(trace.posterior["a2"].std()),      # δlog(Ncol2)
-            float(trace.posterior["T2"].std())       # δT_cool
+            float(trace.posterior["a1"].std()),      # dlog(Ncol1)
+            float(trace.posterior["T1"].std()),      # dT_warm
+            float(trace.posterior["a2"].std()),      # dlog(Ncol2)
+            float(trace.posterior["T2"].std())       # dT_cool
         ]),
         "n_divergences": diagnostics["n_divergences"],
         "max_r_hat": diagnostics["max_r_hat"],
@@ -786,13 +569,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         flux_errors: Dictionary {J: flux_error}
         molecular_data: Dictionary with 'wavelengths', 'Aul', 'Eu', 'gu' keys
                        Each value is a dict {J: value}
-        progress_callback: optional callback(phase, current, total), phase being
-            "1T" or "2T" -- only ever called when the censored PyMC path actually
-            runs (upper limits present); the ordinary curve_fit path is fast
-            enough that there is nothing meaningful to report progress on. Passed
-            straight through to censored_1T/censored_2T with the phase label
-            attached, so a GUI caller (e.g. a QThread worker) can drive a real
-            progress bar instead of only having console liveness prints to go on.
+        progress_callback: GUI caller (e.g. a QThread worker) can drive a real
+            progress bar instead of only having console prints.
         OPR: Fixed ortho-para ratio. Used as-is when fit_opr=False (None defaults to
              3.0, see apply_OPR). Ignored (overwritten by the search result) when
              fit_opr=True.
@@ -1005,12 +783,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     n_detections = np.sum(~is_ul_mask)
     has_upper_limits = np.any(is_ul_mask)
 
-    # A detection's y_err is only ever real data (dF/F from a measured flux error)
-    # or the row is dropped entirely -- _build_dataset never defaults it. The one
-    # way a zero still reaches here is a user literally entering "0" as a flux
-    # error for a detection, which isn't a real 0-uncertainty measurement, it's
-    # invalid input -- reject it explicitly rather than let a downstream fit
-    # silently give that one point near-infinite weight.
+    # A detection's y_err is only ever real data
     det_y_err = y_err[~is_ul_mask]
     if np.any(det_y_err <= 0):
         bad_idx = np.where(~is_ul_mask)[0][det_y_err <= 0]

@@ -4,10 +4,8 @@ Single unified interface for selecting molecules, lines, and entering flux data
 """
 
 import os
-import re
+import csv
 import numpy as np
-import matplotlib.pyplot as plt
-from astropy.io import fits
 
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
@@ -21,8 +19,9 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from .line_catalog import fetch_hitran_data
-from .rotational_diagram_fitter import gaussian_flux_upper_limit, get_spectral_resolution, get_gu
+from .data_loader import CubeData
+from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
+from .rotational_diagram_fitter import rotational_diagram, get_gu, compute_line_fluxes_collective, model_1T, model_2T
 
 
 # Constants
@@ -34,13 +33,6 @@ MOLECULE_ISOTOPOLOGUES = {
     'H2': {'labels': ['H₂', 'HD', 'D₂'], 'range': (1, 3)},
     'CO': {'labels': ['¹²C¹⁶O', '¹³C¹⁶O', '¹²C¹⁸O', '¹²C¹⁷O', '¹³C¹⁸O'], 'range': (1, 5)},
 }
-
-# Regex patterns for extracting vibrational transitions per molecule
-MOLECULE_TRANSITION_PATTERNS = {
-    'H2': r'v=\d+',  # Matches "v=0", "v=1", etc.
-    'CO': r'v=(\d+)->(\d+)',  # Matches "v=1->0", "v=2->1", etc.
-}
-
 
 class HitranFetchThread(QThread):
     """Background thread for fetching HITRAN data"""
@@ -71,13 +63,7 @@ class HitranFetchThread(QThread):
 
 
 class RotationalFitWorker(QThread):
-    """Background thread for the rotational-diagram fit itself. Needed specifically
-    for the censored-PyMC path (upper limits present): pm.sample() blocks for
-    however long sampling takes (minutes for a 2T fit), and running that on the
-    GUI thread would freeze the whole app, including any progress dialog trying to
-    repaint during it. The ordinary curve_fit path is fast enough this wouldn't
-    matter, but rotational_diagram() doesn't know in advance which path a given
-    call will take, so every fit goes through this worker uniformly."""
+    """Background thread for the rotational-diagram fit itself."""
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     progress = pyqtSignal(str, int, int)  # (phase "1T"/"2T", current, total)
@@ -97,7 +83,6 @@ class RotationalFitWorker(QThread):
 
     def run(self):
         try:
-            from .rotational_diagram_fitter import rotational_diagram
             results = rotational_diagram(
                 self.fluxes,
                 self.flux_errors,
@@ -130,13 +115,14 @@ class RotationalDiagramWindow(QMainWindow):
         
         self.hitran_lines = []
         self.fetch_thread = None
-        self.updating_error_columns = False  # Flag to prevent recursive updates
-        self.updating_flux_flag = False  # Same, for the Flux column's red/clear flag
-        self.updating_manual_stats = False  # Same, for manually-entered A_ul/E_u/g_u
-        self.updating_flux_error_flag = False  # Same, for the Flux Error column's red/clear flag
 
-        # Loaded once via "Load FITS Files" / "Load Contaminating Lines", reused by
-        # every Calculate Fluxes click instead of re-prompting/re-loading each time
+        # Flags to prevent recursive updates
+        self.updating_error_columns = False
+        self.updating_flux_flag = False
+        self.updating_manual_stats = False
+        self.updating_flux_error_flag = False
+
+        # Loaded once and reused to calculate fluxes
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
         self.loaded_batch_spectra = []
@@ -183,14 +169,8 @@ class RotationalDiagramWindow(QMainWindow):
             ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
              "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source"]
         )
-        # Every column sizes itself to its widest current cell and stays there --
-        # no manual dragging, no guessed pixel widths to keep in sync as columns
-        # get added/renamed. Re-fits automatically whenever cell content changes
-        # (e.g. populate_lines_table, or Source getting filled in), not just once.
+        # Resize cells given content; padding
         self.lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        # A little breathing room around cell/header text -- Qt includes QSS
-        # padding in the size hint ResizeToContents measures, so this stays
-        # correct on every re-fit rather than needing a one-off pixel bump.
         self.lines_table.setStyleSheet(
             "QTableWidget::item { padding: 2px 6px; } "
             "QHeaderView::section { padding: 2px 6px; }"
@@ -199,10 +179,7 @@ class RotationalDiagramWindow(QMainWindow):
         
         # Connect table changes for auto-calculation
         self.lines_table.itemChanged.connect(self.on_table_item_changed)
-        
-        # Connect upper limit checkbox changes
-        self.lines_table.cellClicked.connect(self.on_cell_clicked)
-        
+
         # Bottom: Physical parameters + buttons
         bottom_layout = QHBoxLayout()
         
@@ -246,10 +223,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.opr_advanced_btn.clicked.connect(self.on_opr_advanced_toggled)
         bottom_layout.addWidget(self.opr_advanced_btn)
 
-        # Advanced OPR grid controls - hidden until "Advanced" is clicked, expands to the
-        # right in this same row. Only meaningful once "Fit OPR" is checked. Defaults
-        # (0.1, 3.0, 400) match the notebook's own reference grid, not the fitter's
-        # built-in default (0.1, 5.0, 200).
+        # Advanced OPR grid controls with script defaults
         self.opr_advanced_frame = QFrame()
         opr_advanced_layout = QHBoxLayout(self.opr_advanced_frame)
         opr_advanced_layout.setContentsMargins(10, 0, 0, 0)
@@ -376,7 +350,7 @@ class RotationalDiagramWindow(QMainWindow):
         
         self.calculate_fluxes_btn = QPushButton("Calculate Fluxes")
         self.calculate_fluxes_btn.clicked.connect(self.open_batch_flux_dialog)
-        self.calculate_fluxes_btn.setVisible(False)  # Hidden until lines are loaded (HITRAN fetch or CSV import)
+        self.calculate_fluxes_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.calculate_fluxes_btn)
 
         self.load_fits_btn = QPushButton("Load FITS Files")
@@ -385,7 +359,7 @@ class RotationalDiagramWindow(QMainWindow):
             "on every click, instead of re-prompting each time."
         )
         self.load_fits_btn.clicked.connect(self.load_batch_fits_files)
-        self.load_fits_btn.setVisible(False)  # Hidden until lines are loaded, same as Calculate Fluxes
+        self.load_fits_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.load_fits_btn)
 
         self.load_contam_btn = QPushButton("Load Contaminating Lines")
@@ -395,11 +369,11 @@ class RotationalDiagramWindow(QMainWindow):
             "the main Gaussian-fit window's contaminating-lines loader."
         )
         self.load_contam_btn.clicked.connect(self.load_contaminating_lines_for_batch)
-        self.load_contam_btn.setVisible(False)  # Hidden until lines are loaded, same as Calculate Fluxes
+        self.load_contam_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.load_contam_btn)
 
         self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
-        self.contam_status_label.setVisible(False)  # Hidden until lines are loaded, same as Calculate Fluxes
+        self.contam_status_label.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.contam_status_label)
 
         button_layout.addStretch()
@@ -471,11 +445,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.update_error_columns()
     
     def update_error_columns(self):
-        """Update which columns are editable based on error mode. Skips rows
-        currently flagged Upper Limit -- their Flux Error/Error % are hidden and
-        non-editable regardless of mode (see sync_flux_error_flag), so a global
-        mode switch (or a call from sync_flux_error_flag itself, for the row that
-        just became a non-upper-limit) shouldn't re-enable editing on them."""
+        """Update which columns are editable based on error mode."""
         is_value_mode = "Values" in self.error_mode.currentText()
 
         for row in range(self.lines_table.rowCount()):
@@ -578,10 +548,8 @@ class RotationalDiagramWindow(QMainWindow):
             self.updating_error_columns = False
 
     def sync_manual_line_stats(self, row):
-        """For a row with no HITRAN match, write manually-typed A_ul/E_u/g_u back into
-        self.hitran_lines and enable that row's fit checkbox only once all three are
-        present and physically valid (A_ul > 0, g_u > 0). Never assumes a value for
-        a field the user hasn't actually filled in.
+        """For a row with no HITRAN match, write manually-typed A_ul/E_u/g_u.
+        Enable that row's fit checkbox only once all three are present and physically valid.
         """
         if row >= len(self.hitran_lines):
             return
@@ -643,9 +611,7 @@ class RotationalDiagramWindow(QMainWindow):
             self.updating_manual_stats = False
 
     def sync_flux_flag(self, row):
-        """Flag the Flux cell red while empty (flux is required for the fit); clear
-        the flag as soon as a value is present, whether typed by hand or written by
-        Calculate Fluxes (setText() there fires the same itemChanged signal)."""
+        """Flag the Flux cell red while empty; clear otherwise."""
         if self.updating_flux_flag:
             return
         self.updating_flux_flag = True
@@ -663,12 +629,7 @@ class RotationalDiagramWindow(QMainWindow):
             self.updating_flux_flag = False
 
     def sync_calculated_flag(self, row):
-        """Editing the Flux cell means its value is no longer (only) what Calculate
-        Fluxes computed -- reset Calculated?/Source to unset by default. This runs
-        on every Flux edit, including the setText() calculate_fluxes_batch itself
-        makes; that function then explicitly re-checks the box and re-fills Source
-        right after, so a fresh auto-calculation still ends up marked calculated --
-        only an actual manual edit is left unmarked."""
+        """Reset Calculated?/Source to unset by default when edited."""
         calc_checkbox = self.lines_table.cellWidget(row, 11)
         if calc_checkbox:
             calc_checkbox.setChecked(False)
@@ -677,21 +638,7 @@ class RotationalDiagramWindow(QMainWindow):
             source_item.setText("")
 
     def sync_flux_error_flag(self, row):
-        """Flag the Flux Error cell red when blank and the line isn't marked as an
-        Upper Limit: rotational_diagram_fitter._build_dataset excludes any such
-        detection from the fit entirely rather than assuming an error (no unweighted
-        fallback), so this surfaces that before Run Fit instead of via the post-fit
-        "Lines Excluded" dialog.
-
-        Marking a line as Upper Limit does more than clear that flag: it hides the
-        Flux Error and Error % values entirely (blanked, non-editable, no red flag)
-        rather than leaving them visible and editable as if they still mattered --
-        both are ignored for upper limits regardless of what's typed there (a fixed
-        0 error is used instead), so showing them invites editing a number that has
-        no effect. The real value (if any) is stashed on the item's own data role,
-        not erased, so unchecking Upper Limit brings it back exactly as it was
-        rather than losing what was typed in.
-        """
+        """Flag the Flux Error cell red when blank and the line isn't marked as an Upper Limit."""
         if self.updating_flux_error_flag:
             return
         self.updating_flux_error_flag = True
@@ -717,9 +664,7 @@ class RotationalDiagramWindow(QMainWindow):
                     )
                 return
 
-            # Not an upper limit: restore whatever was stashed (if anything), then
-            # let update_error_columns() decide which of the two is editable based
-            # on the current Values/Percentages mode -- not this function's job.
+            # Not an upper limit: restore whatever was stashed (if anything).
             for item in (error_item, pct_item):
                 stashed = item.data(Qt.UserRole)
                 if stashed:
@@ -737,9 +682,7 @@ class RotationalDiagramWindow(QMainWindow):
                 )
 
             # Let update_error_columns() decide which of Flux Error / Error % is
-            # editable based on the current Values/Percentages mode -- only reached
-            # here (not upper limit), so it can't undo the non-editable state just
-            # set above for an upper-limit row.
+            # editable based on the current Values/Percentages mode.
             self.update_error_columns()
         finally:
             self.updating_flux_error_flag = False
@@ -779,8 +722,7 @@ class RotationalDiagramWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"No {self.current_molecule} lines found in this wavelength range")
             return
         
-        # Set workflow mode to HITRAN. Fetch/Import stay both enabled -- doing the
-        # other one later just replaces these lines rather than being locked out.
+        # Set workflow mode to HITRAN. Fetch/Import stay both enabled
         self.workflow_mode = 'hitran'
         self.calculate_fluxes_btn.setVisible(True)
         self.load_fits_btn.setVisible(True)
@@ -808,8 +750,6 @@ class RotationalDiagramWindow(QMainWindow):
             return
         
         try:
-            import csv
-            
             # Read CSV file
             rows = []
             csv_data = []
@@ -820,9 +760,7 @@ class RotationalDiagramWindow(QMainWindow):
                     QMessageBox.warning(self, "Error", "CSV file is empty")
                     return
                 
-                # Check for required columns (case-insensitive). Flux is optional —
-                # a CSV with just species + wavelength is enough; missing fluxes get
-                # filled in later via "Calculate Fluxes", same as the HITRAN workflow.
+                # Check for required columns (case-insensitive). Flux is optional.
                 available_cols = {col.strip().lower(): col.strip() for col in reader.fieldnames if col}
                 required_cols = {'species', 'wavelength'}
 
@@ -853,10 +791,6 @@ class RotationalDiagramWindow(QMainWindow):
 
                 for row_dict in reader:
                     try:
-                        # csv.DictReader fills columns missing from a short/ragged row
-                        # with None (not '') -- guard every .get() the same way so a
-                        # row that only has species+wavelength doesn't crash on
-                        # None.strip().
                         species = (row_dict.get(species_col) or '').strip().upper()
                         wavelength = float((row_dict.get(wavelength_col) or '').strip())
 
@@ -865,8 +799,7 @@ class RotationalDiagramWindow(QMainWindow):
                             'wavelength': wavelength,
                         }
 
-                        # Flux is best-effort: a blank/missing value just leaves the
-                        # row without one, to be filled in later via Calculate Fluxes
+                        # Flux is best-effort
                         if has_flux and flux_col:
                             flux_str = (row_dict.get(flux_col) or '').strip()
                             if flux_str:
@@ -956,10 +889,8 @@ class RotationalDiagramWindow(QMainWindow):
                         'species': species
                     }
                 else:
-                    # No matching HITRAN line -- A_ul/E_u/g_u are hard physics inputs
-                    # (Nu = 4*pi*F*lam/(h*c*A_ul), E_u is the plot's x-axis), so we never
-                    # assume a value for them. The row is flagged in the table and its
-                    # checkbox stays disabled until the user types in all three by hand.
+                    # No matching HITRAN line, so we never assume a value for them.
+                    # The row is flagged in the table and disabled until values are input.
                     row_data = {
                         'wavelength': wavelength,
                         'hitran_matched': False,
@@ -970,7 +901,7 @@ class RotationalDiagramWindow(QMainWindow):
                           f"-- A_ul/E_u/g_u left blank; this line is excluded from fitting "
                           f"until they're entered manually.")
 
-                # Flux is optional in the CSV — only set it if the row actually had one
+                # Flux is optional in the CSV
                 if 'flux' in csv_row:
                     row_data['flux'] = csv_row['flux']
 
@@ -986,8 +917,7 @@ class RotationalDiagramWindow(QMainWindow):
             # Pre-fill errors if they were provided in CSV
             self.populate_csv_errors()
 
-            # Set workflow mode to CSV. Fetch/Import stay both enabled -- doing the
-            # other one later just replaces these lines rather than being locked out.
+            # Set workflow mode to CSV. Fetch/Import stay both enabled.
             self.workflow_mode = 'csv'
             self.calculate_fluxes_btn.setVisible(True)
             self.load_fits_btn.setVisible(True)
@@ -1048,17 +978,13 @@ class RotationalDiagramWindow(QMainWindow):
                                 pass
     
     def load_batch_fits_files(self):
-        """Select and cache the FITS cube(s) Calculate Fluxes will use -- loaded once
-        here instead of re-prompting/re-loading from disk on every Calculate Fluxes
-        click. Replaces whatever was previously loaded rather than accumulating."""
+        """Select and cache the FITS cube(s) Calculate Fluxes will use."""
         fits_paths, _ = QFileDialog.getOpenFileNames(
             self, "Load FITS Files For Flux Calculation", "",
             "FITS Files (*.fits *.fit);;All Files (*.*)"
         )
         if not fits_paths:
             return
-
-        from .data_loader import CubeData
 
         loaded_paths, loaded_cubes, loaded_spectra, failed = [], [], [], []
         for fits_path in fits_paths:
@@ -1076,9 +1002,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.loaded_batch_cubes = loaded_cubes
         self.loaded_batch_spectra = loaded_spectra
 
-        # Which files are loaded lives on the button's own tooltip rather than a
-        # separate label -- the count next to the button was redundant with what
-        # you just picked in the file dialog
+        # Show loaded files
         names = "\n".join(os.path.basename(p) for p in loaded_paths)
         self.load_fits_btn.setToolTip(names if names else "Select the source FITS cube(s) for Calculate Fluxes.")
 
@@ -1092,14 +1016,8 @@ class RotationalDiagramWindow(QMainWindow):
             QMessageBox.information(self, "FITS Files Loaded", f"Loaded {len(loaded_paths)} file(s):\n\n{names}")
 
     def load_contaminating_lines_for_batch(self):
-        """Load a contaminating-lines catalog so Calculate Fluxes can keep a nearby
-        uncataloged feature from leaking into a requested line's amplitude -- same
-        load_contaminating_lines_catalog() the main Gaussian-fit window uses. Unlike
-        that window, this doesn't filter to a single spectrum's wavelength range at
-        load time: our lines can span several different FITS files/ranges at once,
-        and fit_hitran_lines_collective already filters per-group to whatever falls
-        in that group's own fit window."""
-        from .line_catalog import load_contaminating_lines_catalog
+        """Lines can span several different FITS files/ranges at once. Lines already filtered
+        per-group to whatever falls in that group's own fit window."""
 
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Load Contaminating Lines CSV", "",
@@ -1128,11 +1046,6 @@ class RotationalDiagramWindow(QMainWindow):
 
     def open_batch_flux_dialog(self):
         """Open dialog for batch flux calculation from multiple FITS files"""
-        # Get selected lines that need (re-)calculating. A flux typed by hand or
-        # imported from CSV is real user data and never gets overwritten -- clear
-        # that row's Flux cell first if you want to recompute it. A flux the system
-        # calculated itself (the Calculated? column) is fair game to redo, e.g.
-        # after loading a contaminating-lines catalog or different FITS files.
         selected_rows = []
         skipped_rows = []
         for row in range(self.lines_table.rowCount()):
@@ -1168,15 +1081,8 @@ class RotationalDiagramWindow(QMainWindow):
         self.calculate_fluxes_batch(selected_rows, skipped_rows)
 
     def calculate_fluxes_batch(self, selected_rows, skipped_rows=None):
-        """Calculate fluxes for all selected lines using the cached FITS files from
-        load_batch_fits_files(). Lines sharing a covering FITS file are fit together,
-        simultaneously, via compute_line_fluxes_collective -- see that function's
-        docstring for why a joint linear-least-squares solve is preferred here over
-        an independent per-line fit (mainly: it keeps a weak line's flux from
-        silently absorbing a nearby unrelated feature). self.contam_lines, if
-        loaded, is passed through so a nearby non-target line gets its own template
-        instead of leaking into a requested line's amplitude."""
-        from .rotational_diagram_fitter import compute_line_fluxes_collective
+        """Lines sharing a covering FITS file are fit together,
+        simultaneously, via compute_line_fluxes_collective."""
 
         loaded_cubes = self.loaded_batch_cubes
         summed_spectra = self.loaded_batch_spectra
@@ -1240,11 +1146,7 @@ class RotationalDiagramWindow(QMainWindow):
                     is_upper_limit = result["is_upper_limit"]
                     F_ul_cgs = result["F_ul_cgs"]
 
-                    # Flux always gets the real fitted value now, never swapped for
-                    # the ceiling -- UL Flux (col 10) carries the ceiling instead, so
-                    # both stay visible. Which one actually feeds the rotational-
-                    # diagram fit is decided in run_rotational_fit by the Upper Limit
-                    # checkbox, not by what's displayed here.
+                    # Flux always gets the real fitted value now [UL Flux (col 10) carries the ceiling instead].
                     flux_item = self.lines_table.item(row, 6)
                     if flux_item:
                         flux_item.setText(f"{flux_integrated:.4e}")
@@ -1258,8 +1160,7 @@ class RotationalDiagramWindow(QMainWindow):
                         pct = (flux_error / flux_integrated) * 100
                         pct_item.setText(f"{pct:.1f}")
 
-                    # UL Flux: always filled in, detection or not -- useful context
-                    # either way (e.g. "this detection cleared the threshold by 5x")
+                    # UL Flux: always filled in, detection or not
                     ul_flux_item = self.lines_table.item(row, 10)
                     if ul_flux_item:
                         ul_flux_item.setText(f"{F_ul_cgs:.4e}")
@@ -1271,9 +1172,7 @@ class RotationalDiagramWindow(QMainWindow):
                         ul_checkbox.setChecked(True)
                         ul_checkbox.blockSignals(False)
 
-                    # Mark this row as system-calculated and record its source --
-                    # overrides the "manual" reset that flux_item.setText() above
-                    # just triggered via sync_calculated_flag
+                    # Mark this row as system-calculated and record its source
                     calc_checkbox = self.lines_table.cellWidget(row, 11)
                     if calc_checkbox:
                         calc_checkbox.setChecked(True)
@@ -1297,10 +1196,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.lines_table.setRowCount(len(self.hitran_lines))
         
         for row, line in enumerate(self.hitran_lines):
-            # A line with no HITRAN match has no real A_ul/E_u/g_u -- these are hard
-            # physics inputs (Nu = 4*pi*F*lam/(h*c*A_ul), E_u is the plot's x-axis), so
-            # we never assume a value for them. The row is flagged and excluded from
-            # fitting until the user supplies all three by hand.
+            # A line with no HITRAN match has no real A_ul/E_u/g_u: we never assume a value for them.
             matched = line.get('hitran_matched', True)
             unmatched_bg = QColor(255, 214, 214)
             unmatched_tip = (
@@ -1346,8 +1242,7 @@ class RotationalDiagramWindow(QMainWindow):
                 g_item = QTableWidgetItem(f"{g_u:.0f}")
                 g_item.setFlags(g_item.flags() & ~Qt.ItemIsEditable)
             else:
-                # A_ul / E_u / g_u (editable) -- left blank, not defaulted, and
-                # flagged red until the user fills in a real value for all three
+                # A_ul / E_u / g_u (editable)
                 a_item = QTableWidgetItem("")
                 e_item = QTableWidgetItem("")
                 g_item = QTableWidgetItem("")
@@ -1359,7 +1254,7 @@ class RotationalDiagramWindow(QMainWindow):
             self.lines_table.setItem(row, 4, e_item)
             self.lines_table.setItem(row, 5, g_item)
             
-            # Flux (editable) -- required for the fit, so flagged red while empty.
+            # Flux (editable)
             flux_val = line.get('flux', '')
             flux_item = QTableWidgetItem(f"{flux_val:.4e}" if flux_val else "")
             if not flux_val:
@@ -1367,17 +1262,13 @@ class RotationalDiagramWindow(QMainWindow):
                 flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
             self.lines_table.setItem(row, 6, flux_item)
 
-            # Flux Error (editable) -- flagged red while empty and not an Upper
-            # Limit; see sync_flux_error_flag for why. Flag is set below, once the
-            # Upper Limit checkbox (needed to evaluate it) also exists.
+            # Flux Error (editable)
             self.lines_table.setItem(row, 7, QTableWidgetItem(""))
 
             # Error % (editable)
             self.lines_table.setItem(row, 8, QTableWidgetItem(""))
 
-            # Upper Limit? (checkbox - auto-suggested by "Calculate Fluxes" (HITRAN or
-            # CSV) based on a 3-sigma noise threshold; always user-editable so the
-            # final call is yours, not just the heuristic's)
+            # Upper Limit? (checkbox autosuggested but always editable)
             ul_checkbox = QCheckBox()
             ul_checkbox.setToolTip(
                 "Auto-checked when a line's fit falls below the 3σ noise threshold "
@@ -1386,18 +1277,10 @@ class RotationalDiagramWindow(QMainWindow):
             ul_checkbox.stateChanged.connect(lambda _state, r=row: self.sync_flux_error_flag(r))
             self.lines_table.setCellWidget(row, 9, ul_checkbox)
 
-            # UL Flux (editable): the 3-sigma noise ceiling, always filled in by
-            # Calculate Fluxes regardless of whether the line ended up flagged --
-            # kept alongside the real fitted Flux (col 6) rather than replacing it
-            # there, so both numbers stay visible and inspectable. Which one
-            # actually feeds the fit is decided by the Upper Limit checkbox in
-            # run_rotational_fit: checked -> use this column, unchecked -> use
-            # Flux. Editable so a CSV/manual row can have its own ceiling entered
-            # by hand if the user has one from elsewhere.
+            # UL Flux (editable)
             self.lines_table.setItem(row, 10, QTableWidgetItem(""))
 
-            # Calculated? (read-only status badge, not user-editable -- set/cleared
-            # by calculate_fluxes_batch and by editing the Flux cell by hand)
+            # Calculated? (read-only)
             calc_checkbox = QCheckBox()
             calc_checkbox.setEnabled(False)
             calc_checkbox.setToolTip(
@@ -1406,8 +1289,7 @@ class RotationalDiagramWindow(QMainWindow):
             )
             self.lines_table.setCellWidget(row, 11, calc_checkbox)
 
-            # Source (read-only): instrument + FITS filename the flux was computed
-            # from, filled in by calculate_fluxes_batch alongside the Calculated? flag
+            # Source (read-only)
             source_item = QTableWidgetItem("")
             source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 12, source_item)
@@ -1417,15 +1299,8 @@ class RotationalDiagramWindow(QMainWindow):
         # Set initial edit/read-only status based on current mode
         self.update_error_columns()
     
-    def on_cell_clicked(self, row, col):
-        """Handle cell clicks (for compatibility)"""
-        pass
-    
     def on_line_selected(self):
-        """Enable Run Fit only once >=2 lines are checked -- a rotational-diagram
-        line fit needs at least 2 points (rotational_diagram_fitter.py raises "Need
-        at least 2 points" otherwise), so this surfaces that requirement up front
-        instead of letting the user click Run Fit and get an error back."""
+        """Enable Run Fit only once >=2 lines are checked"""
         checked_count = 0
         for row in range(self.lines_table.rowCount()):
             checkbox = self.lines_table.cellWidget(row, 0)
@@ -1476,8 +1351,7 @@ class RotationalDiagramWindow(QMainWindow):
 
             line = self.hitran_lines[row]
 
-            # Belt-and-suspenders: never fit a line with no real A_ul/E_u/g_u, even
-            # if something else managed to check its (normally disabled) box.
+            # Never fit a line with no real A_ul/E_u/g_u
             if not line.get('hitran_matched', True) and (
                 'a_coeff' not in line or 'e_upper' not in line or 'Gp' not in line
             ):
@@ -1488,13 +1362,8 @@ class RotationalDiagramWindow(QMainWindow):
                 )
                 return
             
-            # Check if this is an upper limit FIRST -- it decides which column the
-            # flux comes from. Checked: use UL Flux (col 10), the 3-sigma ceiling --
-            # that's what makes the fit's censoring ("true value <= this") mean what
-            # it says. Falls back to Flux (col 6) if UL Flux is blank, e.g. a
-            # manually-flagged CSV/typed row that never went through Calculate
-            # Fluxes and has no computed ceiling. Unchecked: use Flux, the real
-            # fitted (or manually-entered) value.
+            # Check if this is an upper limit FIRST.
+            # Unchecked: use Flux, the real fitted (or manually-entered) value.
             ul_checkbox = self.lines_table.cellWidget(row, 9)
             is_upper_limit = bool(ul_checkbox and ul_checkbox.isChecked())
 
@@ -1515,12 +1384,8 @@ class RotationalDiagramWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Invalid flux at row {row+1}")
                 return
 
-            # Get error from either column (whichever is populated). If both are
-            # blank, flux_error stays None -- rotational_diagram_fitter._build_dataset
-            # then EXCLUDES this line from the fit entirely if it's not an upper limit
-            # (no unweighted fallback; a missing error is never defaulted), reported
-            # back afterward via results['dropped_J'] in the "Lines Excluded" dialog.
-            # Upper limits are exempt since they use a fixed 0 error by design.
+            # Get error from either column (whichever is populated). 
+            # If None, _build_dataset then EXCLUDES this line from the fit entirely if it's not an upper limit.
             error_text = self.lines_table.item(row, 7).text().strip()
             error_pct_text = self.lines_table.item(row, 8).text().strip()
 
@@ -1550,11 +1415,6 @@ class RotationalDiagramWindow(QMainWindow):
             molecular_data['Aul'][j_counter] = line.get('a_coeff', 0)
             molecular_data['Eu'][j_counter] = line.get('e_upper', 0)
 
-            # Bare rotational degeneracy (2*Ju+1) for genuine H2 S-branch lines, so
-            # apply_OPR can supply the nuclear-spin weighting variably. Only valid for
-            # H2's S-branch numbering (get_Ju(SJ) = SJ+2) - everything else (CO, other
-            # branches, unmatched CSV rows with no HITRAN j_lower) keeps HITRAN's Gp,
-            # which has no OPR-fittable ortho/para asymmetry to strip out in the first place.
             j_lower = line.get('j_lower')
             if self.current_molecule == 'H2' and line.get('branch') == 'S' and j_lower is not None:
                 molecular_data['gu'][j_counter] = get_gu(j_lower)
@@ -1610,12 +1470,7 @@ class RotationalDiagramWindow(QMainWindow):
 
             opr_grid = np.linspace(opr_min, opr_max, opr_steps)
 
-        # Runs in a background QThread rather than directly here: the censored-PyMC
-        # path (any upper limit present) can take minutes, and pm.sample() blocks
-        # for its whole duration -- running it on the GUI thread would freeze the
-        # window, including this progress dialog. Stash molecular_data for the
-        # completion handler (it needs it to resolve dropped_J indices back to
-        # wavelengths) since it's otherwise a local variable here.
+        # Runs in a background QThread rather than directly here
         self._fit_molecular_data = molecular_data
 
         self.rot_fit_progress = QProgressDialog(
@@ -1639,10 +1494,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.rot_fit_worker.start()
 
     def _on_rotational_fit_progress(self, phase, current, total):
-        """Mirror the worker's PyMC sampling progress into the progress dialog.
-        Only ever fires for the censored path -- ordinary curve_fit has no
-        progress to report, so the dialog just stays at its initial message for
-        that (fast) case."""
+        """Mirror the worker's PyMC sampling progress into the progress dialog."""
         dlg = getattr(self, 'rot_fit_progress', None)
         if dlg is None or total <= 0:
             return
@@ -1699,8 +1551,7 @@ class RotationalDiagramWindow(QMainWindow):
 
         def _convergence_note(fit_dict):
             """Return the raw PyMC diagnostic numbers (divergences, max r_hat) for
-            a censored fit -- no editorializing "treat with caution" text on top;
-            a user checking these numbers already knows how to read them."""
+            a censored fit"""
             n_div = fit_dict.get("n_divergences")
             if n_div is None:
                 return ""
@@ -1725,14 +1576,7 @@ class RotationalDiagramWindow(QMainWindow):
 
         results_text += "="*50 + "\n"
 
-        # results_text (this exact string) is what the GUI text widget below shows,
-        # so it keeps the real sigma/pm/warning symbols -- Qt renders Unicode fine.
-        # The console print is a separate ASCII-only copy: Windows' cp1252 console
-        # encoding can't represent these characters and crashes on them (confirmed
-        # live earlier this session), so printing the same string directly isn't
-        # safe the way displaying it in a Qt widget is. Same content, two encodings
-        # for two different destinations -- not a reintroduction of the crash this
-        # was originally split to avoid.
+        # results_text (this exact string) is what the GUI text widget below shows
         console_text = (
             results_text
             .replace("±", "+/-")
@@ -1795,13 +1639,11 @@ class RotationalDiagramWindow(QMainWindow):
 
             # Show 1T line only if NOT doing 2T fit
             if popt1 is not None and not is_2T:
-                from .rotational_diagram_fitter import model_1T
                 y1T = model_1T(E_fit, *popt1)
                 ax.plot(E_fit, y1T / np.log(10), '--', linewidth=2, label='1T')
 
             # 2T: show two component lines AND combined curve
             if popt2 is not None:
-                from .rotational_diagram_fitter import model_2T
                 a1_2, T1_2, a2_2, T2_2 = popt2
 
                 y_comp1 = a1_2 - E_fit / T1_2

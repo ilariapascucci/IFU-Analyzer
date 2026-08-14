@@ -12,6 +12,7 @@ import astropy.units as u
 from astropy import constants as const
 from astropy.units import Quantity
 from functools import lru_cache
+from typing import Optional
 
 
 @lru_cache(maxsize=64)
@@ -438,6 +439,96 @@ def integrated_flux_to_cgs(value, flux_unit, wavelength=None, header=None, wave_
 
     quantity = value * flux_astropy_unit * wave_astropy_unit
     return _reduce_to_target(quantity, CGS_FLUX, wavelength, wave_astropy_unit, header)
+
+
+def _resolve_flux_unit(flux_unit_input: Optional[str], header) -> Optional[str]:
+    """
+    Return the cube's flux unit, falling back to the header's BUNIT.
+
+    Callers that don't track the flux unit pass None. Without this fallback the
+    conversion would run without knowing what it was converting from.
+    """
+    if flux_unit_input is not None:
+        return flux_unit_input
+    return header.get('BUNIT', None) if header is not None else None
+
+
+def _normalize_wave_unit(wave_unit: Optional[str]) -> Optional[str]:
+    """Uppercase wave-unit canonicalizer for get_wave_unit/convert_area_to_cgs's
+    calling convention -- distinct from _normalize_unit's lowercase one (used
+    throughout the rest of this file), since this one also needs to recognize
+    velocity units ('KM/S')."""
+    if not wave_unit:
+        return None
+    unit = wave_unit.strip().upper()
+    if unit in ["UM", "MICRON", "MICRONS", "µM", "ΜM"]:
+        return "UM"
+    if unit in ["ANGSTROM", "A", "Å"]:
+        return "ANGSTROM"
+    if unit in ["KM/S", "KMS", "KM S-1", "KM S^-1"]:
+        return "KM/S"
+    return unit
+
+
+def get_wave_unit(header, fallback: Optional[str] = None) -> Optional[str]:
+    if header is not None:
+        header_unit = header.get("CUNIT3", None)
+        norm = _normalize_wave_unit(header_unit)
+        if norm is not None:
+            return norm
+    return _normalize_wave_unit(fallback)
+
+
+def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_unit: Optional[str], flux_unit_input: Optional[str] = None):
+    """
+    Convert Gaussian area to erg/s/cm².
+
+    Two supported input flux units, handled by different routes:
+
+    - **erg/s/cm²/Å (MUSE)** - already a flux per unit wavelength, so the area reduces
+      to erg/s/cm² directly. Delegated to :func:`integrated_flux_to_cgs`.
+    - **MJy/sr (MIRI, NIRSpec)** - a surface brightness per unit frequency, so it needs
+      the pixel solid angle and a wavelength-to-frequency jacobian (handled inside
+      :func:`integrated_flux_to_cgs` / :func:`_reduce_to_target`).
+
+    Anything else (e.g. Jy/beam for ALMA) returns None.
+
+    Args:
+        amplitude_mjy_sr: Peak amplitude in native flux units
+        sigma_val: Gaussian sigma in wavelength units (μm or Å)
+        center_val: Line center wavelength in wavelength units (μm or Å)
+        header: FITS header to extract CDELT1, CDELT2 for pixel solid angle calculation
+        wave_unit: Wavelength unit (Å, µm, km/s)
+        flux_unit_input: Flux unit from header (e.g., 'MJy/sr', 'Jy/beam',
+            '10**(-20)*erg/s/cm**2/Angstrom'). Falls back to the header's BUNIT if None.
+
+    Returns:
+        float: Area in erg/s/cm², or None if conversion unsupported or fails
+
+    NOTE: Returns None for unsupported flux units (e.g. Jy/beam). Callers should fall
+    back to the native area, labelled with the cube's own units.
+    """
+    if (header is None or amplitude_mjy_sr is None or
+        sigma_val is None or center_val is None or not np.isfinite(center_val)):
+        return None
+
+    try:
+        unit = _normalize_wave_unit(wave_unit)
+        if unit == "KM/S":
+            return None  # velocity axis needs rest wavelength to convert
+
+        # Gaussian area in native units: A × σ × √(2π), carrying [flux_unit × wave_unit]
+        area_native = amplitude_mjy_sr * sigma_val * np.sqrt(2 * np.pi)
+
+        return integrated_flux_to_cgs(
+            area_native,
+            _resolve_flux_unit(flux_unit_input, header),
+            wavelength=center_val,
+            header=header,
+            wave_unit=unit,
+        )
+    except Exception:
+        return None
 
 
 def flux_density_to_cgs(value, flux_unit, wavelength=None, header=None, wave_unit=None):
