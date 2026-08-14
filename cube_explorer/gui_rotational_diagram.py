@@ -70,6 +70,55 @@ class HitranFetchThread(QThread):
             self.error.emit(str(e))
 
 
+class RotationalFitWorker(QThread):
+    """Background thread for the rotational-diagram fit itself. Needed specifically
+    for the censored-PyMC path (upper limits present): pm.sample() blocks for
+    however long sampling takes (minutes for a 2T fit), and running that on the
+    GUI thread would freeze the whole app, including any progress dialog trying to
+    repaint during it. The ordinary curve_fit path is fast enough this wouldn't
+    matter, but rotational_diagram() doesn't know in advance which path a given
+    call will take, so every fit goes through this worker uniformly."""
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(str, int, int)  # (phase "1T"/"2T", current, total)
+
+    def __init__(self, fluxes, flux_errors, molecular_data, fit_opr, opr_grid,
+                 fit2T, R, dist, upper_limits):
+        super().__init__()
+        self.fluxes = fluxes
+        self.flux_errors = flux_errors
+        self.molecular_data = molecular_data
+        self.fit_opr = fit_opr
+        self.opr_grid = opr_grid
+        self.fit2T = fit2T
+        self.R = R
+        self.dist = dist
+        self.upper_limits = upper_limits
+
+    def run(self):
+        try:
+            from .rotational_diagram_fitter import rotational_diagram
+            results = rotational_diagram(
+                self.fluxes,
+                self.flux_errors,
+                molecular_data=self.molecular_data,
+                OPR=None,
+                fit_opr=self.fit_opr,
+                opr_grid=self.opr_grid,
+                fit2T=self.fit2T,
+                R=self.R,
+                dist=self.dist,
+                upper_limits=self.upper_limits,
+                progress_callback=self._emit_progress,
+            )
+            self.finished.emit(results)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def _emit_progress(self, phase, current, total):
+        self.progress.emit(phase, current, total)
+
+
 class RotationalDiagramWindow(QMainWindow):
     """Main window for rotational diagram analysis"""
     
@@ -422,13 +471,21 @@ class RotationalDiagramWindow(QMainWindow):
         self.update_error_columns()
     
     def update_error_columns(self):
-        """Update which columns are editable based on error mode"""
+        """Update which columns are editable based on error mode. Skips rows
+        currently flagged Upper Limit -- their Flux Error/Error % are hidden and
+        non-editable regardless of mode (see sync_flux_error_flag), so a global
+        mode switch (or a call from sync_flux_error_flag itself, for the row that
+        just became a non-upper-limit) shouldn't re-enable editing on them."""
         is_value_mode = "Values" in self.error_mode.currentText()
-        
+
         for row in range(self.lines_table.rowCount()):
+            ul_checkbox = self.lines_table.cellWidget(row, 9)
+            if ul_checkbox and ul_checkbox.isChecked():
+                continue
+
             flux_error_item = self.lines_table.item(row, 7)
             error_pct_item = self.lines_table.item(row, 8)
-            
+
             if flux_error_item and error_pct_item:
                 if is_value_mode:
                     # Column 8 (Flux Error) is editable, Column 9 (Error %) is read-only
@@ -624,27 +681,66 @@ class RotationalDiagramWindow(QMainWindow):
         Upper Limit: rotational_diagram_fitter._build_dataset excludes any such
         detection from the fit entirely rather than assuming an error (no unweighted
         fallback), so this surfaces that before Run Fit instead of via the post-fit
-        "Lines Excluded" dialog. Marking a line as Upper Limit clears the flag, since
-        upper limits use a fixed 0 error by design and don't need one."""
+        "Lines Excluded" dialog.
+
+        Marking a line as Upper Limit does more than clear that flag: it hides the
+        Flux Error and Error % values entirely (blanked, non-editable, no red flag)
+        rather than leaving them visible and editable as if they still mattered --
+        both are ignored for upper limits regardless of what's typed there (a fixed
+        0 error is used instead), so showing them invites editing a number that has
+        no effect. The real value (if any) is stashed on the item's own data role,
+        not erased, so unchecking Upper Limit brings it back exactly as it was
+        rather than losing what was typed in.
+        """
         if self.updating_flux_error_flag:
             return
         self.updating_flux_error_flag = True
         try:
-            item = self.lines_table.item(row, 7)
-            if not item:
+            error_item = self.lines_table.item(row, 7)
+            pct_item = self.lines_table.item(row, 8)
+            if not error_item or not pct_item:
                 return
             ul_checkbox = self.lines_table.cellWidget(row, 9)
             is_upper_limit = bool(ul_checkbox and ul_checkbox.isChecked())
 
-            if item.text().strip() or is_upper_limit:
-                item.setBackground(QBrush())
+            if is_upper_limit:
+                for item in (error_item, pct_item):
+                    text = item.text().strip()
+                    if text:
+                        item.setData(Qt.UserRole, text)
+                    item.setText("")
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    item.setBackground(QBrush())
+                    item.setToolTip(
+                        "Not used for upper limits -- ignored in the fit regardless "
+                        "of what's entered here."
+                    )
+                return
+
+            # Not an upper limit: restore whatever was stashed (if anything), then
+            # let update_error_columns() decide which of the two is editable based
+            # on the current Values/Percentages mode -- not this function's job.
+            for item in (error_item, pct_item):
+                stashed = item.data(Qt.UserRole)
+                if stashed:
+                    item.setText(stashed)
+                    item.setData(Qt.UserRole, None)
                 item.setToolTip("")
+
+            if error_item.text().strip():
+                error_item.setBackground(QBrush())
             else:
-                item.setBackground(QColor(255, 214, 214))
-                item.setToolTip(
+                error_item.setBackground(QColor(255, 214, 214))
+                error_item.setToolTip(
                     "No flux error entered -- this detection will be excluded from "
                     "the fit unless you enter one or mark it as an Upper Limit."
                 )
+
+            # Let update_error_columns() decide which of Flux Error / Error % is
+            # editable based on the current Values/Percentages mode -- only reached
+            # here (not upper limit), so it can't undo the non-editable state just
+            # set above for an upper-limit row.
+            self.update_error_columns()
         finally:
             self.updating_flux_error_flag = False
 
@@ -1514,41 +1610,75 @@ class RotationalDiagramWindow(QMainWindow):
 
             opr_grid = np.linspace(opr_min, opr_max, opr_steps)
 
-        try:
-            from .rotational_diagram_fitter import rotational_diagram
+        # Runs in a background QThread rather than directly here: the censored-PyMC
+        # path (any upper limit present) can take minutes, and pm.sample() blocks
+        # for its whole duration -- running it on the GUI thread would freeze the
+        # window, including this progress dialog. Stash molecular_data for the
+        # completion handler (it needs it to resolve dropped_J indices back to
+        # wavelengths) since it's otherwise a local variable here.
+        self._fit_molecular_data = molecular_data
 
-            # Pass raw AU and pc values (function converts to cm internally)
-            results = rotational_diagram(
-                fluxes,
-                flux_errors,
-                molecular_data=molecular_data,
-                OPR=None,
-                fit_opr=fit_opr,
-                opr_grid=opr_grid,
-                fit2T=fit_2t,
-                R=radius_au,       # in AU
-                dist=distance_pc,  # in pc
-                upper_limits=upper_limits
+        self.rot_fit_progress = QProgressDialog(
+            "Running rotational diagram fit...", None, 0, 100, self)
+        self.rot_fit_progress.setWindowTitle("Rotational Diagram Fit")
+        self.rot_fit_progress.setWindowModality(Qt.NonModal)
+        self.rot_fit_progress.setAutoClose(False)
+        self.rot_fit_progress.setAutoReset(False)
+        self.rot_fit_progress.setValue(0)
+        self.rot_fit_progress.show()
+
+        self.run_fit_btn.setEnabled(False)
+
+        self.rot_fit_worker = RotationalFitWorker(
+            fluxes, flux_errors, molecular_data, fit_opr, opr_grid,
+            fit_2t, radius_au, distance_pc, upper_limits,
+        )
+        self.rot_fit_worker.finished.connect(self._on_rotational_fit_complete)
+        self.rot_fit_worker.error.connect(self._on_rotational_fit_error)
+        self.rot_fit_worker.progress.connect(self._on_rotational_fit_progress)
+        self.rot_fit_worker.start()
+
+    def _on_rotational_fit_progress(self, phase, current, total):
+        """Mirror the worker's PyMC sampling progress into the progress dialog.
+        Only ever fires for the censored path -- ordinary curve_fit has no
+        progress to report, so the dialog just stays at its initial message for
+        that (fast) case."""
+        dlg = getattr(self, 'rot_fit_progress', None)
+        if dlg is None or total <= 0:
+            return
+        pct = int(100 * current / total)
+        dlg.setLabelText(f"Running {phase} fit (censored/PyMC)...\n{current}/{total} ({pct}%)")
+        dlg.setValue(pct)
+
+    def _on_rotational_fit_complete(self, results):
+        dlg = getattr(self, 'rot_fit_progress', None)
+        if dlg is not None:
+            dlg.close()
+        self.on_line_selected()  # re-derive from current checkbox state (>=2), don't just force True
+
+        molecular_data = self._fit_molecular_data
+        dropped_J = results.get("dropped_J")
+        if dropped_J:
+            dropped_desc = "\n".join(
+                f"  • {molecular_data['wavelengths'][j]:.6f} μm"
+                for j in dropped_J
             )
-            
-            dropped_J = results.get("dropped_J")
-            if dropped_J:
-                dropped_desc = "\n".join(
-                    f"  • {molecular_data['wavelengths'][j]:.6f} μm"
-                    for j in dropped_J
-                )
-                QMessageBox.warning(
-                    self,
-                    "Lines Excluded From Fit",
-                    "The following detections were excluded from the fit because no "
-                    "flux error was entered for them (upper limits don't need one, but "
-                    "detections do - no default is assumed):\n\n" + dropped_desc
-                )
+            QMessageBox.warning(
+                self,
+                "Lines Excluded From Fit",
+                "The following detections were excluded from the fit because no "
+                "flux error was entered for them (upper limits don't need one, but "
+                "detections do - no default is assumed):\n\n" + dropped_desc
+            )
 
-            self.show_results(results)
+        self.show_results(results)
 
-        except Exception as e:
-            QMessageBox.critical(self, "Fitting Error", f"Error during fitting:\n{str(e)}")
+    def _on_rotational_fit_error(self, message):
+        dlg = getattr(self, 'rot_fit_progress', None)
+        if dlg is not None:
+            dlg.close()
+        self.on_line_selected()  # re-derive from current checkbox state (>=2), don't just force True
+        QMessageBox.critical(self, "Fitting Error", f"Error during fitting:\n{message}")
     
     def show_results(self, results):
         """Show results with plot"""
@@ -1568,14 +1698,13 @@ class RotationalDiagramWindow(QMainWindow):
                 results_text += f"OPR = {results['OPR']:.2f} (fixed)\n\n"
 
         def _convergence_note(fit_dict):
-            """Return a warning line if the censored PyMC fit shows convergence issues."""
+            """Return the raw PyMC diagnostic numbers (divergences, max r_hat) for
+            a censored fit -- no editorializing "treat with caution" text on top;
+            a user checking these numbers already knows how to read them."""
             n_div = fit_dict.get("n_divergences")
             if n_div is None:
                 return ""
-            note = f"[PyMC: {n_div} divergence(s), max r_hat = {fit_dict.get('max_r_hat', float('nan')):.3f}]"
-            if n_div > 0 or fit_dict.get("max_r_hat", 1.0) > 1.01:
-                note += "  ⚠ possible non-convergence - treat this result with caution"
-            return note + "\n"
+            return f"[PyMC: {n_div} divergence(s), max r_hat = {fit_dict.get('max_r_hat', float('nan')):.3f}]\n"
 
         if "1T" in results:
             r1t = results["1T"]
@@ -1596,7 +1725,22 @@ class RotationalDiagramWindow(QMainWindow):
 
         results_text += "="*50 + "\n"
 
-        print(results_text)
+        # results_text (this exact string) is what the GUI text widget below shows,
+        # so it keeps the real sigma/pm/warning symbols -- Qt renders Unicode fine.
+        # The console print is a separate ASCII-only copy: Windows' cp1252 console
+        # encoding can't represent these characters and crashes on them (confirmed
+        # live earlier this session), so printing the same string directly isn't
+        # safe the way displaying it in a Qt widget is. Same content, two encodings
+        # for two different destinations -- not a reintroduction of the crash this
+        # was originally split to avoid.
+        console_text = (
+            results_text
+            .replace("±", "+/-")
+            .replace("σ", "sigma")
+            .replace("≈", "~=")
+            .replace("⚠", "WARNING:")
+        )
+        print(console_text)
 
         # Create results dialog with plot
         dialog = QDialog(self)

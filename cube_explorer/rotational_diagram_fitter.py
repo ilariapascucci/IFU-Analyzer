@@ -477,7 +477,47 @@ def _print_pymc_diagnostics(trace, var_names):
     return {"n_divergences": n_divergent, "max_r_hat": max_rhat}
 
 
-def censored_1T(E, y, yerr, is_ul):
+# Fixes pm.sample()'s random state (init jitter + HMC trajectories + accept/reject)
+# so the exact same inputs always produce the exact same trace. This does NOT fix
+# borderline convergence (a run that lands at r_hat=1.02 with this seed will land
+# there every time, not improve) -- it only makes results reproducible, so two runs
+# on the same data can be compared directly instead of each being an independent
+# random draw that might disagree for no reason other than luck.
+_PYMC_RANDOM_SEED = 42
+
+
+def _pymc_progress_callback(label, tune, draws, chains, progress_callback=None):
+    """Build a pm.sample() callback that reports periodic sampling progress.
+
+    Always prints to console (real sampling progress -- draws actually
+    completed out of the actual total -- not a stand-in count of upper-limit
+    lines, since a single joint MCMC run has no per-line breakdown for that to
+    correspond to). If `progress_callback(current, total)` is also given (e.g.
+    a QThread worker's signal emitter -- same (current, total) convention
+    fit_gaussians_per_pixel's progress_callback already uses), it's called
+    alongside the print, so a GUI caller can drive a real progress bar instead
+    of just reading console liveness.
+
+    Reports roughly every 10% rather than every draw, to stay readable/cheap
+    across a run of thousands of draws.
+    """
+    total_per_chain = tune + draws
+    total = total_per_chain * chains
+    next_milestone = [max(1, total // 10)]
+
+    def callback(trace, draw):
+        overall = draw.chain * total_per_chain + draw.draw_idx + 1
+        if overall >= next_milestone[0] or overall == total:
+            phase = "tuning" if draw.tuning else "sampling"
+            print(f"[PyMC {label}] {phase}: {overall}/{total} ({100*overall//total}%)", flush=True)
+            if progress_callback is not None:
+                progress_callback(overall, total)
+            next_milestone[0] += max(1, total // 10)
+
+    return callback
+
+
+def censored_1T(E, y, yerr, is_ul, progress_callback=None):
     """Bayesian 1-temperature rotational diagram fit with censored upper limits.
     
     Uses PyMC to handle mixed detections and upper limits:
@@ -500,13 +540,23 @@ def censored_1T(E, y, yerr, is_ul):
         mu = a - E / T
 
         # === LIKELIHOOD FOR DETECTIONS ===
-        # Fit only the non-upper-limit points (mask=True)
-        # Assume σ = 1.0 in log space for all detections
-        pm.Normal("obs", mu=mu[mask], sigma=1.0, observed=y[mask])
+        # Fit only the non-upper-limit points (mask=True), weighted by each
+        # point's own measured uncertainty (yerr = dNu/Nu, already the correct
+        # log-space sigma via the delta method). rotational_diagram() already
+        # rejects any detection with yerr <= 0 before this is ever called -- no
+        # floor needed here; trust that guarantee rather than silently covering
+        # for invalid input a caller should have refused earlier.
+        pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
         # === LIKELIHOOD FOR UPPER LIMITS ===
         # Censored: treat measured value as upper bound
-        # y_ul < F_ul means ln(N/g)_meas is an upper limit on the true value
+        # y_ul < F_ul means ln(N/g)_meas is an upper limit on the true value.
+        # sigma stays a fixed 1.0 here deliberately, unlike the detections above:
+        # an upper limit has no real per-point measurement uncertainty to use --
+        # _build_dataset sets its yerr to a placeholder 0.0 (not a real sigma),
+        # and pm.Normal.dist(sigma=0) would be degenerate. 1.0 is a weakly-
+        # informative width for "how sharply the model expects mass below the
+        # ceiling," not a measured quantity.
         if np.any(is_ul):
             pm.Censored(
                 "ul",
@@ -521,7 +571,12 @@ def censored_1T(E, y, yerr, is_ul):
         # 2 chains (sequential, cores=1) so r_hat/divergences are actually
         # checkable instead of trusting a single chain; target_accept raised
         # from PyMC's default 0.8 to reduce divergences in this a-vs-T ridge.
-        trace = pm.sample(500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False)
+        trace = pm.sample(
+            500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False,
+            random_seed=_PYMC_RANDOM_SEED,
+            callback=_pymc_progress_callback("1T", tune=500, draws=500, chains=2,
+                                              progress_callback=progress_callback),
+        )
 
     diagnostics = _print_pymc_diagnostics(trace, ["a", "T"])
 
@@ -539,7 +594,7 @@ def censored_1T(E, y, yerr, is_ul):
 
 
 
-def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
+def censored_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None):
     """Bayesian 2-temperature rotational diagram fit with censored upper limits.
     
     Fits a mixture of two thermal components:
@@ -555,13 +610,22 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
     with pm.Model() as model:
 
         # === PRIORS (2-component model) ===
-        # Component 1: centered near the 1T result
-        a1 = pm.Normal("a1", mu=a1_init, sigma=5)           # log(Ncol) warm component
-        T1 = pm.Uniform("T1", 10, 5000)                     # temp warm component
-        
-        # Component 2: cooler component (a2 is lower, T2 is higher)
-        a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)         # log(Ncol) cool component
-        T2 = pm.Uniform("T2", 10, 5000)                     # temp cool component
+        # Component 1 = the cooler component, seeded near the 1T result.
+        a1 = pm.Normal("a1", mu=a1_init, sigma=5)           # log(Ncol), cool component
+        T1 = pm.Uniform("T1", 10, 5000)                     # temp, cool component
+
+        # Component 2 = the hotter component (a2 seeded 5 dex lower: less
+        # populated, as expected for the hot component). T2's lower bound is T1
+        # itself, not a fixed number -- this forces T2 > T1 always, rather than
+        # leaving both as identical, unordered Uniform(10, 5000) priors. Without
+        # that constraint, nothing stops the sampler from calling the hot
+        # population "component 1" in one draw and "component 2" in another --
+        # classic MCMC "label switching" for a 2-component mixture. Two chains
+        # that agree on the physics but disagree on which label they gave each
+        # component look like they disagree entirely (bad r_hat, low ESS), which
+        # is exactly the non-convergence warning this fit was producing before.
+        a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)         # log(Ncol), hot component
+        T2 = pm.Uniform("T2", T1, 5000)                     # temp, hot component (> T1)
 
         # === TWO-TEMPERATURE MODEL ===
         # Combine two exponential terms in log space:
@@ -573,11 +637,16 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
         )
 
         # === LIKELIHOOD FOR DETECTIONS ===
-        # Fit only detections; upper limits are censored
-        pm.Normal("obs", mu=mu[mask], sigma=1.0, observed=y[mask])
+        # Fit only detections; weighted by each point's own measured uncertainty
+        # -- see censored_1T's identical line for why no floor is needed (yerr is
+        # already the right log-space sigma, and rotational_diagram() already
+        # rejected any detection with yerr <= 0 before this is ever called).
+        pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
         # === LIKELIHOOD FOR UPPER LIMITS ===
-        # Same censoring approach: y_measured is upper bound on true value
+        # Same censoring approach: y_measured is upper bound on true value. sigma
+        # stays a fixed 1.0 here -- see censored_1T for why (no real per-point
+        # uncertainty exists for a non-detection to plug in instead).
         if np.any(is_ul):
             pm.Censored(
                 "ul",
@@ -590,7 +659,12 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init):
         # 2 chains (sequential, cores=1) so r_hat/divergences are actually
         # checkable; target_accept raised to reduce divergences in this
         # 4-parameter censored mixture (more prone to them than 1T).
-        trace = pm.sample(500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False)
+        trace = pm.sample(
+            500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False,
+            random_seed=_PYMC_RANDOM_SEED,
+            callback=_pymc_progress_callback("2T", tune=500, draws=500, chains=2,
+                                              progress_callback=progress_callback),
+        )
 
     diagnostics = _print_pymc_diagnostics(trace, ["a1", "T1", "a2", "T2"])
 
@@ -703,7 +777,7 @@ def Q_total_err(T, dT, OPR, dOPR=0.0):
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit2T=False, R=None, dist=140*pc, upper_limits=None):
+                        fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None):
     """
     Perform rotational diagram analysis on H2 lines.
 
@@ -712,6 +786,13 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         flux_errors: Dictionary {J: flux_error}
         molecular_data: Dictionary with 'wavelengths', 'Aul', 'Eu', 'gu' keys
                        Each value is a dict {J: value}
+        progress_callback: optional callback(phase, current, total), phase being
+            "1T" or "2T" -- only ever called when the censored PyMC path actually
+            runs (upper limits present); the ordinary curve_fit path is fast
+            enough that there is nothing meaningful to report progress on. Passed
+            straight through to censored_1T/censored_2T with the phase label
+            attached, so a GUI caller (e.g. a QThread worker) can drive a real
+            progress bar instead of only having console liveness prints to go on.
         OPR: Fixed ortho-para ratio. Used as-is when fit_opr=False (None defaults to
              3.0, see apply_OPR). Ignored (overwritten by the search result) when
              fit_opr=True.
@@ -924,6 +1005,22 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     n_detections = np.sum(~is_ul_mask)
     has_upper_limits = np.any(is_ul_mask)
 
+    # A detection's y_err is only ever real data (dF/F from a measured flux error)
+    # or the row is dropped entirely -- _build_dataset never defaults it. The one
+    # way a zero still reaches here is a user literally entering "0" as a flux
+    # error for a detection, which isn't a real 0-uncertainty measurement, it's
+    # invalid input -- reject it explicitly rather than let a downstream fit
+    # silently give that one point near-infinite weight.
+    det_y_err = y_err[~is_ul_mask]
+    if np.any(det_y_err <= 0):
+        bad_idx = np.where(~is_ul_mask)[0][det_y_err <= 0]
+        bad_E = ", ".join(f"{E_arr[i]:.1f} K" for i in bad_idx)
+        raise ValueError(
+            f"Detection(s) at E_u = {bad_E} have a flux error of zero, which isn't "
+            f"a valid measurement uncertainty. Enter a real error, mark the line as "
+            f"an upper limit, or deselect it."
+        )
+
     if has_upper_limits and n_detections < 2:
         if n_detections == 0:
             raise ValueError(f"Cannot fit: all {len(E_arr)} measurements are upper limits. Need at least 2 detections to constrain temperature and column density.")
@@ -950,7 +1047,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         print("\n--- 1T FIT (CENSORED PyMC) ---")
 
         result = censored_1T(
-            E_arr, y_arr, y_err, is_ul_mask
+            E_arr, y_arr, y_err, is_ul_mask,
+            progress_callback=(lambda cur, tot: progress_callback("1T", cur, tot)) if progress_callback else None,
         )
 
         a1, T1 = result["a"], result["T"]
@@ -1015,7 +1113,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
             result = censored_2T(
                 E_arr, y_arr, y_err, is_ul_mask,
-                a1, T1
+                a1, T1,
+                progress_callback=(lambda cur, tot: progress_callback("2T", cur, tot)) if progress_callback else None,
             )
 
             a1_2, T1_2, a2_2, T2_2 = result["popt"]
