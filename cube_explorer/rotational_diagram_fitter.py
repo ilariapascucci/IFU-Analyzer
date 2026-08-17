@@ -184,6 +184,7 @@ def _collective_local_noise_stats(fit_result):
     
     We use the covariance formula for two parameters:
 
+        data(x) = amplitude * template(x) + constant   [least squares with 2 params]
         Cov(beta) = noise_var * (X^T X)^-1,   X = [template, 1]
 
     noise_var = sum(residuals^2)/dof, dof = n - 2 (two parameters: amplitude and the local constant).

@@ -138,10 +138,10 @@ def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jo
                     amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
                 except Exception:
                     continue
-            if np.max(y_corrected) <= 0:
+            if np.nanmax(y_corrected) <= 0:
                 continue
             bounds = ([0, x_data[0], 0.001 * (x_data[-1] - x_data[0])],
-                      [10 * np.max(y_corrected), x_data[-1], 2 * (x_data[-1] - x_data[0])])
+                      [10 * np.nanmax(y_corrected), x_data[-1], 2 * (x_data[-1] - x_data[0])])
             # Clamp initial guesses to be within bounds
             amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
             center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
@@ -402,8 +402,13 @@ def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, pdeg: int = 1) -> 
         ransac_pipeline.fit(x_noise[:, np.newaxis], y_noise)
         y_fit = ransac_pipeline.predict(x_noise[:, np.newaxis])
         residuals = y_noise - y_fit
-        std_residuals = np.std(residuals)
-        
+        # Inliers only -- RANSAC already identified which points are real signal (e.g. an
+        # emission line's peak) vs. genuine continuum scatter when it fit the line; residuals
+        # at the outlier points aren't noise and would otherwise still inflate this estimate,
+        # even though the fit itself correctly ignored them.
+        inlier_mask = ransac_pipeline.named_steps['ransacregressor'].inlier_mask_
+        std_residuals = np.std(residuals[inlier_mask]) if np.any(inlier_mask) else np.std(residuals)
+
         if np.isfinite(std_residuals) and std_residuals > 0:
             return float(std_residuals)
     except Exception:
@@ -736,7 +741,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
 
     # STEP 2b: Validate that a positive peak exists for fitting
     # Check if there's a meaningful peak
-    if np.max(y_corrected) <= 0:
+    if np.nanmax(y_corrected) <= 0:
         return GaussianFitResult(
             amplitude=0, center=np.mean(x_data), sigma=0, fwhm=0, area=0,
             baseline_slope=baseline_slope, baseline_intercept=y1,
@@ -765,7 +770,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
     
     bounds = (
         [0, x1, sigma_lower],  # Lower bounds
-        [10 * np.max(y_corrected), x2, sigma_upper]  # Upper bounds
+        [10 * np.nanmax(y_corrected), x2, sigma_upper]  # Upper bounds
     )
     
     # STEP 3b: Clamp initial guesses to bounds (prevents "x0 is infeasible" error from curve_fit)
@@ -1326,7 +1331,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 
             # STEP 2d: Validate that a positive peak exists
             # Require positive peak
-            if np.max(y_corrected) <= 0:
+            if np.nanmax(y_corrected) <= 0:
                 # Assign fac_above_stdres σ upper limit for pixels with no positive peak
                 upper_limit_amplitude = fac_above_stdres * std_val
                 upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)

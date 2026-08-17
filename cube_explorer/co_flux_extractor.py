@@ -37,7 +37,7 @@ from scipy.interpolate import UnivariateSpline
 
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
-    estimate_gaussian_params, compute_noise_std,
+    estimate_gaussian_params, compute_noise_std, fit_gaussian_to_line,
     GaussianFitResult, _extract_value_from_quantity,
 )
 from .utils import get_spectral_resolution
@@ -521,8 +521,13 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             [sigma] * len(filtered_lines)
         ))
         p0 = np.ravel(p0_2d)  # 1d array
-        # np.nanmin, not np.min to fix x0 is infeasable (there is NaN somewhere probably)
-        p0base, p0slope = np.nanmin(yflux), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
+        # NaN-safe and scoped to this fit window (idx_xwave), matching p0slope just below --
+        # np.nanmin(yflux) alone (the whole spectrum) can sit far from this chunk's actual
+        # local flux level, producing continuum bounds that don't bracket the chunk's real
+        # data even though the Gaussian bounds are correctly chunk-scoped -- that mismatch is
+        # exactly the kind of inconsistent bounds box that makes curve_fit's initial guess
+        # infeasible.
+        p0base, p0slope = np.nanmin(yflux[idx_xwave]), (yflux[idx_xwave][-1] - yflux[idx_xwave][0]) / (xwave[idx_xwave][-1] - xwave[idx_xwave][0])
         p0 = np.insert(p0, [0, 0], [p0base, p0slope])
 
         # Create NumPy arrays with lower and upper bounds
@@ -556,7 +561,12 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         try:
             bfit = many_gaussians_list(xwave[idx_xwave], a, b, *par)
             df_residual.loc[idx_xwave, 'residual'] = yflux[idx_xwave] - bfit
-            df_continuum.loc[idx_xwave, 'continuum'] = a + b * xwave[idx_xwave]
+            # many_gaussians_list's continuum term is a + b*(x - min_freq), offset from the
+            # window's own minimum wavelength -- not a + b*x -- so this has to match exactly or
+            # the recorded curve is off by b*min_freq (huge, since b is O(1e3) and min_freq is
+            # O(4.7)). Doesn't affect the flux number itself (computed from `par` directly),
+            # only what gets plotted for inspection.
+            df_continuum.loc[idx_xwave, 'continuum'] = a + b * (xwave[idx_xwave] - xwave[idx_xwave].min())
 
             # Different approach in case there are contaminating lines
             if ncont_lines > 0:
@@ -777,65 +787,88 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     template_cols.append(np.ones_like(x_data))
     A = np.column_stack(template_cols)
 
+    # lstsq here is only for the contaminant templates below (contam_results) -- requested
+    # lines are measured by curve_fit directly now, not by this fixed-shape linear solve.
     coeffs, _, _, _ = np.linalg.lstsq(A, y_data, rcond=None)
     n_lines = len(valid)
-    amplitudes = coeffs[:n_lines]
     contam_amplitudes = coeffs[n_lines:n_lines + len(contam_in_range)]
-    # Contaminants are still drawn as their own separate curve; some overlap
-    fitted_curve = A @ coeffs
 
     unit = get_wave_unit(header, wave_unit)
 
     for i, (orig_idx, wl, line) in enumerate(valid):
-        amp = float(amplitudes[i])
         sigma_i = line_sigmas[i]
-        fwhm = 2.355 * sigma_i
         half_width = min(display_half_width, 5 * sigma_i)
-        local_mask = (x_data >= wl - half_width) & (x_data <= wl + half_width)
-        x_local = x_data[local_mask]
-        y_local = y_data[local_mask]
-        y_fit_local = fitted_curve[local_mask]
+        fit_half_width = max(half_width, 5 * sigma_i)
+        local_mask = (x_data >= wl - fit_half_width) & (x_data <= wl + fit_half_width)
+        x_local, y_local = x_data[local_mask], y_data[local_mask]
         baseline_local = baseline_window[local_mask]
-        residuals_local = y_local - y_fit_local
 
-        if amp <= 0:
-            result = GaussianFitResult(
-                amplitude=0, center=wl, sigma=sigma_i, fwhm=fwhm, area=0,
-                baseline_slope=0.0, baseline_intercept=float(baseline_local[0]) if len(baseline_local) else 0.0,
+        # Noise for THIS line's own upper-limit threshold, from THIS line's own local
+        # window -- not the whole multi-line span, which would fold every other real line's
+        # flux into the estimate and inflate it (same lesson as the p0base chunk-scoping fix
+        # above: scope the calculation to what's actually local to the decision being made).
+        noise_std = compute_noise_std(x_local, y_local, pdeg=1)
+        if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
+            results[orig_idx] = (line, GaussianFitResult(
+                amplitude=0, center=wl, sigma=0, fwhm=0, area=0,
+                baseline_slope=0, baseline_intercept=0,
                 x_data=x_local, y_data=y_local,
                 baseline=baseline_local, y_corrected=y_local,
-                y_fit=y_fit_local, residuals=residuals_local,
+                y_fit=np.zeros_like(x_local), residuals=y_local,
                 r_squared=0, success=False,
-                message=f"No significant signal (fitted amplitude {amp:.3g} <= 0)",
-            )
+                message="Could not estimate noise level for this line's window",
+            ))
+            continue
+
+        # "A gaussian with 3-sigma amplitude, at this instrument's own line width" -- the bar
+        # a free curve_fit result has to clear to be trusted as a real measurement.
+        upper_limit_flux = 3 * noise_std * sigma_i * np.sqrt(2 * np.pi)
+
+        # --- Try curve_fit first (center/sigma NOT fixed) -- accurate whenever there's a
+        # real peak to anchor it. Reuses the same bounded, x0-clamped fitter as the 1D
+        # fit_line tool/GUI (fit_gaussian_to_line), not a second hand-rolled curve_fit call.
+        cf_result = fit_gaussian_to_line(
+            wl - fit_half_width, wl + fit_half_width, x_data, y_data, peak_x=wl,
+            header=header, wave_unit=wave_unit,
+        )
+        cf_flux = cf_result.area_native if cf_result.success else 0.0
+
+        if cf_result.success and cf_flux > upper_limit_flux:
+            print(f"    [LINE {wl:.6f} um] CURVE_FIT: amp={cf_result.amplitude:.4g}, "
+                  f"center={cf_result.center:.6f}, sigma={cf_result.sigma:.6f}, "
+                  f"flux={cf_flux:.4e} > 3sigma upper limit {upper_limit_flux:.4e}")
+            results[orig_idx] = (line, cf_result)
+            continue
+
+        # --- Fallback: the artificial 3-sigma upper limit itself -- fixed center (catalog
+        # wavelength) and fixed sigma (spectral resolution), amplitude = 3*noise_std. A pure
+        # formula, not a data-derived fit: if curve_fit couldn't clear the bar, there's no
+        # trustworthy shape to report, only a standardized bound.
+        print(f"    [LINE {wl:.6f} um] UPPER LIMIT (3sigma, fixed shape): "
+              f"amp={3 * noise_std:.4g}, flux={upper_limit_flux:.4e}")
+        y_fit_local = gaussian(x_local, 3 * noise_std, wl, sigma_i)
+        area_native = upper_limit_flux
+        area_cgs = convert_area_to_cgs(3 * noise_std, sigma_i, wl, header, unit) if header is not None else None
+        if area_cgs is not None:
+            area, area_unit = area_cgs, "erg/s/cm²"
         else:
-            area_native = amp * sigma_i * np.sqrt(2 * np.pi)
-            area_cgs = convert_area_to_cgs(amp, sigma_i, wl, header, unit) if header is not None else None
-            if area_cgs is not None:
-                area, area_unit = area_cgs, "erg/s/cm²"
-            else:
-                area = area_native
-                flux_unit = header.get('BUNIT', 'flux') if header is not None else 'flux'
-                area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
-            ss_res = np.sum(residuals_local ** 2)
-            ss_tot = np.sum((y_local - np.mean(y_local)) ** 2)
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-            message = (f"Warning: Poor fit quality (R² = {r_squared:.3f})" if r_squared < 0.5
-                       else f"Success: Good fit (R² = {r_squared:.3f})")
-            if wl in near_coincident_notes:
-                skipped = ', '.join(f"{w:.6f}" for w in near_coincident_notes[wl])
-                message += (f" -- Note: possible unresolved contaminant(s) at {skipped} um, too "
-                            f"close (<2 sigma) to separate reliably; not modeled separately.")
-            result = GaussianFitResult(
-                amplitude=amp, center=wl, sigma=sigma_i, fwhm=fwhm,
-                area=area, area_unit=area_unit, area_native=area_native,
-                baseline_slope=0.0, baseline_intercept=float(baseline_local[0]) if len(baseline_local) else 0.0,
-                x_data=x_local, y_data=y_local,
-                baseline=baseline_local, y_corrected=y_local,
-                y_fit=y_fit_local, residuals=residuals_local,
-                r_squared=r_squared, success=True, message=message,
-            )
-        results[orig_idx] = (line, result)
+            area = area_native
+            flux_unit = header.get('BUNIT', 'flux') if header is not None else 'flux'
+            area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
+        message = f"Upper limit: 3sigma at fixed spectral-resolution width (sigma={sigma_i:.6f} um)"
+        if wl in near_coincident_notes:
+            skipped = ', '.join(f"{w:.6f}" for w in near_coincident_notes[wl])
+            message += (f" -- Note: possible unresolved contaminant(s) at {skipped} um, too "
+                        f"close (<2 sigma) to separate reliably; not modeled separately.")
+        results[orig_idx] = (line, GaussianFitResult(
+            amplitude=3 * noise_std, center=wl, sigma=sigma_i, fwhm=2.355 * sigma_i,
+            area=area, area_unit=area_unit, area_native=area_native,
+            baseline_slope=0.0, baseline_intercept=float(baseline_local[0]) if len(baseline_local) else 0.0,
+            x_data=x_local, y_data=y_local,
+            baseline=baseline_local, y_corrected=y_local,
+            y_fit=y_fit_local, residuals=y_local - y_fit_local,
+            r_squared=0, success=True, message=message,
+        ))
 
     # Contaminants get their own pairs, using only their own component.
     contam_results = []
