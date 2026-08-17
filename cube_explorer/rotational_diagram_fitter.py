@@ -240,10 +240,16 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         return [{"success": False, "message": f"Continuum fit failed: {e}"} for _ in line_wavelengths]
 
     hitran_lines = [{'wavelength': wl} for wl in line_wavelengths]
-    fit_pairs, _, velocity_shift_kms = fit_hitran_lines_collective(
-        wavelength_arr, spectrum_arr, hitran_lines, continuum,
-        header=header, wave_unit='um', contam_lines=contam_lines,
-    )
+    try:
+        fit_pairs, _, velocity_shift_kms = fit_hitran_lines_collective(
+            wavelength_arr, spectrum_arr, hitran_lines, continuum,
+            header=header, wave_unit='um', contam_lines=contam_lines,
+        )
+    except Exception as e:
+        # e.g. _line_sigma raising because the header can't produce a real spectral
+        # resolution -- surfaced per this function's own contract (a visible message per
+        # line), not a silently-guessed sigma and not an uncaught crash either.
+        return [{"success": False, "message": f"Collective fit failed: {e}"} for _ in line_wavelengths]
     if velocity_shift_kms is not None:
         print(f"[BATCH_FLUX] Collective fit shared velocity shift: {velocity_shift_kms:.2f} km/s")
 

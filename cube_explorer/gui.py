@@ -2846,19 +2846,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         """
         if not hasattr(self, 'cube_data') or self.cube_data is None:
             return 0.0
-        try:
-            from .co_flux_extractor import _line_sigma
-            wave = np.asarray(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
-            dx = abs(float(np.median(np.diff(wave))))  # magnitude only -- a descending
-            # wavelength array must not flip this into a negative (range-shrinking) pad
-            header = getattr(self.cube_data, 'header', None)
-            edge_sigmas = [
-                _line_sigma(float(np.nanmin(wave)), header, dx, 2.5),
-                _line_sigma(float(np.nanmax(wave)), header, dx, 2.5),
-            ]
-            return 4 * max(edge_sigmas)
-        except Exception:
-            return 0.0
+        from .co_flux_extractor import _line_sigma
+        wave = np.asarray(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
+        header = getattr(self.cube_data, 'header', None)
+        edge_sigmas = [
+            _line_sigma(float(np.nanmin(wave)), header),
+            _line_sigma(float(np.nanmax(wave)), header),
+        ]
+        return 4 * max(edge_sigmas)
 
     def _reset_lines_state(self):
         """
@@ -3246,7 +3241,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         if wave_range is None:
             return
         wavelength_min, wavelength_max = wave_range
-        pad = self._line_range_edge_pad()
+        try:
+            pad = self._line_range_edge_pad()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not compute the line-edge padding:\n{e}")
+            return
         wavelength_min, wavelength_max = wavelength_min - pad, wavelength_max + pad
 
         # Suggest default location

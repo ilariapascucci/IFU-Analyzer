@@ -99,6 +99,45 @@ class GaussianMapWorker(QThread):
         self.progress.emit(current, total)
 
 
+class MultiGaussianFitWorker(QThread):
+    """Background worker thread for Multi-Gaussian Fit (fit_hitran_lines_collective).
+
+    Same shape as GaussianMapWorker above -- a single spectrum with a handful of chunks is
+    much smaller than a full-cube map, but fit_glines' simultaneous curve_fit per chunk can
+    still run for tens of seconds on a crowded line list, long enough that running it on the
+    GUI thread would freeze the window with no feedback.
+    """
+    finished = pyqtSignal(list, list)  # (fit_pairs, contam_pairs)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(int, int)  # (current_chunk, total_chunks)
+
+    def __init__(self, spectrum_x, spectrum_y, hitran_lines, continuum,
+                 header=None, wave_unit=None, contam_lines=None):
+        super().__init__()
+        self.spectrum_x = spectrum_x
+        self.spectrum_y = spectrum_y
+        self.hitran_lines = hitran_lines
+        self.continuum = continuum
+        self.header = header
+        self.wave_unit = wave_unit
+        self.contam_lines = contam_lines
+
+    def run(self):
+        try:
+            from .co_flux_extractor import fit_hitran_lines_collective
+            fit_pairs, contam_pairs, _ = fit_hitran_lines_collective(
+                self.spectrum_x, self.spectrum_y, self.hitran_lines, self.continuum,
+                header=self.header, wave_unit=self.wave_unit, contam_lines=self.contam_lines,
+                progress_callback=self._emit_progress,
+            )
+            self.finished.emit(fit_pairs, contam_pairs)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def _emit_progress(self, current, total):
+        self.progress.emit(current, total)
+
+
 class GaussianMapResultsDialog(QDialog):
     """
     Dialog window for displaying Gaussian parameter maps.

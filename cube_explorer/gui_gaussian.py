@@ -4,7 +4,7 @@ from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
-from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
+from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
 from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
@@ -388,22 +388,84 @@ STATUS: {result.message}
         if spectrum_x is None or spectrum_y is None or len(spectrum_x) != len(spectrum_y):
             QMessageBox.warning(self, "Data Error", "Data mismatch.")
             return
-        
-        # Auto-compute continuum with default values if not already fitted
-        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted is None:
+
+        contam_lines = getattr(self, 'contam_lines', None)
+
+        # Cache key: which lines (by wavelength) and contaminants are being fit, on which
+        # tab. If unchanged since the last successful run, offer the cached results instead
+        # of re-running fit_glines, which can take real time (tens of seconds) on a crowded
+        # line list -- the same "reopen instantly or re-run" choice CO Flux Map already
+        # offers for its own (much longer) full-cube fits.
+        cache_key = (
+            tuple(sorted(round(float(r.get('wavelength', 0)), 6) for r in detection_lines)),
+            tuple(sorted(round(float(w), 6) for w in contam_lines['line_wave_um']))
+                if contam_lines is not None and len(contam_lines) else (),
+            self.active_spectrum_tab,
+        )
+        if hasattr(self, 'multi_gauss_result_cache') and getattr(self, 'multi_gauss_cache_key', None) == cache_key:
+            reply = QMessageBox.question(
+                self, "Cached Results Available",
+                "Results from the last fit with these same lines are cached.\n\n"
+                "Click 'Yes' to reopen the cached results (instant)\n"
+                "Click 'No' to re-fit with current data",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                fit_results, contam_results = self.multi_gauss_result_cache
+                self.multi_gauss_results = fit_results
+                self.multi_gauss_contam_results = contam_results
+                self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
+                self._show_multi_gaussian_results(fit_results, contam_results, None)
+                return
+
+        # Auto-compute continuum with default values if not already fitted for this tab.
+        # self.continuum_fitted is always a dict ({"full"/"left"/"right": array or None}),
+        # never None itself -- checking `is None` on the dict can never be true, and the
+        # else branch was grabbing the whole dict instead of this tab's own array.
+        if not hasattr(self, 'continuum_fitted') or self.continuum_fitted.get(self.active_spectrum_tab) is None:
             try:
                 continuum_y = fit_auto_continuum(spectrum_x, spectrum_y)
             except Exception as e:
                 QMessageBox.warning(self, "Continuum Error", f"Could not compute continuum automatically:\n{str(e)}")
                 return
         else:
-            continuum_y = self.continuum_fitted
-        
-        fit_pairs, contam_pairs, velocity_shift_kms = fit_hitran_lines_collective(
+            continuum_y = self.continuum_fitted[self.active_spectrum_tab]
+
+        self._multi_gauss_cache_key_pending = cache_key
+
+        self.multi_gauss_worker = MultiGaussianFitWorker(
             spectrum_x, spectrum_y, detection_lines, continuum_y,
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
-            contam_lines=getattr(self, 'contam_lines', None),
+            contam_lines=contam_lines,
         )
+        # No cancel button: fit_glines has no cooperative-cancellation checkpoint (unlike
+        # CO Flux Map's per-pixel cancel_flag), and QThread.terminate() is unsafe to wire up
+        # in its place. min=max=0 starts the bar as an indeterminate "busy" indicator until
+        # the first progress signal reports how many chunks there actually are.
+        self.multi_gauss_progress = QProgressDialog("Fitting HITRAN lines...", None, 0, 0, self)
+        self.multi_gauss_progress.setWindowModality(Qt.WindowModal)
+        self.multi_gauss_progress.setMinimumDuration(0)
+
+        self.multi_gauss_worker.progress.connect(self._update_multi_gaussian_progress)
+        self.multi_gauss_worker.finished.connect(self._on_multi_gaussian_fit_complete)
+        self.multi_gauss_worker.error.connect(self._on_multi_gaussian_fit_error)
+        self.multi_gauss_worker.start()
+
+    def _update_multi_gaussian_progress(self, current, total):
+        if hasattr(self, 'multi_gauss_progress'):
+            self.multi_gauss_progress.setMaximum(total)
+            self.multi_gauss_progress.setValue(current)
+            self.multi_gauss_progress.setLabelText(f"Fitting HITRAN lines... chunk {current}/{total}")
+
+    def _on_multi_gaussian_fit_error(self, message):
+        if hasattr(self, 'multi_gauss_progress'):
+            self.multi_gauss_progress.close()
+        QMessageBox.critical(self, "Fit Error", f"Multi-Gaussian fit failed:\n{message}")
+
+    def _on_multi_gaussian_fit_complete(self, fit_pairs, contam_pairs):
+        if hasattr(self, 'multi_gauss_progress'):
+            self.multi_gauss_progress.close()
+
         fit_results = [{'line': line, 'result': result} for line, result in fit_pairs if result.success]
         contam_results = [{'line': line, 'result': result} for line, result in contam_pairs]
 
@@ -413,8 +475,10 @@ STATUS: {result.message}
 
         self.multi_gauss_results = fit_results
         self.multi_gauss_contam_results = contam_results
+        self.multi_gauss_result_cache = (fit_results, contam_results)
+        self.multi_gauss_cache_key = getattr(self, '_multi_gauss_cache_key_pending', None)
         self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
-        self._show_multi_gaussian_results(fit_results, contam_results, velocity_shift_kms)
+        self._show_multi_gaussian_results(fit_results, contam_results, None)
 
     def _plot_multi_gaussian_on_spectrum(self, fit_results, contam_results=None):
         ax = self.spec_plotter.ax
@@ -510,9 +574,37 @@ STATUS: {result.message}
   Integrated Area:       {result.area:.4e} {result.area_unit or fallback_area_unit}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
         
+        def _sum_area(results_list):
+            """(total, unit_text) if every result shares one area_unit, else (None, note)
+            explaining why not -- summing across mismatched units would silently produce a
+            meaningless number, so this refuses rather than guessing."""
+            if not results_list:
+                return 0.0, fallback_area_unit
+            units = {r['result'].area_unit or fallback_area_unit for r in results_list}
+            if len(units) == 1:
+                return sum(r['result'].area for r in results_list), units.pop()
+            return None, f"cannot sum -- mixed units across lines ({', '.join(sorted(units))})"
+
+        total_flux, total_flux_unit = _sum_area(fit_results)
+        r2_values = [fit_info['result'].r_squared for fit_info in fit_results]
+        mean_r2 = np.mean(r2_values) if r2_values else float('nan')
+        n_good = sum(1 for r2 in r2_values if r2 >= 0.5)
+
         results_text += f"\nOVERALL:\n  Total lines fitted:    {len(fit_results)}\n"
+        if total_flux is not None:
+            results_text += f"  Total Integrated Flux: {total_flux:.4e} {total_flux_unit}\n"
+        else:
+            results_text += f"  Total Integrated Flux: {total_flux_unit}\n"
+        results_text += f"  Mean R²:               {mean_r2:.4f}\n"
+        results_text += f"  Lines with R² >= 0.5:  {n_good}/{len(fit_results)}\n"
 
         if contam_results:
+            total_contam_flux, total_contam_flux_unit = _sum_area(contam_results)
+            if total_contam_flux is not None:
+                results_text += f"  Total Contaminant Flux: {total_contam_flux:.4e} {total_contam_flux_unit}\n"
+            else:
+                results_text += f"  Total Contaminant Flux: {total_contam_flux_unit}\n"
+
             results_text += (
                 f"\nCONTAMINATING LINES (not part of the {len(fit_results)} lines above -- "
                 f"shown in grey on the plot):\n{'='*70}\n"
