@@ -221,7 +221,15 @@ def many_gaussians_list(xl, a, b, *params):
     """
     Sum of multiple Gaussians with linear continuum.
     Calculates the y-values for a list of x-values for a sum of Gaussian curves with a continuum slope.
-    
+
+    Vectorized over both points and lines at once (xl[:, None] against each Gaussian's own
+    params, broadcasting to a (n_points, n_lines) array before summing over lines) -- not a
+    per-point, per-line Python loop. That loop was the actual bottleneck of the whole fit:
+    curve_fit's numerical Jacobian re-evaluates this model ~2x per free parameter on every
+    iteration, so a Python-level loop here dominated total runtime (profiled at 81% of one
+    chunk's fit time) and got dramatically worse as more lines shared a chunk. Same math,
+    same result for every input -- this is purely how it's computed, not what it computes.
+
     Parameters
     ----------
     xl : array-like
@@ -234,19 +242,21 @@ def many_gaussians_list(xl, a, b, *params):
         Variable number of Gaussian parameters organized as:
         [amp0, cen0, sig0, amp1, cen1, sig1, ..., ampN, cenN, sigN]
         Each Gaussian uses 3 parameters: amplitude, center, sigma
-    
+
     Returns
     -------
-    list
+    np.ndarray
         Sum of all Gaussians plus continuum evaluated at xl
     """
     N = 3  # Parameters per Gaussian
+    xl = np.asarray(xl)
     params = np.asarray(params)
-    min_freq = min(xl)
-    retval = [sum(gaussian(x, params[i], params[i + 1], params[i + 2]) 
-                   for i in np.arange(len(params) // N) * N) + a + b * (x - min_freq) 
-              for x in xl]
-    return retval
+    min_freq = np.min(xl)
+    amps, cens, sigs = params[0::N], params[1::N], params[2::N]
+    gaussians = amps[np.newaxis, :] * np.exp(
+        -0.5 * ((xl[:, np.newaxis] - cens[np.newaxis, :]) / sigs[np.newaxis, :]) ** 2
+    )
+    return a + b * (xl - min_freq) + gaussians.sum(axis=1)
 
 
 # ================== Line Detection ==================
@@ -514,7 +524,13 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
     for ii in range(len(list_wboundaries) - 1):
         xwave_min, xwave_max = list_wboundaries[ii], list_wboundaries[ii + 1]
-        idx_xwave = (xwave >= xwave_min) & (xwave <= xwave_max)
+        # Excludes NaN/inf points up front (real IFU cubes commonly have partially-covered
+        # spaxels -- dither edges, bad-pixel masking -- inside an otherwise valid chunk) so a
+        # handful of bad samples don't throw out this chunk's otherwise-good data. Every use of
+        # idx_xwave below (p0/bounds, curve_fit's own inputs, df_residual/df_continuum) then
+        # only ever sees finite data -- not a fallback, since nothing is guessed, just data
+        # that was never NaN in the first place.
+        idx_xwave = (xwave >= xwave_min) & (xwave <= xwave_max) & np.isfinite(xwave) & np.isfinite(yflux)
         print('> Fitting wave range ', np.around(xwave_min, decimals=4), np.around(xwave_max, decimals=4))
 
         # Filtering the DataFrame based on the disposition and the wavelength range: CO and contaminating lines
@@ -537,6 +553,39 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
         if len(filtered_lines) == 0:
             print('  No lines to fit in this range')
+            continue
+
+        # curve_fit needs at least as many finite data points as free parameters (2 for the
+        # continuum + 3 per Gaussian) to be well-determined at all -- fewer than that and it's
+        # either an outright error or, worse, an "answer" chosen arbitrarily among infinitely
+        # many that fit the few points equally well. A pixel that fails this is honestly
+        # unfittable in this chunk, not silently guessable, so it's marked failed like any
+        # other unfittable chunk rather than handed to curve_fit.
+        n_finite = np.count_nonzero(idx_xwave)
+        n_params_needed = 2 + 3 * len(filtered_lines)
+        if n_finite <= n_params_needed:
+            print(f'  [DATA WARN] Only {n_finite} finite points for {n_params_needed} parameters '
+                  f'in this chunk -- skipping (not enough data to fit)')
+            for _, coline in filtered_colines.iterrows():
+                per_line_fits.append({
+                    'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'catalog_sigma': coline['sigma'] if 'sigma' in coline else None, 'noise_std': None,
+                    'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
+                    'y_fit': np.zeros(n_finite),
+                    'success': False,
+                    'message': f"Not enough finite data points ({n_finite}) for {n_params_needed} parameters",
+                })
+            for _, contam_line in filtered_contaminatinglines.iterrows():
+                per_contam_fits.append({
+                    'wavelength': contam_line['line'], 'amplitude': 0.0, 'center': contam_line['line'],
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'catalog_sigma': contam_line['sigma'] if 'sigma' in contam_line else None, 'noise_std': None,
+                    'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
+                    'y_fit': np.zeros(n_finite),
+                    'success': False,
+                    'message': f"Not enough finite data points ({n_finite}) for {n_params_needed} parameters",
+                })
             continue
 
         # Per-line sigma when the caller supplied one (e.g. fit_hitran_lines_collective,
@@ -1126,6 +1175,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             'contam_flux': 0,
             'mean_continuum': np.nanmedian(spectrum_flux),
             'detected_lines': pd.DataFrame(),
+            'detected_contam': pd.DataFrame(),
             'residuals': pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)}),
             'continuum_curve': pd.DataFrame({'wave': spectrum_wave, 'continuum': no_fit_continuum}),
             'flux_unit': flux_unit_label,
@@ -1237,6 +1287,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         'contam_flux': contam_flux,
         'mean_continuum': mean_cont,
         'detected_lines': detected_lines,
+        'detected_contam': detected_contam,
         'residuals': residuals,
         'continuum_curve': continuum_curve,
         'flux_unit': flux_unit_label,
@@ -1289,11 +1340,15 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         Keys:
         - 'flux_map': 2D array of CO flux for each pixel, in erg/s/cm2 if cube_data.header
           supports the conversion (see 'flux_unit'), otherwise the cube's native flux unit
+        - 'contam_flux_map': 2D array of contaminating-line flux per pixel, same units as
+          'flux_map'. Already computed as part of separating contaminants from CO in each
+          pixel's fit; this just keeps that number instead of discarding it.
         - 'detection_map': 2D array with number of detected CO lines per pixel
+        - 'contam_detection_map': 2D array with number of detected contaminating lines per pixel
         - 'wavelength': 1D wavelength array used
         - 'header': FITS header from original cube
         - 'wave_range': (wave_min, wave_max) actually used for the fit
-        - 'flux_unit': unit of 'flux_map' -- 'erg/s/cm2' if the conversion succeeded
+        - 'flux_unit': unit of 'flux_map'/'contam_flux_map' -- 'erg/s/cm2' if the conversion succeeded
     """
     
     if cube_data.cube is None:
@@ -1335,7 +1390,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     
     # Create output maps
     flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    contam_flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
+    contam_detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
     wavelength_map = np.full((n_y, n_x), np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
     
     print(f">>> Creating CO flux map: {n_y}x{n_x} pixels, {n_wave} wavelength elements")
@@ -1440,7 +1497,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     # Worker function for processing a single row
     def process_row(y_idx):
         row_fluxes = np.full(n_x, np.nan, dtype=np.float32)
+        row_contam_fluxes = np.full(n_x, np.nan, dtype=np.float32)
         row_detections = np.full(n_x, 0, dtype=np.int32)
+        row_contam_detections = np.full(n_x, 0, dtype=np.int32)
         row_wavelengths = np.full(n_x, np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
 
         # DIAGNOSTIC: Count successes and failures
@@ -1479,22 +1538,33 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 # Filter detected lines by wavelength range
                 if result is not None and len(result['detected_lines']) > 0:
                     result['detected_lines'] = result['detected_lines'][
-                        (result['detected_lines']['line'] >= wave_min) & 
+                        (result['detected_lines']['line'] >= wave_min) &
                         (result['detected_lines']['line'] <= wave_max)
                     ]
-                
+                if result is not None and len(result['detected_contam']) > 0:
+                    result['detected_contam'] = result['detected_contam'][
+                        (result['detected_contam']['line'] >= wave_min) &
+                        (result['detected_contam']['line'] <= wave_max)
+                    ]
+
                 if result is not None:
                     # Check if flux value is actually valid
                     co_flux_val = result['co_flux']
-                    
+
                     # Step 3: Store results in maps
                     row_fluxes[x_idx] = co_flux_val
+                    row_contam_fluxes[x_idx] = result['contam_flux']
                     row_wavelengths[x_idx] = result.get('mean_detected_wavelength', np.nan)  # Store wavelength for conversion
                     
                     # Count detected CO lines
                     n_detected = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
                     row_detections[x_idx] = n_detected
-                    
+
+                    # Count detected contaminating lines
+                    n_contam_detected = len(result['detected_contam'][result['detected_contam']['disposition'] == 1]) \
+                        if len(result['detected_contam']) > 0 else 0
+                    row_contam_detections[x_idx] = n_contam_detected
+
                     num_success += 1
                 else:
                     num_failures += 1
@@ -1511,7 +1581,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             if (x_idx + 1) % max(1, n_x // 5) == 0:
                 print(f"    Row {y_idx}: {x_idx + 1}/{n_x} pixels...")
         
-        return y_idx, row_fluxes, row_detections, row_wavelengths
+        return y_idx, row_fluxes, row_contam_fluxes, row_detections, row_contam_detections, row_wavelengths
     
     # Process rows in parallel
     try:
@@ -1530,9 +1600,11 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     break
                 
                 try:
-                    y_idx, row_fluxes, row_detections, row_wavelengths = future.result()
+                    y_idx, row_fluxes, row_contam_fluxes, row_detections, row_contam_detections, row_wavelengths = future.result()
                     flux_map[y_idx, :] = row_fluxes
+                    contam_flux_map[y_idx, :] = row_contam_fluxes
                     detection_map[y_idx, :] = row_detections
+                    contam_detection_map[y_idx, :] = row_contam_detections
                     wavelength_map[y_idx, :] = row_wavelengths
                 except Exception:
                     # Skip this row if cancelled or failed
@@ -1564,6 +1636,10 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     print(f"    Valid pixels: {np.sum(~np.isnan(flux_map))}/{n_y * n_x}")
     print(f"    Mean CO flux: {np.nanmean(flux_map):.4e}")
     print(f"    Max CO flux: {np.nanmax(flux_map):.4e}")
+    print(f"    Mean contam flux: {np.nanmean(contam_flux_map):.4e}")
+    print(f"    Max contam flux: {np.nanmax(contam_flux_map):.4e}")
+    print(f"    Total contam flux (sum over valid pixels): {np.nansum(contam_flux_map):.4e}")
+    print(f"    Pixels with a contam detection: {np.sum(contam_detection_map > 0)}/{n_y * n_x}")
     
     # get units
     header = cube_data.header
@@ -1578,7 +1654,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
 
     return {
         'flux_map': flux_map,
+        'contam_flux_map': contam_flux_map,
         'detection_map': detection_map,
+        'contam_detection_map': contam_detection_map,
         'wavelength': wavelength,
         'header': cube_data.header,
         'wave_range': (wave_min, wave_max),

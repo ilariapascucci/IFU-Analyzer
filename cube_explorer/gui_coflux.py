@@ -90,7 +90,9 @@ class GuiCOFluxMixin:
                         parent=self,
                         excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
                         flux_unit=self.co_flux_result_cache.get('flux_unit'),
-                        continuum_params=self.co_flux_continuum_params
+                        continuum_params=self.co_flux_continuum_params,
+                        contam_flux_map=self.co_flux_result_cache.get('contam_flux_map'),
+                        contam_detection_map=self.co_flux_result_cache.get('contam_detection_map')
                     )
                     results_dialog.exec_()
                     return
@@ -303,7 +305,9 @@ class GuiCOFluxMixin:
             contam_catalog=getattr(self, 'co_flux_contam_catalog', None),
             parent=self, excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
             flux_unit=result.get('flux_unit'),
-            continuum_params=self.co_flux_continuum_params
+            continuum_params=self.co_flux_continuum_params,
+            contam_flux_map=result.get('contam_flux_map'),
+            contam_detection_map=result.get('contam_detection_map')
         )
         results_dialog.exec_()
     

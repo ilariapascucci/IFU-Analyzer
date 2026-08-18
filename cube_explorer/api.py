@@ -269,14 +269,13 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     Fit HITRAN spectral lines automatically using database lookup.
 
     This is the same algorithm as the GUI's **Multi-Gaussian Fit** button, not a
-    separate approximation of it: every line's width comes from the instrument's
-    spectral resolution (not fitted), and its center is fixed at its catalog
-    wavelength plus one shared velocity shift estimated from these lines' own peaks
-    (see ``fit_hitran_lines_collective``'s docstring), which turns fitting all of them
-    into a single linear least-squares solve (``np.linalg.lstsq``) instead of an
-    iterative nonlinear fit. Lines that overlap are disentangled by the same solve
-    automatically -- no independent-fit double-claiming of shared flux, and no
-    per-selection cost blowup from fitting many lines together.
+    separate approximation of it: every requested line, plus any contaminant sharing
+    its wavelength chunk, is fit simultaneously in one nonlinear ``curve_fit`` per
+    chunk (``fit_glines``, via ``fit_hitran_lines_collective``) -- not an independent
+    per-line fit, so overlapping lines don't double-claim shared flux. Each line's
+    starting width comes from the instrument's real spectral resolution, but its
+    center and sigma are free parameters within a bound around that (catalog
+    wavelength +/- the instrumental sigma), not fixed.
 
     Args:
         wavelength (array-like): Wavelength/frequency values
@@ -288,9 +287,11 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         refresh_cache (bool): Force refresh HITRAN cache (default False)
         v_upper (int, optional): Filter by upper vibrational level (e.g., 1 for v=1)
         v_lower (int, optional): Filter by lower vibrational level (e.g., 0 for v=0)
-        header: Optional FITS header for the erg/s/cm2 conversion, and for looking up
-            the instrument's spectral resolution (INSTRUME/GRATING). Without it, area
-            stays in the cube's native units -- same rule as fit_line.
+        header: FITS header. Required whenever any line is actually found -- each
+            line's fit width comes from the instrument's real spectral resolution at
+            that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
+            raises ValueError rather than silently fitting with the wrong width.
+            Also used for the erg/s/cm2 conversion.
         wave_unit: Wavelength unit string, needed alongside header for the conversion.
         continuum (array-like, optional): Pre-fitted continuum, same length as
             wavelength, subtracted before fitting each line. If None, one is fitted
@@ -361,17 +362,14 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     else:
         continuum_arr = _as_float_array(continuum)
 
-    # Fit Gaussian profiles to all lines at once via linear least squares. Contaminant fits
-    # (if contam_catalog was given) aren't surfaced here -- they exist to keep the requested
-    # lines' amplitudes honest, not as an additional reportable result.
-    fit_pairs, _contam_pairs, velocity_shift_kms = _fit_hitran_lines_internal(
+    # Fit every line (plus any contaminant sharing its chunk) simultaneously via curve_fit.
+    # Contaminant fits (if contam_catalog was given) aren't surfaced here -- they exist to
+    # keep the requested lines' amplitudes honest, not as an additional reportable result.
+    # Third return value is a placeholder (no velocity-shift correction in this version).
+    fit_pairs, _contam_pairs, _ = _fit_hitran_lines_internal(
         wl, sp, hitran_lines, continuum_arr,
         header=header, wave_unit=wave_unit,
         contam_lines=contam_catalog)
-    if velocity_shift_kms is not None:
-        print(f"Applied a {velocity_shift_kms:+.2f} km/s wavelength shift to every line's fixed "
-              f"center (estimated from these lines' own peaks) -- each result's 'wavelength' "
-              f"reflects this, not the unshifted catalog value.")
 
     return [
         {
@@ -637,11 +635,15 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
         dict: Map data containing:
             - 'flux_map': 2D array of CO flux per pixel, in erg/s/cm2 if cube_data.header
               supports the conversion (see 'flux_unit'), else the cube's native flux unit
+            - 'contam_flux_map': 2D array of contaminating-line flux per pixel, same units
+              as 'flux_map'
             - 'detection_map': 2D array with number of detected CO lines per pixel
+            - 'contam_detection_map': 2D array with number of detected contaminating lines
+              per pixel
             - 'wavelength': 1D wavelength array used for fitting
             - 'header': FITS header from the original cube
             - 'wave_range': (wavelength_min, wavelength_max) actually used for the fit
-            - 'flux_unit': unit of 'flux_map'
+            - 'flux_unit': unit of 'flux_map'/'contam_flux_map'
 
     Example:
         >>> cube = load_cube("data.fits")

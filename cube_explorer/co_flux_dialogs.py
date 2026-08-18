@@ -83,10 +83,13 @@ class COFluxMapResultsDialog(QDialog):
     def __init__(self, flux_map, detection_map, header=None, wave_range=None,
                  wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
                  parent=None, excluded_wavelengths=None, flux_unit=None,
-                 continuum_params=None):
+                 continuum_params=None, contam_flux_map=None, contam_detection_map=None):
         super().__init__(parent)
         self.flux_map = flux_map
         self.detection_map = detection_map
+        # None for results cached before these fields existed -- every use below guards on that.
+        self.contam_flux_map = contam_flux_map
+        self.contam_detection_map = contam_detection_map
         self.header = header
         self.wave_range = wave_range
         self.wavelength = wavelength
@@ -166,6 +169,12 @@ class COFluxMapResultsDialog(QDialog):
             f"Total CO flux: {sum_flux:.4e} | Mean: {mean_flux:.4e} | Max: {max_flux:.4e} | "
             f"Mean detections: {mean_detections:.1f} lines/pixel"
         )
+        if self.contam_flux_map is not None:
+            sum_contam = np.nansum(self.contam_flux_map)
+            info_text += f" | Total contam flux: {sum_contam:.4e}"
+        if self.contam_detection_map is not None:
+            n_contam_pixels = np.sum(self.contam_detection_map > 0)
+            info_text += f" | Contam detections: {n_contam_pixels:,} px"
         info_label = QLabel(info_text)
         info_label.setStyleSheet("background-color: #f0f0f0; padding: 6px; border-radius: 3px;")
         info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
@@ -182,7 +191,12 @@ class COFluxMapResultsDialog(QDialog):
         ctrl_layout = QHBoxLayout()
         ctrl_layout.addWidget(QLabel("Display:"))
         self.param_combo = QComboBox()
-        self.param_combo.addItems(["CO Flux", "Detection Count"])
+        param_items = ["CO Flux", "Detection Count"]
+        if self.contam_flux_map is not None:
+            param_items.append("Contam Flux")
+        if self.contam_detection_map is not None:
+            param_items.append("Contam Detection Count")
+        self.param_combo.addItems(param_items)
         self.param_combo.currentIndexChanged.connect(self._update_plot)
         ctrl_layout.addWidget(self.param_combo)
         
@@ -411,11 +425,19 @@ class COFluxMapResultsDialog(QDialog):
             data = self.flux_map
             title = "CO Rovibrational Flux"
             cbar_label = f"Integrated CO Flux ({self.flux_unit_str})"
+        elif param == "Contam Flux":
+            data = self.contam_flux_map
+            title = "Contaminating-Line Flux"
+            cbar_label = f"Integrated Contam Flux ({self.flux_unit_str})"
+        elif param == "Contam Detection Count":
+            data = self.contam_detection_map.astype(float)
+            title = "Contaminating Lines Detected"
+            cbar_label = "Number of Lines"
         else:
             data = self.detection_map.astype(float)
             title = "CO Lines Detected"
             cbar_label = "Number of Lines"
-        
+
         # Handle NaN
         plot_data = np.nan_to_num(data, nan=0.0)
         
@@ -491,7 +513,23 @@ class COFluxMapResultsDialog(QDialog):
                 hdu.header['BUNIT'] = 'count'
                 hdu.header['DESC'] = 'Number of CO lines detected per pixel'
                 hdul.append(hdu)
-                
+
+                # Contaminant flux HDU (only if this map has one -- older cached results won't)
+                if self.contam_flux_map is not None:
+                    hdu = fits.ImageHDU(data=self.contam_flux_map.astype(np.float32))
+                    hdu.header['EXTNAME'] = 'CONTAM_FLUX'
+                    hdu.header['BUNIT'] = self.flux_unit_str
+                    hdu.header['DESC'] = 'Contaminating-line flux: integrated area under non-CO line gaussians'
+                    hdul.append(hdu)
+
+                # Contaminant detection-count HDU (only if this map has one)
+                if self.contam_detection_map is not None:
+                    hdu = fits.ImageHDU(data=self.contam_detection_map.astype(np.int32))
+                    hdu.header['EXTNAME'] = 'CONTAM_DETECTION'
+                    hdu.header['BUNIT'] = 'count'
+                    hdu.header['DESC'] = 'Number of contaminating lines detected per pixel'
+                    hdul.append(hdu)
+
                 # Write with warnings suppressed for missing instrument keywords
                 hdul.writeto(path, overwrite=True, output_verify='warn')
                 
@@ -528,8 +566,29 @@ class COFluxMapResultsDialog(QDialog):
             stats += f"  Pixels with lines: {len(detection_valid):,}\n"
             stats += f"  Sum:   {np.sum(detection_valid):.0f}\n"
             stats += f"  Mean:  {np.mean(detection_valid):.2f}\n"
-            stats += f"  Min/Max: {np.min(detection_valid)} / {np.max(detection_valid)}\n"
-        
+            stats += f"  Min/Max: {np.min(detection_valid)} / {np.max(detection_valid)}\n\n"
+
+        # Contaminant flux statistics (only if this map has one)
+        if self.contam_flux_map is not None:
+            contam_valid = self.contam_flux_map[~np.isnan(self.contam_flux_map)]
+            if len(contam_valid) > 0:
+                stats += f"CONTAM FLUX ({self.flux_unit_str}):\n"
+                stats += f"  Count: {len(contam_valid):,}\n"
+                stats += f"  Sum:   {np.sum(contam_valid):.4e}\n"
+                stats += f"  Mean:  {np.mean(contam_valid):.4e}\n"
+                stats += f"  Std:   {np.std(contam_valid):.4e}\n"
+                stats += f"  Min/Max: {np.min(contam_valid):.4e} / {np.max(contam_valid):.4e}\n\n"
+
+        # Contaminant detection-count statistics (only if this map has one)
+        if self.contam_detection_map is not None:
+            contam_detection_valid = self.contam_detection_map[self.contam_detection_map > 0]
+            if len(contam_detection_valid) > 0:
+                stats += f"CONTAM DETECTION COUNT (lines/pixel):\n"
+                stats += f"  Pixels with contam lines: {len(contam_detection_valid):,}\n"
+                stats += f"  Sum:   {np.sum(contam_detection_valid):.0f}\n"
+                stats += f"  Mean:  {np.mean(contam_detection_valid):.2f}\n"
+                stats += f"  Min/Max: {np.min(contam_detection_valid)} / {np.max(contam_detection_valid)}\n"
+
         label = QLabel(stats)
         label.setStyleSheet("font-family: monospace; white-space: pre;")
         label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
