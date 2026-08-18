@@ -289,7 +289,8 @@ class COFluxMapResultsDialog(QDialog):
                     self.wavelength, spectrum, self.CO_catalog, self.contam_catalog,
                     wave_min=self.wave_range[0] if self.wave_range else None,
                     wave_max=self.wave_range[1] if self.wave_range else None,
-                    continuum_params=self.continuum_params
+                    continuum_params=self.continuum_params,
+                    header=self.cube_data.header, wave_unit=self.cube_data.wave_unit
                 )
                 
                 # Create inspection dialog

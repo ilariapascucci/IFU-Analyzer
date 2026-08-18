@@ -265,6 +265,17 @@ class GaussianFitResult:
     area_unit: str = ""  # Units of `area`, e.g. "erg/s/cm²"
     area_native: float = 0.0  # Area before any CGS conversion, in flux×wavelength units
 
+    # Only populated by fit_hitran_lines_collective's simultaneous curve_fit (None otherwise):
+    # amplitude_error straight from curve_fit's own joint covariance matrix -- correctly
+    # larger for a line degenerate with a close neighbor in the same fit, unlike a per-line
+    # refit that has no way to see that neighbor. catalog_sigma is the fixed instrumental
+    # sigma (_line_sigma) this line was given as input, as opposed to `sigma` (the fitted
+    # value); noise_std is that chunk's own residual noise. Both are what an upper-limit
+    # caller needs to build the artificial 3-sigma Gaussian without re-deriving anything.
+    amplitude_error: Optional[float] = None
+    catalog_sigma: Optional[float] = None
+    noise_std: Optional[float] = None
+
     def __str__(self):
         """Human-readable summary of fit results"""
         return (

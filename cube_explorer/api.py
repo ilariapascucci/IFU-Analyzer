@@ -558,10 +558,13 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
             parameters (window_size, sigma_threshold, peak_width, peak_distance,
             peak_exclusion, iterations, smoothing_factor). If None, uses the defaults,
             which work well for typical spectra.
-        header: FITS header, used to convert 'co_flux'/'contam_flux' to erg/s/cm2.
-            Without it, they stay in the cube's native flux units -- 'flux_unit' in
-            the result always tells you which one you got.
-        wave_unit (str, optional): Wavelength unit (e.g. 'um'). Required alongside
+        header: FITS header. Required whenever any line is actually detected -- each
+            line's fit width comes from the instrument's real spectral resolution at
+            that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
+            raises ValueError as soon as a line is found rather than silently fitting
+            with the wrong width. Also used to convert 'co_flux'/'contam_flux' to
+            erg/s/cm2 -- 'flux_unit' in the result always tells you which you got.
+        wave_unit (str, optional): Wavelength unit (e.g. 'um'). Used alongside
             header for the CGS conversion.
 
     Returns:

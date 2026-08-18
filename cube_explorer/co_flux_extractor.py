@@ -7,7 +7,6 @@ extracting and summing the total CO flux to create integrated flux maps.
 Uses scipy.optimize.curve_fit for simultaneous multi-gaussian + continuum fitting.
 
 Functions Reused from gaussian_fitter.py:
-- estimate_gaussian_params()    : Better initial guesses for Gaussian parameters from data
 - compute_noise_std()           : Robust noise/std estimation using RANSAC polynomial fit
 
 This architecture ensures consistency across the codebase and avoids code duplication.
@@ -37,7 +36,7 @@ from scipy.interpolate import UnivariateSpline
 
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
-    estimate_gaussian_params, compute_noise_std,
+    compute_noise_std,
     GaussianFitResult, _extract_value_from_quantity,
 )
 from .utils import get_spectral_resolution
@@ -609,6 +608,19 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             # only what gets plotted for inspection.
             df_continuum.loc[idx_xwave, 'continuum'] = a + b * (xwave[idx_xwave] - xwave[idx_xwave].min())
 
+            # Noise level for this chunk's own fit, from its own residuals with the real dof
+            # of the actual simultaneous model (every Gaussian + the 2 continuum params) --
+            # the same quantity curve_fit itself uses internally to scale `cov` when no sigma=
+            # is given, so this stays consistent with the per-line amplitude errors below
+            # rather than being a second, differently-derived noise estimate.
+            n_data_chunk = np.count_nonzero(idx_xwave)
+            dof_chunk = n_data_chunk - (len(par) + 2)
+            if dof_chunk > 0:
+                noise_std_chunk = float(np.sqrt(np.sum((yflux[idx_xwave] - bfit) ** 2) / dof_chunk))
+            else:
+                print(f'  [NOISE WARN] Chunk {ii}: dof={dof_chunk} <= 0, cannot estimate noise from residuals')
+                noise_std_chunk = None
+
             # Different approach in case there are contaminating lines
             if ncont_lines > 0:
                 current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
@@ -636,7 +648,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             min_freq_chunk = np.nanmin(xwave[idx_xwave])
             n_co = len(filtered_colines)
 
-            def _local_fit_record(cen_i, amp_i, sig_i, cat_wave):
+            def _local_fit_record(cen_i, amp_i, sig_i, cat_wave, amp_err_i, catalog_sigma_i):
                 local_mask = (
                     (xwave >= max(xwave_min, cen_i - 3 * abs(sig_i))) &
                     (xwave <= min(xwave_max, cen_i + 3 * abs(sig_i)))
@@ -652,15 +664,32 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                 return {
                     'wavelength': cat_wave, 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
                     'area': amp_i * sig_i * np.sqrt(2 * np.pi),
+                    # amp_err_i: this line's own amplitude uncertainty straight from curve_fit's
+                    # joint covariance matrix (cov), not a separately re-fit local model -- so a
+                    # line degenerate with a close neighbor in this same chunk correctly gets a
+                    # larger error instead of one derived as if it were fit alone.
+                    'amplitude_error': amp_err_i,
+                    # catalog_sigma_i: the fixed instrumental sigma (_line_sigma) this line was
+                    # given as input, not the fitted `sig_i` -- used to build the artificial
+                    # upper-limit Gaussian (3-sigma-noise amplitude, catalog center, this sigma)
+                    # when the caller decides this line's real fit isn't significant.
+                    'catalog_sigma': catalog_sigma_i,
+                    'noise_std': noise_std_chunk,
                     'x_data': x_local, 'y_data': y_local, 'y_fit': y_fit_local,
                     'success': True, 'message': 'Success',
                 }
 
             for i, (_, coline) in enumerate(filtered_colines.iterrows()):
-                per_line_fits.append(_local_fit_record(par[3 * i + 1], par[3 * i], par[3 * i + 2], coline['line']))
+                amp_err_i = float(np.sqrt(np.abs(cov[2 + 3 * i, 2 + 3 * i])))
+                per_line_fits.append(_local_fit_record(
+                    par[3 * i + 1], par[3 * i], par[3 * i + 2], coline['line'], amp_err_i, line_sigmas[i]
+                ))
             for j, (_, contam_line) in enumerate(filtered_contaminatinglines.iterrows()):
                 jj = 3 * (n_co + j)
-                per_contam_fits.append(_local_fit_record(par[jj + 1], par[jj], par[jj + 2], contam_line['line']))
+                amp_err_j = float(np.sqrt(np.abs(cov[2 + jj, 2 + jj])))
+                per_contam_fits.append(_local_fit_record(
+                    par[jj + 1], par[jj], par[jj + 2], contam_line['line'], amp_err_j, line_sigmas[n_co + j]
+                ))
 
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
@@ -673,17 +702,21 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             current_sum_CO = 3 * np.median(std_residuals) * fallback_sigma * np.sqrt(2 * np.pi)
             a = np.nanmedian(continuum)
             df_continuum.loc[idx_xwave, 'continuum'] = continuum
-            for _, coline in filtered_colines.iterrows():
+            for i, (_, coline) in enumerate(filtered_colines.iterrows()):
                 per_line_fits.append({
                     'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
-                    'sigma': 0.0, 'area': 0.0, 'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'catalog_sigma': line_sigmas[i], 'noise_std': None,
+                    'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
                     'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
                     'success': False, 'message': f"Chunk fit failed: {e}",
                 })
-            for _, contam_line in filtered_contaminatinglines.iterrows():
+            for j, (_, contam_line) in enumerate(filtered_contaminatinglines.iterrows()):
                 per_contam_fits.append({
                     'wavelength': contam_line['line'], 'amplitude': 0.0, 'center': contam_line['line'],
-                    'sigma': 0.0, 'area': 0.0, 'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'catalog_sigma': line_sigmas[n_co + j], 'noise_std': None,
+                    'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
                     'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
                     'success': False, 'message': f"Chunk fit failed: {e}",
                 })
@@ -881,6 +914,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                 baseline=baseline, y_corrected=fit['y_data'],
                 y_fit=fit['y_fit'], residuals=residuals,
                 r_squared=0, success=False, message=fit['message'],
+                catalog_sigma=fit.get('catalog_sigma'),
             )
         fwhm = 2.355 * fit['sigma']
         area_native = fit['area']
@@ -908,6 +942,8 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             baseline=baseline, y_corrected=fit['y_data'],
             y_fit=fit['y_fit'], residuals=residuals,
             r_squared=r_squared, success=True, message=message,
+            amplitude_error=fit.get('amplitude_error'), catalog_sigma=fit.get('catalog_sigma'),
+            noise_std=fit.get('noise_std'),
         )
 
     results = [None] * len(hitran_lines)
@@ -966,12 +1002,14 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         smoothing_factor). If None, uses the defaults, which work well for typical spectra.
     snr_threshold : float
         Minimum signal-to-noise for a line to count as detected (default: 3.0)
-    header : astropy.io.fits.Header, optional
-        FITS header, used to convert 'co_flux'/'contam_flux' to erg/s/cm2 (via
-        unit_converter.integrated_flux_to_cgs -- the same conversion used for Gaussian
-        line areas). Without it, they stay in the cube's native flux units.
+    header : astropy.io.fits.Header
+        FITS header. No longer just for the erg/s/cm2 conversion -- every detected line's
+        fit width now comes from the instrument's real spectral resolution at that
+        wavelength (_line_sigma, MIRI/NIRSpec only), so this is required whenever any line
+        is actually detected: a spectrum with no header raises ValueError as soon as a line
+        is found, rather than silently fitting with a guessed width.
     wave_unit : str, optional
-        Wavelength unit (e.g. 'um'). Required alongside header for the CGS conversion.
+        Wavelength unit (e.g. 'um'). Used alongside header for the CGS conversion.
 
     Returns
     -------
@@ -1098,52 +1136,62 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     # Accept both 'CO' (HITRAN) and '12C16O' (ECSV catalog) species naming conventions
     try:
         detected_co = detected_lines[
-            (detected_lines['disposition'] == 1) & 
+            (detected_lines['disposition'] == 1) &
             (detected_lines['species'].isin(['CO', '12C16O']))
-        ]
+        ].copy()
     except KeyError as e:
         print(f"  Error: detected_lines missing column - columns are: {detected_lines.columns.tolist()}")
         print(f"  detected_lines head:\n{detected_lines.head()}")
         raise
-    
+
+    # Per-line sigma from the instrument's own spectral resolution (_line_sigma), same as
+    # fit_hitran_lines_collective -- a single shared sigma across every detected line pins
+    # them all to the same width and under-resolves the narrow ones (the "horrible fits" bug
+    # the Multi-Gaussian path had before this). No fallback if a line's sigma can't be
+    # determined: that means the header is missing something MIRI/NIRSpec shouldn't be
+    # missing, and this should fail loudly rather than fit with a guessed width.
+    detected_co['sigma'] = [_line_sigma(wl, header) for wl in detected_co['line']]
+
     # DEBUG: Show how many CO lines were detected
     n_co_detected = len(detected_co)
     if n_co_detected > 0:
         print(f"  [DEBUG] CO line wavelengths: {detected_co['line'].values[:5].tolist()}...")
         print(f"  [DEBUG] CO line max amplitudes: {detected_co['max_amplitude'].values[:5].tolist()}...")
-    
-    # Run peak detection against the contaminating-line catalog itself
+
+    # Run peak detection against the contaminating-line catalog itself. Deliberately no
+    # contaminating_lines= avoidance against CO_catalog_for_fit here: that would reject a
+    # real H2 detection whenever its peak sits within one pixel of a CO catalog line -- but
+    # a contaminant sitting right next to a CO line is exactly the case that most needs its
+    # own Gaussian in fit_glines' simultaneous fit (see _line_sigma / the H2-vs-CO flux
+    # misattribution this whole contaminant-fitting path exists to fix). A generous/blended
+    # max_amplitude guess here is harmless -- curve_fit's own per-line bounds resolve the
+    # real split -- but silently dropping the detection isn't.
     if contam_catalog is not None and len(contam_catalog) > 0:
         detected_contam_lines = find_lines(
             spectrum_wave, spectrum_flux, contam_catalog,
-            contaminating_lines=CO_catalog_for_fit,
             remove_duplicate='True' if do_duplicate_removal else 'False',
             snr_threshold=snr_threshold,
             noise_std=shared_noise_std
         )
         detected_contam = detected_contam_lines[detected_contam_lines['disposition'] == 1].copy()
+        detected_contam['sigma'] = [_line_sigma(wl, header) for wl in detected_contam['line']]
     else:
         # Empty DataFrame - still needs the right columns for fit_glines
-        detected_contam = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'species'])
-    
+        detected_contam = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'species', 'sigma'])
+
     # DEBUG: Show detected lines after proper initialization
     n_contam_detected = len(detected_contam)
     print(f"  [DEBUG] Line detection: {n_co_detected} CO lines detected, {n_contam_detected} contaminating lines")
-    
+
     # Fit if any lines detected
     if len(detected_co) > 0 or len(detected_contam) > 0:
-        # This is the line width in wavelength units, typically 1-2 pixels worth
-        try:
-            y_for_sigma = spectrum_flux - np.nanmin(spectrum_flux)  # Remove baseline
-            _, _, sigma = estimate_gaussian_params(spectrum_wave, y_for_sigma)
-            # Ensure sigma is reasonable (between 0.001 and 0.1 microns for typical NIRSpec)
-            if sigma is None or not np.isfinite(sigma) or sigma < 0.0001 or sigma > 0.1:
-                sigma = 0.005  # Reasonable default for NIRSpec at 5 microns
-        except Exception as e:
-            # print(f"  Warning: sigma estimation failed ({e}), using default 0.005")
-            sigma = 0.005
-        
-        print(f"  [DEBUG] Before fit_glines: sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
+        # Only used as fit_glines' required positional argument -- every detected line above
+        # already carries its own real 'sigma', so fit_glines' per-line-sigma branch is what
+        # actually drives the fit; this scalar is never read (see fit_glines' own docstring).
+        all_sigmas = pd.concat([detected_co['sigma'], detected_contam['sigma']])
+        sigma = float(np.median(all_sigmas))
+
+        print(f"  [DEBUG] Before fit_glines: median sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
         print(f"  [DEBUG] Fitting {len(detected_co)} CO + {len(detected_contam)} contaminating lines")
         # No fallback string on purpose -- see fit_glines' own docstring on
         # flux_unit_label/wave_unit_label: None here means the header is genuinely missing

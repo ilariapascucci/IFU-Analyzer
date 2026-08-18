@@ -9,8 +9,7 @@ import pymc as pm
 import arviz as az
 
 from .unit_converter import integrated_flux_to_cgs, get_wave_unit, convert_area_to_cgs
-from .utils import get_spectral_resolution
-from .co_flux_extractor import gaussian, fit_auto_continuum, fit_hitran_lines_collective
+from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
 
 '''
 CONSTANTS
@@ -147,75 +146,29 @@ def model_2T(E, a1, T1, a2, T2):
 UPPER LIMITS
 '''
 
-def gaussian_flux_upper_limit(sigma_noise, wavelength, instrument=None, header=None, R=None):
+def gaussian_flux_upper_limit(sigma_noise, sigma):
     """
-    Calculate upper limit flux from noise using spectral resolution.
-    
+    3-sigma upper-limit flux: the integrated area of an artificial Gaussian with
+    amplitude = 3*sigma_noise and the given sigma -- i.e. exactly the Gaussian a marginal
+    3-sigma detection would produce, using the same area formula
+    (amplitude * sigma * sqrt(2*pi)) as every other line fit in this app. Not the old
+    delta_lambda (= lambda/R, a FWHM-like width) formula, which used a different width
+    convention than the area formula everything else here is built on.
+
     Args:
-        sigma_noise: Noise standard deviation in MJy/sr (per-pixel)
-        wavelength: Wavelength in microns
-        instrument: str, instrument name ('NIRSPEC', 'MIRI'). If provided, calculates R automatically
-        header: astropy.io.fits.Header, required for NIRSpec if instrument is specified
-        R: float, spectral resolution R(λ) = λ/Δλ. Use if already calculated, overrides auto-calculation
-    
+        sigma_noise: Noise standard deviation in MJy/sr (per-pixel), from the actual
+            simultaneous chunk fit's own residuals (fit_glines' noise_std_chunk).
+        sigma: The instrumental (spectral-resolution) sigma the line was actually fit
+            with -- pass fit_result.catalog_sigma, not a value re-derived here, so this
+            always matches the width fit_glines' own bounds used for this exact line.
+
     Returns:
-        tuple: (F_ul, delta_lambda) - upper limit flux and wavelength resolution
-    
-    Formula:
-        F_ul = 3sig_noise * Δλ
-        where Δλ = λ/R (spectral resolution element)
-        Result is in [MJy/sr·μm]
+        F_ul: upper limit flux [MJy/sr*um]
     """
-    # Calculate R if not provided
-    if R is None:
-        if instrument is None:
-            raise ValueError("Must provide either R or instrument name")
-        R = get_spectral_resolution(wavelength, instrument, header)
-    
-    delta_lambda = wavelength / R
-    F_ul = 3.0 * sigma_noise * delta_lambda
-    return F_ul, delta_lambda
+    return 3.0 * sigma_noise * sigma * np.sqrt(2 * np.pi)
 
 
-def _collective_local_noise_stats(fit_result):
-    """
-    No Monte Carlo as we are using a Multigaussian approach given we have
-    a fixed center and sigma (only 2 free parameters: amplitude and residual constant).
-    
-    We use the covariance formula for two parameters:
-
-        data(x) = amplitude * template(x) + constant   [least squares with 2 params]
-        Cov(beta) = noise_var * (X^T X)^-1,   X = [template, 1]
-
-    noise_var = sum(residuals^2)/dof, dof = n - 2 (two parameters: amplitude and the local constant).
-    
-    noise_var comes from this line's own local residuals rather than np.linalg.lstsq's own.
-
-    Returns (amp_error, noise_std) or (None, None).
-    """
-
-    x = fit_result.x_data
-    if len(x) < 3:
-        return None, None
-
-    template = gaussian(x, 1.0, fit_result.center, fit_result.sigma)
-    design = np.column_stack([template, np.ones_like(template)])
-
-    dof = len(x) - design.shape[1]
-    if dof < 1:
-        return None, None
-    noise_var = np.sum(fit_result.residuals ** 2) / dof
-    noise_std = float(np.sqrt(noise_var))
-
-    try:
-        cov = noise_var * np.linalg.inv(design.T @ design)
-    except np.linalg.LinAlgError:
-        return None, noise_std
-
-    return float(np.sqrt(cov[0, 0])), noise_std
-
-
-def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header, instrument,
+def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header,
                                     contam_lines=None):
     """
     Fit every line in `line_wavelengths` simultaneously in one spectrum (fit_hitran_lines_collective).
@@ -224,15 +177,15 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
     Args:
         wavelength_arr, spectrum_arr: 1D arrays for the (spatially-summed) spectrum
         line_wavelengths: list of target line center wavelengths (microns)
-        header: FITS header (for spectral resolution + unit conversion)
-        instrument: Instrument name ('MIRI', 'NIRSPEC', ...)
+        header: FITS header (instrument is read from it -- see _line_sigma)
         contam_lines: optional pd.DataFrame
             None (default) skips this, same as if no catalog were loaded.
 
     Returns:
         list of dicts, same length/order as line_wavelengths. Each dict has keys
         success (bool), message (str or None), and on success also flux_cgs,
-        flux_error_cgs, is_upper_limit, F_ul_cgs, sigma_noise, delta_lambda.
+        flux_error_cgs (None when is_upper_limit), is_upper_limit, F_ul_cgs,
+        sigma_noise, catalog_sigma.
     """
     try:
         continuum = fit_auto_continuum(wavelength_arr, spectrum_arr)
@@ -259,38 +212,48 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
     for line, fit_result in fit_pairs:
         wl = line['wavelength']
 
-        # edge case for amp <= 0
-        if not fit_result.success and "Not enough spectral points" in (fit_result.message or ""):
+        if not fit_result.success:
             results.append({"success": False, "message": fit_result.message})
             continue
 
-        # Already CGS (erg/s/cm^2)
+        # noise_std/catalog_sigma come straight from fit_glines' own simultaneous fit (chunk
+        # residual noise, and the instrumental sigma this line was actually fit with) -- both
+        # None only if that chunk had too few data points to estimate noise from residuals at
+        # all, which means we genuinely can't judge detection vs. upper limit here.
+        if fit_result.noise_std is None or fit_result.catalog_sigma is None:
+            results.append({"success": False, "message": "No noise estimate available for this line's chunk"})
+            continue
+
+        # Already CGS (erg/s/cm^2) -- the real fitted flux, from curve_fit's own amplitude/sigma
         flux_integrated = fit_result.area
 
-        # get noise
-        amp_error, sigma_noise = _collective_local_noise_stats(fit_result)
-        if amp_error is None:
-            results.append({"success": False, "message": "Could not estimate flux error"})
-            continue
-        flux_error = convert_area_to_cgs(amp_error, fit_result.sigma, wl, header, wave_unit)
-        if flux_error is None:
-            results.append({"success": False, "message": "Could not convert flux error to CGS"})
-            continue
-
-        F_ul_native, delta_lambda_ul = gaussian_flux_upper_limit(sigma_noise, wl, instrument=instrument, header=header)
+        F_ul_native = gaussian_flux_upper_limit(fit_result.noise_std, fit_result.catalog_sigma)
         try:
             F_ul_cgs = integrated_flux_to_cgs(F_ul_native, 'MJy/sr', wavelength=wl, header=header, wave_unit='um')
         except Exception:
             F_ul_cgs = None
+        if F_ul_cgs is None:
+            results.append({"success": False, "message": "Could not convert upper-limit flux to CGS"})
+            continue
 
-        # determine if a line is upper limit by its flux
+        # A real detection: fitted flux clears the 3-sigma noise floor.
+        # An upper limit: fitted flux doesn't -- the fit itself is not to be trusted here
+        # (that's what "not significant" means), so no error is reported for it. Reporting
+        # an error bar on an artificial ceiling value would be fabricating a second number
+        # on top of the first.
         is_upper_limit = flux_integrated < F_ul_cgs
+        if is_upper_limit:
+            flux_error = None
+        elif fit_result.amplitude_error is None:
+            flux_error = None
+        else:
+            flux_error = convert_area_to_cgs(fit_result.amplitude_error, fit_result.sigma, wl, header, wave_unit)
 
         print(f"[BATCH_FLUX] Line @ {wl:.6f} um (collective):")
         print(f"  flux = {flux_integrated:.4e} erg/s/cm^2")
-        print(f"  error = {flux_error:.4e} erg/s/cm^2")
-        print(f"  noise (native) = {sigma_noise:.4e} MJy/sr")
-        print(f"  delta_lambda = {delta_lambda_ul:.4e} um")
+        print(f"  error = {'N/A (upper limit or unavailable)' if flux_error is None else f'{flux_error:.4e} erg/s/cm^2'}")
+        print(f"  noise (native) = {fit_result.noise_std:.4e} MJy/sr")
+        print(f"  catalog sigma = {fit_result.catalog_sigma:.4e} um")
         print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm^2")
         print(f"  is_upper_limit = {is_upper_limit}")
 
@@ -301,8 +264,8 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             "flux_error_cgs": flux_error,
             "is_upper_limit": is_upper_limit,
             "F_ul_cgs": F_ul_cgs,
-            "sigma_noise": sigma_noise,
-            "delta_lambda": delta_lambda_ul,
+            "sigma_noise": fit_result.noise_std,
+            "catalog_sigma": fit_result.catalog_sigma,
         })
 
     return results

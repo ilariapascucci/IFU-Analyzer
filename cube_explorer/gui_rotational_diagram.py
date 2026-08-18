@@ -1130,7 +1130,7 @@ class RotationalDiagramWindow(QMainWindow):
 
                 line_wavelengths = [self.hitran_lines[row]['wavelength'] for row in rows]
                 group_results = compute_line_fluxes_collective(
-                    wavelength, spectrum, line_wavelengths, header, instrument,
+                    wavelength, spectrum, line_wavelengths, header,
                     contam_lines=self.contam_lines,
                 )
 
@@ -1151,14 +1151,20 @@ class RotationalDiagramWindow(QMainWindow):
                     if flux_item:
                         flux_item.setText(f"{flux_integrated:.4e}")
 
+                    # No error for an upper limit -- it's an artificial ceiling value, not a
+                    # real fit, so there's nothing to attach a real error bar to. Leave both
+                    # cells blank rather than printing a fabricated number.
                     error_item = self.lines_table.item(row, 7)
                     if error_item:
-                        error_item.setText(f"{flux_error:.4e}")
+                        error_item.setText(f"{flux_error:.4e}" if flux_error is not None else "")
 
                     pct_item = self.lines_table.item(row, 8)
-                    if pct_item and flux_integrated > 0:
-                        pct = (flux_error / flux_integrated) * 100
-                        pct_item.setText(f"{pct:.1f}")
+                    if pct_item:
+                        if flux_error is not None and flux_integrated > 0:
+                            pct = (flux_error / flux_integrated) * 100
+                            pct_item.setText(f"{pct:.1f}")
+                        else:
+                            pct_item.setText("")
 
                     # UL Flux: always filled in, detection or not
                     ul_flux_item = self.lines_table.item(row, 10)
