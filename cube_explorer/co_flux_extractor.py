@@ -841,16 +841,49 @@ def _estimate_velocity_shift(x_data, y_data, candidate_wavelengths, search_sampl
     return float(np.median(velocities))
 
 
+def _merged_wave_boundaries(centers, sigmas, half_width_sigma=7.0):
+    """
+    Build fit_glines' list_wboundaries from each line's own instrumental width, not a
+    fixed chunk grid: give every line its own [center - N*sigma, center + N*sigma]
+    window, then merge any windows that overlap into one shared chunk.
+
+    A line far enough from anything else that its window never overlaps another's gets
+    its own small, tightly-scoped chunk -- no unrelated spectral structure (a broad
+    nearby feature, a different line entirely) gets pulled into its continuum estimate
+    just because it happened to fall inside an arbitrary fixed-width window. Lines close
+    enough to genuinely blend (including a contaminant near a requested line) still end
+    up sharing one chunk, same as before -- just because their windows actually overlap,
+    not because they landed in the same slice of a one-size-fits-all grid.
+
+    Returns a flat, sorted array of boundary points (consecutive pairs = one chunk, the
+    same format fit_glines already expects). A gap between two merged, non-overlapping
+    intervals becomes its own chunk with no lines in it -- a harmless no-op in fit_glines
+    ("No lines to fit in this range"), not an error.
+    """
+    intervals = sorted(
+        (c - half_width_sigma * s, c + half_width_sigma * s)
+        for c, s in zip(centers, sigmas)
+    )
+    merged = [list(intervals[0])]
+    for lo, hi in intervals[1:]:
+        if lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return np.array([b for lo, hi in merged for b in (lo, hi)])
+
+
 def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
-                                 header=None, wave_unit=None, contam_lines=None, chunk_size=0.1,
-                                 progress_callback=None):
+                                 header=None, wave_unit=None, contam_lines=None,
+                                 sigma_multiplier=7.0, progress_callback=None):
     """
     Fit a hand-picked list of HITRAN lines (e.g. from the species dialog) the same way
-    CO Flux Map fits its detected lines: simultaneously, in fixed wavelength chunks, via
-    fit_glines(). Lines that share a chunk are fit together with one local continuum, so
-    close/blended lines no longer get independent, uninformed fits that double-claim
-    overlapping flux, and any contaminant sharing a chunk gets its own Gaussian too, so it
-    stops leaking into a nearby requested line's amplitude.
+    CO Flux Map fits its detected lines: simultaneously, in wavelength chunks sized to
+    each line's own instrumental width, via fit_glines(). Lines that share a chunk are
+    fit together with one local continuum, so close/blended lines no longer get
+    independent, uninformed fits that double-claim overlapping flux, and any contaminant
+    sharing a chunk gets its own Gaussian too, so it stops leaking into a nearby
+    requested line's amplitude.
 
     Unlike extract_co_flux_from_spectrum, this does no SNR-based line detection -- the
     caller has already chosen exactly which lines (and, if given, contaminants) to fit.
@@ -864,8 +897,15 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         contam_lines: optional pd.DataFrame with a 'line_wave_um' column (and optionally
             'species'); non-requested lines fit alongside the requested ones so their flux is
             absorbed by their own amplitude instead of a nearby requested line's.
-        chunk_size: wavelength chunk width, same units as spectrum_x (default 0.1, matching
-            CO Flux Map's default chunking)
+        sigma_multiplier: each line's own fit window is +/- this many multiples of its own
+            _line_sigma (default 7, derived directly from fit_glines' own curve_fit bounds --
+            unchanged from Pascucci's original fit_Glines -- not a separate guess: the center
+            is bounded to +/-1 sigma of the catalog wavelength, and the fitted sigma itself is
+            bounded to [0.5, 2]x the instrumental value, so the widest Gaussian the fit could
+            possibly converge to has ~99.7% of its area within 3 * 2sigma = 6sigma of its own
+            center; adding the 1sigma max center shift gives 7sigma from the catalog
+            wavelength as the point beyond which the bounds can never place real flux).
+            See _merged_wave_boundaries().
 
     Returns:
         (results, contam_results, None) tuple -- the third element is a placeholder (no
@@ -926,10 +966,9 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     else:
         detcontaminating_lines = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'sigma'])
 
-    wave_min = min(d[1] for d in lines_data)
-    wave_max = max(d[1] for d in lines_data)
-    n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
-    wave_boundaries = np.linspace(wave_min - chunk_size / 2, wave_max + chunk_size / 2, n_chunks)
+    all_centers = list(detco_lines['line']) + list(detcontaminating_lines['line'])
+    all_sigmas = list(detco_lines['sigma']) + list(detcontaminating_lines['sigma'])
+    wave_boundaries = _merged_wave_boundaries(all_centers, all_sigmas, half_width_sigma=sigma_multiplier)
 
     # Only used as fit_glines' required scalar fallback (RuntimeError path when a whole
     # chunk fails to converge) -- the per-line 'sigma' column above is what actually drives
@@ -1116,12 +1155,9 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     if _to_cgs(1.0, (wave_min + wave_max) / 2.0) is not None:
         flux_unit_label = 'erg/s/cm2'
     
-    # Auto-determine boundaries if not provided
-    if wave_boundaries is None:
-        # Use constant 0.1 micron chunks for consistent fitting resolution
-        chunk_size = 0.1  # microns
-        n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
-        wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
+    # wave_boundaries (if not explicitly given) gets computed further down, after this
+    # pixel's own lines are detected -- see the comment there for why it can't be built
+    # from the full catalog up front.
 
     # Narrow to the requested fit range
     fit_range_mask = (spectrum_wave >= wave_min) & (spectrum_wave <= wave_max)
@@ -1240,6 +1276,15 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         # actually drives the fit; this scalar is never read (see fit_glines' own docstring).
         all_sigmas = pd.concat([detected_co['sigma'], detected_contam['sigma']])
         sigma = float(np.median(all_sigmas))
+
+        # Same _merged_wave_boundaries() approach as fit_hitran_lines_collective, built from
+        # this pixel's own detected lines -- not the full catalog, which would chain-merge
+        # densely-packed catalog lines into one oversized chunk regardless of what this
+        # specific pixel actually detected. Each pixel gets its own boundaries because each
+        # pixel detects a different subset.
+        if wave_boundaries is None:
+            all_centers = list(detected_co['line']) + list(detected_contam['line'])
+            wave_boundaries = _merged_wave_boundaries(all_centers, list(all_sigmas))
 
         print(f"  [DEBUG] Before fit_glines: median sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
         print(f"  [DEBUG] Fitting {len(detected_co)} CO + {len(detected_contam)} contaminating lines")
@@ -1418,12 +1463,11 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     pixel_counter = {'count': 0, 'lock': Lock()}
     total_pixels = n_y * n_x
     
-    # Define auto wavelength boundaries for fitting
-    # Use constant 0.1 micron chunks for consistent, predictable fitting resolution
-    chunk_size = 0.1  # microns
-    n_chunks = max(2, int(np.ceil((wave_max - wave_min) / chunk_size)) + 1)
-    wave_boundaries = np.linspace(wave_min, wave_max, n_chunks)
-    
+    # No wave_boundaries computed here -- each pixel detects a different set of lines, so
+    # each pixel needs its own boundaries built from what it actually detected, not one
+    # structure shared across the cube (see extract_co_flux_from_spectrum, which now
+    # computes this itself, per call, from its own detected_co/detected_contam).
+
     # DEBUG: Test extraction on first few pixels
     print(f"    Testing pixel extraction...")
     try:
@@ -1470,7 +1514,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
             sys.stdout.flush()  # Force flush
             test_result = extract_co_flux_from_spectrum(
                 wavelength, test_spectrum, CO_catalog, contam_catalog,
-                wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
+                wave_min=wave_min, wave_max=wave_max,
                 do_duplicate_removal=True,
                 continuum_poly_deg=continuum_poly_deg,
                 continuum_params=continuum_params,
@@ -1527,7 +1571,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 # Step 2: Extract CO flux [FUNCTION: extract_co_flux_from_spectrum]
                 result = extract_co_flux_from_spectrum(
                     wavelength, spectrum_flux, CO_catalog, contam_catalog,
-                    wave_boundaries=wave_boundaries, wave_min=wave_min, wave_max=wave_max,
+                    wave_min=wave_min, wave_max=wave_max,
                     do_duplicate_removal=True,
                     continuum_poly_deg=continuum_poly_deg,
                     excluded_wavelengths=excluded_wavelengths,
