@@ -1151,9 +1151,13 @@ class RotationalDiagramWindow(QMainWindow):
                     if flux_item:
                         flux_item.setText(f"{flux_integrated:.4e}")
 
-                    # No error for an upper limit -- it's an artificial ceiling value, not a
-                    # real fit, so there's nothing to attach a real error bar to. Leave both
-                    # cells blank rather than printing a fabricated number.
+                    # Error is always computed now (real curve_fit-covariance error,
+                    # regardless of the upper-limit call) -- None only if it was genuinely
+                    # uncomputable, not because this line happens to be a upper limit. It
+                    # still gets written here either way; sync_flux_error_flag() below is
+                    # what actually stashes-and-blanks it for a checked Upper Limit row (and
+                    # would restore it if you later uncheck that box), so overriding the
+                    # auto-classification always has a real error ready, not nothing.
                     error_item = self.lines_table.item(row, 7)
                     if error_item:
                         error_item.setText(f"{flux_error:.4e}" if flux_error is not None else "")
@@ -1171,12 +1175,16 @@ class RotationalDiagramWindow(QMainWindow):
                     if ul_flux_item:
                         ul_flux_item.setText(f"{F_ul_cgs:.4e}")
 
-                    # Auto-check upper limit if detected
+                    # Auto-check upper limit if detected. Signals blocked so this doesn't
+                    # trigger on_line_selected() mid-batch-populate; sync_flux_error_flag()
+                    # is called explicitly right after so the stash-and-blank behavior still
+                    # applies to freshly-calculated rows, not just later manual toggles.
                     ul_checkbox = self.lines_table.cellWidget(row, 9)
-                    if ul_checkbox and is_upper_limit:
+                    if ul_checkbox:
                         ul_checkbox.blockSignals(True)
-                        ul_checkbox.setChecked(True)
+                        ul_checkbox.setChecked(is_upper_limit)
                         ul_checkbox.blockSignals(False)
+                        self.sync_flux_error_flag(row)
 
                     # Mark this row as system-calculated and record its source
                     calc_checkbox = self.lines_table.cellWidget(row, 11)

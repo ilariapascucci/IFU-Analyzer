@@ -569,7 +569,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             for _, coline in filtered_colines.iterrows():
                 per_line_fits.append({
                     'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
-                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None, 'sigma_error': None,
                     'catalog_sigma': coline['sigma'] if 'sigma' in coline else None, 'noise_std': None,
                     'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
                     'y_fit': np.zeros(n_finite),
@@ -579,7 +579,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             for _, contam_line in filtered_contaminatinglines.iterrows():
                 per_contam_fits.append({
                     'wavelength': contam_line['line'], 'amplitude': 0.0, 'center': contam_line['line'],
-                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None, 'sigma_error': None,
                     'catalog_sigma': contam_line['sigma'] if 'sigma' in contam_line else None, 'noise_std': None,
                     'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
                     'y_fit': np.zeros(n_finite),
@@ -697,7 +697,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             min_freq_chunk = np.nanmin(xwave[idx_xwave])
             n_co = len(filtered_colines)
 
-            def _local_fit_record(cen_i, amp_i, sig_i, cat_wave, amp_err_i, catalog_sigma_i):
+            def _local_fit_record(cen_i, amp_i, sig_i, cat_wave, amp_err_i, sig_err_i, catalog_sigma_i):
                 local_mask = (
                     (xwave >= max(xwave_min, cen_i - 3 * abs(sig_i))) &
                     (xwave <= min(xwave_max, cen_i + 3 * abs(sig_i)))
@@ -718,6 +718,11 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                     # line degenerate with a close neighbor in this same chunk correctly gets a
                     # larger error instead of one derived as if it were fit alone.
                     'amplitude_error': amp_err_i,
+                    # sig_err_i: this line's own sigma uncertainty from the same joint
+                    # covariance matrix -- together with amp_err_i, feeds the standard
+                    # error-propagation formula for area = amp*sigma*sqrt(2pi) (Pascucci's
+                    # own formula: area_err = sqrt(2pi*(sigma^2*amp_err^2 + amp^2*sig_err^2))).
+                    'sigma_error': sig_err_i,
                     # catalog_sigma_i: the fixed instrumental sigma (_line_sigma) this line was
                     # given as input, not the fitted `sig_i` -- used to build the artificial
                     # upper-limit Gaussian (3-sigma-noise amplitude, catalog center, this sigma)
@@ -730,14 +735,16 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
             for i, (_, coline) in enumerate(filtered_colines.iterrows()):
                 amp_err_i = float(np.sqrt(np.abs(cov[2 + 3 * i, 2 + 3 * i])))
+                sig_err_i = float(np.sqrt(np.abs(cov[2 + 3 * i + 2, 2 + 3 * i + 2])))
                 per_line_fits.append(_local_fit_record(
-                    par[3 * i + 1], par[3 * i], par[3 * i + 2], coline['line'], amp_err_i, line_sigmas[i]
+                    par[3 * i + 1], par[3 * i], par[3 * i + 2], coline['line'], amp_err_i, sig_err_i, line_sigmas[i]
                 ))
             for j, (_, contam_line) in enumerate(filtered_contaminatinglines.iterrows()):
                 jj = 3 * (n_co + j)
                 amp_err_j = float(np.sqrt(np.abs(cov[2 + jj, 2 + jj])))
+                sig_err_j = float(np.sqrt(np.abs(cov[2 + jj + 2, 2 + jj + 2])))
                 per_contam_fits.append(_local_fit_record(
-                    par[jj + 1], par[jj], par[jj + 2], contam_line['line'], amp_err_j, line_sigmas[n_co + j]
+                    par[jj + 1], par[jj], par[jj + 2], contam_line['line'], amp_err_j, sig_err_j, line_sigmas[n_co + j]
                 ))
 
         except RuntimeError as e:
@@ -754,7 +761,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             for i, (_, coline) in enumerate(filtered_colines.iterrows()):
                 per_line_fits.append({
                     'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
-                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None, 'sigma_error': None,
                     'catalog_sigma': line_sigmas[i], 'noise_std': None,
                     'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
                     'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
@@ -763,7 +770,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             for j, (_, contam_line) in enumerate(filtered_contaminatinglines.iterrows()):
                 per_contam_fits.append({
                     'wavelength': contam_line['line'], 'amplitude': 0.0, 'center': contam_line['line'],
-                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None,
+                    'sigma': 0.0, 'area': 0.0, 'amplitude_error': None, 'sigma_error': None,
                     'catalog_sigma': line_sigmas[n_co + j], 'noise_std': None,
                     'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
                     'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
@@ -1030,8 +1037,8 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             baseline=baseline, y_corrected=fit['y_data'],
             y_fit=fit['y_fit'], residuals=residuals,
             r_squared=r_squared, success=True, message=message,
-            amplitude_error=fit.get('amplitude_error'), catalog_sigma=fit.get('catalog_sigma'),
-            noise_std=fit.get('noise_std'),
+            amplitude_error=fit.get('amplitude_error'), sigma_error=fit.get('sigma_error'),
+            catalog_sigma=fit.get('catalog_sigma'), noise_std=fit.get('noise_std'),
         )
 
     results = [None] * len(hitran_lines)

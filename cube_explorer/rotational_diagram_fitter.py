@@ -8,7 +8,7 @@ from scipy.optimize import curve_fit
 import pymc as pm
 import arviz as az
 
-from .unit_converter import integrated_flux_to_cgs, get_wave_unit, convert_area_to_cgs
+from .unit_converter import integrated_flux_to_cgs
 from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
 
 '''
@@ -25,6 +25,13 @@ au = 1.496e13  # cm
 pc = 3.086e18  # cm
 
 _PYMC_RANDOM_SEED = 42  # PyMC random seed for deterministic approach
+
+# Systematic flux-calibration error floor (Pascucci): the statistical fit error alone
+# understates the true flux uncertainty, since it says nothing about instrument
+# flux-calibration uncertainty or continuum-estimation systematics -- both real, both
+# roughly proportional to the flux itself rather than to how well-constrained the local
+# fit happened to be. Added in quadrature: sqrt(statistical^2 + (SYSTEMATIC_FLUX_ERROR_FRACTION*flux)^2).
+SYSTEMATIC_FLUX_ERROR_FRACTION = 0.05
 
 '''
 HITRAN DATA
@@ -206,8 +213,6 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
     if velocity_shift_kms is not None:
         print(f"[BATCH_FLUX] Collective fit shared velocity shift: {velocity_shift_kms:.2f} km/s")
 
-    wave_unit = get_wave_unit(header, 'um')
-
     results = []
     for line, fit_result in fit_pairs:
         wl = line['wavelength']
@@ -236,18 +241,36 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             results.append({"success": False, "message": "Could not convert upper-limit flux to CGS"})
             continue
 
-        # A real detection: fitted flux clears the 3-sigma noise floor.
-        # An upper limit: fitted flux doesn't -- the fit itself is not to be trusted here
-        # (that's what "not significant" means), so no error is reported for it. Reporting
-        # an error bar on an artificial ceiling value would be fabricating a second number
-        # on top of the first.
+        # A real detection: fitted flux clears the 3-sigma noise floor. An upper limit:
+        # fitted flux doesn't. Either way, compute and keep the real error -- a caller
+        # (the GUI) that lets the user manually override the upper-limit call needs a real
+        # error already sitting there for that line, not nothing; is_upper_limit only
+        # controls how this result gets *displayed/used* downstream, not whether the error
+        # exists.
         is_upper_limit = flux_integrated < F_ul_cgs
-        if is_upper_limit:
-            flux_error = None
-        elif fit_result.amplitude_error is None:
+
+        # Pascucci's error-propagation formula for area = amplitude*sigma*sqrt(2*pi),
+        # assuming amplitude and sigma are uncorrelated:
+        #   area_err = sqrt(2*pi * (sigma^2*amp_err^2 + amp^2*sigma_err^2))
+        # Fitter-agnostic -- it only needs each parameter's own 1-sigma uncertainty from a
+        # least-squares fit, which curve_fit's covariance gives exactly like MPFIT's perror
+        # did for her. Scaled into CGS using this line's own already-computed
+        # area/area_native ratio (its real per-line conversion factor) rather than
+        # re-deriving the conversion separately.
+        if fit_result.amplitude_error is None or fit_result.sigma_error is None or not fit_result.area_native:
             flux_error = None
         else:
-            flux_error = convert_area_to_cgs(fit_result.amplitude_error, fit_result.sigma, wl, header, wave_unit)
+            area_err_native = np.sqrt(2 * np.pi * (
+                fit_result.sigma ** 2 * fit_result.amplitude_error ** 2 +
+                fit_result.amplitude ** 2 * fit_result.sigma_error ** 2
+            ))
+            flux_error_statistical = area_err_native * (fit_result.area / fit_result.area_native)
+            # Systematic flux-calibration/continuum floor, added in quadrature -- see
+            # SYSTEMATIC_FLUX_ERROR_FRACTION's own comment for why this is needed on top of
+            # the statistical error alone.
+            flux_error = float(np.sqrt(
+                flux_error_statistical ** 2 + (SYSTEMATIC_FLUX_ERROR_FRACTION * flux_integrated) ** 2
+            ))
 
         print(f"[BATCH_FLUX] Line @ {wl:.6f} um (collective):")
         print(f"  flux = {flux_integrated:.4e} erg/s/cm^2")
