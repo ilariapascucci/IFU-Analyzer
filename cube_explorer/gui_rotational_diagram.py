@@ -69,7 +69,7 @@ class RotationalFitWorker(QThread):
     progress = pyqtSignal(str, int, int)  # (phase "1T"/"2T", current, total)
 
     def __init__(self, fluxes, flux_errors, molecular_data, fit_opr, opr_grid,
-                 fit2T, R, dist, upper_limits):
+                 fit2T, R, dist, upper_limits, fit1T=None):
         super().__init__()
         self.fluxes = fluxes
         self.flux_errors = flux_errors
@@ -77,6 +77,10 @@ class RotationalFitWorker(QThread):
         self.fit_opr = fit_opr
         self.opr_grid = opr_grid
         self.fit2T = fit2T
+        # Default: report 1T only when 2T wasn't requested -- the "1T"/"2T" dropdown is
+        # mutually exclusive, so asking for 2T means 1T's own result isn't wanted (its
+        # cheap curve_fit seed is still used internally either way, just not reported).
+        self.fit1T = (not fit2T) if fit1T is None else fit1T
         self.R = R
         self.dist = dist
         self.upper_limits = upper_limits
@@ -90,6 +94,7 @@ class RotationalFitWorker(QThread):
                 OPR=None,
                 fit_opr=self.fit_opr,
                 opr_grid=self.opr_grid,
+                fit1T=self.fit1T,
                 fit2T=self.fit2T,
                 R=self.R,
                 dist=self.dist,
@@ -1513,7 +1518,16 @@ class RotationalDiagramWindow(QMainWindow):
         if dlg is None or total <= 0:
             return
         pct = int(100 * current / total)
-        dlg.setLabelText(f"Running {phase} fit (censored/PyMC)...\n{current}/{total} ({pct}%)")
+        # In 2T mode, the "1T" phase is just 2T's own silent seed computation -- label it
+        # as such instead of "Running 1T fit", which would misleadingly suggest a 1T
+        # result the user didn't ask for and won't see reported. Same progress numbers
+        # either way, just different label text.
+        worker = getattr(self, 'rot_fit_worker', None)
+        if phase == "1T" and worker is not None and getattr(worker, 'fit2T', False):
+            label = "Preparing 2T fit (censored/PyMC)..."
+        else:
+            label = f"Running {phase} fit (censored/PyMC)..."
+        dlg.setLabelText(f"{label}\n{current}/{total} ({pct}%)")
         dlg.setValue(pct)
 
     def _on_rotational_fit_complete(self, results):

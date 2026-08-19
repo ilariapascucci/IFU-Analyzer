@@ -553,7 +553,7 @@ def Q_total_err(T, dT, OPR, dOPR=0.0):
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None):
+                        fit1T=True, fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None):
     """
     Perform rotational diagram analysis on H2 lines.
 
@@ -573,6 +573,11 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
                  one-sided constraint) - the final fit below still uses the full data,
                  including upper limits via the censored PyMC path when present.
         opr_grid: OPR values to search over. Defaults to np.linspace(0.1, 5.0, 200).
+        fit1T: Whether to report a 1-temperature fit. The 1T fit is always computed the
+               same way regardless of this flag (2T's own fit needs it as its (a1, T1)
+               seed either way -- see censored_2T/_fit_2T_curvefit); fit1T only controls
+               whether it's added to the returned results for reporting. At least one of
+               fit1T/fit2T must be True.
         fit2T: Whether to perform 2-temperature fit
         R: Emitting radius (AU or cm).
         dist: Distance (pc or cm).
@@ -585,9 +590,12 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
     Notes:
         - If no upper limits: uses fast curve_fit (scipy) for the final fit
-        - If upper limits present: automatically uses PyMC censored likelihood for the final fit
+        - If upper limits present: automatically uses PyMC censored likelihood for the
+          final fit, but only for whichever of 1T/2T is actually being reported
         - fit_opr's grid search always uses curve_fit on detections only, regardless of upper_limits
     """
+    if not fit1T and not fit2T:
+        raise ValueError("At least one of fit1T/fit2T must be True -- nothing to fit.")
 
     global wave, Aul, Eu, gu
 
@@ -795,10 +803,18 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
     # Decide method: auto-use PyMC if upper limits present
     use_pymc = has_upper_limits
+    # Used below for both 1T's and 2T's own chi2 -- needed regardless of fit1T.
+    det_mask = ~is_ul_mask
 
     # ==========================================================
     # 1T FIT (final)
     # ==========================================================
+    # Always computed the same way as before (censored PyMC when upper limits are
+    # present, plain curve_fit otherwise) regardless of fit1T -- 2T's own fit needs this
+    # as its (a1, T1) seed either way (see censored_2T/_fit_2T_curvefit below), and this
+    # is the same proven computation this app has always used for it. fit1T only
+    # controls whether the result gets added to `results` for reporting below, not how
+    # it's computed.
     if not use_pymc:
 
         print("\n--- 1T FIT (curve_fit) ---")
@@ -821,36 +837,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         da1, dT1 = result["da"], result["dT"]
         pymc_diag_1T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
 
-    # =========================
-    # Derived quantities
-    # =========================
-    Ncol1 = np.exp(a1)
-    dNcol1 = Ncol1 * da1
-
-    Ntot1 = Ncol1 * Q_Herbst(T1)
-    dNtot1 = Ntot1 * np.sqrt((dNcol1/Ncol1)**2 + (Q_Herbst_err(T1, dT1)/Q_Herbst(T1))**2)
-
-    # chi2 uses detections only - upper limits have no meaningful sigma to weight by
-    # (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)
-    det_mask = ~is_ul_mask
-    y_model1 = model_1T(E_arr[det_mask], a1, T1)
-    chi2_1T = np.sum(((y_arr[det_mask] - y_model1) / np.maximum(y_err[det_mask], 1e-10))**2)
-    dof_1T = max(np.sum(det_mask) - 2, 1)
-
-    results = {
-        "OPR": best_opr,
-        "1T": {
-            "T": T1,
-            "dT": dT1,
-            "Ncol": Ntot1,
-            "dNcol": dNtot1,
-            "chi2": chi2_1T,
-            "red_chi2": chi2_1T / dof_1T,
-        }
-    }
-    if use_pymc:
-        results["1T"]["n_divergences"] = pymc_diag_1T["n_divergences"]
-        results["1T"]["max_r_hat"] = pymc_diag_1T["max_r_hat"]
+    results = {"OPR": best_opr}
     if best_opr_err is not None:
         results["OPR_err"] = best_opr_err
         results["OPR_err_pos"] = best_opr_err_pos
@@ -858,6 +845,34 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
     if dropped_detections:
         results["dropped_J"] = dropped_detections
+
+    if fit1T:
+        # =========================
+        # Derived quantities
+        # =========================
+        Ncol1 = np.exp(a1)
+        dNcol1 = Ncol1 * da1
+
+        Ntot1 = Ncol1 * Q_Herbst(T1)
+        dNtot1 = Ntot1 * np.sqrt((dNcol1/Ncol1)**2 + (Q_Herbst_err(T1, dT1)/Q_Herbst(T1))**2)
+
+        # chi2 uses detections only - upper limits have no meaningful sigma to weight by
+        # (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)
+        y_model1 = model_1T(E_arr[det_mask], a1, T1)
+        chi2_1T = np.sum(((y_arr[det_mask] - y_model1) / np.maximum(y_err[det_mask], 1e-10))**2)
+        dof_1T = max(np.sum(det_mask) - 2, 1)
+
+        results["1T"] = {
+            "T": T1,
+            "dT": dT1,
+            "Ncol": Ntot1,
+            "dNcol": dNtot1,
+            "chi2": chi2_1T,
+            "red_chi2": chi2_1T / dof_1T,
+        }
+        if use_pymc:
+            results["1T"]["n_divergences"] = pymc_diag_1T["n_divergences"]
+            results["1T"]["max_r_hat"] = pymc_diag_1T["max_r_hat"]
 
     # ==========================================================
     # 2T FIT (final)
