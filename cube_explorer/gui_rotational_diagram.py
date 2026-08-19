@@ -169,10 +169,10 @@ class RotationalDiagramWindow(QMainWindow):
         main_layout.addLayout(toggle_layout)
         
         self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(13)
+        self.lines_table.setColumnCount(14)
         self.lines_table.setHorizontalHeaderLabels(
             ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
-             "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source"]
+             "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source", "Fit R²"]
         )
         # Resize cells given content; padding
         self.lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -1200,6 +1200,19 @@ class RotationalDiagramWindow(QMainWindow):
                         filename = os.path.basename(cube_data.filename) if cube_data.filename else "?"
                         source_item.setText(f"{instrument} [{filename}]")
 
+                    # Fit quality (R^2 of the Gaussian fit this flux came from)
+                    r2_item = self.lines_table.item(row, 13)
+                    if r2_item:
+                        r_squared = result.get("r_squared")
+                        if r_squared is None:
+                            r2_item.setText("")
+                            r2_item.setBackground(QBrush())
+                        else:
+                            r2_item.setText(f"{r_squared:.3f}")
+                            # Same 0.5 threshold gaussian_fitter.py itself uses to call a fit
+                            # "poor" vs "good" -- flag it here too rather than a silent number.
+                            r2_item.setBackground(QColor(255, 214, 214) if r_squared < 0.5 else QBrush())
+
             except Exception as e:
                 print(f"Error processing lines from cube {cube_idx}: {e}")
                 QMessageBox.critical(self, "Calculation Error", f"Error processing lines from FITS file:\n{e}")
@@ -1312,6 +1325,11 @@ class RotationalDiagramWindow(QMainWindow):
             source_item = QTableWidgetItem("")
             source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 12, source_item)
+
+            # Fit R² (read-only; filled in by Calculate Fluxes, blank for manually-entered flux)
+            r2_item = QTableWidgetItem("")
+            r2_item.setFlags(r2_item.flags() & ~Qt.ItemIsEditable)
+            self.lines_table.setItem(row, 13, r2_item)
 
             self.sync_flux_error_flag(row)
         

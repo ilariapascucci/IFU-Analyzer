@@ -193,7 +193,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         list of dicts, same length/order as line_wavelengths. Each dict has keys
         success (bool), message (str or None), and on success also flux_cgs,
         flux_error_cgs (None when is_upper_limit), is_upper_limit, F_ul_cgs,
-        sigma_noise, catalog_sigma.
+        sigma_noise, catalog_sigma, r_squared.
     """
     try:
         continuum = fit_auto_continuum(wavelength_arr, spectrum_arr)
@@ -290,6 +290,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             "F_ul_cgs": F_ul_cgs,
             "sigma_noise": fit_result.noise_std,
             "catalog_sigma": fit_result.catalog_sigma,
+            "r_squared": fit_result.r_squared,
         })
 
     return results
