@@ -29,6 +29,10 @@ astropy-iers-data>=0.2025.10.6.0.35.25           # Astropy dependency
 # BAYESIAN STATISTICS & CENSORED REGRESSION
 # ============================================================================
 pymc>=4.0                  # Bayesian inference (censored regression for upper limits)
+nutpie>=0.13                # Compiled NUTS sampler (numba) -- PyMC's own PyTensor
+                             # backend needs a C++ compiler to run at reasonable
+                             # speed; nutpie doesn't, and it's what the rotational
+                             # diagram's censored 1T/2T fits actually sample with.
 
 # ============================================================================
 # HITRAN DATABASE & SPECTROSCOPY

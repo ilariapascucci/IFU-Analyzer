@@ -1403,10 +1403,20 @@ class RotationalDiagramWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", f"Invalid flux at row {row+1}")
                 return
 
-            # Get error from either column (whichever is populated). 
+            # Get error from either column (whichever is populated).
             # If None, _build_dataset then EXCLUDES this line from the fit entirely if it's not an upper limit.
-            error_text = self.lines_table.item(row, 7).text().strip()
-            error_pct_text = self.lines_table.item(row, 8).text().strip()
+            error_item = self.lines_table.item(row, 7)
+            pct_item = self.lines_table.item(row, 8)
+            error_text = error_item.text().strip()
+            error_pct_text = pct_item.text().strip()
+            if is_upper_limit and not error_text and not error_pct_text:
+                # sync_flux_error_flag() blanks these cells and stashes the previous
+                # value in Qt.UserRole when Upper Limit is checked (the value is still
+                # real, just hidden). Recover it here -- censored_1T/censored_2T use
+                # each upper limit's own error as its censoring width (ul_sigma), so
+                # this needs to actually reach the fit rather than being discarded.
+                error_text = (error_item.data(Qt.UserRole) or "").strip()
+                error_pct_text = (pct_item.data(Qt.UserRole) or "").strip()
 
             flux_error = None
 
@@ -1513,21 +1523,33 @@ class RotationalDiagramWindow(QMainWindow):
         self.rot_fit_worker.start()
 
     def _on_rotational_fit_progress(self, phase, current, total):
-        """Mirror the worker's PyMC sampling progress into the progress dialog."""
+        """Mirror the worker's nutpie sampling progress into the progress dialog."""
         dlg = getattr(self, 'rot_fit_progress', None)
-        if dlg is None or total <= 0:
+        if dlg is None:
             return
-        pct = int(100 * current / total)
         # In 2T mode, the "1T" phase is just 2T's own silent seed computation -- label it
         # as such instead of "Running 1T fit", which would misleadingly suggest a 1T
         # result the user didn't ask for and won't see reported. Same progress numbers
         # either way, just different label text.
         worker = getattr(self, 'rot_fit_worker', None)
         if phase == "1T" and worker is not None and getattr(worker, 'fit2T', False):
-            label = "Preparing 2T fit (censored/PyMC)..."
+            label = "Preparing 2T fit"
         else:
-            label = f"Running {phase} fit (censored/PyMC)..."
-        dlg.setLabelText(f"{label}\n{current}/{total} ({pct}%)")
+            label = f"Running {phase} fit"
+
+        if total <= 0:
+            # censored_1T/2T send (0, 0) right before nutpie.compile_pymc_model(),
+            # which has no sub-progress hook of its own -- this is usually the
+            # dominant chunk of wall time (~20-50s), so show a busy/indeterminate
+            # bar instead of leaving the dialog looking stalled on the fit's
+            # initial static text for that whole stretch.
+            dlg.setRange(0, 0)
+            dlg.setLabelText(f"{label}: compiling model (nutpie)...")
+            return
+
+        dlg.setRange(0, 100)
+        pct = int(100 * current / total)
+        dlg.setLabelText(f"{label} (nutpie)...\n{current}/{total} ({pct}%)")
         dlg.setValue(pct)
 
     def _on_rotational_fit_complete(self, results):

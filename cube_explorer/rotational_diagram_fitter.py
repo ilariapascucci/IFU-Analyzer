@@ -6,6 +6,7 @@ Implements single-temperature and two-temperature rotational diagram fits
 import numpy as np
 from scipy.optimize import curve_fit
 import pymc as pm
+import nutpie
 import arviz as az
 
 from .unit_converter import integrated_flux_to_cgs
@@ -313,20 +314,31 @@ def _print_pymc_diagnostics(trace, var_names):
 
     return {"n_divergences": n_divergent, "max_r_hat": max_rhat}
 
-def _pymc_progress_callback(label, tune, draws, chains, progress_callback=None):
-    """Enables progress bar"""
+def _nutpie_progress_callback(label, progress_callback=None):
+    """Enables progress bar.
 
-    total_per_chain = tune + draws
-    total = total_per_chain * chains
-    next_milestone = [max(1, total // 10)]
+    nutpie's own progress_callback shape -- a list of PyChainProgress (one per
+    chain), each with finished_draws/total_draws/tuning -- rather than PyMC's
+    default per-draw (trace, draw) callback. censored_1T/censored_2T call
+    nutpie.compile_pymc_model()/nutpie.sample() directly instead of going through
+    pm.sample(nuts_sampler='nutpie', callback=...): that wrapper silently drops
+    the callback argument, which is why progress reporting went dark before this
+    switch to nutpie's own API.
+    """
+    next_milestone = [0]
 
-    def callback(trace, draw):
-        overall = draw.chain * total_per_chain + draw.draw_idx + 1
-        if overall >= next_milestone[0] or overall == total:
-            phase = "tuning" if draw.tuning else "sampling"
-            print(f"[PyMC {label}] {phase}: {overall}/{total} ({100*overall//total}%)", flush=True)
+    def callback(chain_progresses):
+        current = sum(cp.finished_draws for cp in chain_progresses)
+        total = sum(cp.total_draws for cp in chain_progresses)
+        if total <= 0:
+            return
+        if next_milestone[0] == 0:
+            next_milestone[0] = max(1, total // 10)
+        if current >= next_milestone[0] or current == total:
+            phase = "tuning" if any(cp.tuning for cp in chain_progresses) else "sampling"
+            print(f"[nutpie {label}] {phase}: {current}/{total} ({100*current//total}%)", flush=True)
             if progress_callback is not None:
-                progress_callback(overall, total)
+                progress_callback(current, total)
             next_milestone[0] += max(1, total // 10)
 
     return callback
@@ -339,15 +351,24 @@ def censored_1T(E, y, yerr, is_ul, progress_callback=None):
     - Detections: fit normally with likelihood
     - Upper limits: one-sided constraint (F < F_ul)
     """
+    is_ul = np.asarray(is_ul, dtype=bool)
     # mask = True for detections, False for upper limits
     mask = ~is_ul
+
+    # Fallback width for upper-limit points that don't have their own propagated
+    # error (currently always, since _build_dataset places 0.0 there) -- the mean
+    # error of the real detections, at least tied to this dataset's own scale
+    # rather than an arbitrary constant.
+    mean_yerr = np.mean(yerr[mask]) if np.any(mask) else 1.0
 
     with pm.Model() as model:
 
         # PRIORS: log(Ncol) ~ Normal(data mean, sigma=5 dex)
         a = pm.Normal("a", mu=np.mean(y[mask]), sigma=5)
-        # Temperature range: 10 K to 5000 K (reasonable for H2)
-        T = pm.Uniform("T", 10, 5000)
+        # Temperature range: matches curve_fit's own _bounds_1T ceiling (Pascucci's
+        # original notebook bound), so the censored and uncensored fits search the
+        # same space.
+        T = pm.Uniform("T", 10, 3000)
 
         # LINEAR: rotational diagram: ln(N/g) = a - E_u/T
         mu = a - E / T
@@ -356,23 +377,39 @@ def censored_1T(E, y, yerr, is_ul, progress_callback=None):
         pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
         # LIKELIHOOD FOR UPPER LIMITS
-        # Censored: treat measured value as upper bound
+        # Censored: treat measured value as upper bound. Width comes from this
+        # line's own propagated error when available, else mean_yerr above --
+        # not the old fixed sigma=1.0, which had no relation to this dataset's
+        # actual scale in log(Nu/gu) space.
         if np.any(is_ul):
+            ul_sigma = yerr[is_ul] if np.any(yerr[is_ul] > 0) else mean_yerr
             pm.Censored(
                 "ul",
-                # Normal distribution centered at model prediction
-                pm.Normal.dist(mu=mu[is_ul], sigma=1.0),
+                pm.Normal.dist(mu=mu[is_ul], sigma=ul_sigma),
                 # Upper censoring: observed value is upper bound
+                lower=-np.inf,
                 upper=y[is_ul],
                 observed=y[is_ul]
             )
 
-        # SAMPLING: 2 chains (sequential, cores=1) so r_hat/divergences are checkable
-        trace = pm.sample(
-            500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False,
-            random_seed=_PYMC_RANDOM_SEED,
-            callback=_pymc_progress_callback("1T", tune=500, draws=500, chains=2,
-                                              progress_callback=progress_callback),
+        # SAMPLING: nutpie's own compiled (numba) NUTS sampler instead of PyTensor's
+        # own execution path -- there's no C++ compiler on this machine, so PyTensor
+        # falls back to slow, uncompiled Python, and that scales especially badly
+        # with the Censored likelihood's extra graph complexity. Measured ~4-5x
+        # faster end-to-end on real fits here. cores=2 is safe with nutpie (chain
+        # parallelism runs inside its own compiled runtime, not Python
+        # multiprocessing), unlike the Windows process-spawn tax that made cores=2
+        # a net loss for PyMC's own default sampler.
+        if progress_callback is not None:
+            # compile_pymc_model() has no sub-progress hook of its own and is
+            # usually the dominant chunk of wall time -- (0, 0) tells the GUI to
+            # show a busy/indeterminate bar rather than nothing at all.
+            progress_callback(0, 0)
+        compiled = nutpie.compile_pymc_model(model)
+        trace = nutpie.sample(
+            compiled, draws=1000, tune=1000, chains=4, cores=4, seed=_PYMC_RANDOM_SEED,
+            target_accept=0.9, progress_bar=False,
+            progress_callback=_nutpie_progress_callback("1T", progress_callback=progress_callback),
         )
 
     diagnostics = _print_pymc_diagnostics(trace, ["a", "T"])
@@ -400,47 +437,58 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None):
         E, y, yerr, is_ul: same as censored_1T
         a1_init, T1_init: initial guesses from 1T fit (for better prior)
     """
+    is_ul = np.asarray(is_ul, dtype=bool)
     # mask = True for detections, False for upper limits
     mask = ~is_ul
+
+    mean_yerr = np.mean(yerr[mask]) if np.any(mask) else 1.0
 
     with pm.Model() as model:
 
         # PRIORS:
         # Component 1 = the cooler component
         a1 = pm.Normal("a1", mu=a1_init, sigma=5)           # log(Ncol), cool component
-        T1 = pm.Uniform("T1", 10, 5000)                     # temp, cool component
+        T1 = pm.Uniform("T1", 10, 3000)                     # temp, cool component (matches _bounds_2T)
 
         # Component 2 = the hotter component (T2>T1)
         # Avoid label switching
         a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)         # log(Ncol), hot component
-        T2 = pm.Uniform("T2", T1, 5000)                     # temp, hot component (> T1)
+        T2 = pm.Uniform("T2", T1, 3000)                     # temp, hot component (> T1, matches _bounds_2T)
 
         # TWO-TEMPERATURE MODEL: μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))
-        # This is a mixture of two Boltzmann distributions
-        mu = pm.math.log(
-            pm.math.exp(a1 - E/T1) +
-            pm.math.exp(a2 - E/T2)
-        )
+        # Numerically-stable log-sum-exp (factor out the larger term before
+        # exponentiating) -- identical result to the plain formula, just avoids
+        # overflow/underflow for extreme E/T values.
+        term1 = a1 - E / T1
+        term2 = a2 - E / T2
+        max_term = pm.math.maximum(term1, term2)
+        mu = max_term + pm.math.log(pm.math.exp(term1 - max_term) + pm.math.exp(term2 - max_term))
 
         # LIKELIHOOD: Fit only detections
         pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
         # LIKELIHOOD FOR UPPER LIMITS
-        # Censored: treat measured value as upper bound
+        # Censored: treat measured value as upper bound. Width comes from this
+        # line's own propagated error when available, else mean_yerr above --
+        # not the old fixed sigma=1.0.
         if np.any(is_ul):
+            ul_sigma = yerr[is_ul] if np.any(yerr[is_ul] > 0) else mean_yerr
             pm.Censored(
                 "ul",
-                pm.Normal.dist(mu=mu[is_ul], sigma=1.0),
+                pm.Normal.dist(mu=mu[is_ul], sigma=ul_sigma),
+                lower=-np.inf,
                 upper=y[is_ul],
                 observed=y[is_ul]
             )
 
-        # SAMPLING: 2 chains (sequential, cores=1) so r_hat/divergences are checkable.
-        trace = pm.sample(
-            500, tune=500, chains=2, cores=1, target_accept=0.9, progressbar=False,
-            random_seed=_PYMC_RANDOM_SEED,
-            callback=_pymc_progress_callback("2T", tune=500, draws=500, chains=2,
-                                              progress_callback=progress_callback),
+        # SAMPLING: nutpie's own compiled sampler -- see censored_1T for why.
+        if progress_callback is not None:
+            progress_callback(0, 0)
+        compiled = nutpie.compile_pymc_model(model)
+        trace = nutpie.sample(
+            compiled, draws=1000, tune=1000, chains=4, cores=4, seed=_PYMC_RANDOM_SEED,
+            target_accept=0.9, progress_bar=False,
+            progress_callback=_nutpie_progress_callback("2T", progress_callback=progress_callback),
         )
 
     diagnostics = _print_pymc_diagnostics(trace, ["a1", "T1", "a2", "T2"])
@@ -634,14 +682,18 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             y_list.append(y)
             is_ul_list.append(is_ul)
 
-            # error handling
-            if (not is_ul) and (J in flux_errors):
+            # error handling: same dF/F propagation for detections and upper limits
+            # alike whenever a real error is available for J -- an upper limit's own
+            # propagated error becomes its censoring width in censored_1T/censored_2T
+            # (ul_sigma), rather than every upper limit sharing one averaged fallback.
+            # Falls back to 0.0 only when no error at all is available for J (inert as
+            # a censoring width -- censored_1T/2T fall back to mean_yerr in that case).
+            if J in flux_errors:
                 dF = flux_errors[J]
                 dNu = Nu * (dF / F)
                 y_err = dNu / Nu
                 y_err_list.append(y_err)
             else:
-                # upper limits: treated as constraints with 0 error
                 y_err_list.append(0.0)
 
         return (np.array(E_list),
