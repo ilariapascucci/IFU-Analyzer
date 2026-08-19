@@ -193,7 +193,8 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         list of dicts, same length/order as line_wavelengths. Each dict has keys
         success (bool), message (str or None), and on success also flux_cgs,
         flux_error_cgs (None when is_upper_limit), is_upper_limit, F_ul_cgs,
-        sigma_noise, catalog_sigma, r_squared.
+        sigma_noise, catalog_sigma, r_squared, and plot data (x_data, y_data,
+        baseline, y_fit, center, fwhm, amplitude) for a per-line fit display.
     """
     try:
         continuum = fit_auto_continuum(wavelength_arr, spectrum_arr)
@@ -291,6 +292,21 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             "sigma_noise": fit_result.noise_std,
             "catalog_sigma": fit_result.catalog_sigma,
             "r_squared": fit_result.r_squared,
+            # Plot data for a per-line "view fit" display. x_data/y_data/y_fit are
+            # already localized to this line's own +/-3*sigma window by fit_glines'
+            # _local_fit_record (not the whole chunk/spectrum) -- padded, not the
+            # entire bandpass. y_fit is the FULL local model (continuum + every
+            # Gaussian in this line's window, not just this line's own) -- same
+            # convention fit_glines itself uses, so a real blended neighbor shows up
+            # honestly instead of being hidden. baseline is the continuum sampled at
+            # those same x points, on the same (continuum-inclusive) scale as y_fit.
+            "x_data": fit_result.x_data,
+            "y_data": fit_result.y_data,
+            "baseline": fit_result.baseline,
+            "y_fit": fit_result.y_fit,
+            "center": fit_result.center,
+            "fwhm": fit_result.fwhm,
+            "amplitude": fit_result.amplitude,
         })
 
     return results

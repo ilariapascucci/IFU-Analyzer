@@ -169,11 +169,14 @@ class RotationalDiagramWindow(QMainWindow):
         main_layout.addLayout(toggle_layout)
         
         self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(14)
+        self.lines_table.setColumnCount(15)
         self.lines_table.setHorizontalHeaderLabels(
             ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
-             "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source", "Fit R²"]
+             "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source", "Fit R²", "Fit"]
         )
+        # row -> plot data dict (x_data, y_data, baseline, y_fit, center, fwhm, r_squared,
+        # wavelength) for the "Fit" column's link, populated by calculate_fluxes_batch.
+        self._line_fit_plot_data = {}
         # Resize cells given content; padding
         self.lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.lines_table.setStyleSheet(
@@ -1213,6 +1216,44 @@ class RotationalDiagramWindow(QMainWindow):
                             # "poor" vs "good" -- flag it here too rather than a silent number.
                             r2_item.setBackground(QColor(255, 214, 214) if r_squared < 0.5 else QBrush())
 
+                    # Stash this line's fit plot data and turn the Fit cell into a real
+                    # link -- only once real data exists for it, so it's never a dead
+                    # link pointing at nothing.
+                    if all(result.get(k) is not None for k in ("x_data", "y_data", "baseline", "y_fit")):
+                        self._line_fit_plot_data[row] = {
+                            "wavelength": wl,
+                            "x_data": result["x_data"],
+                            "y_data": result["y_data"],
+                            "baseline": result["baseline"],
+                            "y_fit": result["y_fit"],
+                            "center": result.get("center"),
+                            "fwhm": result.get("fwhm"),
+                            "r_squared": result.get("r_squared"),
+                            "amplitude": result.get("amplitude"),
+                            "flux_cgs": result.get("flux_cgs"),
+                            "flux_error_cgs": result.get("flux_error_cgs"),
+                            "is_upper_limit": result.get("is_upper_limit"),
+                            # Full spectrum this line's fit came from (already loaded in
+                            # this window independently of the main window) -- lets the
+                            # fit dialog show real spectral context around the line
+                            # instead of being confined to the fit's own narrow window.
+                            "full_wavelength": wavelength,
+                            "full_spectrum": spectrum,
+                            "bunit": header.get('BUNIT', '') if header is not None else '',
+                        }
+                        fit_label = self.lines_table.cellWidget(row, 14)
+                        if isinstance(fit_label, QLabel):
+                            fit_label.setText('<a href="#">View</a>')
+                            fit_label.setTextFormat(Qt.RichText)
+                            fit_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+                            fit_label.setOpenExternalLinks(False)
+                            fit_label.setAlignment(Qt.AlignCenter)
+                            try:
+                                fit_label.linkActivated.disconnect()
+                            except TypeError:
+                                pass  # nothing was connected yet
+                            fit_label.linkActivated.connect(lambda _url, r=row: self.show_line_fit(r))
+
             except Exception as e:
                 print(f"Error processing lines from cube {cube_idx}: {e}")
                 QMessageBox.critical(self, "Calculation Error", f"Error processing lines from FITS file:\n{e}")
@@ -1222,9 +1263,119 @@ class RotationalDiagramWindow(QMainWindow):
         if skipped_rows:
             msg += f"\n\n{len(skipped_rows)} selected line(s) already had a manually-entered flux and were left unchanged."
         QMessageBox.information(self, "Complete", msg)
-    
+
+    def show_line_fit(self, row):
+        """Show the Gaussian fit for one line: spectrum, baseline, fit curve, and the
+        shaded area under the curve -- same visual style as the main window's
+        Multi-Gaussian fit display (visualization.py's plot_gaussian_fit). The
+        background spectrum trace comes from the full wavelength/spectrum arrays this
+        window already loaded independently (not the main window's, which may be
+        showing an unrelated cube) -- gives real spectral context around the line
+        instead of being confined to the fit's own narrow +/-3*sigma window.
+        """
+        data = self._line_fit_plot_data.get(row)
+        if data is None:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Line Fit @ {data['wavelength']:.6f} μm")
+        dlg.resize(800, 550)
+        layout = QVBoxLayout()
+
+        info_parts = [f"<b>λ = {data['wavelength']:.6f} μm</b>"]
+        if data.get('flux_cgs') is not None:
+            flux_str = f"Flux = {data['flux_cgs']:.3e}"
+            if data.get('flux_error_cgs') is not None:
+                flux_str += f" ± {data['flux_error_cgs']:.3e}"
+            flux_str += " erg/s/cm²"
+            if data.get('is_upper_limit'):
+                flux_str += " (upper limit)"
+            info_parts.append(flux_str)
+        if data.get('amplitude') is not None:
+            bunit = data.get('bunit')
+            info_parts.append(f"Amplitude = {data['amplitude']:.3e}" + (f" {bunit}" if bunit else ""))
+        if data.get('r_squared') is not None:
+            info_parts.append(f"R² = {data['r_squared']:.3f}")
+        if data.get('fwhm') is not None:
+            info_parts.append(f"FWHM = {data['fwhm']:.4g} μm")
+        info = QLabel(" | ".join(info_parts))
+        info.setStyleSheet("background-color: #f0f0f0; padding: 4px; border-radius: 3px;")
+        layout.addWidget(info)
+
+        fig = Figure(figsize=(8, 5))
+        ax = fig.add_subplot(111)
+        canvas = FigureCanvas(fig)
+
+        x = np.asarray(data['x_data'])
+        baseline = np.asarray(data['baseline'])
+        # y_fit comes from fit_hitran_lines_collective, which fits against the
+        # continuum-SUBTRACTED spectrum (y_corrected = spectrum_y - continuum) -- so
+        # it's on a small-residual scale, while `baseline` is the separately computed
+        # absolute continuum. Adding baseline back puts it on the same absolute flux
+        # scale as the spectrum trace below; without this the two end up on
+        # unrelated scales entirely (see the earlier version of this dialog).
+        y_fit = np.asarray(data['y_fit']) + baseline
+
+        # Wider context: pad by a fixed number of the spectrum's own native sample
+        # spacing rather than a hardcoded wavelength range, so this scales sensibly
+        # across instruments (MIRI vs. NIRSpec have very different um/pixel scales).
+        full_wave = data.get('full_wavelength')
+        full_spec = data.get('full_spectrum')
+        center = data.get('center') if data.get('center') is not None else float(np.mean(x))
+        if full_wave is not None and full_spec is not None and len(full_wave) > 1:
+            full_wave = np.asarray(full_wave)
+            full_spec = np.asarray(full_spec)
+            dwave = float(np.median(np.diff(full_wave)))
+            fwhm = data.get('fwhm')
+            pad = max(40 * abs(dwave), 8 * fwhm if fwhm else 0)
+            xlo, xhi = center - pad, center + pad
+            visible = (full_wave >= xlo) & (full_wave <= xhi)
+            ax.step(full_wave[visible], full_spec[visible], where='mid', color='steelblue',
+                    linewidth=1.2, alpha=0.8, label='Spectrum', zorder=5)
+            ax.set_xlim(xlo, xhi)
+        elif len(x) > 0 and x.max() > x.min():
+            pad = 0.5 * (x.max() - x.min())
+            ax.set_xlim(x.min() - pad, x.max() + pad)
+
+        ax.plot(x, baseline, 'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=9)
+        ax.plot(x, y_fit, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=10)
+        ax.fill_between(x, baseline, y_fit, color='red', alpha=0.2, label='Integrated Area', zorder=7)
+
+        # Disable matplotlib's default "+1.703e1"-style offset notation -- with a
+        # narrow x-range far from zero it otherwise shows tick labels like "0.000"
+        # that look like the wavelength axis starts at 0, when it's really an offset
+        # from a corner annotation that's easy to miss.
+        ax.ticklabel_format(axis='x', useOffset=False, style='plain')
+
+        ax.set_xlabel('Wavelength (μm)')
+        bunit = data.get('bunit')
+        ax.set_ylabel(f'Flux ({bunit})' if bunit else 'Flux')
+        ax.set_title(f"Line @ {data['wavelength']:.6f} μm", fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+        canvas.draw()
+
+        toolbar = NavigationToolbar(canvas, dlg)
+        plot_layout = QVBoxLayout()
+        plot_layout.addWidget(toolbar)
+        plot_layout.addWidget(canvas)
+        plot_widget = QWidget()
+        plot_widget.setLayout(plot_layout)
+        layout.addWidget(plot_widget)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+
+        dlg.setLayout(layout)
+        dlg.exec_()
+
     def populate_lines_table(self):
         """Populate the unified table with all columns"""
+        # Row indices are about to be reassigned to a new set of lines -- old plot
+        # data keyed by row would otherwise silently point at the wrong line's fit.
+        self._line_fit_plot_data = {}
         self.lines_table.setRowCount(len(self.hitran_lines))
         
         for row, line in enumerate(self.hitran_lines):
@@ -1330,6 +1481,11 @@ class RotationalDiagramWindow(QMainWindow):
             r2_item = QTableWidgetItem("")
             r2_item.setFlags(r2_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 13, r2_item)
+
+            # Fit (link; becomes clickable once Calculate Fluxes populates plot data for this row)
+            fit_label = QLabel("—")
+            fit_label.setAlignment(Qt.AlignCenter)
+            self.lines_table.setCellWidget(row, 14, fit_label)
 
             self.sync_flux_error_flag(row)
         
