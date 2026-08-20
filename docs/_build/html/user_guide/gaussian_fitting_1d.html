@@ -144,24 +144,19 @@ three wavelengths on the spectrum:</p>
 <li><p><strong>Peak</strong> (λ_peak): the approximate line center, used as the initial guess for the fit</p></li>
 <li><p><strong>Right</strong> (λ_right): the longer-wavelength edge of the fit window</p></li>
 </ul>
-<p><strong>These are toggle buttons, not a wizard.</strong> Each of <strong>Left</strong>, <strong>Peak</strong> and <strong>Right</strong> stays
-pressed until you click it again. The workflow is:</p>
+<p>Each of <strong>Left</strong>, <strong>Peak</strong> and <strong>Right</strong> stays pressed until you click it again. The
+workflow is:</p>
 <ol class="arabic simple">
-<li><p>Click the button for the point you want to set — it stays depressed</p></li>
+<li><p>Click the button for the point you want to set</p></li>
 <li><p>Click on the spectrum at that wavelength</p></li>
 <li><p>Click the button again to release it</p></li>
 </ol>
-<p>You may set the three points in <strong>any order</strong>, and you may re-set any single point without
-starting over: toggle that one button back on and click a new location. Only the most recent
-click for each button is kept.</p>
 <p>The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
 constrain the result — it only seeds the optimizer, and the fitted center is bounded by
 the window edges, not by your click.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>A rough click is genuinely fine.</strong> Anywhere inside the window converges to the same
-answer — the fitted center, width and area are identical whether you click on the peak
-or several samples off it.</p>
+<p><strong>A rough click is fine.</strong> Anywhere inside the window converges to the same answer.</p>
 </div>
 <p id="ordering-rules">The three points must be in order — <code class="docutils literal notranslate"><span class="pre">λ_left</span> <span class="pre">&lt;</span> <span class="pre">λ_peak</span> <span class="pre">&lt;</span> <span class="pre">λ_right</span></code>. Both rules are
 enforced, and a violation stops the fit rather than producing a result you did not ask
@@ -269,9 +264,12 @@ unit (<code class="docutils literal notranslate"><span class="pre">BUNIT</span><
 </table>
 <p><code class="docutils literal notranslate"><span class="pre">MJy/sr</span></code> is a <em>surface brightness</em>, so converting it to a flux requires multiplying by
 the solid angle of one spatial pixel (read from <code class="docutils literal notranslate"><span class="pre">CDELT1</span></code> and <code class="docutils literal notranslate"><span class="pre">CDELT2</span></code> in the header)
-and applying the <code class="docutils literal notranslate"><span class="pre">c/λ²</span></code> conversion from per-frequency to per-wavelength. The result is
-therefore the flux <strong>from a single spaxel</strong>, not the total flux of the source. To get a
-source total, sum the area over the spaxels you care about.</p>
+and applying the <code class="docutils literal notranslate"><span class="pre">c/λ²</span></code> conversion from per-frequency to per-wavelength.</p>
+<p>Because the fitted spectrum is itself a <strong>sum</strong> over every spaxel that went into it
+(the whole cube on the Full tab, or the selected region on Left/Right – see
+<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>), multiplying that sum by one spaxel’s solid angle gives the
+total flux of whatever spatial footprint you fit, not one spaxel’s own flux. Only a
+genuine single-pixel (Point) selection reports one spaxel’s flux on its own.</p>
 <p>MUSE needs no such correction: its <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code> is already a flux density per unit
 wavelength, so <code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">×</span> <span class="pre">σ</span> <span class="pre">×</span> <span class="pre">√(2π)</span></code> lands directly in erg/s/cm² once the <code class="docutils literal notranslate"><span class="pre">1e-20</span></code> scale
 factor is applied.</p>
@@ -279,10 +277,12 @@ factor is applied.</p>
 cube’s own flux×wavelength units instead, and the displayed unit label says so. The
 label always states what the number actually is — do not assume erg/s/cm².</p>
 </li>
-<li><p><strong>Equivalent Width</strong>: the width of a rectangle that has the same integrated flux as the
-fitted line and whose <strong>height is the continuum level</strong>. It is computed as the area in
-the cube’s <em>native</em> units divided by the mean fitted baseline across the window, so it
-comes out in the spectral axis unit (µm, Å, etc.), not in flux units.</p></li>
+<li><p><strong>Equivalent Width</strong>: how wide a rectangle at the continuum’s height would need to be
+to hold the same total flux as this line. It’s a way to describe a line’s strength that
+doesn’t depend on how bright the continuum happens to be, so it’s comparable across
+different targets or instruments. Computed as the area in the cube’s <em>native</em> units
+divided by the mean fitted baseline across the window, so it comes out in the spectral
+axis unit (µm, Å, etc.), not in flux units.</p></li>
 </ul>
 </section>
 <section id="baseline">
@@ -290,8 +290,9 @@ comes out in the spectral axis unit (µm, Å, etc.), not in flux units.</p></li>
 <p>The straight line subtracted before fitting:</p>
 <ul class="simple">
 <li><p><strong>Slope</strong>: continuum gradient across the fit window, in flux per spectral unit</p></li>
-<li><p><strong>Left endpoint</strong>: the <strong>flux</strong> value of the fitted baseline at λ_left, in the cube’s
-flux unit. This is a continuum level, <em>not</em> a wavelength.</p></li>
+<li><p><strong>Left endpoint</strong>: not a coordinate — it’s the continuum’s flux level at λ_left, one of
+the two points defining the straight baseline that was subtracted before fitting.
+Diagnostic info, in the cube’s flux unit, confirming what baseline the fit assumed.</p></li>
 </ul>
 </section>
 <section id="fit-quality">
@@ -300,13 +301,10 @@ flux unit. This is a continuum level, <em>not</em> a wavelength.</p></li>
 <li><p><strong>R² (coefficient)</strong>: coefficient of determination, 0 to 1, higher is better.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>R² is sensitive to how wide a window you picked. Extending the boundaries out over
-flat continuum lowers R² even when the fit to the line itself is unchanged, because
-the extra points add scatter without adding signal. Compare R² only between fits
-using comparable windows, and judge the overlay by eye as well.</p>
+<p>R² is sensitive to how wide a window you picked. Compare R² only between fits
+using comparable windows, and judge the overlay by eye as well. Below <strong>0.5</strong>, the
+application flags the result as poor fit quality in the status message.</p>
 </div>
-<p>As a rough guide: above 0.95 is a clean fit, 0.8–0.95 is usable, and below about 0.5
-the application flags the result as poor fit quality in the status message.</p>
 </li>
 <li><p><strong>Data points</strong>: number of wavelength samples inside the window that entered the fit.</p>
 <p>A Gaussian has three free parameters, so this must be at least 4 for the fit to be
@@ -392,7 +390,7 @@ outside your window cannot be recovered — you have to move the boundaries</p><
 
 <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Center:    </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">center</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Amplitude: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">amplitude</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Amplitude: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">amplitude</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">flux_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;FWHM:      </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">fwhm</span><span class="si">:</span><span class="s2">.6g</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Area:      </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">area_unit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;R²:        </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">r_squared</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>

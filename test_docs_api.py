@@ -272,7 +272,7 @@ def fitting_one_line():
 
     if result.success:
         print(f"Center:    {result.center:.6f} {cube.wave_unit}")
-        print(f"Amplitude: {result.amplitude:.4e}")
+        print(f"Amplitude: {result.amplitude:.4e} {cube.flux_unit}")
         print(f"FWHM:      {result.fwhm:.6g} {cube.wave_unit}")
         print(f"Area:      {result.area:.4e} {result.area_unit}")
         print(f"R2:        {result.r_squared:.4f}")

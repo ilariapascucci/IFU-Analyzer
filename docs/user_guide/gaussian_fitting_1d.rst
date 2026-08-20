@@ -18,16 +18,12 @@ three wavelengths on the spectrum:
 - **Peak** (λ_peak): the approximate line center, used as the initial guess for the fit
 - **Right** (λ_right): the longer-wavelength edge of the fit window
 
-**These are toggle buttons, not a wizard.** Each of **Left**, **Peak** and **Right** stays
-pressed until you click it again. The workflow is:
+Each of **Left**, **Peak** and **Right** stays pressed until you click it again. The
+workflow is:
 
-1. Click the button for the point you want to set — it stays depressed
+1. Click the button for the point you want to set
 2. Click on the spectrum at that wavelength
 3. Click the button again to release it
-
-You may set the three points in **any order**, and you may re-set any single point without
-starting over: toggle that one button back on and click a new location. Only the most recent
-click for each button is kept.
 
 The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
 constrain the result — it only seeds the optimizer, and the fitted center is bounded by
@@ -35,9 +31,7 @@ the window edges, not by your click.
 
 .. note::
 
-   **A rough click is genuinely fine.** Anywhere inside the window converges to the same
-   answer — the fitted center, width and area are identical whether you click on the peak
-   or several samples off it.
+   **A rough click is fine.** Anywhere inside the window converges to the same answer.
 
 .. _ordering-rules:
 
@@ -137,9 +131,13 @@ INTEGRATED QUANTITIES
 
   ``MJy/sr`` is a *surface brightness*, so converting it to a flux requires multiplying by
   the solid angle of one spatial pixel (read from ``CDELT1`` and ``CDELT2`` in the header)
-  and applying the ``c/λ²`` conversion from per-frequency to per-wavelength. The result is
-  therefore the flux **from a single spaxel**, not the total flux of the source. To get a
-  source total, sum the area over the spaxels you care about.
+  and applying the ``c/λ²`` conversion from per-frequency to per-wavelength.
+
+  Because the fitted spectrum is itself a **sum** over every spaxel that went into it
+  (the whole cube on the Full tab, or the selected region on Left/Right -- see
+  :doc:`selecting_regions`), multiplying that sum by one spaxel's solid angle gives the
+  total flux of whatever spatial footprint you fit, not one spaxel's own flux. Only a
+  genuine single-pixel (Point) selection reports one spaxel's flux on its own.
 
   MUSE needs no such correction: its ``BUNIT`` is already a flux density per unit
   wavelength, so ``A × σ × √(2π)`` lands directly in erg/s/cm² once the ``1e-20`` scale
@@ -149,10 +147,12 @@ INTEGRATED QUANTITIES
   cube's own flux×wavelength units instead, and the displayed unit label says so. The
   label always states what the number actually is — do not assume erg/s/cm².
 
-- **Equivalent Width**: the width of a rectangle that has the same integrated flux as the
-  fitted line and whose **height is the continuum level**. It is computed as the area in
-  the cube's *native* units divided by the mean fitted baseline across the window, so it
-  comes out in the spectral axis unit (µm, Å, etc.), not in flux units.
+- **Equivalent Width**: how wide a rectangle at the continuum's height would need to be
+  to hold the same total flux as this line. It's a way to describe a line's strength that
+  doesn't depend on how bright the continuum happens to be, so it's comparable across
+  different targets or instruments. Computed as the area in the cube's *native* units
+  divided by the mean fitted baseline across the window, so it comes out in the spectral
+  axis unit (µm, Å, etc.), not in flux units.
 
 BASELINE
 --------
@@ -160,8 +160,9 @@ BASELINE
 The straight line subtracted before fitting:
 
 - **Slope**: continuum gradient across the fit window, in flux per spectral unit
-- **Left endpoint**: the **flux** value of the fitted baseline at λ_left, in the cube's
-  flux unit. This is a continuum level, *not* a wavelength.
+- **Left endpoint**: not a coordinate — it's the continuum's flux level at λ_left, one of
+  the two points defining the straight baseline that was subtracted before fitting.
+  Diagnostic info, in the cube's flux unit, confirming what baseline the fit assumed.
 
 FIT QUALITY
 -----------
@@ -170,13 +171,9 @@ FIT QUALITY
 
   .. warning::
 
-     R² is sensitive to how wide a window you picked. Extending the boundaries out over
-     flat continuum lowers R² even when the fit to the line itself is unchanged, because
-     the extra points add scatter without adding signal. Compare R² only between fits
-     using comparable windows, and judge the overlay by eye as well.
-
-  As a rough guide: above 0.95 is a clean fit, 0.8–0.95 is usable, and below about 0.5
-  the application flags the result as poor fit quality in the status message.
+     R² is sensitive to how wide a window you picked. Compare R² only between fits
+     using comparable windows, and judge the overlay by eye as well. Below **0.5**, the
+     application flags the result as poor fit quality in the status message.
 
 - **Data points**: number of wavelength samples inside the window that entered the fit.
 
@@ -273,7 +270,7 @@ The same fit is available without the GUI.
 
     if result.success:
         print(f"Center:    {result.center:.6f} {cube.wave_unit}")
-        print(f"Amplitude: {result.amplitude:.4e}")
+        print(f"Amplitude: {result.amplitude:.4e} {cube.flux_unit}")
         print(f"FWHM:      {result.fwhm:.6g} {cube.wave_unit}")
         print(f"Area:      {result.area:.4e} {result.area_unit}")
         print(f"R²:        {result.r_squared:.4f}")
