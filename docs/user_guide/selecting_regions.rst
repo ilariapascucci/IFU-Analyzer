@@ -122,6 +122,50 @@ Statistics
    - **Min/Max**: Range
    - **Sum**: Total
 
+Using the API
+=============
+
+Region extraction is available without the GUI, using the same
+:func:`~cube_explorer.api.extract_pixel_spectrum` and
+:func:`~cube_explorer.api.extract_region_spectrum` calls the GUI itself uses
+for pixel clicks and region selections. Prefer these over indexing
+``cube.cube`` by hand -- ``extract_region_spectrum`` excludes NaN pixels from
+each wavelength's mean rather than letting one bad pixel propagate NaN into
+the whole region's spectrum, and it accepts any boolean mask shape, so the
+same call reproduces a Rectangle, Circle, Ellipse, or Freehand selection --
+not just a rectangular slice.
+
+**Extract Spectra from Specific Regions**
+
+.. code-block:: python
+
+    import numpy as np
+    from cube_explorer.api import load_cube, extract_pixel_spectrum, extract_region_spectrum
+
+    cube = load_cube("data.fits")
+
+    # Extract spectrum from a single pixel (equivalent to the Point tool)
+    x, y = 20, 25
+    pixel_spectrum = extract_pixel_spectrum(cube, x, y)
+
+    # Extract spectrum from a spatial region (equivalent to the Rectangle tool)
+    x_start, x_end = 10, 30
+    y_start, y_end = 15, 35
+    mask = np.zeros(cube.cube.shape[1:], dtype=bool)
+    mask[y_start:y_end, x_start:x_end] = True
+    averaged_spectrum = extract_region_spectrum(cube, mask)
+
+    # Plot the spectrum
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(cube.wavelength, averaged_spectrum, 'b-', linewidth=1)
+    plt.xlabel('Wavelength (µm)')
+    plt.ylabel('Flux')
+    plt.title(f'Spectrum: pixels [{x_start}:{x_end}, {y_start}:{y_end}]')
+    plt.grid(True, alpha=0.3)
+    plt.show()
+
 Next Steps
 ==========
 

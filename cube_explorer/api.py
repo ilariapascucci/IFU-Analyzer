@@ -128,6 +128,61 @@ def load_cube(filename):
 
 
 # ============================================================================
+# REGION EXTRACTION API
+# ============================================================================
+
+def extract_pixel_spectrum(cube, x, y):
+    """
+    Extract the 1D spectrum at a single spatial pixel.
+
+    This is the same lookup the GUI uses for point selections and pixel
+    clicks -- prefer it over indexing ``cube.cube`` directly, since it
+    always applies the correct (wavelength, y, x) axis order regardless of
+    how a given FITS file stores its axes.
+
+    Args:
+        cube (CubeData): Loaded cube, as returned by load_cube()
+        x (int): X pixel coordinate (0-based)
+        y (int): Y pixel coordinate (0-based)
+
+    Returns:
+        numpy.ndarray: 1D spectrum at (x, y), same length as cube.wavelength
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> spectrum = extract_pixel_spectrum(cube, x=20, y=25)
+    """
+    return cube.get_pixel_spectrum(x, y)
+
+
+def extract_region_spectrum(cube, mask):
+    """
+    Extract the mean spectrum over an arbitrary spatial region.
+
+    This is the same averaging the GUI uses for Rectangle/Circle/Ellipse/
+    Freehand region selections -- any of those tools reduce to a 2D boolean
+    mask internally. Prefer it over averaging a manual slice: it excludes
+    NaN pixels from each wavelength's mean instead of letting a single NaN
+    pixel turn the whole region's value at that wavelength into NaN.
+
+    Args:
+        cube (CubeData): Loaded cube, as returned by load_cube()
+        mask (numpy.ndarray): 2D boolean array matching the cube's spatial
+            shape (cube.cube.shape[1:]); True marks pixels inside the region
+
+    Returns:
+        numpy.ndarray: 1D mean spectrum over the masked pixels
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> mask = np.zeros(cube.cube.shape[1:], dtype=bool)
+        >>> mask[15:35, 10:30] = True  # a rectangular region, [y, x] order
+        >>> spectrum = extract_region_spectrum(cube, mask)
+    """
+    return cube.compute_region_spectrum(mask)
+
+
+# ============================================================================
 # CONTINUUM FITTING API
 # ============================================================================
 
@@ -708,6 +763,9 @@ from .rotational_diagram_fitter import rotational_diagram
 __all__ = [
     # Data Loading
     'load_cube',
+    # Region Extraction
+    'extract_pixel_spectrum',
+    'extract_region_spectrum',
     # Continuum
     'fit_continuum',
     # Gaussian Fitting

@@ -24,6 +24,13 @@ Data Loading
 
 .. autofunction:: cube_explorer.api.load_cube
 
+Region Extraction
+==================
+
+.. autofunction:: cube_explorer.api.extract_pixel_spectrum
+
+.. autofunction:: cube_explorer.api.extract_region_spectrum
+
 Continuum Fitting
 =================
 

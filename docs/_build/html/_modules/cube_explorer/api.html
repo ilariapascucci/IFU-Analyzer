@@ -223,6 +223,67 @@
 
 
 <span class="c1"># ============================================================================</span>
+<span class="c1"># REGION EXTRACTION API</span>
+<span class="c1"># ============================================================================</span>
+
+<div class="viewcode-block" id="extract_pixel_spectrum">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.extract_pixel_spectrum">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_pixel_spectrum</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extract the 1D spectrum at a single spatial pixel.</span>
+
+<span class="sd">    This is the same lookup the GUI uses for point selections and pixel</span>
+<span class="sd">    clicks -- prefer it over indexing ``cube.cube`` directly, since it</span>
+<span class="sd">    always applies the correct (wavelength, y, x) axis order regardless of</span>
+<span class="sd">    how a given FITS file stores its axes.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cube (CubeData): Loaded cube, as returned by load_cube()</span>
+<span class="sd">        x (int): X pixel coordinate (0-based)</span>
+<span class="sd">        y (int): Y pixel coordinate (0-based)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        numpy.ndarray: 1D spectrum at (x, y), same length as cube.wavelength</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; spectrum = extract_pixel_spectrum(cube, x=20, y=25)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">cube</span><span class="o">.</span><span class="n">get_pixel_spectrum</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="extract_region_spectrum">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.extract_region_spectrum">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_region_spectrum</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">mask</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extract the mean spectrum over an arbitrary spatial region.</span>
+
+<span class="sd">    This is the same averaging the GUI uses for Rectangle/Circle/Ellipse/</span>
+<span class="sd">    Freehand region selections -- any of those tools reduce to a 2D boolean</span>
+<span class="sd">    mask internally. Prefer it over averaging a manual slice: it excludes</span>
+<span class="sd">    NaN pixels from each wavelength&#39;s mean instead of letting a single NaN</span>
+<span class="sd">    pixel turn the whole region&#39;s value at that wavelength into NaN.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cube (CubeData): Loaded cube, as returned by load_cube()</span>
+<span class="sd">        mask (numpy.ndarray): 2D boolean array matching the cube&#39;s spatial</span>
+<span class="sd">            shape (cube.cube.shape[1:]); True marks pixels inside the region</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        numpy.ndarray: 1D mean spectrum over the masked pixels</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; mask = np.zeros(cube.cube.shape[1:], dtype=bool)</span>
+<span class="sd">        &gt;&gt;&gt; mask[15:35, 10:30] = True  # a rectangular region, [y, x] order</span>
+<span class="sd">        &gt;&gt;&gt; spectrum = extract_region_spectrum(cube, mask)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">cube</span><span class="o">.</span><span class="n">compute_region_spectrum</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
 <span class="c1"># CONTINUUM FITTING API</span>
 <span class="c1"># ============================================================================</span>
 
@@ -827,6 +888,9 @@
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="c1"># Data Loading</span>
     <span class="s1">&#39;load_cube&#39;</span><span class="p">,</span>
+    <span class="c1"># Region Extraction</span>
+    <span class="s1">&#39;extract_pixel_spectrum&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;extract_region_spectrum&#39;</span><span class="p">,</span>
     <span class="c1"># Continuum</span>
     <span class="s1">&#39;fit_continuum&#39;</span><span class="p">,</span>
     <span class="c1"># Gaussian Fitting</span>

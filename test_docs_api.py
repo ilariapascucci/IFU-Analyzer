@@ -13,6 +13,8 @@ documentation does not actually claim.
 Documentation sources:
   - cube_explorer/api.py module docstring ("Example Usage", incl. rotational_diagram)
   - docs/user_guide/api_examples.rst
+  - docs/user_guide/loading_data.rst ("Using the API", incl. MUSE instrument detection)
+  - docs/user_guide/selecting_regions.rst ("Using the API")
   - docs/user_guide/gaussian_fitting_1d.rst ("Using the API")
   - docs/user_guide/gaussian_fitting_cube.rst ("Using the API")
   - docs/user_guide/co_flux_extraction.rst ("Using the API", under Multi-Gaussian Fit)
@@ -35,6 +37,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
 NIRSPEC_CUBE = os.path.join("data", "NIRSpec", "jw01621-o001_t001_nirspec_g395h-f290lp_s3d.fits")
+MUSE_CUBE = os.path.join("data", "MUSE", "ADP.2019-03-04T22_21_26.534.fits")
 
 results = []
 
@@ -58,6 +61,11 @@ def run(name, func):
         results.append((name, "SKIP"))
         return
 
+    if getattr(func, "needs_muse_cube", False) and not os.path.exists(MUSE_CUBE):
+        print(f"[SKIP] sample cube not found: {MUSE_CUBE}")
+        results.append((name, "SKIP"))
+        return
+
     try:
         func()
     except Exception as exc:
@@ -75,6 +83,11 @@ def needs_cube(func):
 
 def needs_nirspec_cube(func):
     func.needs_nirspec_cube = True
+    return func
+
+
+def needs_muse_cube(func):
+    func.needs_muse_cube = True
     return func
 
 
@@ -129,24 +142,51 @@ def access_cube_components():
 
 
 # ---------------------------------------------------------------------------
-# EXTRACT SPECTRA FROM SPECIFIC REGIONS
+# EXTRACT SPECTRA FROM SPECIFIC REGIONS (docs/user_guide/selecting_regions.rst,
+# "Using the API"). extract_pixel_spectrum/extract_region_spectrum wrap the same
+# CubeData.get_pixel_spectrum/compute_region_spectrum methods the GUI itself uses
+# (gui_spectrum.py) -- this checks the docs' two concrete claims: (1) the pixel
+# call uses [y, x] axis order, not [x, y], and (2) the region call excludes NaN
+# pixels from the mean instead of propagating NaN like a naive .mean() would.
 # ---------------------------------------------------------------------------
 
 @needs_cube
 def extract_spectra_from_regions():
-    from cube_explorer.api import load_cube
+    import numpy as np
+    from cube_explorer.api import load_cube, extract_pixel_spectrum, extract_region_spectrum
 
     cube = load_cube(CUBE)
 
-    # Extract spectrum from a single pixel
+    # Extract spectrum from a single pixel (equivalent to the Point tool)
     x, y = 20, 25
-    pixel_spectrum = cube.cube[:, x, y]
+    pixel_spectrum = extract_pixel_spectrum(cube, x, y)
 
-    # Extract spectrum from a spatial region (average)
+    # "uses [y, x] axis order" -- matches raw cube.cube[:, y, x], not [:, x, y]
+    assert np.allclose(pixel_spectrum, cube.cube[:, y, x], equal_nan=True), \
+        "docs claim extract_pixel_spectrum(cube, x, y) indexes as cube.cube[:, y, x]"
+
+    # Extract spectrum from a spatial region (equivalent to the Rectangle tool)
     x_start, x_end = 10, 30
     y_start, y_end = 15, 35
-    region = cube.cube[:, x_start:x_end, y_start:y_end]
-    averaged_spectrum = region.mean(axis=(1, 2))
+    mask = np.zeros(cube.cube.shape[1:], dtype=bool)
+    mask[y_start:y_end, x_start:x_end] = True
+    averaged_spectrum = extract_region_spectrum(cube, mask)
+
+    # "excludes NaN pixels rather than propagating NaN" -- pick a region that
+    # actually touches the cube's ragged edge, where a naive .mean() goes NaN.
+    nan_ys, nan_xs = np.where(np.isnan(cube.cube[0]))
+    assert len(nan_ys) > 0, "expected this fixture to have some NaN spatial pixels"
+    ny, nx = nan_ys[0], nan_xs[0]
+    edge_mask = np.zeros(cube.cube.shape[1:], dtype=bool)
+    y0, y1 = max(0, ny - 2), ny + 3
+    x0, x1 = max(0, nx - 2), nx + 3
+    edge_mask[y0:y1, x0:x1] = True
+
+    naive_mean = cube.cube[:, y0:y1, x0:x1].mean(axis=(1, 2))
+    edge_spectrum = extract_region_spectrum(cube, edge_mask)
+    assert np.isnan(naive_mean).any(), "expected the naive mean to hit NaN at this edge region"
+    assert not np.isnan(edge_spectrum).any(), \
+        "docs claim extract_region_spectrum excludes NaN pixels instead of propagating NaN"
 
     # Plot the spectrum
     import matplotlib.pyplot as plt
@@ -187,6 +227,27 @@ def available_cube_properties():
     # instrument-specific, so use .get() rather than indexing.
     print(f"Target:            {cube.header.get('TARGNAME')}")
     print(f"Observation date:  {cube.header.get('DATE-OBS')}")
+
+
+# ---------------------------------------------------------------------------
+# MUSE INSTRUMENT DETECTION (docs/user_guide/loading_data.rst, "Supported
+# Instruments"). basic_data_loading/access_cube_components/available_cube_properties
+# above cover the API shape using the MIRI fixture; this checks the docs' separate
+# claim that MUSE is auto-detected too, which nothing else in this suite exercises.
+# ---------------------------------------------------------------------------
+
+@needs_muse_cube
+def muse_instrument_detection():
+    from cube_explorer.api import load_cube
+
+    cube = load_cube(MUSE_CUBE)
+
+    print(f"Instrument: {cube.instrument}")
+    print(f"Wavelength range: {cube.wavelength.min():.4f} - {cube.wavelength.max():.4f}")
+    print(f"Cube shape (wavelength, x, y): {cube.cube.shape}")
+
+    assert cube.instrument == 'MUSE', \
+        f"docs claim MUSE is auto-detected; got instrument={cube.instrument!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +618,7 @@ def main():
     run("ACCESS CUBE COMPONENTS", access_cube_components)
     run("EXTRACT SPECTRA FROM REGIONS", extract_spectra_from_regions)
     run("AVAILABLE CUBE PROPERTIES", available_cube_properties)
+    run("MUSE INSTRUMENT DETECTION", muse_instrument_detection)
     run("1D FITTING -- ONE LINE", fitting_one_line)
     run("1D FITTING -- RESULT FIELDS", result_fields)
     run("CUBE FITTING -- FULL CUBE (slow, ~1-2 min)", cube_fitting_the_cube)

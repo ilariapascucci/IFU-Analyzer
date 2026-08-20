@@ -66,6 +66,11 @@
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.load_cube"><code class="docutils literal notranslate"><span class="pre">load_cube()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#region-extraction">Region Extraction</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.extract_pixel_spectrum"><code class="docutils literal notranslate"><span class="pre">extract_pixel_spectrum()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.extract_region_spectrum"><code class="docutils literal notranslate"><span class="pre">extract_region_spectrum()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#continuum-fitting">Continuum Fitting</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.fit_continuum"><code class="docutils literal notranslate"><span class="pre">fit_continuum()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.measure_equivalent_width"><code class="docutils literal notranslate"><span class="pre">measure_equivalent_width()</span></code></a></li>
@@ -168,6 +173,72 @@ with automatic instrument detection.</p>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">instrument</span><span class="p">)</span>  <span class="c1"># &quot;MIRI&quot;</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># (1000,)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>  <span class="c1"># (1000, 512, 512)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="region-extraction">
+<h2>Region Extraction<a class="headerlink" href="#region-extraction" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="cube_explorer.api.extract_pixel_spectrum">
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_pixel_spectrum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_pixel_spectrum"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_pixel_spectrum" title="Link to this definition"></a></dt>
+<dd><p>Extract the 1D spectrum at a single spatial pixel.</p>
+<p>This is the same lookup the GUI uses for point selections and pixel
+clicks – prefer it over indexing <code class="docutils literal notranslate"><span class="pre">cube.cube</span></code> directly, since it
+always applies the correct (wavelength, y, x) axis order regardless of
+how a given FITS file stores its axes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cube</strong> (<em>CubeData</em>) – Loaded cube, as returned by load_cube()</p></li>
+<li><p><strong>x</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – X pixel coordinate (0-based)</p></li>
+<li><p><strong>y</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Y pixel coordinate (0-based)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>1D spectrum at (x, y), same length as cube.wavelength</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>numpy.ndarray</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">spectrum</span> <span class="o">=</span> <span class="n">extract_pixel_spectrum</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mi">25</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cube_explorer.api.extract_region_spectrum">
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_region_spectrum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_region_spectrum"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_region_spectrum" title="Link to this definition"></a></dt>
+<dd><p>Extract the mean spectrum over an arbitrary spatial region.</p>
+<p>This is the same averaging the GUI uses for Rectangle/Circle/Ellipse/
+Freehand region selections – any of those tools reduce to a 2D boolean
+mask internally. Prefer it over averaging a manual slice: it excludes
+NaN pixels from each wavelength’s mean instead of letting a single NaN
+pixel turn the whole region’s value at that wavelength into NaN.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cube</strong> (<em>CubeData</em>) – Loaded cube, as returned by load_cube()</p></li>
+<li><p><strong>mask</strong> (<em>numpy.ndarray</em>) – 2D boolean array matching the cube’s spatial
+shape (cube.cube.shape[1:]); True marks pixels inside the region</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>1D mean spectrum over the masked pixels</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>numpy.ndarray</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">mask</span><span class="p">[</span><span class="mi">15</span><span class="p">:</span><span class="mi">35</span><span class="p">,</span> <span class="mi">10</span><span class="p">:</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># a rectangular region, [y, x] order</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">spectrum</span> <span class="o">=</span> <span class="n">extract_region_spectrum</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">mask</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>

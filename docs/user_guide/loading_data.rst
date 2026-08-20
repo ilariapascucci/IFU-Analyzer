@@ -66,8 +66,8 @@ After loading your data:
 3. Perform :doc:`gaussian_fitting_1d`
 
 
-Using the Data Loading API
-===========================
+Using the API
+=============
 
 Load and access FITS data programmatically in Python scripts or Jupyter notebooks.
 
@@ -107,33 +107,6 @@ Load and access FITS data programmatically in Python scripts or Jupyter notebook
     header_info = cube.header           # FITS header dictionary
     wcs_info = cube.wcs                 # World Coordinate System
     instrument = cube.instrument        # Instrument name (MUSE, MIRI, etc.)
-
-**Extract Spectra from Specific Regions**
-
-.. code-block:: python
-
-    cube = load_cube("data.fits")
-    
-    # Extract spectrum from a single pixel
-    x, y = 20, 25
-    pixel_spectrum = cube.cube[:, x, y]
-
-    # Extract spectrum from a spatial region (average)
-    x_start, x_end = 10, 30
-    y_start, y_end = 15, 35
-    region = cube.cube[:, x_start:x_end, y_start:y_end]
-    averaged_spectrum = region.mean(axis=(1, 2))
-    
-    # Plot the spectrum
-    import matplotlib.pyplot as plt
-    
-    plt.figure(figsize=(12, 6))
-    plt.plot(cube.wavelength, averaged_spectrum, 'b-', linewidth=1)
-    plt.xlabel('Wavelength (µm)')
-    plt.ylabel('Flux')
-    plt.title(f'Spectrum: pixels [{x_start}:{x_end}, {y_start}:{y_end}]')
-    plt.grid(True, alpha=0.3)
-    plt.show()
 
 **Available Cube Properties**
 
