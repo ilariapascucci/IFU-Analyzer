@@ -48,10 +48,10 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Installation</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#getting-started">Getting Started</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#create-a-conda-environment-recommended">1. Create a Conda Environment (Recommended)</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#download-the-repository">2. Download the Repository</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#install-required-packages">3. Install Required Packages</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#launch-the-application">4. Launch the Application</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#step-0-optional-create-an-isolated-environment">Step 0 (Optional): Create an Isolated Environment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#download-the-repository">1. Download the Repository</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#install-required-packages">2. Install Required Packages</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#launch-the-application">3. Launch the Application</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#using-your-data">Using Your Data</a></li>
@@ -114,29 +114,39 @@
 <h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading"></a></h2>
 <p>Before installing IFU Analyzer, you need:</p>
 <ul class="simple">
-<li><p><strong>Python</strong>: 3.8 or higher</p></li>
-<li><p><strong>Conda</strong>: For managing Python environments (optional but recommended)</p></li>
+<li><p><strong>Python</strong>: 3.11 or higher (required by the pinned <code class="docutils literal notranslate"><span class="pre">astropy</span></code> version)</p></li>
+<li><p><strong>Conda</strong> (optional): For managing Python environments</p></li>
 <li><p><strong>Git</strong> (optional): For cloning the repository</p></li>
-<li><p><strong>Operating System</strong>: Windows or macOS</p></li>
+<li><p><strong>Operating System</strong>: Windows, macOS, or Linux</p></li>
 </ul>
 </section>
 <section id="getting-started">
 <h2>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading"></a></h2>
 <p><strong>Important</strong>: IFU Analyzer requires specific versions of packages to avoid compatibility issues.
-Creating a dedicated conda environment is strongly recommended.</p>
-<section id="create-a-conda-environment-recommended">
-<h3>1. Create a Conda Environment (Recommended)<a class="headerlink" href="#create-a-conda-environment-recommended" title="Link to this heading"></a></h3>
-<p>Before proceeding, create a new conda environment for IFU Analyzer:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>ifu-analyzer<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.10
+Creating a dedicated environment (via conda or <code class="docutils literal notranslate"><span class="pre">venv</span></code>) is strongly recommended.</p>
+<section id="step-0-optional-create-an-isolated-environment">
+<h3>Step 0 (Optional): Create an Isolated Environment<a class="headerlink" href="#step-0-optional-create-an-isolated-environment" title="Link to this heading"></a></h3>
+<p>Creating a dedicated environment before installing anything keeps IFU Analyzer’s
+dependencies separate from your system Python. Pick one:</p>
+<p><strong>Option A: Conda</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>ifu-analyzer<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
 conda<span class="w"> </span>activate<span class="w"> </span>ifu-analyzer
 </pre></div>
 </div>
-<p>This isolates IFU Analyzer’s dependencies from your system Python, preventing package conflicts.</p>
-<p><strong>Note</strong>: You can also use standard Python virtual environments (<code class="docutils literal notranslate"><span class="pre">venv</span></code>), but conda is
-recommended for better package compatibility management.</p>
+<p><strong>Option B: venv</strong> (activation differs by platform)</p>
+<p><em>Windows:</em></p>
+<div class="highlight-bat notranslate"><div class="highlight"><pre><span></span>python -m venv venv
+venv\Scripts\activate
+</pre></div>
+</div>
+<p><em>macOS / Linux:</em></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>venv
+<span class="nb">source</span><span class="w"> </span>venv/bin/activate
+</pre></div>
+</div>
 </section>
 <section id="download-the-repository">
-<h3>2. Download the Repository<a class="headerlink" href="#download-the-repository" title="Link to this heading"></a></h3>
+<h3>1. Download the Repository<a class="headerlink" href="#download-the-repository" title="Link to this heading"></a></h3>
 <p>Option A: Using Git</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/ilariapascucci/IFU-Analyzer.git
 <span class="nb">cd</span><span class="w"> </span>IFU-Analyzer
@@ -151,7 +161,7 @@ recommended for better package compatibility management.</p>
 </ul>
 </section>
 <section id="install-required-packages">
-<h3>3. Install Required Packages<a class="headerlink" href="#install-required-packages" title="Link to this heading"></a></h3>
+<h3>2. Install Required Packages<a class="headerlink" href="#install-required-packages" title="Link to this heading"></a></h3>
 <p>From the IFU-Analyzer folder, run:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
 </pre></div>
@@ -159,7 +169,7 @@ recommended for better package compatibility management.</p>
 <p>That’s it! This installs all dependencies needed to run IFU Analyzer.</p>
 </section>
 <section id="launch-the-application">
-<h3>4. Launch the Application<a class="headerlink" href="#launch-the-application" title="Link to this heading"></a></h3>
+<h3>3. Launch the Application<a class="headerlink" href="#launch-the-application" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>main.py
 </pre></div>
 </div>
@@ -188,8 +198,9 @@ recommended for better package compatibility management.</p>
 <p><strong>Quick fixes:</strong></p>
 <ul class="simple">
 <li><p><strong>Module not found</strong>: Make sure you’re in the correct folder and ran <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-r</span> <span class="pre">requirements.txt</span></code></p></li>
-<li><p><strong>Import error</strong>: Verify Python 3.8+ is installed: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">--version</span></code></p></li>
+<li><p><strong>Import error</strong>: Verify Python 3.11+ is installed: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">--version</span></code></p></li>
 <li><p><strong>Window won’t open</strong>: Check that all packages installed successfully</p></li>
+<li><p><strong>App not reading the file</strong>: Make sure the FITS file is from one of the three supported instruments (MUSE, MIRI, or NIRSpec) and that its header includes the <code class="docutils literal notranslate"><span class="pre">INSTRUME</span></code> or <code class="docutils literal notranslate"><span class="pre">TELESCOP</span></code> keyword IFU Analyzer uses to auto-detect the instrument. Files without a recognized keyword, or from other instruments, won’t load.</p></li>
 </ul>
 </section>
 <section id="next-steps">

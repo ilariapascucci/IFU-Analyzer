@@ -96,13 +96,13 @@
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">linregress</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.optimize</span><span class="w"> </span><span class="kn">import</span> <span class="n">curve_fit</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pymc</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pm</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">nutpie</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">arviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">az</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.unit_converter</span><span class="w"> </span><span class="kn">import</span> <span class="n">integrated_flux_to_cgs</span>
-
-
+<span class="kn">from</span><span class="w"> </span><span class="nn">.co_flux_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_auto_continuum</span><span class="p">,</span> <span class="n">fit_hitran_lines_collective</span>
 
 <span class="sd">&#39;&#39;&#39;</span>
 <span class="sd">CONSTANTS</span>
@@ -117,7 +117,14 @@
 <span class="n">au</span> <span class="o">=</span> <span class="mf">1.496e13</span>  <span class="c1"># cm</span>
 <span class="n">pc</span> <span class="o">=</span> <span class="mf">3.086e18</span>  <span class="c1"># cm</span>
 
+<span class="n">_PYMC_RANDOM_SEED</span> <span class="o">=</span> <span class="mi">42</span>  <span class="c1"># PyMC random seed for deterministic approach</span>
 
+<span class="c1"># Systematic flux-calibration error floor (Pascucci): the statistical fit error alone</span>
+<span class="c1"># understates the true flux uncertainty, since it says nothing about instrument</span>
+<span class="c1"># flux-calibration uncertainty or continuum-estimation systematics -- both real, both</span>
+<span class="c1"># roughly proportional to the flux itself rather than to how well-constrained the local</span>
+<span class="c1"># fit happened to be. Added in quadrature: sqrt(statistical^2 + (SYSTEMATIC_FLUX_ERROR_FRACTION*flux)^2).</span>
+<span class="n">SYSTEMATIC_FLUX_ERROR_FRACTION</span> <span class="o">=</span> <span class="mf">0.05</span>
 
 <span class="sd">&#39;&#39;&#39;</span>
 <span class="sd">HITRAN DATA</span>
@@ -239,271 +246,169 @@
 <span class="sd">UPPER LIMITS</span>
 <span class="sd">&#39;&#39;&#39;</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">get_spectral_resolution</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">gaussian_flux_upper_limit</span><span class="p">(</span><span class="n">sigma_noise</span><span class="p">,</span> <span class="n">sigma</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Calculate spectral resolution R(λ) = λ/Δλ for different instruments.</span>
-<span class="sd">    </span>
+<span class="sd">    3-sigma upper-limit flux: the integrated area of an artificial Gaussian with</span>
+<span class="sd">    amplitude = 3*sigma_noise and the given sigma -- i.e. exactly the Gaussian a marginal</span>
+<span class="sd">    3-sigma detection would produce, using the same area formula</span>
+<span class="sd">    (amplitude * sigma * sqrt(2*pi)) as every other line fit in this app. Not the old</span>
+<span class="sd">    delta_lambda (= lambda/R, a FWHM-like width) formula, which used a different width</span>
+<span class="sd">    convention than the area formula everything else here is built on.</span>
+
 <span class="sd">    Args:</span>
-<span class="sd">        wavelength: float or array, wavelength in microns</span>
-<span class="sd">        instrument: str, instrument name (&#39;NIRSPEC&#39;, &#39;MIRI&#39;)</span>
-<span class="sd">        header: astropy.io.fits.Header, optional. Required for NIRSpec to get grating info</span>
-<span class="sd">    </span>
+<span class="sd">        sigma_noise: Noise standard deviation in MJy/sr (per-pixel), from the actual</span>
+<span class="sd">            simultaneous chunk fit&#39;s own residuals (fit_glines&#39; noise_std_chunk).</span>
+<span class="sd">        sigma: The instrumental (spectral-resolution) sigma the line was actually fit</span>
+<span class="sd">            with -- pass fit_result.catalog_sigma, not a value re-derived here, so this</span>
+<span class="sd">            always matches the width fit_glines&#39; own bounds used for this exact line.</span>
+
 <span class="sd">    Returns:</span>
-<span class="sd">        float or array, spectral resolution R(λ)</span>
-<span class="sd">    </span>
-<span class="sd">    Formulas:</span>
-<span class="sd">        MIRI: R(λ) = 4603 − 128 × λ</span>
-<span class="sd">        NIRSpec (from grating):</span>
-<span class="sd">            - G140H, G235H, G395H: R ~ 2700</span>
-<span class="sd">            - G140M, G235M, G395M: R ~ 1000</span>
-<span class="sd">            - PRISM: R ~ 100</span>
+<span class="sd">        F_ul: upper limit flux [MJy/sr*um]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">instrument</span> <span class="o">=</span> <span class="n">instrument</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-    
-    <span class="k">if</span> <span class="n">instrument</span> <span class="o">==</span> <span class="s1">&#39;MIRI&#39;</span><span class="p">:</span>
-        <span class="c1"># MIRI spectral resolution formula</span>
-        <span class="k">return</span> <span class="mi">4603</span> <span class="o">-</span> <span class="mi">128</span> <span class="o">*</span> <span class="n">wavelength</span>
-    
-    <span class="k">elif</span> <span class="n">instrument</span> <span class="o">==</span> <span class="s1">&#39;NIRSPEC&#39;</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">header</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;NIRSpec requires FITS header for grating information&quot;</span><span class="p">)</span>
-        
-        <span class="n">grating</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;GRATING&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-        
-        <span class="c1"># High resolution gratings: R ~ 2700</span>
-        <span class="k">if</span> <span class="n">grating</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;G140H&#39;</span><span class="p">,</span> <span class="s1">&#39;G235H&#39;</span><span class="p">,</span> <span class="s1">&#39;G395H&#39;</span><span class="p">]:</span>
-            <span class="k">return</span> <span class="mi">2700</span>
-        
-        <span class="c1"># Medium resolution gratings: R ~ 1000</span>
-        <span class="k">elif</span> <span class="n">grating</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;G140M&#39;</span><span class="p">,</span> <span class="s1">&#39;G235M&#39;</span><span class="p">,</span> <span class="s1">&#39;G395M&#39;</span><span class="p">]:</span>
-            <span class="k">return</span> <span class="mi">1000</span>
-        
-        <span class="c1"># Low resolution prism: R ~ 100</span>
-        <span class="k">elif</span> <span class="n">grating</span> <span class="o">==</span> <span class="s1">&#39;PRISM&#39;</span><span class="p">:</span>
-            <span class="k">return</span> <span class="mi">100</span>
-        
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown NIRSpec grating: </span><span class="si">{</span><span class="n">grating</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    
-    <span class="k">else</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Instrument </span><span class="si">{</span><span class="n">instrument</span><span class="si">}</span><span class="s2"> not yet supported for spectral resolution&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mf">3.0</span> <span class="o">*</span> <span class="n">sigma_noise</span> <span class="o">*</span> <span class="n">sigma</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">gaussian_flux_upper_limit</span><span class="p">(</span><span class="n">sigma_noise</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">instrument</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_line_fluxes_collective</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">line_wavelengths</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span>
+                                    <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Calculate upper limit flux from noise using spectral resolution.</span>
-<span class="sd">    </span>
-<span class="sd">    Args:</span>
-<span class="sd">        sigma_noise: Noise standard deviation in MJy/sr (per-pixel)</span>
-<span class="sd">        wavelength: Wavelength in microns</span>
-<span class="sd">        instrument: str, instrument name (&#39;NIRSPEC&#39;, &#39;MIRI&#39;). If provided, calculates R automatically</span>
-<span class="sd">        header: astropy.io.fits.Header, required for NIRSpec if instrument is specified</span>
-<span class="sd">        R: float, spectral resolution R(λ) = λ/Δλ. Use if already calculated, overrides auto-calculation</span>
-<span class="sd">    </span>
-<span class="sd">    Returns:</span>
-<span class="sd">        tuple: (F_ul, delta_lambda) - upper limit flux and wavelength resolution</span>
-<span class="sd">    </span>
-<span class="sd">    Formula:</span>
-<span class="sd">        F_ul = 3 × σ_noise × Δλ</span>
-<span class="sd">        where Δλ = λ/R (spectral resolution element)</span>
-<span class="sd">        Result is in [MJy/sr·μm]</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># Calculate R if not provided</span>
-    <span class="k">if</span> <span class="n">R</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">instrument</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Must provide either R or instrument name&quot;</span><span class="p">)</span>
-        <span class="n">R</span> <span class="o">=</span> <span class="n">get_spectral_resolution</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="p">)</span>
-    
-    <span class="n">delta_lambda</span> <span class="o">=</span> <span class="n">wavelength</span> <span class="o">/</span> <span class="n">R</span>
-    <span class="n">F_ul</span> <span class="o">=</span> <span class="mf">3.0</span> <span class="o">*</span> <span class="n">sigma_noise</span> <span class="o">*</span> <span class="n">delta_lambda</span>
-    <span class="k">return</span> <span class="n">F_ul</span><span class="p">,</span> <span class="n">delta_lambda</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">estimate_noise_local</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">flux_arr</span><span class="p">,</span> <span class="n">line_wavelength</span><span class="p">,</span> <span class="n">n_pixels</span><span class="o">=</span><span class="mi">13</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Estimate per-pixel noise around a line using local continuum subtraction.</span>
-
-<span class="sd">    Takes n_pixels on each side of the line center, fits a straight line</span>
-<span class="sd">    through them, subtracts it, then returns np.nanstd of the residuals.</span>
+<span class="sd">    Fit every line in `line_wavelengths` simultaneously in one spectrum (fit_hitran_lines_collective).</span>
+<span class="sd">    For rotational-diagram lines this is usually the better fit.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        wavelength_arr: 1D array of wavelengths (microns)</span>
-<span class="sd">        flux_arr:       1D array of flux values (MJy/sr)</span>
-<span class="sd">        line_wavelength: Central wavelength of the line (microns)</span>
-<span class="sd">        n_pixels:       Number of pixels to use on each side (default 13)</span>
+<span class="sd">        wavelength_arr, spectrum_arr: 1D arrays for the (spatially-summed) spectrum</span>
+<span class="sd">        line_wavelengths: list of target line center wavelengths (microns)</span>
+<span class="sd">        header: FITS header (instrument is read from it -- see _line_sigma)</span>
+<span class="sd">        contam_lines: optional pd.DataFrame</span>
+<span class="sd">            None (default) skips this, same as if no catalog were loaded.</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        sigma_noise: float, std dev of residuals in same units as flux_arr</span>
-<span class="sd">                     None if not enough pixels</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="c1"># Find the index closest to the line center</span>
-    <span class="n">center_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">wavelength_arr</span> <span class="o">-</span> <span class="n">line_wavelength</span><span class="p">))</span>
-
-    <span class="c1"># Grab n_pixels on each side, excluding the center pixel itself</span>
-    <span class="n">left_idx</span>  <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">center_idx</span> <span class="o">-</span> <span class="n">n_pixels</span><span class="p">,</span> <span class="n">center_idx</span><span class="p">)</span>
-    <span class="n">right_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">center_idx</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">center_idx</span> <span class="o">+</span> <span class="n">n_pixels</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-
-    <span class="c1"># Clip to valid array bounds</span>
-    <span class="n">left_idx</span>  <span class="o">=</span> <span class="n">left_idx</span><span class="p">[(</span><span class="n">left_idx</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">left_idx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">))]</span>
-    <span class="n">right_idx</span> <span class="o">=</span> <span class="n">right_idx</span><span class="p">[(</span><span class="n">right_idx</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">right_idx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">))]</span>
-
-    <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">left_idx</span><span class="p">,</span> <span class="n">right_idx</span><span class="p">])</span>
-    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">4</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span>
-
-    <span class="n">wave_region</span> <span class="o">=</span> <span class="n">wavelength_arr</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
-    <span class="n">flux_region</span> <span class="o">=</span> <span class="n">flux_arr</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
-
-    <span class="c1"># Remove NaNs before fitting</span>
-    <span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">flux_region</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">valid</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">4</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span>
-
-    <span class="c1"># Fit and subtract linear continuum</span>
-    <span class="n">coeffs</span>    <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">polyfit</span><span class="p">(</span><span class="n">wave_region</span><span class="p">[</span><span class="n">valid</span><span class="p">],</span> <span class="n">flux_region</span><span class="p">[</span><span class="n">valid</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
-    <span class="n">residuals</span> <span class="o">=</span> <span class="n">flux_region</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">polyval</span><span class="p">(</span><span class="n">coeffs</span><span class="p">,</span> <span class="n">wave_region</span><span class="p">)</span>
-    
-    <span class="n">sigma_noise</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanstd</span><span class="p">(</span><span class="n">residuals</span><span class="p">))</span>
-
-    <span class="k">return</span> <span class="n">sigma_noise</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">convert_flux_upper_limit_to_cgs</span><span class="p">(</span><span class="n">flux_ul_native</span><span class="p">,</span> <span class="n">wavelength</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Convert upper limit flux from native units to CGS (erg/s/cm²).</span>
-<span class="sd">    </span>
-<span class="sd">    Designed specifically for upper limits computed as: 3σ_noise × Δλ</span>
-<span class="sd">    where Δλ = λ/R (spectral resolution element) and the result is in</span>
-<span class="sd">    [native_flux_unit × wavelength_unit].</span>
-<span class="sd">    </span>
-<span class="sd">    Args:</span>
-<span class="sd">        flux_ul_native: Upper limit flux in native units × wavelength</span>
-<span class="sd">                       (e.g., MJy/sr·μm for NIRSpec)</span>
-<span class="sd">        wavelength: Line wavelength in microns</span>
-<span class="sd">        header: FITS header containing CDELT1, CDELT2 (spatial pixel scales in degrees)</span>
-<span class="sd">        flux_unit: Native flux unit. Falls back to the header&#39;s BUNIT if None, so MUSE</span>
-<span class="sd">                   cubes convert too rather than being assumed to be MJy/sr.</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        float: Upper limit flux in erg/s/cm², or None if conversion fails</span>
-
-<span class="sd">    The conversion itself lives in ``unit_converter.integrated_flux_to_cgs`` - the same</span>
-<span class="sd">    one used for Gaussian areas, so upper limits and detections cannot drift apart.</span>
+<span class="sd">        list of dicts, same length/order as line_wavelengths. Each dict has keys</span>
+<span class="sd">        success (bool), message (str or None), and on success also flux_cgs,</span>
+<span class="sd">        flux_error_cgs (None when is_upper_limit), is_upper_limit, F_ul_cgs,</span>
+<span class="sd">        sigma_noise, catalog_sigma, r_squared, and plot data (x_data, y_data,</span>
+<span class="sd">        baseline, y_fit, center, fwhm, amplitude) for a per-line fit display.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">flux_unit</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">header</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">flux_unit</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;BUNIT&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">continuum</span> <span class="o">=</span> <span class="n">fit_auto_continuum</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Continuum fit failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">line_wavelengths</span><span class="p">]</span>
 
-        <span class="k">return</span> <span class="n">integrated_flux_to_cgs</span><span class="p">(</span>
-            <span class="n">flux_ul_native</span><span class="p">,</span>
-            <span class="n">flux_unit</span><span class="p">,</span>
-            <span class="n">wavelength</span><span class="o">=</span><span class="n">wavelength</span><span class="p">,</span>
-            <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span>
-            <span class="n">wave_unit</span><span class="o">=</span><span class="s1">&#39;um&#39;</span><span class="p">,</span>
+    <span class="n">hitran_lines</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">&#39;wavelength&#39;</span><span class="p">:</span> <span class="n">wl</span><span class="p">}</span> <span class="k">for</span> <span class="n">wl</span> <span class="ow">in</span> <span class="n">line_wavelengths</span><span class="p">]</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">fit_pairs</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">velocity_shift_kms</span> <span class="o">=</span> <span class="n">fit_hitran_lines_collective</span><span class="p">(</span>
+            <span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">continuum</span><span class="p">,</span>
+            <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="s1">&#39;um&#39;</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">,</span>
         <span class="p">)</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># e.g. _line_sigma raising because the header can&#39;t produce a real spectral</span>
+        <span class="c1"># resolution -- surfaced per this function&#39;s own contract (a visible message per</span>
+        <span class="c1"># line), not a silently-guessed sigma and not an uncaught crash either.</span>
+        <span class="k">return</span> <span class="p">[{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Collective fit failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">line_wavelengths</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">velocity_shift_kms</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[BATCH_FLUX] Collective fit shared velocity shift: </span><span class="si">{</span><span class="n">velocity_shift_kms</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> km/s&quot;</span><span class="p">)</span>
 
+    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">line</span><span class="p">,</span> <span class="n">fit_result</span> <span class="ow">in</span> <span class="n">fit_pairs</span><span class="p">:</span>
+        <span class="n">wl</span> <span class="o">=</span> <span class="n">line</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">compute_line_flux</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">line_wavelength</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">instrument</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Fit a single line in an (already spatially-summed) spectrum and compute its</span>
-<span class="sd">    integrated flux, flux uncertainty, and upper-limit status, all in CGS units.</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+            <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">message</span><span class="p">})</span>
+            <span class="k">continue</span>
 
-<span class="sd">    Args:</span>
-<span class="sd">        wavelength_arr: 1D wavelength array (microns), increasing order</span>
-<span class="sd">        spectrum_arr: 1D flux array (MJy/sr), matching wavelength_arr</span>
-<span class="sd">        line_wavelength: Target line center wavelength (microns)</span>
-<span class="sd">        header: FITS header (for spectral resolution + unit conversion)</span>
-<span class="sd">        instrument: Instrument name (&#39;MIRI&#39;, &#39;NIRSPEC&#39;, ...)</span>
+        <span class="c1"># noise_std/catalog_sigma come straight from fit_glines&#39; own simultaneous fit (chunk</span>
+        <span class="c1"># residual noise, and the instrumental sigma this line was actually fit with) -- both</span>
+        <span class="c1"># None only if that chunk had too few data points to estimate noise from residuals at</span>
+        <span class="c1"># all, which means we genuinely can&#39;t judge detection vs. upper limit here.</span>
+        <span class="k">if</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">noise_std</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">catalog_sigma</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;No noise estimate available for this line&#39;s chunk&quot;</span><span class="p">})</span>
+            <span class="k">continue</span>
 
-<span class="sd">    Returns:</span>
-<span class="sd">        dict with keys:</span>
-<span class="sd">            success (bool), message (str or None),</span>
-<span class="sd">            flux_cgs, flux_error_cgs, is_upper_limit, F_ul_cgs,</span>
-<span class="sd">            sigma_noise, delta_lambda</span>
-<span class="sd">        On failure (fit or unit-conversion failure), success=False, message</span>
-<span class="sd">        explains why, and the numeric fields are absent.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">.gaussian_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_gaussian_to_line</span><span class="p">,</span> <span class="n">convert_area_to_cgs</span><span class="p">,</span> <span class="n">estimate_flux_uncertainty_montecarlo</span>
+        <span class="c1"># Already CGS (erg/s/cm^2) -- the real fitted flux, from curve_fit&#39;s own amplitude/sigma</span>
+        <span class="n">flux_integrated</span> <span class="o">=</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">area</span>
 
-    <span class="n">wl</span> <span class="o">=</span> <span class="n">line_wavelength</span>
+        <span class="n">F_ul_native</span> <span class="o">=</span> <span class="n">gaussian_flux_upper_limit</span><span class="p">(</span><span class="n">fit_result</span><span class="o">.</span><span class="n">noise_std</span><span class="p">,</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">catalog_sigma</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">F_ul_cgs</span> <span class="o">=</span> <span class="n">integrated_flux_to_cgs</span><span class="p">(</span><span class="n">F_ul_native</span><span class="p">,</span> <span class="s1">&#39;MJy/sr&#39;</span><span class="p">,</span> <span class="n">wavelength</span><span class="o">=</span><span class="n">wl</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="s1">&#39;um&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">F_ul_cgs</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">F_ul_cgs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Could not convert upper-limit flux to CGS&quot;</span><span class="p">})</span>
+            <span class="k">continue</span>
 
-    <span class="c1"># Get spectral resolution and define a wavelength window (+/-2*delta_lambda) around the line</span>
-    <span class="n">R</span> <span class="o">=</span> <span class="n">get_spectral_resolution</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="n">instrument</span><span class="o">=</span><span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
-    <span class="n">delta_lambda</span> <span class="o">=</span> <span class="n">wl</span> <span class="o">/</span> <span class="n">R</span>
-    <span class="n">window_width</span> <span class="o">=</span> <span class="n">delta_lambda</span> <span class="o">*</span> <span class="mi">2</span>
-    <span class="n">x1</span> <span class="o">=</span> <span class="n">wl</span> <span class="o">-</span> <span class="n">window_width</span>
-    <span class="n">x2</span> <span class="o">=</span> <span class="n">wl</span> <span class="o">+</span> <span class="n">window_width</span>
+        <span class="c1"># A real detection: fitted flux clears the 3-sigma noise floor. An upper limit:</span>
+        <span class="c1"># fitted flux doesn&#39;t. Either way, compute and keep the real error -- a caller</span>
+        <span class="c1"># (the GUI) that lets the user manually override the upper-limit call needs a real</span>
+        <span class="c1"># error already sitting there for that line, not nothing; is_upper_limit only</span>
+        <span class="c1"># controls how this result gets *displayed/used* downstream, not whether the error</span>
+        <span class="c1"># exists.</span>
+        <span class="n">is_upper_limit</span> <span class="o">=</span> <span class="n">flux_integrated</span> <span class="o">&lt;</span> <span class="n">F_ul_cgs</span>
 
-    <span class="c1"># Fit gaussian (native units, no header conversion)</span>
-    <span class="n">fit_result</span> <span class="o">=</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span>
-        <span class="n">x1</span><span class="o">=</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="o">=</span><span class="n">x2</span><span class="p">,</span>
-        <span class="n">spectrum_x</span><span class="o">=</span><span class="n">wavelength_arr</span><span class="p">,</span>
-        <span class="n">spectrum_y</span><span class="o">=</span><span class="n">spectrum_arr</span><span class="p">,</span>
-        <span class="n">peak_x</span><span class="o">=</span><span class="n">wl</span><span class="p">,</span>
-        <span class="n">header</span><span class="o">=</span><span class="kc">None</span>
-    <span class="p">)</span>
+        <span class="c1"># Pascucci&#39;s error-propagation formula for area = amplitude*sigma*sqrt(2*pi),</span>
+        <span class="c1"># assuming amplitude and sigma are uncorrelated:</span>
+        <span class="c1">#   area_err = sqrt(2*pi * (sigma^2*amp_err^2 + amp^2*sigma_err^2))</span>
+        <span class="c1"># Fitter-agnostic -- it only needs each parameter&#39;s own 1-sigma uncertainty from a</span>
+        <span class="c1"># least-squares fit, which curve_fit&#39;s covariance gives exactly like MPFIT&#39;s perror</span>
+        <span class="c1"># did for her. Scaled into CGS using this line&#39;s own already-computed</span>
+        <span class="c1"># area/area_native ratio (its real per-line conversion factor) rather than</span>
+        <span class="c1"># re-deriving the conversion separately.</span>
+        <span class="k">if</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">amplitude_error</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">sigma_error</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">area_native</span><span class="p">:</span>
+            <span class="n">flux_error</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">area_err_native</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="p">(</span>
+                <span class="n">fit_result</span><span class="o">.</span><span class="n">sigma</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">amplitude_error</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span>
+                <span class="n">fit_result</span><span class="o">.</span><span class="n">amplitude</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">sigma_error</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="p">))</span>
+            <span class="n">flux_error_statistical</span> <span class="o">=</span> <span class="n">area_err_native</span> <span class="o">*</span> <span class="p">(</span><span class="n">fit_result</span><span class="o">.</span><span class="n">area</span> <span class="o">/</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">area_native</span><span class="p">)</span>
+            <span class="c1"># Systematic flux-calibration/continuum floor, added in quadrature -- see</span>
+            <span class="c1"># SYSTEMATIC_FLUX_ERROR_FRACTION&#39;s own comment for why this is needed on top of</span>
+            <span class="c1"># the statistical error alone.</span>
+            <span class="n">flux_error</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span>
+                <span class="n">flux_error_statistical</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">SYSTEMATIC_FLUX_ERROR_FRACTION</span> <span class="o">*</span> <span class="n">flux_integrated</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+            <span class="p">))</span>
 
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Gaussian fit failed: </span><span class="si">{</span><span class="n">fit_result</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[BATCH_FLUX] Line @ </span><span class="si">{</span><span class="n">wl</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um (collective):&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  flux = </span><span class="si">{</span><span class="n">flux_integrated</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm^2&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  error = </span><span class="si">{</span><span class="s1">&#39;N/A (upper limit or unavailable)&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">flux_error</span><span class="w"> </span><span class="ow">is</span><span class="w"> </span><span class="kc">None</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">flux_error</span><span class="si">:</span><span class="s1">.4e</span><span class="si">}</span><span class="s1"> erg/s/cm^2&#39;</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  noise (native) = </span><span class="si">{</span><span class="n">fit_result</span><span class="o">.</span><span class="n">noise_std</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> MJy/sr&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  catalog sigma = </span><span class="si">{</span><span class="n">fit_result</span><span class="o">.</span><span class="n">catalog_sigma</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  F_ul (CGS) = </span><span class="si">{</span><span class="n">F_ul_cgs</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm^2&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  is_upper_limit = </span><span class="si">{</span><span class="n">is_upper_limit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-    <span class="c1"># Convert area to CGS. The flux unit is passed explicitly rather than read from</span>
-    <span class="c1"># BUNIT because this function assumes a micron axis throughout (see wave_unit=&#39;UM&#39;</span>
-    <span class="c1"># below and the docstring); handing it a MUSE cube would need the wavelength unit</span>
-    <span class="c1"># generalised too, so it is pinned to the instruments it actually supports.</span>
-    <span class="n">flux_integrated</span> <span class="o">=</span> <span class="n">convert_area_to_cgs</span><span class="p">(</span>
-        <span class="n">fit_result</span><span class="o">.</span><span class="n">amplitude</span><span class="p">,</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">sigma</span><span class="p">,</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">center</span><span class="p">,</span>
-        <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="s1">&#39;UM&#39;</span><span class="p">,</span> <span class="n">flux_unit_input</span><span class="o">=</span><span class="s1">&#39;MJy/sr&#39;</span>
-    <span class="p">)</span>
-    <span class="k">if</span> <span class="n">flux_integrated</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Could not convert flux to CGS&quot;</span><span class="p">}</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+            <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">message</span><span class="p">,</span>
+            <span class="s2">&quot;flux_cgs&quot;</span><span class="p">:</span> <span class="n">flux_integrated</span><span class="p">,</span>
+            <span class="s2">&quot;flux_error_cgs&quot;</span><span class="p">:</span> <span class="n">flux_error</span><span class="p">,</span>
+            <span class="s2">&quot;is_upper_limit&quot;</span><span class="p">:</span> <span class="n">is_upper_limit</span><span class="p">,</span>
+            <span class="s2">&quot;F_ul_cgs&quot;</span><span class="p">:</span> <span class="n">F_ul_cgs</span><span class="p">,</span>
+            <span class="s2">&quot;sigma_noise&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">noise_std</span><span class="p">,</span>
+            <span class="s2">&quot;catalog_sigma&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">catalog_sigma</span><span class="p">,</span>
+            <span class="s2">&quot;r_squared&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">r_squared</span><span class="p">,</span>
+            <span class="c1"># Plot data for a per-line &quot;view fit&quot; display. x_data/y_data/y_fit are</span>
+            <span class="c1"># already localized to this line&#39;s own +/-3*sigma window by fit_glines&#39;</span>
+            <span class="c1"># _local_fit_record (not the whole chunk/spectrum) -- padded, not the</span>
+            <span class="c1"># entire bandpass. y_fit is the FULL local model (continuum + every</span>
+            <span class="c1"># Gaussian in this line&#39;s window, not just this line&#39;s own) -- same</span>
+            <span class="c1"># convention fit_glines itself uses, so a real blended neighbor shows up</span>
+            <span class="c1"># honestly instead of being hidden. baseline is the continuum sampled at</span>
+            <span class="c1"># those same x points, on the same (continuum-inclusive) scale as y_fit.</span>
+            <span class="s2">&quot;x_data&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">x_data</span><span class="p">,</span>
+            <span class="s2">&quot;y_data&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">y_data</span><span class="p">,</span>
+            <span class="s2">&quot;baseline&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span>
+            <span class="s2">&quot;y_fit&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">y_fit</span><span class="p">,</span>
+            <span class="s2">&quot;center&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">center</span><span class="p">,</span>
+            <span class="s2">&quot;fwhm&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">fwhm</span><span class="p">,</span>
+            <span class="s2">&quot;amplitude&quot;</span><span class="p">:</span> <span class="n">fit_result</span><span class="o">.</span><span class="n">amplitude</span><span class="p">,</span>
+        <span class="p">})</span>
 
-    <span class="c1"># Monte Carlo flux uncertainty (native units), converted to CGS using the same factor as flux</span>
-    <span class="n">flux_error_native</span> <span class="o">=</span> <span class="n">estimate_flux_uncertainty_montecarlo</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">wl</span><span class="p">)</span>
-    <span class="n">flux_error</span> <span class="o">=</span> <span class="n">convert_flux_upper_limit_to_cgs</span><span class="p">(</span><span class="n">flux_error_native</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="s1">&#39;MJy/sr&#39;</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">flux_error</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Could not convert flux error to CGS&quot;</span><span class="p">}</span>
-
-    <span class="c1"># Auto-detect upper limit</span>
-    <span class="n">sigma_noise</span> <span class="o">=</span> <span class="n">estimate_noise_local</span><span class="p">(</span><span class="n">wavelength_arr</span><span class="p">,</span> <span class="n">spectrum_arr</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">n_pixels</span><span class="o">=</span><span class="mi">13</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">sigma_noise</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">sigma_noise</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanstd</span><span class="p">(</span><span class="n">spectrum_arr</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">spectrum_arr</span><span class="p">)</span><span class="o">//</span><span class="mi">2</span><span class="p">:])</span>
-
-    <span class="n">F_ul_native</span><span class="p">,</span> <span class="n">delta_lambda_ul</span> <span class="o">=</span> <span class="n">gaussian_flux_upper_limit</span><span class="p">(</span><span class="n">sigma_noise</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">instrument</span><span class="o">=</span><span class="n">instrument</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
-    <span class="n">F_ul_cgs</span> <span class="o">=</span> <span class="n">convert_flux_upper_limit_to_cgs</span><span class="p">(</span><span class="n">F_ul_native</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="s1">&#39;MJy/sr&#39;</span><span class="p">)</span>
-
-    <span class="n">is_upper_limit</span> <span class="o">=</span> <span class="n">flux_integrated</span> <span class="o">&lt;</span> <span class="n">F_ul_cgs</span>
-
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[BATCH_FLUX] Line @ </span><span class="si">{</span><span class="n">wl</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> μm:&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  flux = </span><span class="si">{</span><span class="n">flux_integrated</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  error = </span><span class="si">{</span><span class="n">flux_error</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  noise (native) = </span><span class="si">{</span><span class="n">sigma_noise</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> MJy/sr&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  delta_lambda = </span><span class="si">{</span><span class="n">delta_lambda_ul</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> μm&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  F_ul (CGS) = </span><span class="si">{</span><span class="n">F_ul_cgs</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> erg/s/cm²&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  is_upper_limit = </span><span class="si">{</span><span class="n">is_upper_limit</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-        <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;flux_cgs&quot;</span><span class="p">:</span> <span class="n">flux_integrated</span><span class="p">,</span>
-        <span class="s2">&quot;flux_error_cgs&quot;</span><span class="p">:</span> <span class="n">flux_error</span><span class="p">,</span>
-        <span class="s2">&quot;is_upper_limit&quot;</span><span class="p">:</span> <span class="n">is_upper_limit</span><span class="p">,</span>
-        <span class="s2">&quot;F_ul_cgs&quot;</span><span class="p">:</span> <span class="n">F_ul_cgs</span><span class="p">,</span>
-        <span class="s2">&quot;sigma_noise&quot;</span><span class="p">:</span> <span class="n">sigma_noise</span><span class="p">,</span>
-        <span class="s2">&quot;delta_lambda&quot;</span><span class="p">:</span> <span class="n">delta_lambda_ul</span><span class="p">,</span>
-    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">results</span>
 
 
 <span class="c1"># ==========================================================</span>
 <span class="c1"># CENSORED MODELS (ONLY USED IF ENABLED)</span>
 <span class="c1"># ==========================================================</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">_print_pymc_diagnostics</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">var_names</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Print divergence count and r_hat for a PyMC trace; return them so</span>
-<span class="sd">    callers can also check convergence programmatically instead of just</span>
-<span class="sd">    trusting the posterior mean/std.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">import</span><span class="w"> </span><span class="nn">arviz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">az</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Show PyMC stats in GUI&quot;&quot;&quot;</span>
 
     <span class="n">n_divergent</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">sample_stats</span><span class="o">.</span><span class="n">diverging</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span>
     <span class="n">summary</span> <span class="o">=</span> <span class="n">az</span><span class="o">.</span><span class="n">summary</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">var_names</span><span class="o">=</span><span class="n">var_names</span><span class="p">)</span>
@@ -518,56 +423,106 @@
 
     <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">n_divergent</span><span class="p">,</span> <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">max_rhat</span><span class="p">}</span>
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_nutpie_progress_callback</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Enables progress bar.</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">censored_1T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">yerr</span><span class="p">,</span> <span class="n">is_ul</span><span class="p">):</span>
+<span class="sd">    nutpie&#39;s own progress_callback shape -- a list of PyChainProgress (one per</span>
+<span class="sd">    chain), each with finished_draws/total_draws/tuning -- rather than PyMC&#39;s</span>
+<span class="sd">    default per-draw (trace, draw) callback. censored_1T/censored_2T call</span>
+<span class="sd">    nutpie.compile_pymc_model()/nutpie.sample() directly instead of going through</span>
+<span class="sd">    pm.sample(nuts_sampler=&#39;nutpie&#39;, callback=...): that wrapper silently drops</span>
+<span class="sd">    the callback argument, which is why progress reporting went dark before this</span>
+<span class="sd">    switch to nutpie&#39;s own API.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">next_milestone</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">callback</span><span class="p">(</span><span class="n">chain_progresses</span><span class="p">):</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">cp</span><span class="o">.</span><span class="n">finished_draws</span> <span class="k">for</span> <span class="n">cp</span> <span class="ow">in</span> <span class="n">chain_progresses</span><span class="p">)</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">cp</span><span class="o">.</span><span class="n">total_draws</span> <span class="k">for</span> <span class="n">cp</span> <span class="ow">in</span> <span class="n">chain_progresses</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">total</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">next_milestone</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">next_milestone</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">total</span> <span class="o">//</span> <span class="mi">10</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">current</span> <span class="o">&gt;=</span> <span class="n">next_milestone</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">or</span> <span class="n">current</span> <span class="o">==</span> <span class="n">total</span><span class="p">:</span>
+            <span class="n">phase</span> <span class="o">=</span> <span class="s2">&quot;tuning&quot;</span> <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">cp</span><span class="o">.</span><span class="n">tuning</span> <span class="k">for</span> <span class="n">cp</span> <span class="ow">in</span> <span class="n">chain_progresses</span><span class="p">)</span> <span class="k">else</span> <span class="s2">&quot;sampling&quot;</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[nutpie </span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">phase</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">current</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">total</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="mi">100</span><span class="o">*</span><span class="n">current</span><span class="o">//</span><span class="n">total</span><span class="si">}</span><span class="s2">%)&quot;</span><span class="p">,</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">progress_callback</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">progress_callback</span><span class="p">(</span><span class="n">current</span><span class="p">,</span> <span class="n">total</span><span class="p">)</span>
+            <span class="n">next_milestone</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">total</span> <span class="o">//</span> <span class="mi">10</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">callback</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">censored_1T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">yerr</span><span class="p">,</span> <span class="n">is_ul</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Bayesian 1-temperature rotational diagram fit with censored upper limits.</span>
 <span class="sd">    </span>
 <span class="sd">    Uses PyMC to handle mixed detections and upper limits:</span>
 <span class="sd">    - Detections: fit normally with likelihood</span>
 <span class="sd">    - Upper limits: one-sided constraint (F &lt; F_ul)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">is_ul</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">is_ul</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
     <span class="c1"># mask = True for detections, False for upper limits</span>
     <span class="n">mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul</span>
 
+    <span class="c1"># Fallback width for upper-limit points that don&#39;t have their own propagated</span>
+    <span class="c1"># error (currently always, since _build_dataset places 0.0 there) -- the mean</span>
+    <span class="c1"># error of the real detections, at least tied to this dataset&#39;s own scale</span>
+    <span class="c1"># rather than an arbitrary constant.</span>
+    <span class="n">mean_yerr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">yerr</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span> <span class="k">else</span> <span class="mf">1.0</span>
+
     <span class="k">with</span> <span class="n">pm</span><span class="o">.</span><span class="n">Model</span><span class="p">()</span> <span class="k">as</span> <span class="n">model</span><span class="p">:</span>
 
-        <span class="c1"># === PRIORS ===</span>
-        <span class="c1"># log(Ncol) ~ Normal(data mean, sigma=5 dex)</span>
+        <span class="c1"># PRIORS: log(Ncol) ~ Normal(data mean, sigma=5 dex)</span>
         <span class="n">a</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">]),</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-        <span class="c1"># Temperature range: 10 K to 5000 K (reasonable for H2)</span>
-        <span class="n">T</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span>
+        <span class="c1"># Temperature range: matches curve_fit&#39;s own _bounds_1T ceiling (Pascucci&#39;s</span>
+        <span class="c1"># original notebook bound), so the censored and uncensored fits search the</span>
+        <span class="c1"># same space.</span>
+        <span class="n">T</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">3000</span><span class="p">)</span>
 
-        <span class="c1"># === LINEAR MODEL ===</span>
-        <span class="c1"># rotational diagram: ln(N/g) = a - E_u/T</span>
+        <span class="c1"># LINEAR: rotational diagram: ln(N/g) = a - E_u/T</span>
         <span class="n">mu</span> <span class="o">=</span> <span class="n">a</span> <span class="o">-</span> <span class="n">E</span> <span class="o">/</span> <span class="n">T</span>
 
-        <span class="c1"># === LIKELIHOOD FOR DETECTIONS ===</span>
-        <span class="c1"># Fit only the non-upper-limit points (mask=True)</span>
-        <span class="c1"># Assume σ = 1.0 in log space for all detections</span>
-        <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;obs&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
+        <span class="c1"># LIKELIHOOD: Fit only the non-upper-limit points.</span>
+        <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;obs&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="n">yerr</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
 
-        <span class="c1"># === LIKELIHOOD FOR UPPER LIMITS ===</span>
-        <span class="c1"># Censored: treat measured value as upper bound</span>
-        <span class="c1"># y_ul &lt; F_ul means ln(N/g)_meas is an upper limit on the true value</span>
+        <span class="c1"># LIKELIHOOD FOR UPPER LIMITS</span>
+        <span class="c1"># Censored: treat measured value as upper bound. Width comes from this</span>
+        <span class="c1"># line&#39;s own propagated error when available, else mean_yerr above --</span>
+        <span class="c1"># not the old fixed sigma=1.0, which had no relation to this dataset&#39;s</span>
+        <span class="c1"># actual scale in log(Nu/gu) space.</span>
         <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">is_ul</span><span class="p">):</span>
+            <span class="n">ul_sigma</span> <span class="o">=</span> <span class="n">yerr</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">yerr</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="k">else</span> <span class="n">mean_yerr</span>
             <span class="n">pm</span><span class="o">.</span><span class="n">Censored</span><span class="p">(</span>
                 <span class="s2">&quot;ul&quot;</span><span class="p">,</span>
-                <span class="c1"># Normal distribution centered at model prediction</span>
-                <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+                <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="n">ul_sigma</span><span class="p">),</span>
                 <span class="c1"># Upper censoring: observed value is upper bound</span>
+                <span class="n">lower</span><span class="o">=-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span>
                 <span class="n">upper</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span>
                 <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span>
             <span class="p">)</span>
 
-        <span class="c1"># === SAMPLING ===</span>
-        <span class="c1"># 2 chains (sequential, cores=1) so r_hat/divergences are actually</span>
-        <span class="c1"># checkable instead of trusting a single chain; target_accept raised</span>
-        <span class="c1"># from PyMC&#39;s default 0.8 to reduce divergences in this a-vs-T ridge.</span>
-        <span class="n">trace</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="n">tune</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">chains</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">target_accept</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">progressbar</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="c1"># SAMPLING: nutpie&#39;s own compiled (numba) NUTS sampler instead of PyTensor&#39;s</span>
+        <span class="c1"># own execution path -- there&#39;s no C++ compiler on this machine, so PyTensor</span>
+        <span class="c1"># falls back to slow, uncompiled Python, and that scales especially badly</span>
+        <span class="c1"># with the Censored likelihood&#39;s extra graph complexity. Measured ~4-5x</span>
+        <span class="c1"># faster end-to-end on real fits here. cores=2 is safe with nutpie (chain</span>
+        <span class="c1"># parallelism runs inside its own compiled runtime, not Python</span>
+        <span class="c1"># multiprocessing), unlike the Windows process-spawn tax that made cores=2</span>
+        <span class="c1"># a net loss for PyMC&#39;s own default sampler.</span>
+        <span class="k">if</span> <span class="n">progress_callback</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># compile_pymc_model() has no sub-progress hook of its own and is</span>
+            <span class="c1"># usually the dominant chunk of wall time -- (0, 0) tells the GUI to</span>
+            <span class="c1"># show a busy/indeterminate bar rather than nothing at all.</span>
+            <span class="n">progress_callback</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">compiled</span> <span class="o">=</span> <span class="n">nutpie</span><span class="o">.</span><span class="n">compile_pymc_model</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="n">nutpie</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span>
+            <span class="n">compiled</span><span class="p">,</span> <span class="n">draws</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">tune</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">chains</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">_PYMC_RANDOM_SEED</span><span class="p">,</span>
+            <span class="n">target_accept</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">progress_bar</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">progress_callback</span><span class="o">=</span><span class="n">_nutpie_progress_callback</span><span class="p">(</span><span class="s2">&quot;1T&quot;</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="n">progress_callback</span><span class="p">),</span>
+        <span class="p">)</span>
 
     <span class="n">diagnostics</span> <span class="o">=</span> <span class="n">_print_pymc_diagnostics</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;T&quot;</span><span class="p">])</span>
 
-    <span class="c1"># === RETURN POSTERIOR ESTIMATES ===</span>
     <span class="k">return</span> <span class="p">{</span>
         <span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>        <span class="c1"># log(Ncol)</span>
         <span class="s2">&quot;da&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>        <span class="c1"># uncertainty</span>
@@ -581,7 +536,7 @@
 
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">censored_2T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">yerr</span><span class="p">,</span> <span class="n">is_ul</span><span class="p">,</span> <span class="n">a1_init</span><span class="p">,</span> <span class="n">T1_init</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">censored_2T</span><span class="p">(</span><span class="n">E</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">yerr</span><span class="p">,</span> <span class="n">is_ul</span><span class="p">,</span> <span class="n">a1_init</span><span class="p">,</span> <span class="n">T1_init</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Bayesian 2-temperature rotational diagram fit with censored upper limits.</span>
 <span class="sd">    </span>
 <span class="sd">    Fits a mixture of two thermal components:</span>
@@ -591,66 +546,76 @@
 <span class="sd">        E, y, yerr, is_ul: same as censored_1T</span>
 <span class="sd">        a1_init, T1_init: initial guesses from 1T fit (for better prior)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">is_ul</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">is_ul</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
     <span class="c1"># mask = True for detections, False for upper limits</span>
     <span class="n">mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul</span>
 
+    <span class="n">mean_yerr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">yerr</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span> <span class="k">else</span> <span class="mf">1.0</span>
+
     <span class="k">with</span> <span class="n">pm</span><span class="o">.</span><span class="n">Model</span><span class="p">()</span> <span class="k">as</span> <span class="n">model</span><span class="p">:</span>
 
-        <span class="c1"># === PRIORS (2-component model) ===</span>
-        <span class="c1"># Component 1: centered near the 1T result</span>
-        <span class="n">a1</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">a1_init</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>           <span class="c1"># log(Ncol) warm component</span>
-        <span class="n">T1</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T1&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span>                     <span class="c1"># temp warm component</span>
-        
-        <span class="c1"># Component 2: cooler component (a2 is lower, T2 is higher)</span>
-        <span class="n">a2</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">a1_init</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>         <span class="c1"># log(Ncol) cool component</span>
-        <span class="n">T2</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T2&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">5000</span><span class="p">)</span>                     <span class="c1"># temp cool component</span>
+        <span class="c1"># PRIORS:</span>
+        <span class="c1"># Component 1 = the cooler component</span>
+        <span class="n">a1</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">a1_init</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>           <span class="c1"># log(Ncol), cool component</span>
+        <span class="n">T1</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T1&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">3000</span><span class="p">)</span>                     <span class="c1"># temp, cool component (matches _bounds_2T)</span>
 
-        <span class="c1"># === TWO-TEMPERATURE MODEL ===</span>
-        <span class="c1"># Combine two exponential terms in log space:</span>
-        <span class="c1"># μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))</span>
-        <span class="c1"># This is a mixture of two Boltzmann distributions</span>
-        <span class="n">mu</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
-            <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a1</span> <span class="o">-</span> <span class="n">E</span><span class="o">/</span><span class="n">T1</span><span class="p">)</span> <span class="o">+</span>
-            <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a2</span> <span class="o">-</span> <span class="n">E</span><span class="o">/</span><span class="n">T2</span><span class="p">)</span>
-        <span class="p">)</span>
+        <span class="c1"># Component 2 = the hotter component (T2&gt;T1)</span>
+        <span class="c1"># Avoid label switching</span>
+        <span class="n">a2</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">a1_init</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="n">sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>         <span class="c1"># log(Ncol), hot component</span>
+        <span class="n">T2</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">Uniform</span><span class="p">(</span><span class="s2">&quot;T2&quot;</span><span class="p">,</span> <span class="n">T1</span><span class="p">,</span> <span class="mi">3000</span><span class="p">)</span>                     <span class="c1"># temp, hot component (&gt; T1, matches _bounds_2T)</span>
 
-        <span class="c1"># === LIKELIHOOD FOR DETECTIONS ===</span>
-        <span class="c1"># Fit only detections; upper limits are censored</span>
-        <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;obs&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
+        <span class="c1"># TWO-TEMPERATURE MODEL: μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))</span>
+        <span class="c1"># Numerically-stable log-sum-exp (factor out the larger term before</span>
+        <span class="c1"># exponentiating) -- identical result to the plain formula, just avoids</span>
+        <span class="c1"># overflow/underflow for extreme E/T values.</span>
+        <span class="n">term1</span> <span class="o">=</span> <span class="n">a1</span> <span class="o">-</span> <span class="n">E</span> <span class="o">/</span> <span class="n">T1</span>
+        <span class="n">term2</span> <span class="o">=</span> <span class="n">a2</span> <span class="o">-</span> <span class="n">E</span> <span class="o">/</span> <span class="n">T2</span>
+        <span class="n">max_term</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">term1</span><span class="p">,</span> <span class="n">term2</span><span class="p">)</span>
+        <span class="n">mu</span> <span class="o">=</span> <span class="n">max_term</span> <span class="o">+</span> <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">term1</span> <span class="o">-</span> <span class="n">max_term</span><span class="p">)</span> <span class="o">+</span> <span class="n">pm</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">term2</span> <span class="o">-</span> <span class="n">max_term</span><span class="p">))</span>
 
-        <span class="c1"># === LIKELIHOOD FOR UPPER LIMITS ===</span>
-        <span class="c1"># Same censoring approach: y_measured is upper bound on true value</span>
+        <span class="c1"># LIKELIHOOD: Fit only detections</span>
+        <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="p">(</span><span class="s2">&quot;obs&quot;</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="n">yerr</span><span class="p">[</span><span class="n">mask</span><span class="p">],</span> <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
+
+        <span class="c1"># LIKELIHOOD FOR UPPER LIMITS</span>
+        <span class="c1"># Censored: treat measured value as upper bound. Width comes from this</span>
+        <span class="c1"># line&#39;s own propagated error when available, else mean_yerr above --</span>
+        <span class="c1"># not the old fixed sigma=1.0.</span>
         <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">is_ul</span><span class="p">):</span>
+            <span class="n">ul_sigma</span> <span class="o">=</span> <span class="n">yerr</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">yerr</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="k">else</span> <span class="n">mean_yerr</span>
             <span class="n">pm</span><span class="o">.</span><span class="n">Censored</span><span class="p">(</span>
                 <span class="s2">&quot;ul&quot;</span><span class="p">,</span>
-                <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+                <span class="n">pm</span><span class="o">.</span><span class="n">Normal</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="n">mu</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span> <span class="n">sigma</span><span class="o">=</span><span class="n">ul_sigma</span><span class="p">),</span>
+                <span class="n">lower</span><span class="o">=-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span>
                 <span class="n">upper</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">],</span>
                 <span class="n">observed</span><span class="o">=</span><span class="n">y</span><span class="p">[</span><span class="n">is_ul</span><span class="p">]</span>
             <span class="p">)</span>
 
-        <span class="c1"># === SAMPLING ===</span>
-        <span class="c1"># 2 chains (sequential, cores=1) so r_hat/divergences are actually</span>
-        <span class="c1"># checkable; target_accept raised to reduce divergences in this</span>
-        <span class="c1"># 4-parameter censored mixture (more prone to them than 1T).</span>
-        <span class="n">trace</span> <span class="o">=</span> <span class="n">pm</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="n">tune</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">chains</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">target_accept</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">progressbar</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="c1"># SAMPLING: nutpie&#39;s own compiled sampler -- see censored_1T for why.</span>
+        <span class="k">if</span> <span class="n">progress_callback</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">progress_callback</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">compiled</span> <span class="o">=</span> <span class="n">nutpie</span><span class="o">.</span><span class="n">compile_pymc_model</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="n">nutpie</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span>
+            <span class="n">compiled</span><span class="p">,</span> <span class="n">draws</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">tune</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">chains</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">cores</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">_PYMC_RANDOM_SEED</span><span class="p">,</span>
+            <span class="n">target_accept</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">progress_bar</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">progress_callback</span><span class="o">=</span><span class="n">_nutpie_progress_callback</span><span class="p">(</span><span class="s2">&quot;2T&quot;</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="n">progress_callback</span><span class="p">),</span>
+        <span class="p">)</span>
 
     <span class="n">diagnostics</span> <span class="o">=</span> <span class="n">_print_pymc_diagnostics</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;a1&quot;</span><span class="p">,</span> <span class="s2">&quot;T1&quot;</span><span class="p">,</span> <span class="s2">&quot;a2&quot;</span><span class="p">,</span> <span class="s2">&quot;T2&quot;</span><span class="p">])</span>
 
-    <span class="c1"># === RETURN POSTERIOR ESTIMATES ===</span>
     <span class="k">return</span> <span class="p">{</span>
-        <span class="c1"># Best-fit parameters (posterior means)</span>
+        <span class="c1"># Best-fit parameters</span>
         <span class="s2">&quot;popt&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
             <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>     <span class="c1"># log(Ncol1)</span>
             <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>     <span class="c1"># T_warm</span>
             <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span>     <span class="c1"># log(Ncol2)</span>
             <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">())</span>      <span class="c1"># T_cool</span>
         <span class="p">]),</span>
-        <span class="c1"># Uncertainties (posterior stds)</span>
+        <span class="c1"># Uncertainties</span>
         <span class="s2">&quot;errs&quot;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
-            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># δlog(Ncol1)</span>
-            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># δT_warm</span>
-            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># δlog(Ncol2)</span>
-            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">())</span>       <span class="c1"># δT_cool</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># dlog(Ncol1)</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T1&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># dT_warm</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;a2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">()),</span>      <span class="c1"># dlog(Ncol2)</span>
+            <span class="nb">float</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">posterior</span><span class="p">[</span><span class="s2">&quot;T2&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">())</span>       <span class="c1"># dT_cool</span>
         <span class="p">]),</span>
         <span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">diagnostics</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">],</span>
         <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">diagnostics</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">],</span>
@@ -747,7 +712,7 @@
 <div class="viewcode-block" id="rotational_diagram">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.rotational_diagram">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">rotational_diagram</span><span class="p">(</span><span class="n">fluxes</span><span class="p">,</span> <span class="n">flux_errors</span><span class="p">,</span> <span class="n">molecular_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">OPR</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                        <span class="n">fit2T</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist</span><span class="o">=</span><span class="mi">140</span><span class="o">*</span><span class="n">pc</span><span class="p">,</span> <span class="n">upper_limits</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+                        <span class="n">fit1T</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">fit2T</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist</span><span class="o">=</span><span class="mi">140</span><span class="o">*</span><span class="n">pc</span><span class="p">,</span> <span class="n">upper_limits</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Perform rotational diagram analysis on H2 lines.</span>
 
@@ -756,6 +721,8 @@
 <span class="sd">        flux_errors: Dictionary {J: flux_error}</span>
 <span class="sd">        molecular_data: Dictionary with &#39;wavelengths&#39;, &#39;Aul&#39;, &#39;Eu&#39;, &#39;gu&#39; keys</span>
 <span class="sd">                       Each value is a dict {J: value}</span>
+<span class="sd">        progress_callback: GUI caller (e.g. a QThread worker) can drive a real</span>
+<span class="sd">            progress bar instead of only having console prints.</span>
 <span class="sd">        OPR: Fixed ortho-para ratio. Used as-is when fit_opr=False (None defaults to</span>
 <span class="sd">             3.0, see apply_OPR). Ignored (overwritten by the search result) when</span>
 <span class="sd">             fit_opr=True.</span>
@@ -765,6 +732,11 @@
 <span class="sd">                 one-sided constraint) - the final fit below still uses the full data,</span>
 <span class="sd">                 including upper limits via the censored PyMC path when present.</span>
 <span class="sd">        opr_grid: OPR values to search over. Defaults to np.linspace(0.1, 5.0, 200).</span>
+<span class="sd">        fit1T: Whether to report a 1-temperature fit. The 1T fit is always computed the</span>
+<span class="sd">               same way regardless of this flag (2T&#39;s own fit needs it as its (a1, T1)</span>
+<span class="sd">               seed either way -- see censored_2T/_fit_2T_curvefit); fit1T only controls</span>
+<span class="sd">               whether it&#39;s added to the returned results for reporting. At least one of</span>
+<span class="sd">               fit1T/fit2T must be True.</span>
 <span class="sd">        fit2T: Whether to perform 2-temperature fit</span>
 <span class="sd">        R: Emitting radius (AU or cm).</span>
 <span class="sd">        dist: Distance (pc or cm).</span>
@@ -777,9 +749,12 @@
 
 <span class="sd">    Notes:</span>
 <span class="sd">        - If no upper limits: uses fast curve_fit (scipy) for the final fit</span>
-<span class="sd">        - If upper limits present: automatically uses PyMC censored likelihood for the final fit</span>
+<span class="sd">        - If upper limits present: automatically uses PyMC censored likelihood for the</span>
+<span class="sd">          final fit, but only for whichever of 1T/2T is actually being reported</span>
 <span class="sd">        - fit_opr&#39;s grid search always uses curve_fit on detections only, regardless of upper_limits</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">fit1T</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">fit2T</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;At least one of fit1T/fit2T must be True -- nothing to fit.&quot;</span><span class="p">)</span>
 
     <span class="k">global</span> <span class="n">wave</span><span class="p">,</span> <span class="n">Aul</span><span class="p">,</span> <span class="n">Eu</span><span class="p">,</span> <span class="n">gu</span>
 
@@ -818,14 +793,18 @@
             <span class="n">y_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
             <span class="n">is_ul_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">is_ul</span><span class="p">)</span>
 
-            <span class="c1"># error handling</span>
-            <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="n">is_ul</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">J</span> <span class="ow">in</span> <span class="n">flux_errors</span><span class="p">):</span>
+            <span class="c1"># error handling: same dF/F propagation for detections and upper limits</span>
+            <span class="c1"># alike whenever a real error is available for J -- an upper limit&#39;s own</span>
+            <span class="c1"># propagated error becomes its censoring width in censored_1T/censored_2T</span>
+            <span class="c1"># (ul_sigma), rather than every upper limit sharing one averaged fallback.</span>
+            <span class="c1"># Falls back to 0.0 only when no error at all is available for J (inert as</span>
+            <span class="c1"># a censoring width -- censored_1T/2T fall back to mean_yerr in that case).</span>
+            <span class="k">if</span> <span class="n">J</span> <span class="ow">in</span> <span class="n">flux_errors</span><span class="p">:</span>
                 <span class="n">dF</span> <span class="o">=</span> <span class="n">flux_errors</span><span class="p">[</span><span class="n">J</span><span class="p">]</span>
                 <span class="n">dNu</span> <span class="o">=</span> <span class="n">Nu</span> <span class="o">*</span> <span class="p">(</span><span class="n">dF</span> <span class="o">/</span> <span class="n">F</span><span class="p">)</span>
                 <span class="n">y_err</span> <span class="o">=</span> <span class="n">dNu</span> <span class="o">/</span> <span class="n">Nu</span>
                 <span class="n">y_err_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y_err</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="c1"># upper limits: treated as constraints with 0 error</span>
                 <span class="n">y_err_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">E_list</span><span class="p">),</span>
@@ -946,7 +925,7 @@
 
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- OPR FIT (curve_fit grid search, detections only) ---&quot;</span><span class="p">)</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Best-fit OPR = </span><span class="si">{</span><span class="n">best_opr</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OPR 1σ error: -</span><span class="si">{</span><span class="n">err_opr_neg</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> / +</span><span class="si">{</span><span class="n">err_opr_pos</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> (symm ≈ </span><span class="si">{</span><span class="n">best_opr_err</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OPR 1-sigma error: -</span><span class="si">{</span><span class="n">err_opr_neg</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> / +</span><span class="si">{</span><span class="n">err_opr_pos</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> (symm ~= </span><span class="si">{</span><span class="n">best_opr_err</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
 
         <span class="n">opr_search_data</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;opr_grid&quot;</span><span class="p">:</span> <span class="n">opr_grid</span><span class="p">,</span> <span class="s2">&quot;chi2_list&quot;</span><span class="p">:</span> <span class="n">chi2_arr</span><span class="p">}</span>
 
@@ -968,6 +947,17 @@
     <span class="n">n_detections</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="o">~</span><span class="n">is_ul_mask</span><span class="p">)</span>
     <span class="n">has_upper_limits</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">is_ul_mask</span><span class="p">)</span>
 
+    <span class="c1"># A detection&#39;s y_err is only ever real data</span>
+    <span class="n">det_y_err</span> <span class="o">=</span> <span class="n">y_err</span><span class="p">[</span><span class="o">~</span><span class="n">is_ul_mask</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">det_y_err</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">):</span>
+        <span class="n">bad_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="o">~</span><span class="n">is_ul_mask</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="n">det_y_err</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">bad_E</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">E_arr</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> K&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">bad_idx</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Detection(s) at E_u = </span><span class="si">{</span><span class="n">bad_E</span><span class="si">}</span><span class="s2"> have a flux error of zero, which isn&#39;t &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;a valid measurement uncertainty. Enter a real error, mark the line as &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;an upper limit, or deselect it.&quot;</span>
+        <span class="p">)</span>
+
     <span class="k">if</span> <span class="n">has_upper_limits</span> <span class="ow">and</span> <span class="n">n_detections</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">n_detections</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Cannot fit: all </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">E_arr</span><span class="p">)</span><span class="si">}</span><span class="s2"> measurements are upper limits. Need at least 2 detections to constrain temperature and column density.&quot;</span><span class="p">)</span>
@@ -976,10 +966,18 @@
 
     <span class="c1"># Decide method: auto-use PyMC if upper limits present</span>
     <span class="n">use_pymc</span> <span class="o">=</span> <span class="n">has_upper_limits</span>
+    <span class="c1"># Used below for both 1T&#39;s and 2T&#39;s own chi2 -- needed regardless of fit1T.</span>
+    <span class="n">det_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul_mask</span>
 
     <span class="c1"># ==========================================================</span>
     <span class="c1"># 1T FIT (final)</span>
     <span class="c1"># ==========================================================</span>
+    <span class="c1"># Always computed the same way as before (censored PyMC when upper limits are</span>
+    <span class="c1"># present, plain curve_fit otherwise) regardless of fit1T -- 2T&#39;s own fit needs this</span>
+    <span class="c1"># as its (a1, T1) seed either way (see censored_2T/_fit_2T_curvefit below), and this</span>
+    <span class="c1"># is the same proven computation this app has always used for it. fit1T only</span>
+    <span class="c1"># controls whether the result gets added to `results` for reporting below, not how</span>
+    <span class="c1"># it&#39;s computed.</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">use_pymc</span><span class="p">:</span>
 
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- 1T FIT (curve_fit) ---&quot;</span><span class="p">)</span>
@@ -994,43 +992,15 @@
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">--- 1T FIT (CENSORED PyMC) ---&quot;</span><span class="p">)</span>
 
         <span class="n">result</span> <span class="o">=</span> <span class="n">censored_1T</span><span class="p">(</span>
-            <span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">is_ul_mask</span>
+            <span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">is_ul_mask</span><span class="p">,</span>
+            <span class="n">progress_callback</span><span class="o">=</span><span class="p">(</span><span class="k">lambda</span> <span class="n">cur</span><span class="p">,</span> <span class="n">tot</span><span class="p">:</span> <span class="n">progress_callback</span><span class="p">(</span><span class="s2">&quot;1T&quot;</span><span class="p">,</span> <span class="n">cur</span><span class="p">,</span> <span class="n">tot</span><span class="p">))</span> <span class="k">if</span> <span class="n">progress_callback</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;a&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;T&quot;</span><span class="p">]</span>
         <span class="n">da1</span><span class="p">,</span> <span class="n">dT1</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;da&quot;</span><span class="p">],</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;dT&quot;</span><span class="p">]</span>
         <span class="n">pymc_diag_1T</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">],</span> <span class="s2">&quot;max_r_hat&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]}</span>
 
-    <span class="c1"># =========================</span>
-    <span class="c1"># Derived quantities</span>
-    <span class="c1"># =========================</span>
-    <span class="n">Ncol1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a1</span><span class="p">)</span>
-    <span class="n">dNcol1</span> <span class="o">=</span> <span class="n">Ncol1</span> <span class="o">*</span> <span class="n">da1</span>
-
-    <span class="n">Ntot1</span> <span class="o">=</span> <span class="n">Ncol1</span> <span class="o">*</span> <span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1</span><span class="p">)</span>
-    <span class="n">dNtot1</span> <span class="o">=</span> <span class="n">Ntot1</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">((</span><span class="n">dNcol1</span><span class="o">/</span><span class="n">Ncol1</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">Q_Herbst_err</span><span class="p">(</span><span class="n">T1</span><span class="p">,</span> <span class="n">dT1</span><span class="p">)</span><span class="o">/</span><span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
-
-    <span class="c1"># chi2 uses detections only - upper limits have no meaningful sigma to weight by</span>
-    <span class="c1"># (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)</span>
-    <span class="n">det_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">is_ul_mask</span>
-    <span class="n">y_model1</span> <span class="o">=</span> <span class="n">model_1T</span><span class="p">(</span><span class="n">E_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">)</span>
-    <span class="n">chi2_1T</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(((</span><span class="n">y_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">]</span> <span class="o">-</span> <span class="n">y_model1</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">y_err</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="mf">1e-10</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
-    <span class="n">dof_1T</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">det_mask</span><span class="p">)</span> <span class="o">-</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
-
-    <span class="n">results</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="s2">&quot;OPR&quot;</span><span class="p">:</span> <span class="n">best_opr</span><span class="p">,</span>
-        <span class="s2">&quot;1T&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="n">T1</span><span class="p">,</span>
-            <span class="s2">&quot;dT&quot;</span><span class="p">:</span> <span class="n">dT1</span><span class="p">,</span>
-            <span class="s2">&quot;Ncol&quot;</span><span class="p">:</span> <span class="n">Ntot1</span><span class="p">,</span>
-            <span class="s2">&quot;dNcol&quot;</span><span class="p">:</span> <span class="n">dNtot1</span><span class="p">,</span>
-            <span class="s2">&quot;chi2&quot;</span><span class="p">:</span> <span class="n">chi2_1T</span><span class="p">,</span>
-            <span class="s2">&quot;red_chi2&quot;</span><span class="p">:</span> <span class="n">chi2_1T</span> <span class="o">/</span> <span class="n">dof_1T</span><span class="p">,</span>
-        <span class="p">}</span>
-    <span class="p">}</span>
-    <span class="k">if</span> <span class="n">use_pymc</span><span class="p">:</span>
-        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;1T&quot;</span><span class="p">][</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_1T</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span>
-        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;1T&quot;</span><span class="p">][</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_1T</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;OPR&quot;</span><span class="p">:</span> <span class="n">best_opr</span><span class="p">}</span>
     <span class="k">if</span> <span class="n">best_opr_err</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">results</span><span class="p">[</span><span class="s2">&quot;OPR_err&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">best_opr_err</span>
         <span class="n">results</span><span class="p">[</span><span class="s2">&quot;OPR_err_pos&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">best_opr_err_pos</span>
@@ -1038,6 +1008,34 @@
 
     <span class="k">if</span> <span class="n">dropped_detections</span><span class="p">:</span>
         <span class="n">results</span><span class="p">[</span><span class="s2">&quot;dropped_J&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dropped_detections</span>
+
+    <span class="k">if</span> <span class="n">fit1T</span><span class="p">:</span>
+        <span class="c1"># =========================</span>
+        <span class="c1"># Derived quantities</span>
+        <span class="c1"># =========================</span>
+        <span class="n">Ncol1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">a1</span><span class="p">)</span>
+        <span class="n">dNcol1</span> <span class="o">=</span> <span class="n">Ncol1</span> <span class="o">*</span> <span class="n">da1</span>
+
+        <span class="n">Ntot1</span> <span class="o">=</span> <span class="n">Ncol1</span> <span class="o">*</span> <span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1</span><span class="p">)</span>
+        <span class="n">dNtot1</span> <span class="o">=</span> <span class="n">Ntot1</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">((</span><span class="n">dNcol1</span><span class="o">/</span><span class="n">Ncol1</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">Q_Herbst_err</span><span class="p">(</span><span class="n">T1</span><span class="p">,</span> <span class="n">dT1</span><span class="p">)</span><span class="o">/</span><span class="n">Q_Herbst</span><span class="p">(</span><span class="n">T1</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+
+        <span class="c1"># chi2 uses detections only - upper limits have no meaningful sigma to weight by</span>
+        <span class="c1"># (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)</span>
+        <span class="n">y_model1</span> <span class="o">=</span> <span class="n">model_1T</span><span class="p">(</span><span class="n">E_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">)</span>
+        <span class="n">chi2_1T</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(((</span><span class="n">y_arr</span><span class="p">[</span><span class="n">det_mask</span><span class="p">]</span> <span class="o">-</span> <span class="n">y_model1</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">y_err</span><span class="p">[</span><span class="n">det_mask</span><span class="p">],</span> <span class="mf">1e-10</span><span class="p">))</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">dof_1T</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">det_mask</span><span class="p">)</span> <span class="o">-</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">results</span><span class="p">[</span><span class="s2">&quot;1T&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;T&quot;</span><span class="p">:</span> <span class="n">T1</span><span class="p">,</span>
+            <span class="s2">&quot;dT&quot;</span><span class="p">:</span> <span class="n">dT1</span><span class="p">,</span>
+            <span class="s2">&quot;Ncol&quot;</span><span class="p">:</span> <span class="n">Ntot1</span><span class="p">,</span>
+            <span class="s2">&quot;dNcol&quot;</span><span class="p">:</span> <span class="n">dNtot1</span><span class="p">,</span>
+            <span class="s2">&quot;chi2&quot;</span><span class="p">:</span> <span class="n">chi2_1T</span><span class="p">,</span>
+            <span class="s2">&quot;red_chi2&quot;</span><span class="p">:</span> <span class="n">chi2_1T</span> <span class="o">/</span> <span class="n">dof_1T</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">use_pymc</span><span class="p">:</span>
+            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;1T&quot;</span><span class="p">][</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_1T</span><span class="p">[</span><span class="s2">&quot;n_divergences&quot;</span><span class="p">]</span>
+            <span class="n">results</span><span class="p">[</span><span class="s2">&quot;1T&quot;</span><span class="p">][</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pymc_diag_1T</span><span class="p">[</span><span class="s2">&quot;max_r_hat&quot;</span><span class="p">]</span>
 
     <span class="c1"># ==========================================================</span>
     <span class="c1"># 2T FIT (final)</span>
@@ -1059,7 +1057,8 @@
 
             <span class="n">result</span> <span class="o">=</span> <span class="n">censored_2T</span><span class="p">(</span>
                 <span class="n">E_arr</span><span class="p">,</span> <span class="n">y_arr</span><span class="p">,</span> <span class="n">y_err</span><span class="p">,</span> <span class="n">is_ul_mask</span><span class="p">,</span>
-                <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span>
+                <span class="n">a1</span><span class="p">,</span> <span class="n">T1</span><span class="p">,</span>
+                <span class="n">progress_callback</span><span class="o">=</span><span class="p">(</span><span class="k">lambda</span> <span class="n">cur</span><span class="p">,</span> <span class="n">tot</span><span class="p">:</span> <span class="n">progress_callback</span><span class="p">(</span><span class="s2">&quot;2T&quot;</span><span class="p">,</span> <span class="n">cur</span><span class="p">,</span> <span class="n">tot</span><span class="p">))</span> <span class="k">if</span> <span class="n">progress_callback</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
             <span class="p">)</span>
 
             <span class="n">a1_2</span><span class="p">,</span> <span class="n">T1_2</span><span class="p">,</span> <span class="n">a2_2</span><span class="p">,</span> <span class="n">T2_2</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;popt&quot;</span><span class="p">]</span>

@@ -120,8 +120,8 @@
 <span class="sd">    ...     spectrum=spectrum,</span>
 <span class="sd">    ...     x1=2.292, x2=2.300</span>
 <span class="sd">    ... )</span>
-<span class="sd">    &gt;&gt;&gt; print(f&quot;Line center: {result.center} µm&quot;)</span>
-<span class="sd">    &gt;&gt;&gt; print(f&quot;FWHM: {result.fwhm} µm&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;Line center: {result.center} um&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;FWHM: {result.fwhm} um&quot;)</span>
 
 <span class="sd">CO flux extraction:</span>
 <span class="sd">    &gt;&gt;&gt; from cube_explorer.api import extract_co_flux</span>
@@ -130,7 +130,7 @@
 <span class="sd">    ...     spectrum=spectrum,</span>
 <span class="sd">    ...     co_catalog_path=&quot;path/to/CO_catalog.ecsv&quot;</span>
 <span class="sd">    ... )</span>
-<span class="sd">    &gt;&gt;&gt; print(f&quot;Total CO flux: {co_result[&#39;co_flux&#39;]} erg/s/cm²&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; print(f&quot;Total CO flux: {co_result[&#39;co_flux&#39;]} erg/s/cm^2&quot;)</span>
 
 <span class="sd">Rotational diagram analysis (H2):</span>
 <span class="sd">    Needs at least 5 lines to meaningfully constrain a 2-temperature fit (4 free</span>
@@ -226,7 +226,7 @@
 <span class="c1"># CONTINUUM FITTING API</span>
 <span class="c1"># ============================================================================</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">.co_flux_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_continuum_median_peaks</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.co_flux_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_auto_continuum</span>
 
 <div class="viewcode-block" id="fit_continuum">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_continuum">[docs]</a>
@@ -262,7 +262,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">method</span> <span class="o">!=</span> <span class="s1">&#39;auto&#39;</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown continuum fitting method: </span><span class="si">{</span><span class="n">method</span><span class="si">}</span><span class="s2">. Use &#39;auto&#39;.&quot;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">fit_continuum_median_peaks</span><span class="p">(</span>
+    <span class="k">return</span> <span class="n">fit_auto_continuum</span><span class="p">(</span>
         <span class="n">_as_float_array</span><span class="p">(</span><span class="n">wavelength</span><span class="p">),</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">flux</span><span class="p">),</span> <span class="o">**</span><span class="n">kwargs</span>
     <span class="p">)</span></div>
 
@@ -372,12 +372,13 @@
 <span class="sd">    Fit HITRAN spectral lines automatically using database lookup.</span>
 
 <span class="sd">    This is the same algorithm as the GUI&#39;s **Multi-Gaussian Fit** button, not a</span>
-<span class="sd">    separate approximation of it: every line&#39;s center is fixed at its catalog</span>
-<span class="sd">    wavelength and its width comes from the instrument&#39;s spectral resolution (not</span>
-<span class="sd">    fitted), which turns fitting all of them into a single linear least-squares solve</span>
-<span class="sd">    (``np.linalg.lstsq``) instead of an iterative nonlinear fit. Lines that overlap are</span>
-<span class="sd">    disentangled by the same solve automatically -- no independent-fit double-claiming</span>
-<span class="sd">    of shared flux, and no per-selection cost blowup from fitting many lines together.</span>
+<span class="sd">    separate approximation of it: every requested line, plus any contaminant sharing</span>
+<span class="sd">    its wavelength chunk, is fit simultaneously in one nonlinear ``curve_fit`` per</span>
+<span class="sd">    chunk (``fit_glines``, via ``fit_hitran_lines_collective``) -- not an independent</span>
+<span class="sd">    per-line fit, so overlapping lines don&#39;t double-claim shared flux. Each line&#39;s</span>
+<span class="sd">    starting width comes from the instrument&#39;s real spectral resolution, but its</span>
+<span class="sd">    center and sigma are free parameters within a bound around that (catalog</span>
+<span class="sd">    wavelength +/- the instrumental sigma), not fixed.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        wavelength (array-like): Wavelength/frequency values</span>
@@ -389,9 +390,11 @@
 <span class="sd">        refresh_cache (bool): Force refresh HITRAN cache (default False)</span>
 <span class="sd">        v_upper (int, optional): Filter by upper vibrational level (e.g., 1 for v=1)</span>
 <span class="sd">        v_lower (int, optional): Filter by lower vibrational level (e.g., 0 for v=0)</span>
-<span class="sd">        header: Optional FITS header for the erg/s/cm2 conversion, and for looking up</span>
-<span class="sd">            the instrument&#39;s spectral resolution (INSTRUME/GRATING). Without it, area</span>
-<span class="sd">            stays in the cube&#39;s native units -- same rule as fit_line.</span>
+<span class="sd">        header: FITS header. Required whenever any line is actually found -- each</span>
+<span class="sd">            line&#39;s fit width comes from the instrument&#39;s real spectral resolution at</span>
+<span class="sd">            that wavelength (MIRI/NIRSpec only), not a guess, so a missing header</span>
+<span class="sd">            raises ValueError rather than silently fitting with the wrong width.</span>
+<span class="sd">            Also used for the erg/s/cm2 conversion.</span>
 <span class="sd">        wave_unit: Wavelength unit string, needed alongside header for the conversion.</span>
 <span class="sd">        continuum (array-like, optional): Pre-fitted continuum, same length as</span>
 <span class="sd">            wavelength, subtracted before fitting each line. If None, one is fitted</span>
@@ -454,7 +457,7 @@
     <span class="p">)</span>
 
     <span class="k">if</span> <span class="ow">not</span> <span class="n">hitran_lines</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: No HITRAN lines found for </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> in range </span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> µm&quot;</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: No HITRAN lines found for </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> in range </span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="p">[]</span>
 
     <span class="k">if</span> <span class="n">continuum</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -462,12 +465,14 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="n">continuum_arr</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">continuum</span><span class="p">)</span>
 
-    <span class="c1"># Fit Gaussian profiles to all lines at once via linear least squares. Contaminant fits</span>
-    <span class="c1"># (if contam_catalog was given) aren&#39;t surfaced here -- they exist to keep the requested</span>
-    <span class="c1"># lines&#39; amplitudes honest, not as an additional reportable result.</span>
-    <span class="n">fit_pairs</span><span class="p">,</span> <span class="n">_contam_pairs</span> <span class="o">=</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">continuum_arr</span><span class="p">,</span>
-                                                           <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
-                                                           <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_catalog</span><span class="p">)</span>
+    <span class="c1"># Fit every line (plus any contaminant sharing its chunk) simultaneously via curve_fit.</span>
+    <span class="c1"># Contaminant fits (if contam_catalog was given) aren&#39;t surfaced here -- they exist to</span>
+    <span class="c1"># keep the requested lines&#39; amplitudes honest, not as an additional reportable result.</span>
+    <span class="c1"># Third return value is a placeholder (no velocity-shift correction in this version).</span>
+    <span class="n">fit_pairs</span><span class="p">,</span> <span class="n">_contam_pairs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span>
+        <span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">continuum_arr</span><span class="p">,</span>
+        <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
+        <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_catalog</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="p">[</span>
         <span class="p">{</span>
@@ -645,7 +650,7 @@
 <div class="viewcode-block" id="extract_co_flux">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.extract_co_flux">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">extract_co_flux</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                     <span class="n">snr_threshold</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">subtract_continuum</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">continuum_params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                     <span class="n">snr_threshold</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">continuum_params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                      <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Extract total CO flux by fitting all CO lines in a spectrum.</span>
@@ -653,6 +658,8 @@
 <span class="sd">    Fits multiple CO rovibrational lines simultaneously with contaminating</span>
 <span class="sd">    lines and continuum, then integrates total flux. This is the same algorithm</span>
 <span class="sd">    as the GUI&#39;s CO Flux Map button, run on a single spectrum instead of every pixel.</span>
+<span class="sd">    Always fits and subtracts a continuum before fitting lines, using the same</span>
+<span class="sd">    method as the GUI&#39;s Automatic Continuum.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        wavelength (array-like): Wavelength values in same units as catalog</span>
@@ -660,17 +667,17 @@
 <span class="sd">        co_catalog_path (str): Path to CO line catalog (ECSV format)</span>
 <span class="sd">        contamination_catalog_path (str, optional): Path to contaminant lines catalog</span>
 <span class="sd">        snr_threshold (float): Minimum signal-to-noise for line detection (default 3.0)</span>
-<span class="sd">        subtract_continuum (bool): Fit and subtract a continuum before fitting lines,</span>
-<span class="sd">            using the same method as the GUI&#39;s Automatic Continuum (default True --</span>
-<span class="sd">            matches the GUI, which always does this)</span>
 <span class="sd">        continuum_params (dict, optional): Override the default continuum-fitting</span>
 <span class="sd">            parameters (window_size, sigma_threshold, peak_width, peak_distance,</span>
 <span class="sd">            peak_exclusion, iterations, smoothing_factor). If None, uses the defaults,</span>
 <span class="sd">            which work well for typical spectra.</span>
-<span class="sd">        header: FITS header, used to convert &#39;co_flux&#39;/&#39;contam_flux&#39; to erg/s/cm2.</span>
-<span class="sd">            Without it, they stay in the cube&#39;s native flux units -- &#39;flux_unit&#39; in</span>
-<span class="sd">            the result always tells you which one you got.</span>
-<span class="sd">        wave_unit (str, optional): Wavelength unit (e.g. &#39;um&#39;). Required alongside</span>
+<span class="sd">        header: FITS header. Required whenever any line is actually detected -- each</span>
+<span class="sd">            line&#39;s fit width comes from the instrument&#39;s real spectral resolution at</span>
+<span class="sd">            that wavelength (MIRI/NIRSpec only), not a guess, so a missing header</span>
+<span class="sd">            raises ValueError as soon as a line is found rather than silently fitting</span>
+<span class="sd">            with the wrong width. Also used to convert &#39;co_flux&#39;/&#39;contam_flux&#39; to</span>
+<span class="sd">            erg/s/cm2 -- &#39;flux_unit&#39; in the result always tells you which you got.</span>
+<span class="sd">        wave_unit (str, optional): Wavelength unit (e.g. &#39;um&#39;). Used alongside</span>
 <span class="sd">            header for the CGS conversion.</span>
 
 <span class="sd">    Returns:</span>
@@ -707,7 +714,6 @@
         <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
         <span class="n">do_duplicate_removal</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">snr_threshold</span><span class="o">=</span><span class="n">snr_threshold</span><span class="p">,</span>
-        <span class="n">subtract_continuum</span><span class="o">=</span><span class="n">subtract_continuum</span><span class="p">,</span>
         <span class="n">continuum_params</span><span class="o">=</span><span class="n">continuum_params</span><span class="p">,</span>
         <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
     <span class="p">)</span></div>
@@ -717,7 +723,7 @@
 <div class="viewcode-block" id="create_co_flux_map">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.create_co_flux_map">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">create_co_flux_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">contamination_catalog_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-                        <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">subtract_continuum</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">continuum_params</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+                        <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">continuum_params</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create a 2D map of CO flux across the entire data cube.</span>
 
@@ -739,9 +745,6 @@
 <span class="sd">            search when co_catalog_path is None (auto-detect if None)</span>
 <span class="sd">        wavelength_max (float, optional): Max wavelength to fit, and for the HITRAN</span>
 <span class="sd">            search when co_catalog_path is None (auto-detect if None)</span>
-<span class="sd">        subtract_continuum (bool): Fit and subtract a continuum per pixel before fitting</span>
-<span class="sd">            lines, using the same method as the GUI&#39;s Automatic Continuum (default True</span>
-<span class="sd">            -- matches the GUI, which always does this)</span>
 <span class="sd">        continuum_params (dict, optional): Override the default continuum-fitting</span>
 <span class="sd">            parameters, applied identically to every pixel. If None, uses the defaults,</span>
 <span class="sd">            which work well for typical spectra.</span>
@@ -750,11 +753,15 @@
 <span class="sd">        dict: Map data containing:</span>
 <span class="sd">            - &#39;flux_map&#39;: 2D array of CO flux per pixel, in erg/s/cm2 if cube_data.header</span>
 <span class="sd">              supports the conversion (see &#39;flux_unit&#39;), else the cube&#39;s native flux unit</span>
+<span class="sd">            - &#39;contam_flux_map&#39;: 2D array of contaminating-line flux per pixel, same units</span>
+<span class="sd">              as &#39;flux_map&#39;</span>
 <span class="sd">            - &#39;detection_map&#39;: 2D array with number of detected CO lines per pixel</span>
+<span class="sd">            - &#39;contam_detection_map&#39;: 2D array with number of detected contaminating lines</span>
+<span class="sd">              per pixel</span>
 <span class="sd">            - &#39;wavelength&#39;: 1D wavelength array used for fitting</span>
 <span class="sd">            - &#39;header&#39;: FITS header from the original cube</span>
 <span class="sd">            - &#39;wave_range&#39;: (wavelength_min, wavelength_max) actually used for the fit</span>
-<span class="sd">            - &#39;flux_unit&#39;: unit of &#39;flux_map&#39;</span>
+<span class="sd">            - &#39;flux_unit&#39;: unit of &#39;flux_map&#39;/&#39;contam_flux_map&#39;</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
@@ -795,7 +802,6 @@
     <span class="k">return</span> <span class="n">_create_co_flux_map_internal</span><span class="p">(</span>
         <span class="n">cube_data</span><span class="p">,</span> <span class="n">co_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
         <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span>
-        <span class="n">subtract_continuum</span><span class="o">=</span><span class="n">subtract_continuum</span><span class="p">,</span>
         <span class="n">continuum_params</span><span class="o">=</span><span class="n">continuum_params</span><span class="p">,</span>
         <span class="n">wave_min</span><span class="o">=</span><span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wave_max</span><span class="o">=</span><span class="n">wavelength_max</span><span class="p">,</span>
     <span class="p">)</span></div>

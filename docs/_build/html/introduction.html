@@ -110,8 +110,8 @@
 <h1>Introduction<a class="headerlink" href="#introduction" title="Link to this heading"></a></h1>
 <section id="what-is-ifu-analyzer">
 <h2>What is IFU Analyzer?<a class="headerlink" href="#what-is-ifu-analyzer" title="Link to this heading"></a></h2>
-<p><strong>IFU Analyzer</strong> is a comprehensive, interactive Python application designed for visualizing and analyzing three-dimensional spectroscopic data cubes from Integral Field Unit (IFU) instruments. It provides an intuitive graphical interface combined with powerful analysis tools, making it accessible to both casual users and advanced researchers.</p>
-<p>The application supports data from multiple state-of-the-art instruments:</p>
+<p><strong>IFU Analyzer</strong> is a comprehensive, interactive Python application designed for visualizing and analyzing three-dimensional spectroscopic data cubes from Integral Field Unit (IFU) instruments. It provides an intuitive graphical interface combined with powerful analysis tools.</p>
+<p>The application supports data from multiple instruments:</p>
 <ul class="simple">
 <li><p><strong>MUSE</strong> (Multi Unit Spectroscopic Explorer) - VLT optical spectroscopy</p></li>
 <li><p><strong>MIRI</strong> (Mid-Infrared Instrument) - JWST mid-infrared spectroscopy</p></li>
@@ -123,11 +123,12 @@
 <section id="interactive-visualization">
 <h3>Interactive Visualization<a class="headerlink" href="#interactive-visualization" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>3D Spectral Data Cube Exploration</strong>: Load and navigate through 3D FITS data cubes with seamless wavelength slicing</p></li>
+<li><p><strong>3D Spectral Data Cube Exploration</strong>: Load and navigate through 3D FITS data cubes with wavelength slicing</p></li>
 <li><p><strong>Multiple Wavelength Views</strong>: Explore data across different wavelength ranges interactively</p></li>
-<li><p><strong>Real-time Updates</strong>: Spectrum updates instantly as you select regions or pixels</p></li>
+<li><p><strong>Real-time Updates</strong>: Spectra update instantly as you select regions or pixels</p></li>
 <li><p><strong>Advanced Color Controls</strong>: Apply linear, logarithmic, power-law, and square-root scaling with customizable colormaps</p></li>
 <li><p><strong>2D Imaging</strong>: Support for 2D images</p></li>
+<li><p><strong>Multiple Selection Tools</strong>: Point, rectangular, circular, elliptical, and free-form selection</p></li>
 </ul>
 </section>
 <section id="spectral-analysis">
@@ -158,23 +159,36 @@
 <li><p>Spectral line identification using HITRAN database</p></li>
 </ul>
 </li>
+<li><p><strong>CO Rovibrational Flux Mapping</strong>:</p>
+<ul>
+<li><p>Simultaneous multi-line Gaussian fitting per pixel, with shared local continuum</p></li>
+<li><p>Contaminating-line exclusion and SNR-based detection thresholding</p></li>
+<li><p>Full-cube flux and detection maps in CGS units</p></li>
+</ul>
+</li>
+<li><p><strong>H2 Rotational Diagram Fitting</strong>:</p>
+<ul>
+<li><p>1- and 2-temperature excitation fits from HITRAN or user-supplied line fluxes</p></li>
+<li><p>Ortho-to-para ratio (OPR) fitting alongside temperature</p></li>
+<li><p>Bayesian censored regression for datasets containing upper limits</p></li>
+</ul>
+</li>
 </ul>
 </section>
 <section id="data-management">
 <h3>Data Management<a class="headerlink" href="#data-management" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>Multi-Format Support</strong>: Works with FITS files from various instruments and custom formats</p></li>
+<li><p><strong>Instrument-Aware FITS Support</strong>: Automatic instrument detection and header handling for MUSE, MIRI, and NIRSpec cubes</p></li>
 <li><p><strong>Memory-Efficient Processing</strong>: Handle large data cubes efficiently</p></li>
-<li><p><strong>Multiple Selection Tools</strong>: Point, rectangular, circular, elliptical, and free-form selection</p></li>
-<li><p><strong>Coordinate Systems</strong>: Seamless conversion between pixel and RA/DEC coordinates</p></li>
+<li><p><strong>Coordinate and Unit Conversion</strong>: Conversion between pixel and RA/DEC coordinates, and from native cube flux units to CGS</p></li>
 </ul>
 </section>
 <section id="export-output">
 <h3>Export &amp; Output<a class="headerlink" href="#export-output" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>ASCII Spectrum Export</strong>: Save displayed spectra as tab-delimited text files</p></li>
+<li><p><strong>ASCII Spectra Export</strong>: Save displayed spectra as tab-delimited text files</p></li>
 <li><p><strong>Automatic Metadata</strong>: Instrument detection and header preservation during export</p></li>
-<li><p><strong>Custom Formatting</strong>: Configure output format to match your analysis pipeline</p></li>
+<li><p><strong>Multiple Output Formats</strong>: Spectra as ASCII text, fit maps as FITS files, and visualizations as PNG, JPEG, or PDF</p></li>
 </ul>
 </section>
 </section>
@@ -186,6 +200,8 @@
 <li><p>Gaussian line fitting</p></li>
 <li><p>Continuum subtraction</p></li>
 <li><p>CO flux extraction</p></li>
+<li><p>Rotational diagram temperature fitting</p></li>
+<li><p>2D FITS dual image viewer</p></li>
 <li><p>Spectral analysis tools</p></li>
 </ul>
 <p>Future versions will expand functionality based on user feedback and research requirements.</p>

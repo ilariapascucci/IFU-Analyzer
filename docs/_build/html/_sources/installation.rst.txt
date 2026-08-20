@@ -7,34 +7,48 @@ Prerequisites
 
 Before installing IFU Analyzer, you need:
 
-- **Python**: 3.8 or higher
-- **Conda**: For managing Python environments (optional but recommended)
+- **Python**: 3.11 or higher (required by the pinned ``astropy`` version)
+- **Conda** (optional): For managing Python environments
 - **Git** (optional): For cloning the repository
-- **Operating System**: Windows or macOS
+- **Operating System**: Windows, macOS, or Linux
 
 Getting Started
-===============
+================
 
-**Important**: IFU Analyzer requires specific versions of packages to avoid compatibility issues. 
-Creating a dedicated conda environment is strongly recommended.
+**Important**: IFU Analyzer requires specific versions of packages to avoid compatibility issues.
+Creating a dedicated environment (via conda or ``venv``) is strongly recommended.
 
-1. Create a Conda Environment (Recommended)
---------------------------------------------
+Step 0 (Optional): Create an Isolated Environment
+----------------------------------------------------
 
-Before proceeding, create a new conda environment for IFU Analyzer:
+Creating a dedicated environment before installing anything keeps IFU Analyzer's
+dependencies separate from your system Python. Pick one:
+
+**Option A: Conda**
 
 .. code-block:: bash
 
-   conda create -n ifu-analyzer python=3.10
+   conda create -n ifu-analyzer python=3.11
    conda activate ifu-analyzer
 
-This isolates IFU Analyzer's dependencies from your system Python, preventing package conflicts.
+**Option B: venv** (activation differs by platform)
 
-**Note**: You can also use standard Python virtual environments (``venv``), but conda is 
-recommended for better package compatibility management.
+*Windows:*
+
+.. code-block:: bat
+
+   python -m venv venv
+   venv\Scripts\activate
+
+*macOS / Linux:*
+
+.. code-block:: bash
+
+   python3 -m venv venv
+   source venv/bin/activate
 
 
-2. Download the Repository
+1. Download the Repository
 ---------------------------
 
 Option A: Using Git
@@ -52,7 +66,7 @@ Option B: Download ZIP file
 - Open a terminal/command prompt in the extracted folder
 
 
-3. Install Required Packages
+2. Install Required Packages
 ------------------------------
 
 From the IFU-Analyzer folder, run:
@@ -64,7 +78,7 @@ From the IFU-Analyzer folder, run:
 That's it! This installs all dependencies needed to run IFU Analyzer.
 
 
-4. Launch the Application
+3. Launch the Application
 --------------------------
 
 .. code-block:: bash
@@ -100,8 +114,9 @@ Check the FAQ or user guide for help.
 **Quick fixes:**
 
 - **Module not found**: Make sure you're in the correct folder and ran ``pip install -r requirements.txt``
-- **Import error**: Verify Python 3.8+ is installed: ``python --version``
+- **Import error**: Verify Python 3.11+ is installed: ``python --version``
 - **Window won't open**: Check that all packages installed successfully
+- **App not reading the file**: Make sure the FITS file is from one of the three supported instruments (MUSE, MIRI, or NIRSpec) and that its header includes the ``INSTRUME`` or ``TELESCOP`` keyword IFU Analyzer uses to auto-detect the instrument. Files without a recognized keyword, or from other instruments, won't load.
 
 
 Next Steps
