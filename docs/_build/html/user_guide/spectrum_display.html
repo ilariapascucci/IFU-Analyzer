@@ -1,0 +1,284 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spectrum Display &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=d667c02a" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="1D Spectrum Fitting" href="gaussian_fitting_1d.html" />
+    <link rel="prev" title="Selecting Regions" href="selecting_regions.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Spectrum Display</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#normalization">Normalization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#doppler-shifting">Doppler Shifting</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_1d.html">1D Spectrum Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/api.html">API Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Spectrum Display</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/spectrum_display.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="gaussian_fitting_1d.html" class="btn btn-neutral float-right" title="1D Spectrum Fitting" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="spectrum-display">
+<h1>Spectrum Display<a class="headerlink" href="#spectrum-display" title="Link to this heading"></a></h1>
+<p>Controls for how the spectrum panel normalizes and Doppler-shifts the Full,
+Left Slice, and Right Slice spectra. These sit in the always-visible control
+row above the spectrum plot (see <a class="reference internal" href="gui_overview.html"><span class="doc">GUI Overview</span></a>), and apply regardless
+of which tab is active.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This page assumes you’re already familiar with the Full / Left Slice /
+Right Slice tabs – see <a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a> for how a region
+selection becomes its own spectrum.</p>
+</div>
+<section id="normalization">
+<h2>Normalization<a class="headerlink" href="#normalization" title="Link to this heading"></a></h2>
+<p>A Left Slice tab’s spectrum, unnormalized – raw flux in the cube’s own
+units:</p>
+<img alt="The Left tab's spectrum in raw MJy/sr units, unnormalized" src="../_images/left_spec.png" />
+<p><strong>Normalize</strong></p>
+<p>A single global toggle. When on, every displayed spectrum (Full, Left,
+Right) is divided by the <strong>Full spectrum’s own peak</strong> value:</p>
+<ul class="simple">
+<li><p>On the Full tab, this normalizes the spectrum to itself (peak = 1).</p></li>
+<li><p>On Left/Right, values are shown <em>relative to Full’s peak</em> – letting you
+see how much of the total spectrum’s peak a selected region actually
+contributes.</p></li>
+</ul>
+<p>Full tab, with <strong>Show Left</strong> overlaid and <strong>Normalize</strong> on – Total Spectrum
+peaks at 1.0, while Left peaks lower, showing it accounts for less than the
+full peak at that wavelength:</p>
+<img alt="Full spectrum and Left region overlaid, both normalized relative to Full's peak" src="../_images/left_spec_superimposed.png" />
+<p><strong>Self-Normalize Left / Self-Normalize Right</strong></p>
+<p>Per-side overrides, only meaningful while Normalize is on. Instead of
+scaling relative to Full’s peak, that side is scaled to <strong>its own peak</strong>
+instead – useful for studying a region’s own line shape independent of how
+much it contributes to the total spectrum.</p>
+<p>The same Left tab with <strong>Self-Normalize Left</strong> on instead – now Left’s own
+peak reaches 1.0:</p>
+<img alt="The Left tab's spectrum self-normalized to its own peak" src="../_images/left_spec_normalized.png" />
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Control</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Normalize</strong></p></td>
+<td><p>Divide every displayed spectrum by the Full spectrum’s own peak</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Self-Normalize Left</strong></p></td>
+<td><p>While Normalize is on, normalize the Left region to its own peak
+instead of Full’s</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Self-Normalize Right</strong></p></td>
+<td><p>While Normalize is on, normalize the Right region to its own peak
+instead of Full’s</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="doppler-shifting">
+<h2>Doppler Shifting<a class="headerlink" href="#doppler-shifting" title="Link to this heading"></a></h2>
+<p>Each of the Full / Left Slice / Right Slice tabs can be Doppler-shifted
+independently – shifting Left never touches Full or Right.</p>
+<ol class="arabic simple">
+<li><p>Select the tab you want to shift (Full, Left Slice, or Right Slice). For
+Left/Right, that side must already have a region selected.</p></li>
+<li><p>Click <strong>Shift</strong> and enter a systemic velocity in km/s. This previews the
+shift as an orange overlay on that tab’s spectrum, without changing the
+underlying data yet.</p></li>
+<li><p>Click <strong>Apply Shift</strong> to commit it (after a confirmation prompt), or
+<strong>Cancel Preview</strong> to discard it.</p></li>
+<li><p>Click <strong>Revert Shift</strong> at any time to reset that tab back to its
+original, unshifted wavelength.</p></li>
+</ol>
+<p>A pending 200 km/s preview on the Full tab – the orange line is the
+preview, overlaid on the unshifted Total Spectrum:</p>
+<img alt="Total Spectrum with an orange 200 km/s Doppler shift preview overlaid" src="../_images/shift_preview.png" />
+<p>The shift is multiplicative – <span class="math notranslate nohighlight">\(\lambda_{new} = \lambda / (1 + v/c)\)</span>
+– composed on top of any shift already applied to that tab, so repeated
+previews refine incrementally rather than starting over from the original
+wavelength each time.</p>
+<p>After clicking <strong>Apply Shift</strong>, the preview is gone and the tab’s own trace
+is redrawn at the shifted wavelength, labeled Shifted Spectrum:</p>
+<img alt="The Full spectrum redrawn at its shifted wavelength after Apply Shift" src="../_images/shifted_spectrum.png" />
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Applying a shift to the <strong>Full</strong> tab also updates the cube’s own
+wavelength axis, since Gaussian fitting, continuum subtraction, HITRAN
+line-matching, and CO flux extraction all read it directly. Shifting
+Left or Right only affects that tab’s own displayed spectrum.</p>
+</div>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Control</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Shift</strong></p></td>
+<td><p>Preview a Doppler shift on the active tab’s spectrum</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Apply Shift</strong></p></td>
+<td><p>Commit the previewed shift (permanent until reverted)</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Cancel Preview</strong></p></td>
+<td><p>Discard the pending preview without applying it</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Revert Shift</strong></p></td>
+<td><p>Reset the active tab back to its original, unshifted wavelength</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a> for how Left/Right get their own spectra in the
+first place</p></li>
+<li><p><a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a> to fit a line on the (possibly shifted or
+normalized) active tab’s spectrum</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="selecting_regions.html" class="btn btn-neutral float-left" title="Selecting Regions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="gaussian_fitting_1d.html" class="btn btn-neutral float-right" title="1D Spectrum Fitting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

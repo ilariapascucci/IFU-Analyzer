@@ -20,7 +20,7 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="1D Spectrum Fitting" href="gaussian_fitting_1d.html" />
+    <link rel="next" title="Spectrum Display" href="spectrum_display.html" />
     <link rel="prev" title="Visualization" href="visualization.html" /> 
 </head>
 
@@ -65,10 +65,12 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#statistics">Statistics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#each-region-gets-its-own-spectrum">Each Region Gets Its Own Spectrum</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="spectrum_display.html">Spectrum Display</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_1d.html">1D Spectrum Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
@@ -118,7 +120,7 @@
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
         <a href="visualization.html" class="btn btn-neutral float-left" title="Visualization" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="gaussian_fitting_1d.html" class="btn btn-neutral float-right" title="1D Spectrum Fitting" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="spectrum_display.html" class="btn btn-neutral float-right" title="Spectrum Display" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
 </div>
@@ -155,7 +157,7 @@
 </tr>
 </tbody>
 </table>
-<p>Three more buttons sit alongside them in each slice’s toolbar:</p>
+<p>Four more buttons sit alongside them in each slice’s toolbar:</p>
 <table class="docutils align-default">
 <thead>
 <tr class="row-odd"><th class="head"><p>Button</p></th>
@@ -171,6 +173,9 @@
 </tr>
 <tr class="row-even"><td><p><strong>⎘</strong> Copy</p></td>
 <td><p>Copy the selection to the other slice</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>⎘🌈</strong> Copy Color</p></td>
+<td><p>Copy this slice’s colormap to the other slice</p></td>
 </tr>
 </tbody>
 </table>
@@ -269,6 +274,29 @@ to resize. Clear it and place a new point instead.</p>
 </ul>
 </div></blockquote>
 </section>
+<section id="each-region-gets-its-own-spectrum">
+<h2>Each Region Gets Its Own Spectrum<a class="headerlink" href="#each-region-gets-its-own-spectrum" title="Link to this heading"></a></h2>
+<p>Selecting a region does more than update the Intensity (Area Selected) stats
+– it also populates that side’s own tab in the Spectrum Panel below.</p>
+<ul class="simple">
+<li><p><strong>Full</strong> tab: always shows the whole cube’s summed spectrum, regardless of
+any regions selected.</p></li>
+<li><p><strong>Left Slice</strong> / <strong>Right Slice</strong> tabs: show <em>only</em> that side’s own
+selected region’s spectrum – empty until a region is selected on that
+side, and replaced (not blended) if you draw a new one.</p></li>
+<li><p><strong>Show Left</strong> / <strong>Show Right</strong>: while viewing the Full tab, overlay the
+Left/Right region’s spectrum on top of Full for direct comparison, instead
+of switching away from it.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>A region’s spectrum is scaled by its pixel count to stay on the same
+absolute scale as Full’s summed spectrum – so it’s a like-for-like
+comparison, not a per-pixel average.</p>
+</div>
+<p>For normalizing or Doppler-shifting these spectra once you have them, see
+<a class="reference internal" href="spectrum_display.html"><span class="doc">Spectrum Display</span></a>.</p>
+</section>
 <section id="using-the-api">
 <h2>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h2>
 <p>Region extraction is available without the GUI, using the same
@@ -326,7 +354,7 @@ not just a rectangular slice.</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="visualization.html" class="btn btn-neutral float-left" title="Visualization" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="gaussian_fitting_1d.html" class="btn btn-neutral float-right" title="1D Spectrum Fitting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="spectrum_display.html" class="btn btn-neutral float-right" title="Spectrum Display" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

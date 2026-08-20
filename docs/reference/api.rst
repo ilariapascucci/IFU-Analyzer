@@ -31,13 +31,6 @@ Region Extraction
 
 .. autofunction:: cube_explorer.api.extract_region_spectrum
 
-Continuum Fitting
-=================
-
-.. autofunction:: cube_explorer.api.fit_continuum
-
-.. autofunction:: cube_explorer.api.measure_equivalent_width
-
 Gaussian Line Fitting
 =====================
 
@@ -52,6 +45,13 @@ Full-Cube Fitting
 .. autofunction:: cube_explorer.api.create_gaussian_map
 
 .. autofunction:: cube_explorer.api.export_residual_cube
+
+Continuum Fitting
+=================
+
+.. autofunction:: cube_explorer.api.fit_continuum
+
+.. autofunction:: cube_explorer.api.measure_equivalent_width
 
 CO Flux Analysis
 ================

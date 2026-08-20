@@ -19,7 +19,7 @@ Tool                     Best For
 **✏** Freehand           Precise manual outlines
 ======================== ==================================================================
 
-Three more buttons sit alongside them in each slice's toolbar:
+Four more buttons sit alongside them in each slice's toolbar:
 
 ======================== ==================================================================
 Button                   Purpose
@@ -27,6 +27,7 @@ Button                   Purpose
 **✎** Edit Shape         Toggle drag/resize of the placed region
 **✖** Clear              Remove the region and start over
 **⎘** Copy               Copy the selection to the other slice
+**⎘🌈** Copy Color        Copy this slice's colormap to the other slice
 ======================== ==================================================================
 
 How Region Selection Works
@@ -121,6 +122,30 @@ Statistics
    - **Std**: Spread
    - **Min/Max**: Range
    - **Sum**: Total
+
+Each Region Gets Its Own Spectrum
+==================================
+
+Selecting a region does more than update the Intensity (Area Selected) stats
+-- it also populates that side's own tab in the Spectrum Panel below.
+
+- **Full** tab: always shows the whole cube's summed spectrum, regardless of
+  any regions selected.
+- **Left Slice** / **Right Slice** tabs: show *only* that side's own
+  selected region's spectrum -- empty until a region is selected on that
+  side, and replaced (not blended) if you draw a new one.
+- **Show Left** / **Show Right**: while viewing the Full tab, overlay the
+  Left/Right region's spectrum on top of Full for direct comparison, instead
+  of switching away from it.
+
+.. note::
+
+   A region's spectrum is scaled by its pixel count to stay on the same
+   absolute scale as Full's summed spectrum -- so it's a like-for-like
+   comparison, not a per-pixel average.
+
+For normalizing or Doppler-shifting these spectra once you have them, see
+:doc:`spectrum_display`.
 
 Using the API
 =============

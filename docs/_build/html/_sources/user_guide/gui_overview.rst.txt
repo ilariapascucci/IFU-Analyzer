@@ -108,3 +108,5 @@ Each tool group above has its own dedicated page with the full workflow:
 2. :doc:`continuum_subtraction` for the Continuum Tools group
 3. :doc:`rotational_diagram` for the Rotational Diagram group
 4. :doc:`co_flux_extraction` for the HITRAN group's fetch/plot workflow
+5. :doc:`selecting_regions` and :doc:`spectrum_display` for the display
+   controls row (Set Slice, Full/Left/Right tabs, Normalize, Shift)

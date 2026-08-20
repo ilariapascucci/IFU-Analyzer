@@ -21,6 +21,7 @@ Choose a topic below to get started, or read through sequentially for a complete
    gui_overview
    visualization
    selecting_regions
+   spectrum_display
    gaussian_fitting_1d
    gaussian_fitting_cube
    continuum_subtraction
