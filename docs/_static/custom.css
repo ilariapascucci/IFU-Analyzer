@@ -1,0 +1,14 @@
+/* Wrap table text instead of letting it overflow into a horizontal
+   scrollbar. The RTD theme defaults to white-space: nowrap on table
+   headers and on any table wrapped in .wy-table-responsive; long cell
+   content (button-name lists, etc.) should wrap onto a new line instead. */
+.rst-content table.docutils td,
+.rst-content table.docutils th,
+.rst-content table.docutils thead {
+    white-space: normal !important;
+    overflow-wrap: break-word;
+}
+
+.wy-table-responsive {
+    overflow-x: visible !important;
+}

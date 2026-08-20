@@ -9,6 +9,7 @@
   <title>GUI Overview &mdash; IFU Analyzer 1.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=d667c02a" />
 
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
@@ -54,6 +55,7 @@
 <li class="toctree-l2 current"><a class="current reference internal" href="#">GUI Overview</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#main-window-layout">Main Window Layout</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#getting-help">Getting Help</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
@@ -120,7 +122,7 @@
 <section id="main-window-layout">
 <h2>Main Window Layout<a class="headerlink" href="#main-window-layout" title="Link to this heading"></a></h2>
 <p>The IFU Analyzer window is organized into several key areas:</p>
-<img alt="GUI Layout" src="../_images/gui_overview1.png" />
+<img alt="GUI Layout" src="../_images/gui_overview.png" />
 <p><em>Note: Screenshot showing main interface layout</em></p>
 <p><strong>1. Menu Bar</strong> (Top)</p>
 <ul class="simple">
@@ -142,13 +144,17 @@
 <li><p>Circle</p></li>
 <li><p>Ellipse</p></li>
 <li><p>Free-Form (polygon)</p></li>
+<li><p>Edit the placed region (drag/resize)</p></li>
 <li><p>Copy the selection from the adjacent slice</p></li>
+<li><p>Copy the colormap from the adjacent slice</p></li>
 </ul>
 </li>
 </ul>
 <p><strong>3. Spectrum Panel</strong> (Bottom Center)</p>
-<p>Shows the 1D spectrum, with its axes in flux and wavelength. The collapsible
-button groups above the plot hold the analysis tools:</p>
+<p>Shows the 1D spectrum, with its axes in flux and wavelength. Two rows of
+controls sit above the plot: a row of collapsible analysis tool groups, and
+a row of display/navigation controls that are always visible.</p>
+<p><em>Tool Groups (top row)</em></p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 25.0%" />
@@ -160,24 +166,56 @@ button groups above the plot hold the analysis tools:</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><strong>Slice Selection</strong></p></td>
-<td><p>Click a slice to set the left or right wavelength from that pixel</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Gaussian Fit</strong></p></td>
+<tr class="row-even"><td><p><strong>Gaussian Fit</strong></p></td>
 <td><p>Fit lines, mark noise regions, and build full-cube parameter maps</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>Continuum Tools</strong></p></td>
+<tr class="row-odd"><td><p><strong>Continuum Tools</strong></p></td>
 <td><p>Fit and subtract the continuum, automatically or from custom anchor
 points</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>Rotational Diagram</strong></p></td>
+<tr class="row-even"><td><p><strong>Rotational Diagram</strong></p></td>
 <td><p>Fit H2 rotational temperatures from measured line fluxes</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>HITRAN</strong></p></td>
+<tr class="row-odd"><td><p><strong>HITRAN</strong></p></td>
 <td><p>Fetch molecular line lists with transition-level filtering</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>Shifting</strong></p></td>
-<td><p>Apply a Doppler shift to the spectrum based on velocity</p></td>
+</tbody>
+</table>
+<p><em>Display Controls (bottom row)</em></p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Control</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Set Left Slice / Set Right Slice</strong></p></td>
+<td><p>Click a slice to set the left or right wavelength from that pixel</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Full / Left Slice / Right Slice tabs</strong></p></td>
+<td><p>Switch which spectrum is displayed. Full always shows the whole
+cube’s spectrum; Left Slice and Right Slice each show only that
+side’s own selected region (nothing, if no region is selected there)</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Show Left / Show Right</strong></p></td>
+<td><p>While on the Full tab, overlay the Left and/or Right selection’s own
+spectrum on top of the Full spectrum for comparison</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Normalize</strong></p></td>
+<td><p>Divide every displayed spectrum by the Full spectrum’s own peak</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Self-Normalize Left / Self-Normalize Right</strong></p></td>
+<td><p>While Normalize is on, normalize that side to its own peak instead
+of Full’s – useful for studying a region’s line shape independent
+of its contribution to the total</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Shift / Apply Shift / Cancel Preview / Revert Shift</strong></p></td>
+<td><p>Preview a Doppler shift on the active tab’s spectrum, then apply,
+cancel, or revert it</p></td>
 </tr>
 </tbody>
 </table>
@@ -190,6 +228,16 @@ points</p></td>
 <li><p><strong>Toolbar Buttons</strong>: Use buttons for common tasks</p></li>
 <li><p><strong>This Guide</strong>: Full documentation available</p></li>
 </ul>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<p>Each tool group above has its own dedicated page with the full workflow:</p>
+<ol class="arabic simple">
+<li><p><a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a> and <a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> for the Gaussian Fit group</p></li>
+<li><p><a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a> for the Continuum Tools group</p></li>
+<li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> for the Rotational Diagram group</p></li>
+<li><p><a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a> for the HITRAN group’s fetch/plot workflow</p></li>
+</ol>
 </section>
 </section>
 
