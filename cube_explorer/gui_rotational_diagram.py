@@ -22,6 +22,7 @@ from matplotlib.figure import Figure
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
 from .rotational_diagram_fitter import rotational_diagram, get_gu, compute_line_fluxes_collective, model_1T, model_2T
+from .co_flux_extractor import _line_sigma
 
 
 # Constants
@@ -132,6 +133,10 @@ class RotationalDiagramWindow(QMainWindow):
         self.loaded_batch_cubes = []
         self.loaded_batch_spectra = []
         self.contam_lines = None
+        # row -> {'count', 'closest_wl'} for real HITRAN water lines found near that
+        # target line -- informational only (see toggle_hitran_water_lines), never
+        # fed into contam_lines or the fit itself.
+        self._water_warnings = {}
 
         # Track workflow: None=unset, 'csv'=import, 'hitran'=fetch
         self.workflow_mode = None
@@ -169,10 +174,11 @@ class RotationalDiagramWindow(QMainWindow):
         main_layout.addLayout(toggle_layout)
         
         self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(15)
+        self.lines_table.setColumnCount(16)
         self.lines_table.setHorizontalHeaderLabels(
             ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
-             "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source", "Fit R²", "Fit"]
+             "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source", "Fit R²", "Fit",
+             "H2O Nearby"]
         )
         # row -> plot data dict (x_data, y_data, baseline, y_fit, center, fwhm, r_squared,
         # wavelength) for the "Fit" column's link, populated by calculate_fluxes_batch.
@@ -379,6 +385,19 @@ class RotationalDiagramWindow(QMainWindow):
         self.load_contam_btn.clicked.connect(self.load_contaminating_lines_for_batch)
         self.load_contam_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.load_contam_btn)
+
+        self.water_lines_checkbox = QCheckBox("Flag Nearby HITRAN Water Lines")
+        self.water_lines_checkbox.setToolTip(
+            "H2O is the dominant contaminant for H2 rotational lines in this wavelength "
+            "range. Checks each target line against real H2O lines from HITRAN (cached, "
+            "same as H2/CO) and flags it in the 'H2O Nearby' column if any are close "
+            "enough to matter. Informational only -- this does NOT correct for the "
+            "contamination or change any computed flux. If a line is flagged and you "
+            "need it corrected, provide a pre-decontaminated spectrum."
+        )
+        self.water_lines_checkbox.stateChanged.connect(self.toggle_hitran_water_lines)
+        self.water_lines_checkbox.setVisible(False)  # Hidden until lines are loaded
+        button_layout.addWidget(self.water_lines_checkbox)
 
         self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
         self.contam_status_label.setVisible(False)  # Hidden until lines are loaded
@@ -735,6 +754,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.calculate_fluxes_btn.setVisible(True)
         self.load_fits_btn.setVisible(True)
         self.load_contam_btn.setVisible(True)
+        self.water_lines_checkbox.setVisible(True)
         self.contam_status_label.setVisible(True)
 
         self.hitran_lines = data
@@ -930,6 +950,7 @@ class RotationalDiagramWindow(QMainWindow):
             self.calculate_fluxes_btn.setVisible(True)
             self.load_fits_btn.setVisible(True)
             self.load_contam_btn.setVisible(True)
+            self.water_lines_checkbox.setVisible(True)
             self.contam_status_label.setVisible(True)
 
             # Count successful matches
@@ -1051,6 +1072,103 @@ class RotationalDiagramWindow(QMainWindow):
         self.contam_lines = loaded
         self.contam_status_label.setText(f"{len(loaded)} contaminating line(s) loaded")
         self.contam_status_label.setToolTip(os.path.basename(file_path))
+
+    # Same convention fit_hitran_lines_collective's own sigma_multiplier default
+    # uses to decide which lines share a fit chunk (1-sigma core + 3-sigma margin
+    # each side, from Pascucci's own fit_Glines bounds -- see co_flux_extractor.py).
+    WATER_LINE_SIGMA_WINDOW = 7.0
+
+    def toggle_hitran_water_lines(self, state):
+        """Flag (not correct for) nearby real water contamination -- per Pascucci's
+        original ask: warn the user, don't silently try to fix it. Fetches real H2O
+        lines from HITRAN (cached, same mechanism as H2/CO) and checks each target
+        line for real water lines within WATER_LINE_SIGMA_WINDOW, populating the
+        "H2O Nearby" column. Purely informational: nothing here is added to
+        contam_lines or fit -- an earlier version tried folding detected water
+        lines into the simultaneous multi-Gaussian fit the same way H2/CO
+        contaminants are handled, but water is dense enough (~2300 real lines in a
+        single ~1um MIRI sub-band) that even after this same proximity filter,
+        target lines ended up with 5-30+ extra Gaussians to fit simultaneously --
+        far more free parameters than MIRI's sparse per-line sampling (~6-8 points)
+        can constrain, so every fit failed outright. Flagging what's nearby is
+        useful and correct; trying to fit around it with this app's existing
+        contamination mechanism is not, at least for now.
+        """
+        if state != Qt.Checked:
+            self._water_warnings = {}
+            self._update_water_warning_column()
+            return
+
+        if not self.loaded_batch_cubes:
+            # No FITS loaded means no header, and _line_sigma requires a real header
+            # to compute the instrumental resolution the proximity check needs.
+            QMessageBox.warning(
+                self, "No FITS Files Loaded",
+                "Load FITS files first (Load FITS Files) -- checking for nearby water "
+                "lines needs each file's real spectral resolution."
+            )
+            self.water_lines_checkbox.blockSignals(True)
+            self.water_lines_checkbox.setChecked(False)
+            self.water_lines_checkbox.blockSignals(False)
+            return
+
+        try:
+            warnings = {}
+            for cube in self.loaded_batch_cubes:
+                wave = cube.wavelength.value
+                wl_min, wl_max = float(np.min(wave)), float(np.max(wave))
+                file_rows, _ = fetch_hitran_data(wl_min, wl_max, 'H2O', isotopologue=1)
+                header = cube.header
+                for row, line in enumerate(self.hitran_lines):
+                    target = line['wavelength']
+                    if not (wl_min <= target <= wl_max):
+                        continue
+                    try:
+                        sigma = _line_sigma(target, header)
+                    except ValueError:
+                        continue
+                    nearby = [r for r in file_rows
+                              if abs(r['wavelength'] - target) <= self.WATER_LINE_SIGMA_WINDOW * sigma]
+                    if nearby:
+                        closest = min(nearby, key=lambda r: abs(r['wavelength'] - target))
+                        warnings[row] = {'count': len(nearby), 'closest_wl': closest['wavelength']}
+        except Exception as e:
+            QMessageBox.critical(self, "HITRAN Fetch Failed", f"Could not fetch H2O lines from HITRAN:\n{e}")
+            self.water_lines_checkbox.blockSignals(True)
+            self.water_lines_checkbox.setChecked(False)
+            self.water_lines_checkbox.blockSignals(False)
+            return
+
+        self._water_warnings = warnings
+        self._update_water_warning_column()
+
+        if not warnings:
+            QMessageBox.information(
+                self, "No Nearby Water Lines",
+                f"No H2O lines within {self.WATER_LINE_SIGMA_WINDOW}σ of any loaded target line."
+            )
+
+    def _update_water_warning_column(self):
+        """Reflect self._water_warnings (row -> {count, closest_wl}) into the "H2O
+        Nearby" column -- informational only, doesn't touch contam_lines or the fit."""
+        for row in range(self.lines_table.rowCount()):
+            item = self.lines_table.item(row, 15)
+            if item is None:
+                continue
+            info = self._water_warnings.get(row)
+            if info:
+                item.setText(f"⚠ {info['count']} (closest {info['closest_wl']:.4f} μm)")
+                item.setBackground(QColor(255, 230, 170))
+                item.setToolTip(
+                    f"{info['count']} real H2O line(s) from HITRAN within "
+                    f"{self.WATER_LINE_SIGMA_WINDOW}σ of this line's expected width. "
+                    "This flux is not corrected for water contamination -- if you need "
+                    "that, provide a pre-decontaminated spectrum."
+                )
+            else:
+                item.setText("")
+                item.setBackground(QBrush())
+                item.setToolTip("")
 
     def open_batch_flux_dialog(self):
         """Open dialog for batch flux calculation from multiple FITS files"""
@@ -1374,8 +1492,13 @@ class RotationalDiagramWindow(QMainWindow):
     def populate_lines_table(self):
         """Populate the unified table with all columns"""
         # Row indices are about to be reassigned to a new set of lines -- old plot
-        # data keyed by row would otherwise silently point at the wrong line's fit.
+        # data / water warnings keyed by row would otherwise silently point at the
+        # wrong line.
         self._line_fit_plot_data = {}
+        self._water_warnings = {}
+        self.water_lines_checkbox.blockSignals(True)
+        self.water_lines_checkbox.setChecked(False)
+        self.water_lines_checkbox.blockSignals(False)
         self.lines_table.setRowCount(len(self.hitran_lines))
         
         for row, line in enumerate(self.hitran_lines):
@@ -1486,6 +1609,11 @@ class RotationalDiagramWindow(QMainWindow):
             fit_label = QLabel("—")
             fit_label.setAlignment(Qt.AlignCenter)
             self.lines_table.setCellWidget(row, 14, fit_label)
+
+            # H2O Nearby (read-only; filled in by the "Include HITRAN Water Lines" checkbox)
+            water_item = QTableWidgetItem("")
+            water_item.setFlags(water_item.flags() & ~Qt.ItemIsEditable)
+            self.lines_table.setItem(row, 15, water_item)
 
             self.sync_flux_error_flag(row)
         
