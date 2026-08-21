@@ -28,36 +28,82 @@ Two ways to populate the line table:
   automatically, and its flux (and error, if present) populate the table directly.
 
 A **Calculate Fluxes** button also appears once HITRAN lines are fetched, for measuring
-fluxes directly from the loaded cube instead of entering them by hand.
+fluxes directly from a loaded cube instead of entering them by hand. Every line covered by
+the same FITS file is fit simultaneously via ``curve_fit`` (the same chunked engine as
+:doc:`co_flux_extraction`'s **Multi-Gaussian Fit**, not a separate implementation), and the
+results, including flux error, upper-limit status, and fit quality, are written straight
+into the table below.
 
 **Step 2: Select Lines and Enter Flux Data**
 
-The table shows every fetched/imported line:
+The table shows every fetched/imported line, in three groups of columns:
 
-- **☑** — include this line in the fit
-- **λ (μm)**, **Transition**, **A_ul (s⁻¹)**, **E_u (K)**, **g_u** — from HITRAN, not editable
-- **Flux**, **Flux Error**, **Error %** — enter a flux and either an absolute error or a
-  percentage; the two error columns auto-calculate from each other as you type (toggle
-  which one drives the calculation with the **Error input** dropdown above the table)
-- **Upper Limit?** — check this instead of entering an error for a non-detection
+- **☑**, **λ (μm)**, **Transition**, **A_ul (s⁻¹)**, **E_u (K)**, **g_u** — from HITRAN, not
+  editable. ☑ controls whether the line is included in the fit.
+- **Flux**, **Flux Error**, **Error %**, **Upper Limit?** — enter by hand, or let
+  **Calculate Fluxes** fill them in. A flux and either an absolute error or a percentage
+  auto-calculate from each other as you type (toggle which one drives the calculation with
+  the **Error input** dropdown above the table). Check **Upper Limit?** instead of entering
+  an error for a non-detection.
+- **UL Flux (3σ)**, **Calculated?**, **Source**, **Fit R²**, **Fit**, **H2O Nearby** — only
+  filled in by **Calculate Fluxes**:
+
+  - **UL Flux (3σ)**: the 3σ upper-limit flux for this line, computed the same way whether
+    the line is a detection or not:
+
+    .. math::
+
+       F_{UL} = 3 \sigma_{noise} \cdot \sigma \cdot \sqrt{2\pi}
+
+    the same area formula every fit in this app uses (:math:`A \sigma \sqrt{2\pi}`), but
+    with :math:`3 \sigma_{noise}` (three times the noise level) standing in for the
+    fitted amplitude :math:`A`, and :math:`\sigma` the line's real instrumental width
+  - **Calculated?**: checked if this row's flux came from **Calculate Fluxes** rather than
+    manual entry
+  - **Source**: which instrument and FITS file the flux was measured from
+  - **Fit R²**: quality of the underlying Gaussian fit, flagged red below 0.5 (the same
+    threshold used elsewhere in the app)
+  - **Fit**: click to open a plot of this line's own fit (spectrum, baseline, fitted curve,
+    flux, amplitude, R², FWHM), the same style as **Multi-Gaussian Fit**'s display
+  - **H2O Nearby**: informational only, warns if real HITRAN H2O lines fall close to this
+    line, never affects the fit itself
 
 .. important::
 
-   Detections need a flux error — a detection with no error entered is silently dropped
+   Detections need a flux error. A detection with no error entered is silently dropped
    from the fit rather than assigned a made-up default (you'll get a popup listing which
    lines were excluded, if any). Upper limits are the exception: they don't need an error,
    just the checkbox.
 
-   If *any* line is marked as an upper limit, the fit automatically switches from ordinary
-   least-squares to a Bayesian censored regression (PyMC) that treats upper limits as
-   one-sided constraints rather than dropping or fudging them — this happens transparently,
-   there's no separate mode to select.
+   If *any* line is marked as an upper limit, the fit automatically switches from
+   ``curve_fit`` to a Bayesian censored regression (PyMC) that treats upper limits as
+   one-sided constraints rather than dropping them.
+
+**How Calculate Fluxes measures a line**
+
+Flux error combines two terms in quadrature:
+
+- **Statistical** — from the error-propagation formula for
+  :math:`\text{area} = A \sigma \sqrt{2\pi}`, assuming amplitude and sigma are
+  uncorrelated:
+
+  .. math::
+
+     \sigma_{area} = \sqrt{2\pi \left(\sigma^2 \sigma_A^2 + A^2 \sigma_\sigma^2\right)}
+
+  using ``curve_fit``'s own covariance for :math:`\sigma_A` and :math:`\sigma_\sigma`.
+- **Systematic** — a fixed 5% of the flux, representing flux-calibration and
+  continuum-estimation uncertainty that doesn't shrink just because a particular fit was
+  well-constrained.
+
+A line is classified as an upper limit if its fitted flux doesn't clear the 3σ threshold
+above. **Calculate Fluxes** auto-checks **Upper Limit?** for those lines, though you can
+still override the checkbox by hand afterward.
 
 **Step 3: Set Physical Parameters and Fit Options**
 
 - **R (AU)** — emitting region radius. Check **Unknown R** to skip it entirely; N\ :sub:`u`
-  is then reported as a total molecule count rather than a column density (e.g. for
-  comparing against PDRToolbox/PDRT).
+  is then reported as a total molecule count rather than a column density.
 - **Distance (pc)**
 - **Fit** — **1T** or **2T**
 - **Fit OPR** — grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
@@ -79,32 +125,55 @@ Click **Run Fit**. The results window shows both text and a plot:
 
 If **Fit OPR** was checked, the text results also report the best-fit OPR and its 1σ range.
 
+When any line is an upper limit, the censored (PyMC) fit also reports its own convergence
+diagnostics: ``divergence(s)`` (ideally 0) and ``max r_hat`` (should be at most 1.01), so a
+fit that struggled to sample doesn't look identical to one that converged cleanly.
+
 Worked Examples
 ================
 
 The dataset here is the standard H2 v=0→0 S(1)–S(7) pure-rotational line set (5.5–17 µm),
 imported from ``data/H2_lines.csv``.
 
-.. figure:: ../_static/2T.png
+.. figure:: ../_static/1TFit.png
+   :alt: 1T rotational diagram fit on seven H2 lines, showing poor agreement at high E_u
+   :width: 100%
+
+   1T fit on all 7 lines: T = 536.6 ± 4.8 K. The single line can't track the curvature,
+   since the highest-E\ :sub:`u` points sit well below it, which is exactly the signature
+   that motivates using 2T here instead.
+
+.. figure:: ../_static/2TFit.png
    :alt: 2T rotational diagram fit with OPR fixed at 3, seven H2 lines
    :width: 100%
 
-   2T fit (OPR fixed at 3) on all 7 lines — Warm (273 K) and Hot (863 K) components.
+   2T fit (OPR fixed at 3) on the *same* 7 lines: Warm (T = 273.3 ± 9.6 K) and Hot
+   (T = 863.2 ± 34.1 K) components, tracking the curvature the 1T fit missed.
 
-.. figure:: ../_static/1T.png
-   :alt: 1T rotational diagram fit on the same seven H2 lines, showing poor agreement
-   :width: 100%
-
-   1T fit on the *same* 7 lines. The single line can't track the curvature — the
-   highest-E\ :sub:`u` point sits well below it — which is exactly the signature that
-   motivates using 2T here instead.
-
-.. figure:: ../_static/2T_OPR.png
+.. figure:: ../_static/2TOPRFit.png
    :alt: 2T rotational diagram fit with OPR fitted, five highest lines, larger error bars
    :width: 100%
 
    2T fit with **Fit OPR** enabled, on the 5 highest-E\ :sub:`u` lines only and larger
-   (75%) flux errors — a messier, more realistic case. The OPR search converged to 1.859.
+   flux errors — a messier, more realistic case. The OPR search converged to 1.859 ± 1.072;
+   with only 5 points feeding a 4-parameter 2T model plus OPR, T1's own uncertainty balloons
+   (202.9 ± 937.3 K) even though the fit still runs.
+
+.. figure:: ../_static/1TULFit.png
+   :alt: 1T rotational diagram fit with two upper limits, shown as red downward arrows
+   :width: 100%
+
+   1T fit with two of the seven lines marked as upper limits (red arrows): T = 410.3 ± 8.6 K.
+   The results text reports ``[PyMC: 0 divergence(s), max r_hat = 1.000]`` since marking any
+   line as an upper limit switches this to the censored PyMC fit automatically.
+
+.. figure:: ../_static/2TULFit.png
+   :alt: 2T rotational diagram fit with upper limits, shown as red downward arrows
+   :width: 100%
+
+   2T fit on the same upper-limit dataset: Warm (T = 350.7 ± 11.2 K) and Hot
+   (T = 2333.7 ± 470.1 K) components, again via the censored PyMC fit
+   (``max r_hat = 1.010``).
 
 Using the API
 ==============
@@ -145,20 +214,14 @@ This reproduces the first worked example above exactly (273.4 K / 863.4 K).
 
 .. important::
 
-   A 2T fit has 4 free parameters — you need meaningfully more than 4 lines for the fit
+   A 2T fit has 4 free parameters, so you need meaningfully more than 4 lines for the fit
    (and its uncertainties) to mean anything. Passing ``fit2T=True`` with too few points
-   doesn't raise an error; it just silently returns a degenerate fit with huge, useless
-   uncertainties.
+   doesn't raise an error; it just returns a bad fit.
 
-   ``fluxes``/``flux_errors``/``molecular_data`` are all keyed by an arbitrary integer (the
-   GUI uses upper rotational level J, but any hashable key works, as long as it's
-   consistent across the four dicts). Pass ``upper_limits={key: True}`` for non-detections
-   to switch on the same censored PyMC fit the GUI uses automatically — see the upper-limit
-   note in the GUI section above.
+Next Steps
+==========
 
-**Tips**
-
-- ``R=None`` (or omitting it) reports N\ :sub:`u` as a total molecule count instead of a
-  column density, matching the GUI's **Unknown R** checkbox.
-- Pass ``fit_opr=True`` (and optionally ``opr_grid=np.linspace(...)``) to search for the
-  best-fit OPR instead of fixing it at 3 — matching the third worked example above.
+- :doc:`co_flux_extraction` — a different molecule's line fluxes, fit the same way
+- :doc:`gaussian_fitting_cube` — the per-pixel Gaussian fitting **Calculate Fluxes** shares
+  its algorithm with
+- :doc:`exporting_data` — other export paths

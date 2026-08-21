@@ -17,6 +17,7 @@
       <script src="../_static/documentation_options.js?v=f2a433a1"></script>
       <script src="../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+      <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -64,6 +65,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#using-the-rotational-diagram-tool">Using the Rotational Diagram Tool</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#worked-examples">Worked Examples</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
@@ -142,33 +144,75 @@ matched to the nearest HITRAN line by wavelength to fill in A/E<sub>upper</sub>/
 automatically, and its flux (and error, if present) populate the table directly.</p></li>
 </ul>
 <p>A <strong>Calculate Fluxes</strong> button also appears once HITRAN lines are fetched, for measuring
-fluxes directly from the loaded cube instead of entering them by hand.</p>
+fluxes directly from a loaded cube instead of entering them by hand. Every line covered by
+the same FITS file is fit simultaneously via <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> (the same chunked engine as
+<a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a>’s <strong>Multi-Gaussian Fit</strong>, not a separate implementation), and the
+results, including flux error, upper-limit status, and fit quality, are written straight
+into the table below.</p>
 <p><strong>Step 2: Select Lines and Enter Flux Data</strong></p>
-<p>The table shows every fetched/imported line:</p>
-<ul class="simple">
-<li><p><strong>☑</strong> — include this line in the fit</p></li>
-<li><p><strong>λ (μm)</strong>, <strong>Transition</strong>, <strong>A_ul (s⁻¹)</strong>, <strong>E_u (K)</strong>, <strong>g_u</strong> — from HITRAN, not editable</p></li>
-<li><p><strong>Flux</strong>, <strong>Flux Error</strong>, <strong>Error %</strong> — enter a flux and either an absolute error or a
-percentage; the two error columns auto-calculate from each other as you type (toggle
-which one drives the calculation with the <strong>Error input</strong> dropdown above the table)</p></li>
-<li><p><strong>Upper Limit?</strong> — check this instead of entering an error for a non-detection</p></li>
+<p>The table shows every fetched/imported line, in three groups of columns:</p>
+<ul>
+<li><p><strong>☑</strong>, <strong>λ (μm)</strong>, <strong>Transition</strong>, <strong>A_ul (s⁻¹)</strong>, <strong>E_u (K)</strong>, <strong>g_u</strong> — from HITRAN, not
+editable. ☑ controls whether the line is included in the fit.</p></li>
+<li><p><strong>Flux</strong>, <strong>Flux Error</strong>, <strong>Error %</strong>, <strong>Upper Limit?</strong> — enter by hand, or let
+<strong>Calculate Fluxes</strong> fill them in. A flux and either an absolute error or a percentage
+auto-calculate from each other as you type (toggle which one drives the calculation with
+the <strong>Error input</strong> dropdown above the table). Check <strong>Upper Limit?</strong> instead of entering
+an error for a non-detection.</p></li>
+<li><p><strong>UL Flux (3σ)</strong>, <strong>Calculated?</strong>, <strong>Source</strong>, <strong>Fit R²</strong>, <strong>Fit</strong>, <strong>H2O Nearby</strong> — only
+filled in by <strong>Calculate Fluxes</strong>:</p>
+<ul>
+<li><p><strong>UL Flux (3σ)</strong>: the 3σ upper-limit flux for this line, computed the same way whether
+the line is a detection or not:</p>
+<div class="math notranslate nohighlight">
+\[F_{UL} = 3 \sigma_{noise} \cdot \sigma \cdot \sqrt{2\pi}\]</div>
+<p>the same area formula every fit in this app uses (<span class="math notranslate nohighlight">\(A \sigma \sqrt{2\pi}\)</span>), but
+with <span class="math notranslate nohighlight">\(3 \sigma_{noise}\)</span> (three times the noise level) standing in for the
+fitted amplitude <span class="math notranslate nohighlight">\(A\)</span>, and <span class="math notranslate nohighlight">\(\sigma\)</span> the line’s real instrumental width</p>
+</li>
+<li><p><strong>Calculated?</strong>: checked if this row’s flux came from <strong>Calculate Fluxes</strong> rather than
+manual entry</p></li>
+<li><p><strong>Source</strong>: which instrument and FITS file the flux was measured from</p></li>
+<li><p><strong>Fit R²</strong>: quality of the underlying Gaussian fit, flagged red below 0.5 (the same
+threshold used elsewhere in the app)</p></li>
+<li><p><strong>Fit</strong>: click to open a plot of this line’s own fit (spectrum, baseline, fitted curve,
+flux, amplitude, R², FWHM), the same style as <strong>Multi-Gaussian Fit</strong>’s display</p></li>
+<li><p><strong>H2O Nearby</strong>: informational only, warns if real HITRAN H2O lines fall close to this
+line, never affects the fit itself</p></li>
+</ul>
+</li>
 </ul>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
-<p>Detections need a flux error — a detection with no error entered is silently dropped
+<p>Detections need a flux error. A detection with no error entered is silently dropped
 from the fit rather than assigned a made-up default (you’ll get a popup listing which
 lines were excluded, if any). Upper limits are the exception: they don’t need an error,
 just the checkbox.</p>
-<p>If <em>any</em> line is marked as an upper limit, the fit automatically switches from ordinary
-least-squares to a Bayesian censored regression (PyMC) that treats upper limits as
-one-sided constraints rather than dropping or fudging them — this happens transparently,
-there’s no separate mode to select.</p>
+<p>If <em>any</em> line is marked as an upper limit, the fit automatically switches from
+<code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> to a Bayesian censored regression (PyMC) that treats upper limits as
+one-sided constraints rather than dropping them.</p>
 </div>
+<p><strong>How Calculate Fluxes measures a line</strong></p>
+<p>Flux error combines two terms in quadrature:</p>
+<ul>
+<li><p><strong>Statistical</strong> — from the error-propagation formula for
+<span class="math notranslate nohighlight">\(\text{area} = A \sigma \sqrt{2\pi}\)</span>, assuming amplitude and sigma are
+uncorrelated:</p>
+<div class="math notranslate nohighlight">
+\[\sigma_{area} = \sqrt{2\pi \left(\sigma^2 \sigma_A^2 + A^2 \sigma_\sigma^2\right)}\]</div>
+<p>using <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>’s own covariance for <span class="math notranslate nohighlight">\(\sigma_A\)</span> and <span class="math notranslate nohighlight">\(\sigma_\sigma\)</span>.</p>
+</li>
+<li><p><strong>Systematic</strong> — a fixed 5% of the flux, representing flux-calibration and
+continuum-estimation uncertainty that doesn’t shrink just because a particular fit was
+well-constrained.</p></li>
+</ul>
+<p>A line is classified as an upper limit if its fitted flux doesn’t clear the 3σ threshold
+above. <strong>Calculate Fluxes</strong> auto-checks <strong>Upper Limit?</strong> for those lines, though you can
+still override the checkbox by hand afterward.</p>
 <p><strong>Step 3: Set Physical Parameters and Fit Options</strong></p>
 <ul class="simple">
 <li><p><strong>R (AU)</strong> — emitting region radius. Check <strong>Unknown R</strong> to skip it entirely; N<sub>u</sub>
-is then reported as a total molecule count rather than a column density (e.g. for
-comparing against PDRToolbox/PDRT).</p></li>
+is then reported as a total molecule count rather than a column density.</p></li>
 <li><p><strong>Distance (pc)</strong></p></li>
 <li><p><strong>Fit</strong> — <strong>1T</strong> or <strong>2T</strong></p></li>
 <li><p><strong>Fit OPR</strong> — grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
@@ -188,33 +232,57 @@ one-sided)</p></li>
 internally working in ln space</p></li>
 </ul>
 <p>If <strong>Fit OPR</strong> was checked, the text results also report the best-fit OPR and its 1σ range.</p>
+<p>When any line is an upper limit, the censored (PyMC) fit also reports its own convergence
+diagnostics: <code class="docutils literal notranslate"><span class="pre">divergence(s)</span></code> (ideally 0) and <code class="docutils literal notranslate"><span class="pre">max</span> <span class="pre">r_hat</span></code> (should be at most 1.01), so a
+fit that struggled to sample doesn’t look identical to one that converged cleanly.</p>
 </section>
 <section id="worked-examples">
 <h2>Worked Examples<a class="headerlink" href="#worked-examples" title="Link to this heading"></a></h2>
 <p>The dataset here is the standard H2 v=0→0 S(1)–S(7) pure-rotational line set (5.5–17 µm),
 imported from <code class="docutils literal notranslate"><span class="pre">data/H2_lines.csv</span></code>.</p>
 <figure class="align-default" id="id1">
-<a class="reference internal image-reference" href="../_images/2T.png"><img alt="2T rotational diagram fit with OPR fixed at 3, seven H2 lines" src="../_images/2T.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/1TFit.png"><img alt="1T rotational diagram fit on seven H2 lines, showing poor agreement at high E_u" src="../_images/1TFit.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">2T fit (OPR fixed at 3) on all 7 lines — Warm (273 K) and Hot (863 K) components.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+<p><span class="caption-text">1T fit on all 7 lines: T = 536.6 ± 4.8 K. The single line can’t track the curvature,
+since the highest-E<sub>u</sub> points sit well below it, which is exactly the signature
+that motivates using 2T here instead.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 <figure class="align-default" id="id2">
-<a class="reference internal image-reference" href="../_images/1T.png"><img alt="1T rotational diagram fit on the same seven H2 lines, showing poor agreement" src="../_images/1T.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/2TFit.png"><img alt="2T rotational diagram fit with OPR fixed at 3, seven H2 lines" src="../_images/2TFit.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">1T fit on the <em>same</em> 7 lines. The single line can’t track the curvature — the
-highest-E<sub>u</sub> point sits well below it — which is exactly the signature that
-motivates using 2T here instead.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+<p><span class="caption-text">2T fit (OPR fixed at 3) on the <em>same</em> 7 lines: Warm (T = 273.3 ± 9.6 K) and Hot
+(T = 863.2 ± 34.1 K) components, tracking the curvature the 1T fit missed.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 <figure class="align-default" id="id3">
-<a class="reference internal image-reference" href="../_images/2T_OPR.png"><img alt="2T rotational diagram fit with OPR fitted, five highest lines, larger error bars" src="../_images/2T_OPR.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../_images/2TOPRFit.png"><img alt="2T rotational diagram fit with OPR fitted, five highest lines, larger error bars" src="../_images/2TOPRFit.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">2T fit with <strong>Fit OPR</strong> enabled, on the 5 highest-E<sub>u</sub> lines only and larger
-(75%) flux errors — a messier, more realistic case. The OPR search converged to 1.859.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
+flux errors — a messier, more realistic case. The OPR search converged to 1.859 ± 1.072;
+with only 5 points feeding a 4-parameter 2T model plus OPR, T1’s own uncertainty balloons
+(202.9 ± 937.3 K) even though the fit still runs.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id4">
+<a class="reference internal image-reference" href="../_images/1TULFit.png"><img alt="1T rotational diagram fit with two upper limits, shown as red downward arrows" src="../_images/1TULFit.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">1T fit with two of the seven lines marked as upper limits (red arrows): T = 410.3 ± 8.6 K.
+The results text reports <code class="docutils literal notranslate"><span class="pre">[PyMC:</span> <span class="pre">0</span> <span class="pre">divergence(s),</span> <span class="pre">max</span> <span class="pre">r_hat</span> <span class="pre">=</span> <span class="pre">1.000]</span></code> since marking any
+line as an upper limit switches this to the censored PyMC fit automatically.</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id5">
+<a class="reference internal image-reference" href="../_images/2TULFit.png"><img alt="2T rotational diagram fit with upper limits, shown as red downward arrows" src="../_images/2TULFit.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">2T fit on the same upper-limit dataset: Warm (T = 350.7 ± 11.2 K) and Hot
+(T = 2333.7 ± 470.1 K) components, again via the censored PyMC fit
+(<code class="docutils literal notranslate"><span class="pre">max</span> <span class="pre">r_hat</span> <span class="pre">=</span> <span class="pre">1.010</span></code>).</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 </section>
@@ -253,22 +321,18 @@ imported directly. There’s no GUI/API divergence to account for here, unlike C
 <p>This reproduces the first worked example above exactly (273.4 K / 863.4 K).</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
-<p>A 2T fit has 4 free parameters — you need meaningfully more than 4 lines for the fit
+<p>A 2T fit has 4 free parameters, so you need meaningfully more than 4 lines for the fit
 (and its uncertainties) to mean anything. Passing <code class="docutils literal notranslate"><span class="pre">fit2T=True</span></code> with too few points
-doesn’t raise an error; it just silently returns a degenerate fit with huge, useless
-uncertainties.</p>
-<p><code class="docutils literal notranslate"><span class="pre">fluxes</span></code>/<code class="docutils literal notranslate"><span class="pre">flux_errors</span></code>/<code class="docutils literal notranslate"><span class="pre">molecular_data</span></code> are all keyed by an arbitrary integer (the
-GUI uses upper rotational level J, but any hashable key works, as long as it’s
-consistent across the four dicts). Pass <code class="docutils literal notranslate"><span class="pre">upper_limits={key:</span> <span class="pre">True}</span></code> for non-detections
-to switch on the same censored PyMC fit the GUI uses automatically — see the upper-limit
-note in the GUI section above.</p>
+doesn’t raise an error; it just returns a bad fit.</p>
 </div>
-<p><strong>Tips</strong></p>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">R=None</span></code> (or omitting it) reports N<sub>u</sub> as a total molecule count instead of a
-column density, matching the GUI’s <strong>Unknown R</strong> checkbox.</p></li>
-<li><p>Pass <code class="docutils literal notranslate"><span class="pre">fit_opr=True</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">opr_grid=np.linspace(...)</span></code>) to search for the
-best-fit OPR instead of fixing it at 3 — matching the third worked example above.</p></li>
+<li><p><a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a> — a different molecule’s line fluxes, fit the same way</p></li>
+<li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> — the per-pixel Gaussian fitting <strong>Calculate Fluxes</strong> shares
+its algorithm with</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — other export paths</p></li>
 </ul>
 </section>
 </section>
