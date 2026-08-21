@@ -413,11 +413,13 @@ def cube_returned_keys():
 # CO FLUX EXTRACTION -- MULTI-GAUSSIAN FIT, USING THE API
 # ---------------------------------------------------------------------------
 # fit_hitran_lines() runs the same algorithm as the GUI's Multi-Gaussian Fit button:
-# linear least squares with catalog-fixed centers and spectral-resolution-derived sigma
-# (see fit_hitran_lines_collective() in co_flux_extractor.py) -- this checks the docs'
-# claim that they produce identical results, not just that the call doesn't crash.
-# Centers are exact catalog wavelengths (fixed, not fitted), unlike the old independent
-# curve_fit approach this replaced, which let centers drift a little from line to line.
+# simultaneous nonlinear curve_fit per wavelength chunk, via fit_glines() (see
+# fit_hitran_lines_collective() in co_flux_extractor.py) -- this checks the docs' claim
+# that they produce identical results, not just that the call doesn't crash.
+# Centers/sigmas are bounded (center within +/-1 instrumental sigma of the catalog
+# wavelength, sigma within 0.5-2x the instrumental value) but genuinely fitted, not fixed
+# -- so unlike the exact-catalog-match this test used to check, the match here is against
+# a fixed reproducibility tolerance, not zero.
 
 @needs_nirspec_cube
 def co_flux_multi_gaussian_api():
@@ -445,46 +447,49 @@ def co_flux_multi_gaussian_api():
     for r in sorted(detected, key=lambda r: r['wavelength']):
         print(f"  {r['wavelength']:.6f} um  area={r['area']:.4e} {r['area_unit']}  R2={r['r_squared']:.4f}")
 
-    # "This reproduces the worked example above exactly" -- all 56 v=1->0 centers (exact
-    # catalog wavelengths, since they're fixed) and areas from the GUI screenshot, to the
-    # digit.
+    # "This reproduces the worked example above exactly" -- all 56 v=1->0 fitted centers
+    # (bounded, not catalog-exact) and areas from the GUI screenshot, to the digit. Lines
+    # 55/56 here (4.783681, 4.793562) are the exact two lines shown in the docs' "Reading
+    # the results" worked example, cross-checked against a real GUI run.
     expected = {
-        4.402678: (1.0164e-16, 0.3553), 4.407041: (1.2351e-16, 0.8765),
-        4.411493: (1.9398e-16, 0.8866), 4.416034: (2.4552e-16, 0.6585),
-        4.420663: (1.2549e-16, 0.4146), 4.425382: (1.4145e-16, 0.4814),
-        4.430189: (1.7623e-16, 0.6877), 4.435087: (1.7189e-16, 0.6856),
-        4.440074: (3.3423e-16, 0.8287), 4.445152: (2.0575e-16, 0.6510),
-        4.450320: (2.1646e-16, 0.7668), 4.455579: (2.0984e-16, 0.7127),
-        4.460929: (2.3186e-16, 0.6666), 4.466371: (2.2027e-16, 0.6370),
-        4.471904: (3.1906e-16, 0.8615), 4.477530: (3.3616e-16, 0.8484),
-        4.483248: (2.5020e-16, 0.7419), 4.489058: (3.3013e-16, 0.6933),
-        4.494962: (3.2400e-16, 0.6869), 4.500960: (3.9415e-16, 0.8153),
-        4.507051: (3.2153e-16, 0.8662), 4.513237: (3.4983e-16, 0.7877),
-        4.519518: (3.7107e-16, 0.7126), 4.525894: (4.1790e-16, 0.6544),
-        4.532365: (5.0011e-16, 0.7287), 4.538933: (4.5793e-16, 0.8130),
-        4.545597: (5.5391e-16, 0.8978), 4.552358: (5.3419e-16, 0.9057),
-        4.559217: (4.5715e-16, 0.7468), 4.566173: (4.7536e-16, 0.7395),
-        4.573228: (4.3272e-16, 0.7767), 4.580382: (5.1522e-16, 0.7399),
-        4.587636: (5.9253e-16, 0.4307), 4.594990: (7.0540e-16, 0.8063),
-        4.602444: (6.9619e-16, 0.8927), 4.609999: (7.0234e-16, 0.9348),
-        4.617656: (6.3202e-16, 0.8669), 4.625415: (5.8520e-16, 0.7963),
-        4.633277: (5.4326e-16, 0.7949), 4.641242: (4.9415e-16, 0.8237),
-        4.649312: (5.1796e-16, 0.6960), 4.657486: (3.5344e-16, 0.2974),
-        4.674151: (5.3084e-16, 0.8061), 4.682643: (7.9713e-16, 0.8319),
-        4.691242: (8.2637e-16, 0.7725), 4.699950: (9.6148e-16, 0.9026),
-        4.708766: (9.7472e-16, 0.8875), 4.717691: (9.5277e-16, 0.8173),
-        4.726727: (9.1828e-16, 0.8507), 4.735873: (8.1171e-16, 0.8359),
-        4.745131: (7.8397e-16, 0.7607), 4.754502: (7.7058e-16, 0.8147),
-        4.763986: (6.7281e-16, 0.8530), 4.773583: (6.2902e-16, 0.8193),
-        4.783296: (5.7530e-16, 0.5895), 4.793124: (5.8123e-16, 0.6617),
+        4.402940: (1.7523e-16, 0.9522), 4.407340: (2.0514e-16, 0.9760),
+        4.411409: (3.2444e-16, 0.9919), 4.416001: (1.1136e-16, 0.9964),
+        4.421199: (2.3017e-16, 0.9395), 4.425630: (2.0015e-16, 0.9826),
+        4.430406: (2.3911e-16, 0.9785), 4.435261: (2.2495e-16, 0.9708),
+        4.440246: (3.7372e-16, 0.9716), 4.445402: (2.5733e-16, 0.9856),
+        4.450527: (2.5820e-16, 0.9529), 4.456012: (3.0321e-16, 0.9540),
+        4.461357: (3.0388e-16, 0.9959), 4.466731: (2.6792e-16, 0.9830),
+        4.472096: (3.7597e-16, 0.9799), 4.477679: (4.3253e-16, 0.8657),
+        4.483579: (2.9120e-16, 0.9950), 4.489508: (4.0173e-16, 0.9944),
+        4.495355: (3.6845e-16, 0.9927), 4.501209: (4.1052e-16, 0.9905),
+        4.507249: (3.5471e-16, 0.9688), 4.513572: (3.7954e-16, 0.9976),
+        4.519887: (4.1149e-16, 0.9817), 4.526375: (5.0071e-16, 0.9669),
+        4.532801: (5.6417e-16, 0.9849), 4.539256: (4.6573e-16, 0.9992),
+        4.545856: (5.6962e-16, 0.9865), 4.552541: (5.3910e-16, 0.9397),
+        4.559529: (4.5148e-16, 0.9861), 4.566508: (4.6830e-16, 0.9991),
+        4.573532: (4.2554e-16, 0.9913), 4.580754: (5.4132e-16, 0.9459),
+        4.588250: (7.4931e-16, 0.7944), 4.595350: (7.1870e-16, 0.9976),
+        4.602698: (6.6183e-16, 0.9995), 4.610161: (6.3713e-16, 0.9295),
+        4.617923: (6.0135e-16, 0.9808), 4.625737: (5.3929e-16, 0.9952),
+        4.633578: (4.7096e-16, 0.9941), 4.641540: (4.3847e-16, 0.9907),
+        4.649593: (4.6516e-16, 0.9927), 4.657808: (2.6092e-16, 0.9749),
+        4.674518: (5.6176e-16, 0.9825), 4.682977: (8.0562e-16, 0.9979),
+        4.691537: (7.9505e-16, 0.9995), 4.700179: (9.0172e-16, 0.9958),
+        4.709032: (9.3687e-16, 0.9932), 4.718021: (8.8954e-16, 0.9949),
+        4.727012: (8.4744e-16, 0.9992), 4.736167: (7.3723e-16, 0.9999),
+        4.745498: (7.3614e-16, 0.9987), 4.754820: (6.9598e-16, 0.9954),
+        4.764279: (6.0208e-16, 0.9969), 4.773897: (5.4440e-16, 0.9945),
+        4.783681: (5.0950e-16, 0.9889), 4.793562: (5.5141e-16, 0.9156),
     }
     assert len(detected) == 56, f"docs' worked example has 56 detected lines, got {len(detected)}"
     for r in detected:
         match = min(expected, key=lambda c: abs(c - r['wavelength']))
-        # Centers are fixed at the catalog wavelength now, so this should be an exact match,
-        # not just "close" -- a tolerance here would hide a real regression.
-        assert abs(match - r['wavelength']) < 1e-6, \
-            f"fitted center {r['wavelength']:.6f} doesn't match any documented line exactly"
+        # Centers are bounded (+/-1 instrumental sigma of the catalog wavelength) but
+        # genuinely fitted -- close, not catalog-exact. curve_fit itself is deterministic
+        # for identical input, so this checks reproducibility against a verified real run,
+        # not "hasn't drifted from HITRAN."
+        assert abs(match - r['wavelength']) < 1e-3, \
+            f"fitted center {r['wavelength']:.6f} doesn't match any documented line closely enough"
         exp_area, exp_r2 = expected[match]
         assert abs(r['area'] - exp_area) / exp_area < 1e-3, \
             f"line at {match}: area {r['area']:.4e} != documented {exp_area:.4e}"
@@ -563,6 +568,8 @@ def co_flux_map_api():
     print(f"CO flux map shape: {co_flux_map['flux_map'].shape}, unit: {co_flux_map['flux_unit']}")
     print(f"Mean CO flux: {co_flux_map['flux_map'][co_flux_map['flux_map'] > 0].mean():.4e}")
     print(f"Pixels with CO detection: {(co_flux_map['detection_map'] > 0).sum()}")
+    print(f"Pixels with a contam detection: {(co_flux_map['contam_detection_map'] > 0).sum()}")
+    print(f"Mean contam flux: {co_flux_map['contam_flux_map'][co_flux_map['contam_flux_map'] > 0].mean():.4e}")
 
     assert co_flux_map['flux_unit'] == 'erg/s/cm2', \
         f"docs claim erg/s/cm2 for this NIRSpec cube; got {co_flux_map['flux_unit']!r}"
@@ -570,6 +577,12 @@ def co_flux_map_api():
         f"wavelength_min/max should be forwarded as the fit's wave_range; got {co_flux_map['wave_range']}"
     n_valid = (~np.isnan(co_flux_map['flux_map'])).sum()
     assert n_valid > 0, "expected at least some valid (non-NaN) pixels"
+
+    # docs claim create_co_flux_map now always returns these two additional maps too
+    for key in ('contam_flux_map', 'contam_detection_map'):
+        assert key in co_flux_map, f"docs claim create_co_flux_map always returns {key!r}"
+        assert co_flux_map[key].shape == co_flux_map['flux_map'].shape, \
+            f"docs claim {key!r} is the same shape as flux_map"
 
 
 # ---------------------------------------------------------------------------

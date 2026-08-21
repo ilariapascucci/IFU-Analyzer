@@ -186,7 +186,7 @@
 state independently. Only <strong>one region per slice</strong> can exist at a time.</p>
 <ol class="arabic simple">
 <li><p><strong>Choose a shape.</strong> All five shape buttons are available. Click one to arm it.</p></li>
-<li><p><strong>Draw the region.</strong> Only the armed shape stays clickable – click it again to
+<li><p><strong>Draw the region.</strong> Only the armed shape stays clickable; click it again to
 cancel. The region is placed when you release the mouse.</p></li>
 </ol>
 <img alt="Rectangle tool armed and highlighted, with no region drawn yet" src="../_images/region_drawing.png" />
@@ -221,7 +221,7 @@ nudged out of place by an accidental click while you are working with the
 spectrum.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>✎</strong> is not available for <strong>Point</strong> selections – a single pixel has nothing
+<p><strong>✎</strong> is not available for <strong>Point</strong> selections, since a single pixel has nothing
 to resize. Clear it and place a new point instead.</p>
 </div>
 </section>
@@ -276,13 +276,13 @@ to resize. Clear it and place a new point instead.</p>
 </section>
 <section id="each-region-gets-its-own-spectrum">
 <h2>Each Region Gets Its Own Spectrum<a class="headerlink" href="#each-region-gets-its-own-spectrum" title="Link to this heading"></a></h2>
-<p>Selecting a region does more than update the Intensity (Area Selected) stats
-– it also populates that side’s own tab in the Spectrum Panel below.</p>
+<p>Selecting a region does more than update the Intensity (Area Selected) stats;
+it also populates that side’s own tab in the Spectrum Panel below.</p>
 <ul class="simple">
 <li><p><strong>Full</strong> tab: always shows the whole cube’s summed spectrum, regardless of
 any regions selected.</p></li>
 <li><p><strong>Left Slice</strong> / <strong>Right Slice</strong> tabs: show <em>only</em> that side’s own
-selected region’s spectrum – empty until a region is selected on that
+selected region’s spectrum. Empty until a region is selected on that
 side, and replaced (not blended) if you draw a new one.</p></li>
 <li><p><strong>Show Left</strong> / <strong>Show Right</strong>: while viewing the Full tab, overlay the
 Left/Right region’s spectrum on top of Full for direct comparison, instead
@@ -291,7 +291,7 @@ of switching away from it.</p></li>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>A region’s spectrum is scaled by its pixel count to stay on the same
-absolute scale as Full’s summed spectrum – so it’s a like-for-like
+absolute scale as Full’s summed spectrum, so it’s a like-for-like
 comparison, not a per-pixel average.</p>
 </div>
 <p>For normalizing or Doppler-shifting these spectra once you have them, see
@@ -303,7 +303,7 @@ comparison, not a per-pixel average.</p>
 <a class="reference internal" href="../reference/api.html#cube_explorer.api.extract_pixel_spectrum" title="cube_explorer.api.extract_pixel_spectrum"><code class="xref py py-func docutils literal notranslate"><span class="pre">extract_pixel_spectrum()</span></code></a> and
 <a class="reference internal" href="../reference/api.html#cube_explorer.api.extract_region_spectrum" title="cube_explorer.api.extract_region_spectrum"><code class="xref py py-func docutils literal notranslate"><span class="pre">extract_region_spectrum()</span></code></a> calls the GUI itself uses
 for pixel clicks and region selections. Prefer these over indexing
-<code class="docutils literal notranslate"><span class="pre">cube.cube</span></code> by hand – <code class="docutils literal notranslate"><span class="pre">extract_region_spectrum</span></code> excludes NaN pixels from
+<code class="docutils literal notranslate"><span class="pre">cube.cube</span></code> by hand: <code class="docutils literal notranslate"><span class="pre">extract_region_spectrum</span></code> excludes NaN pixels from
 each wavelength’s mean rather than letting one bad pixel propagate NaN into
 the whole region’s spectrum, and it accepts any boolean mask shape, so the
 same call reproduces a Rectangle, Circle, Ellipse, or Freehand selection –

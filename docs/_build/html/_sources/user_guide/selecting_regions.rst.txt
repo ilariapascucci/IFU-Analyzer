@@ -37,7 +37,7 @@ Selection follows a strict order of operations, and each slice tracks its own
 state independently. Only **one region per slice** can exist at a time.
 
 1. **Choose a shape.** All five shape buttons are available. Click one to arm it.
-2. **Draw the region.** Only the armed shape stays clickable -- click it again to
+2. **Draw the region.** Only the armed shape stays clickable; click it again to
    cancel. The region is placed when you release the mouse.
 
 .. image:: /_static/region_drawing.png
@@ -77,7 +77,7 @@ spectrum.
 
 .. note::
 
-   **✎** is not available for **Point** selections -- a single pixel has nothing
+   **✎** is not available for **Point** selections, since a single pixel has nothing
    to resize. Clear it and place a new point instead.
 
 Using the Tools
@@ -126,13 +126,13 @@ Statistics
 Each Region Gets Its Own Spectrum
 ==================================
 
-Selecting a region does more than update the Intensity (Area Selected) stats
--- it also populates that side's own tab in the Spectrum Panel below.
+Selecting a region does more than update the Intensity (Area Selected) stats;
+it also populates that side's own tab in the Spectrum Panel below.
 
 - **Full** tab: always shows the whole cube's summed spectrum, regardless of
   any regions selected.
 - **Left Slice** / **Right Slice** tabs: show *only* that side's own
-  selected region's spectrum -- empty until a region is selected on that
+  selected region's spectrum. Empty until a region is selected on that
   side, and replaced (not blended) if you draw a new one.
 - **Show Left** / **Show Right**: while viewing the Full tab, overlay the
   Left/Right region's spectrum on top of Full for direct comparison, instead
@@ -141,7 +141,7 @@ Selecting a region does more than update the Intensity (Area Selected) stats
 .. note::
 
    A region's spectrum is scaled by its pixel count to stay on the same
-   absolute scale as Full's summed spectrum -- so it's a like-for-like
+   absolute scale as Full's summed spectrum, so it's a like-for-like
    comparison, not a per-pixel average.
 
 For normalizing or Doppler-shifting these spectra once you have them, see
@@ -154,7 +154,7 @@ Region extraction is available without the GUI, using the same
 :func:`~cube_explorer.api.extract_pixel_spectrum` and
 :func:`~cube_explorer.api.extract_region_spectrum` calls the GUI itself uses
 for pixel clicks and region selections. Prefer these over indexing
-``cube.cube`` by hand -- ``extract_region_spectrum`` excludes NaN pixels from
+``cube.cube`` by hand: ``extract_region_spectrum`` excludes NaN pixels from
 each wavelength's mean rather than letting one bad pixel propagate NaN into
 the whole region's spectrum, and it accepts any boolean mask shape, so the
 same call reproduces a Rectangle, Circle, Ellipse, or Freehand selection --

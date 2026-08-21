@@ -84,7 +84,7 @@ a row of display/navigation controls that are always visible.
      - Divide every displayed spectrum by the Full spectrum's own peak
    * - **Self-Normalize Left / Self-Normalize Right**
      - While Normalize is on, normalize that side to its own peak instead
-       of Full's -- useful for studying a region's line shape independent
+       of Full's, useful for studying a region's line shape independent
        of its contribution to the total
    * - **Shift / Apply Shift / Cancel Preview / Revert Shift**
      - Preview a Doppler shift on the active tab's spectrum, then apply,

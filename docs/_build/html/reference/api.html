@@ -74,7 +74,6 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#gaussian-line-fitting">Gaussian Line Fitting</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.fit_line"><code class="docutils literal notranslate"><span class="pre">fit_line()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.fit_hitran_lines"><code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#full-cube-fitting">Full-Cube Fitting</a><ul>
@@ -88,6 +87,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#co-flux-analysis">CO Flux Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.fit_hitran_lines"><code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.extract_co_flux"><code class="docutils literal notranslate"><span class="pre">extract_co_flux()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.create_co_flux_map"><code class="docutils literal notranslate"><span class="pre">create_co_flux_map()</span></code></a></li>
 </ul>
@@ -306,91 +306,6 @@ dividing by a continuum measured in the cube’s own units.</p>
 </div>
 </dd></dl>
 
-<dl class="py function">
-<dt class="sig sig-object py" id="cube_explorer.api.fit_hitran_lines">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_hitran_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_upper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_lower</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contam_catalog</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_hitran_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_hitran_lines" title="Link to this definition"></a></dt>
-<dd><p>Fit HITRAN spectral lines automatically using database lookup.</p>
-<p>This is the same algorithm as the GUI’s <strong>Multi-Gaussian Fit</strong> button, not a
-separate approximation of it: every requested line, plus any contaminant sharing
-its wavelength chunk, is fit simultaneously in one nonlinear <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> per
-chunk (<code class="docutils literal notranslate"><span class="pre">fit_glines</span></code>, via <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines_collective</span></code>) – not an independent
-per-line fit, so overlapping lines don’t double-claim shared flux. Each line’s
-starting width comes from the instrument’s real spectral resolution, but its
-center and sigma are free parameters within a bound around that (catalog
-wavelength +/- the instrumental sigma), not fixed.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
-<li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Molecule name (e.g., ‘CO’, ‘H2O’, ‘CH4’, ‘[Fe II]’)</p></li>
-<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength to search. If None, uses spectrum min.</p></li>
-<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength to search. If None, uses spectrum max.</p></li>
-<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Isotopologue number (default 1 for main isotope)</p></li>
-<li><p><strong>refresh_cache</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Force refresh HITRAN cache (default False)</p></li>
-<li><p><strong>v_upper</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by upper vibrational level (e.g., 1 for v=1)</p></li>
-<li><p><strong>v_lower</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by lower vibrational level (e.g., 0 for v=0)</p></li>
-<li><p><strong>header</strong> – FITS header. Required whenever any line is actually found – each
-line’s fit width comes from the instrument’s real spectral resolution at
-that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
-raises ValueError rather than silently fitting with the wrong width.
-Also used for the erg/s/cm2 conversion.</p></li>
-<li><p><strong>wave_unit</strong> – Wavelength unit string, needed alongside header for the conversion.</p></li>
-<li><p><strong>continuum</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Pre-fitted continuum, same length as
-wavelength, subtracted before fitting each line. If None, one is fitted
-automatically via <code class="docutils literal notranslate"><span class="pre">fit_continuum()</span></code> – the same fallback the GUI uses
-when you have not run Automatic Continuum interactively first.</p></li>
-<li><p><strong>contam_catalog</strong> (<em>pd.DataFrame</em><em>, </em><em>optional</em>) – Non-CO/target lines (a ‘line_wave_um’
-column, same format as <code class="docutils literal notranslate"><span class="pre">load_contaminating_lines_catalog()</span></code>) to give their
-own component in the fit so they don’t distort a nearby requested line’s
-amplitude – the same optional catalog <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/CO Flux Map
-already supports. None (default) skips this.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><dl class="simple">
-<dt>List of dicts with fit results for each line:</dt><dd><ul class="simple">
-<li><p>wavelength: Fitted line center wavelength</p></li>
-<li><p>species: Molecule name</p></li>
-<li><p>transition: Transition description</p></li>
-<li><p>amplitude: Peak height above the local continuum</p></li>
-<li><p>sigma: Gaussian sigma width</p></li>
-<li><p>fwhm: Full width at half maximum</p></li>
-<li><p>area: Integrated line flux, in the units given by <code class="docutils literal notranslate"><span class="pre">area_unit</span></code></p></li>
-<li><p>area_native: Integrated line flux before any CGS conversion</p></li>
-<li><p>area_unit: Units of <code class="docutils literal notranslate"><span class="pre">area</span></code> – <code class="docutils literal notranslate"><span class="pre">'erg/s/cm²'</span></code> only when header/wave_unit
-let it convert; always check this rather than assuming</p></li>
-<li><p>r_squared: Fit quality</p></li>
-<li><p>success: Whether fit succeeded</p></li>
-<li><p>message: Status message</p></li>
-</ul>
-</dd>
-</dl>
-</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)">list</a></p>
-</dd>
-</dl>
-<p class="rubric">Example</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Fit CO v=1-&gt;0 lines only</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">fit_hitran_lines</span><span class="p">(</span>
-<span class="gp">... </span>    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">spectrum</span><span class="o">=</span><span class="n">spectrum</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;CO&#39;</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.7</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.8</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
-<span class="gp">... </span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Detected </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">detected</span><span class="p">)</span><span class="si">}</span><span class="s2"> CO v=1-&gt;0 lines&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</dd></dl>
-
 </section>
 <section id="full-cube-fitting">
 <h2>Full-Cube Fitting<a class="headerlink" href="#full-cube-fitting" title="Link to this heading"></a></h2>
@@ -544,6 +459,91 @@ baseline is used.</p></li>
 </section>
 <section id="co-flux-analysis">
 <h2>CO Flux Analysis<a class="headerlink" href="#co-flux-analysis" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="cube_explorer.api.fit_hitran_lines">
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_hitran_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_upper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_lower</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contam_catalog</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_hitran_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_hitran_lines" title="Link to this definition"></a></dt>
+<dd><p>Fit HITRAN spectral lines automatically using database lookup.</p>
+<p>This is the same algorithm as the GUI’s <strong>Multi-Gaussian Fit</strong> button, not a
+separate approximation of it: every requested line, plus any contaminant sharing
+its wavelength chunk, is fit simultaneously in one nonlinear <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> per
+chunk (<code class="docutils literal notranslate"><span class="pre">fit_glines</span></code>, via <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines_collective</span></code>) – not an independent
+per-line fit, so overlapping lines don’t double-claim shared flux. Each line’s
+starting width comes from the instrument’s real spectral resolution, but its
+center and sigma are free parameters within a bound around that (catalog
+wavelength +/- the instrumental sigma), not fixed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
+<li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
+<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Molecule name (e.g., ‘CO’, ‘H2O’, ‘CH4’, ‘[Fe II]’)</p></li>
+<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength to search. If None, uses spectrum min.</p></li>
+<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength to search. If None, uses spectrum max.</p></li>
+<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Isotopologue number (default 1 for main isotope)</p></li>
+<li><p><strong>refresh_cache</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Force refresh HITRAN cache (default False)</p></li>
+<li><p><strong>v_upper</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by upper vibrational level (e.g., 1 for v=1)</p></li>
+<li><p><strong>v_lower</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by lower vibrational level (e.g., 0 for v=0)</p></li>
+<li><p><strong>header</strong> – FITS header. Required whenever any line is actually found – each
+line’s fit width comes from the instrument’s real spectral resolution at
+that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
+raises ValueError rather than silently fitting with the wrong width.
+Also used for the erg/s/cm2 conversion.</p></li>
+<li><p><strong>wave_unit</strong> – Wavelength unit string, needed alongside header for the conversion.</p></li>
+<li><p><strong>continuum</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Pre-fitted continuum, same length as
+wavelength, subtracted before fitting each line. If None, one is fitted
+automatically via <code class="docutils literal notranslate"><span class="pre">fit_continuum()</span></code> – the same fallback the GUI uses
+when you have not run Automatic Continuum interactively first.</p></li>
+<li><p><strong>contam_catalog</strong> (<em>pd.DataFrame</em><em>, </em><em>optional</em>) – Non-CO/target lines (a ‘line_wave_um’
+column, same format as <code class="docutils literal notranslate"><span class="pre">load_contaminating_lines_catalog()</span></code>) to give their
+own component in the fit so they don’t distort a nearby requested line’s
+amplitude – the same optional catalog <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/CO Flux Map
+already supports. None (default) skips this.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>List of dicts with fit results for each line:</dt><dd><ul class="simple">
+<li><p>wavelength: Fitted line center wavelength</p></li>
+<li><p>species: Molecule name</p></li>
+<li><p>transition: Transition description</p></li>
+<li><p>amplitude: Peak height above the local continuum</p></li>
+<li><p>sigma: Gaussian sigma width</p></li>
+<li><p>fwhm: Full width at half maximum</p></li>
+<li><p>area: Integrated line flux, in the units given by <code class="docutils literal notranslate"><span class="pre">area_unit</span></code></p></li>
+<li><p>area_native: Integrated line flux before any CGS conversion</p></li>
+<li><p>area_unit: Units of <code class="docutils literal notranslate"><span class="pre">area</span></code> – <code class="docutils literal notranslate"><span class="pre">'erg/s/cm²'</span></code> only when header/wave_unit
+let it convert; always check this rather than assuming</p></li>
+<li><p>r_squared: Fit quality</p></li>
+<li><p>success: Whether fit succeeded</p></li>
+<li><p>message: Status message</p></li>
+</ul>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)">list</a></p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Fit CO v=1-&gt;0 lines only</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">fit_hitran_lines</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">spectrum</span><span class="o">=</span><span class="n">spectrum</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;CO&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.7</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.8</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Detected </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">detected</span><span class="p">)</span><span class="si">}</span><span class="s2"> CO v=1-&gt;0 lines&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.extract_co_flux">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_co_flux</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">co_catalog_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contamination_catalog_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">snr_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_co_flux"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_co_flux" title="Link to this definition"></a></dt>

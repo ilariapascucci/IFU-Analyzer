@@ -19,14 +19,14 @@ Setting Up the Fit
 ==================
 
 The cube fit reuses the same toggle buttons as the 1D fit. Set **Left** and **Right** to
-bracket the line -- this becomes the fit window for every pixel.
+bracket the line; this becomes the fit window for every pixel.
 
 **Peak is not used.** The cube fit derives its own center guess by fitting the summed
 spectrum of the whole cube once, or from the nearest HITRAN catalog line in the window if
 a line list is loaded. Your **Peak** click has no effect here.
 
 **Noise region is mandatory.** Set **Noise L** and **Noise R** over a line-free stretch of
-spectrum -- the fit will not start without them. The noise measured there sets the
+spectrum: the fit will not start without them. The noise measured there sets the
 detection threshold and the size of any upper limits.
 
 .. _detection-caveat:
@@ -70,8 +70,8 @@ The results window opens automatically when the fit completes, headed by a summa
 
   ``center from total-spectrum`` means the seed came from fitting the summed cube. With a
   HITRAN list loaded it can instead come from the nearest catalog line in the window.
-  ``A`` stays in the cube's native flux unit (not CGS-converted) -- unlike the Amplitude
-  map below, this is just the initial guess used to seed every pixel's fit.
+  ``A`` stays in the cube's native flux unit (not CGS-converted), unlike the Amplitude
+  map below, since this is just the initial guess used to seed every pixel's fit.
 
 Below that, a dropdown selects which map to display, with colormap and scale controls
 (Linear, Log, or Percentile 2–98%):
@@ -81,7 +81,7 @@ Below that, a dropdown selects which map to display, with colormap and scale con
    :width: 100%
 
    The results window for a real MIRI run: the summary text above the dropdown, and the
-   **Area (AUC)** map selected -- the colorbar confirms the CGS conversion (in
+   **Area (AUC)** map selected. The colorbar confirms the CGS conversion (in
    erg/s/cm² units), and the overlay box gives Min/Max/Mean/Median/Sum for the whole
    displayed map.
 
@@ -168,7 +168,7 @@ Inspecting Individual Pixels
 =============================
 
 With **Pixel Select** on (the default), clicking a pixel on the map opens that pixel's own
-fit -- the same control as :doc:`co_flux_extraction`'s pixel inspector, but for a single
+fit, the same control as :doc:`co_flux_extraction`'s pixel inspector, but for a single
 Gaussian instead of a multi-line CO fit. Turn **Pixel Select** off to zoom/pan the map
 freely instead of reopening this dialog on every click.
 
@@ -177,12 +177,12 @@ freely instead of reopening this dialog on every click.
    :width: 100%
 
    The stored fit for one pixel: data, the local endpoint-to-endpoint baseline, and the
-   fitted Gaussian, with every parameter the map holds for that pixel listed alongside --
-   this is exactly what the map contains, not a fresh re-fit.
+   fitted Gaussian, with every parameter the map holds for that pixel listed alongside.
+   This is exactly what the map contains, not a fresh re-fit.
 
 .. note::
 
-   The dialog never re-fits anything -- it only redraws what ``fit_gaussians_per_pixel``
+   The dialog never re-fits anything: it only redraws what ``fit_gaussians_per_pixel``
    already stored for that pixel, so what you see here always matches the map.
 
 Exporting Maps as FITS

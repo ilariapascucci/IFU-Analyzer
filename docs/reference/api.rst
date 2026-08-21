@@ -36,9 +36,6 @@ Gaussian Line Fitting
 
 .. autofunction:: cube_explorer.api.fit_line
 
-
-.. autofunction:: cube_explorer.api.fit_hitran_lines
-
 Full-Cube Fitting
 =================
 
@@ -55,6 +52,8 @@ Continuum Fitting
 
 CO Flux Analysis
 ================
+
+.. autofunction:: cube_explorer.api.fit_hitran_lines
 
 .. autofunction:: cube_explorer.api.extract_co_flux
 

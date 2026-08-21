@@ -127,12 +127,12 @@ of which tab is active.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This page assumes you’re already familiar with the Full / Left Slice /
-Right Slice tabs – see <a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a> for how a region
+Right Slice tabs; see <a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a> for how a region
 selection becomes its own spectrum.</p>
 </div>
 <section id="normalization">
 <h2>Normalization<a class="headerlink" href="#normalization" title="Link to this heading"></a></h2>
-<p>A Left Slice tab’s spectrum, unnormalized – raw flux in the cube’s own
+<p>A Left Slice tab’s spectrum, unnormalized, showing raw flux in the cube’s own
 units:</p>
 <img alt="The Left tab's spectrum in raw MJy/sr units, unnormalized" src="../_images/left_spec.png" />
 <p><strong>Normalize</strong></p>
@@ -140,20 +140,20 @@ units:</p>
 Right) is divided by the <strong>Full spectrum’s own peak</strong> value:</p>
 <ul class="simple">
 <li><p>On the Full tab, this normalizes the spectrum to itself (peak = 1).</p></li>
-<li><p>On Left/Right, values are shown <em>relative to Full’s peak</em> – letting you
+<li><p>On Left/Right, values are shown <em>relative to Full’s peak</em>, letting you
 see how much of the total spectrum’s peak a selected region actually
 contributes.</p></li>
 </ul>
-<p>Full tab, with <strong>Show Left</strong> overlaid and <strong>Normalize</strong> on – Total Spectrum
+<p>Full tab, with <strong>Show Left</strong> overlaid and <strong>Normalize</strong> on. Total Spectrum
 peaks at 1.0, while Left peaks lower, showing it accounts for less than the
 full peak at that wavelength:</p>
 <img alt="Full spectrum and Left region overlaid, both normalized relative to Full's peak" src="../_images/left_spec_superimposed.png" />
 <p><strong>Self-Normalize Left / Self-Normalize Right</strong></p>
 <p>Per-side overrides, only meaningful while Normalize is on. Instead of
-scaling relative to Full’s peak, that side is scaled to <strong>its own peak</strong>
-instead – useful for studying a region’s own line shape independent of how
+scaling relative to Full’s peak, that side is scaled to <strong>its own peak</strong>,
+useful for studying a region’s own line shape independent of how
 much it contributes to the total spectrum.</p>
-<p>The same Left tab with <strong>Self-Normalize Left</strong> on instead – now Left’s own
+<p>The same Left tab with <strong>Self-Normalize Left</strong> on instead. Now Left’s own
 peak reaches 1.0:</p>
 <img alt="The Left tab's spectrum self-normalized to its own peak" src="../_images/left_spec_normalized.png" />
 <table class="docutils align-default">
@@ -184,7 +184,7 @@ instead of Full’s</p></td>
 <section id="doppler-shifting">
 <h2>Doppler Shifting<a class="headerlink" href="#doppler-shifting" title="Link to this heading"></a></h2>
 <p>Each of the Full / Left Slice / Right Slice tabs can be Doppler-shifted
-independently – shifting Left never touches Full or Right.</p>
+independently: shifting Left never touches Full or Right.</p>
 <ol class="arabic simple">
 <li><p>Select the tab you want to shift (Full, Left Slice, or Right Slice). For
 Left/Right, that side must already have a region selected.</p></li>
@@ -196,11 +196,11 @@ underlying data yet.</p></li>
 <li><p>Click <strong>Revert Shift</strong> at any time to reset that tab back to its
 original, unshifted wavelength.</p></li>
 </ol>
-<p>A pending 200 km/s preview on the Full tab – the orange line is the
+<p>A pending 200 km/s preview on the Full tab. The orange line is the
 preview, overlaid on the unshifted Total Spectrum:</p>
 <img alt="Total Spectrum with an orange 200 km/s Doppler shift preview overlaid" src="../_images/shift_preview.png" />
-<p>The shift is multiplicative – <span class="math notranslate nohighlight">\(\lambda_{new} = \lambda / (1 + v/c)\)</span>
-– composed on top of any shift already applied to that tab, so repeated
+<p>The shift is multiplicative (<span class="math notranslate nohighlight">\(\lambda_{new} = \lambda / (1 + v/c)\)</span>),
+composed on top of any shift already applied to that tab, so repeated
 previews refine incrementally rather than starting over from the original
 wavelength each time.</p>
 <p>After clicking <strong>Apply Shift</strong>, the preview is gone and the tab’s own trace

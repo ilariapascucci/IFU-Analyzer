@@ -134,7 +134,7 @@ INTEGRATED QUANTITIES
   and applying the ``c/λ²`` conversion from per-frequency to per-wavelength.
 
   Because the fitted spectrum is itself a **sum** over every spaxel that went into it
-  (the whole cube on the Full tab, or the selected region on Left/Right -- see
+  (the whole cube on the Full tab, or the selected region on Left/Right, see
   :doc:`selecting_regions`), multiplying that sum by one spaxel's solid angle gives the
   total flux of whatever spatial footprint you fit, not one spaxel's own flux. Only a
   genuine single-pixel (Point) selection reports one spaxel's flux on its own.

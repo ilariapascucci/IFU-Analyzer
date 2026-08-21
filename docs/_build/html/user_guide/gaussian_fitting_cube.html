@@ -143,12 +143,12 @@ recommended.</p>
 <section id="setting-up-the-fit">
 <h2>Setting Up the Fit<a class="headerlink" href="#setting-up-the-fit" title="Link to this heading"></a></h2>
 <p>The cube fit reuses the same toggle buttons as the 1D fit. Set <strong>Left</strong> and <strong>Right</strong> to
-bracket the line – this becomes the fit window for every pixel.</p>
+bracket the line; this becomes the fit window for every pixel.</p>
 <p><strong>Peak is not used.</strong> The cube fit derives its own center guess by fitting the summed
 spectrum of the whole cube once, or from the nearest HITRAN catalog line in the window if
 a line list is loaded. Your <strong>Peak</strong> click has no effect here.</p>
 <p><strong>Noise region is mandatory.</strong> Set <strong>Noise L</strong> and <strong>Noise R</strong> over a line-free stretch of
-spectrum – the fit will not start without them. The noise measured there sets the
+spectrum: the fit will not start without them. The noise measured there sets the
 detection threshold and the size of any upper limits.</p>
 <div class="admonition note" id="detection-caveat">
 <p class="admonition-title">Note</p>
@@ -184,8 +184,8 @@ and where its center came from, e.g.</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">center</span> <span class="pre">from</span> <span class="pre">total-spectrum</span></code> means the seed came from fitting the summed cube. With a
 HITRAN list loaded it can instead come from the nearest catalog line in the window.
-<code class="docutils literal notranslate"><span class="pre">A</span></code> stays in the cube’s native flux unit (not CGS-converted) – unlike the Amplitude
-map below, this is just the initial guess used to seed every pixel’s fit.</p>
+<code class="docutils literal notranslate"><span class="pre">A</span></code> stays in the cube’s native flux unit (not CGS-converted), unlike the Amplitude
+map below, since this is just the initial guess used to seed every pixel’s fit.</p>
 </li>
 </ul>
 <p>Below that, a dropdown selects which map to display, with colormap and scale controls
@@ -195,7 +195,7 @@ map below, this is just the initial guess used to seed every pixel’s fit.</p>
 </a>
 <figcaption>
 <p><span class="caption-text">The results window for a real MIRI run: the summary text above the dropdown, and the
-<strong>Area (AUC)</strong> map selected – the colorbar confirms the CGS conversion (in
+<strong>Area (AUC)</strong> map selected. The colorbar confirms the CGS conversion (in
 erg/s/cm² units), and the overlay box gives Min/Max/Mean/Median/Sum for the whole
 displayed map.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
 </figcaption>
@@ -303,7 +303,7 @@ guess existed, <code class="docutils literal notranslate"><span class="pre">area
 <section id="inspecting-individual-pixels">
 <h2>Inspecting Individual Pixels<a class="headerlink" href="#inspecting-individual-pixels" title="Link to this heading"></a></h2>
 <p>With <strong>Pixel Select</strong> on (the default), clicking a pixel on the map opens that pixel’s own
-fit – the same control as <a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a>’s pixel inspector, but for a single
+fit, the same control as <a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a>’s pixel inspector, but for a single
 Gaussian instead of a multi-line CO fit. Turn <strong>Pixel Select</strong> off to zoom/pan the map
 freely instead of reopening this dialog on every click.</p>
 <figure class="align-default" id="id2">
@@ -311,13 +311,13 @@ freely instead of reopening this dialog on every click.</p>
 </a>
 <figcaption>
 <p><span class="caption-text">The stored fit for one pixel: data, the local endpoint-to-endpoint baseline, and the
-fitted Gaussian, with every parameter the map holds for that pixel listed alongside –
-this is exactly what the map contains, not a fresh re-fit.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+fitted Gaussian, with every parameter the map holds for that pixel listed alongside.
+This is exactly what the map contains, not a fresh re-fit.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The dialog never re-fits anything – it only redraws what <code class="docutils literal notranslate"><span class="pre">fit_gaussians_per_pixel</span></code>
+<p>The dialog never re-fits anything: it only redraws what <code class="docutils literal notranslate"><span class="pre">fit_gaussians_per_pixel</span></code>
 already stored for that pixel, so what you see here always matches the map.</p>
 </div>
 </section>
