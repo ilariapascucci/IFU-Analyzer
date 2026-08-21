@@ -12,45 +12,22 @@ result is a set of maps rather than a single number per parameter.
 
 .. note::
 
-   **Fit the 1D spectrum first — the application will not make you.** Nothing stops you
-   clicking **Fit Gaussian Map** without ever having run **Fit Gaussian**, and no warning
-   appears if you do. Run :doc:`gaussian_fitting_1d` on the summed spectrum anyway: it is how
-   you find a sensible wavelength window and confirm the line is really there. A full-cube run
-   over a badly chosen window costs minutes and returns maps of noise.
+   Running :doc:`gaussian_fitting_1d` first is not mandatory for a Gaussian map, but
+   recommended.
 
 Setting Up the Fit
 ==================
 
-The cube fit reuses the same toggle buttons as the 1D fit, but requires a different subset
-of them.
+The cube fit reuses the same toggle buttons as the 1D fit. Set **Left** and **Right** to
+bracket the line -- this becomes the fit window for every pixel.
 
-Wavelength window (required)
-----------------------------
+**Peak is not used.** The cube fit derives its own center guess by fitting the summed
+spectrum of the whole cube once, or from the nearest HITRAN catalog line in the window if
+a line list is loaded. Your **Peak** click has no effect here.
 
-Set **Left** and **Right** to bracket the line. These become the fit window for every pixel.
-
-**Peak is not required.** Unlike the 1D fit, the cube fit does not use your λ_peak click.
-Instead it fits the summed spectrum of the whole cube once to derive initial guesses, and
-if a HITRAN line list is loaded it will use the nearest catalog line in the window as the
-center seed. This "global 1D fit" is reported back to you in the results window.
-
-The **Peak** marker stays on the plot from the 1D fit, so the panel shows five markers while
-a cube fit reads only four — **Left**, **Right**, **Noise L** and **Noise R**. Moving **Peak**
-changes nothing about a map.
-
-Noise region (required)
------------------------
-
-Set **Noise L** and **Noise R** over a line-free stretch of spectrum. **The cube fit refuses
-to start without them** — you will get a "Noise Region Required" warning.
-
-Unlike the 1D fit — where a noise region is only demanded for very narrow windows, and
-does not affect the result even then (see :ref:`noise-region-1d`) — here it is always
-required *and* it directly shapes the output.
-
-The standard deviation measured in it feeds the detection test and the size of the upper
-limits. Choose a region close in wavelength to the line, and genuinely free of features — a
-noise region that clips a line wing inflates σ and moves the whole detection boundary.
+**Noise region is mandatory.** Set **Noise L** and **Noise R** over a line-free stretch of
+spectrum -- the fit will not start without them. The noise measured there sets the
+detection threshold and the size of any upper limits.
 
 .. _detection-caveat:
 
@@ -65,30 +42,11 @@ noise region that clips a line wing inflates σ and moves the whole detection bo
 Running the Fit
 ===============
 
-1. Click **Fit Gaussian Map**
-2. Confirm at the "Continue with map fitting?" prompt
-3. The fit runs on 8 worker threads in the background
+Click **Fit Gaussian Map** and confirm the prompt. A progress bar tracks completion, and
+**Cancel** stops the run.
 
-**Watching progress.** A progress dialog reports the percentage of pixels completed, updated
-once per cube row. **Cancel** stops the run.
-
-The same progress is echoed to the console you launched the application from, together with
-the final tallies:
-
-.. code-block:: text
-
-    Fitting Gaussians to 2009 pixels in wavelength range [7.4923, 7.5174]
-    Using 8 worker threads (2,009 pixels)
-      Progress: 245/2009 pixels (12.2%)
-      Progress: 490/2009 pixels (24.4%)
-      ...
-    Fitting complete: 957/2009 successful fits (47.6%)
-      Detections: 957 (47.6%)
-      Upper limits: 556 (27.7%)
-
-**Runtime.** That example — a 49 × 41 spaxel MIRI cube, 2,009 pixels, a 0.025 µm window —
-takes about **100 seconds**. Cost scales roughly with pixels × samples in the window, so a
-wider window or a larger detector is proportionally slower.
+**Cost.** A bit expensive compared to the other fitting tools, but still manageable --
+typically minutes, scaling with pixel count and window width.
 
 **Results are cached.** Re-running with the same Left/Right *and* the same Noise L/Noise R
 reuses the previous fit instead of recomputing it, and tells you so. Change any of the four
@@ -99,21 +57,33 @@ Reading the Results
 
 The results window opens automatically when the fit completes, headed by a summary:
 
-- **Successfully fit N / M pixels** — how many converged
+- **Successfully fit N / M pixels** — how many converged, e.g. from a real MIRI run:
+  ``Successfully fit 1,181 / 2,009 pixels (58.8%)``
 - **Detections | Upper limits** — how many pixels landed in each category (see
-  :ref:`the detection note <detection-caveat>`)
+  :ref:`the detection note <detection-caveat>`), e.g. ``Detections: 1,181 | Upper limits: 340``
 - **Global 1D fit** — the summed-spectrum fit used to seed the per-pixel initial guesses,
   and where its center came from, e.g.
 
   .. code-block:: text
 
-      Global 1D fit: A=1.8570e+05, mu=7.5039, sigma=0.0042 (center from total-spectrum)
+      Global 1D fit: A=3.6669e+05 MJy/sr, mu=7.4605 um, sigma=0.0029 um (center from total-spectrum)
 
   ``center from total-spectrum`` means the seed came from fitting the summed cube. With a
   HITRAN list loaded it can instead come from the nearest catalog line in the window.
+  ``A`` stays in the cube's native flux unit (not CGS-converted) -- unlike the Amplitude
+  map below, this is just the initial guess used to seed every pixel's fit.
 
 Below that, a dropdown selects which map to display, with colormap and scale controls
-(Linear, Log, or Percentile 2–98%).
+(Linear, Log, or Percentile 2–98%):
+
+.. figure:: ../_static/area_under_gaussian.png
+   :alt: Gaussian Parameter Maps results window showing the Area (AUC) map for a real MIRI cube fit
+   :width: 100%
+
+   The results window for a real MIRI run: the summary text above the dropdown, and the
+   **Area (AUC)** map selected -- the colorbar confirms the CGS conversion (in
+   erg/s/cm² units), and the overlay box gives Min/Max/Mean/Median/Sum for the whole
+   displayed map.
 
 Output Maps
 ===========
@@ -131,8 +101,8 @@ Available in the dropdown:
        NIRSpec and MUSE (see :ref:`the unit table on the 1D page <area-units-1d>`);
        otherwise in the cube's native flux×wavelength units.
    * - **Amplitude**
-     - Peak height above the baseline. A flux *density*, so where the conversion applies it
-       is **erg/s/cm² per wavelength unit** (erg/s/cm²/µm on a µm axis) — not per steradian
+     - Peak height above the baseline, in the cube's **native flux unit** (e.g. MJy/sr) --
+       unlike Area, this is *not* CGS-converted
    * - **Center**
      - Fitted line center wavelength — this is your velocity map, once converted
    * - **Sigma**
@@ -161,19 +131,19 @@ the MIRI run above:
      - Example
      - What is stored
    * - **Detection**
-     - 957 (47.6%)
+     - 1,181 (58.8%)
      - Converged and passed the detection test — which is **not** a 3σ cut, see
        :ref:`the detection caveat <detection-caveat>`. Every parameter populated.
    * - **Upper limit**
-     - 556 (27.7%)
+     - 340 (16.9%)
      - ``area`` holds an upper limit; amplitude, center, sigma, FWHM and χ²_red are **NaN**.
    * - **No data**
-     - 496 (24.7%)
+     - 488 (24.3%)
      - The spectrum was entirely NaN — outside the field of view. Everything is NaN and
        *no* flag is set, so these pixels appear in neither mask.
 
-957 + 556 + 496 = 2009. If your three numbers do not add up to the pixel count, something
-is wrong with the window or the cube.
+1,181 + 340 + 488 = 2,009. If your three numbers do not add up to the pixel count,
+something is wrong with the window or the cube.
 
 .. note::
 
@@ -184,12 +154,8 @@ Upper limits
 ------------
 
 For pixels that fail the detection threshold the area is **not** set to NaN. It is replaced
-with an upper limit at the detection threshold — ``fac_above_stdres × σ_noise × σ_guess ×
-√(2π)``, so **3σ** with the GUI's settings, not 1σ — and the pixel is flagged in the
+with an upper limit at the detection threshold, and the pixel is flagged in the
 ``is_upper_limit`` mask.
-
-This matters downstream: :doc:`rotational_diagram` detects censored points and switches from
-ordinary least squares to Bayesian censored regression rather than discarding them.
 
 .. warning::
 
@@ -197,10 +163,6 @@ ordinary least squares to Bayesian censored regression rather than discarding th
    window with fewer than 5 finite samples, a failed noise estimate, and an exception inside
    the fit all land here too. In the last case, if the failure happened before an initial σ
    guess existed, ``area`` is **NaN while** ``is_upper_limit`` **is True**.
-
-   Any code consuming upper limits — censored regression especially — must therefore check
-   ``np.isfinite(area)`` as well as the flag. A NaN silently entering a censored fit
-   poisons the whole posterior.
 
 Exporting Maps as FITS
 ======================
@@ -234,10 +196,10 @@ Using the API
 
     maps = create_gaussian_map(
         cube,
-        lam_min=7.492291,        # Left boundary
-        lam_max=7.517421,        # Right boundary
-        noise_min=7.529647,      # Line-free region, as in the GUI
-        noise_max=7.564965,
+        lam_min=7.446784,        # Left boundary
+        lam_max=7.478707,        # Right boundary
+        noise_min=7.516742,      # Line-free region, as in the GUI
+        noise_max=7.562928,
         fac_above_stdres=3.0,    # Detection threshold in sigma
         n_jobs=8,
     )
@@ -248,20 +210,11 @@ Using the API
 
     area_map = maps['area']          # 2D array, shape (n_y, n_x)
 
-.. important::
-
-   ``fac_above_stdres`` defaults to **2.0** in the API but the GUI passes **3.0**. If you are
-   trying to reproduce a GUI result in a script, set it to 3.0 explicitly — otherwise you
-   will get more detections than the GUI reported for the same cube.
-
-   ``n_jobs`` defaults to auto-detected CPU count in the API; the GUI hardcodes 8.
-
 **Returned keys**
 
 .. code-block:: python
 
-    maps['amplitude']         # Peak amplitude, erg/s/cm2 PER WAVELENGTH where convertible
-    maps['amp_originalunits'] # Peak amplitude in the cube's own units
+    maps['amplitude']         # Peak amplitude, in the cube's native flux unit (e.g. MJy/sr)
     maps['center']            # Line center wavelength
     maps['sigma']             # Gaussian sigma
     maps['fwhm']              # 2.355 * sigma
@@ -271,18 +224,14 @@ Using the API
     maps['residuals_cube']    # 3D residuals cached during fitting
     maps['fac_above_stdres']  # The threshold that was used
     maps['wavelength_unit']   # Spectral axis unit string
-    maps['global_fit']        # The summed-spectrum fit used for initial guesses
+    maps['global_fit']        # The summed-spectrum fit used for initial guesses (also
+                               # native-unit amplitude)
 
 .. note::
 
-   ``amplitude`` is a flux *density* and keeps a per-wavelength — erg/s/cm²/µm for a µm
-   axis, erg/s/cm²/Å for an Å axis. ``area`` has integrated the spectral axis away and is a
-   plain erg/s/cm². The relation is ``area = amplitude × sigma × √(2π)``, which only
-   balances dimensionally with amplitude read this way. Neither carries a per-steradian: the
-   pixel solid angle from ``CDELT1``/``CDELT2`` is divided out during conversion.
-
-   Where the cube's units cannot reach CGS at all — ALMA's ``Jy/beam``, or any cube whose
-   header lacks the pixel scale — both maps stay in the cube's native units instead.
+   ``amplitude`` and ``area`` are **not** converted the same way. ``amplitude`` stays in
+   the cube's native flux unit; only ``area`` is CGS-converted (to erg/s/cm², when the
+   header has the pixel scale needed for the conversion).
 
 **Exporting a residual cube**
 
@@ -318,10 +267,8 @@ Constraints and Tips
 3. Keep the fit window **tight**. Every extra wavelength sample is fitted for every pixel,
    so a window twice as wide costs roughly twice the runtime and degrades χ²_red
 4. Always check the **Success Mask** and the detection/upper-limit counts before
-   interpreting a parameter map. A beautiful-looking area map built from 15% converged
-   pixels is mostly interpolated nothing
-5. Use the **χ²** map to find where the model breaks down — blended lines and
-   P-Cygni-like profiles show up as coherent high-χ² structure, not as scattered noise
+   interpreting a parameter map
+5. Use the **χ²** map to find where the model breaks down
 
 Next Steps
 ==========

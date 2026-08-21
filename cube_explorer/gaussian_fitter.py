@@ -7,10 +7,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import RANSACRegressor
 
-from .unit_converter import (
-    integrated_flux_to_cgs, flux_density_to_cgs,
-    get_wave_unit, convert_area_to_cgs, _resolve_flux_unit, _normalize_wave_unit,
-)
+from .unit_converter import get_wave_unit, convert_area_to_cgs
 
 def _extract_value_from_quantity(value, unit=None):
     """
@@ -37,43 +34,6 @@ def _extract_value_from_quantity(value, unit=None):
     else:
         return value
 
-
-def convert_amplitude_to_cgs(amplitude_mjy_sr, center_val, header, wave_unit: Optional[str], flux_unit_input: Optional[str] = None):
-    """
-    Convert a Gaussian amplitude to erg/s/cm² per wavelength unit.
-
-    An amplitude is a flux *density*, so unlike the area it keeps its spectral
-    dependence: the result is erg/s/cm²/μm for a μm axis, erg/s/cm²/Å for an Å axis.
-    Supports the same instruments as :func:`convert_area_to_cgs`.
-
-    Args:
-        amplitude_mjy_sr: Peak amplitude in the cube's native flux units
-        center_val: Line center wavelength, in `wave_unit`
-        header: FITS header supplying CDELT1/CDELT2
-        wave_unit: Wavelength unit (Å, µm, km/s)
-        flux_unit_input: Flux unit from the header. Falls back to BUNIT if None.
-
-    Returns:
-        float: Amplitude in erg/s/cm² per wavelength unit, or None if unsupported
-    """
-    if (header is None or amplitude_mjy_sr is None or
-        center_val is None or not np.isfinite(center_val)):
-        return None
-
-    try:
-        unit = _normalize_wave_unit(wave_unit)
-        if unit == "KM/S":
-            return None  # velocity axis needs rest wavelength
-
-        return flux_density_to_cgs(
-            amplitude_mjy_sr,
-            _resolve_flux_unit(flux_unit_input, header),
-            wavelength=center_val,
-            header=header,
-            wave_unit=unit,
-        )
-    except Exception:
-        return None
 
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
     """
@@ -979,11 +939,51 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
     return equivalent_width
 
 
+# Per-pixel outcome codes. Three states, and they partition the map: every pixel is
+# a detection, an upper limit, or had no data at all. A failed fit is not a fourth
+# state -- it is an upper limit whose limit came from a fit that never ran (see
+# 'fit_failed', which records the reason, not a different outcome).
+# Ordered worst -> best so a sequential colormap reads correctly.
+STATUS_NO_DATA = 0
+STATUS_UPPER_LIMIT = 1
+STATUS_DETECTION = 2
+
+STATUS_LABELS = {
+    STATUS_NO_DATA: "No data",
+    STATUS_UPPER_LIMIT: "Upper limit",
+    STATUS_DETECTION: "Detection",
+}
+
+
+def pixel_fit_status(results: dict, row: int, col: int) -> int:
+    """Return the STATUS_* code for one pixel of a fit_gaussians_per_pixel result."""
+    if bool(results['is_detection'][row, col]):
+        return STATUS_DETECTION
+    if bool(results.get('is_upper_limit', np.zeros_like(results['is_detection']))[row, col]):
+        return STATUS_UPPER_LIMIT
+    return STATUS_NO_DATA
+
+
+def fit_status_map(results: dict) -> np.ndarray:
+    """Collapse the per-pixel boolean masks into one categorical STATUS_* map.
+
+    Returned as float (not int) so it survives the GUI's region masking, which
+    NaNs out non-boolean maps outside the selected region.
+    """
+    det = np.asarray(results['is_detection'], dtype=bool)
+    upper = np.asarray(results.get('is_upper_limit', np.zeros_like(det)), dtype=bool)
+
+    status = np.full(det.shape, float(STATUS_NO_DATA))
+    status[upper] = STATUS_UPPER_LIMIT
+    status[det] = STATUS_DETECTION  # last: a detection is never also a limit
+    return status
+
+
 def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
                             lam_max: Optional[float] = None,
                             n_jobs: Optional[int] = None,
-                            fac_above_stdres: float = 2.0,
+                            fac_above_stdres: float = 3.0,
                             noise_min: Optional[float] = None,
                             noise_max: Optional[float] = None,
                             header: Optional[object] = None,
@@ -1012,7 +1012,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         lam_min: Minimum wavelength for fitting region (default: use full range)
         lam_max: Maximum wavelength for fitting region (default: use full range)
         n_jobs: Number of worker threads (default: auto-detect CPUs)
-        fac_above_stdres: Detection threshold in units of noise std (default: 2.0 for 2σ)
+        fac_above_stdres: Detection threshold in units of noise std (default: 3.0 for 3σ)
         noise_min: Optional left boundary of a line-free noise region
         noise_max: Optional right boundary of a line-free noise region
         header: Optional FITS header for unit conversion (reads CDELT1, CDELT2)
@@ -1040,7 +1040,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'success': Boolean mask of successful fits
             'is_detection': Boolean mask indicating true detections (amplitude > fac_above_stdres * noise)
             'is_upper_limit': Boolean mask indicating upper limits (failed detection threshold)
-    
+            'fit_failed': Diagnostic sub-flag, NOT a fourth outcome. Marks upper-limit
+                pixels whose limit came from a fit that never ran (too few finite samples,
+                parameter estimation raised, or the fit block raised) rather than from a
+                fit that converged on something too weak. Always a subset of
+                'is_upper_limit'; the three states above still partition the map.
+
     Notes:
         - Detections: amplitude >= fac_above_stdres * std_residuals AND fit improves residuals
         - Upper limits: For non-detections, area = std_residuals * sigma_guess * sqrt(2π) (1σ limit)
@@ -1091,6 +1096,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     success_map = np.zeros((n_y, n_x), dtype=bool)
     is_detection_map = np.zeros((n_y, n_x), dtype=bool)  # True if SNR threshold passed
     is_upper_limit_map = np.zeros((n_y, n_x), dtype=bool)  # True if upper limit computed
+    fit_failed_map = np.zeros((n_y, n_x), dtype=bool)  # True if the fit could not be attempted/converged
     
     # Optional noise region mask for robust std estimation
     noise_wave_mask = None
@@ -1166,7 +1172,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 global_guess = (amp_guess_tot, center_guess_tot, sigma_guess_tot)
 
             global_fit_info = {
-                "amplitude": float(global_guess[0]),
+                "amplitude": float(global_guess[0]),  # native flux unit, e.g. MJy/sr -- not CGS-converted
                 "center": float(global_guess[1]),
                 "sigma": float(global_guess[2]),
                 "center_source": center_source,
@@ -1197,6 +1203,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         succ_row = np.zeros(n_x, dtype=bool)
         det_row = np.zeros(n_x, dtype=bool)  # Detection flag
         uplim_row = np.zeros(n_x, dtype=bool)  # Upper limit flag
+        fail_row = np.zeros(n_x, dtype=bool)  # Fit-could-not-be-made flag (subset of uplim_row)
         residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
 
         for ix in range(n_x):
@@ -1239,6 +1246,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     # Cannot compute a real noise estimate — pixel has no usable data,
                     # leave every output NaN (treat as outside FOV).
                     continue
+                fail_row[ix] = True  # too few samples to fit at all, not a weak line
                 upper_limit_amplitude = fac_above_stdres * std_temp
                 upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
                 if header is not None:
@@ -1286,6 +1294,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                         sigma_guess = sigma_for_fit
                     except Exception:
                         # Assign fac_above_stdres σ upper limit for failed parameter estimation
+                        fail_row[ix] = True  # could not even form an initial guess
                         upper_limit_amplitude = fac_above_stdres * std_val
                         upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
                         # Convert to erg/s/cm² if header available
@@ -1316,6 +1325,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                         amp_guess, center_guess, sigma_guess = estimate_gaussian_params(x_data, y_corrected)
                     except Exception:
                         # Assign fac_above_stdres σ upper limit for failed parameter estimation
+                        fail_row[ix] = True  # could not even form an initial guess
                         upper_limit_amplitude = fac_above_stdres * std_val
                         upper_limit_area_native = upper_limit_amplitude * (x_range / 4.0) * np.sqrt(2 * np.pi)
                         # Convert to erg/s/cm² if header available
@@ -1331,11 +1341,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             upper_limit_area = area_cgs if area_cgs is not None else upper_limit_area_native
                         else:
                             upper_limit_area = upper_limit_area_native
-                        amp_row[ix] = upper_limit_amplitude
+                        # Same as the low-noise branch above: only the area (an upper limit)
+                        # is meaningful here. Storing the limit amplitude and a
+                        # window-midpoint center would put invented numbers into the
+                        # Amplitude/Center/Sigma maps for a pixel that was never fitted.
+                        amp_row[ix] = np.nan
                         area_row[ix] = upper_limit_area
-                        ctr_row[ix] = (x1 + x2) / 2
-                        sig_row[ix] = x_range / 4.0
-                        fwhm_row[ix] = 2.355 * (x_range / 4.0)
+                        ctr_row[ix] = np.nan
+                        sig_row[ix] = np.nan
+                        fwhm_row[ix] = np.nan
                         uplim_row[ix] = True
                         continue
             
@@ -1535,6 +1549,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 # ===== EXCEPTION: Fitting algorithm failed =====
                 # Compute fac_above_stdres σ upper limit using initial guesses
                 # Case: Fit not converged - assign conservative upper limit
+                fail_row[ix] = True
                 if 'sigma_guess' in locals():
                     upper_limit_amplitude = fac_above_stdres * std_val
                     upper_limit_area_native = upper_limit_amplitude * sigma_guess * np.sqrt(2 * np.pi)
@@ -1562,7 +1577,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 fwhm_row[ix] = np.nan
                 uplim_row[ix] = True
 
-        return row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row, succ_row, det_row, uplim_row, residuals_row
+        return (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
+                succ_row, det_row, uplim_row, fail_row, residuals_row)
 
     # Determine workers
     if n_jobs is None:
@@ -1580,7 +1596,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
                 break
-            _, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, d_row, u_row, res_row = _fit_row(iy)
+            (_, amp_row, ctr_row, sig_row, f_row, a_row, q_row,
+             s_row, d_row, u_row, fl_row, res_row) = _fit_row(iy)
             amplitude_map[iy, :] = amp_row
             center_map[iy, :] = ctr_row
             sigma_map[iy, :] = sig_row
@@ -1590,6 +1607,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             success_map[iy, :] = s_row
             is_detection_map[iy, :] = d_row
             is_upper_limit_map[iy, :] = u_row
+            fit_failed_map[iy, :] = fl_row
             residuals_cube[:, iy, :] = res_row
 
             # Progress per row. The callback fires every row so a GUI progress bar
@@ -1617,7 +1635,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     for f in futures:
                         f.cancel()
                     break
-                row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row, s_row, d_row, u_row, res_row = fut.result()
+                (row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row,
+                 s_row, d_row, u_row, fl_row, res_row) = fut.result()
                 amplitude_map[row_idx, :] = amp_row
                 center_map[row_idx, :] = ctr_row
                 sigma_map[row_idx, :] = sig_row
@@ -1627,6 +1646,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 success_map[row_idx, :] = s_row
                 is_detection_map[row_idx, :] = d_row
                 is_upper_limit_map[row_idx, :] = u_row
+                fit_failed_map[row_idx, :] = fl_row
                 residuals_cube[:, row_idx, :] = res_row
 
                 # See the serial path: callback every row, console every 5th row.
@@ -1644,25 +1664,14 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     n_success = np.sum(success_map)
     n_detections = np.sum(is_detection_map)
     n_upper_limits = np.sum(is_upper_limit_map)
+    n_failed = np.sum(fit_failed_map)
     print(f"Fitting complete: {n_success}/{total_pixels} successful fits ({100*n_success/total_pixels:.1f}%)")
     print(f"  Detections: {n_detections} ({100*n_detections/total_pixels:.1f}%)")
     print(f"  Upper limits: {n_upper_limits} ({100*n_upper_limits/total_pixels:.1f}%)")
-
-    # Convert amplitude to CGS if header available (MJy/sr -> erg/s/cm²/sr)
-    amplitude_map_cgs = amplitude_map.copy()
-    if header is not None:
-        for iy in range(n_y):
-            for ix in range(n_x):
-                amp_val = amplitude_map[iy, ix]
-                center_val = center_map[iy, ix]
-                if np.isfinite(amp_val) and np.isfinite(center_val):
-                    amp_cgs = convert_amplitude_to_cgs(amp_val, center_val, header, unit, flux_unit)
-                    if amp_cgs is not None:
-                        amplitude_map_cgs[iy, ix] = amp_cgs
+    print(f"    of which the fit itself failed: {n_failed} ({100*n_failed/total_pixels:.1f}%)")
 
     return {
-        'amplitude': amplitude_map_cgs,  # CGS units (erg/s/cm²/sr) if available, else native (MJy/sr)
-        'amp_originalunits': amplitude_map,  # Original units (MJy/sr)
+        'amplitude': amplitude_map,  # Native flux unit (e.g. MJy/sr) -- not CGS-converted
         'center': center_map,
         'sigma': sigma_map,
         'fwhm': fwhm_map,
@@ -1671,6 +1680,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'success': success_map,
         'is_detection': is_detection_map,  # True detections (passed SNR threshold)
         'is_upper_limit': is_upper_limit_map,  # Upper limits (failed detection)
+        'fit_failed': fit_failed_map,  # Subset of is_upper_limit: the fit itself never ran/converged
         'residuals_cube': residuals_cube,  # Cached residuals computed during fitting
         'fac_above_stdres': fac_above_stdres,  # Detection threshold used
         # Prefer the Quantity's own unit, then the wave_unit argument the caller passed.
@@ -1759,7 +1769,7 @@ Step 6: Apply Detection Threshold (HYBRID CRITERION)
 ⚠️ UPDATED: Uses TWO independent pathways (either pathway marks as detection):
 
 PATHWAY A - High SNR detection (strict):
-✓ amplitude >= fac_above_stdres * std_noise (default 2.0σ)  AND
+✓ amplitude >= fac_above_stdres * std_noise (default 3.0σ)  AND
 ✓ fit_improves = std_residuals < std_before_fit
 Both conditions must be TRUE
 
@@ -1840,10 +1850,19 @@ Marked as: is_detection = True
 
 ⚠️ UPPER LIMIT (amplitude below threshold AND fit quality poor):
 If NEITHER pathway A NOR pathway B triggers:
-Computes 2σ upper limit: area_upper_limit = (fac_above_stdres*std) * sigma_guess * sqrt(2π)
-(default: 2σ upper limit using initial sigma estimate)
+Computes 3σ upper limit: area_upper_limit = (fac_above_stdres*std) * sigma_guess * sqrt(2π)
+(default: 3σ upper limit using initial sigma estimate)
 Other parameters stored as NaN (no true fit achieved)
 Marked as: is_upper_limit = True
+
+❌ FAILED FIT (a sub-case of the upper limit, not a fourth outcome):
+The fit never produced a Gaussian at all - too few finite samples, the initial-guess
+estimator raised, or curve_fit raised. The area still holds a noise-based limit, so
+is_upper_limit stays True; fit_failed = True records *why* it is a limit.
+
+⬛ NO DATA:
+An entirely-NaN spectrum (outside the FOV) sets no flag at all - every map stays NaN
+and the pixel appears in none of the three masks.
 
 📊 DATA VALIDATION:
 Pixels with <5 finite data points (too many NaNs/masked regions):

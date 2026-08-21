@@ -827,5 +827,13 @@ STATUS: {result.message}
         if tab is None:
             tab = self.active_spectrum_tab
         wavelength = self._get_tab_wavelength(tab)
-        dlg = GaussianMapResultsDialog(self, results, self.cube_data, self.gauss_left_x, self.gauss_right_x, wavelength=wavelength)
+        # Noise bounds come from the cache, not the live markers: the markers can be
+        # cleared or moved after a fit, but the single-pixel view has to draw the
+        # threshold these results were actually decided against.
+        dlg = GaussianMapResultsDialog(
+            self, results, self.cube_data, self.gauss_left_x, self.gauss_right_x,
+            wavelength=wavelength,
+            noise_min=getattr(self, 'gauss_cache_noise_min', None),
+            noise_max=getattr(self, 'gauss_cache_noise_max', None),
+        )
         dlg.exec_()

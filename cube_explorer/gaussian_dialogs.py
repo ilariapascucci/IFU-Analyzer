@@ -9,6 +9,11 @@ import numpy as np
 import os
 import threading
 from .unit_converter import gaussian_map_unit_labels
+from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
+
+# Default colors for the categorical Fit Status map, in STATUS_* code order:
+# neutral grey for pixels with nothing to fit, amber for limits, green for detections.
+STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -17,6 +22,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor, QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
+from matplotlib.colors import ListedColormap
 
 
 class GaussianMapWorker(QThread):
@@ -146,7 +152,8 @@ class GaussianMapResultsDialog(QDialog):
     with interactive parameter selection and visualization controls.
     """
     
-    def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None):
+    def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None,
+                 noise_min=None, noise_max=None):
         super().__init__(parent)
         self.parent_widget = parent
         self.results = results
@@ -154,6 +161,11 @@ class GaussianMapResultsDialog(QDialog):
         self.gauss_left_x = gauss_left_x
         self.gauss_right_x = gauss_right_x
         self.wavelength = wavelength
+        # The noise region the fit used, so a single-pixel view can draw the same
+        # detection threshold the map was decided with.
+        self.noise_min = noise_min
+        self.noise_max = noise_max
+        self.pixel_selection_enabled = True
         self._export_map_btn = None
         self._current_unit_label = None  # Store the actual displayed unit label
         
@@ -199,16 +211,20 @@ class GaussianMapResultsDialog(QDialog):
         labels = gaussian_map_unit_labels(
             self.flux_unit, self.wave_unit, header=header, wavelength=lam_mid)
         wave_display = labels['wave']
-        amp_unit = labels['amplitude']
         area_unit = labels['area']
 
         return {
             'Area (AUC)': (f'Area [{area_unit}]', 'viridis'),
-            'Amplitude': (f'Amplitude [{amp_unit}]', 'plasma'),
+            # Amplitude stays in the cube's native flux unit -- not CGS-converted, unlike Area.
+            'Amplitude': (f'Amplitude [{self.flux_unit}]', 'plasma'),
             'Center': (f'Center [{wave_display}]', 'twilight'),
             'Sigma': (f'Sigma [{wave_display}]', 'cividis'),
             'FWHM': (f'FWHM [{wave_display}]', 'cividis'),
             'chi2 (fit quality)': ('chi^2 [dimensionless]', 'RdYlGn_r'),
+            # A ListedColormap rather than a name: three fixed colors for three states.
+            # Picking a named colormap from the dropdown resamples it to three shades.
+            'Fit Status': ('Outcome [0=no data, 1=upper limit, 2=detection]',
+                           ListedColormap(STATUS_COLORS)),
             'Success Mask': ('Success [1=yes, 0=no]', 'gray'),
         }
     
@@ -220,23 +236,33 @@ class GaussianMapResultsDialog(QDialog):
         n_success = np.sum(self.results['success'])
         n_detections = np.sum(self.results.get('is_detection', np.zeros_like(self.results['success'])))
         n_upper_limits = np.sum(self.results.get('is_upper_limit', np.zeros_like(self.results['success'])))
+        n_failed = np.sum(self.results.get('fit_failed', np.zeros_like(self.results['success'])))
         n_total = self.results['success'].size
         global_fit = self.results.get('global_fit') or {}
         if global_fit:
             center_src = global_fit.get('center_source', 'total-spectrum')
+            header = getattr(self.cube_data, 'header', None)
+            labels = gaussian_map_unit_labels(
+                self.flux_unit, self.wave_unit, header=header,
+                wavelength=global_fit.get('center'))
             global_text = (
-                f"Global 1D fit: A={global_fit.get('amplitude', float('nan')):.4e}, "
-                f"mu={global_fit.get('center', float('nan')):.4f}, "
-                f"sigma={global_fit.get('sigma', float('nan')):.4f} "
+                f"Global 1D fit: A={global_fit.get('amplitude', float('nan')):.4e} {self.flux_unit}, "
+                f"mu={global_fit.get('center', float('nan')):.4f} {labels['wave']}, "
+                f"sigma={global_fit.get('sigma', float('nan')):.4f} {labels['wave']} "
                 f"(center from {center_src})"
             )
         else:
             global_text = "Global 1D fit: unavailable"
 
+        # The three states partition the map, so no-data is what is left over.
+        upper_text = f"Upper limits: {n_upper_limits:,}"
+        if n_failed:
+            upper_text += f" ({n_failed:,} from fits that never ran)"
         info_label = QLabel(
             f"Successfully fit {n_success:,} / {n_total:,} pixels "
             f"({100*n_success/n_total:.1f}%)\n"
-            f"Detections: {n_detections:,} | Upper limits: {n_upper_limits:,}\n"
+            f"Detections: {n_detections:,} | {upper_text} | "
+            f"No data: {n_total - n_detections - n_upper_limits:,}\n"
             f"{global_text}"
         )
         layout.addWidget(info_label)
@@ -246,8 +272,8 @@ class GaussianMapResultsDialog(QDialog):
         param_layout.addWidget(QLabel("Parameter:"))
         self.param_combo = QComboBox()
         self.param_combo.addItems([
-            "Area (AUC)", "Amplitude", "Center", "Sigma", 
-            "FWHM", "chi2 (fit quality)", "Success Mask", "Residuals"
+            "Area (AUC)", "Amplitude", "Center", "Sigma",
+            "FWHM", "chi2 (fit quality)", "Fit Status", "Success Mask", "Residuals"
         ])
         param_layout.addWidget(self.param_combo)
         
@@ -265,13 +291,28 @@ class GaussianMapResultsDialog(QDialog):
         self.scale_combo = QComboBox()
         self.scale_combo.addItems(["Linear", "Log", "Percentile (2-98%)"])
         param_layout.addWidget(self.scale_combo)
-        
+
         param_layout.addStretch()
         layout.addLayout(param_layout)
-        
+
+        # Own row, below the selectors: on one line with them the window ends up wider
+        # than the map it holds. Same control as the CO flux map -- clicking a pixel
+        # opens its fit, and the toggle gets out of the way for the toolbar's zoom/pan.
+        select_layout = QHBoxLayout()
+        self.pixel_select_btn = QPushButton("✓ Pixel Select ON")
+        self.pixel_select_btn.setCheckable(True)
+        self.pixel_select_btn.setChecked(True)
+        self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
+        self.pixel_select_btn.clicked.connect(self._toggle_pixel_selection)
+        select_layout.addWidget(self.pixel_select_btn)
+        select_layout.addWidget(QLabel("Click a pixel to see its fit; turn OFF to zoom/pan"))
+        select_layout.addStretch()
+        layout.addLayout(select_layout)
+
         # Create matplotlib figure
         self.fig = Figure(figsize=(8, 6))
         self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas.mpl_connect('button_press_event', self._on_canvas_click)
         toolbar = NavigationToolbar2QT(self.canvas, self)
         layout.addWidget(toolbar)
         layout.addWidget(self.canvas)
@@ -291,11 +332,6 @@ class GaussianMapResultsDialog(QDialog):
         export_btn = QPushButton("Save as FITS File")
         export_btn.clicked.connect(self._export_current_parameter)
         button_layout.addWidget(export_btn)
-        
-        # Pixel diagnostics button
-        diag_btn = QPushButton("Pixel by Pixel")
-        diag_btn.clicked.connect(self._open_pixel_diagnostics)
-        button_layout.addWidget(diag_btn)
         
         button_layout.addStretch()
         
@@ -328,7 +364,7 @@ class GaussianMapResultsDialog(QDialog):
         
         # Get dynamic units for all parameters
         param_units = self._get_parameter_units()
-        
+
         # Select data based on parameter
         if param_name == "Area (AUC)":
             data = self.results['area']
@@ -354,6 +390,12 @@ class GaussianMapResultsDialog(QDialog):
             data = self.results['r_squared']
             title = f"Reduced chi^2 (approx 1 is good fit) {wave_range}"
             unit_label, default_cmap = param_units['chi2 (fit quality)']
+        elif param_name == "Fit Status":
+            # A Left/Right region fit NaNs out everything outside the selection; those
+            # pixels were never evaluated, which is the same as having no data here.
+            data = np.nan_to_num(fit_status_map(self.results), nan=float(STATUS_NO_DATA))
+            title = f"Fit Status (0=no data, 1=upper limit, 2=detection) {wave_range}"
+            unit_label, default_cmap = param_units['Fit Status']
         elif param_name == "Success Mask":
             data = self.results['success'].astype(float)
             title = f"Successful Fits (1=success, 0=failed) {wave_range}"
@@ -372,7 +414,7 @@ class GaussianMapResultsDialog(QDialog):
         # Apply scaling
         scale_selection = self.scale_combo.currentText()
         from matplotlib.colors import LogNorm, Normalize
-        
+
         valid_data = data[~np.isnan(data)]
         if len(valid_data) > 0:
             if scale_selection == "Log":
@@ -404,7 +446,7 @@ class GaussianMapResultsDialog(QDialog):
         
         # Colorbar with units
         self.fig.colorbar(im, ax=ax, label=unit_label)
-        
+
         # Add statistics
         valid_data = data[~np.isnan(data)]
         if len(valid_data) > 0:
@@ -416,12 +458,79 @@ class GaussianMapResultsDialog(QDialog):
                 f"Sum: {np.nansum(data):.4e}"
             )
             ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-                   verticalalignment='top', bbox=dict(boxstyle='round', 
+                   verticalalignment='top', bbox=dict(boxstyle='round',
                    facecolor='wheat', alpha=0.8), fontsize=9)
-        
+
         self.fig.tight_layout()
         self.canvas.draw()
     
+    def _toggle_pixel_selection(self):
+        """Toggle click-a-pixel mode so the matplotlib toolbar can be used instead"""
+        self.pixel_selection_enabled = self.pixel_select_btn.isChecked()
+        if self.pixel_selection_enabled:
+            self.pixel_select_btn.setText("✓ Pixel Select ON")
+            self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
+        else:
+            self.pixel_select_btn.setText("✗ Pixel Select OFF")
+            self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
+
+    def _on_canvas_click(self, event):
+        """Open the single-pixel fit view for the clicked map pixel"""
+        if not self.pixel_selection_enabled:
+            return
+        if event.inaxes is None or event.xdata is None or event.ydata is None:
+            return
+
+        n_y, n_x = self.results['success'].shape
+        col = int(np.round(event.xdata))
+        row = int(np.round(event.ydata))
+        if not (0 <= col < n_x and 0 <= row < n_y):
+            return
+
+        self._show_pixel_fit(row, col)
+
+    def _show_pixel_fit(self, row, col):
+        """Show the stored fit for one pixel (row = y index, col = x index)"""
+        if self.wavelength is None:
+            QMessageBox.warning(self, "No Wavelength Data",
+                                "Wavelength array not available for pixel inspection")
+            return
+        if self.cube_data is None or getattr(self.cube_data, 'cube', None) is None:
+            QMessageBox.warning(self, "No Cube", "The cube is no longer available")
+            return
+
+        from .pixel_diagnostics import PixelFitDialog
+
+        lam_min = min(self.gauss_left_x, self.gauss_right_x)
+        lam_max = max(self.gauss_left_x, self.gauss_right_x)
+        labels = gaussian_map_unit_labels(
+            self.flux_unit, self.wave_unit,
+            header=getattr(self.cube_data, 'header', None),
+            wavelength=(lam_min + lam_max) / 2.0)
+
+        try:
+            dlg = PixelFitDialog(
+                self,
+                self.cube_data.cube,
+                self.wavelength,
+                lam_min,
+                lam_max,
+                self.results,
+                row=row,
+                col=col,
+                fac_above_stdres=self.results.get('fac_above_stdres', 3.0),
+                noise_min=self.noise_min,
+                noise_max=self.noise_max,
+                flux_unit=self.flux_unit,
+                wave_unit=labels['wave'],
+                area_unit=labels['area'],
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error",
+                                 f"Could not inspect pixel ({col}, {row}):\n{e}")
+            return
+        dlg.exec_()
+
     def _handle_residuals_display(self, ax):
         """Handle residuals display with export button"""
         if 'residuals_cube' in self.results:
@@ -622,6 +731,7 @@ class GaussianMapResultsDialog(QDialog):
             "Sigma": (self.results['sigma'], f"{base_name}_gaussian_sigma_map.fits"),
             "FWHM": (self.results['fwhm'], f"{base_name}_gaussian_fwhm_map.fits"),
             "chi2 (fit quality)": (self.results['r_squared'], f"{base_name}_gaussian_chi2_map.fits"),
+            "Fit Status": (fit_status_map(self.results), f"{base_name}_gaussian_fit_status.fits"),
             "Success Mask": (self.results['success'].astype(float), f"{base_name}_gaussian_success_mask.fits"),
         }
         
@@ -711,29 +821,6 @@ class GaussianMapResultsDialog(QDialog):
                 "Export Error",
                 f"Failed to export {param_name}:\n{str(e)}"
             )
-    
-    
-    def _open_pixel_diagnostics(self):
-        """Open interactive pixel diagnostics viewer"""
-        if self.wavelength is None:
-            QMessageBox.warning(self, "No Wavelength Data", 
-                               "Wavelength array not available for diagnostics")
-            return
-        
-        from .pixel_diagnostics import PixelDiagnosticsDialog
-        
-        fac_above_stdres = self.results.get('fac_above_stdres', 3.0)
-        
-        diag_dlg = PixelDiagnosticsDialog(
-            self,
-            self.cube_data.cube,
-            self.wavelength,
-            self.gauss_left_x,
-            self.gauss_right_x,
-            self.results,
-            fac_above_stdres=fac_above_stdres
-        )
-        diag_dlg.exec_()
 
 
 class HITRANGaussianResultsDialog(QDialog):

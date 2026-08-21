@@ -333,10 +333,10 @@ def cube_fitting_the_cube():
 
     maps = create_gaussian_map(
         cube,
-        lam_min=7.492291,        # Left boundary
-        lam_max=7.517421,        # Right boundary
-        noise_min=7.529647,      # Line-free region, as in the GUI
-        noise_max=7.564965,
+        lam_min=7.446784,        # Left boundary
+        lam_max=7.478707,        # Right boundary
+        noise_min=7.516742,      # Line-free region, as in the GUI
+        noise_max=7.562928,
         fac_above_stdres=3.0,    # Detection threshold in sigma
         n_jobs=8,
     )
@@ -365,14 +365,6 @@ def cube_fitting_the_cube():
             assert np.all(np.isnan(maps[key][up])), \
                 f"docs claim {key} is NaN at upper limits"
 
-    # "area = amplitude * sigma * sqrt(2*pi)" -- the dimensional claim in the note
-    det = maps['is_detection']
-    if det.any():
-        lhs = area_map[det]
-        rhs = maps['amplitude'][det] * maps['sigma'][det] * np.sqrt(2 * np.pi)
-        assert np.allclose(lhs, rhs, rtol=1e-6), \
-            "docs claim area = amplitude * sigma * sqrt(2pi)"
-
     print(f"Verified: {n_det} detections + {n_up} upper limits + {n_none} no-data "
           f"= {area_map.size} pixels")
 
@@ -393,8 +385,7 @@ def cube_returned_keys():
     if maps is None:
         raise RuntimeError("cube fit unavailable - the preceding cube test must run first")
 
-    maps['amplitude']         # Peak amplitude, erg/s/cm2 PER WAVELENGTH where convertible
-    maps['amp_originalunits'] # Peak amplitude in the cube's own units
+    maps['amplitude']         # Peak amplitude, in the cube's native flux unit (e.g. MJy/sr)
     maps['center']            # Line center wavelength
     maps['sigma']             # Gaussian sigma
     maps['fwhm']              # 2.355 * sigma
@@ -404,10 +395,18 @@ def cube_returned_keys():
     maps['residuals_cube']    # 3D residuals cached during fitting
     maps['fac_above_stdres']  # The threshold that was used
     maps['wavelength_unit']   # Spectral axis unit string
-    maps['global_fit']        # The summed-spectrum fit used for initial guesses
+    maps['global_fit']        # The summed-spectrum fit used for initial guesses (also
+                               # native-unit amplitude)
+
+    assert 'amp_originalunits' not in maps, \
+        "docs claim amp_originalunits was removed -- amplitude is the only amplitude key now"
+
+    assert 'amplitude_cgs' not in maps['global_fit'], \
+        "docs claim global_fit's amplitude stays native, not CGS-converted"
 
     print(f"All documented keys present; wavelength_unit={maps['wavelength_unit']!r}, "
-          f"fac_above_stdres={maps['fac_above_stdres']}")
+          f"fac_above_stdres={maps['fac_above_stdres']}, "
+          f"global amplitude={maps['global_fit']['amplitude']:.4e} (native)")
 
 
 # ---------------------------------------------------------------------------
