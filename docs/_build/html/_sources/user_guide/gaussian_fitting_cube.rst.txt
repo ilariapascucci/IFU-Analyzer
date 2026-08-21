@@ -164,6 +164,27 @@ with an upper limit at the detection threshold, and the pixel is flagged in the
    the fit all land here too. In the last case, if the failure happened before an initial σ
    guess existed, ``area`` is **NaN while** ``is_upper_limit`` **is True**.
 
+Inspecting Individual Pixels
+=============================
+
+With **Pixel Select** on (the default), clicking a pixel on the map opens that pixel's own
+fit -- the same control as :doc:`co_flux_extraction`'s pixel inspector, but for a single
+Gaussian instead of a multi-line CO fit. Turn **Pixel Select** off to zoom/pan the map
+freely instead of reopening this dialog on every click.
+
+.. figure:: ../_static/gaussian_map_pixel.png
+   :alt: Single-pixel Gaussian fit inspector, showing the spectrum, baseline, fitted curve, and stored parameters
+   :width: 100%
+
+   The stored fit for one pixel: data, the local endpoint-to-endpoint baseline, and the
+   fitted Gaussian, with every parameter the map holds for that pixel listed alongside --
+   this is exactly what the map contains, not a fresh re-fit.
+
+.. note::
+
+   The dialog never re-fits anything -- it only redraws what ``fit_gaussians_per_pixel``
+   already stored for that pixel, so what you see here always matches the map.
+
 Exporting Maps as FITS
 ======================
 

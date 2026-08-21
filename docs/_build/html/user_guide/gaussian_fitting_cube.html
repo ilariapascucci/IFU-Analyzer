@@ -66,6 +66,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#upper-limits">Upper limits</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="#inspecting-individual-pixels">Inspecting Individual Pixels</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#exporting-maps-as-fits">Exporting Maps as FITS</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#constraints-and-tips">Constraints and Tips</a></li>
@@ -298,6 +299,27 @@ the fit all land here too. In the last case, if the failure happened before an i
 guess existed, <code class="docutils literal notranslate"><span class="pre">area</span></code> is <strong>NaN while</strong> <code class="docutils literal notranslate"><span class="pre">is_upper_limit</span></code> <strong>is True</strong>.</p>
 </div>
 </section>
+</section>
+<section id="inspecting-individual-pixels">
+<h2>Inspecting Individual Pixels<a class="headerlink" href="#inspecting-individual-pixels" title="Link to this heading"></a></h2>
+<p>With <strong>Pixel Select</strong> on (the default), clicking a pixel on the map opens that pixel’s own
+fit – the same control as <a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a>’s pixel inspector, but for a single
+Gaussian instead of a multi-line CO fit. Turn <strong>Pixel Select</strong> off to zoom/pan the map
+freely instead of reopening this dialog on every click.</p>
+<figure class="align-default" id="id2">
+<a class="reference internal image-reference" href="../_images/gaussian_map_pixel.png"><img alt="Single-pixel Gaussian fit inspector, showing the spectrum, baseline, fitted curve, and stored parameters" src="../_images/gaussian_map_pixel.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">The stored fit for one pixel: data, the local endpoint-to-endpoint baseline, and the
+fitted Gaussian, with every parameter the map holds for that pixel listed alongside –
+this is exactly what the map contains, not a fresh re-fit.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The dialog never re-fits anything – it only redraws what <code class="docutils literal notranslate"><span class="pre">fit_gaussians_per_pixel</span></code>
+already stored for that pixel, so what you see here always matches the map.</p>
+</div>
 </section>
 <section id="exporting-maps-as-fits">
 <h2>Exporting Maps as FITS<a class="headerlink" href="#exporting-maps-as-fits" title="Link to this heading"></a></h2>
