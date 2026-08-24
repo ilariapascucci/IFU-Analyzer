@@ -292,19 +292,21 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             "sigma_noise": fit_result.noise_std,
             "catalog_sigma": fit_result.catalog_sigma,
             "r_squared": fit_result.r_squared,
-            # Plot data for a per-line "view fit" display. x_data/y_data/y_fit are
-            # already localized to this line's own +/-3*sigma window by fit_glines'
-            # _local_fit_record (not the whole chunk/spectrum) -- padded, not the
-            # entire bandpass. y_fit is the FULL local model (continuum + every
-            # Gaussian in this line's window, not just this line's own) -- same
-            # convention fit_glines itself uses, so a real blended neighbor shows up
-            # honestly instead of being hidden. baseline is the continuum sampled at
-            # those same x points, on the same (continuum-inclusive) scale as y_fit.
+            # Plot data for a per-line "view fit" display. x_data/y_data/y_fit span
+            # this line's whole shared fit chunk (fit_glines' own window, not a
+            # separate crop) -- y_fit is the FULL local model (continuum + every
+            # Gaussian in the chunk, not just this line's own) -- same convention
+            # fit_glines itself uses, so a real blended neighbor shows up honestly
+            # instead of being hidden. baseline is the continuum sampled at those
+            # same x points, on the same (continuum-inclusive) scale as y_fit.
+            # sigma is included so a caller can subtract just this line's own
+            # Gaussian out of y_fit -- see gui_rotational_diagram.py's show_line_fit.
             "x_data": fit_result.x_data,
             "y_data": fit_result.y_data,
             "baseline": fit_result.baseline,
             "y_fit": fit_result.y_fit,
             "center": fit_result.center,
+            "sigma": fit_result.sigma,
             "fwhm": fit_result.fwhm,
             "amplitude": fit_result.amplitude,
         })

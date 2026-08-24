@@ -502,17 +502,29 @@ STATUS: {result.message}
                     fit_median = np.nanmedian(np.concatenate([fit['result'].y_data for fit in fit_results]))
                     norm_factor = fit_median if fit_median > 0 else 1.0
         
+        # result.x_data/y_fit span this line's whole shared chunk -- correct for the fit
+        # itself (see co_flux_extractor.py's _local_fit_record), but every line sharing a
+        # chunk gets the identical full-chunk curve, so drawing all of it would stack
+        # several lines' curves directly on top of each other -- and for a chunk holding a
+        # contaminant, its grey curve (drawn last) would blot out its red CO neighbors
+        # entirely. Cropping to this line's own local peak for drawing only fixes that;
+        # the flux/R2 shown elsewhere still come from the real, full-chunk fit underneath.
+        def _local_crop(result, baseline_norm, y_fit_norm):
+            local_mask = np.abs(result.x_data - result.center) <= 3 * abs(result.sigma)
+            return result.x_data[local_mask], baseline_norm[local_mask], y_fit_norm[local_mask]
+
         for idx, fit_info in enumerate(fit_results):
             result = fit_info['result']
             baseline_norm = result.baseline / norm_factor
             y_fit_norm = result.y_fit / norm_factor
-            
+
             if idx == 0:
                 baseline_line, = ax.plot(result.x_data, baseline_norm, 'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=10)
                 self.multi_gauss_artists.append(baseline_line)
-            
-            gauss_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit' if idx == 0 else '', zorder=11)
-            fill = ax.fill_between(result.x_data, baseline_norm, baseline_norm + y_fit_norm, color='red', alpha=0.2, zorder=9)
+
+            x_local, base_local, fit_local = _local_crop(result, baseline_norm, y_fit_norm)
+            gauss_line, = ax.plot(x_local, base_local + fit_local, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit' if idx == 0 else '', zorder=11)
+            fill = ax.fill_between(x_local, base_local, base_local + fit_local, color='red', alpha=0.2, zorder=9)
             self.multi_gauss_artists.extend([gauss_line, fill])
 
         # Contaminating lines get their own distinctly-colored curve -- these aren't part of
@@ -527,11 +539,12 @@ STATUS: {result.message}
 
             label = f"Contaminant ({species})" if species not in seen_species else ''
             seen_species.add(species)
+            x_local, base_local, fit_local = _local_crop(result, baseline_norm, y_fit_norm)
             # Outline only, no fill -- enough to show "this peak is accounted for and it isn't
             # CO" without visually competing with the red fill for the requested lines. Grey
             # (rather than red) mirrors the black/dimgray marker used for this same
             # contaminant on the spectrum before fitting.
-            contam_line, = ax.plot(result.x_data, baseline_norm + y_fit_norm, color='dimgray', linewidth=2, alpha=1.0, label=label, zorder=12)
+            contam_line, = ax.plot(x_local, base_local + fit_local, color='dimgray', linewidth=2, alpha=1.0, label=label, zorder=12)
             self.multi_gauss_artists.append(contam_line)
 
         ax.legend(loc='upper right', fontsize=8)

@@ -22,7 +22,7 @@ from matplotlib.figure import Figure
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
 from .rotational_diagram_fitter import rotational_diagram, get_gu, compute_line_fluxes_collective, model_1T, model_2T
-from .co_flux_extractor import _line_sigma
+from .co_flux_extractor import _line_sigma, DEFAULT_SIGMA_MULTIPLIER, gaussian
 
 
 # Constants
@@ -1073,10 +1073,9 @@ class RotationalDiagramWindow(QMainWindow):
         self.contam_status_label.setText(f"{len(loaded)} contaminating line(s) loaded")
         self.contam_status_label.setToolTip(os.path.basename(file_path))
 
-    # Same convention fit_hitran_lines_collective's own sigma_multiplier default
-    # uses to decide which lines share a fit chunk (1-sigma core + 3-sigma margin
-    # each side, from Pascucci's own fit_Glines bounds -- see co_flux_extractor.py).
-    WATER_LINE_SIGMA_WINDOW = 7.0
+    # A water line inside this radius is actually inside fit_hitran_lines_collective's own
+    # fit window, so this has to BE that same constant, not a separately hardcoded copy.
+    WATER_LINE_SIGMA_WINDOW = DEFAULT_SIGMA_MULTIPLIER
 
     def toggle_hitran_water_lines(self, state):
         """Flag (not correct for) nearby real water contamination -- per Pascucci's
@@ -1345,6 +1344,7 @@ class RotationalDiagramWindow(QMainWindow):
                             "baseline": result["baseline"],
                             "y_fit": result["y_fit"],
                             "center": result.get("center"),
+                            "sigma": result.get("sigma"),
                             "fwhm": result.get("fwhm"),
                             "r_squared": result.get("r_squared"),
                             "amplitude": result.get("amplitude"),
@@ -1425,14 +1425,25 @@ class RotationalDiagramWindow(QMainWindow):
         canvas = FigureCanvas(fig)
 
         x = np.asarray(data['x_data'])
-        baseline = np.asarray(data['baseline'])
+        global_continuum = np.asarray(data['baseline'])
         # y_fit comes from fit_hitran_lines_collective, which fits against the
         # continuum-SUBTRACTED spectrum (y_corrected = spectrum_y - continuum) -- so
         # it's on a small-residual scale, while `baseline` is the separately computed
         # absolute continuum. Adding baseline back puts it on the same absolute flux
         # scale as the spectrum trace below; without this the two end up on
         # unrelated scales entirely (see the earlier version of this dialog).
-        y_fit = np.asarray(data['y_fit']) + baseline
+        y_fit = np.asarray(data['y_fit']) + global_continuum
+
+        # The dashed "Baseline" line has to show everything the model treats as
+        # background for THIS line -- global continuum, the chunk's own local linear
+        # correction (co_flux_extractor.py's fit_glines fits one on top of the global
+        # continuum), and any neighboring line sharing this chunk -- not just the
+        # global continuum alone. Otherwise the red curve and the dashed line visibly
+        # don't meet at the window edges even for a good fit, since y_fit includes a
+        # real local correction the plain global continuum doesn't. Subtracting out
+        # just this line's own Gaussian from the full local model gives exactly that.
+        own_gaussian = gaussian(x, data['amplitude'], data['center'], data['sigma'])
+        baseline = y_fit - own_gaussian
 
         # Wider context: pad by a fixed number of the spectrum's own native sample
         # spacing rather than a hardcoded wavelength range, so this scales sensibly

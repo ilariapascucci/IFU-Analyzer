@@ -45,6 +45,13 @@ from .unit_converter import (
     extract_units,
 )
 
+# The one number that decides how wide a line's fit window is, in multiples of its own
+# instrumental sigma (see fit_hitran_lines_collective's docstring for where 7 comes from).
+# Every place that needs that window -- the fit itself, what gets plotted, the water-line
+# contamination check in gui_rotational_diagram.py -- reads this same constant (or the
+# window it produces) instead of hardcoding its own copy, so none of them can drift apart.
+DEFAULT_SIGMA_MULTIPLIER = 7.0
+
 # ================== Unit Utilities ==================
 
 def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
@@ -698,12 +705,11 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             n_co = len(filtered_colines)
 
             def _local_fit_record(cen_i, amp_i, sig_i, cat_wave, amp_err_i, sig_err_i, catalog_sigma_i):
-                local_mask = (
-                    (xwave >= max(xwave_min, cen_i - 3 * abs(sig_i))) &
-                    (xwave <= min(xwave_max, cen_i + 3 * abs(sig_i)))
-                )
-                x_local = xwave[local_mask]
-                y_local = yflux[local_mask]
+                # The chunk's own fit window (idx_xwave), not a separately re-derived crop --
+                # so every plot built from this record shows exactly what curve_fit actually
+                # saw, and changing DEFAULT_SIGMA_MULTIPLIER changes what gets drawn too.
+                x_local = xwave[idx_xwave]
+                y_local = yflux[idx_xwave]
                 # Full chunk model (local continuum correction + every Gaussian in the chunk,
                 # not just this line's own) -- honestly reflects what explains the data here,
                 # including any overlap with a neighboring line sharing this chunk.
@@ -862,27 +868,44 @@ def _merged_wave_boundaries(centers, sigmas, half_width_sigma=7.0):
     up sharing one chunk, same as before -- just because their windows actually overlap,
     not because they landed in the same slice of a one-size-fits-all grid.
 
+    Merging is transitive, not pairwise: line A touching line B extends the chunk, which
+    can then touch line C even though C never overlapped A directly -- on a dense line
+    list (e.g. a rovibrational ladder with spacing comparable to a single line's own
+    window) this can cascade across dozens of lines into one chunk sharing a single
+    linear continuum, which stops being a reasonable model once the chunk spans a large
+    fraction of a micron. max_chunk_width caps a chunk's total width at this many
+    multiples of the sigma of the line that started it -- 3x a single line's own window
+    (2*half_width_sigma) by default: verified against a real H2/CO blend that needed
+    ~26sigma to resolve (comfortably under the 42sigma cap) and a 56-line CO ladder that
+    otherwise cascades to ~390sigma in one shared-continuum chunk. Lines whose windows
+    touch but would blow the cap simply start a new chunk instead of merging.
+
     Returns a flat, sorted array of boundary points (consecutive pairs = one chunk, the
     same format fit_glines already expects). A gap between two merged, non-overlapping
     intervals becomes its own chunk with no lines in it -- a harmless no-op in fit_glines
     ("No lines to fit in this range"), not an error.
     """
+    max_chunk_width = 3 * (2 * half_width_sigma)  # sigma units
     intervals = sorted(
-        (c - half_width_sigma * s, c + half_width_sigma * s)
+        (c - half_width_sigma * s, c + half_width_sigma * s, s)
         for c, s in zip(centers, sigmas)
     )
-    merged = [list(intervals[0])]
-    for lo, hi in intervals[1:]:
-        if lo <= merged[-1][1]:
+    merged = [list(intervals[0][:2])]
+    anchor_start, anchor_sigma = intervals[0][0], intervals[0][2]
+    for lo, hi, s in intervals[1:]:
+        fits_cap = (hi - anchor_start) <= max_chunk_width * anchor_sigma
+        if lo <= merged[-1][1] and fits_cap:
             merged[-1][1] = max(merged[-1][1], hi)
         else:
+            lo = max(lo, merged[-1][1])  # keep chunks non-overlapping even when capped
             merged.append([lo, hi])
+            anchor_start, anchor_sigma = lo, s
     return np.array([b for lo, hi in merged for b in (lo, hi)])
 
 
 def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                                  header=None, wave_unit=None, contam_lines=None,
-                                 sigma_multiplier=7.0, progress_callback=None):
+                                 sigma_multiplier=DEFAULT_SIGMA_MULTIPLIER, progress_callback=None):
     """
     Fit a hand-picked list of HITRAN lines (e.g. from the species dialog) the same way
     CO Flux Map fits its detected lines: simultaneously, in wavelength chunks sized to
@@ -1024,8 +1047,15 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             # instrument. "UNKNOWN" is a visible flag of that, not a plausible-looking guess.
             flux_unit = (header.get('BUNIT') if header is not None else None) or 'UNKNOWN'
             area_unit = f"{flux_unit}·{unit.lower() if unit else 'UNKNOWN'}"
-        ss_res = np.sum(residuals ** 2)
-        ss_tot = np.sum((fit['y_data'] - np.mean(fit['y_data'])) ** 2)
+        # R2 from THIS line's own local peak, not the whole shared chunk fit['y_data']/
+        # residuals span (possibly several lines) -- otherwise every line sharing a chunk
+        # reports the identical number, labeled per-line but not one. Same +/-3*sigma
+        # local window the multi-line plot crops to (gui_gaussian.py), same reason.
+        # `residuals` itself stays full-chunk and aligned with x_data/y_data/y_fit.
+        local_mask = np.abs(fit['x_data'] - fit['center']) <= 3 * abs(fit['sigma'])
+        local_res, local_y = residuals[local_mask], fit['y_data'][local_mask]
+        ss_res = np.sum(local_res ** 2)
+        ss_tot = np.sum((local_y - np.mean(local_y)) ** 2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
         message = (f"Warning: Poor fit quality (R² = {r_squared:.3f})" if r_squared < 0.5
                    else f"Success: Good fit (R² = {r_squared:.3f})")
