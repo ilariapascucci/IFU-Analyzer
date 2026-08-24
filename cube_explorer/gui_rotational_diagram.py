@@ -1007,7 +1007,9 @@ class RotationalDiagramWindow(QMainWindow):
                                 pass
     
     def load_batch_fits_files(self):
-        """Select and cache the FITS cube(s) Calculate Fluxes will use."""
+        """Select and cache the FITS cube(s) Calculate Fluxes will use. Adds to
+        whatever's already loaded rather than replacing it, so reopening this
+        dialog to pull files from another folder doesn't lose earlier ones."""
         fits_paths, _ = QFileDialog.getOpenFileNames(
             self, "Load FITS Files For Flux Calculation", "",
             "FITS Files (*.fits *.fit);;All Files (*.*)"
@@ -1015,24 +1017,24 @@ class RotationalDiagramWindow(QMainWindow):
         if not fits_paths:
             return
 
-        loaded_paths, loaded_cubes, loaded_spectra, failed = [], [], [], []
-        for fits_path in fits_paths:
+        already_loaded = set(self.loaded_batch_fits_paths)
+        new_paths = [p for p in fits_paths if p not in already_loaded]
+        n_duplicates = len(fits_paths) - len(new_paths)
+
+        failed = []
+        for fits_path in new_paths:
             try:
                 cube = CubeData()
                 cube.load_from_file(fits_path)
                 summed = np.nansum(cube.cube, axis=(1, 2)) if cube.cube.ndim == 3 else cube.cube
-                loaded_paths.append(fits_path)
-                loaded_cubes.append(cube)
-                loaded_spectra.append(summed)
+                self.loaded_batch_fits_paths.append(fits_path)
+                self.loaded_batch_cubes.append(cube)
+                self.loaded_batch_spectra.append(summed)
             except Exception as e:
                 failed.append((fits_path, str(e)))
 
-        self.loaded_batch_fits_paths = loaded_paths
-        self.loaded_batch_cubes = loaded_cubes
-        self.loaded_batch_spectra = loaded_spectra
-
-        # Show loaded files
-        names = "\n".join(os.path.basename(p) for p in loaded_paths)
+        # Tooltip lists everything loaded so far, not just this batch
+        names = "\n".join(os.path.basename(p) for p in self.loaded_batch_fits_paths)
         self.load_fits_btn.setToolTip(names if names else "Select the source FITS cube(s) for Calculate Fluxes.")
 
         if failed:
@@ -1041,8 +1043,16 @@ class RotationalDiagramWindow(QMainWindow):
                 self, "Some Files Failed To Load",
                 f"{len(failed)} file(s) could not be loaded:\n\n{failed_msg}"
             )
-        elif loaded_paths:
-            QMessageBox.information(self, "FITS Files Loaded", f"Loaded {len(loaded_paths)} file(s):\n\n{names}")
+        elif new_paths:
+            added_names = "\n".join(os.path.basename(p) for p in new_paths)
+            dup_note = f"\n\n({n_duplicates} already loaded, skipped)" if n_duplicates else ""
+            QMessageBox.information(
+                self, "FITS Files Loaded",
+                f"Added {len(new_paths)} file(s):\n\n{added_names}{dup_note}\n\n"
+                f"{len(self.loaded_batch_fits_paths)} total loaded."
+            )
+        elif n_duplicates:
+            QMessageBox.information(self, "Already Loaded", "All selected file(s) were already loaded.")
 
     def load_contaminating_lines_for_batch(self):
         """Lines can span several different FITS files/ranges at once. Lines already filtered
