@@ -2,69 +2,65 @@
 Data loading and processing functions for different telescopes
 """
 
+import tempfile
+import gc
+import os
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
-import astropy.units as u
-from .utils import TELESCOPE_LOADERS, detect_instrument
+from .utils import TELESCOPE_LOADERS, detect_instrument, infer_spec_axis, get_wavelength
 
 class CubeData:
     """
     A class to handle loading and processing of 3D spectral data cubes from FITS files.
     
-    This class supports various instruments including MUSE, ALMA, MIRI, and NIRSpec.
+    This class supports MUSE, MIRI and NIRSpec.
     It handles memory-mapped access to large data files and provides methods for
     spectral analysis and coordinate transformations.
 
     Attributes:
-        cube (numpy.ndarray): The 3D data cube, memory mapped when possible
+        cube (array): The 3D data cube, memory mapped when possible
         header (astropy.io.fits.Header): FITS header containing metadata
-        wavelength (astropy.units.Quantity): Array of wavelength/velocity values with units
-        wave_unit (str): String representation of wavelength/velocity unit (Å, µm, or km/s)
+        wavelength (astropy.units.Quantity): Array of wavelength values with units
+        wave_unit (str): String representation of wavelength/velocity unit (Å, µm)
         spec_axis (int): Index of the spectral axis (typically 0)
-        spectrum (numpy.ndarray): Full cube spectrum (sum over spatial dimensions)
+        spectrum (array): Full cube spectrum (sum over spatial dimensions)
         wcs (astropy.wcs.WCS): World Coordinate System for coordinate transforms
         instrument (str): Detected instrument name
+        filename (str): FITS file name
+        flux_unit (str): String representation of flux unit (erg/cm**2*s*Å, MJy/sr)
     """
+
+
     def __init__(self):
         # Initialize all attributes as None/empty
-        self.cube = None  # The main 3D data array
-        self.header = None  # FITS header
-        self.wavelength = None  # Spectral coordinate array as astropy Quantity
-        self.wave_unit = ""  # String representation of spectral axis units
-        self.spec_axis = 0  # Which axis contains spectral information
-        self.spectrum = None  # Integrated spectrum
-        self.wcs = None  # WCS object for coordinate transforms
-        self.instrument = None  # Name of instrument
-        self.filename = None  # Path to the loaded FITS file
-        self.flux_unit = ""  # String representation of flux unit from BUNIT header
+        self.cube = None
+        self.header = None
+        self.wavelength = None
+        self.wave_unit = ""
+        self.spec_axis = 0
+        self.spectrum = None
+        self.wcs = None
+        self.instrument = None
+        self.filename = None
+        self.flux_unit = ""
+
 
     def load_from_file(self, filename):
         """
         Load and process a FITS data cube from a file.
 
-        This method:
-        1. Opens the FITS file using memory mapping
-        2. Detects the instrument type from headers
-        3. Loads data using appropriate instrument-specific loader
-        4. Converts data to float32 to save memory while preserving precision
-        5. Sets up WCS and wavelength information
-        6. Computes the integrated spectrum
-
         Args:
             filename (str): Path to the FITS file to load
 
         Returns:
-            bool: True if loading was successful
+            success (bool): True if loading was successful
 
         Raises:
             ValueError: If instrument cannot be detected or data shape is invalid
             Exception: If any other error occurs during loading
-
-        Note:
-            Uses memory mapping when possible to handle large files efficiently.
-            Automatically orients spectral axis to index 0 for consistent processing.
         """
+
         try:
             # Store the filename for later use
             self.filename = filename
@@ -74,75 +70,26 @@ class CubeData:
             
             # Detect instrument
             self.instrument = detect_instrument(self.hdul)
-            
-            # If detect_instrument fails, try reading INSTRUME directly from header
-            if self.instrument is None:
-                # Try to get INSTRUME value directly from any HDU
-                for hdu in self.hdul:
-                    if 'INSTRUME' in hdu.header:
-                        instrume_val = hdu.header['INSTRUME'].strip().upper()
-                        # Map common INSTRUME values to our known instruments
-                        if 'MUSE' in instrume_val:
-                            self.instrument = 'MUSE'
-                        elif 'ALMA' in instrume_val:
-                            self.instrument = 'ALMA'
-                        elif 'MIRI' in instrume_val:
-                            self.instrument = 'MIRI'
-                        elif 'NIRSPEC' in instrume_val:
-                            self.instrument = 'NIRSpec'
-                        break
-            
+
             if self.instrument is None:
                 raise ValueError("Could not detect instrument from FITS headers")
             
             # Load data using appropriate loader for detected instrument
             self.header, data = TELESCOPE_LOADERS[self.instrument](self.hdul)
 
-            # --- Handle ALMA data ---
-            if self.instrument == "ALMA":
-                print(f"Original ALMA data shape: {data.shape}")  # Debug info
+            # Non-ALMA instruments just squeeze safely
+            data = np.squeeze(data)
 
-                # Case 1: ALMA cubes with leading Stokes axis (1, nchan, nx, ny)
-                if data.ndim == 4 and data.shape[0] == 1:
-                    data = np.squeeze(data, axis=0)   # Remove Stokes dimension
-                    data = np.moveaxis(data, 0, 0)    # (43, 640, 640)
-                    print(f"Reshaped ALMA data (removed Stokes): {data.shape}")
-
-                # Case 2: ALMA cubes with trailing Stokes axis (nx, ny, nchan, 1)
-                elif data.ndim == 4 and data.shape[-1] == 1:
-                    data = np.squeeze(data, axis=-1)  # Remove Stokes dimension
-                    data = np.moveaxis(data, 2, 0)    # (43, 640, 640)
-                    print(f"Reshaped ALMA data (trailing Stokes): {data.shape}")
-
-                # Case 3: Already 3D but spectral axis not first
-                elif data.ndim == 3 and self.header.get("NAXIS3") == data.shape[2]:
-                    data = np.moveaxis(data, 2, 0)
-                    print(f"Reordered 3D ALMA data: {data.shape}")
-
-                else:
-                    print(f"ALMA data already in correct format: {data.shape}")
-
-            else:
-                # Non-ALMA instruments just squeeze safely
-                data = np.squeeze(data)
-                
-            # Handle 2D images (e.g., Gaussian-derived maps) by adding a spectral axis
-            if data.ndim == 2:
-                print(f"Detected 2D image (shape: {data.shape}), converting to single-slice cube")
-                data = data[np.newaxis, :, :]  # Add spectral axis: (1, n_y, n_x)
-                print(f"Converted to 3D: {data.shape}")
-                
             if data.ndim != 3:
-                raise ValueError(f"Expected 3D cube after processing, but got shape {data.shape}")
+                raise ValueError(
+                    f"Expected a 3D spectral cube, but got shape {data.shape}. "
+                    "For 2D FITS images (e.g. parameter/moment maps), use the 2D viewer instead."
+                )
                 
             print(f"Data shape after processing: {data.shape}")  # Debug info
 
             # Convert to float32 to save memory, but keep as memmap
-            if not isinstance(data, np.ndarray) or not data.flags.writeable:
-                # If data is not a writeable array, create a new memmap file
-                import tempfile
-                import os
-                
+            if not isinstance(data, np.ndarray) or not data.flags.writeable:                
                 # Create a temporary memmap file
                 temp_filename = os.path.join(tempfile.gettempdir(), 'cube_data.npy')
                 shape = data.shape
@@ -163,17 +110,21 @@ class CubeData:
             self.wcs = WCS(self.header)
             
             # Set up spectral axis
-            self.spec_axis = self._infer_spec_axis()
+            self.spec_axis = infer_spec_axis(self.header, self.cube.shape)
             if self.spec_axis != 0:
                 # Create a view instead of copying for axis reordering
                 self.cube = np.moveaxis(self.cube, self.spec_axis, 0)
                 # After moving spectral axis to front, update spec_axis
                 self.spec_axis = 0
 
-            # Get wavelength information (returns Quantity with units)
-            wavelength_with_units, self.wave_unit = self._get_wavelength()
-            self.wavelength = wavelength_with_units
-            
+            # Get wavelength information (returns Quantity with units, plus any
+            # instrument-specific metadata to apply onto this instance)
+            wave_info = get_wavelength(self.header, self.instrument, self.cube.shape)
+            self.wavelength = wave_info.pop('wavelength')
+            self.wave_unit = wave_info.pop('unit')
+            for key, value in wave_info.items():
+                setattr(self, key, value)
+
             # Handle wavelength array size mismatch
             if self.wavelength is not None and len(self.wavelength) != self.cube.shape[self.spec_axis]:
                 self.wavelength = self.wavelength[:self.cube.shape[self.spec_axis]]
@@ -191,208 +142,22 @@ class CubeData:
         except Exception as e:
             raise Exception(f"Error reading FITS: {e}")
 
-    def _infer_spec_axis(self):
-        """
-        Determine which axis contains spectral information based on FITS header.
-        
-        Uses NAXIS3 keyword to determine spectral axis placement. This is important
-        because different instruments may store the spectral axis in different positions
-        (e.g., first or last axis).
-
-        Returns:
-            int: Index of spectral axis (0 = first axis, 2 = last axis for 3D cube)
-                 Returns 0 by default if cannot determine from header.
-
-        Note:
-            Convention: FITS axis j corresponds to numpy axis data.ndim - j
-        """
-        try:
-            if self.instrument == "ALMA":
-                # For ALMA, we've already moved spectral axis to front during loading
-                return 0
-                
-            naxis3 = self.header.get('NAXIS3', None)
-            if naxis3 is not None:
-                print(f"Checking spectral axis: NAXIS3={naxis3}, cube shape={self.cube.shape}")  # Debug info
-                if naxis3 == self.cube.shape[0]:
-                    return 0
-                elif naxis3 == self.cube.shape[-1]:
-                    return self.cube.ndim - 1
-        except Exception as e:
-            print(f"Error inferring spectral axis: {e}")  # Debug info
-        return 0
-
-    def _get_wavelength(self):
-        """
-        Calculate wavelength/velocity array from FITS header based on instrument type.
-
-        Uses instrument-specific calculations and checks CTYPE3 to determine proper units:
-        - MUSE: Wavelength in Angstroms (Å) as astropy Quantity
-        - ALMA: Velocity (km/s) or frequency converted to velocity as astropy Quantity
-        - MIRI/NIRSpec: Wavelength in microns (µm) as astropy Quantity
-
-        Uses standard FITS keywords:
-        - CTYPE3: Axis type (e.g., WAVE, FREQ, VRAD)
-        - CRVAL3: Reference value
-        - CRPIX3: Reference pixel
-        - CDELT3/CD3_3: Step size/transformation matrix
-        - CUNIT3: Unit specification (if present)
-
-        Returns:
-            tuple: (wavelength_quantity, unit_string)
-                wavelength_quantity: astropy.units.Quantity with wavelength and attached units
-                unit_string: "Å" for Angstroms, "µm" for microns, or "km/s" for velocity
-
-        Note:
-            Returns (None, "") if wavelength calculation fails
-        """
-        try:
-            # Handle 2D images (no spectral axis) - create dummy wavelength
-            if self.cube.shape[0] == 1:
-                print("2D image detected: creating single dummy wavelength point")
-                return np.array([0.0]) * u.dimensionless_unscaled, "pixel"
-            
-            # Get axis type
-            ctype3 = self.header.get("CTYPE3", "").strip().upper()
-            
-            if self.instrument == "MUSE":
-                # Verify MUSE wavelength axis configuration
-                if (self.header.get("CTYPE3", "").strip().upper() == "AWAV" and 
-                    self.header.get("CUNIT3", "").strip().upper() == "ANGSTROM"):
-                    
-                    # Get wavelength calibration
-                    crval3 = float(self.header["CRVAL3"])  # Starting wavelength
-                    crpix3 = float(self.header["CRPIX3"])  # Reference pixel
-                    cd33 = float(self.header["CD3_3"])     # Step size
-                    n_slices = int(self.header["NAXIS3"])  # Number of slices
-                    
-                    # Calculate wavelength array
-                    wavelengths = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cd33
-                    
-                    # Store uncertainty if available
-                    if "CRDER3" in self.header:
-                        self.wave_error = float(self.header["CRDER3"])
-                    
-                    # Store flux units for display
-                    self.flux_unit = self.header.get("BUNIT", "")
-                    
-                    return wavelengths * u.AA, "Å"
-                else:
-                    raise ValueError("Unexpected MUSE wavelength axis configuration")
-
-            elif self.instrument == "ALMA":
-                # Get spectral axis parameters
-                crval3 = float(self.header["CRVAL3"])
-                cdelt3 = float(self.header["CDELT3"])
-                crpix3 = float(self.header["CRPIX3"])
-                n_slices = int(self.header["NAXIS3"])
-                
-                print(f"ALMA spectral axis parameters:")  # Debug info
-                print(f"CRVAL3={crval3}, CDELT3={cdelt3}, CRPIX3={crpix3}, NAXIS3={n_slices}")
-                print(f"Current cube shape: {self.cube.shape}")
-                
-                # Store beam information for flux calculations
-                self.beam_maj = float(self.header.get("BMAJ", 0.0))
-                self.beam_min = float(self.header.get("BMIN", 0.0))
-                self.beam_pa = float(self.header.get("BPA", 0.0))
-                self.flux_unit = self.header.get("BUNIT", "Jy/beam")
-                
-                if 'FREQ' in ctype3:
-                    # Get frequencies
-                    freq = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
-                    rest_freq = float(self.header.get("RESTFRQ", self.header.get("RESTFREQ", 0.0)))
-                    
-                    if rest_freq > 0:
-                        c = 2.99792458e5  # speed of light in km/s
-                        # Check velocity reference frame
-                        velref = self.header.get("VELREF", 0)
-                        radio_vel = (velref & 256) > 0  # Check if radio velocity convention
-                        
-                        if radio_vel:
-                            # Radio velocity convention (appropriate for ALMA)
-                            velocities = c * (1.0 - freq/rest_freq)
-                        else:
-                            # Optical velocity convention
-                            velocities = c * (rest_freq/freq - 1.0)
-                            
-                        # Store reference frame information
-                        self.velocity_frame = self.header.get("SPECSYS", "LSRK")
-                    else:
-                        raise ValueError("Rest frequency not found in header")
-                else:
-                    # Handle direct velocity specification
-                    velocities = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
-                    if self.header.get("CUNIT3", "").strip().upper() == "M/S":
-                        velocities /= 1000.0  # convert to km/s
-
-                return velocities * u.km / u.s, "km/s"
-
-            elif self.instrument in ["MIRI", "NIRSpec"]:
-                # Handle JWST IFU data
-                if "SCI" not in self.hdul:
-                    # Look for SCI extension
-                    sci_ext = None
-                    for i, hdu in enumerate(self.hdul):
-                        if hdu.name == "SCI":
-                            sci_ext = i
-                            break
-                    if sci_ext is None:
-                        raise ValueError("No SCI extension found in JWST data")
-                    self.header = self.hdul[sci_ext].header
-                
-                # Get wavelength solution
-                crval3 = float(self.header["CRVAL3"])
-                cdelt3 = float(self.header["CDELT3"])
-                crpix3 = float(self.header["CRPIX3"])
-                n_slices = int(self.header["NAXIS3"])
-                
-                # Check units and convert if needed
-                cunit3 = self.header.get("CUNIT3", "").strip().upper()
-                wavelengths = crval3 + (np.arange(1, n_slices + 1) - crpix3) * cdelt3
-                
-                # Store MJD for potential time-series analysis
-                self.mjd_avg = float(self.header.get("MJD-AVG", 0.0))
-                self.exposure_time = float(self.header.get("XPOSURE", 0.0))
-                
-                # Store flux units (typically MJy/sr for JWST)
-                self.flux_unit = self.header.get("BUNIT", "MJy/sr")
-                
-                # Convert wavelengths to microns if needed
-                if cunit3 == "ANGSTROM" or "ANGSTROM" in ctype3:
-                    wavelengths /= 10000  # convert to microns
-                elif cunit3 == "NM" or "NANOMETER" in ctype3:
-                    wavelengths /= 1000  # convert to microns
-                elif cunit3 == "M":
-                    wavelengths *= 1e6  # convert to microns
-                
-                # Store aperture position angle for orientation
-                self.pa_aper = float(self.header.get("PA_APER", 0.0))
-                
-                return wavelengths * u.um, "µm"
-                
-        except Exception as e:
-            print(f"Error calculating wavelength array: {e}")
-            return None * u.dimensionless_unscaled, ""
 
     def _compute_spectrum(self):
         """
         Compute the total spectrum by summing over spatial dimensions.
 
-        Processes data in chunks to handle large cubes efficiently:
-        1. Divides spectral axis into manageable chunks
-        2. Loads and processes each chunk separately
-        3. Combines results into final spectrum
+        Args:
+            None
 
         Returns:
-            numpy.ndarray: 1D array containing the summed spectrum
+            spectrum (array): 1D array containing the summed spectrum
                           Returns zeros if computation fails
 
-        Note:
-            - Uses chunked processing to minimize memory usage
-            - Handles memory-mapped arrays appropriately
-            - Returns zeros if spectrum contains all NaN values
-            - Automatically handles different spectral axis positions
+        Raises:
+            Exception: Exception: If any error occurs during copmutation
         """
+
         if self.cube is None:
             return None
             
@@ -428,6 +193,7 @@ class CubeData:
             print(f"Error computing spectrum: {e}")
             return np.zeros(n_spectral, dtype='float32')
 
+
     def get_slice(self, idx):
         """
         Extract a 2D slice from the data cube at a specific spectral index.
@@ -439,14 +205,13 @@ class CubeData:
             numpy.ndarray: 2D array of the extracted slice, dtype=float32
                          None if extraction fails
 
-        Note:
-            - Handles different spectral axis positions automatically
-            - Returns a copy of the data to avoid memory mapping issues
-            - Converts to float32 for consistent numerical precision
+        Raises:
+            Exception: If any error occurs during calculations
         """
+
         try:
             if self.spec_axis == 0:
-                return np.array(self.cube[idx], dtype=np.float32)
+                return np.array(self.cube[idx], dtype=np.float32)  # float32 for consistency
             else:
                 slicing = [slice(None)] * self.cube.ndim
                 slicing[self.spec_axis] = idx
@@ -455,15 +220,10 @@ class CubeData:
             print(f"Error getting slice: {e}")
             return None
 
+
     def get_coords(self, x, y, instrument=None):
         """
         Convert pixel coordinates to sky coordinates (RA/DEC).
-
-        Implements instrument-specific coordinate transformations:
-        - MUSE: Uses CD matrix transformation
-        - ALMA: Uses CDELT/CROTA-based transformation
-        - MIRI/NIRSpec: Uses WCS or falls back to manual calculation
-        - Other: Attempts WCS transformation if available
 
         Args:
             x (float): X pixel coordinate (0-based)
@@ -471,14 +231,11 @@ class CubeData:
             instrument (str, optional): Override detected instrument type
 
         Returns:
-            tuple: (ra, dec) in degrees
+            tuple (tuple): (ra, dec) in degrees
                   Both values None if transformation fails
 
-        Note:
-            - Uses appropriate transformation for each instrument
-            - Handles rotation and scaling correctly
-            - Falls back to WCS when available
-            - Accounts for different coordinate conventions
+        Raises:
+            Exception: If any error occurs during calculations
         """
         instrument = instrument or self.instrument
         ra = dec = None
@@ -503,27 +260,8 @@ class CubeData:
                 ra = crval1 + dra
                 dec = crval2 + ddec
 
-            elif instrument == "ALMA":
-                crval1 = float(self.header["CRVAL1"])
-                crval2 = float(self.header["CRVAL2"])
-                cdelt1 = float(self.header["CDELT1"])
-                cdelt2 = float(self.header["CDELT2"])
-                crpix1 = float(self.header["CRPIX1"])
-                crpix2 = float(self.header["CRPIX2"])
-                crota = float(self.header.get("CROTA2", 0.0))
-
-                theta = np.deg2rad(crota)
-                dx = x + 1 - crpix1
-                dy = y + 1 - crpix2
-
-                dra = dx * cdelt1 * np.cos(theta) - dy * cdelt2 * np.sin(theta)
-                ddec = dx * cdelt1 * np.sin(theta) + dy * cdelt2 * np.cos(theta)
-
-                ra = crval1 + dra
-                dec = crval2 + ddec
-
             elif instrument in ["MIRI", "NIRSpec"]:
-                if hasattr(self, "wcs"):
+                if self.wcs is not None:
                     ra, dec = self.wcs.all_pix2world([[x, y]], 0)[0]
                 else:
                     crpix1 = float(self.header.get("CRPIX1", 0.0))
@@ -544,7 +282,7 @@ class CubeData:
                     ra = crval1 + dra
                     dec = crval2 + ddec
 
-            elif hasattr(self, "wcs"):
+            elif self.wcs is not None:
                 ra, dec = self.wcs.all_pix2world([[x, y]], 0)[0]
 
         except Exception as e:
@@ -552,33 +290,23 @@ class CubeData:
 
         return ra, dec
 
+
     def compute_region_spectrum(self, mask):
         """
         Compute mean spectrum for pixels inside a given mask.
         
-        Processes the cube in chunks to handle large datasets efficiently:
-        1. Validates mask dimensions
-        2. Counts valid pixels in mask
-        3. Processes spectral chunks
-        4. Computes mean spectrum across masked region
-
         Args:
-            mask (numpy.ndarray): Boolean mask of same size as spatial dimensions
+            mask (array): Boolean mask of same size as spatial dimensions
                                 True values indicate pixels to include
 
         Returns:
-            numpy.ndarray: 1D array containing mean spectrum of masked region
+            spectrum (array): 1D array containing mean spectrum of masked region
                          Returns zeros if computation fails or no valid pixels
 
         Raises:
             ValueError: If mask dimensions don't match data
-
-        Note:
-            - Uses chunked processing for memory efficiency
-            - Handles memory mapping appropriately
-            - Returns averaged spectrum (divide by number of pixels)
-            - Works with any spectral axis position
         """
+
         # Expect spectral axis to be first (0). If not, move it temporarily.
         if self.cube is None:
             return None
@@ -623,28 +351,23 @@ class CubeData:
             print(f"Error computing region spectrum: {e}")
             return np.zeros(n_spectral, dtype='float32')
 
+
     def get_pixel_spectrum(self, x, y):
         """
         Extract spectrum for a single pixel from the data cube.
-
-        This is a specialized and optimized version of region spectrum extraction
-        for the common case of single pixel selection. It avoids the overhead
-        of mask creation and region computation.
 
         Args:
             x (int): X pixel coordinate (0-based)
             y (int): Y pixel coordinate (0-based)
 
         Returns:
-            numpy.ndarray: 1D array containing the pixel's spectrum in float32
+            spectrum (array): 1D array containing the pixel's spectrum in float32
                          None if extraction fails
 
-        Note:
-            - Faster than compute_region_spectrum for single pixels
-            - Handles any spectral axis position
-            - Returns a copy to avoid memory mapping issues
-            - Uses fallback methods if simple indexing fails
+        Raises:
+            Exception: If any error occurs during calculations
         """
+
         if self.cube is None:
             return None
 
@@ -672,29 +395,21 @@ class CubeData:
             print(f"Error getting pixel spectrum: {e}")
             return None
 
+
     def free_memory(self):
         """
         Clean up resources and free memory.
 
-        This method performs comprehensive cleanup:
-        1. Closes open FITS files
-        2. Deletes any temporary memory-mapped files
-        3. Removes references to large data arrays
-        4. Forces garbage collection
-
-        Should be called when:
-        - Loading a new file
-        - Closing the application
-        - Memory needs to be freed
-
-        Note:
-            - Safe to call multiple times
-            - Handles missing attributes gracefully
-            - Removes temporary files even if program crashes
+        Args:
+            None
+        
+        Returns:
+            None
+        
+        Raises:
+            AttributeError: Warning during cleanup
+            OSError: Warning during cleanup
         """
-        import gc
-        import os
-        import tempfile
         
         try:
             # Close FITS file if open
