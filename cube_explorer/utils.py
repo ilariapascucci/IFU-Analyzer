@@ -4,7 +4,7 @@ Utility functions and constants for the Cube Explorer
 
 import numpy as np
 import astropy.units as u
-from .unit_converter import convert_wavelength_array
+from .unit_converter import convert_wavelength
 
 
 def _merge_primary_into_sci(hdul, sci_key):
@@ -255,7 +255,7 @@ def get_wavelength(header, instrument, cube_shape):
                 source_unit = "m"
             else:
                 source_unit = "um"
-            wavelengths = convert_wavelength_array(wavelengths, source_unit, "um")
+            wavelengths = convert_wavelength(wavelengths, source_unit, "um")
 
             return {'wavelength': wavelengths * u.um, 'unit': "µm", **extra}
 
