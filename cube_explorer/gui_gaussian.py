@@ -7,7 +7,7 @@ from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
-from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
+from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
 
 # Below this many samples in the fit window, a 1D fit will not run without a noise
 # region. The noise value itself does not enter the fit; the gate exists because a
@@ -502,30 +502,34 @@ STATUS: {result.message}
                     fit_median = np.nanmedian(np.concatenate([fit['result'].y_data for fit in fit_results]))
                     norm_factor = fit_median if fit_median > 0 else 1.0
         
-        # result.x_data/y_fit span this line's whole shared chunk -- correct for the fit
-        # itself (see co_flux_extractor.py's _local_fit_record), but every line sharing a
-        # chunk gets the identical full-chunk curve, so drawing all of it would stack
-        # several lines' curves directly on top of each other -- and for a chunk holding a
-        # contaminant, its grey curve (drawn last) would blot out its red CO neighbors
-        # entirely. Cropping to this line's own local peak for drawing only fixes that;
-        # the flux/R2 shown elsewhere still come from the real, full-chunk fit underneath.
-        def _local_crop(result, baseline_norm, y_fit_norm):
-            local_mask = np.abs(result.x_data - result.center) <= 3 * abs(result.sigma)
-            return result.x_data[local_mask], baseline_norm[local_mask], y_fit_norm[local_mask]
+        # Own Gaussian only (not the full chunk sum, so a close neighbor never bleeds
+        # in), on a fine grid (not just real pixels, so shading matches reported flux).
+        # Cropped to DISPLAY_CROP_SIGMA_MULTIPLIER -- same footprint as before.
+        def _own_curve(result):
+            x_data = result.x_data
+            model = result.y_fit_own if result.y_fit_own is not None else result.y_fit
+            y_abs = (np.asarray(model) + result.baseline) / norm_factor
+            own_gaussian = gaussian(x_data, result.amplitude, result.center, result.sigma)
+            base_abs = y_abs - own_gaussian / norm_factor
+            half_width = DISPLAY_CROP_SIGMA_MULTIPLIER * abs(result.sigma)
+            lo = max(x_data.min(), result.center - half_width)
+            hi = min(x_data.max(), result.center + half_width)
+            if hi <= lo:
+                return x_data, base_abs, y_abs
+            x_fine = np.linspace(lo, hi, 150)
+            base_fine = np.interp(x_fine, x_data, base_abs)
+            fit_fine = base_fine + gaussian(x_fine, result.amplitude, result.center, result.sigma) / norm_factor
+            return x_fine, base_fine, fit_fine
 
         for idx, fit_info in enumerate(fit_results):
             result = fit_info['result']
-            baseline_norm = result.baseline / norm_factor
-            y_fit_norm = result.y_fit / norm_factor
-
-            if idx == 0:
-                baseline_line, = ax.plot(result.x_data, baseline_norm, 'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=10)
-                self.multi_gauss_artists.append(baseline_line)
-
-            x_local, base_local, fit_local = _local_crop(result, baseline_norm, y_fit_norm)
-            gauss_line, = ax.plot(x_local, base_local + fit_local, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit' if idx == 0 else '', zorder=11)
-            fill = ax.fill_between(x_local, base_local, base_local + fit_local, color='red', alpha=0.2, zorder=9)
-            self.multi_gauss_artists.extend([gauss_line, fill])
+            x_local, base_local, fit_local = _own_curve(result)
+            baseline_line, = ax.plot(x_local, base_local, 'k--', linewidth=2, alpha=0.7,
+                                      label='Baseline' if idx == 0 else '', zorder=10)
+            gauss_line, = ax.plot(x_local, fit_local, 'r-', linewidth=3, alpha=0.9,
+                                   label='Gaussian Fit' if idx == 0 else '', zorder=11)
+            fill = ax.fill_between(x_local, base_local, fit_local, color='red', alpha=0.2, zorder=9)
+            self.multi_gauss_artists.extend([baseline_line, gauss_line, fill])
 
         # Contaminating lines get their own distinctly-colored curve -- these aren't part of
         # the requested fit_results, so drawing them in red alongside real hits would make it
@@ -534,17 +538,14 @@ STATUS: {result.message}
         for contam_info in (contam_results or []):
             result = contam_info['result']
             species = contam_info['line'].get('species', 'Contaminant')
-            baseline_norm = result.baseline / norm_factor
-            y_fit_norm = result.y_fit / norm_factor
-
             label = f"Contaminant ({species})" if species not in seen_species else ''
             seen_species.add(species)
-            x_local, base_local, fit_local = _local_crop(result, baseline_norm, y_fit_norm)
+            x_local, base_local, fit_local = _own_curve(result)
             # Outline only, no fill -- enough to show "this peak is accounted for and it isn't
             # CO" without visually competing with the red fill for the requested lines. Grey
             # (rather than red) mirrors the black/dimgray marker used for this same
             # contaminant on the spectrum before fitting.
-            contam_line, = ax.plot(x_local, base_local + fit_local, color='dimgray', linewidth=2, alpha=1.0, label=label, zorder=12)
+            contam_line, = ax.plot(x_local, fit_local, color='dimgray', linewidth=2, alpha=1.0, label=label, zorder=12)
             self.multi_gauss_artists.append(contam_line)
 
         ax.legend(loc='upper right', fontsize=8)

@@ -45,12 +45,13 @@ from .unit_converter import (
     extract_units,
 )
 
-# The one number that decides how wide a line's fit window is, in multiples of its own
-# instrumental sigma (see fit_hitran_lines_collective's docstring for where 7 comes from).
-# Every place that needs that window -- the fit itself, what gets plotted, the water-line
-# contamination check in gui_rotational_diagram.py -- reads this same constant (or the
-# window it produces) instead of hardcoding its own copy, so none of them can drift apart.
+# Real fit-window half-width, in multiples of instrumental sigma. Used everywhere the
+# actual fit window matters, so it can't drift between call sites.
 DEFAULT_SIGMA_MULTIPLIER = 7.0
+
+# Display/diagnostic-only crop (how far past center to draw/measure a line's own curve).
+# Never affects the fit or the reported flux.
+DISPLAY_CROP_SIGMA_MULTIPLIER = 3.0
 
 # ================== Unit Utilities ==================
 
@@ -716,6 +717,9 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                 y_fit_local = a + b * (x_local - min_freq_chunk)
                 for jj in range(0, len(par), 3):
                     y_fit_local = y_fit_local + gaussian(x_local, par[jj], par[jj + 1], par[jj + 2])
+                # Same local linear term, but only this line's own Gaussian -- for a
+                # per-line plot that shouldn't draw a neighbor sharing this chunk.
+                y_fit_own = a + b * (x_local - min_freq_chunk) + gaussian(x_local, amp_i, cen_i, sig_i)
                 return {
                     'wavelength': cat_wave, 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
                     'area': amp_i * sig_i * np.sqrt(2 * np.pi),
@@ -736,6 +740,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                     'catalog_sigma': catalog_sigma_i,
                     'noise_std': noise_std_chunk,
                     'x_data': x_local, 'y_data': y_local, 'y_fit': y_fit_local,
+                    'y_fit_own': y_fit_own,
                     'success': True, 'message': 'Success',
                 }
 
@@ -1049,10 +1054,10 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             area_unit = f"{flux_unit}·{unit.lower() if unit else 'UNKNOWN'}"
         # R2 from THIS line's own local peak, not the whole shared chunk fit['y_data']/
         # residuals span (possibly several lines) -- otherwise every line sharing a chunk
-        # reports the identical number, labeled per-line but not one. Same +/-3*sigma
-        # local window the multi-line plot crops to (gui_gaussian.py), same reason.
+        # reports the identical number, labeled per-line but not one. Same display-crop
+        # window the multi-line plot crops to (gui_gaussian.py), same reason.
         # `residuals` itself stays full-chunk and aligned with x_data/y_data/y_fit.
-        local_mask = np.abs(fit['x_data'] - fit['center']) <= 3 * abs(fit['sigma'])
+        local_mask = np.abs(fit['x_data'] - fit['center']) <= DISPLAY_CROP_SIGMA_MULTIPLIER * abs(fit['sigma'])
         local_res, local_y = residuals[local_mask], fit['y_data'][local_mask]
         ss_res = np.sum(local_res ** 2)
         ss_tot = np.sum((local_y - np.mean(local_y)) ** 2)
@@ -1069,6 +1074,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             r_squared=r_squared, success=True, message=message,
             amplitude_error=fit.get('amplitude_error'), sigma_error=fit.get('sigma_error'),
             catalog_sigma=fit.get('catalog_sigma'), noise_std=fit.get('noise_std'),
+            y_fit_own=fit.get('y_fit_own'),
         )
 
     results = [None] * len(hitran_lines)

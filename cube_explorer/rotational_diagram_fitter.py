@@ -8,9 +8,11 @@ from scipy.optimize import curve_fit
 import pymc as pm
 import nutpie
 import arviz as az
+from hapi import partitionSum
 
 from .unit_converter import integrated_flux_to_cgs
 from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
+from .line_catalog import get_available_molecules
 
 '''
 CONSTANTS
@@ -26,6 +28,14 @@ au = 1.496e13  # cm
 pc = 3.086e18  # cm
 
 _PYMC_RANDOM_SEED = 42  # PyMC random seed for deterministic approach
+
+# Steepness of the upper-limit barrier in upper_limit_1T/upper_limit_2T (see
+# their docstrings) -- has no physical meaning, purely a "how hard do we
+# punish crossing the limit" dial for the sampler. Empirically (real MIRI H2
+# data, K swept 1e-3 to 1e6): values <~10-100 don't actually enforce the
+# limit at all; values >~1e5 blow up divergences. 1e3 sits mid-plateau, well
+# clear of both failure edges, with the fit result flat across that plateau.
+UL_BARRIER_K = 1e3
 
 # Systematic flux-calibration error floor (Pascucci): the statistical fit error alone
 # understates the true flux uncertainty, since it says nothing about instrument
@@ -108,18 +118,62 @@ def apply_OPR(Nu, J, OPR):
     return Nu / (f_ortho if is_ortho(J) else f_para)
 
 
-def Q_Herbst(T):
-    """Herbst partition function for H2"""
-    return 0.0247 * T / (1 - np.exp(-6000/T))
+#def Q_Herbst(T):
+#    """Herbst partition function for H2"""
+#    return 0.0247 * T / (1 - np.exp(-6000/T))
 
 
-def Q_Herbst_err(T, T_err):
-    """Error on partition function"""
-    a = 6000.0
-    c = 0.0247
-    ea = np.exp(-a/T)
-    dQdT = c * (1/(1-ea) - (a*ea)/(T*(1-ea)**2))
-    return np.abs(dQdT) * T_err
+#def Q_Herbst_err(T, T_err):
+#    """Error on partition function"""
+#    a = 6000.0
+#    c = 0.0247
+#    ea = np.exp(-a/T)
+#    dQdT = c * (1/(1-ea) - (a*ea)/(T*(1-ea)**2))
+#    return np.abs(dQdT) * T_err
+
+
+def partition_function(T, molecule='H2', isotopologue=1):
+    """
+    Total internal partition function Q(T), from HITRAN's own TIPS-2021 data via
+    HAPI's partitionSum() -- the same q<global_id>.txt tables published at
+    hitran.org/data/Q/, generalized here to any molecule (not H2-specific).
+
+    Args:
+        T (float): Temperature in K
+        molecule (str): Species name, per get_available_molecules()
+        isotopologue (int): HITRAN isotopologue number
+
+    Returns:
+        Q (float): Partition function value at T
+
+    Raises:
+        ValueError: if molecule isn't in get_available_molecules()
+    """
+
+    M = get_available_molecules().get(molecule)
+    if M is None:
+        raise ValueError(f"Unknown molecule '{molecule}' -- not in get_available_molecules().")
+    return partitionSum(M, isotopologue, T)
+
+
+def partition_function_err(T, T_err, molecule='H2', isotopologue=1):
+    """
+    Propagated error on partition_function() from a temperature uncertainty, via a
+    central finite difference (HAPI's partitionSum() has no analytic derivative).
+
+    Args:
+        T (float): Temperature in K
+        T_err (float): Uncertainty on T
+        molecule (str): Species name, per get_available_molecules()
+        isotopologue (int): HITRAN isotopologue number
+
+    Returns:
+        dQ (float): Propagated uncertainty on Q(T)
+    """
+    eps = max(0.1, abs(T) * 1e-5)
+    dQdT = (partition_function(T + eps, molecule, isotopologue)
+            - partition_function(T - eps, molecule, isotopologue)) / (2 * eps)
+    return abs(dQdT) * T_err
 
 
 def model_1T(E, a, T):
@@ -305,6 +359,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             "y_data": fit_result.y_data,
             "baseline": fit_result.baseline,
             "y_fit": fit_result.y_fit,
+            "y_fit_own": fit_result.y_fit_own,
             "center": fit_result.center,
             "sigma": fit_result.sigma,
             "fwhm": fit_result.fwhm,
@@ -315,7 +370,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
 
 
 # ==========================================================
-# CENSORED MODELS (ONLY USED IF ENABLED)
+# UPPER-LIMIT MODELS (ONLY USED IF ENABLED)
 # ==========================================================
 def _print_pymc_diagnostics(trace, var_names):
     """Show PyMC stats in GUI"""
@@ -338,7 +393,7 @@ def _nutpie_progress_callback(label, progress_callback=None):
 
     nutpie's own progress_callback shape -- a list of PyChainProgress (one per
     chain), each with finished_draws/total_draws/tuning -- rather than PyMC's
-    default per-draw (trace, draw) callback. censored_1T/censored_2T call
+    default per-draw (trace, draw) callback. upper_limit_1T/upper_limit_2T call
     nutpie.compile_pymc_model()/nutpie.sample() directly instead of going through
     pm.sample(nuts_sampler='nutpie', callback=...): that wrapper silently drops
     the callback argument, which is why progress reporting went dark before this
@@ -363,31 +418,25 @@ def _nutpie_progress_callback(label, progress_callback=None):
     return callback
 
 
-def censored_1T(E, y, yerr, is_ul, progress_callback=None):
-    """Bayesian 1-temperature rotational diagram fit with censored upper limits.
-    
+def upper_limit_1T(E, y, yerr, is_ul, progress_callback=None, t_cap=3000):
+    """Bayesian 1-temperature rotational diagram fit with hard upper-limit bounds.
+
     Uses PyMC to handle mixed detections and upper limits:
     - Detections: fit normally with likelihood
-    - Upper limits: one-sided constraint (F < F_ul)
+    - Upper limits: steep one-sided barrier (mu must stay at/below the limit),
+      not a soft Censored likelihood -- see UL_BARRIER_K.
     """
     is_ul = np.asarray(is_ul, dtype=bool)
     # mask = True for detections, False for upper limits
     mask = ~is_ul
 
-    # Fallback width for upper-limit points that don't have their own propagated
-    # error (currently always, since _build_dataset places 0.0 there) -- the mean
-    # error of the real detections, at least tied to this dataset's own scale
-    # rather than an arbitrary constant.
-    mean_yerr = np.mean(yerr[mask]) if np.any(mask) else 1.0
-
     with pm.Model() as model:
 
         # PRIORS: log(Ncol) ~ Normal(data mean, sigma=5 dex)
         a = pm.Normal("a", mu=np.mean(y[mask]), sigma=5)
-        # Temperature range: matches curve_fit's own _bounds_1T ceiling (Pascucci's
-        # original notebook bound), so the censored and uncensored fits search the
-        # same space.
-        T = pm.Uniform("T", 10, 3000)
+        # Temperature range: matches curve_fit's own _bounds_1T ceiling, so
+        # this and the plain curve_fit path search the same space.
+        T = pm.Uniform("T", 10, t_cap)
 
         # LINEAR: rotational diagram: ln(N/g) = a - E_u/T
         mu = a - E / T
@@ -395,30 +444,20 @@ def censored_1T(E, y, yerr, is_ul, progress_callback=None):
         # LIKELIHOOD: Fit only the non-upper-limit points.
         pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
-        # LIKELIHOOD FOR UPPER LIMITS
-        # Censored: treat measured value as upper bound. Width comes from this
-        # line's own propagated error when available, else mean_yerr above --
-        # not the old fixed sigma=1.0, which had no relation to this dataset's
-        # actual scale in log(Nu/gu) space.
+        # UPPER-LIMIT BARRIER: zero cost while mu <= the limit, quadratically
+        # expensive the moment it crosses -- unlike a Censored likelihood's
+        # Normal-CDF tail (weakest right at the boundary, exactly where
+        # resistance is needed most), this concentrates the penalty there.
         if np.any(is_ul):
-            ul_sigma = yerr[is_ul] if np.any(yerr[is_ul] > 0) else mean_yerr
-            pm.Censored(
-                "ul",
-                pm.Normal.dist(mu=mu[is_ul], sigma=ul_sigma),
-                # Upper censoring: observed value is upper bound
-                lower=-np.inf,
-                upper=y[is_ul],
-                observed=y[is_ul]
-            )
+            excess = pm.math.maximum(0, mu[is_ul] - y[is_ul])
+            pm.Potential("ul_barrier", -UL_BARRIER_K * pm.math.sum(excess**2))
 
         # SAMPLING: nutpie's own compiled (numba) NUTS sampler instead of PyTensor's
         # own execution path -- there's no C++ compiler on this machine, so PyTensor
-        # falls back to slow, uncompiled Python, and that scales especially badly
-        # with the Censored likelihood's extra graph complexity. Measured ~4-5x
-        # faster end-to-end on real fits here. cores=2 is safe with nutpie (chain
-        # parallelism runs inside its own compiled runtime, not Python
-        # multiprocessing), unlike the Windows process-spawn tax that made cores=2
-        # a net loss for PyMC's own default sampler.
+        # falls back to slow, uncompiled Python. Measured ~4-5x faster end-to-end on
+        # real fits here. cores=2 is safe with nutpie (chain parallelism runs inside
+        # its own compiled runtime, not Python multiprocessing), unlike the Windows
+        # process-spawn tax that made cores=2 a net loss for PyMC's own default sampler.
         if progress_callback is not None:
             # compile_pymc_model() has no sub-progress hook of its own and is
             # usually the dominant chunk of wall time -- (0, 0) tells the GUI to
@@ -446,33 +485,31 @@ def censored_1T(E, y, yerr, is_ul, progress_callback=None):
 
 
 
-def censored_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None):
-    """Bayesian 2-temperature rotational diagram fit with censored upper limits.
-    
+def upper_limit_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None, t_cap=3000):
+    """Bayesian 2-temperature rotational diagram fit with hard upper-limit bounds.
+
     Fits a mixture of two thermal components:
     ln(N/g) = log(exp(a1 - E/T1) + exp(a2 - E/T2))
-    
+
     Args:
-        E, y, yerr, is_ul: same as censored_1T
+        E, y, yerr, is_ul: same as upper_limit_1T
         a1_init, T1_init: initial guesses from 1T fit (for better prior)
     """
     is_ul = np.asarray(is_ul, dtype=bool)
     # mask = True for detections, False for upper limits
     mask = ~is_ul
 
-    mean_yerr = np.mean(yerr[mask]) if np.any(mask) else 1.0
-
     with pm.Model() as model:
 
         # PRIORS:
         # Component 1 = the cooler component
         a1 = pm.Normal("a1", mu=a1_init, sigma=5)           # log(Ncol), cool component
-        T1 = pm.Uniform("T1", 10, 3000)                     # temp, cool component (matches _bounds_2T)
+        T1 = pm.Uniform("T1", 10, t_cap)                    # temp, cool component (matches _bounds_2T)
 
         # Component 2 = the hotter component (T2>T1)
         # Avoid label switching
         a2 = pm.Normal("a2", mu=a1_init-5, sigma=5)         # log(Ncol), hot component
-        T2 = pm.Uniform("T2", T1, 3000)                     # temp, hot component (> T1, matches _bounds_2T)
+        T2 = pm.Uniform("T2", T1, t_cap)                    # temp, hot component (> T1, matches _bounds_2T)
 
         # TWO-TEMPERATURE MODEL: μ = ln(exp(a1 - E/T1) + exp(a2 - E/T2))
         # Numerically-stable log-sum-exp (factor out the larger term before
@@ -486,21 +523,13 @@ def censored_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None):
         # LIKELIHOOD: Fit only detections
         pm.Normal("obs", mu=mu[mask], sigma=yerr[mask], observed=y[mask])
 
-        # LIKELIHOOD FOR UPPER LIMITS
-        # Censored: treat measured value as upper bound. Width comes from this
-        # line's own propagated error when available, else mean_yerr above --
-        # not the old fixed sigma=1.0.
+        # UPPER-LIMIT BARRIER: same steep one-sided penalty as upper_limit_1T --
+        # zero cost while mu <= the limit, quadratically expensive past it.
         if np.any(is_ul):
-            ul_sigma = yerr[is_ul] if np.any(yerr[is_ul] > 0) else mean_yerr
-            pm.Censored(
-                "ul",
-                pm.Normal.dist(mu=mu[is_ul], sigma=ul_sigma),
-                lower=-np.inf,
-                upper=y[is_ul],
-                observed=y[is_ul]
-            )
+            excess = pm.math.maximum(0, mu[is_ul] - y[is_ul])
+            pm.Potential("ul_barrier", -UL_BARRIER_K * pm.math.sum(excess**2))
 
-        # SAMPLING: nutpie's own compiled sampler -- see censored_1T for why.
+        # SAMPLING: nutpie's own compiled sampler -- see upper_limit_1T for why.
         if progress_callback is not None:
             progress_callback(0, 0)
         compiled = nutpie.compile_pymc_model(model)
@@ -620,49 +649,49 @@ def Q_total_err(T, dT, OPR, dOPR=0.0):
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit1T=True, fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None):
+                        fit1T=True, fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None,
+                        molecule='H2', isotopologue=1):
     """
-    Perform rotational diagram analysis on H2 lines.
+    Fit a rotational diagram (1T and/or 2T) to a set of line fluxes. OPR is H2-only
+    nuclear-spin-statistics physics -- applied and fittable only when molecule == 'H2',
+    skipped otherwise (e.g. for CO).
 
     Args:
-        fluxes: Dictionary {J: flux_value} where J is the upper rotational level
-        flux_errors: Dictionary {J: flux_error}
-        molecular_data: Dictionary with 'wavelengths', 'Aul', 'Eu', 'gu' keys
-                       Each value is a dict {J: value}
-        progress_callback: GUI caller (e.g. a QThread worker) can drive a real
-            progress bar instead of only having console prints.
-        OPR: Fixed ortho-para ratio. Used as-is when fit_opr=False (None defaults to
-             3.0, see apply_OPR). Ignored (overwritten by the search result) when
-             fit_opr=True.
-        fit_opr: Whether to grid-search over OPR to minimize chi-squared. The search
-                 always uses plain curve_fit on detections only (upper-limit points are
-                 excluded from the search itself, since curve_fit has no notion of a
-                 one-sided constraint) - the final fit below still uses the full data,
-                 including upper limits via the censored PyMC path when present.
-        opr_grid: OPR values to search over. Defaults to np.linspace(0.1, 5.0, 200).
-        fit1T: Whether to report a 1-temperature fit. The 1T fit is always computed the
-               same way regardless of this flag (2T's own fit needs it as its (a1, T1)
-               seed either way -- see censored_2T/_fit_2T_curvefit); fit1T only controls
-               whether it's added to the returned results for reporting. At least one of
-               fit1T/fit2T must be True.
-        fit2T: Whether to perform 2-temperature fit
-        R: Emitting radius (AU or cm).
-        dist: Distance (pc or cm).
-        upper_limits: Optional dict {J: True} for measurements marked as upper limits.
-                      If present, PyMC censored regression is automatically used for
-                      the final 1T/2T fit.
+        fluxes (dict): {J: flux_value}, J is the upper rotational level
+        flux_errors (dict): {J: flux_error}
+        molecular_data (dict): 'wavelengths', 'Aul', 'Eu', 'gu' keys, each {J: value}
+        OPR (float): Fixed ortho-para ratio (H2 only). None defaults to 3.0
+        fit_opr (bool): Grid-search OPR to minimize chi-squared (H2 only; forced False otherwise)
+        opr_grid (array): OPR values to search. Defaults to np.linspace(0.1, 5.0, 200)
+        fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
+        fit2T (bool): Perform the 2T fit
+        R (float): Emitting radius (AU or cm)
+        dist (float): Distance (pc or cm)
+        upper_limits (dict): {J: True} for measurements marked as upper limits
+        progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
+        molecule (str): Species being fit, per get_available_molecules()
+        isotopologue (int): HITRAN isotopologue number for `molecule`
 
     Returns:
-        Dictionary with fitting results
+        results (dict): Fit results. "OPR"/"OPR_err"/"OPR_err_pos"/"OPR_err_neg" keys
+            are present only when molecule == 'H2'
 
-    Notes:
-        - If no upper limits: uses fast curve_fit (scipy) for the final fit
-        - If upper limits present: automatically uses PyMC censored likelihood for the
-          final fit, but only for whichever of 1T/2T is actually being reported
-        - fit_opr's grid search always uses curve_fit on detections only, regardless of upper_limits
+    Raises:
+        ValueError: if neither fit1T nor fit2T is True
     """
     if not fit1T and not fit2T:
         raise ValueError("At least one of fit1T/fit2T must be True -- nothing to fit.")
+
+    # OPR is H2-only physics -- block it outright here rather than trust every
+    # caller (GUI or API script) to remember not to request it for CO.
+    is_h2 = (molecule == 'H2')
+    if not is_h2:
+        fit_opr = False
+
+    # Upper temperature bound for curve_fit -- arbitrary (no theory behind the
+    # specific number), but CO plausibly reaches hotter rotational temperatures
+    # than H2 typically shows in this kind of fit, so it gets more headroom.
+    t_cap = 4000 if molecule == 'CO' else 3000
 
     global wave, Aul, Eu, gu
 
@@ -686,7 +715,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
             F = fluxes[J]
             Nu_no_opr = compute_Nu(F, wave[J], Aul[J], R, dist)
-            Nu = apply_OPR(Nu_no_opr, J, opr_value)
+            # OPR is H2-only; left as-is otherwise.
+            Nu = apply_OPR(Nu_no_opr, J, opr_value) if is_h2 else Nu_no_opr
             y = np.log(Nu / gu[J])
 
             is_ul = upper_limits is not None and J in upper_limits
@@ -702,11 +732,12 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             is_ul_list.append(is_ul)
 
             # error handling: same dF/F propagation for detections and upper limits
-            # alike whenever a real error is available for J -- an upper limit's own
-            # propagated error becomes its censoring width in censored_1T/censored_2T
-            # (ul_sigma), rather than every upper limit sharing one averaged fallback.
-            # Falls back to 0.0 only when no error at all is available for J (inert as
-            # a censoring width -- censored_1T/2T fall back to mean_yerr in that case).
+            # alike whenever a real error is available for J. Detections' errors feed
+            # their Normal likelihood in upper_limit_1T/upper_limit_2T; an upper
+            # limit's own propagated error isn't used there (the barrier is a hard
+            # bound at the limit's value, not error-weighted) -- kept here anyway for
+            # consistency/possible display use. Falls back to 0.0 when no error is
+            # available for J.
             if J in flux_errors:
                 dF = flux_errors[J]
                 dNu = Nu * (dF / F)
@@ -723,19 +754,19 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
     # ==========================================================
     # Bounded curve_fit helpers (used for both the OPR grid search and the
-    # final fit whenever PyMC/censored regression isn't required)
+    # final fit whenever PyMC/upper-limit handling isn't required)
     # ==========================================================
     def _bounds_1T(y_arr):
         """Return bounds for the single-temperature model."""
         return ([np.min(y_arr), 10],
-                [np.max(y_arr) + 10, 3000])
+                [np.max(y_arr) + 10, t_cap])
 
     def _bounds_2T(y_arr):
         """Return bounds for the two-temperature model."""
         lo = np.min(y_arr)
         hi = np.max(y_arr) + 10
         return ([lo, 10, lo, 10],
-                [hi, 3000, hi, 3000])
+                [hi, t_cap, hi, t_cap])
 
     def _fit_1T_curvefit(E, y, y_err):
         """Perform a single-temperature fit and return (popt, pcov)."""
@@ -775,9 +806,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     def _compute_chi2(E_arr, y_arr, y_err, is_ul_mask, use_2T):
         """Return chi-squared for a quick fit (1T or 2T), fit on detections only.
 
-        Upper-limit points are excluded here (curve_fit has no censored/one-sided
-        likelihood) - they're only reintroduced in the final fit below, via the
-        censored PyMC path.
+        Upper-limit points are excluded here (curve_fit has no one-sided
+        constraint of its own) - they're only reintroduced in the final fit
+        below, via the PyMC upper-limit-barrier path.
         """
         keep = ~is_ul_mask  # only consider non-upper limits here
         E_d, y_d, y_err_d = E_arr[keep], y_arr[keep], y_err[keep]
@@ -800,6 +831,16 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         residuals = (y_d - model_vals) / np.maximum(y_err_d, 1e-10)
         return np.sum(residuals**2)
+
+    def _derive_column(a, da, T, dT):
+        """Convert log-intercept to total column density with uncertainty."""
+        Ncol = np.exp(a)
+        dNcol = Ncol * da
+        Ntot = Ncol * partition_function(T, molecule, isotopologue)
+        dNtot = Ntot * np.sqrt(
+            (dNcol / Ncol) ** 2
+            + (partition_function_err(T, dT, molecule, isotopologue) / partition_function(T, molecule, isotopologue)) ** 2)
+        return Ntot, dNtot
 
     # ==========================================================
     # OPR grid search (fast, detections-only, curve_fit)
@@ -824,9 +865,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         
         best_idx = np.argmin(chi2_arr)
         best_opr = opr_grid[best_idx]
-        within_1sigma = np.where(chi2_arr < chi2_arr[best_idx] + 1)[0]
-        err_opr_pos = opr_grid[within_1sigma[-1]] - best_opr
-        err_opr_neg = best_opr - opr_grid[within_1sigma[0]]
+        err_opr_pos = opr_grid[np.where(chi2_arr < chi2_arr[best_idx] + 1)[0][-1]] - best_opr
+        err_opr_neg = best_opr - opr_grid[np.where(chi2_arr < chi2_arr[best_idx] + 1)[0][0]]
         best_opr_err = 0.5 * (err_opr_pos + err_opr_neg)
         best_opr_err_pos = err_opr_pos
         best_opr_err_neg = err_opr_neg
@@ -880,12 +920,12 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     # ==========================================================
     # 1T FIT (final)
     # ==========================================================
-    # Always computed the same way as before (censored PyMC when upper limits are
-    # present, plain curve_fit otherwise) regardless of fit1T -- 2T's own fit needs this
-    # as its (a1, T1) seed either way (see censored_2T/_fit_2T_curvefit below), and this
-    # is the same proven computation this app has always used for it. fit1T only
-    # controls whether the result gets added to `results` for reporting below, not how
-    # it's computed.
+    # Always computed the same way as before (PyMC upper-limit barrier when upper
+    # limits are present, plain curve_fit otherwise) regardless of fit1T -- 2T's own
+    # fit needs this as its (a1, T1) seed either way (see upper_limit_2T/
+    # _fit_2T_curvefit below), and this is the same proven computation this app has
+    # always used for it. fit1T only controls whether the result gets added to
+    # `results` for reporting below, not how it's computed.
     if not use_pymc:
 
         print("\n--- 1T FIT (curve_fit) ---")
@@ -897,22 +937,26 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
     else:
 
-        print("\n--- 1T FIT (CENSORED PyMC) ---")
+        print("\n--- 1T FIT (PyMC, upper-limit barrier) ---")
 
-        result = censored_1T(
+        result = upper_limit_1T(
             E_arr, y_arr, y_err, is_ul_mask,
             progress_callback=(lambda cur, tot: progress_callback("1T", cur, tot)) if progress_callback else None,
+            t_cap=t_cap,
         )
 
         a1, T1 = result["a"], result["T"]
         da1, dT1 = result["da"], result["dT"]
         pymc_diag_1T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
 
-    results = {"OPR": best_opr}
-    if best_opr_err is not None:
-        results["OPR_err"] = best_opr_err
-        results["OPR_err_pos"] = best_opr_err_pos
-        results["OPR_err_neg"] = best_opr_err_neg
+    # OPR keys only for H2 -- omitted rather than reporting a meaningless value.
+    results = {}
+    if is_h2:
+        results["OPR"] = best_opr
+        if best_opr_err is not None:
+            results["OPR_err"] = best_opr_err
+            results["OPR_err_pos"] = best_opr_err_pos
+            results["OPR_err_neg"] = best_opr_err_neg
 
     if dropped_detections:
         results["dropped_J"] = dropped_detections
@@ -921,11 +965,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         # =========================
         # Derived quantities
         # =========================
-        Ncol1 = np.exp(a1)
-        dNcol1 = Ncol1 * da1
-
-        Ntot1 = Ncol1 * Q_Herbst(T1)
-        dNtot1 = Ntot1 * np.sqrt((dNcol1/Ncol1)**2 + (Q_Herbst_err(T1, dT1)/Q_Herbst(T1))**2)
+        Ntot1, dNtot1 = _derive_column(a1, da1, T1, dT1)
 
         # chi2 uses detections only - upper limits have no meaningful sigma to weight by
         # (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)
@@ -961,12 +1001,13 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         else:
 
-            print("\n--- 2T FIT (CENSORED PyMC) ---")
+            print("\n--- 2T FIT (PyMC, upper-limit barrier) ---")
 
-            result = censored_2T(
+            result = upper_limit_2T(
                 E_arr, y_arr, y_err, is_ul_mask,
                 a1, T1,
                 progress_callback=(lambda cur, tot: progress_callback("2T", cur, tot)) if progress_callback else None,
+                t_cap=t_cap,
             )
 
             a1_2, T1_2, a2_2, T2_2 = result["popt"]
@@ -975,20 +1016,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         da1_2, dT1_2, da2_2, dT2_2 = errs
 
-        N1 = np.exp(a1_2)
-        N2 = np.exp(a2_2)
-
-        N1_tot = N1 * Q_Herbst(T1_2)
-        N2_tot = N2 * Q_Herbst(T2_2)
-
-        dN1_tot = N1_tot * np.sqrt(
-            (N1 * da1_2 / N1)**2 +
-            (Q_Herbst_err(T1_2, dT1_2) / Q_Herbst(T1_2))**2
-        )
-        dN2_tot = N2_tot * np.sqrt(
-            (N2 * da2_2 / N2)**2 +
-            (Q_Herbst_err(T2_2, dT2_2) / Q_Herbst(T2_2))**2
-        )
+        N1_tot, dN1_tot = _derive_column(a1_2, da1_2, T1_2, dT1_2)
+        N2_tot, dN2_tot = _derive_column(a2_2, da2_2, T2_2, dT2_2)
 
         # chi2 uses detections only, same reasoning as the 1T fit above
         y_model2 = model_2T(E_arr[det_mask], a1_2, T1_2, a2_2, T2_2)

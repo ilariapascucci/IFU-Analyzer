@@ -240,6 +240,10 @@ class GaussianFitResult:
     catalog_sigma: Optional[float] = None
     noise_std: Optional[float] = None
 
+    # Local continuum + this line's own Gaussian only, no neighbor in a shared chunk.
+    # None when the fit failed.
+    y_fit_own: Optional[np.ndarray] = None
+
     def __str__(self):
         """Human-readable summary of fit results"""
         return (

@@ -5,6 +5,7 @@ Single unified interface for selecting molecules, lines, and entering flux data
 
 import os
 import csv
+import time
 import numpy as np
 
 from PyQt5.QtWidgets import (
@@ -22,7 +23,7 @@ from matplotlib.figure import Figure
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
 from .rotational_diagram_fitter import rotational_diagram, get_gu, compute_line_fluxes_collective, model_1T, model_2T
-from .co_flux_extractor import _line_sigma, DEFAULT_SIGMA_MULTIPLIER, gaussian
+from .co_flux_extractor import _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
 
 
 # Constants
@@ -70,7 +71,7 @@ class RotationalFitWorker(QThread):
     progress = pyqtSignal(str, int, int)  # (phase "1T"/"2T", current, total)
 
     def __init__(self, fluxes, flux_errors, molecular_data, fit_opr, opr_grid,
-                 fit2T, R, dist, upper_limits, fit1T=None):
+                 fit2T, R, dist, upper_limits, fit1T=None, molecule='H2', isotopologue=1):
         super().__init__()
         self.fluxes = fluxes
         self.flux_errors = flux_errors
@@ -85,6 +86,8 @@ class RotationalFitWorker(QThread):
         self.R = R
         self.dist = dist
         self.upper_limits = upper_limits
+        self.molecule = molecule
+        self.isotopologue = isotopologue
 
     def run(self):
         try:
@@ -101,6 +104,8 @@ class RotationalFitWorker(QThread):
                 dist=self.dist,
                 upper_limits=self.upper_limits,
                 progress_callback=self._emit_progress,
+                molecule=self.molecule,
+                isotopologue=self.isotopologue,
             )
             self.finished.emit(results)
         except Exception as e:
@@ -108,6 +113,64 @@ class RotationalFitWorker(QThread):
 
     def _emit_progress(self, phase, current, total):
         self.progress.emit(phase, current, total)
+
+
+class BatchFluxWorker(QThread):
+    """Background thread for calculate_fluxes_batch's actual fitting -- Qt widgets
+    aren't thread-safe to touch from here, so this only computes; the finished-signal
+    handler applies everything to the table back on the main thread
+    (_apply_batch_flux_group_results)."""
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(int, int)  # (FITS-file group index, total groups)
+
+    def __init__(self, rows_by_cube_idx, loaded_cubes, summed_spectra, line_wavelengths, contam_lines):
+        super().__init__()
+        self.rows_by_cube_idx = rows_by_cube_idx
+        self.loaded_cubes = loaded_cubes
+        self.summed_spectra = summed_spectra
+        self.line_wavelengths = line_wavelengths  # row -> wavelength
+        self.contam_lines = contam_lines
+
+    def run(self):
+        print(f"[TIMING] BatchFluxWorker.run() started at {time.time():.2f}")
+        try:
+            groups = []
+            total = len(self.rows_by_cube_idx)
+            for group_idx, (cube_idx, rows) in enumerate(self.rows_by_cube_idx.items()):
+                self.progress.emit(group_idx, total)
+                cube_data = self.loaded_cubes[cube_idx]
+                spectrum = self.summed_spectra[cube_idx]
+                try:
+                    wavelength = cube_data.wavelength.value
+                    header = cube_data.header
+
+                    if wavelength[0] > wavelength[-1]:
+                        wavelength = wavelength[::-1]
+                        spectrum = spectrum[::-1]
+
+                    line_wls = [self.line_wavelengths[row] for row in rows]
+                    t0 = time.time()
+                    group_results = compute_line_fluxes_collective(
+                        wavelength, spectrum, line_wls, header,
+                        contam_lines=self.contam_lines,
+                    )
+                    print(f"[TIMING] fit for {len(rows)} line(s): {time.time()-t0:.2f}s")
+                    groups.append({
+                        "success": True, "rows": rows, "results": group_results,
+                        "wavelength": wavelength, "spectrum": spectrum,
+                        "instrument": cube_data.instrument, "filename": cube_data.filename,
+                        "bunit": header.get('BUNIT', '') if header is not None else '',
+                    })
+                except Exception as e:
+                    # One bad FITS file/group shouldn't abort the rest of the batch --
+                    # same recovery as the old inline per-group try/except.
+                    groups.append({"success": False, "cube_idx": cube_idx, "error": str(e)})
+            self.progress.emit(total, total)
+            print(f"[TIMING] BatchFluxWorker emitting finished at {time.time():.2f}")
+            self.finished.emit(groups)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class RotationalDiagramWindow(QMainWindow):
@@ -224,8 +287,9 @@ class RotationalDiagramWindow(QMainWindow):
 
         self.fit_opr_check = QCheckBox("Fit OPR")
         self.fit_opr_check.setToolTip(
-            "Grid-search over OPR to minimize chi-squared, instead of "
-            "assuming the fixed equilibrium value OPR=3. Only affects H2 S-branch lines."
+            "Grid-search over OPR to minimize chi-squared, instead of assuming the "
+            "fixed equilibrium value OPR=3. H2 only -- disabled for other molecules, "
+            "since OPR is a nuclear-spin-statistics effect specific to H2."
         )
         self.fit_opr_check.stateChanged.connect(self.on_fit_opr_toggled)
         bottom_layout.addWidget(self.fit_opr_check)
@@ -414,6 +478,42 @@ class RotationalDiagramWindow(QMainWindow):
         self.current_molecule = molecule
         self.setWindowTitle(f"{molecule} Rotational Diagram Analyzer")
         self.update_isotopologue_range()
+
+        # OPR is H2-only physics; block the checkbox for anything else.
+        is_h2 = (molecule == 'H2')
+        if not is_h2 and self.fit_opr_check.isChecked():
+            self.fit_opr_check.setChecked(False)
+        self.fit_opr_check.setEnabled(is_h2)
+
+        # Lines fetched/imported for the previous molecule don't mean anything for
+        # the new one (different wavelengths, A_ul, E_u, isotopologue) -- start
+        # from a clean sheet rather than leave a stale, mismatched table around.
+        self._clear_loaded_lines()
+
+    def _clear_loaded_lines(self):
+        """Discard any fetched/imported lines and reset the lines table/workflow
+        back to its pre-load state (same as before the first Fetch/Import). Also
+        drops any FITS cubes/contaminant catalog loaded for the previous molecule --
+        load_batch_fits_files() appends within one molecule's workflow (so pulling
+        files from another folder doesn't lose earlier ones), but switching molecule
+        is a new workflow, not more files for the old one, so this is where that
+        accumulation should stop and start over."""
+        self.hitran_lines = []
+        self.workflow_mode = None
+        self.populate_lines_table()
+        self.on_line_selected()
+        self.calculate_fluxes_btn.setVisible(False)
+        self.load_fits_btn.setVisible(False)
+        self.load_contam_btn.setVisible(False)
+        self.water_lines_checkbox.setVisible(False)
+        self.contam_status_label.setVisible(False)
+
+        self.loaded_batch_fits_paths = []
+        self.loaded_batch_cubes = []
+        self.loaded_batch_spectra = []
+        self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
+        self.contam_lines = None
+        self.contam_status_label.setText("")
     
     def update_isotopologue_range(self):
         """Update isotopologue spinner range based on selected molecule"""
@@ -472,26 +572,29 @@ class RotationalDiagramWindow(QMainWindow):
         self.update_error_columns()
     
     def update_error_columns(self):
-        """Update which columns are editable based on error mode."""
-        is_value_mode = "Values" in self.error_mode.currentText()
-
+        """Update which columns are editable based on error mode, for every row."""
         for row in range(self.lines_table.rowCount()):
-            ul_checkbox = self.lines_table.cellWidget(row, 9)
-            if ul_checkbox and ul_checkbox.isChecked():
-                continue
+            self._update_error_columns_for_row(row)
 
-            flux_error_item = self.lines_table.item(row, 7)
-            error_pct_item = self.lines_table.item(row, 8)
+    def _update_error_columns_for_row(self, row):
+        """Same as update_error_columns() but for one row -- avoids an O(n) sweep
+        when only one row actually changed (see sync_flux_error_flag)."""
+        ul_checkbox = self.lines_table.cellWidget(row, 9)
+        if ul_checkbox and ul_checkbox.isChecked():
+            return
 
-            if flux_error_item and error_pct_item:
-                if is_value_mode:
-                    # Column 8 (Flux Error) is editable, Column 9 (Error %) is read-only
-                    flux_error_item.setFlags(flux_error_item.flags() | Qt.ItemIsEditable)
-                    error_pct_item.setFlags(error_pct_item.flags() & ~Qt.ItemIsEditable)
-                else:
-                    # Column 9 (Error %) is editable, Column 8 (Flux Error) is read-only
-                    flux_error_item.setFlags(flux_error_item.flags() & ~Qt.ItemIsEditable)
-                    error_pct_item.setFlags(error_pct_item.flags() | Qt.ItemIsEditable)
+        flux_error_item = self.lines_table.item(row, 7)
+        error_pct_item = self.lines_table.item(row, 8)
+        if not (flux_error_item and error_pct_item):
+            return
+
+        is_value_mode = "Values" in self.error_mode.currentText()
+        if is_value_mode:
+            flux_error_item.setFlags(flux_error_item.flags() | Qt.ItemIsEditable)
+            error_pct_item.setFlags(error_pct_item.flags() & ~Qt.ItemIsEditable)
+        else:
+            flux_error_item.setFlags(flux_error_item.flags() & ~Qt.ItemIsEditable)
+            error_pct_item.setFlags(error_pct_item.flags() | Qt.ItemIsEditable)
     
     def on_table_item_changed(self, item):
         """Auto-calculate flux error or percentage; sync manually-entered A_ul/E_u/g_u"""
@@ -708,9 +811,7 @@ class RotationalDiagramWindow(QMainWindow):
                     "the fit unless you enter one or mark it as an Upper Limit."
                 )
 
-            # Let update_error_columns() decide which of Flux Error / Error % is
-            # editable based on the current Values/Percentages mode.
-            self.update_error_columns()
+            self._update_error_columns_for_row(row)
         finally:
             self.updating_flux_error_flag = False
 
@@ -1216,19 +1317,16 @@ class RotationalDiagramWindow(QMainWindow):
         self.calculate_fluxes_batch(selected_rows, skipped_rows)
 
     def calculate_fluxes_batch(self, selected_rows, skipped_rows=None):
-        """Lines sharing a covering FITS file are fit together,
-        simultaneously, via compute_line_fluxes_collective."""
+        """Lines sharing a covering FITS file are fit together, simultaneously, via
+        compute_line_fluxes_collective. The fitting itself runs in a background
+        BatchFluxWorker (QThread) so the GUI doesn't freeze while it computes --
+        results come back via _on_batch_flux_complete, which applies them to the
+        table on the main thread (Qt widgets aren't thread-safe otherwise)."""
 
         loaded_cubes = self.loaded_batch_cubes
-        summed_spectra = self.loaded_batch_spectra
-
-        progress = QProgressDialog(
-            "Calculating fluxes...",
-            None, 0, len(selected_rows), self
-        )
-        progress.setWindowModality(Qt.WindowModal)
 
         # --- Find each line's covering cube (first match wins, same as before) ---
+        # Cheap and Qt-free, so this stays on the main thread rather than the worker.
         rows_by_cube_idx = {}
         for row in selected_rows:
             wl = self.hitran_lines[row]['wavelength']
@@ -1242,155 +1340,205 @@ class RotationalDiagramWindow(QMainWindow):
             if matched_idx is None:
                 print(f"Warning: No FITS file covers wavelength {wl:.6f} um for line {row+1}")
                 QMessageBox.warning(self, "No FITS Match", f"No FITS file covers {wl:.6f} μm")
-                progress.close()
                 return
 
             rows_by_cube_idx.setdefault(matched_idx, []).append(row)
 
-        # --- Fit every line sharing a cube together, one group per FITS file ---
-        for group_idx, (cube_idx, rows) in enumerate(rows_by_cube_idx.items()):
-            progress.setValue(group_idx)
-            cube_data = loaded_cubes[cube_idx]
-            spectrum = summed_spectra[cube_idx]
+        self._batch_flux_skipped_rows = skipped_rows
 
-            try:
-                wavelength = cube_data.wavelength.value
-                header = cube_data.header
-                instrument = cube_data.instrument
+        self.batch_flux_progress = QProgressDialog("Calculating fluxes...", None, 0, 0, self)
+        self.batch_flux_progress.setWindowTitle("Calculate Fluxes")
+        self.batch_flux_progress.setWindowModality(Qt.WindowModal)
+        self.batch_flux_progress.setAutoClose(False)
+        self.batch_flux_progress.setAutoReset(False)
+        self.batch_flux_progress.show()
 
-                # Ensure wavelength is increasing
-                if wavelength[0] > wavelength[-1]:
-                    wavelength = wavelength[::-1]
-                    spectrum = spectrum[::-1]
+        self.calculate_fluxes_btn.setEnabled(False)
 
-                line_wavelengths = [self.hitran_lines[row]['wavelength'] for row in rows]
-                group_results = compute_line_fluxes_collective(
-                    wavelength, spectrum, line_wavelengths, header,
-                    contam_lines=self.contam_lines,
-                )
+        line_wavelength_lookup = {row: self.hitran_lines[row]['wavelength'] for row in selected_rows}
+        self.batch_flux_worker = BatchFluxWorker(
+            rows_by_cube_idx, loaded_cubes, self.loaded_batch_spectra,
+            line_wavelength_lookup, self.contam_lines,
+        )
+        self.batch_flux_worker.finished.connect(self._on_batch_flux_complete)
+        self.batch_flux_worker.error.connect(self._on_batch_flux_error)
+        self.batch_flux_worker.progress.connect(self._on_batch_flux_progress)
+        print(f"[TIMING] starting BatchFluxWorker at {time.time():.2f}")
+        self.batch_flux_worker.start()
 
-                for row, result in zip(rows, group_results):
-                    wl = self.hitran_lines[row]['wavelength']
+    def _on_batch_flux_progress(self, current, total):
+        dlg = getattr(self, 'batch_flux_progress', None)
+        if dlg is None:
+            return
+        if total <= 0:
+            dlg.setRange(0, 0)  # busy/indeterminate -- e.g. the common single-FITS-file case
+            return
+        dlg.setRange(0, total)
+        dlg.setLabelText(f"Calculating fluxes... (FITS file group {min(current+1, total)}/{total})")
+        dlg.setValue(current)
 
-                    if not result["success"]:
-                        print(f"Warning: {result['message']} for line {wl:.6f}")
-                        continue
+    def _on_batch_flux_complete(self, groups):
+        print(f"[TIMING] _on_batch_flux_complete entered at {time.time():.2f}")
+        dlg = getattr(self, 'batch_flux_progress', None)
+        if dlg is not None:
+            dlg.close()
+        self.calculate_fluxes_btn.setEnabled(True)
 
-                    flux_integrated = result["flux_cgs"]
-                    flux_error = result["flux_error_cgs"]
-                    is_upper_limit = result["is_upper_limit"]
-                    F_ul_cgs = result["F_ul_cgs"]
+        t0 = time.time()
+        self.lines_table.setUpdatesEnabled(False)
+        try:
+            for group in groups:
+                if not group["success"]:
+                    # One bad FITS file/group doesn't abort the rest of the batch.
+                    print(f"Error processing lines from cube {group['cube_idx']}: {group['error']}")
+                    QMessageBox.critical(self, "Calculation Error",
+                                          f"Error processing lines from FITS file:\n{group['error']}")
+                    continue
+                t1 = time.time()
+                self._apply_batch_flux_group_results(group)
+                print(f"[TIMING] _apply_batch_flux_group_results for {len(group['rows'])} row(s): {time.time()-t1:.2f}s")
+        finally:
+            self.lines_table.setUpdatesEnabled(True)
+        print(f"[TIMING] full table-update loop: {time.time()-t0:.2f}s")
 
-                    # Flux always gets the real fitted value now [UL Flux (col 10) carries the ceiling instead].
-                    flux_item = self.lines_table.item(row, 6)
-                    if flux_item:
-                        flux_item.setText(f"{flux_integrated:.4e}")
-
-                    # Error is always computed now (real curve_fit-covariance error,
-                    # regardless of the upper-limit call) -- None only if it was genuinely
-                    # uncomputable, not because this line happens to be a upper limit. It
-                    # still gets written here either way; sync_flux_error_flag() below is
-                    # what actually stashes-and-blanks it for a checked Upper Limit row (and
-                    # would restore it if you later uncheck that box), so overriding the
-                    # auto-classification always has a real error ready, not nothing.
-                    error_item = self.lines_table.item(row, 7)
-                    if error_item:
-                        error_item.setText(f"{flux_error:.4e}" if flux_error is not None else "")
-
-                    pct_item = self.lines_table.item(row, 8)
-                    if pct_item:
-                        if flux_error is not None and flux_integrated > 0:
-                            pct = (flux_error / flux_integrated) * 100
-                            pct_item.setText(f"{pct:.1f}")
-                        else:
-                            pct_item.setText("")
-
-                    # UL Flux: always filled in, detection or not
-                    ul_flux_item = self.lines_table.item(row, 10)
-                    if ul_flux_item:
-                        ul_flux_item.setText(f"{F_ul_cgs:.4e}")
-
-                    # Auto-check upper limit if detected. Signals blocked so this doesn't
-                    # trigger on_line_selected() mid-batch-populate; sync_flux_error_flag()
-                    # is called explicitly right after so the stash-and-blank behavior still
-                    # applies to freshly-calculated rows, not just later manual toggles.
-                    ul_checkbox = self.lines_table.cellWidget(row, 9)
-                    if ul_checkbox:
-                        ul_checkbox.blockSignals(True)
-                        ul_checkbox.setChecked(is_upper_limit)
-                        ul_checkbox.blockSignals(False)
-                        self.sync_flux_error_flag(row)
-
-                    # Mark this row as system-calculated and record its source
-                    calc_checkbox = self.lines_table.cellWidget(row, 11)
-                    if calc_checkbox:
-                        calc_checkbox.setChecked(True)
-                    source_item = self.lines_table.item(row, 12)
-                    if source_item:
-                        filename = os.path.basename(cube_data.filename) if cube_data.filename else "?"
-                        source_item.setText(f"{instrument} [{filename}]")
-
-                    # Fit quality (R^2 of the Gaussian fit this flux came from)
-                    r2_item = self.lines_table.item(row, 13)
-                    if r2_item:
-                        r_squared = result.get("r_squared")
-                        if r_squared is None:
-                            r2_item.setText("")
-                            r2_item.setBackground(QBrush())
-                        else:
-                            r2_item.setText(f"{r_squared:.3f}")
-                            # Same 0.5 threshold gaussian_fitter.py itself uses to call a fit
-                            # "poor" vs "good" -- flag it here too rather than a silent number.
-                            r2_item.setBackground(QColor(255, 214, 214) if r_squared < 0.5 else QBrush())
-
-                    # Stash this line's fit plot data and turn the Fit cell into a real
-                    # link -- only once real data exists for it, so it's never a dead
-                    # link pointing at nothing.
-                    if all(result.get(k) is not None for k in ("x_data", "y_data", "baseline", "y_fit")):
-                        self._line_fit_plot_data[row] = {
-                            "wavelength": wl,
-                            "x_data": result["x_data"],
-                            "y_data": result["y_data"],
-                            "baseline": result["baseline"],
-                            "y_fit": result["y_fit"],
-                            "center": result.get("center"),
-                            "sigma": result.get("sigma"),
-                            "fwhm": result.get("fwhm"),
-                            "r_squared": result.get("r_squared"),
-                            "amplitude": result.get("amplitude"),
-                            "flux_cgs": result.get("flux_cgs"),
-                            "flux_error_cgs": result.get("flux_error_cgs"),
-                            "is_upper_limit": result.get("is_upper_limit"),
-                            # Full spectrum this line's fit came from (already loaded in
-                            # this window independently of the main window) -- lets the
-                            # fit dialog show real spectral context around the line
-                            # instead of being confined to the fit's own narrow window.
-                            "full_wavelength": wavelength,
-                            "full_spectrum": spectrum,
-                            "bunit": header.get('BUNIT', '') if header is not None else '',
-                        }
-                        fit_label = self.lines_table.cellWidget(row, 14)
-                        if isinstance(fit_label, QLabel):
-                            fit_label.setText('<a href="#">View</a>')
-                            fit_label.setTextFormat(Qt.RichText)
-                            fit_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-                            fit_label.setOpenExternalLinks(False)
-                            fit_label.setAlignment(Qt.AlignCenter)
-                            try:
-                                fit_label.linkActivated.disconnect()
-                            except TypeError:
-                                pass  # nothing was connected yet
-                            fit_label.linkActivated.connect(lambda _url, r=row: self.show_line_fit(r))
-
-            except Exception as e:
-                print(f"Error processing lines from cube {cube_idx}: {e}")
-                QMessageBox.critical(self, "Calculation Error", f"Error processing lines from FITS file:\n{e}")
-
-        progress.close()
+        skipped_rows = getattr(self, '_batch_flux_skipped_rows', None)
         msg = "Flux calculation complete!"
         if skipped_rows:
             msg += f"\n\n{len(skipped_rows)} selected line(s) already had a manually-entered flux and were left unchanged."
         QMessageBox.information(self, "Complete", msg)
+
+    def _on_batch_flux_error(self, message):
+        dlg = getattr(self, 'batch_flux_progress', None)
+        if dlg is not None:
+            dlg.close()
+        self.calculate_fluxes_btn.setEnabled(True)
+        QMessageBox.critical(self, "Calculation Error", f"Unexpected error calculating fluxes:\n{message}")
+
+    def _apply_batch_flux_group_results(self, group):
+        """Apply one FITS-file group's computed fluxes to the table. Main-thread only
+        (Qt widgets) -- called from _on_batch_flux_complete once BatchFluxWorker
+        finishes; this is exactly the per-row logic that used to run inline inside
+        calculate_fluxes_batch's own loop."""
+        rows = group["rows"]
+        group_results = group["results"]
+        wavelength = group["wavelength"]
+        spectrum = group["spectrum"]
+        instrument = group["instrument"]
+        filename = os.path.basename(group["filename"]) if group["filename"] else "?"
+        bunit = group["bunit"]
+
+        for row, result in zip(rows, group_results):
+            wl = self.hitran_lines[row]['wavelength']
+
+            if not result["success"]:
+                print(f"Warning: {result['message']} for line {wl:.6f}")
+                continue
+
+            flux_integrated = result["flux_cgs"]
+            flux_error = result["flux_error_cgs"]
+            is_upper_limit = result["is_upper_limit"]
+            F_ul_cgs = result["F_ul_cgs"]
+
+            # Flux always gets the real fitted value now [UL Flux (col 10) carries the ceiling instead].
+            flux_item = self.lines_table.item(row, 6)
+            if flux_item:
+                flux_item.setText(f"{flux_integrated:.4e}")
+
+            # Error is always computed now (real curve_fit-covariance error,
+            # regardless of the upper-limit call) -- None only if it was genuinely
+            # uncomputable, not because this line happens to be a upper limit. It
+            # still gets written here either way; sync_flux_error_flag() below is
+            # what actually stashes-and-blanks it for a checked Upper Limit row (and
+            # would restore it if you later uncheck that box), so overriding the
+            # auto-classification always has a real error ready, not nothing.
+            error_item = self.lines_table.item(row, 7)
+            if error_item:
+                error_item.setText(f"{flux_error:.4e}" if flux_error is not None else "")
+
+            pct_item = self.lines_table.item(row, 8)
+            if pct_item:
+                if flux_error is not None and flux_integrated > 0:
+                    pct = (flux_error / flux_integrated) * 100
+                    pct_item.setText(f"{pct:.1f}")
+                else:
+                    pct_item.setText("")
+
+            # UL Flux: always filled in, detection or not
+            ul_flux_item = self.lines_table.item(row, 10)
+            if ul_flux_item:
+                ul_flux_item.setText(f"{F_ul_cgs:.4e}")
+
+            # Auto-check upper limit if detected. Signals blocked so this doesn't
+            # trigger on_line_selected() mid-batch-populate; sync_flux_error_flag()
+            # is called explicitly right after so the stash-and-blank behavior still
+            # applies to freshly-calculated rows, not just later manual toggles.
+            ul_checkbox = self.lines_table.cellWidget(row, 9)
+            if ul_checkbox:
+                ul_checkbox.blockSignals(True)
+                ul_checkbox.setChecked(is_upper_limit)
+                ul_checkbox.blockSignals(False)
+                self.sync_flux_error_flag(row)
+
+            # Mark this row as system-calculated and record its source
+            calc_checkbox = self.lines_table.cellWidget(row, 11)
+            if calc_checkbox:
+                calc_checkbox.setChecked(True)
+            source_item = self.lines_table.item(row, 12)
+            if source_item:
+                source_item.setText(f"{instrument} [{filename}]")
+
+            # Fit quality (R^2 of the Gaussian fit this flux came from)
+            r2_item = self.lines_table.item(row, 13)
+            if r2_item:
+                r_squared = result.get("r_squared")
+                if r_squared is None:
+                    r2_item.setText("")
+                    r2_item.setBackground(QBrush())
+                else:
+                    r2_item.setText(f"{r_squared:.3f}")
+                    # Same 0.5 threshold gaussian_fitter.py itself uses to call a fit
+                    # "poor" vs "good" -- flag it here too rather than a silent number.
+                    r2_item.setBackground(QColor(255, 214, 214) if r_squared < 0.5 else QBrush())
+
+            # Stash this line's fit plot data and turn the Fit cell into a real
+            # link -- only once real data exists for it, so it's never a dead
+            # link pointing at nothing.
+            if all(result.get(k) is not None for k in ("x_data", "y_data", "baseline", "y_fit")):
+                self._line_fit_plot_data[row] = {
+                    "wavelength": wl,
+                    "x_data": result["x_data"],
+                    "y_data": result["y_data"],
+                    "baseline": result["baseline"],
+                    "y_fit": result["y_fit"],
+                    "y_fit_own": result.get("y_fit_own"),
+                    "center": result.get("center"),
+                    "sigma": result.get("sigma"),
+                    "fwhm": result.get("fwhm"),
+                    "r_squared": result.get("r_squared"),
+                    "amplitude": result.get("amplitude"),
+                    "flux_cgs": result.get("flux_cgs"),
+                    "flux_error_cgs": result.get("flux_error_cgs"),
+                    "is_upper_limit": result.get("is_upper_limit"),
+                    # Full spectrum this line's fit came from (already loaded in
+                    # this window independently of the main window) -- lets the
+                    # fit dialog show real spectral context around the line
+                    # instead of being confined to the fit's own narrow window.
+                    "full_wavelength": wavelength,
+                    "full_spectrum": spectrum,
+                    "bunit": bunit,
+                }
+                fit_label = self.lines_table.cellWidget(row, 14)
+                if isinstance(fit_label, QLabel):
+                    fit_label.setText('<a href="#">View</a>')
+                    fit_label.setTextFormat(Qt.RichText)
+                    fit_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+                    fit_label.setOpenExternalLinks(False)
+                    fit_label.setAlignment(Qt.AlignCenter)
+                    try:
+                        fit_label.linkActivated.disconnect()
+                    except TypeError:
+                        pass  # nothing was connected yet
+                    fit_label.linkActivated.connect(lambda _url, r=row: self.show_line_fit(r))
 
     def show_line_fit(self, row):
         """Show the Gaussian fit for one line: spectrum, baseline, fit curve, and the
@@ -1411,6 +1559,7 @@ class RotationalDiagramWindow(QMainWindow):
         layout = QVBoxLayout()
 
         info_parts = [f"<b>λ = {data['wavelength']:.6f} μm</b>"]
+        flux_str = None
         if data.get('flux_cgs') is not None:
             flux_str = f"Flux = {data['flux_cgs']:.3e}"
             if data.get('flux_error_cgs') is not None:
@@ -1436,24 +1585,27 @@ class RotationalDiagramWindow(QMainWindow):
 
         x = np.asarray(data['x_data'])
         global_continuum = np.asarray(data['baseline'])
-        # y_fit comes from fit_hitran_lines_collective, which fits against the
-        # continuum-SUBTRACTED spectrum (y_corrected = spectrum_y - continuum) -- so
-        # it's on a small-residual scale, while `baseline` is the separately computed
-        # absolute continuum. Adding baseline back puts it on the same absolute flux
-        # scale as the spectrum trace below; without this the two end up on
-        # unrelated scales entirely (see the earlier version of this dialog).
-        y_fit = np.asarray(data['y_fit']) + global_continuum
+        # Own Gaussian only, no neighbor sharing this chunk. Falls back to the
+        # full-chunk y_fit for data stashed before this field existed.
+        y_fit_own = data.get('y_fit_own')
+        model = y_fit_own if y_fit_own is not None else data['y_fit']
+        y_fit = np.asarray(model) + global_continuum
 
-        # The dashed "Baseline" line has to show everything the model treats as
-        # background for THIS line -- global continuum, the chunk's own local linear
-        # correction (co_flux_extractor.py's fit_glines fits one on top of the global
-        # continuum), and any neighboring line sharing this chunk -- not just the
-        # global continuum alone. Otherwise the red curve and the dashed line visibly
-        # don't meet at the window edges even for a good fit, since y_fit includes a
-        # real local correction the plain global continuum doesn't. Subtracting out
-        # just this line's own Gaussian from the full local model gives exactly that.
         own_gaussian = gaussian(x, data['amplitude'], data['center'], data['sigma'])
         baseline = y_fit - own_gaussian
+
+        # Fine grid (not just real pixels) so the shading matches the true analytic flux.
+        # Cropped to DISPLAY_CROP_SIGMA_MULTIPLIER, same convention as elsewhere.
+        if len(x) >= 2 and x.max() > x.min():
+            crop_half_width = DISPLAY_CROP_SIGMA_MULTIPLIER * abs(data['sigma'])
+            lo = max(x.min(), data['center'] - crop_half_width)
+            hi = min(x.max(), data['center'] + crop_half_width)
+            x_curve = np.linspace(lo, hi, 300)
+            baseline_curve = np.interp(x_curve, x, baseline)
+            own_gaussian_curve = gaussian(x_curve, data['amplitude'], data['center'], data['sigma'])
+            y_fit_curve = baseline_curve + own_gaussian_curve
+        else:
+            x_curve, baseline_curve, y_fit_curve = x, baseline, y_fit
 
         # Wider context: pad by a fixed number of the spectrum's own native sample
         # spacing rather than a hardcoded wavelength range, so this scales sensibly
@@ -1476,9 +1628,9 @@ class RotationalDiagramWindow(QMainWindow):
             pad = 0.5 * (x.max() - x.min())
             ax.set_xlim(x.min() - pad, x.max() + pad)
 
-        ax.plot(x, baseline, 'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=9)
-        ax.plot(x, y_fit, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=10)
-        ax.fill_between(x, baseline, y_fit, color='red', alpha=0.2, label='Integrated Area', zorder=7)
+        ax.plot(x_curve, baseline_curve, 'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=9)
+        ax.plot(x_curve, y_fit_curve, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=10)
+        ax.fill_between(x_curve, baseline_curve, y_fit_curve, color='red', alpha=0.2, label='Integrated Area', zorder=7)
 
         # Disable matplotlib's default "+1.703e1"-style offset notation -- with a
         # narrow x-range far from zero it otherwise shows tick labels like "0.000"
@@ -1735,9 +1887,9 @@ class RotationalDiagramWindow(QMainWindow):
             if is_upper_limit and not error_text and not error_pct_text:
                 # sync_flux_error_flag() blanks these cells and stashes the previous
                 # value in Qt.UserRole when Upper Limit is checked (the value is still
-                # real, just hidden). Recover it here -- censored_1T/censored_2T use
-                # each upper limit's own error as its censoring width (ul_sigma), so
-                # this needs to actually reach the fit rather than being discarded.
+                # real, just hidden). Recover it here so it still reaches flux_errors
+                # (upper_limit_1T/upper_limit_2T's hard barrier doesn't use an upper
+                # limit's own error, but it's kept for consistency/possible display).
                 error_text = (error_item.data(Qt.UserRole) or "").strip()
                 error_pct_text = (pct_item.data(Qt.UserRole) or "").strip()
 
@@ -1839,6 +1991,7 @@ class RotationalDiagramWindow(QMainWindow):
         self.rot_fit_worker = RotationalFitWorker(
             fluxes, flux_errors, molecular_data, fit_opr, opr_grid,
             fit_2t, radius_au, distance_pc, upper_limits,
+            molecule=self.current_molecule, isotopologue=self.isotopologue_spin.value(),
         )
         self.rot_fit_worker.finished.connect(self._on_rotational_fit_complete)
         self.rot_fit_worker.error.connect(self._on_rotational_fit_error)
@@ -1861,7 +2014,7 @@ class RotationalDiagramWindow(QMainWindow):
             label = f"Running {phase} fit"
 
         if total <= 0:
-            # censored_1T/2T send (0, 0) right before nutpie.compile_pymc_model(),
+            # upper_limit_1T/2T send (0, 0) right before nutpie.compile_pymc_model(),
             # which has no sub-progress hook of its own -- this is usually the
             # dominant chunk of wall time (~20-50s), so show a busy/indeterminate
             # bar instead of leaving the dialog looking stalled on the fit's
@@ -1924,7 +2077,7 @@ class RotationalDiagramWindow(QMainWindow):
 
         def _convergence_note(fit_dict):
             """Return the raw PyMC diagnostic numbers (divergences, max r_hat) for
-            a censored fit"""
+            an upper-limit-barrier fit"""
             n_div = fit_dict.get("n_divergences")
             if n_div is None:
                 return ""
