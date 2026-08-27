@@ -44,7 +44,7 @@ from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
 from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
 from .species_dialog import SpeciesDialog
-from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, auto_detect_boundaries
+from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
 from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
 from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit

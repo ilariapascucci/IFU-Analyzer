@@ -739,7 +739,6 @@ IFU-Analyzer/
 ## Known Limitations
 
 - Residuals are normalized by noise std (may need raw residuals for some analyses)
-- 2D FITS images display as single-slice cubes in main viewer (use dedicated 2D viewer for full functionality)
 - CO flux mapping requires well-defined line catalog with accurate wavelengths
 - ThreadPoolExecutor-based parallelization may have limited speedup on very small cubes due to worker startup overhead
 - WCS superimpose uses bicubic interpolation with NaN masking; accuracy is sub-pixel for typical FITS WCS grids

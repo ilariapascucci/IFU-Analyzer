@@ -10,6 +10,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
 from .co_flux_extractor import fit_auto_continuum
 from .continuum_dialog import ContinuumParametersDialog
+from .unit_converter import extract_units
 
 class GuiCOFluxMixin:
     """
@@ -122,7 +123,7 @@ class GuiCOFluxMixin:
             return
         
         cube_shape = self.cube_data.cube.shape
-        spectrum_wave = self.cube_data.wavelength.value if hasattr(self.cube_data.wavelength, 'unit') else self.cube_data.wavelength
+        spectrum_wave, _ = extract_units(self.cube_data.wavelength)
 
         # Preview the brightest pixel within the fit range rather than the cube's geometric
         # center, which may have little or no CO signal
