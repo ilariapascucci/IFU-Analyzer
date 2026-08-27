@@ -19,28 +19,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import RANSACRegressor
 from scipy.optimize import curve_fit
 
-from .unit_converter import get_wave_unit, convert_area_to_cgs
-
-def _extract_value_from_quantity(value):
-    """
-    Extract numeric value from a Quantity object
-    
-    Args:
-        value (Quantity): Scalar or array
-    
-    Returns:
-        value (number): Numeric value with units stripped
-    """
-
-    if isinstance(value, Quantity):
-        return value.value
-    elif isinstance(value, np.ndarray):
-        # Check if array elements are Quantities
-        if len(value) > 0 and isinstance(value.flat[0], Quantity):
-            return np.array([v.value for v in value.flat]).reshape(value.shape)
-        return value
-    else:
-        return value
+from .unit_converter import get_wave_unit, convert_area_to_cgs, extract_value_from_quantity
 
 
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
@@ -80,8 +59,16 @@ def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jo
         residual_cube = np.full((n_wave_sel, n_y, n_x), np.nan, dtype=np.float32)
 
     # Fit per pixel (parallel)
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     def _fit_residual_row(row_idx):
+        """
+        Fit a plain Gaussian to every pixel in one cube row and compute normalized residuals.
+
+        Args:
+            row_idx (int): Row index in the cube's spatial y-axis
+
+        Returns:
+            row (tuple): (row_idx, row_residuals), row_residuals shape (n_wave_sel, n_x)
+        """
         spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
         row_residuals = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
         for ix in range(n_x):
@@ -185,8 +172,8 @@ class GaussianFitResult:
     """Container for Gaussian fit results and diagnostics"""
     # Fitted parameters
     amplitude: float  # Peak height of Gaussian (A)
-    center: float  # Center wavelength (μ)
-    sigma: float  # Gaussian width (σ)
+    center: float  # Center wavelength (mu)
+    sigma: float  # Gaussian width (sigma)
     
     # Derived quantities
     fwhm: float  # Full Width at Half Maximum
@@ -210,7 +197,7 @@ class GaussianFitResult:
     message: str  # Status or error message
 
     # Unit bookkeeping for area
-    area_unit: str = ""  # Units of area, e.g. "erg/s/cm²"
+    area_unit: str = ""  # Units of area, e.g. "erg/s/cm**2"
     area_native: float = 0.0  # Area before any CGS conversion
 
     # Only populated by fit_hitran_lines_collective's simultaneous curve_fit
@@ -224,7 +211,15 @@ class GaussianFitResult:
     y_fit_own: Optional[np.ndarray] = None
 
     def __str__(self):
-        """Human-readable summary of fit results"""
+        """
+        Human-readable summary of fit results.
+
+        Args:
+            None
+
+        Returns:
+            summary (str): Multi-line summary of the fitted parameters and status
+        """
         return (
             f"Gaussian Fit Results:\n"
             f"  Center (μ):     {self.center:.4f}\n"
@@ -259,13 +254,13 @@ def calculate_baseline(x1: float, y1: float, x2: float, y2: float,
         return np.zeros_like(x_data)
     
     # if the new y1 and y2 go completely crazy, we could just return a flat baseline at the median of the finite y values
-    # If y1 is NaN → replace with lowest x having finite y
+    # If y1 is NaN -> replace with lowest x having finite y
     if np.isnan(y1):
         first_idx = finite_indices[0]
         x1 = x_data[first_idx]
         y1 = y_data[first_idx]
 
-    # If y2 is NaN → replace with largest x having finite y
+    # If y2 is NaN -> replace with largest x having finite y
     if np.isnan(y2):
         last_idx = finite_indices[-1]
         x2 = x_data[last_idx]
@@ -366,13 +361,13 @@ def gaussian(x: np.ndarray, amplitude: float, center: float,
     """
     Gaussian function.
     
-    G(x) = A * exp(-(x - μ)² / (2σ²))
-    
+    G(x) = A * exp(-(x - mu)**2 / (2*sigma**2))
+
     Args:
         x (array): Independent variable (wavelength)
         amplitude (float): Peak height (A)
-        center (float): Center position (μ)
-        sigma (float): Width parameter (σ)
+        center (float): Center position (mu)
+        sigma (float): Width parameter (sigma)
     
     Returns:
         gaussian (array): Gaussian values at each x
@@ -514,12 +509,9 @@ def estimate_gaussian_params(x_data: np.ndarray,
 def estimate_initial_gaussian_guess(x_data: np.ndarray, y_corrected: np.ndarray,
                                     std_val: float, mean_val: float) -> Optional[Tuple[float, float, float]]:
     """
-    Estimate an initial (amplitude, center, sigma) guess for a single pixel's spectrum.
-
-    Uses a MAD-based sigma (outlier-resistant) when the signal dominates the noise, and a
-    plain shape-based estimate from estimate_gaussian_params otherwise. Shared by the per-pixel
-    detection pipeline (fit_gaussians_per_pixel) and the residual-cube export, which both need
-    the same noise-dependent guess before running their own fit (RANSAC vs plain curve_fit).
+    Estimate an initial (amplitude, center, sigma) guess for a single pixel's spectrum: a
+    MAD-based sigma when the signal dominates the noise, a plain shape-based estimate otherwise.
+    Shared by fit_gaussians_per_pixel and export_residual_cube_fits (RANSAC vs plain curve_fit).
 
     Args:
         x_data (array): Wavelength values
@@ -602,13 +594,13 @@ def fit_gaussian_to_line(x1: float, x2: float,
     """
 
     # Extract values from Quantities if needed
-    x1 = _extract_value_from_quantity(x1)
-    x2 = _extract_value_from_quantity(x2)
-    peak_x = _extract_value_from_quantity(peak_x)
-    spectrum_x = _extract_value_from_quantity(spectrum_x)
-    spectrum_y = _extract_value_from_quantity(spectrum_y)
-    noise_min = _extract_value_from_quantity(noise_min)
-    noise_max = _extract_value_from_quantity(noise_max)
+    x1 = extract_value_from_quantity(x1)
+    x2 = extract_value_from_quantity(x2)
+    peak_x = extract_value_from_quantity(peak_x)
+    spectrum_x = extract_value_from_quantity(spectrum_x)
+    spectrum_y = extract_value_from_quantity(spectrum_y)
+    noise_min = extract_value_from_quantity(noise_min)
+    noise_max = extract_value_from_quantity(noise_max)
     
     # Boundaries must be given in order.
     if x1 >= x2:
@@ -700,8 +692,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
     
     # ========== STEP 3: DEFINE BOUNDS (CONSTRAINTS) ==========
     # Set up bounds to constrain fit and prevent unphysical solutions
-    # Amplitude: [0, 10×max(y_corrected)] - must be positive, reasonable upper limit
-    # Center: [λ_min, λ_max] - must be within selected range
+    # Amplitude: [0, 10x max(y_corrected)] - must be positive, reasonable upper limit
+    # Center: [lambda_min, lambda_max] - must be within selected range
     # Sigma: [reasonable_min, reasonable_max] - must be positive, not too large
     x_range = x2 - x1
     
@@ -739,19 +731,19 @@ def fit_gaussian_to_line(x1: float, x2: float,
         
         # ========== STEP 5: CALCULATE FITTED PARAMETERS & DERIVED QUANTITIES ==========
         # STEP 5a: Generate fitted Gaussian curve at all wavelengths
-        # y_fit = A × exp(-(λ - μ)² / (2σ²))
+        # y_fit = A * exp(-(lambda - mu)**2 / (2*sigma**2))
         y_fit = gaussian(x_data, amplitude, center, sigma)
         residuals = y_corrected - y_fit
-        
+
         # STEP 5b: Calculate derived quantities from fitted parameters
-        # FWHM = 2.355 × σ (Full Width at Half Maximum)
+        # FWHM = 2.355 * sigma (Full Width at Half Maximum)
         fwhm = 2.355 * sigma  # FWHM = 2*sqrt(2*ln(2)) * sigma
-        
+
         # STEP 5c: Calculate integrated area (AUC) - total flux under the Gaussian
-        # Area = A × σ × √(2π) [integrated line flux formula]
+        # Area = A * sigma * sqrt(2*pi) [integrated line flux formula]
         area_native = amplitude * sigma * np.sqrt(2 * np.pi)
-        
-        # STEP 5d: Convert area to CGS units (erg/s/cm²) if FITS header provided with pixel scales
+
+        # STEP 5d: Convert area to CGS units (erg/s/cm**2) if FITS header provided with pixel scales
         unit = get_wave_unit(header, wave_unit)
         area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit) if header is not None else None
         if area_cgs is not None:
@@ -766,7 +758,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
             area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
         
         # STEP 5e: Calculate goodness-of-fit metrics (quality indicators)
-        # R² = 1 - (SS_residuals / SS_total) - measures variance explained by fit
+        # R**2 = 1 - (SS_residuals / SS_total) - measures variance explained by fit
         ss_res = np.sum(residuals**2)
         ss_tot = np.sum((y_corrected - np.mean(y_corrected))**2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
@@ -826,18 +818,12 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
     if continuum_level <= 0:
         return 0.0
     
-    # For emission lines: EW = Area / Continuum. Use the native area so numerator and
-    # denominator share the same flux units - `area` may have been converted to CGS,
-    # which would not divide out against a continuum in the cube's native units.
+    # For emission lines: EW = Area / Continuum
     equivalent_width = fit_result.area_native / continuum_level
     return equivalent_width
 
 
-# Per-pixel outcome codes. Three states, and they partition the map: every pixel is
-# a detection, an upper limit, or had no data at all. A failed fit is not a fourth
-# state -- it is an upper limit whose limit came from a fit that never ran (see
-# 'fit_failed', which records the reason, not a different outcome).
-# Ordered worst -> best so a sequential colormap reads correctly.
+# Per-pixel outcome codes.
 STATUS_NO_DATA = 0
 STATUS_UPPER_LIMIT = 1
 STATUS_DETECTION = 2
@@ -951,12 +937,12 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     unit = get_wave_unit(header, wave_unit)
     
     # Extract values from Quantity if needed (handle both raw arrays and Quantities)
-    wavelength_values = _extract_value_from_quantity(wavelength)
-    lam_min_orig = _extract_value_from_quantity(lam_min)
-    lam_max_orig = _extract_value_from_quantity(lam_max)
-    noise_min_orig = _extract_value_from_quantity(noise_min)
-    noise_max_orig = _extract_value_from_quantity(noise_max)
-    lambda_0_orig = _extract_value_from_quantity(lambda_0)
+    wavelength_values = extract_value_from_quantity(wavelength)
+    lam_min_orig = extract_value_from_quantity(lam_min)
+    lam_max_orig = extract_value_from_quantity(lam_max)
+    noise_min_orig = extract_value_from_quantity(noise_min)
+    noise_max_orig = extract_value_from_quantity(noise_max)
+    lambda_0_orig = extract_value_from_quantity(lambda_0)
     
     # Set wavelength range
     if lam_min_orig is None:
@@ -1080,7 +1066,17 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     
     # ========== MAIN PER-PIXEL FITTING LOOP ==========
     def _fit_row(row_idx: int):
-        """Fit Gaussian to all pixels in one row (y=const) of the cube."""
+        """
+        Fit Gaussian to all pixels in one row (y=const) of the cube.
+
+        Args:
+            row_idx (int): Row index in the cube's spatial y-axis
+
+        Returns:
+            row (tuple): (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
+                succ_row, det_row, uplim_row, fail_row, residuals_row), each a length-n_x
+                array except row_idx and residuals_row (shape (n_wave_sel, n_x))
+        """
         spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
         spectra_noise_row = cube[noise_wave_mask, row_idx, :] if noise_wave_mask is not None else None
         amp_row = np.full(n_x, np.nan)
@@ -1096,10 +1092,20 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
 
         def _mark_upper_limit(ix, std, sigma_for_area, center_for_area, fit_failed=False):
-            """Record a fac_above_stdres-sigma upper limit for pixel ix, NaN-ing the fitted-parameter maps.
+            """
+            Record a fac_above_stdres-sigma upper limit for pixel ix, NaN-ing the fitted-parameter
+            maps. Shared by every non-detection path below; only the args below (and whether the
+            fit machinery itself broke, vs. just found nothing) differ per call site.
 
-            Shared by every non-detection path below; only `std`/`sigma_for_area`/`center_for_area`
-            (and whether the fit machinery itself broke, vs. just found nothing) differ per call site.
+            Args:
+                ix (int): Pixel column index within this row
+                std (float): Noise standard deviation used to scale the upper-limit amplitude
+                sigma_for_area (float): Sigma used for the upper-limit area formula
+                center_for_area (float): Line center used for the CGS area conversion
+                fit_failed (bool): True if the fit machinery itself never ran/converged
+
+            Returns:
+                None
             """
             upper_limit_amplitude = fac_above_stdres * std
             area_native = upper_limit_amplitude * sigma_for_area * np.sqrt(2 * np.pi)

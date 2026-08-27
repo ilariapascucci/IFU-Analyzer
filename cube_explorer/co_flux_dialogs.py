@@ -24,13 +24,12 @@ class COFluxMapWorker(QThread):
     finished = pyqtSignal(dict)       # Results dict
     error = pyqtSignal(str)           # Error message
     
-    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, continuum_poly_deg=3, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
+    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
         super().__init__()
         self.cube_data = cube_data
         self.CO_catalog = CO_catalog
         self.contam_catalog = contam_catalog
         self.n_jobs = n_jobs
-        self.continuum_poly_deg = continuum_poly_deg
         self.wave_min = wave_min
         self.wave_max = wave_max
         self.excluded_wavelengths = excluded_wavelengths
@@ -53,7 +52,6 @@ class COFluxMapWorker(QThread):
                 n_jobs=self.n_jobs,
                 progress_callback=self._emit_progress,
                 cancel_flag=self,  # Pass self so extraction can check cancelled flag
-                continuum_poly_deg=self.continuum_poly_deg,
                 wave_min=self.wave_min,
                 wave_max=self.wave_max,
                 excluded_wavelengths=self.excluded_wavelengths,

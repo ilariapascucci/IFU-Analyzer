@@ -34,6 +34,27 @@ def extract_units(data):
         return np.asarray(data), None
 
 
+def extract_value_from_quantity(value):
+    """
+    Extract numeric value from a Quantity object, stripping units element-wise if needed.
+
+    Args:
+        value (Quantity): Scalar or array, or an array of individual Quantity elements
+
+    Returns:
+        value (number or array): Numeric value with units stripped
+    """
+    if isinstance(value, Quantity):
+        return value.value
+    elif isinstance(value, np.ndarray):
+        # Check if array elements are Quantities
+        if len(value) > 0 and isinstance(value.flat[0], Quantity):
+            return np.array([v.value for v in value.flat]).reshape(value.shape)
+        return value
+    else:
+        return value
+
+
 # Called once per pixel in a full-cube fit.
 @lru_cache(maxsize=64)
 def _string_to_astropy_unit(unit_str):

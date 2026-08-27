@@ -12,28 +12,35 @@ from .utils import TELESCOPE_LOADERS, detect_instrument, infer_spec_axis, get_wa
 
 class CubeData:
     """
-    A class to handle loading and processing of 3D spectral data cubes from FITS files.
-    
-    This class supports MUSE, MIRI and NIRSpec.
-    It handles memory-mapped access to large data files and provides methods for
-    spectral analysis and coordinate transformations.
+    Loads and processes 3D spectral data cubes (MUSE, MIRI, NIRSpec) from FITS files.
+
+    Supports memory-mapped access to large files and provides methods for spectral
+    analysis and coordinate transformations.
 
     Attributes:
         cube (array): The 3D data cube, memory mapped when possible
         header (astropy.io.fits.Header): FITS header containing metadata
         wavelength (astropy.units.Quantity): Array of wavelength values with units
-        wave_unit (str): String representation of wavelength/velocity unit (Å, µm)
+        wave_unit (str): String representation of wavelength/velocity unit (Angstrom, um)
         spec_axis (int): Index of the spectral axis (typically 0)
         spectrum (array): Full cube spectrum (sum over spatial dimensions)
         wcs (astropy.wcs.WCS): World Coordinate System for coordinate transforms
         instrument (str): Detected instrument name
         filename (str): FITS file name
-        flux_unit (str): String representation of flux unit (erg/cm**2*s*Å, MJy/sr)
+        flux_unit (str): String representation of flux unit (erg/cm**2*s*Angstrom, MJy/sr)
     """
 
 
     def __init__(self):
-        # Initialize all attributes as None/empty
+        """
+        Initialize an empty CubeData with all attributes set to None/empty.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.cube = None
         self.header = None
         self.wavelength = None

@@ -88,7 +88,7 @@ def detect_instrument(hdul):
 
 def get_spectral_resolution(wavelength, instrument, header=None):
     """
-    Calculate spectral resolution R(λ) = λ/Δλ for different instruments.
+    Calculate spectral resolution R(lambda) = lambda/delta_lambda for different instruments.
 
     Args:
         wavelength (float): wavelength in units
@@ -96,13 +96,13 @@ def get_spectral_resolution(wavelength, instrument, header=None):
         header (astropy.io.fits.Header): FITS file header. Required for NIRSpec to get grating info
 
     Returns:
-        spectral resolution (float): R(λ)
+        spectral resolution (float): R(lambda)
 
     Raises:
         ValueError: If instrument cannot be detected or grating is invalid
 
     Formulas:
-        MIRI: R(λ) = 4603 - 128 * λ
+        MIRI: R(lambda) = 4603 - 128 * lambda
         NIRSpec (from grating):
             - G140H, G235H, G395H: R ~ 2700
             - G140M, G235M, G395M: R ~ 1000
@@ -169,11 +169,8 @@ def infer_spec_axis(header, cube_shape):
 
 def get_wavelength(header, instrument, cube_shape):
     """
-    Calculate wavelength array from FITS header based on instrument type.
-
-    Uses instrument-specific calculations and checks CTYPE3 to determine proper units:
-    - MUSE: Wavelength in Angstroms (Å) as astropy Quantity
-    - MIRI/NIRSpec: Wavelength in microns (µm) as astropy Quantity
+    Calculate wavelength array from FITS header based on instrument type: Angstroms for
+    MUSE, microns for MIRI/NIRSpec, checking CTYPE3 for the axis type along the way.
 
     Args:
         header (astropy.io.fits.Header): FITS header for the cube

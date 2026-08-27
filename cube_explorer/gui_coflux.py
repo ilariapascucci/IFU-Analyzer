@@ -168,7 +168,6 @@ class GuiCOFluxMixin:
 
         self.co_flux_worker = COFluxMapWorker(
             self.cube_data, use_catalog, self.co_flux_contam_catalog, n_jobs=n_jobs,
-            continuum_poly_deg=3,
             wave_min=wave_min, wave_max=wave_max,
             excluded_wavelengths=getattr(self, 'co_flux_excluded_wavelengths', set()),
             continuum_params=self.co_flux_continuum_params
