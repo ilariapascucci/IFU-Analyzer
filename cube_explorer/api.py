@@ -748,7 +748,52 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
 # ROTATIONAL DIAGRAM API
 # ============================================================================
 
-from .rotational_diagram_fitter import rotational_diagram
+from .rotational_diagram_h2_fitter import rotational_diagram as _rotational_diagram_h2, pc as _rot_diag_pc
+from .rotational_diagram_general_fitter import rotational_diagram as _rotational_diagram_general
+
+
+def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
+                        fit1T=True, fit2T=False, R=None, dist=140*_rot_diag_pc, upper_limits=None,
+                        progress_callback=None, molecule='H2', isotopologue=1):
+    """
+    Fit a rotational diagram (1T and/or 2T) to a set of line fluxes. Dispatches to the
+    H2-specific fitter (hardcoded partition function, OPR support) or the general
+    HITRAN-based fitter (any molecule, e.g. CO) depending on `molecule`.
+
+    Args:
+        fluxes (dict): {J: flux_value}, J is the upper rotational level
+        flux_errors (dict): {J: flux_error}
+        molecular_data (dict): 'wavelengths', 'Aul', 'Eu', 'gu' keys, each {J: value}
+        OPR (float): Fixed ortho-para ratio (H2 only; ignored otherwise)
+        fit_opr (bool): Grid-search OPR to minimize chi-squared (H2 only; ignored otherwise)
+        opr_grid (array): OPR values to search (H2 only). Defaults to np.linspace(0.1, 5.0, 200)
+        fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
+        fit2T (bool): Perform the 2T fit
+        R (float): Emitting radius (AU or cm)
+        dist (float): Distance (pc or cm)
+        upper_limits (dict): {J: True} for measurements marked as upper limits
+        progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
+        molecule (str): Species being fit, per get_available_molecules()
+        isotopologue (int): HITRAN isotopologue number for `molecule` (ignored for H2)
+
+    Returns:
+        results (dict): Fit results. "OPR"/"OPR_err"/"OPR_err_pos"/"OPR_err_neg" keys
+            are present only when molecule == 'H2'
+
+    Raises:
+        ValueError: if neither fit1T nor fit2T is True
+    """
+    if molecule == 'H2':
+        return _rotational_diagram_h2(
+            fluxes, flux_errors, molecular_data=molecular_data, OPR=OPR, fit_opr=fit_opr,
+            opr_grid=opr_grid, fit1T=fit1T, fit2T=fit2T, R=R, dist=dist,
+            upper_limits=upper_limits, progress_callback=progress_callback,
+        )
+    return _rotational_diagram_general(
+        fluxes, flux_errors, molecular_data=molecular_data, fit1T=fit1T, fit2T=fit2T,
+        R=R, dist=dist, upper_limits=upper_limits, progress_callback=progress_callback,
+        molecule=molecule, isotopologue=isotopologue,
+    )
 
 
 # ============================================================================

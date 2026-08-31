@@ -22,7 +22,11 @@ from matplotlib.figure import Figure
 
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
-from .rotational_diagram_fitter import rotational_diagram, get_gu, compute_line_fluxes_collective, model_1T, model_2T
+from .rotational_diagram_h2_fitter import (
+    rotational_diagram as rotational_diagram_h2,
+    get_gu, compute_line_fluxes_collective, model_1T, model_2T,
+)
+from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .co_flux_extractor import _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
 
 
@@ -91,22 +95,37 @@ class RotationalFitWorker(QThread):
 
     def run(self):
         try:
-            results = rotational_diagram(
-                self.fluxes,
-                self.flux_errors,
-                molecular_data=self.molecular_data,
-                OPR=None,
-                fit_opr=self.fit_opr,
-                opr_grid=self.opr_grid,
-                fit1T=self.fit1T,
-                fit2T=self.fit2T,
-                R=self.R,
-                dist=self.dist,
-                upper_limits=self.upper_limits,
-                progress_callback=self._emit_progress,
-                molecule=self.molecule,
-                isotopologue=self.isotopologue,
-            )
+            # H2 gets its own hardcoded-partition-function/OPR-capable fitter; every
+            # other molecule goes through the general, HITRAN-Q(T) one (no OPR param).
+            if self.molecule == 'H2':
+                results = rotational_diagram_h2(
+                    self.fluxes,
+                    self.flux_errors,
+                    molecular_data=self.molecular_data,
+                    OPR=None,
+                    fit_opr=self.fit_opr,
+                    opr_grid=self.opr_grid,
+                    fit1T=self.fit1T,
+                    fit2T=self.fit2T,
+                    R=self.R,
+                    dist=self.dist,
+                    upper_limits=self.upper_limits,
+                    progress_callback=self._emit_progress,
+                )
+            else:
+                results = rotational_diagram_general(
+                    self.fluxes,
+                    self.flux_errors,
+                    molecular_data=self.molecular_data,
+                    fit1T=self.fit1T,
+                    fit2T=self.fit2T,
+                    R=self.R,
+                    dist=self.dist,
+                    upper_limits=self.upper_limits,
+                    progress_callback=self._emit_progress,
+                    molecule=self.molecule,
+                    isotopologue=self.isotopologue,
+                )
             self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
