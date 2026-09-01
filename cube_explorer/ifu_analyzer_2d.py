@@ -24,7 +24,7 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -35,6 +35,7 @@ from PyQt5.QtCore import Qt
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
+from .gui import CollapsibleButtonGroup
 
 # ==============================================================================
 # RESOLUTION MATCHING HELPERS  (v3, clean implementation)
@@ -962,6 +963,17 @@ class Ifu_analyzer_2d_window(QWidget):
         self._init_ui()
 
     def closeEvent(self, event):
+        # Drop this window's collapsible groups from CollapsibleButtonGroup's
+        # class-level registry so its cross-window accordion logic never calls
+        # into a deleted widget after this window is gone.
+        for _g in (getattr(self, 'contour_group', None),
+                   getattr(self, 'convolution_group', None)):
+            try:
+                if _g in CollapsibleButtonGroup._all_groups:
+                    CollapsibleButtonGroup._all_groups.remove(_g)
+            except Exception:
+                pass
+
         self.image_left = None
         self.image_right = None
         self.base_image_left = None
@@ -1160,58 +1172,59 @@ class Ifu_analyzer_2d_window(QWidget):
         self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
 
         # =========================================================
-        # BOTTOM PANEL CONTROLS (STYLED LARGER, NO BOLD)
+        # BOTTOM PANEL CONTROLS - plain default styling, matching the 3D
+        # window and the Open/Header/Save buttons above.
         # =========================================================
-        control_style = "font-size: 10pt; padding: 4px;"
-        btn_style = "QPushButton { font-size: 11pt; padding: 8px 16px; }"
 
-        # ----- UNIFIED ROTATION CONTROLS -----
-        self.rot_dir = QComboBox()
-        self.rot_dir.addItems(["Counter-Clockwise", "Clockwise"])
-        self.rot_dir.setStyleSheet(control_style)
-        
+        # ----- ROTATION CONTROLS (per-panel; no "which slice?" prompt) -----
+        self.rot_ccw_radio = QRadioButton("Counter-Clockwise")
+        self.rot_cw_radio = QRadioButton("Clockwise")
+        self.rot_ccw_radio.setChecked(True)
+        self.rot_dir_group = QButtonGroup(self)
+        self.rot_dir_group.addButton(self.rot_ccw_radio)
+        self.rot_dir_group.addButton(self.rot_cw_radio)
+
         self.angle_spin = QDoubleSpinBox()
         self.angle_spin.setRange(0.0, 360.0)
         self.angle_spin.setValue(90.0)
         self.angle_spin.setSuffix(" °")
-        self.angle_spin.setStyleSheet(control_style)
-        
-        self.rotate_btn = QPushButton("Rotate")
-        self.rotate_btn.setStyleSheet(btn_style)
-        self.rotate_btn.clicked.connect(self._prompt_and_rotate)
+        self.angle_spin.setMaximumWidth(90)
 
-        # ----- NEW CONTOUR CONTROLS -----
-        self.contour_btn = QPushButton("Plot Contour")
-        self.contour_btn.setStyleSheet(btn_style)
+        self.rotate_left_btn = QPushButton("Rotate Left")
+        self.rotate_left_btn.clicked.connect(lambda: self.rotate_image("left"))
+
+        self.rotate_right_btn = QPushButton("Rotate Right")
+        self.rotate_right_btn.clicked.connect(lambda: self.rotate_image("right"))
+
+        # ----- CONTOUR CONTROLS (grouped under the "Contour" collapsible) -----
+        self.contour_btn = QPushButton("Plot")
         self.contour_btn.clicked.connect(self._prompt_and_contour)
 
-        self.superimpose_btn = QPushButton("Superimpose WCS")
-        self.superimpose_btn.setStyleSheet(btn_style)
+        self.superimpose_btn = QPushButton("Superimpose")
         self.superimpose_btn.clicked.connect(self._prompt_and_superimpose)
-        
-        self.save_contour_btn = QPushButton("Save Contour Mask")
-        self.save_contour_btn.setStyleSheet(btn_style)
+
+        self.save_contour_btn = QPushButton("Save")
+        self.save_contour_btn.setToolTip("Save the active contour's coordinates to a text/CSV file")
         self.save_contour_btn.clicked.connect(self._prompt_and_save_contour)
 
-        self.load_contour_btn = QPushButton("Load Saved Contour")
-        self.load_contour_btn.setStyleSheet(btn_style)
+        self.load_contour_btn = QPushButton("Load")
+        self.load_contour_btn.setToolTip("Overlay a contour saved from this or another image")
         self.load_contour_btn.clicked.connect(self._prompt_and_load_contour)
 
-        self.clear_contour_btn = QPushButton("Clear Contours")
-        self.clear_contour_btn.setStyleSheet(btn_style)
+        self.clear_contour_btn = QPushButton("Clear")
+        self.clear_contour_btn.setToolTip("Remove all contours from a panel")
         self.clear_contour_btn.clicked.connect(self._prompt_and_clear_contours)
 
-        self.match_res_btn = QPushButton("Slides Convolute")
-        self.match_res_btn.setStyleSheet(btn_style)
+        # ----- CONVOLUTION CONTROLS (grouped under the "Convolution" collapsible) -----
+        self.match_res_btn = QPushButton("Pair")
         self.match_res_btn.setToolTip(
-            "Convolve the higher-resolution slide (left/right) to match the\n"
+            "Convolve the higher-resolution panel (left/right) to match the\n"
             "coarser pixel size of the other, then reproject onto a common\n"
             "WCS grid. Flux is conserved via spherical-polygon intersection."
         )
         self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
 
-        self.batch_match_btn = QPushButton("Batch Convolution")
-        self.batch_match_btn.setStyleSheet(btn_style)
+        self.batch_match_btn = QPushButton("Batch")
         self.batch_match_btn.setToolTip(
             "Select multiple 2D FITS files. All are convolved to the worst\n"
             "(largest) pixel scale among them and reprojected onto a common\n"
@@ -1335,21 +1348,6 @@ class Ifu_analyzer_2d_window(QWidget):
     def _open_batch_match_dialog(self):
         dialog = BatchMatchResolutionDialog(self)
         dialog.exec_()
-
-    def _prompt_and_rotate(self):
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Select Target")
-        msg.setText("Which slice would you like to rotate?")
-        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        
-        msg.exec_()
-        
-        if msg.clickedButton() == btn_left:
-            self.rotate_image("left")
-        elif msg.clickedButton() == btn_right:
-            self.rotate_image("right")
 
     def _prompt_and_contour(self):
         dialog = QDialog(self)
@@ -1926,55 +1924,43 @@ class Ifu_analyzer_2d_window(QWidget):
         top_layout.addLayout(left_half, 1)
         top_layout.addLayout(right_half, 1)
 
-        self.bottom_panel = QWidget()
-        bottom_layout = QHBoxLayout(self.bottom_panel)
+        # ===== BOTTOM CONTROLS: two tiers packed right under the slice panels =====
+        # Tier 1 (upstairs): the two collapsible groups, nothing else.
+        self.contour_group = CollapsibleButtonGroup("Contour")
+        for _b in (self.contour_btn, self.save_contour_btn,
+                   self.load_contour_btn, self.clear_contour_btn):
+            self.contour_group.add_button(_b)
 
-        lbl_style = "font-size: 11pt; color: #333;"
+        self.convolution_group = CollapsibleButtonGroup("Convolution")
+        for _b in (self.match_res_btn, self.batch_match_btn):
+            self.convolution_group.add_button(_b)
 
-        # Left controls (Rotate)
+        tier1 = QHBoxLayout()
+        tier1.setContentsMargins(0, 0, 0, 0)
+        tier1.addWidget(self.contour_group)
+        tier1.addWidget(self.convolution_group)
+        tier1.addStretch(1)
+
+        # Tier 2 (downstairs): rotation cluster on the left, Superimpose on the right.
         rotate_widget = QWidget()
-        rotate_layout = QVBoxLayout(rotate_widget)
-        rotate_layout.setContentsMargins(0,0,0,0)
-        rotate_lbl = QLabel("Actions:")
-        rotate_lbl.setStyleSheet(lbl_style)
-        rotate_layout.addWidget(rotate_lbl)
-        rotate_layout.addWidget(self.rot_dir)
-        rotate_layout.addWidget(self.angle_spin)
-        rotate_layout.addWidget(self.rotate_btn)
-        
-        # Right controls (Contours)
-        contour_widget = QWidget()
-        contour_layout = QVBoxLayout(contour_widget)
-        contour_layout.setContentsMargins(0,0,0,0)
-        contour_lbl = QLabel("Contours:")
-        contour_lbl.setStyleSheet(lbl_style)
-        contour_layout.addWidget(contour_lbl)
-        contour_layout.addWidget(self.contour_btn)
-        contour_layout.addWidget(self.superimpose_btn)
-        contour_layout.addWidget(self.save_contour_btn)
-        contour_layout.addWidget(self.load_contour_btn)
-        contour_layout.addWidget(self.clear_contour_btn)
+        rotate_row = QHBoxLayout(rotate_widget)
+        rotate_row.setContentsMargins(0, 0, 0, 0)
+        rotate_row.addWidget(self.rot_ccw_radio)
+        rotate_row.addWidget(self.rot_cw_radio)
+        rotate_row.addWidget(self.angle_spin)
+        rotate_row.addWidget(self.rotate_left_btn)
+        rotate_row.addWidget(self.rotate_right_btn)
 
-        match_res_widget = QWidget()
-        match_res_layout = QVBoxLayout(match_res_widget)
-        match_res_layout.setContentsMargins(0, 0, 0, 0)
-        match_res_lbl = QLabel("Resolution:")
-        match_res_lbl.setStyleSheet(lbl_style)
-        match_res_layout.addWidget(match_res_lbl)
-        match_res_layout.addWidget(self.match_res_btn)
-        match_res_layout.addWidget(self.batch_match_btn)
+        tier2 = QHBoxLayout()
+        tier2.setContentsMargins(0, 0, 0, 0)
+        tier2.addWidget(rotate_widget)
+        tier2.addStretch(1)
+        tier2.addWidget(self.superimpose_btn)
 
-        bottom_layout.addStretch(1)
-        bottom_layout.addWidget(rotate_widget)
-        bottom_layout.addSpacing(30)
-        bottom_layout.addWidget(contour_widget)
-        bottom_layout.addSpacing(30)
-        bottom_layout.addWidget(match_res_widget)
-        bottom_layout.addStretch(6)
-
-        main_layout.addLayout(top_layout, 2)
-        main_layout.addStretch(1) 
-        main_layout.addWidget(self.bottom_panel, 0)
+        main_layout.addLayout(top_layout, 3)
+        main_layout.addLayout(tier1, 0)
+        main_layout.addLayout(tier2, 0)
+        main_layout.addStretch(2)  # empty space fills the rest (no spectrum here)
 
         self.setLayout(main_layout)
 
@@ -2215,7 +2201,7 @@ class Ifu_analyzer_2d_window(QWidget):
         if angle == 0.0:
             return
             
-        if self.rot_dir.currentText() == "Clockwise":
+        if self.rot_cw_radio.isChecked():
             angle = -angle
 
         if target == "left":
