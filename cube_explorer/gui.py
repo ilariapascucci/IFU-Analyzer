@@ -3414,7 +3414,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
     def open_2d_window(self):
         try:
-            from .ifu_analyzer_2d import Ifu_analyzer_2d_window  # new file/module
+            from .gui_2d import Ifu_analyzer_2d_window
 
             two_d_window = Ifu_analyzer_2d_window()
             two_d_window.resize(self.width(), self.height())
