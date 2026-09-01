@@ -975,6 +975,9 @@ class Ifu_analyzer_2d_window(QWidget):
         self.active_target = None
         self.last_selection_left = None
         self.last_selection_right = None
+        # Region-interaction state machine per side:
+        # idle -> drawing -> placed -> editing (see _set_region_state).
+        self.region_state = {"left": "idle", "right": "idle"}
         self.last_contour_right_wcs = None
         self.last_contour_right_level = None
         self.scale_left = 'Linear'
@@ -1114,17 +1117,19 @@ class Ifu_analyzer_2d_window(QWidget):
         self.scale_combo_right.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
         self.scale_combo_right.currentTextChanged.connect(lambda: self._change_scale('right'))
 
+        # Copy button sits on its own side's sidebar and pulls the OTHER
+        # panel's selection onto this one (matches the 3D window convention).
         self.copy_btn_l = QPushButton("⎘")
         self.copy_btn_l.setFixedSize(40, 40)
         self.copy_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.copy_btn_l.setToolTip("Copy selection from left slice to right")
-        self.copy_btn_l.clicked.connect(lambda: self.copy_selection(source="left", target="right"))
+        self.copy_btn_l.setToolTip("Copy selection from right slice to left")
+        self.copy_btn_l.clicked.connect(lambda: self.copy_selection(source="right", target="left"))
 
         self.copy_btn_r = QPushButton("⎘")
         self.copy_btn_r.setFixedSize(40, 40)
         self.copy_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.copy_btn_r.setToolTip("Copy selection from right slice to left")
-        self.copy_btn_r.clicked.connect(lambda: self.copy_selection(source="right", target="left"))
+        self.copy_btn_r.setToolTip("Copy selection from left slice to right")
+        self.copy_btn_r.clicked.connect(lambda: self.copy_selection(source="left", target="right"))
 
         self.erase_btn_l = QPushButton("✖")
         self.erase_btn_l.setFixedSize(40, 40)
@@ -1135,6 +1140,24 @@ class Ifu_analyzer_2d_window(QWidget):
         self.erase_btn_r.setFixedSize(40, 40)
         self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
+
+        # Edit Shape: toggles drag/resize handles on a placed selection.
+        # Enabled only in the "placed" state (and not for pixel selections).
+        self.edit_shape_btn_l = QPushButton("✎")
+        self.edit_shape_btn_l.setCheckable(True)
+        self.edit_shape_btn_l.setFixedSize(40, 40)
+        self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_l.setEnabled(False)
+        self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
+
+        self.edit_shape_btn_r = QPushButton("✎")
+        self.edit_shape_btn_r.setCheckable(True)
+        self.edit_shape_btn_r.setFixedSize(40, 40)
+        self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_r.setEnabled(False)
+        self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
 
         # =========================================================
         # BOTTOM PANEL CONTROLS (STYLED LARGER, NO BOLD)
@@ -1156,10 +1179,6 @@ class Ifu_analyzer_2d_window(QWidget):
         self.rotate_btn = QPushButton("Rotate")
         self.rotate_btn.setStyleSheet(btn_style)
         self.rotate_btn.clicked.connect(self._prompt_and_rotate)
-        
-        self.save_btn = QPushButton("Save FITS")
-        self.save_btn.setStyleSheet(btn_style)
-        self.save_btn.clicked.connect(self._prompt_and_save)
 
         # ----- NEW CONTOUR CONTROLS -----
         self.contour_btn = QPushButton("Plot Contour")
@@ -1201,43 +1220,117 @@ class Ifu_analyzer_2d_window(QWidget):
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
 
     def copy_selection(self, source, target):
-        """Copy region selection from one side to the other"""
-        source_selection = self.last_selection_right if source == "right" else self.last_selection_left
-        if not source_selection:
+        """Copy a region selection onto the other panel.
+
+        WCS-aware: the selection's corners are reprojected through both panels'
+        WCS so it lands on the same patch of sky. A rectangle whose sky
+        footprint is no longer axis-aligned on the target (the two WCS differ
+        in rotation/scale) is copied as a polygon; circles/ellipses are copied
+        as their reprojected bounding box. Falls back to a plain pixel-index
+        copy when either panel has no usable celestial WCS.
+        """
+        src_sel = self.last_selection_right if source == "right" else self.last_selection_left
+        if not src_sel:
             return
 
-        if source_selection["shape"] == "*":
-            # Handle pixel selection
-            x, y = source_selection["coords"]
-            self._handle_pixel_click(x, y, target)
-        elif source_selection["shape"] == "✏":
-            # Handle lasso selection - need to recreate from vertices
-            if "patch" in source_selection and hasattr(source_selection["patch"], "lasso_verts"):
-                verts = source_selection["patch"].lasso_verts
-                selector = self.region_selector_left if target == "left" else self.region_selector_right
-                selector.active_shape = "✏"
-                # Call on_lasso_select directly with the stored vertices
-                selector.on_lasso_select(verts)
-            else:
-                # Fallback: try to create from bounding box if vertices not available
-                selector = self.region_selector_left if target == "left" else self.region_selector_right
-                selector.active_shape = source_selection["shape"]
+        src_wcs = self.wcs_left if source == "left" else self.wcs_right
+        tgt_wcs = self.wcs_left if target == "left" else self.wcs_right
+        tgt_img = self.image_left if target == "left" else self.image_right
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+        shape = src_sel["shape"]
+
+        wcs_ok = (
+            tgt_img is not None
+            and src_wcs is not None and getattr(src_wcs, "has_celestial", False)
+            and tgt_wcs is not None and getattr(tgt_wcs, "has_celestial", False)
+        )
+
+        def _to_target_px(xs, ys):
+            sw = src_wcs.celestial if src_wcs.pixel_n_dim > 2 else src_wcs
+            tw = tgt_wcs.celestial if tgt_wcs.pixel_n_dim > 2 else tgt_wcs
+            sky = sw.pixel_to_world(np.asarray(xs, float), np.asarray(ys, float))
+            tx, ty = tw.world_to_pixel(sky)
+            return np.asarray(tx, float), np.asarray(ty, float)
+
+        # ---- pixel ("*") ----
+        if shape == "*":
+            x, y = src_sel["coords"]
+            if wcs_ok:
                 try:
-                    # Convert coords to integers for safety
-                    coords = tuple(int(c) for c in source_selection["coords"])
-                    selector.create_region(coords)
-                except Exception as e:
+                    tx, ty = _to_target_px([x], [y])
+                    if np.isfinite(tx[0]) and np.isfinite(ty[0]):
+                        x, y = float(tx[0]), float(ty[0])
+                except Exception:
                     pass
-        else:
-            # Handle regular region selection (rectangle, circle, ellipse)
-            selector = self.region_selector_left if target == "left" else self.region_selector_right
-            selector.active_shape = source_selection["shape"]
+            self._handle_pixel_click(int(round(x)), int(round(y)), target)
+            return
+
+        # ---- lasso ("✏") ----
+        if shape == "✏":
+            patch = src_sel.get("patch")
+            if patch is None or not hasattr(patch, "lasso_verts"):
+                return
+            verts = np.asarray(patch.lasso_verts, dtype=float)
+            if wcs_ok:
+                try:
+                    tx, ty = _to_target_px(verts[:, 0], verts[:, 1])
+                    if np.all(np.isfinite(tx)) and np.all(np.isfinite(ty)):
+                        ny, nx = tgt_img.shape
+                        verts = np.column_stack(
+                            [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
+                except Exception:
+                    pass
+            selector.active_shape = "✏"
             try:
-                # Convert coords to integers for safety
-                coords = tuple(int(c) for c in source_selection["coords"])
-                selector.create_region(coords)
-            except Exception as e:
+                selector.on_lasso_select(verts)
+            except Exception:
                 pass
+            return
+
+        # ---- rectangle / circle / ellipse ----
+        xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
+        if wcs_ok:
+            try:
+                cx = [xmin, xmax, xmax, xmin]
+                cy = [ymin, ymin, ymax, ymax]
+                tx, ty = _to_target_px(cx, cy)
+                if not (np.all(np.isfinite(tx)) and np.all(np.isfinite(ty))):
+                    raise ValueError("non-finite reprojected corners")
+                ny, nx = tgt_img.shape
+                axis_aligned = (
+                    abs(tx[0] - tx[3]) < 0.5 and abs(tx[1] - tx[2]) < 0.5 and
+                    abs(ty[0] - ty[1]) < 0.5 and abs(ty[2] - ty[3]) < 0.5
+                )
+                if shape == "▭" and not axis_aligned:
+                    verts = np.column_stack(
+                        [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
+                    selector.active_shape = "✏"
+                    try:
+                        selector.on_lasso_select(verts)
+                    except Exception:
+                        pass
+                    return
+                # round (not truncate) so a copy between identical/near-identical
+                # grids is exact instead of drifting a pixel on the TAN round-trip
+                xmin = max(0, min(nx - 1, int(round(float(np.min(tx))))))
+                xmax = max(0, min(nx - 1, int(round(float(np.max(tx))))))
+                ymin = max(0, min(ny - 1, int(round(float(np.min(ty))))))
+                ymax = max(0, min(ny - 1, int(round(float(np.max(ty))))))
+                if xmax - xmin < 1 or ymax - ymin < 1:
+                    QMessageBox.information(
+                        self, "Copy Region",
+                        "The source selection does not overlap the other "
+                        "panel's field of view.")
+                    return
+            except Exception:
+                xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
+
+        selector.active_shape = shape
+        try:
+            selector.create_region((int(round(xmin)), int(round(xmax)),
+                                    int(round(ymin)), int(round(ymax))))
+        except Exception:
+            pass
 
     def _open_batch_match_dialog(self):
         dialog = BatchMatchResolutionDialog(self)
@@ -1257,21 +1350,6 @@ class Ifu_analyzer_2d_window(QWidget):
             self.rotate_image("left")
         elif msg.clickedButton() == btn_right:
             self.rotate_image("right")
-
-    def _prompt_and_save(self):
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Select Target")
-        msg.setText("Which slice would you like to save?")
-        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        
-        msg.exec_()
-        
-        if msg.clickedButton() == btn_left:
-            self.save_fits("left")
-        elif msg.clickedButton() == btn_right:
-            self.save_fits("right")
 
     def _prompt_and_contour(self):
         dialog = QDialog(self)
@@ -1745,11 +1823,15 @@ class Ifu_analyzer_2d_window(QWidget):
         
         self.header_left_btn = QPushButton("Header")
         self.header_left_btn.clicked.connect(lambda: self.show_header("left"))
-        
+
+        self.save_left_btn = QPushButton("Save FITS")
+        self.save_left_btn.clicked.connect(lambda: self.save_fits("left"))
+
         # Left Stats strictly bounded so they don't stretch Canvas space
         left_stats_layout = QVBoxLayout()
         left_stats_layout.addWidget(self.open_left_btn)
         left_stats_layout.addWidget(self.header_left_btn)
+        left_stats_layout.addWidget(self.save_left_btn)
         left_stats_layout.addWidget(self.stats1_label)
         left_stats_layout.addSpacing(15) 
         left_stats_layout.addWidget(self.hover1_label)
@@ -1774,6 +1856,8 @@ class Ifu_analyzer_2d_window(QWidget):
         left_sidebar.addWidget(self.scale_combo_left)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
+        left_sidebar.addWidget(self.copy_btn_l)
+        left_sidebar.addWidget(self.edit_shape_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
         left_sidebar.addStretch()
 
@@ -1794,10 +1878,14 @@ class Ifu_analyzer_2d_window(QWidget):
         self.header_right_btn = QPushButton("Header")
         self.header_right_btn.clicked.connect(lambda: self.show_header("right"))
 
+        self.save_right_btn = QPushButton("Save FITS")
+        self.save_right_btn.clicked.connect(lambda: self.save_fits("right"))
+
         # Right Stats strictly bounded
         right_stats_layout = QVBoxLayout()
         right_stats_layout.addWidget(self.open_right_btn)
         right_stats_layout.addWidget(self.header_right_btn)
+        right_stats_layout.addWidget(self.save_right_btn)
         right_stats_layout.addWidget(self.stats2_label)
         right_stats_layout.addSpacing(15)
         right_stats_layout.addWidget(self.hover2_label)
@@ -1822,6 +1910,8 @@ class Ifu_analyzer_2d_window(QWidget):
         right_sidebar.addWidget(self.scale_combo_right)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
+        right_sidebar.addWidget(self.copy_btn_r)
+        right_sidebar.addWidget(self.edit_shape_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
         right_sidebar.addStretch()
 
@@ -1874,22 +1964,13 @@ class Ifu_analyzer_2d_window(QWidget):
         match_res_layout.addWidget(self.match_res_btn)
         match_res_layout.addWidget(self.batch_match_btn)
 
-        save_widget = QWidget()
-        save_layout = QVBoxLayout(save_widget)
-        save_layout.setContentsMargins(0,0,0,0)
-        save_layout.addStretch() 
-        save_layout.addWidget(self.save_btn)
-
-        bottom_layout.addStretch(1) 
+        bottom_layout.addStretch(1)
         bottom_layout.addWidget(rotate_widget)
         bottom_layout.addSpacing(30)
         bottom_layout.addWidget(contour_widget)
         bottom_layout.addSpacing(30)
         bottom_layout.addWidget(match_res_widget)
-        
-        bottom_layout.addStretch(3) 
-        bottom_layout.addWidget(save_widget, alignment=Qt.AlignBottom)
-        bottom_layout.addStretch(6) 
+        bottom_layout.addStretch(6)
 
         main_layout.addLayout(top_layout, 2)
         main_layout.addStretch(1) 
@@ -1993,6 +2074,18 @@ class Ifu_analyzer_2d_window(QWidget):
         plotter.cbar_ax = plotter.fig.add_axes(cbar_rect)
         plotter.cbar_ax.set_visible(False)
 
+        # The figure was cleared above, so the old RegionSelector now points at
+        # a dead axes. Tear down its interactive patch first (its drag handlers
+        # are wired to the still-live canvas and would otherwise leak), then
+        # rebind a fresh selector to the new axes and reset this side to idle.
+        old_selector = self.region_selector_left if target == 'left' else self.region_selector_right
+        if old_selector is not None and getattr(old_selector, 'interactive_patch', None) is not None:
+            try:
+                old_selector.interactive_patch.disconnect()
+            except Exception:
+                pass
+            old_selector.interactive_patch = None
+
         if target == 'left':
             self.region_selector_left = RegionSelector(
                 plotter.ax, canvas,
@@ -2001,6 +2094,13 @@ class Ifu_analyzer_2d_window(QWidget):
             self.region_selector_right = RegionSelector(
                 plotter.ax, canvas,
                 lambda mask, patch, coords: self._handle_region_select(mask, patch, coords, 'right'))
+
+        if target == 'left':
+            self.last_selection_left = None
+        else:
+            self.last_selection_right = None
+        if getattr(self, 'region_state', None) is not None:
+            self._set_region_state(target, "idle")
 
     def load_2d_fits(self, target):
         fname, _ = QFileDialog.getOpenFileName(
@@ -2358,11 +2458,15 @@ class Ifu_analyzer_2d_window(QWidget):
         mn   = np.nanmin(image)
         mx   = np.nanmax(image)
         mean = np.nanmean(image)
+        total_sum = np.nansum(image)
+        std  = np.nanstd(image)
         stats_label.setText(
             f"Image Stats{unit_str}\n"
             f"min={mn:.3e}\n"
             f"max={mx:.3e}\n"
-            f"mean={mean:.3e}"
+            f"mean={mean:.3e}\n"
+            f"Sum={total_sum:.3e}\n"
+            f"std={std:.3e}"
         )
 
         # 6. Refresh Canvas
@@ -2415,6 +2519,62 @@ class Ifu_analyzer_2d_window(QWidget):
         text = f"Cursor Info:\nPixel: {ix}, {iy}\n{wcs_str}Val: {val:.4e}{unit_str}"
         hover_label.setText(text)
 
+    def _set_region_state(self, side, new_state):
+        """Central state transition for region-selection interaction on one side.
+
+        Single source of truth for shape-button enablement, the Edit Shape
+        button's enabled/checked state, and InteractivePatch handler wiring,
+        so they can never drift out of sync (which previously let stale drag
+        handlers survive an erase and made editing always-on).
+        """
+        selector = self.region_selector_left if side == "left" else self.region_selector_right
+        edit_btn = self.edit_shape_btn_l if side == "left" else self.edit_shape_btn_r
+        old_state = self.region_state.get(side, "idle")
+
+        # Leaving "editing" always unwires the drag handlers first.
+        if old_state == "editing" and new_state != "editing" and selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect_handlers()
+
+        self.region_state[side] = new_state
+
+        if new_state == "idle":
+            for btn in self.shape_buttons[side].values():
+                btn.setEnabled(True)
+                btn.setChecked(False)
+            edit_btn.setEnabled(False)
+            edit_btn.setChecked(False)
+        elif new_state == "drawing":
+            active_shape = self.active_shape if self.active_target == side else None
+            for shape, btn in self.shape_buttons[side].items():
+                btn.setEnabled(shape == active_shape)
+            edit_btn.setEnabled(False)
+            edit_btn.setChecked(False)
+        elif new_state == "placed":
+            for btn in self.shape_buttons[side].values():
+                btn.setEnabled(False)
+                btn.setChecked(False)
+            sel = self.last_selection_left if side == "left" else self.last_selection_right
+            edit_btn.setEnabled(bool(sel) and sel.get("shape") != "*")
+            edit_btn.setChecked(False)
+        elif new_state == "editing":
+            for btn in self.shape_buttons[side].values():
+                btn.setEnabled(False)
+            edit_btn.setEnabled(True)
+            edit_btn.setChecked(True)
+            if selector.interactive_patch is not None:
+                selector.interactive_patch.connect()
+
+    def _toggle_edit_shape(self, side):
+        """Handle the Edit Shape button click for one side."""
+        state = self.region_state.get(side, "idle")
+        if state == "placed":
+            self._set_region_state(side, "editing")
+        elif state == "editing":
+            self._set_region_state(side, "placed")
+        else:
+            edit_btn = self.edit_shape_btn_l if side == "left" else self.edit_shape_btn_r
+            edit_btn.setChecked(False)
+
     def _set_shape(self, shape, target):
         if self.active_shape == shape and self.active_target == target:
             self.active_shape = None
@@ -2428,16 +2588,27 @@ class Ifu_analyzer_2d_window(QWidget):
                 btn.setChecked(side == target and btn_shape == shape and self.active_shape is not None)
 
         selector = self.region_selector_left if target == "left" else self.region_selector_right
-        selector.activate_selector(shape if self.active_shape else None)
+        if self.active_shape:
+            selector.activate_selector(shape)
+            self._set_region_state(target, "drawing")
+        else:
+            selector.activate_selector(None)
+            self._set_region_state(target, "idle")
 
     def _handle_region_select(self, mask, patch, coords, target):
         image = self.image_left if target == "left" else self.image_right
         header = self.header_left if target == "left" else self.header_right
-        
-        # FIXED: Changed 'xNone' to 'None' to resolve NameError
-        if image is None: return
+        if image is None:
+            return
 
         xmin, xmax, ymin, ymax = coords
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+
+        # This callback also fires on every mouse-move tick of a live
+        # drag/resize while "editing" (not just once when a selection first
+        # completes) - in that case we must NOT tear down the handles or
+        # touch region_state, since the drag is still in progress.
+        is_live_edit_tick = self.region_state.get(target) == "editing"
 
         # Build the full-size mask matching the image dimensions
         if mask.shape == image.shape:
@@ -2449,35 +2620,79 @@ class Ifu_analyzer_2d_window(QWidget):
             y1, x1 = min(y0 + h_mask, image.shape[0]), min(x0 + w_mask, image.shape[1])
             full_mask[y0:y1, x0:x1] = mask[:(y1-y0), :(x1-x0)]
 
-        selection = {"shape": self.active_shape, "coords": coords, "mask": full_mask, "patch": patch}
-        
-        if target == "left": self.last_selection_left = selection
-        else: self.last_selection_right = selection
+        # Shape identity: during a live edit-tick selector.active_shape is
+        # already stale (reset to None when the original draw completed), so
+        # re-reading it would drop a moved freeform's "✏" identity. A live
+        # edit only moves an already-placed selection, so reuse its shape.
+        if is_live_edit_tick:
+            existing_sel = self.last_selection_left if target == "left" else self.last_selection_right
+            shape = existing_sel["shape"] if existing_sel else selector.active_shape
+        else:
+            shape = selector.active_shape
+
+        selection = {"shape": shape, "coords": coords, "mask": full_mask, "patch": patch}
+        if target == "left":
+            self.last_selection_left = selection
+        else:
+            self.last_selection_right = selection
 
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-        
-        # Clean up previous area artists
+
+        # Remove previous area patches so only the last selection remains
         if hasattr(plotter.ax, 'area_artists'):
-            for artist in getattr(plotter.ax, 'area_artists'):
+            for artist in list(plotter.ax.area_artists):
                 try: artist.remove()
                 except Exception: pass
         plotter.ax.area_artists = []
 
+        # Remove previous pixel marker(s) so selection is exclusive
+        if hasattr(plotter.ax, 'pixel_marker'):
+            for artist in list(plotter.ax.pixel_marker):
+                try: artist.remove()
+                except Exception: pass
+            plotter.ax.pixel_marker = []
+
+        # Remove lingering handle scatter collections - but not during a live
+        # edit-tick, where the only handle collection that exists IS the one
+        # belonging to the shape currently being dragged.
+        if not is_live_edit_tick:
+            for collection in list(plotter.ax.collections):
+                try:
+                    if getattr(collection, '_is_handle_collection', False):
+                        collection.remove()
+                except Exception:
+                    pass
+
         plotter.ax.add_patch(patch)
         plotter.ax.area_artists.append(patch)
-        
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
+
+        # Draw NOW, while the mpl selector is still connected, so it recaptures
+        # its blit background with this patch included - otherwise the selector
+        # restores its stale pre-selection background over the patch after this
+        # callback returns and the shape only reappears on the next full redraw.
+        if target == "left":
+            self.slice1_canvas.draw()
+        else:
+            self.slice2_canvas.draw()
+
+        # Hide the mpl selector widget's own handles after the draw completes
         if selector.selector is not None:
-            try: selector.selector.set_visible(False)
-            except Exception: pass
-        
-        # Reset UI button states
-        self.active_shape = None
-        self.active_target = None
-        for side in ["left", "right"]:
-            for btn in self.shape_buttons[side].values():
-                btn.setChecked(False)
-        selector.activate_selector(None)
+            try:
+                if hasattr(selector.selector, 'set_active'):
+                    selector.selector.set_active(False)
+                if hasattr(selector.selector, 'set_visible'):
+                    selector.selector.set_visible(False)
+            except Exception:
+                pass
+
+        if not is_live_edit_tick:
+            self.active_shape = None
+            self.active_target = None
+            for side in ["left", "right"]:
+                for btn in self.shape_buttons[side].values():
+                    btn.setChecked(False)
+            selector.activate_selector(None)
+            self._set_region_state(target, "placed")
 
         selected_area = image[full_mask]
         if selected_area.size > 0:
@@ -2488,11 +2703,9 @@ class Ifu_analyzer_2d_window(QWidget):
             current_text = stats_label.text().split("\n")
             slice_stats = [line for line in current_text if line.startswith("Image Stats")]
 
-            bunit = ""
             unit_str = ""
             if header is not None and 'BUNIT' in header:
-                bunit = str(header['BUNIT'])
-                unit_str = f" [{bunit}]"
+                unit_str = f" [{header['BUNIT']}]"
 
             region_stats = [
                 f"Selected Area Stats{unit_str}:",
@@ -2508,27 +2721,54 @@ class Ifu_analyzer_2d_window(QWidget):
         else: self.slice2_canvas.draw()
 
     def clear_region(self, target):
+        state = self.region_state.get(target, "idle")
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
+
+        if state == "drawing":
+            # Abort the in-progress draw - nothing has been placed yet.
+            self.active_shape = None
+            self.active_target = None
+            selector.activate_selector(None)
+            for btn in self.shape_buttons[target].values():
+                btn.setChecked(False)
+            self._set_region_state(target, "idle")
+            return
+
+        # Disconnect and drop the interactive patch so its drag handlers don't
+        # survive the erase (previously they stayed wired to the canvas and
+        # could interfere with a later draw in the same spot).
+        if selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect()
+            selector.interactive_patch = None
+
         if target == "left":
             self.last_selection_left = None
-            plotter = self.slice1_plotter
         else:
             self.last_selection_right = None
-            plotter = self.slice2_plotter
 
         # Clear physical shapes
         if hasattr(plotter.ax, 'area_artists'):
-            for artist in plotter.ax.area_artists:
+            for artist in list(plotter.ax.area_artists):
                 try: artist.remove()
                 except Exception: pass
             plotter.ax.area_artists = []
 
         # Clear pixel marks
         if hasattr(plotter.ax, 'pixel_marker'):
-            for marker in plotter.ax.pixel_marker:
+            for marker in list(plotter.ax.pixel_marker):
                 try: marker.remove()
                 except Exception: pass
             plotter.ax.pixel_marker = []
-            
+
+        # Remove any lingering resize-handle scatter collections
+        for collection in list(plotter.ax.collections):
+            try:
+                if getattr(collection, '_is_handle_collection', False):
+                    collection.remove()
+            except Exception:
+                pass
+
         if hasattr(plotter, 'current_contour') and plotter.current_contour:
             if hasattr(plotter.current_contour, 'collections'):
                 for c in plotter.current_contour.collections:
@@ -2548,45 +2788,87 @@ class Ifu_analyzer_2d_window(QWidget):
             self.last_contour_right_wcs = None
             self.last_contour_right_level = None
 
+        self._set_region_state(target, "idle")
+
         if target == "left" and self.image_left is not None:
             self.display_image("left", "Left Image")
         elif target == "right" and self.image_right is not None:
             self.display_image("right", "Right Image")
+        elif target == "left":
+            self.slice1_canvas.draw()
+        else:
+            self.slice2_canvas.draw()
 
     def _handle_pixel_click(self, x, y, target):
         image = self.image_left if target == "left" else self.image_right
         header = self.header_left if target == "left" else self.header_right
         if image is None: return
-                
+
         if 0 <= y < image.shape[0] and 0 <= x < image.shape[1]:
             intensity = float(image[y, x])
-            
+
             if target == "left": self.last_selection_left = {"shape": "*", "coords": (x, y), "mask": None}
             else: self.last_selection_right = {"shape": "*", "coords": (x, y), "mask": None}
 
             stats_label = self.stats1_label if target == "left" else self.stats2_label
-            
+
             unit_str = ""
             if header is not None and 'BUNIT' in header:
                 unit_str = f" {header['BUNIT']}"
-                
-            stats_label.setText(f"Pixel: (x={x}, y={y})\nIntensity={intensity:.3e}{unit_str}")
+
+            stats_text = [
+                f"Pixel: (x={x}, y={y})",
+                f"Intensity={intensity:.3e}{unit_str}",
+            ]
+
+            # RA/DEC for this pixel from the panel's WCS (matches 3D window)
+            wcs_obj = self.wcs_left if target == "left" else self.wcs_right
+            if wcs_obj is not None and getattr(wcs_obj, "has_celestial", False):
+                try:
+                    wcs2d = wcs_obj.celestial if wcs_obj.pixel_n_dim > 2 else wcs_obj
+                    world = wcs2d.pixel_to_world(x, y)
+                    stats_text.append(f"RA={world.ra.deg:.6f}°")
+                    stats_text.append(f"DEC={world.dec.deg:.6f}°")
+                except Exception:
+                    pass
+
+            stats_label.setText("\n".join(stats_text))
 
             plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-            
+            selector = self.region_selector_left if target == "left" else self.region_selector_right
+
+            # A pixel pick replaces any region shape (exclusive selection)
+            if selector.interactive_patch is not None:
+                selector.interactive_patch.disconnect()
+                selector.interactive_patch = None
+
             if hasattr(plotter.ax, 'area_artists'):
-                for artist in plotter.ax.area_artists:
+                for artist in list(plotter.ax.area_artists):
                     try: artist.remove()
                     except Exception: pass
                 plotter.ax.area_artists = []
 
             if hasattr(plotter.ax, 'pixel_marker'):
-                for marker in plotter.ax.pixel_marker:
-                    marker.remove()
+                for marker in list(plotter.ax.pixel_marker):
+                    try: marker.remove()
+                    except Exception: pass
                 plotter.ax.pixel_marker = []
 
+            for collection in list(plotter.ax.collections):
+                try:
+                    if getattr(collection, '_is_handle_collection', False):
+                        collection.remove()
+                except Exception:
+                    pass
+
             plotter.update_pixel_marker(x, y)
-            
+
+            # Pixel selections are not editable - return to idle.
+            self.active_shape = None
+            self.active_target = None
+            selector.activate_selector(None)
+            self._set_region_state(target, "idle")
+
             if target == "left": self.slice1_canvas.draw()
             else: self.slice2_canvas.draw()
 
