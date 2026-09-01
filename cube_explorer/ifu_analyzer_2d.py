@@ -2041,15 +2041,31 @@ class Ifu_analyzer_2d_window(QWidget):
                             pass
                 
                 if data is None:
-                    QMessageBox.warning(self, "Load Error", "No image data found in FITS file.")
+                    # No HDU squeezed down to 2D. Distinguish a genuine
+                    # multi-plane cube (reject with guidance) from a file that
+                    # really has no image data.
+                    cube_shape = None
+                    for hdu in hdul:
+                        if hdu.data is None or getattr(hdu.data, 'size', 0) == 0:
+                            continue
+                        sq = np.squeeze(hdu.data)
+                        if sq.ndim > 2:
+                            cube_shape = tuple(sq.shape)
+                            break
+                    if cube_shape is not None:
+                        QMessageBox.warning(
+                            self, "3D Cube Not Supported",
+                            f"This file holds a {cube_shape} data cube, not a 2D image.\n\n"
+                            "The 2D viewer needs a single plane. Extract or collapse a "
+                            "slice in the main window first, then open that saved 2D FITS here.")
+                    else:
+                        QMessageBox.warning(
+                            self, "Load Error", "No image data found in FITS file.")
                     return
 
-                data = np.squeeze(data)
-                if data.ndim != 2:
-                    QMessageBox.warning(self, "Dimension Error", 
-                                        f"Expected a 2D image, but got a {data.ndim}D array.\n"
-                                        "Please select a 2D FITS file.")
-                    return
+                # data is already the squeezed 2D array from the loop above
+                # ((1, ny, nx) / (ny, nx, 1) degenerate axes are accepted);
+                # true multi-plane cubes are rejected before this point.
 
                 # --- NEW CLEANUP BLOCK: Remove dangling 3D JWST keys ---
                 header['NAXIS'] = 2
