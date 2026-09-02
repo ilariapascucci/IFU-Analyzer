@@ -10,6 +10,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
 from .co_flux_extractor import fit_auto_continuum
 from .continuum_dialog import ContinuumParametersDialog
+from .species_dialog import SpeciesDialog
 from .unit_converter import extract_units
 
 class GuiCOFluxMixin:
@@ -65,12 +66,12 @@ class GuiCOFluxMixin:
                 self.co_flux_params_cache.get('wave_max') == wave_max and
                 self.co_flux_params_cache.get('continuum_params') == self.co_flux_continuum_params
             )
-            hitran_match = (
+            selection_match = (
                 hasattr(self, 'co_flux_hitran_cache') and
-                len(self.co_flux_hitran_cache) == len(self.hitran_lines)
+                len(self.co_flux_hitran_cache) == len(getattr(self, 'plotted_lines', None) or [])
             )
             
-            if params_match and hitran_match:
+            if params_match and selection_match:
                 reply = QMessageBox.question(
                     self, "Cached Results Available",
                     "Results from the last extraction with these parameters are cached.\n\n"
@@ -98,28 +99,31 @@ class GuiCOFluxMixin:
                     results_dialog.exec_()
                     return
         
-        if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
-            QMessageBox.warning(self, "No HITRAN Data", "Click the HITRAN button first to fetch HITRAN lines for the wavelength range.")
+        # Source of truth is self.plotted_lines -- exactly what the Lines dialog (species_dialog)
+        # currently has checked, the same list the main spectrum plot and Multi-Gaussian already
+        # use. Previously this read self.hitran_lines (the *entire* fetched/loaded catalog, e.g.
+        # all 183 lines from a wide HITRAN query) minus co_flux_excluded_wavelengths (only ever
+        # populated by individually clicking a line marker on the plot, never by the Lines
+        # dialog's checkboxes) -- so deselecting lines in the Lines dialog had no effect here at
+        # all, and a separate, unrelated proximity-clustering pass (_filter_co_flux_lines) is
+        # what actually decided the count shown in the preview. Both are gone now: whatever's
+        # checked in the Lines dialog is what gets fit, full stop, mirroring Multi-Gaussian.
+        if not getattr(self, 'plotted_lines', None):
+            QMessageBox.warning(self, "No Lines Selected", "Fetch/load lines and select them in the Lines dialog first.")
             return
-        
-        hitran_in_range = [line for line in self.hitran_lines if wave_min <= float(line.get('wavelength', 0)) <= wave_max]
 
-        # Respect deselected lines the same way extract_co_flux_from_spectrum does, so the
-        # preview shows exactly the lines that will actually be fit -- not the full fetched set
-        excluded = getattr(self, 'co_flux_excluded_wavelengths', set())
-        if excluded:
-            hitran_in_range = [
-                line for line in hitran_in_range
-                if not any(abs(float(line.get('wavelength', 0)) - ew) < 0.001 for ew in excluded)
-            ]
+        detection_rows = [r for r in self.plotted_lines if r.get('source') != 'Contaminant']
+        contam_rows = [r for r in self.plotted_lines if r.get('source') == 'Contaminant']
 
-        if not hitran_in_range:
-            QMessageBox.warning(self, "No HITRAN Lines", f"No HITRAN lines found in wavelength range {wave_min:.6f} - {wave_max:.6f} μm")
-            return
-        
-        filtered_lines = self._filter_co_flux_lines(hitran_in_range)
+        def _in_range(row):
+            wave = SpeciesDialog.get_row_wavelength(row)
+            return wave is not None and wave_min <= float(wave) <= wave_max
+
+        filtered_lines = [r for r in detection_rows if _in_range(r)]
         if not filtered_lines:
-            QMessageBox.warning(self, "No Lines", "No valid lines after filtering.")
+            QMessageBox.warning(self, "No Lines Selected",
+                                 f"No selected (checked) lines fall within {wave_min:.6f} - {wave_max:.6f} μm. "
+                                 "Select lines in the Lines dialog first.")
             return
         
         cube_shape = self.cube_data.cube.shape
@@ -148,21 +152,22 @@ class GuiCOFluxMixin:
         try: n_jobs = min(os.cpu_count() or 4, 4)
         except Exception: n_jobs = 4
         
-        if hasattr(self, 'hitran_lines') and self.hitran_lines:
-            hitran_df = pd.DataFrame(self.hitran_lines)
-            if 'wavelength' in hitran_df.columns and 'line_wave_um' not in hitran_df.columns:
-                hitran_df = hitran_df.rename(columns={'wavelength': 'line_wave_um'})
-            # CRITICAL: Add species column if missing - all HITRAN lines are CO (12C16O unless otherwise specified)
-            if 'species' not in hitran_df.columns:
-                hitran_df['species'] = '12C16O'  # Mark all lines as 12C16O (main isotopologue)
-            use_catalog = hitran_df
-        else:
-            use_catalog = self.CO_lines
-        
+        # Same filtered_lines/contam_rows computed above (and already shown in the preview) --
+        # converted to the 'line_wave_um'/'species' DataFrame shape find_lines()/fit_glines()
+        # expect. No species override here: unlike the old hitran_df path, this never force-
+        # labels every row 'CO' -- CO Flux Map fits whatever's actually selected, any species.
+        def _rows_to_catalog(rows):
+            if not rows:
+                return pd.DataFrame(columns=['line_wave_um', 'species'])
+            df = pd.DataFrame(rows)
+            wave_col = 'lambda_micron' if 'lambda_micron' in df.columns else 'wavelength'
+            return df.rename(columns={wave_col: 'line_wave_um'})
+
+        use_catalog = _rows_to_catalog(filtered_lines)
         self.co_flux_wavelength = self.cube_data.wavelength
         self.co_flux_catalog = use_catalog
-        # Only use contaminating lines if they exist and have data
-        self.co_flux_contam_catalog = self.contam_lines if (hasattr(self, 'contam_lines') and self.contam_lines is not None and len(self.contam_lines) > 0) else None
+        contam_catalog_df = _rows_to_catalog(contam_rows)
+        self.co_flux_contam_catalog = contam_catalog_df if len(contam_catalog_df) > 0 else None
         self.co_flux_wave_min = wave_min
         self.co_flux_wave_max = wave_max
 
@@ -181,38 +186,6 @@ class GuiCOFluxMixin:
         self.co_flux_worker.finished.connect(self._on_co_flux_map_complete)
         self.co_flux_worker.error.connect(self._on_co_flux_map_error)
         self.co_flux_worker.start()
-    
-    def _filter_co_flux_lines(self, lines):
-        filtered = []
-        distance_threshold = 0.002
-        sorted_lines = sorted(lines, key=lambda x: float(x.get('wavelength', 0)))
-        skip_indices = set()
-        
-        for i, line in enumerate(sorted_lines):
-            if i in skip_indices: continue
-            
-            wave = float(line.get('wavelength', 0))
-            peak = line.get('a_coeff') or line.get('intensity')
-            if not peak or peak == 0: continue
-            
-            neighbors = []
-            for j in range(i + 1, len(sorted_lines)):
-                neighbor_wave = float(sorted_lines[j].get('wavelength', 0))
-                if abs(neighbor_wave - wave) > distance_threshold: break
-                neighbor_peak = sorted_lines[j].get('a_coeff') or sorted_lines[j].get('intensity')
-                if neighbor_peak: neighbors.append((j, neighbor_peak))
-            
-            is_highest = True
-            if neighbors:
-                max_neighbor_peak = max(n[1] for n in neighbors)
-                if peak < max_neighbor_peak:
-                    is_highest = False
-                    skip_indices.update(n[0] for n in neighbors)
-                else:
-                    skip_indices.update(n[0] for n in neighbors)
-            
-            if is_highest: filtered.append(line)
-        return filtered
     
     def _show_co_flux_confirmation(self, lines, spectrum_wave, spectrum_flux, pixel_x, pixel_y):
         # CO Flux Map always continuum-subtracts every pixel (with default or custom
@@ -245,9 +218,11 @@ class GuiCOFluxMixin:
 
         wave_min, wave_max = float(self.min_wave_input.text()), float(self.max_wave_input.text())
         for line in lines:
-            wave = float(line.get('wavelength', 0))
-            if wave_min <= wave <= wave_max:
-                ax.axvline(wave, color='red', alpha=0.3, linewidth=1)
+            # get_row_wavelength(), not a hardcoded 'wavelength' key: `lines` here is drawn
+            # from self.plotted_lines, whose rows can use either 'wavelength' or 'lambda_micron'
+            wave = SpeciesDialog.get_row_wavelength(line)
+            if wave is not None and wave_min <= float(wave) <= wave_max:
+                ax.axvline(float(wave), color='red', alpha=0.3, linewidth=1)
         
         ax.set_xlabel('Wavelength (μm)')
         ax.set_ylabel('Flux')
@@ -265,8 +240,8 @@ class GuiCOFluxMixin:
         layout.addWidget(plot_widget)
         
         info_text = QLabel(
-            "<b>Filtered Lines:</b> near-duplicate/overlapping HITRAN lines are collapsed to the "
-            "strongest line in each close group before fitting, to avoid blended duplicate fits.<br>"
+            "<b>Lines shown:</b> exactly what's currently checked in the Lines dialog, "
+            "within this wavelength range -- open the Lines dialog to change the selection.<br>"
             "Proceed with extraction?"
         )
         layout.addWidget(info_text)
@@ -291,7 +266,9 @@ class GuiCOFluxMixin:
     def _on_co_flux_map_complete(self, result):
         self.co_flux_progress.close()
         self.co_flux_result_cache = result
-        self.co_flux_hitran_cache = self.hitran_lines.copy() if hasattr(self, 'hitran_lines') else []
+        # Snapshot of what was actually selected (self.plotted_lines), not the full fetched
+        # catalog -- matches what the cache-validity check below now compares against.
+        self.co_flux_hitran_cache = list(getattr(self, 'plotted_lines', None) or [])
         self.co_flux_params_cache = {
             'wave_min': float(self.min_wave_input.text()),
             'wave_max': float(self.max_wave_input.text()),

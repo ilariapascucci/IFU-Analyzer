@@ -23,15 +23,13 @@ class SpeciesDialog(QDialog):
         # plotted_rows is a list of dicts stored in the main GUI (may be empty)
         self.plotted_rows = plotted_rows or []
 
-        # Build a set of wavelengths for quick membership checks
-        self.plotted_waves = set()
-        for r in self.plotted_rows:
-            try:
-                wave = float(r.get('lambda_micron') or r.get('wavelength') or 0.0)
-                if wave > 0:
-                    self.plotted_waves.add(wave)
-            except Exception:
-                pass
+        # Keyed on the full row identity, not just wavelength -- two HITRAN entries can
+        # share a wavelength (e.g. two HD transitions at 5.027692 um with the same
+        # transition label and E_upper but a different A coefficient; see _row_key).
+        # Matching by wavelength alone collapsed them into one set entry, so deselecting
+        # one still left the wavelength "present" via its still-checked twin, and both
+        # silently re-checked themselves the next time this dialog opened.
+        self.plotted_keys = {self._row_key(r) for r in self.plotted_rows}
 
         layout = QVBoxLayout(self)
 
@@ -50,7 +48,7 @@ class SpeciesDialog(QDialog):
         # If we have plotted_rows, use them to determine checkboxes
         # Otherwise (first time), check all boxes
         if plotted_rows:
-            default_checked = None  # Will check against plotted_waves
+            default_checked = None  # Will check against plotted_keys
         else:
             default_checked = True  # First time: select all
         self.populate_table(rows, default_checked=default_checked)
@@ -89,13 +87,44 @@ class SpeciesDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    @staticmethod
+    def _row_key(row):
+        """
+        Identify a row precisely enough to distinguish two HITRAN entries that share a
+        wavelength (e.g. two HD transitions at 5.027692 um, same transition label and
+        E_upper, different A coefficient) -- wavelength alone can't tell them apart, so
+        every column shown in the table (plus isotopologue, not shown as its own column
+        but folded into the Species text) goes into the key.
+
+        Args:
+            row (dict): A line row, as used throughout this dialog
+
+        Returns:
+            key (tuple): (wavelength, species, transition, A coeff, E_upper,
+                isotopologue, isotopologue_name), numeric fields rounded for stable
+                comparison -- None for any field that's missing/unparseable, so
+                still-comparable rows don't all collide on None
+        """
+        def _num(value, ndigits):
+            try:
+                return round(float(value), ndigits)
+            except (TypeError, ValueError):
+                return None
+
+        wave = row.get('lambda_micron') if 'lambda_micron' in row else row.get('wavelength')
+        return (
+            _num(wave, 6), row.get('species'), row.get('transition'),
+            _num(row.get('a_coeff'), 12), _num(row.get('e_upper'), 6),
+            row.get('isotopologue'), row.get('isotopologue_name'),
+        )
+
     def populate_table(self, rows, default_checked=True):
         """
         Populate the table. Each row gets a checkbox.
         default_checked:
           - True => check all rows
           - False => uncheck all rows
-          - None => check only those present in self.plotted_waves
+          - None => check only those present in self.plotted_keys
         """
         for i, row in enumerate(rows):
             checkbox_widget = QWidget()
@@ -106,10 +135,7 @@ class SpeciesDialog(QDialog):
             elif default_checked is False:
                 checkbox.setChecked(False)
             else:  # default_checked is None -> reflect plotted_rows membership
-                wave = float(row.get('lambda_micron') or row.get('wavelength') or 0.0)
-                # Check with tolerance for floating point comparison
-                is_plotted = any(abs(wave - pw) < 1e-6 for pw in self.plotted_waves)
-                checkbox.setChecked(is_plotted)
+                checkbox.setChecked(self._row_key(row) in self.plotted_keys)
 
             layout = QHBoxLayout()
             layout.addWidget(checkbox)
