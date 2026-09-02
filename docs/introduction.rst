@@ -51,7 +51,7 @@ Spectral Analysis
   - Automated continuum baseline subtraction
   - Spectral line identification using HITRAN database
 
-- **CO Rovibrational Flux Mapping**:
+- **Rovibrational Flux Mapping** (any target species):
 
   - Simultaneous multi-line Gaussian fitting per pixel, with shared local continuum
   - Contaminating-line exclusion and SNR-based detection thresholding
@@ -85,7 +85,7 @@ IFU Analyzer is actively developed. The current version (1.0) includes all core 
 - Interactive data visualization
 - Gaussian line fitting
 - Continuum subtraction
-- CO flux extraction
+- Flux extraction (any target species)
 - Rotational diagram temperature fitting
 - 2D FITS dual image viewer
 - Spectral analysis tools

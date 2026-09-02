@@ -50,14 +50,14 @@ Continuum Fitting
 
 .. autofunction:: cube_explorer.api.measure_equivalent_width
 
-CO Flux Analysis
+Flux Analysis
 ================
 
 .. autofunction:: cube_explorer.api.fit_hitran_lines
 
-.. autofunction:: cube_explorer.api.extract_co_flux
+.. autofunction:: cube_explorer.api.extract_flux
 
-.. autofunction:: cube_explorer.api.create_co_flux_map
+.. autofunction:: cube_explorer.api.create_flux_map
 
 Rotational Diagram
 ==================

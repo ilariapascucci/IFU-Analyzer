@@ -25,7 +25,7 @@ Choose a topic below to get started, or read through sequentially for a complete
    gaussian_fitting_1d
    gaussian_fitting_cube
    continuum_subtraction
-   co_flux_extraction
+   flux_extraction
    rotational_diagram
    exporting_data
    2d_viewer

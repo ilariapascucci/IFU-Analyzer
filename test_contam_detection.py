@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """
-Verifies that extract_co_flux_from_spectrum() actually detects and fits
+Verifies that extract_flux_from_spectrum() actually detects and fits
 contaminating lines (H2), instead of always finding zero -- the bug
-described around detected_contam construction in co_flux_extractor.py.
+described around detected_contam construction in flux_map_extractor.py.
 
 Uses real data: the NIRSpec g395h-f290lp cube (which covers the CO
 v=1->0 bandhead near 4.7 um), the real HITRAN CO v_upper=1/v_lower=0
 line list, and the real data/ContaminatingLines.csv H2 catalog -- the
-same combination the GUI's CO Flux tool would use.
+same combination the GUI's Flux Map tool would use.
 """
 import sys
 import numpy as np
@@ -15,7 +15,7 @@ import pandas as pd
 
 from cube_explorer.api import load_cube
 from cube_explorer.line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
-from cube_explorer.co_flux_extractor import extract_co_flux_from_spectrum
+from cube_explorer.flux_map_extractor import extract_flux_from_spectrum
 
 WAVE_MIN, WAVE_MAX = 4.69, 4.75
 
@@ -56,7 +56,7 @@ contam_in_range = contam_catalog[
 print(f"[INFO] Contaminating catalog: {len(contam_in_range)} H2 lines in range "
       f"(of {len(contam_catalog)} total)")
 
-result = extract_co_flux_from_spectrum(
+result = extract_flux_from_spectrum(
     spectrum_wave, spectrum_flux, CO_catalog, contam_catalog,
     wave_min=WAVE_MIN, wave_max=WAVE_MAX,
     snr_threshold=3.0,
@@ -64,7 +64,7 @@ result = extract_co_flux_from_spectrum(
 )
 
 print("\n" + "-" * 70)
-print(f"co_flux     = {result['co_flux']}")
+print(f"flux        = {result['flux']}")
 print(f"contam_flux = {result['contam_flux']}")
 print(f"flux_unit   = {result['flux_unit']}")
 print("-" * 70)

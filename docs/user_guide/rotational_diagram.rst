@@ -30,7 +30,7 @@ Two ways to populate the line table:
 A **Calculate Fluxes** button also appears once HITRAN lines are fetched, for measuring
 fluxes directly from a loaded cube instead of entering them by hand. Every line covered by
 the same FITS file is fit simultaneously via ``curve_fit`` (the same chunked engine as
-:doc:`co_flux_extraction`'s **Multi-Gaussian Fit**, not a separate implementation), and the
+:doc:`flux_extraction`'s **Multi-Gaussian Fit**, not a separate implementation), and the
 results, including flux error, upper-limit status, and fit quality, are written straight
 into the table below.
 
@@ -179,7 +179,7 @@ Using the API
 ==============
 
 ``rotational_diagram()`` is not a separate wrapper — it's the exact function the GUI calls,
-imported directly. There's no GUI/API divergence to account for here, unlike CO flux above.
+imported directly. There's no GUI/API divergence to account for here, unlike flux extraction above.
 
 .. code-block:: python
 
@@ -221,7 +221,7 @@ This reproduces the first worked example above exactly (273.4 K / 863.4 K).
 Next Steps
 ==========
 
-- :doc:`co_flux_extraction` — a different molecule's line fluxes, fit the same way
+- :doc:`flux_extraction` — a different molecule's line fluxes, fit the same way
 - :doc:`gaussian_fitting_cube` — the per-pixel Gaussian fitting **Calculate Fluxes** shares
   its algorithm with
 - :doc:`exporting_data` — other export paths

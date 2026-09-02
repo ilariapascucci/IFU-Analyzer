@@ -7,7 +7,7 @@ from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
-from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
+from .flux_map_extractor import fit_auto_continuum, fit_hitran_lines_collective, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
 
 # Below this many samples in the fit window, a 1D fit will not run without a noise
 # region. The noise value itself does not enter the fit; the gate exists because a
@@ -394,7 +394,7 @@ STATUS: {result.message}
         # Cache key: which lines (by wavelength) and contaminants are being fit, on which
         # tab. If unchanged since the last successful run, offer the cached results instead
         # of re-running fit_glines, which can take real time (tens of seconds) on a crowded
-        # line list -- the same "reopen instantly or re-run" choice CO Flux Map already
+        # line list -- the same "reopen instantly or re-run" choice Flux Map already
         # offers for its own (much longer) full-cube fits.
         cache_key = (
             tuple(sorted(round(float(r.get('wavelength', 0)), 6) for r in detection_lines)),
@@ -439,7 +439,7 @@ STATUS: {result.message}
             contam_lines=contam_lines,
         )
         # No cancel button: fit_glines has no cooperative-cancellation checkpoint (unlike
-        # CO Flux Map's per-pixel cancel_flag), and QThread.terminate() is unsafe to wire up
+        # Flux Map's per-pixel cancel_flag), and QThread.terminate() is unsafe to wire up
         # in its place. min=max=0 starts the bar as an indeterminate "busy" indicator until
         # the first progress signal reports how many chunks there actually are.
         self.multi_gauss_progress = QProgressDialog("Fitting HITRAN lines...", None, 0, 0, self)

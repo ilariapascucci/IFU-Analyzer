@@ -18,7 +18,7 @@ print("="*70)
 try:
     from cube_explorer.api import (
         load_cube, fit_line, fit_hitran_lines,
-        fit_continuum, measure_equivalent_width, extract_co_flux, create_co_flux_map,
+        fit_continuum, measure_equivalent_width, extract_flux, create_flux_map,
         create_gaussian_map, export_residual_cube, rotational_diagram
     )
     print("[OK] All API functions imported successfully")
@@ -28,8 +28,8 @@ try:
     print("    - fit_hitran_lines()  [NEW: supports v_upper, v_lower filtering]")
     print("    - fit_continuum()")
     print("    - measure_equivalent_width()")
-    print("    - extract_co_flux()")
-    print("    - create_co_flux_map()")
+    print("    - extract_flux()")
+    print("    - create_flux_map()")
     print("    - create_gaussian_map()")
     print("    - export_residual_cube()")
     print("    - rotational_diagram()")
@@ -317,11 +317,11 @@ def _check_fit_hitran_lines():
     return None, "covered by API TEST 2 (needs NIRSpec fixture + HITRAN cache)"
 
 
-def _check_extract_co_flux():
+def _check_extract_flux():
     return None, "needs a CO line catalog (.ecsv) fixture"
 
 
-def _check_create_co_flux_map():
+def _check_create_flux_map():
     return None, "needs a CO line catalog fixture and a full-cube run"
 
 
@@ -337,8 +337,8 @@ _CHECKS = {
     "measure_equivalent_width": _check_measure_equivalent_width,
     "create_gaussian_map": _check_create_gaussian_map,
     "export_residual_cube": _check_export_residual_cube,
-    "extract_co_flux": _check_extract_co_flux,
-    "create_co_flux_map": _check_create_co_flux_map,
+    "extract_flux": _check_extract_flux,
+    "create_flux_map": _check_create_flux_map,
     "rotational_diagram": _check_rotational_diagram,
 }
 

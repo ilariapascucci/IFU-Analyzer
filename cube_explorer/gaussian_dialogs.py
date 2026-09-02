@@ -130,7 +130,7 @@ class MultiGaussianFitWorker(QThread):
 
     def run(self):
         try:
-            from .co_flux_extractor import fit_hitran_lines_collective
+            from .flux_map_extractor import fit_hitran_lines_collective
             fit_pairs, contam_pairs, _ = fit_hitran_lines_collective(
                 self.spectrum_x, self.spectrum_y, self.hitran_lines, self.continuum,
                 header=self.header, wave_unit=self.wave_unit, contam_lines=self.contam_lines,
@@ -296,7 +296,7 @@ class GaussianMapResultsDialog(QDialog):
         layout.addLayout(param_layout)
 
         # Own row, below the selectors: on one line with them the window ends up wider
-        # than the map it holds. Same control as the CO flux map -- clicking a pixel
+        # than the map it holds. Same control as the flux map -- clicking a pixel
         # opens its fit, and the toggle gets out of the way for the toolbar's zoom/pan.
         select_layout = QHBoxLayout()
         self.pixel_select_btn = QPushButton("✓ Pixel Select ON")

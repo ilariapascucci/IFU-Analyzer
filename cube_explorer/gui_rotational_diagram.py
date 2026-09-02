@@ -27,7 +27,7 @@ from .rotational_diagram_h2_fitter import (
     get_gu, compute_line_fluxes_collective, model_1T, model_2T,
 )
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
-from .co_flux_extractor import _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
+from .flux_map_extractor import _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
 
 
 # Constants

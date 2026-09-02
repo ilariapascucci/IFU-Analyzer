@@ -8,7 +8,7 @@ and used in scripts, Jupyter notebooks, or other Python applications.
 Main Categories:
 1. Data Loading        - Load FITS cubes and extract spectra
 2. Gaussian Fitting    - Fit spectral lines with Gaussian profiles
-3. CO Flux Analysis    - Extract CO line fluxes with continuum handling
+3. Flux Analysis       - Extract target-line fluxes with continuum handling
 4. Rotational Diagram  - Analyze H2 rotational temperatures from molecular transitions
 5. Unit Conversion     - Convert between wavelength/velocity/frequency units
 6. Line Catalogs       - Query and filter spectral line databases
@@ -31,14 +31,14 @@ Gaussian line fitting:
     >>> print(f"Line center: {result.center} um")
     >>> print(f"FWHM: {result.fwhm} um")
 
-CO flux extraction:
-    >>> from cube_explorer.api import extract_co_flux
-    >>> co_result = extract_co_flux(
+Flux extraction:
+    >>> from cube_explorer.api import extract_flux
+    >>> flux_result = extract_flux(
     ...     wavelength=cube.wavelength,
     ...     spectrum=spectrum,
-    ...     co_catalog_path="path/to/CO_catalog.ecsv"
+    ...     target_catalog_path="path/to/CO_catalog.ecsv"
     ... )
-    >>> print(f"Total CO flux: {co_result['co_flux']} erg/s/cm^2")
+    >>> print(f"Total flux: {flux_result['flux']} erg/s/cm^2")
 
 Rotational diagram analysis (H2):
     Needs at least 5 lines to meaningfully constrain a 2-temperature fit (4 free
@@ -186,7 +186,7 @@ def extract_region_spectrum(cube, mask):
 # CONTINUUM FITTING API
 # ============================================================================
 
-from .co_flux_extractor import fit_auto_continuum
+from .flux_map_extractor import fit_auto_continuum
 
 def fit_continuum(wavelength, flux, method='auto', **kwargs):
     """
@@ -235,7 +235,7 @@ from .gaussian_fitter import (
     fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
     export_residual_cube_fits as _export_residual_cube_fits_internal,
 )
-from .co_flux_extractor import fit_hitran_lines_collective as _fit_hitran_lines_internal
+from .flux_map_extractor import fit_hitran_lines_collective as _fit_hitran_lines_internal
 from .line_catalog import fetch_hitran_data
 
 def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
@@ -352,10 +352,10 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             wavelength, subtracted before fitting each line. If None, one is fitted
             automatically via ``fit_continuum()`` -- the same fallback the GUI uses
             when you have not run Automatic Continuum interactively first.
-        contam_catalog (pd.DataFrame, optional): Non-CO/target lines (a 'line_wave_um'
+        contam_catalog (pd.DataFrame, optional): Non-target lines (a 'line_wave_um'
             column, same format as ``load_contaminating_lines_catalog()``) to give their
             own component in the fit so they don't distort a nearby requested line's
-            amplitude -- the same optional catalog ``extract_co_flux``/CO Flux Map
+            amplitude -- the same optional catalog ``extract_flux``/Flux Map
             already supports. None (default) skips this.
 
     Returns:
@@ -583,28 +583,28 @@ def export_residual_cube(cube_data, out_path="residual_cube.fits", lam_min=None,
 # ============================================================================
 
 import pandas as pd
-from .co_flux_extractor import (
-    extract_co_flux_from_spectrum as _extract_co_flux_internal,
-    create_co_flux_map as _create_co_flux_map_internal,
+from .flux_map_extractor import (
+    extract_flux_from_spectrum as _extract_flux_internal,
+    create_flux_map as _create_flux_map_internal,
 )
 from .line_catalog import load_CO_line_catalog, load_contaminating_lines_catalog
 
-def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog_path=None,
+def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalog_path=None,
                      snr_threshold=3.0, continuum_params=None,
                      header=None, wave_unit=None):
     """
-    Extract total CO flux by fitting all CO lines in a spectrum.
+    Extract total flux by fitting all target lines in a spectrum.
 
-    Fits multiple CO rovibrational lines simultaneously with contaminating
+    Fits multiple target rovibrational lines simultaneously with contaminating
     lines and continuum, then integrates total flux. This is the same algorithm
-    as the GUI's CO Flux Map button, run on a single spectrum instead of every pixel.
+    as the GUI's Flux Map button, run on a single spectrum instead of every pixel.
     Always fits and subtracts a continuum before fitting lines, using the same
     method as the GUI's Automatic Continuum.
 
     Args:
         wavelength (array-like): Wavelength values in same units as catalog
         spectrum (array-like): Flux values
-        co_catalog_path (str): Path to CO line catalog (ECSV format)
+        target_catalog_path (str): Path to target line catalog (ECSV format)
         contamination_catalog_path (str, optional): Path to contaminant lines catalog
         snr_threshold (float): Minimum signal-to-noise for line detection (default 3.0)
         continuum_params (dict, optional): Override the default continuum-fitting
@@ -615,43 +615,43 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
             line's fit width comes from the instrument's real spectral resolution at
             that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
             raises ValueError as soon as a line is found rather than silently fitting
-            with the wrong width. Also used to convert 'co_flux'/'contam_flux' to
+            with the wrong width. Also used to convert 'flux'/'contam_flux' to
             erg/s/cm2 -- 'flux_unit' in the result always tells you which you got.
         wave_unit (str, optional): Wavelength unit (e.g. 'um'). Used alongside
             header for the CGS conversion.
 
     Returns:
         dict: Results containing:
-            - 'co_flux': Total CO flux, in erg/s/cm2 if header/wave_unit were given
+            - 'flux': Total flux, in erg/s/cm2 if header/wave_unit were given
               and the conversion is supported for this instrument, else native units
             - 'contam_flux': Total flux attributed to contaminating lines, same units
-            - 'flux_unit': unit of 'co_flux'/'contam_flux'
+            - 'flux_unit': unit of 'flux'/'contam_flux'
             - 'mean_continuum': Mean continuum level used for the fit (native units)
             - 'detected_lines': DataFrame of individual detected line fits
             - 'residuals': DataFrame of fit residuals
             - 'continuum_curve': DataFrame of the fitted continuum vs wavelength
 
     Example:
-        >>> result = extract_co_flux(
+        >>> result = extract_flux(
         ...     wavelength=cube.wavelength,
         ...     spectrum=cube.spectrum,
-        ...     co_catalog_path="CO/CO_comprehensive_linelist_with_g.ecsv",
+        ...     target_catalog_path="CO/CO_comprehensive_linelist_with_g.ecsv",
         ...     header=cube.header,
         ...     wave_unit=cube.wave_unit,
         ... )
-        >>> print(f"Total CO flux: {result['co_flux']:.4e} {result['flux_unit']}")
+        >>> print(f"Total flux: {result['flux']:.4e} {result['flux_unit']}")
         >>> print(f"Detected {len(result['detected_lines'])} lines")
     """
     # Load catalogs from files
-    co_catalog = load_CO_line_catalog(co_catalog_path)
+    target_catalog = load_CO_line_catalog(target_catalog_path)
     contam_catalog = None
     if contamination_catalog_path:
         contam_catalog = load_contaminating_lines_catalog(contamination_catalog_path)
 
     # Call internal function
-    return _extract_co_flux_internal(
+    return _extract_flux_internal(
         wavelength, spectrum,
-        co_catalog, contam_catalog,
+        target_catalog, contam_catalog,
         do_duplicate_removal=True,
         snr_threshold=snr_threshold,
         continuum_params=continuum_params,
@@ -659,40 +659,41 @@ def extract_co_flux(wavelength, spectrum, co_catalog_path, contamination_catalog
     )
 
 
-def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_path=None, n_jobs=8,
+def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_path=None, n_jobs=8,
                         wavelength_min=None, wavelength_max=None, continuum_params=None):
     """
-    Create a 2D map of CO flux across the entire data cube.
+    Create a 2D map of target-line flux across the entire data cube.
 
-    Fits CO lines in every pixel and generates output FITS maps. Can use either:
-    - Automatic HITRAN fetching (default, like fit_hitran_lines)
-    - Custom CO catalog file (if co_catalog_path provided)
+    Fits target lines in every pixel and generates output FITS maps. Can use either:
+    - Automatic HITRAN fetching (default: CO, like fit_hitran_lines -- pass
+      target_catalog_path for any other species)
+    - Custom target catalog file (if target_catalog_path provided)
 
-    This is the same algorithm as the GUI's CO Flux Map button: continuum subtraction
+    This is the same algorithm as the GUI's Flux Map button: continuum subtraction
     (default parameters, or your own via continuum_params) followed by a simultaneous
     multi-Gaussian fit per pixel.
 
     Args:
         cube_data (CubeData): Loaded cube from load_cube()
-        co_catalog_path (str, optional): Path to CO line catalog (ECSV format).
-                                         If None, automatically fetches from HITRAN.
+        target_catalog_path (str, optional): Path to target line catalog (ECSV format).
+                                         If None, automatically fetches CO from HITRAN.
         contamination_catalog_path (str, optional): Path to contaminant lines
         n_jobs (int): Number of parallel jobs (default 8)
         wavelength_min (float, optional): Min wavelength to fit, and for the HITRAN
-            search when co_catalog_path is None (auto-detect if None)
+            search when target_catalog_path is None (auto-detect if None)
         wavelength_max (float, optional): Max wavelength to fit, and for the HITRAN
-            search when co_catalog_path is None (auto-detect if None)
+            search when target_catalog_path is None (auto-detect if None)
         continuum_params (dict, optional): Override the default continuum-fitting
             parameters, applied identically to every pixel. If None, uses the defaults,
             which work well for typical spectra.
 
     Returns:
         dict: Map data containing:
-            - 'flux_map': 2D array of CO flux per pixel, in erg/s/cm2 if cube_data.header
+            - 'flux_map': 2D array of flux per pixel, in erg/s/cm2 if cube_data.header
               supports the conversion (see 'flux_unit'), else the cube's native flux unit
             - 'contam_flux_map': 2D array of contaminating-line flux per pixel, same units
               as 'flux_map'
-            - 'detection_map': 2D array with number of detected CO lines per pixel
+            - 'detection_map': 2D array with number of detected target lines per pixel
             - 'contam_detection_map': 2D array with number of detected contaminating lines
               per pixel
             - 'wavelength': 1D wavelength array used for fitting
@@ -702,11 +703,12 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
 
     Example:
         >>> cube = load_cube("data.fits")
-        >>> co_map = create_co_flux_map(cube, n_jobs=4)
-        >>> print(f"Map shape: {co_map['flux_map'].shape}, unit: {co_map['flux_unit']}")
+        >>> flux_map_result = create_flux_map(cube, n_jobs=4)
+        >>> print(f"Map shape: {flux_map_result['flux_map'].shape}, unit: {flux_map_result['flux_unit']}")
     """
-    # If no catalog provided, fetch from HITRAN automatically
-    if co_catalog_path is None:
+    # If no catalog provided, fetch CO from HITRAN automatically (the default target species --
+    # pass target_catalog_path for any other species)
+    if target_catalog_path is None:
         print("  Fetching CO data from HITRAN...")
 
         # Extract wavelength range, handling Quantity objects
@@ -725,19 +727,19 @@ def create_co_flux_map(cube_data, co_catalog_path=None, contamination_catalog_pa
         if not hitran_lines:
             print("  ERROR: Could not fetch CO data from HITRAN")
             return None
-        # co_flux_extractor expects a DataFrame with a 'line_wave_um' column;
+        # flux_map_extractor expects a DataFrame with a 'line_wave_um' column;
         # fetch_hitran_data returns a list of dicts with 'wavelength' instead
-        co_catalog = pd.DataFrame(hitran_lines).rename(columns={'wavelength': 'line_wave_um'})
+        target_catalog = pd.DataFrame(hitran_lines).rename(columns={'wavelength': 'line_wave_um'})
         contam_catalog = None
     else:
         # Load catalogs from files (original behavior)
-        co_catalog = load_CO_line_catalog(co_catalog_path)
+        target_catalog = load_CO_line_catalog(target_catalog_path)
         contam_catalog = None
         if contamination_catalog_path:
             contam_catalog = load_contaminating_lines_catalog(contamination_catalog_path)
 
-    return _create_co_flux_map_internal(
-        cube_data, co_catalog, contam_catalog,
+    return _create_flux_map_internal(
+        cube_data, target_catalog, contam_catalog,
         n_jobs=n_jobs,
         continuum_params=continuum_params,
         wave_min=wavelength_min, wave_max=wavelength_max,
@@ -819,9 +821,9 @@ __all__ = [
     'measure_equivalent_width',
     'create_gaussian_map',
     'export_residual_cube',
-    # CO Flux
-    'extract_co_flux',
-    'create_co_flux_map',
+    # Flux
+    'extract_flux',
+    'create_flux_map',
     # Rotational Diagram
     'rotational_diagram',
 ]

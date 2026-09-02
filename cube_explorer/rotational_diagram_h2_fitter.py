@@ -15,7 +15,7 @@ import nutpie
 import arviz as az
 
 from .unit_converter import integrated_flux_to_cgs
-from .co_flux_extractor import fit_auto_continuum, fit_hitran_lines_collective
+from .flux_map_extractor import fit_auto_continuum, fit_hitran_lines_collective
 
 '''
 CONSTANTS

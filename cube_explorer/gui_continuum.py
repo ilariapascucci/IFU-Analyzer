@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QMessageBox, QApplication, QFileDialog
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
 from .unit_converter import clean_flux_unit, clean_wave_unit
-from .co_flux_extractor import fit_auto_continuum
+from .flux_map_extractor import fit_auto_continuum
 
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
     # Standard helper function used across the app
@@ -82,7 +82,7 @@ class GuiContinuumMixin:
             if wavelength is None or flux is None:
                 return
 
-            # Same algorithm CO Flux Map/the API use (fit_auto_continuum) -- one
+            # Same algorithm Flux Map/the API use (fit_auto_continuum) -- one
             # shared, GUI-independent implementation instead of two copies that could
             # silently drift apart.
             continuum_values = fit_auto_continuum(wavelength, flux, **params)

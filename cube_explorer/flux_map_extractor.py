@@ -1,8 +1,8 @@
 """
-CO Rovibrational Flux Extraction Module
+Flux Extraction Module
 
-Fits multiple CO lines and contaminating lines simultaneously from IFU spectra,
-extracting and summing the total CO flux to create integrated flux maps.
+Fits multiple target lines and contaminating lines simultaneously from IFU spectra,
+extracting and summing the total flux to create integrated flux maps.
 """
 
 import sys
@@ -213,8 +213,8 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         remove_duplicate (bool): True to remove duplicate detections (keep the strongest per group)
         snr_threshold (float): Signal-to-noise threshold for line detection, in units of sigma
         noise_std (float): Precomputed noise estimate, to avoid recomputing it on repeat calls
-            over the same (xwave, yflux) -- e.g. extract_co_flux_from_spectrum's separate
-            CO/contaminant passes. Computed fresh if None.
+            over the same (xwave, yflux) -- e.g. extract_flux_from_spectrum's separate
+            target/contaminant passes. Computed fresh if None.
 
     Returns:
         lines (pd.DataFrame): Columns line, species, disposition (0/1), max_amplitude, line_flux
@@ -300,9 +300,9 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
          # Step 2 & 3: Find the strongest line in each group and set the disposition of other lines to 0
         for group in groups:
             if len(group) > 1:
-                # No species preference here on purpose (see extract_co_flux_from_spectrum's
+                # No species preference here on purpose (see extract_flux_from_spectrum's
                 # matching comment) -- lines_to_search may not be CO at all, so biasing toward
-                # CO/12C16O would be wrong for a non-CO catalog. Just keep the strongest line.
+                # CO/12C16O would be wrong for a non-CO target catalog. Just keep the strongest line.
                 strongest_line_idx = max(group, key=lambda idx: lines_dispositions.loc[idx, 'line_flux'])
                 
                 # Mark others as not detected
@@ -399,7 +399,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             df_continuum, per_line_fits, per_contam_fits), all in native units. per_line_fits/
             per_contam_fits are per-line (amplitude, center, sigma, area, x/y/fit data) dicts for
             callers needing per-line detail (e.g. fit_hitran_lines_collective); aggregate-only
-            callers (e.g. extract_co_flux_from_spectrum) can ignore them.
+            callers (e.g. extract_flux_from_spectrum) can ignore them.
     """
     sum_CO_area, sum_contaminating_area, mean_cont = 0, 0, 0
     df_residual = pd.DataFrame({
@@ -655,7 +655,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
             continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1)
-            # median(line_sigmas), not the scalar sigma -- same value when broadcast (CO Flux
+            # median(line_sigmas), not the scalar sigma -- same value when broadcast (Flux
             # Map), but reflects real per-line widths when they vary (fit_hitran_lines_collective).
             fallback_sigma = np.median(line_sigmas)
             current_sum_contaminating = 3 * np.median(std_residuals) * fallback_sigma * np.sqrt(2 * np.pi)
@@ -793,7 +793,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                                  sigma_multiplier=DEFAULT_SIGMA_MULTIPLIER, progress_callback=None):
     """
     Fit a hand-picked list of HITRAN lines (e.g. from the species dialog) simultaneously, in
-    per-line instrumental-width chunks, via fit_glines() -- same engine CO Flux Map uses, but
+    per-line instrumental-width chunks, via fit_glines() -- same engine Flux Map uses, but
     with no SNR-based detection: the caller has already chosen exactly which lines to fit.
 
     Args:
@@ -972,23 +972,23 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
 
 # ================== High-Level Extraction ==================
 
-def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, contam_catalog,
+def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
                                    excluded_wavelengths=None,
                                    continuum_params=None, snr_threshold=3.0, header=None, wave_unit=None):
     """
-    Extract total CO flux from a single spectrum by detecting and fitting all CO lines.
+    Extract total flux from a single spectrum by detecting and fitting all target lines.
 
     Args:
         spectrum_wave (array or Quantity): Wavelength array for the spectrum
         spectrum_flux (array or Quantity): Flux array for the spectrum
-        CO_catalog (pd.DataFrame): CO line catalog (columns: line_wave_um, species, ...)
+        target_catalog (pd.DataFrame): Target line catalog, any species (columns: line_wave_um, species, ...)
         contam_catalog (pd.DataFrame): Contaminating lines catalog (column: line_wave_um)
         wave_boundaries (array): Fit-chunk boundaries. Auto-calculated from wave_min/wave_max if None
-        wave_min (float): Minimum wavelength to fit. Defaults to min of CO_catalog line_wave_um
-        wave_max (float): Maximum wavelength to fit. Defaults to max of CO_catalog line_wave_um
+        wave_min (float): Minimum wavelength to fit. Defaults to min of target_catalog line_wave_um
+        wave_max (float): Maximum wavelength to fit. Defaults to max of target_catalog line_wave_um
         do_duplicate_removal (bool): Whether to remove duplicate line detections
-        excluded_wavelengths (set or list): Wavelengths to exclude from CO flux calculation
+        excluded_wavelengths (set or list): Wavelengths to exclude from flux calculation
         continuum_params (dict): Overrides for fit_auto_continuum()'s defaults, which work
             well for typical spectra
         snr_threshold (float): Minimum signal-to-noise, in sigma, for a line to count as detected
@@ -998,7 +998,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         wave_unit (str): Wavelength unit (e.g. 'um'), used alongside header for the CGS conversion
 
     Returns:
-        result (dict): 'co_flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals',
+        result (dict): 'flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals',
             'continuum_curve', 'flux_unit' ('erg/s/cm2' if the CGS conversion succeeded,
             otherwise the cube's native flux unit)
 
@@ -1046,11 +1046,11 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
     # Auto-determine wavelength range if not provided
     if wave_min is None:
-        wave_min = CO_catalog['line_wave_um'].min()
+        wave_min = target_catalog['line_wave_um'].min()
     if wave_max is None:
-        wave_max = CO_catalog['line_wave_um'].max()
+        wave_max = target_catalog['line_wave_um'].max()
     
-    print(f"  Extracting CO flux in wavelength range: {wave_min:.6f} - {wave_max:.6f} um")
+    print(f"  Extracting flux in wavelength range: {wave_min:.6f} - {wave_max:.6f} um")
     print(f"  [DEBUG] Spectrum: {len(spectrum_wave)} wavelength points, flux range {np.nanmin(spectrum_flux):.4e} to {np.nanmax(spectrum_flux):.4e}")
     if spectrum_wave_unit:
         print(f"  Wavelength unit: {spectrum_wave_unit}")
@@ -1058,7 +1058,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         print(f"  Flux unit: {spectrum_flux_unit}")
 
     # Whether CGS conversion is even reachable here (e.g. ALMA's Jy/beam never is) -- tested
-    # once with a dummy value, labels co_flux/contam_flux consistently below. 'UNKNOWN' if not.
+    # once with a dummy value, labels flux/contam_flux consistently below. 'UNKNOWN' if not.
     flux_unit_label = spectrum_flux_unit or resolved_flux_unit or 'UNKNOWN'
     if _to_cgs(1.0, (wave_min + wave_max) / 2.0) is not None:
         flux_unit_label = 'erg/s/cm2'
@@ -1073,22 +1073,22 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
     if continuum_model is not None:
         continuum_model = continuum_model[fit_range_mask]
 
-    # Filter out excluded wavelengths from CO catalog
-    CO_catalog_for_fit = CO_catalog
+    # Filter out excluded wavelengths from target catalog
+    target_catalog_for_fit = target_catalog
     if excluded_wavelengths and len(excluded_wavelengths) > 0:
         excluded_set = set(excluded_wavelengths) if not isinstance(excluded_wavelengths, set) else excluded_wavelengths
         # Remove lines within 0.001 micron tolerance of excluded wavelengths
-        mask = ~CO_catalog['line_wave_um'].apply(
+        mask = ~target_catalog['line_wave_um'].apply(
             lambda w: any(abs(w - ew) < 0.001 for ew in excluded_set)
         )
-        CO_catalog_for_fit = CO_catalog[mask].copy()
+        target_catalog_for_fit = target_catalog[mask].copy()
         # IMPORTANT: Reset index so positions match indices (0, 1, 2, ... not original indices like 0, 5, 10, 220, ...)
-        CO_catalog_for_fit = CO_catalog_for_fit.reset_index(drop=True)
-        n_excluded = len(CO_catalog) - len(CO_catalog_for_fit)
+        target_catalog_for_fit = target_catalog_for_fit.reset_index(drop=True)
+        n_excluded = len(target_catalog) - len(target_catalog_for_fit)
         if n_excluded > 0:
-            print(f"  Excluding {n_excluded} CO lines from extraction")
-    
-    print(f"  [DEBUG] CO catalog size: {len(CO_catalog_for_fit)} lines")
+            print(f"  Excluding {n_excluded} lines from extraction")
+
+    print(f"  [DEBUG] Target catalog size: {len(target_catalog_for_fit)} lines")
 
     # Compute noise
     try:
@@ -1100,7 +1100,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
     # Find detected lines (contam_catalog can be None if user didn't upload contaminating lines)
     detected_lines = find_lines(
-        spectrum_wave, spectrum_flux, CO_catalog_for_fit,
+        spectrum_wave, spectrum_flux, target_catalog_for_fit,
         contaminating_lines=contam_catalog,
         remove_duplicate=do_duplicate_removal,
         snr_threshold=snr_threshold,
@@ -1114,7 +1114,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         if continuum_model is not None:
             no_fit_continuum = continuum_model
         return {
-            'co_flux': 0,
+            'flux': 0,
             'contam_flux': 0,
             'mean_continuum': np.nanmedian(spectrum_flux),
             'detected_lines': pd.DataFrame(),
@@ -1125,13 +1125,13 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             'mean_detected_wavelength': np.nan
         }
     
-    # No species filter here on purpose: CO_catalog is whatever primary/target line list the
+    # No species filter here on purpose: target_catalog is whatever primary/target line list the
     # caller handed in (HITRAN fetch of any molecule, or a custom CSV) -- same as
     # fit_hitran_lines_collective(), which never discriminates by species either. Every
-    # detected line from THIS catalog counts toward 'co_flux', regardless of what's in its
+    # detected line from THIS catalog counts toward 'flux', regardless of what's in its
     # 'species' column; only contam_catalog's lines land in 'contam_flux'.
     try:
-        detected_co = detected_lines[
+        detected_target = detected_lines[
             (detected_lines['disposition'] == 1)
         ].copy()
     except KeyError as e:
@@ -1141,16 +1141,16 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
     # Per-line sigma from the instrument's own resolution (_line_sigma), same as
     # fit_hitran_lines_collective -- one shared sigma under-resolves narrow lines.
-    detected_co['sigma'] = [_line_sigma(wl, header) for wl in detected_co['line']]
+    detected_target['sigma'] = [_line_sigma(wl, header) for wl in detected_target['line']]
 
-    # DEBUG: Show how many CO lines were detected
-    n_co_detected = len(detected_co)
-    if n_co_detected > 0:
-        print(f"  [DEBUG] CO line wavelengths: {detected_co['line'].values[:5].tolist()}...")
-        print(f"  [DEBUG] CO line max amplitudes: {detected_co['max_amplitude'].values[:5].tolist()}...")
+    # DEBUG: Show how many target lines were detected
+    n_target_detected = len(detected_target)
+    if n_target_detected > 0:
+        print(f"  [DEBUG] Target line wavelengths: {detected_target['line'].values[:5].tolist()}...")
+        print(f"  [DEBUG] Target line max amplitudes: {detected_target['max_amplitude'].values[:5].tolist()}...")
 
-    # Peak-detects against the contaminant catalog itself, with no CO-catalog avoidance -- a
-    # contaminant next to a CO line needs its own Gaussian in fit_glines, not to be dropped.
+    # Peak-detects against the contaminant catalog itself, with no target-catalog avoidance -- a
+    # contaminant next to a target line needs its own Gaussian in fit_glines, not to be dropped.
     if contam_catalog is not None and len(contam_catalog) > 0:
         detected_contam_lines = find_lines(
             spectrum_wave, spectrum_flux, contam_catalog,
@@ -1166,56 +1166,56 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
     # DEBUG: Show detected lines after proper initialization
     n_contam_detected = len(detected_contam)
-    print(f"  [DEBUG] Line detection: {n_co_detected} CO lines detected, {n_contam_detected} contaminating lines")
+    print(f"  [DEBUG] Line detection: {n_target_detected} target lines detected, {n_contam_detected} contaminating lines")
 
     # Fit if any lines detected
-    if len(detected_co) > 0 or len(detected_contam) > 0:
+    if len(detected_target) > 0 or len(detected_contam) > 0:
         # Only fit_glines' required positional arg -- every detected line already carries its
         # own real 'sigma', so this scalar is never actually read (see fit_glines' docstring).
-        all_sigmas = pd.concat([detected_co['sigma'], detected_contam['sigma']])
+        all_sigmas = pd.concat([detected_target['sigma'], detected_contam['sigma']])
         sigma = float(np.median(all_sigmas))
 
         # Same _merged_wave_boundaries() approach as fit_hitran_lines_collective, built from
         # this pixel's own detected lines -- each pixel detects a different subset, so needs its own.
         wave_boundaries_extent = None
         if wave_boundaries is None:
-            all_centers = list(detected_co['line']) + list(detected_contam['line'])
+            all_centers = list(detected_target['line']) + list(detected_contam['line'])
             wave_boundaries, wave_boundaries_extent = _merged_wave_boundaries(all_centers, list(all_sigmas))
 
         print(f"  [DEBUG] Before fit_glines: median sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
-        print(f"  [DEBUG] Fitting {len(detected_co)} CO + {len(detected_contam)} contaminating lines")
+        print(f"  [DEBUG] Fitting {len(detected_target)} target + {len(detected_contam)} contaminating lines")
         # No fallback string on purpose -- see fit_glines' docstring: None here means the
         # header is genuinely missing something a MIRI/NIRSpec/MUSE header shouldn't be missing.
-        co_flux, contam_flux, mean_cont, residuals, continuum_curve, _, _ = fit_glines(
+        flux, contam_flux, mean_cont, residuals, continuum_curve, _, _ = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
-            detected_co, detected_contam, sigma,
+            detected_target, detected_contam, sigma,
             flux_unit_label=resolved_flux_unit, wave_unit_label=resolved_wave_unit,
             list_wboundaries_extent=wave_boundaries_extent,
         )
         _debug_area_unit = f"{resolved_flux_unit}·{resolved_wave_unit}"
         print(f"  [DEBUG] fit_glines returned (native, pre-CGS-conversion): "
-              f"co_flux={co_flux:.6e} {_debug_area_unit}, contam_flux={contam_flux:.6e} {_debug_area_unit}, "
+              f"flux={flux:.6e} {_debug_area_unit}, contam_flux={contam_flux:.6e} {_debug_area_unit}, "
               f"mean_cont={mean_cont:.6e} {resolved_flux_unit}")
-        print(f"  [DEBUG] co_flux type={type(co_flux)}, is_finite={np.isfinite(co_flux)}")
+        print(f"  [DEBUG] flux type={type(flux)}, is_finite={np.isfinite(flux)}")
     else:
-        co_flux, contam_flux, mean_cont = 0, 0, np.nanmedian(spectrum_flux)
+        flux, contam_flux, mean_cont = 0, 0, np.nanmedian(spectrum_flux)
         residuals = pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)})
         continuum_curve = pd.DataFrame({'wave': spectrum_wave, 'continuum': np.full_like(spectrum_flux, np.nan)})
-        detected_co = pd.DataFrame()
+        detected_target = pd.DataFrame()
         # print(f"  No lines to fit, returning 0")
     
-    # Calculate mean wavelength of detected CO lines for flux conversion
+    # Calculate mean wavelength of detected target lines for flux conversion
     mean_detected_wavelength = np.nan
-    if len(detected_co) > 0 and 'line' in detected_co.columns:
-        detected_co_only = detected_co[detected_co['disposition'] == 1]
+    if len(detected_target) > 0 and 'line' in detected_target.columns:
+        detected_co_only = detected_target[detected_target['disposition'] == 1]
         if len(detected_co_only) > 0:
             mean_detected_wavelength = np.mean(detected_co_only['line'].values)
 
     # conversion
-    co_flux_cgs = _to_cgs(co_flux, mean_detected_wavelength)
-    if co_flux_cgs is not None:
+    flux_cgs = _to_cgs(flux, mean_detected_wavelength)
+    if flux_cgs is not None:
         contam_flux_cgs = _to_cgs(contam_flux, mean_detected_wavelength)
-        co_flux, contam_flux = co_flux_cgs, contam_flux_cgs if contam_flux_cgs is not None else contam_flux
+        flux, contam_flux = flux_cgs, contam_flux_cgs if contam_flux_cgs is not None else contam_flux
 
     # continuum_curve so far only holds fit_glines' own per-chunk baseline (a + b*wave), fit
     # against the ALREADY continuum-subtracted spectrum.
@@ -1224,7 +1224,7 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
         continuum_curve['continuum'] = continuum_model + continuum_curve['continuum'].fillna(0.0).values
 
     return {
-        'co_flux': co_flux,
+        'flux': flux,
         'contam_flux': contam_flux,
         'mean_continuum': mean_cont,
         'detected_lines': detected_lines,
@@ -1238,23 +1238,23 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
 
 # ================== Full Cube Processing ==================
 
-def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None,
+def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progress_callback=None, cancel_flag=None,
                        wave_min=None, wave_max=None, excluded_wavelengths=None,
                        continuum_params=None):
     """
-    Create a 2D map of total CO rovibrational flux by extracting each pixel's spectrum and
-    calling extract_co_flux_from_spectrum() on it, in parallel across rows.
+    Create a 2D map of total flux by extracting each pixel's spectrum and
+    calling extract_flux_from_spectrum() on it, in parallel across rows.
 
     Args:
         cube_data (CubeData): Loaded cube; needs cube, wavelength, get_pixel_spectrum(x, y)
-        CO_catalog (pd.DataFrame): CO line catalog (columns: line_wave_um, species, ...)
+        target_catalog (pd.DataFrame): Target line catalog, any species (columns: line_wave_um, species, ...)
         contam_catalog (pd.DataFrame): Contaminating lines catalog (column: line_wave_um)
         n_jobs (int): Number of parallel worker threads for processing rows
         progress_callback (callable): Optional progress_callback(current, total)
         cancel_flag (object): Optional object with a `.cancelled` attribute, checked per pixel
-        wave_min (float): Minimum wavelength to fit. Defaults to min of CO_catalog
-        wave_max (float): Maximum wavelength to fit. Defaults to max of CO_catalog
-        excluded_wavelengths (set or list): CO wavelengths to exclude from flux calculation
+        wave_min (float): Minimum wavelength to fit. Defaults to min of target_catalog
+        wave_max (float): Maximum wavelength to fit. Defaults to max of target_catalog
+        excluded_wavelengths (set or list): Wavelengths to exclude from flux calculation
         continuum_params (dict): Overrides for fit_auto_continuum()'s defaults, applied
             identically to every pixel
 
@@ -1278,26 +1278,26 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     if wave_unit:
         print(f"    Wavelength unit: {wave_unit}")
     
-    # Calculate wavelength range from CO catalog (not full spectrum) for efficiency
+    # Calculate wavelength range from target catalog (not full spectrum) for efficiency
     if wave_min is None:
-        wave_min = CO_catalog['line_wave_um'].min()
+        wave_min = target_catalog['line_wave_um'].min()
     if wave_max is None:
-        wave_max = CO_catalog['line_wave_um'].max()
-    
+        wave_max = target_catalog['line_wave_um'].max()
+
     # DIAGNOSTIC: Check line catalogs
-    print(f"    CO catalog: {len(CO_catalog)} lines")
-    if len(CO_catalog) > 0:
-        print(f"      Wavelength range: {CO_catalog['line_wave_um'].min():.4f} - {CO_catalog['line_wave_um'].max():.4f}")
+    print(f"    Target catalog: {len(target_catalog)} lines")
+    if len(target_catalog) > 0:
+        print(f"      Wavelength range: {target_catalog['line_wave_um'].min():.4f} - {target_catalog['line_wave_um'].max():.4f}")
     if contam_catalog is not None:
         print(f"    Contaminating catalog: {len(contam_catalog)} lines")
         if len(contam_catalog) > 0 and 'line_wave_um' in contam_catalog.columns:
             print(f"      Wavelength range: {contam_catalog['line_wave_um'].min():.4f} - {contam_catalog['line_wave_um'].max():.4f}")
     else:
         print(f"    Contaminating catalog: None (user did not upload contaminating lines)")
-    
+
     # DIAGNOSTIC: Check if line wavelengths overlap cube data wavelengths
-    co_overlap = (CO_catalog['line_wave_um'] >= wave_min) & (CO_catalog['line_wave_um'] <= wave_max)
-    print(f"    CO lines in data wavelength range: {np.sum(co_overlap)}/{len(CO_catalog)}")
+    target_overlap = (target_catalog['line_wave_um'] >= wave_min) & (target_catalog['line_wave_um'] <= wave_max)
+    print(f"    Target lines in data wavelength range: {np.sum(target_overlap)}/{len(target_catalog)}")
     
     sys.stdout.flush()
     
@@ -1308,7 +1308,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     contam_detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
     wavelength_map = np.full((n_y, n_x), np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
     
-    print(f">>> Creating CO flux map: {n_y}x{n_x} pixels, {n_wave} wavelength elements")
+    print(f">>> Creating flux map: {n_y}x{n_x} pixels, {n_wave} wavelength elements")
     print(f"    Wavelength range: {wave_min:.6f} - {wave_max:.6f} um")
     print(f"    Continuum subtraction: ENABLED")
     
@@ -1330,7 +1330,7 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     total_pixels = n_y * n_x
     
     # No wave_boundaries computed here -- each pixel detects a different set of lines, so
-    # extract_co_flux_from_spectrum builds its own, per call, from what it actually detected.
+    # extract_flux_from_spectrum builds its own, per call, from what it actually detected.
 
     # DEBUG: Test extraction on first few pixels
     print(f"    Testing pixel extraction...")
@@ -1375,18 +1375,18 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
         if test_spectrum is not None and not np.all(np.isnan(test_spectrum)):
             print(f"      Spectrum: shape={test_spectrum.shape}, min={np.nanmin(test_spectrum):.4e}, max={np.nanmax(test_spectrum):.4e}")
             sys.stdout.flush()  # Force flush
-            test_result = extract_co_flux_from_spectrum(
-                wavelength, test_spectrum, CO_catalog, contam_catalog,
+            test_result = extract_flux_from_spectrum(
+                wavelength, test_spectrum, target_catalog, contam_catalog,
                 wave_min=wave_min, wave_max=wave_max,
                 do_duplicate_removal=True,
                 continuum_params=continuum_params,
                 header=cube_data.header, wave_unit=cube_data.wave_unit
             )
             if test_result:
-                print(f"      Result: co_flux={test_result['co_flux']:.4e}, detected_lines shape={len(test_result['detected_lines'])}")
+                print(f"      Result: flux={test_result['flux']:.4e}, detected_lines shape={len(test_result['detected_lines'])}")
                 if len(test_result['detected_lines']) > 0:
-                    n_co_detected = len(test_result['detected_lines'][test_result['detected_lines']['disposition'] == 1])
-                    print(f"      CO lines with disposition=1: {n_co_detected}")
+                    n_target_detected = len(test_result['detected_lines'][test_result['detected_lines']['disposition'] == 1])
+                    print(f"      Target lines with disposition=1: {n_target_detected}")
                 sys.stdout.flush()
             else:
                 print(f"      Result was None!")
@@ -1438,9 +1438,9 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                     num_skipped += 1
                     continue  # Skip pixels with no data
                 
-                # Step 2: Extract CO flux [FUNCTION: extract_co_flux_from_spectrum]
-                result = extract_co_flux_from_spectrum(
-                    wavelength, spectrum_flux, CO_catalog, contam_catalog,
+                # Step 2: Extract flux [FUNCTION: extract_flux_from_spectrum]
+                result = extract_flux_from_spectrum(
+                    wavelength, spectrum_flux, target_catalog, contam_catalog,
                     wave_min=wave_min, wave_max=wave_max,
                     do_duplicate_removal=True,
                     excluded_wavelengths=excluded_wavelengths,
@@ -1462,14 +1462,14 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
 
                 if result is not None:
                     # Check if flux value is actually valid
-                    co_flux_val = result['co_flux']
+                    flux_val = result['flux']
 
                     # Step 3: Store results in maps
-                    row_fluxes[x_idx] = co_flux_val
+                    row_fluxes[x_idx] = flux_val
                     row_contam_fluxes[x_idx] = result['contam_flux']
                     row_wavelengths[x_idx] = result.get('mean_detected_wavelength', np.nan)  # Store wavelength for conversion
                     
-                    # Count detected CO lines
+                    # Count detected target lines
                     n_detected = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
                     row_detections[x_idx] = n_detected
 
@@ -1538,14 +1538,14 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
                 print(f"    Row {i+1}/{n_y}: {percent:.1f}% ({pixels_done}/{total_pixels}) in {elapsed:.1f}s, ETA {eta_sec:.1f}s")
                 sys.stdout.flush()
     except Exception as e:
-        print(f"[ERROR] Error during CO flux extraction: {e}")
+        print(f"[ERROR] Error during flux extraction: {e}")
         traceback.print_exc()
     
     end_time = time.time()
-    print(f"\n>>> CO flux map creation complete ({end_time - start_time:.1f}s)")
+    print(f"\n>>> Flux map creation complete ({end_time - start_time:.1f}s)")
     print(f"    Valid pixels: {np.sum(~np.isnan(flux_map))}/{n_y * n_x}")
-    print(f"    Mean CO flux: {np.nanmean(flux_map):.4e}")
-    print(f"    Max CO flux: {np.nanmax(flux_map):.4e}")
+    print(f"    Mean flux: {np.nanmean(flux_map):.4e}")
+    print(f"    Max flux: {np.nanmax(flux_map):.4e}")
     print(f"    Mean contam flux: {np.nanmean(contam_flux_map):.4e}")
     print(f"    Max contam flux: {np.nanmax(contam_flux_map):.4e}")
     print(f"    Total contam flux (sum over valid pixels): {np.nansum(contam_flux_map):.4e}")
@@ -1574,16 +1574,16 @@ def create_co_flux_map(cube_data, CO_catalog, contam_catalog, n_jobs=8, progress
     }
 
 
-def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
+def save_flux_map_fits(flux_map_data, output_path, map_type='flux'):
     """
-    Save a CO flux map (from create_co_flux_map) as a 2-HDU FITS file: PRIMARY (flux map)
+    Save a flux map (from create_flux_map) as a 2-HDU FITS file: PRIMARY (flux map)
     and DETECTION (line counts per pixel).
 
     Args:
-        flux_map_data (dict): Output of create_co_flux_map() -- needs 'flux_map',
+        flux_map_data (dict): Output of create_flux_map() -- needs 'flux_map',
             'detection_map', 'wavelength', 'header', 'wave_range'
-        output_path (str): Output file path (e.g. 'CO_flux_map.fits')
-        map_type (str): Map type label, e.g. 'CO_flux' or 'contamination_flux'
+        output_path (str): Output file path (e.g. 'flux_map.fits')
+        map_type (str): Map type label, e.g. 'flux' or 'contamination_flux'
 
     Returns:
         success (bool): True if the file was written, False if it failed
@@ -1633,9 +1633,9 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         out_header['WAVEMIN'] = (wave_range[0], 'Minimum wavelength used (um)')
         out_header['WAVEMAX'] = (wave_range[1], 'Maximum wavelength used (um)')
         out_header['BUNIT'] = flux_unit_str
-        out_header['COMMENT'] = f'CO Rovibrational {map_type} Map'
+        out_header['COMMENT'] = f'Rovibrational {map_type} Map'
         out_header['COMMENT'] = 'Flux extracted by simultaneous multi-Gaussian fitting'
-        out_header['COMMENT'] = 'Values are amplitude * sigma * sqrt(2*pi) integrated from all detected CO lines'
+        out_header['COMMENT'] = 'Values are amplitude * sigma * sqrt(2*pi) integrated from all detected target lines'
         
         # Create primary HDU with flux map
         primary_hdu = fits.PrimaryHDU(flux_map.astype(np.float32), header=out_header)
@@ -1643,7 +1643,7 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='CO_flux'):
         # Create detection map extension
         detection_hdu = fits.ImageHDU(detection_map.astype(np.int32), name='DETECTION')
         detection_hdu.header['BUNIT'] = 'count'
-        detection_hdu.header['COMMENT'] = 'Number of CO lines detected and fit in each pixel'
+        detection_hdu.header['COMMENT'] = 'Number of target lines detected and fit in each pixel'
         
         # Create HDU list and write
         hdul = fits.HDUList([primary_hdu, detection_hdu])

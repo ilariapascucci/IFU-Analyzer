@@ -15,7 +15,7 @@ from astropy.io import fits
 # Direct imports from GUI modules - use what already works
 from cube_explorer.data_loader import CubeData
 from cube_explorer.gaussian_fitter import fit_gaussian_to_line
-from cube_explorer.co_flux_extractor import fit_hitran_lines_collective
+from cube_explorer.flux_map_extractor import fit_hitran_lines_collective
 from cube_explorer.line_catalog import fetch_hitran_data
 from cube_explorer.continuum_dialog import ContinuumParametersDialog  # Get default params
 from cube_explorer.gui_continuum import GuiContinuumMixin
@@ -196,7 +196,7 @@ def main():
             print(f"    {i:2d}. {wl_center:.9f} um  {status}  Continuum={local_continuum:.1f}, Depth={depth:.1f} (at idx={idx})")
         
         # Now fit all lines simultaneously, in shared wavelength chunks (the same
-        # collective approach CO Flux Map uses) rather than one independent fit per line.
+        # collective approach Flux Map uses) rather than one independent fit per line.
         print(f"\n  Fitting all lines with fit_hitran_lines_collective...")
         line_pairs = fit_hitran_lines_collective(
             wavelength, spectrum,

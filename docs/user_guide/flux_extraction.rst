@@ -1,11 +1,13 @@
-==================
-CO Flux Extraction
-==================
+================
+Flux Extraction
+================
 
-Extract and measure carbon monoxide (CO) line fluxes from spectral data cubes. This specialized tool analyzes CO emission or absorption across multiple rotational transitions.
+Extract and measure spectral line fluxes for a chosen target species (CO, H2, or any
+molecule/atom HITRAN or a custom catalog supports) from spectral data cubes. This tool
+analyzes emission or absorption across multiple rotational transitions of that species.
 
-Starting CO Flux Extraction
-===========================
+Starting Flux Extraction
+=========================
 
 **Fetch from HITRAN**
 
@@ -26,22 +28,22 @@ of every currently loaded line: detections and contaminants together, with "Dete
 Only"/"Contaminating Only" filters. Check/uncheck rows to change what's plotted.
 
 Load Contaminating Lines
-========================
+=========================
 
 Additionally (and optionally), you can load a catalog of contaminating (non-target) lines
-so both **CO Flux Map** and **Multi-Gaussian Fit** (below) can account for them instead of
-letting their flux distort a nearby CO line's measurement.
+so both **Flux Map** and **Multi-Gaussian Fit** (below) can account for them instead of
+letting their flux distort a nearby target line's measurement.
 
 1. Click **Contam. Lines** and load a CSV file with unwanted lines
 
 Both ``wavelength`` and ``species`` columns are required.
 
-Run **CO Flux Map** / **Multi-Gaussian Fit** again after loading it for the fit to pick it up.
+Run **Flux Map** / **Multi-Gaussian Fit** again after loading it for the fit to pick it up.
 
 Multi-Gaussian Fit
 =====================
 
-Fit every currently-plotted HITRAN line at once via ``curve_fit``, using each line's own
+Fit every currently-plotted line at once via ``curve_fit``, using each line's own
 instrumental width. Lines that land in the same wavelength chunk (close or blended) are fit
 together against one shared continuum, so they no longer double-claim overlapping flux the
 way independent, uninformed per-line fits would.
@@ -55,7 +57,7 @@ resolve a little narrower/wider than nominal.
 If you've loaded a contaminating-lines catalog (above), any contaminant sharing a
 wavelength chunk with a requested line gets its own Gaussian component too, so its flux is
 absorbed there instead of leaking into that line's amplitude. It's drawn in **grey** on the
-plot and listed separately in the results. It's never counted toward the CO line total or
+plot and listed separately in the results. It's never counted toward the target line total or
 "Total Integrated Flux", but summed on its own as "Total Contaminant Flux" (see *Reading
 the results* below).
 
@@ -74,9 +76,10 @@ contaminants, and active tab offers the cached results instead of re-fitting.
    :width: 100%
 
    56 CO v=1→0 lines (4.40–4.80 µm) fitted simultaneously via **Multi-Gaussian Fit** on a
-   NIRSpec G395H spectrum. The grey curves are H2 lines from the loaded
-   contaminating-lines catalog, each fit as its own component. The tallest, near 4.69 µm,
-   would otherwise have distorted its neighboring CO lines' amplitudes.
+   NIRSpec G395H spectrum -- CO used here as the worked example; any target species works
+   the same way. The grey curves are H2 lines from the loaded contaminating-lines catalog,
+   each fit as its own component. The tallest, near 4.69 µm, would otherwise have distorted
+   its neighboring CO lines' amplitudes.
 
 Reading the results
 --------------------
@@ -92,7 +95,7 @@ Each line's block reports two groups of numbers:
   above). Units follow the same rules as the 1D page (:doc:`gaussian_fitting_1d`):
   ``Integrated Area`` is erg/s/cm² wherever the header supports the conversion.
 
-An **OVERALL** summary follows every line block, e.g. from a real 56-line run:
+An **OVERALL** summary follows every line block, e.g. from a real 56-line CO run:
 
 .. code-block:: text
 
@@ -104,12 +107,12 @@ An **OVERALL** summary follows every line block, e.g. from a real 56-line run:
       Total Contaminant Flux: 2.3774e-15 erg/s/cm²
 
 ``Total Contaminant Flux`` only appears when a contaminating-lines catalog is loaded, and is
-summed separately from ``Total Integrated Flux`` (contaminants are never considered for CO
-total).
+summed separately from ``Total Integrated Flux`` (contaminants are never considered for the
+target total).
 
 A **CONTAMINATING LINES** section follows whenever any contaminant got its own component:
-wavelength, species, amplitude and area for each (not part of the CO line count or totals
-above). From the same run:
+wavelength, species, amplitude and area for each (not part of the target line count or
+totals above). From the same run:
 
 .. code-block:: text
 
@@ -162,20 +165,22 @@ Using the API
       4.783681 um  area=5.0950e-16 erg/s/cm²  R2=0.9889
       4.793562 um  area=5.5141e-16 erg/s/cm²  R2=0.9156
 
-**Analyze CO for All Pixels**
+**Run the Full-Cube Flux Map**
 
-Extract a CO flux map across every spatial pixel:
+Extract a flux map across every spatial pixel, for whichever lines are currently checked
+in the **Lines** dialog (any species -- the map isn't restricted to CO):
 
-1. Click on **CO Flux Map**.
+1. Click on **Flux Map**.
 2. A popup explains that continuum subtraction runs automatically per pixel, using default
    parameters that work well for typical spectra. Click **No** to use those defaults, or
    **Yes** to open the same parameter dialog as the manual Automatic Continuum tool and set
    your own values instead.
 3. A preview shows the brightest pixel within your wavelength range (a sanity check before
-   committing to a full-cube run). Click **YES - Extract Map** to proceed.
+   committing to a full-cube run), and exactly the checked lines that will be fit. Click
+   **YES - Extract Map** to proceed.
 
-If you've already run an extraction with the same wavelength range and continuum choice,
-you'll be offered the cached results instead of re-running.
+If you've already run an extraction with the same wavelength range, line selection, and
+continuum choice, you'll be offered the cached results instead of re-running.
 
 **Progress Monitoring**
 
@@ -184,26 +189,28 @@ The progress dialog updates per pixel as the cube is processed.
 **Output Products**
 
 The **Display** dropdown in the results window switches between four maps, all from the
-same run:
+same run. The flux/detection labels reflect whichever species was targeted (e.g. "CO Flux"
+for a CO run, "H2 Flux" for H2, "H2+CO" for a mixed selection) -- the example below used CO:
 
 .. figure:: ../_static/coflux_docs.png
    :alt: CO rovibrational flux map, showing a bright compact source
    :width: 100%
 
-   **CO Flux**: integrated CO flux per pixel.
+   **CO Flux**: integrated flux per pixel, for a run targeting CO.
 
 .. figure:: ../_static/det_docs.png
    :alt: Map of the number of CO lines detected per pixel, diamond-shaped field of view
    :width: 100%
 
-   **Detection Count**: number of CO lines detected per pixel, for the same cube.
+   **Detection Count**: number of target lines detected per pixel, for the same cube.
 
 .. figure:: ../_static/contamflux_docs.png
    :alt: Contaminating-line flux map, peaking at the same location as the CO flux map but roughly an order of magnitude fainter
    :width: 100%
 
    **Contam Flux**: integrated contaminating-line flux per pixel, computed as part of the
-   same per-pixel fit and summed separately from CO flux (never mixed into the CO total).
+   same per-pixel fit and summed separately from the target flux (never mixed into the
+   target total).
 
 .. figure:: ../_static/detcontam_docs.png
    :alt: Map of the number of contaminating lines detected per pixel
@@ -224,90 +231,90 @@ With **Pixel Select** on (the default), clicking a pixel on any of the four maps
 
    Spectrum for an individual pixel, zoomed to the run's fitted wavelength range (here the
    full 4.40–4.80 µm, 56-line CO band), with the real per-chunk fitted continuum trend and
-   every detected CO line marked in red.
+   every detected target line marked in red.
 
 Turn **Pixel Select** off to zoom/pan the map freely instead of reopening this dialog on every
 click.
 
 
-Using the CO Flux API
-======================
+Using the Flux API
+====================
 
-Extract CO fluxes programmatically for single spectra or full data cubes, using
-``extract_co_flux()`` and ``create_co_flux_map()``, the same algorithm as the GUI's
-**CO Flux Map** button.
+Extract fluxes programmatically for single spectra or full data cubes, using
+``extract_flux()`` and ``create_flux_map()``, the same algorithm as the GUI's
+**Flux Map** button.
 
 .. note::
 
    This is a **different algorithm** from **Multi-Gaussian Fit**, and the two don't produce
    identical totals for the same spectrum. Both now fit lines simultaneously via the same
    function, so the real remaining difference isn't the fitting method itself, it's *which*
-   lines get fit: ``extract_co_flux``/``create_co_flux_map`` auto-detect lines per pixel and
+   lines get fit: ``extract_flux``/``create_flux_map`` auto-detect lines per pixel and
    only count one that clears a signal-to-noise threshold first (``snr_threshold``, default
    3σ). ``fit_hitran_lines`` has no SNR gate at all: it fits whatever you selected, weak
-   lines included. Summed over many pixels this adds up to CO Flux Map running
+   lines included. Summed over many pixels this adds up to Flux Map running
    systematically lower. Lowering ``snr_threshold`` would let more noise into the flux
    instead (a trade-off, not a fix).
 
-**Extract CO Flux from a Single Spectrum**
+**Extract Flux from a Single Spectrum**
 
 .. code-block:: python
 
-    from cube_explorer.api import load_cube, extract_co_flux
+    from cube_explorer.api import load_cube, extract_flux
 
     cube = load_cube("data.fits")
 
-    co_result = extract_co_flux(
+    flux_result = extract_flux(
         wavelength=cube.wavelength,
         spectrum=cube.spectrum,
-        co_catalog_path="path/to/CO_catalog.ecsv",
+        target_catalog_path="path/to/CO_catalog.ecsv",
         header=cube.header,      # Required for the erg/s/cm2 conversion
         wave_unit=cube.wave_unit,
     )
 
-    print(f"Total CO flux: {co_result['co_flux']:.4e} {co_result['flux_unit']}")
-    print(f"Number of lines detected: {len(co_result['detected_lines'])}")
-    print(f"Mean continuum level: {co_result['mean_continuum']:.3f}")
+    print(f"Total flux: {flux_result['flux']:.4e} {flux_result['flux_unit']}")
+    print(f"Number of lines detected: {len(flux_result['detected_lines'])}")
+    print(f"Mean continuum level: {flux_result['mean_continuum']:.3f}")
 
-**Create CO Flux Maps**
+**Create Flux Maps**
 
 Generate flux maps for the entire data cube:
 
 .. code-block:: python
 
-    from cube_explorer.api import load_cube, create_co_flux_map
+    from cube_explorer.api import load_cube, create_flux_map
 
     cube = load_cube("data.fits")
 
-    # Uses HITRAN automatically by default, or pass co_catalog_path for a custom catalog
-    co_flux_map = create_co_flux_map(
+    # Uses HITRAN (CO by default) automatically, or pass target_catalog_path for a custom catalog
+    flux_map_result = create_flux_map(
         cube,
         wavelength_min=4.70, wavelength_max=4.80,
         n_jobs=4,
     )
 
-    print(f"CO flux map shape: {co_flux_map['flux_map'].shape}, unit: {co_flux_map['flux_unit']}")
-    print(f"Mean CO flux: {co_flux_map['flux_map'][co_flux_map['flux_map'] > 0].mean():.4e}")
-    print(f"Pixels with CO detection: {(co_flux_map['detection_map'] > 0).sum()}")
-    print(f"Pixels with a contam detection: {(co_flux_map['contam_detection_map'] > 0).sum()}")
-    print(f"Mean contam flux: {co_flux_map['contam_flux_map'][co_flux_map['contam_flux_map'] > 0].mean():.4e}")
+    print(f"Flux map shape: {flux_map_result['flux_map'].shape}, unit: {flux_map_result['flux_unit']}")
+    print(f"Mean flux: {flux_map_result['flux_map'][flux_map_result['flux_map'] > 0].mean():.4e}")
+    print(f"Pixels with a detection: {(flux_map_result['detection_map'] > 0).sum()}")
+    print(f"Pixels with a contam detection: {(flux_map_result['contam_detection_map'] > 0).sum()}")
+    print(f"Mean contam flux: {flux_map_result['contam_flux_map'][flux_map_result['contam_flux_map'] > 0].mean():.4e}")
 
-Continuum subtraction works the same way as ``extract_co_flux`` above (automatic per
+Continuum subtraction works the same way as ``extract_flux`` above (automatic per
 pixel, with the default parameters unless you pass your own via ``continuum_params``).
 
 **Expected Catalog Format**
 
-The CO catalog file should be in ECSV (Enhanced Character Separated Values) format with columns:
+The target catalog file should be in ECSV (Enhanced Character Separated Values) format with columns:
 
 - ``line_wave_um``: Wavelength in micrometers
-- ``species``: Molecule name (e.g., "CO")
+- ``species``: Molecule name (e.g., "CO", "H2")
 - ``transition``: Transition description (e.g., "v=1->0, J=4->5")
 - ``a``: Einstein A coefficient
 
 Columns are loaded as-is, with no validation: a file missing ``line_wave_um`` or
 ``species`` won't fail at load time, only later inside the fit, as a ``KeyError``.
 
-**Tips for CO Flux Extraction**
+**Tips for Flux Extraction**
 
 - Ensure your wavelength calibration is accurate (errors affect line identification)
 - The algorithm automatically measures line widths and integrates flux
@@ -319,4 +326,4 @@ Next Steps
 - :doc:`gaussian_fitting_cube` — the general per-pixel Gaussian fitting this shares its
   algorithm with
 - :doc:`exporting_data` — other export paths
-- :doc:`2d_viewer` — open the exported CO/contam flux maps with WCS support
+- :doc:`2d_viewer` — open the exported target/contam flux maps with WCS support

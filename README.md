@@ -23,13 +23,13 @@ An interactive Python tool for visualizing and analyzing Integral Field Unit (IF
 - Support for 2D images (intensity maps, Gaussian-derived maps)
 - Copy colormaps and regions between dual displays
 
-### CO Rovibrational Flux Mapping
+### Rovibrational Flux Mapping
 
-- **Full-Cube CO Flux Extraction:**
-  - Simultaneous multi-line fitting of CO rovibrational transitions
+- **Full-Cube Flux Extraction (any target species):**
+  - Simultaneous multi-line fitting of rovibrational transitions
   - Contaminating line exclusion and masking
   - Parallel processing across all spatial pixels
-  - Optional continuum subtraction before line detection
+  - Automatic continuum subtraction before line detection
   - Automatic flux integration and SNR thresholding
   - Background processing with progress tracking
   - Complete flux maps and statistics extraction
@@ -187,7 +187,7 @@ Bring any number of multi-instrument images to a single common resolution and FO
 
 - **Continuum Results Export (ASCII):** single **Save Results** button writes a four-column file — wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum — in tab-delimited format. Missing columns (e.g. no continuum fitted yet) are written as `NaN`. The `# Type: full_results` header identifies the file format.
 - **Residuals FITS Export:** Export 3D normalized residuals cube with full header metadata
-- **CO Flux Maps:** Export full-cube fitting results with integrated flux estimates
+- **Flux Maps:** Export full-cube fitting results with integrated flux estimates
 - **Contour Coordinates (.txt):** Export contour path vertices with pixel + RA/Dec positions and sigma level labels
 - **Contour Mask (FITS):** Export binary region mask with WCS header
 - **Rotated Image (FITS):** Save rotated image with updated WCS header
@@ -588,14 +588,13 @@ python main.py
    - Choose a save path for the output `.zip` file
    - All outputs share the same WCS grid (worst pixel scale, union FOV), ready for comparison
 
-### CO Rovibrational Flux Mapping
+### Rovibrational Flux Mapping
 
-7. Extract CO flux from full data cube:
-   - Click "CO Flux Map" in the Gaussian Fitting menu
-   - Configure CO line list and wavelength ranges
-   - Select contaminating lines to exclude
-   - Optional: enable continuum subtraction before detection
-   - Click "Fit CO Lines" to process (background computation)
+7. Extract flux from full data cube (any target species):
+   - Fetch/load lines (HITRAN or a custom CSV) and select the ones you want in the Lines dialog
+   - Optionally load contaminating lines to exclude their flux from the fit
+   - Click "Flux Map" in the HITRAN group -- continuum subtraction always runs automatically
+     before detection, with default or custom parameters
    - View flux maps, SNR statistics, and detection quality
    - Export results with integrated flux estimates
 
@@ -648,18 +647,18 @@ IFU-Analyzer/
 │   ├── gui.py                  # Main GUI (2500+ lines)
 │   ├── gui_continuum.py        # Continuum subtraction mixin (auto + custom modes)
 │   ├── gui_gaussian.py         # Gaussian fitting mixin
-│   ├── gui_coflux.py           # CO flux mapping mixin
+│   ├── gui_flux_map.py         # Flux mapping mixin (any target species)
 │   ├── ifu_analyzer_2d.py      # 2D FITS dual viewer (WCS, rotation, contours, superimpose, resolution matching)
 │   ├── data_loader.py          # FITS loading & instrument detection
 │   ├── gaussian_fitter.py      # Gaussian fitting algorithms
-│   ├── co_flux_extractor.py    # CO rovibrational flux mapping
+│   ├── flux_map_extractor.py   # Rovibrational flux mapping (any target species)
 │   ├── visualization.py        # Plotting and rendering functions
 │   ├── region_selector.py      # Interactive region selection tools
 │   ├── pixel_diagnostics.py    # Pixel-level fit inspection dialog
 │   ├── colormap_dialog.py      # Colormap customization
 │   ├── continuum_dialog.py     # Automatic continuum fitting parameter dialog
 │   ├── custom_continuum.py     # Interactive custom continuum point selector
-│   ├── co_flux_dialogs.py      # CO flux mapping configuration dialogs
+│   ├── flux_map_dialogs.py     # Flux mapping configuration dialogs
 │   ├── gaussian_dialogs.py     # Gaussian fitting dialogs
 │   ├── species_dialog.py       # Spectral line species selection
 │   ├── line_catalog.py         # Line identification and HITRAN integration
@@ -739,7 +738,7 @@ IFU-Analyzer/
 ## Known Limitations
 
 - Residuals are normalized by noise std (may need raw residuals for some analyses)
-- CO flux mapping requires well-defined line catalog with accurate wavelengths
+- Flux mapping requires a well-defined target line catalog with accurate wavelengths
 - ThreadPoolExecutor-based parallelization may have limited speedup on very small cubes due to worker startup overhead
 - WCS superimpose uses bicubic interpolation with NaN masking; accuracy is sub-pixel for typical FITS WCS grids
 

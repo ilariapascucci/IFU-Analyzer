@@ -35,7 +35,7 @@ from scipy.signal import find_peaks  # NEW: Import find_peaks
 from .data_loader import CubeData
 from .gui_continuum import GuiContinuumMixin
 from .gui_gaussian import GuiGaussianMixin
-from .gui_coflux import GuiCOFluxMixin
+from .gui_flux_map import GuiFluxMapMixin
 from .gui_spectrum import GuiSpectrumMixin
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
@@ -46,7 +46,7 @@ from .line_catalog import get_available_molecules, normalize_species_input, hitr
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
-from .co_flux_dialogs import COFluxMapWorker, COFluxMapResultsDialog
+from .flux_map_dialogs import FluxMapWorker, FluxMapResultsDialog
 from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit
 from astropy.units import Quantity
 
@@ -271,7 +271,7 @@ class WavelengthSpinBox(QDoubleSpinBox):
         self.setValue(float(wl[idx]))
 
 
-class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin, GuiSpectrumMixin):
+class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin, GuiSpectrumMixin):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Cube Explorer")
@@ -629,7 +629,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
         self.multi_gauss_fit_btn = QPushButton("Multi-Gauss")
-        self.co_flux_map_btn = QPushButton("CO Flux Map")
+        self.flux_map_btn = QPushButton("Flux Map")
         
         self.auto_continuum_toggle = QPushButton("Automatic Continuum")
         self.custom_continuum_toggle = QPushButton("Custom Continuum")
@@ -720,7 +720,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
         self.multi_gauss_fit_btn.clicked.connect(self._fit_multi_gaussian)
-        self.co_flux_map_btn.clicked.connect(self._extract_co_flux_map)
+        self.flux_map_btn.clicked.connect(self._extract_flux_map)
         self.save_results_btn.clicked.connect(self._save_results_ascii)
         self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
         
@@ -743,7 +743,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
         self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
         self.custom_subtract_btn.setToolTip("Manually select continuum points")
-        self.co_flux_map_btn.setToolTip("Fit multiple lines and and creat an integrated flux map")
+        self.flux_map_btn.setToolTip("Fit multiple lines and and creat an integrated flux map")
 
 
         # Wavelength range inputs (for line search)
@@ -998,7 +998,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.rotational_diagram_group.add_button(self.rot_diag_btn)
         collapsible_layout.addWidget(self.rotational_diagram_group)
         
-        # Group 5: HITRAN (wavelength inputs + action buttons + CO flux map)
+        # Group 5: HITRAN (wavelength inputs + action buttons + flux map)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(self.max_wave_input)
@@ -1007,7 +1007,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         self.hitran_group.add_button(self.load_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.show_species_btn)
-        self.hitran_group.add_button(self.co_flux_map_btn)
+        self.hitran_group.add_button(self.flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
         
         collapsible_layout.addStretch()  # Push all groups to the left
@@ -1972,10 +1972,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                         if abs(SpeciesDialog.get_row_wavelength(r) - line_wave) > 1e-6
                     ]
                     
-                    # Track excluded wavelength for CO flux
-                    if not hasattr(self, 'co_flux_excluded_wavelengths'):
-                        self.co_flux_excluded_wavelengths = set()
-                    self.co_flux_excluded_wavelengths.add(line_wave)
+                    # Track excluded wavelength for the flux map
+                    if not hasattr(self, 'flux_map_excluded_wavelengths'):
+                        self.flux_map_excluded_wavelengths = set()
+                    self.flux_map_excluded_wavelengths.add(line_wave)
                     
                     # Replot spectrum without this line
                     self.plot_selected_lines(self.plotted_lines)
@@ -2432,13 +2432,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
 
         # Sync the excluded wavelengths set:
         # Remove any wavelengths from excluded that are now being plotted (re-selection)
-        if hasattr(self, 'co_flux_excluded_wavelengths') and self.co_flux_excluded_wavelengths:
+        if hasattr(self, 'flux_map_excluded_wavelengths') and self.flux_map_excluded_wavelengths:
             plotted_wavelengths = set(
                 SpeciesDialog.get_row_wavelength(r) for r in rows
             )
             # Remove from excluded any that are now plotted
-            self.co_flux_excluded_wavelengths = {
-                w for w in self.co_flux_excluded_wavelengths
+            self.flux_map_excluded_wavelengths = {
+                w for w in self.flux_map_excluded_wavelengths
                 if not any(abs(w - pw) < 1e-6 for pw in plotted_wavelengths)
             }
 
@@ -2846,7 +2846,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         """
         if not hasattr(self, 'cube_data') or self.cube_data is None:
             return 0.0
-        from .co_flux_extractor import _line_sigma
+        from .flux_map_extractor import _line_sigma
         wave = np.asarray(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
         header = getattr(self.cube_data, 'header', None)
         edge_sigmas = [
@@ -3252,7 +3252,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
         Filtered down to the current Min/Max wavelength range (plus a small
         edge margin -- see _line_range_edge_pad()) before storing, same as
         custom detection lines -- a catalog covering a wider band than what's
-        actually being analyzed (in either the multi-Gaussian fit or CO Flux
+        actually being analyzed (in either the multi-Gaussian fit or Flux
         Map, both of which are themselves scoped to this same range in the
         GUI) shouldn't clutter the table/plot or slow down fitting with
         contaminants that can never matter here.
@@ -3321,7 +3321,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                     f"✓ Loaded {len(self.contam_lines)} of {total_loaded} contaminating lines "
                     f"(within {wavelength_min:.6f}-{wavelength_max:.6f} µm)\n\n"
                     f"Wavelength range: {min_wave:.6f} - {max_wave:.6f} μm\n\n"
-                    f"These lines will be used when extracting CO flux."
+                    f"These lines will be used when extracting flux."
                 )
             else:
                 QMessageBox.warning(self, "Empty File", "The CSV file is empty or has no valid lines.")

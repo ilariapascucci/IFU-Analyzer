@@ -592,7 +592,7 @@ class SlicePlotter:
         self.ax.pixel_marker = [marker]  # Store only the new marker
 
 
-# ================== CO Flux Extraction Visualization ==================
+# ================== Flux Extraction Visualization ==================
 
 def plot_fit_residuals(wavelength, spectrum_flux, model_flux, title="Multi-Gaussian Fit Diagnostics"):
     """
@@ -700,12 +700,12 @@ def plot_line_decomposition(wavelength, spectrum_flux, model_flux, continuum_flu
 
 def plot_flux_map_diagnostics(flux_map, detection_map, error_map=None):
     """
-    Create diagnostic plots for CO flux extraction map results.
-    
+    Create diagnostic plots for flux extraction map results.
+
     Parameters
     ----------
     flux_map : array-like
-        2D map of integrated CO flux
+        2D map of integrated flux
     detection_map : array-like
         2D map of detection counts (lines per pixel)
     error_map : array-like, optional
@@ -721,7 +721,7 @@ def plot_flux_map_diagnostics(flux_map, detection_map, error_map=None):
     
     # Flux map
     im0 = axes[0].imshow(flux_map, origin='lower', cmap='viridis')
-    axes[0].set_title('CO Flux Map')
+    axes[0].set_title('Flux Map')
     axes[0].set_xlabel('X [pixels]')
     axes[0].set_ylabel('Y [pixels]')
     plt.colorbar(im0, ax=axes[0], label='Flux')

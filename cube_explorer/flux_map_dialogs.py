@@ -1,7 +1,7 @@
 """
-CO Rovibrational Flux Map Dialog and Worker Classes
+Flux Map Dialog and Worker Classes
 
-Contains QThread workers and dialog classes for CO flux map extraction.
+Contains QThread workers and dialog classes for flux map extraction.
 Simplified: no parameter dialog, automatic processing of entire spectrum.
 """
 
@@ -18,16 +18,16 @@ import matplotlib.cm as cm
 from astropy import units as u
 
 
-class COFluxMapWorker(QThread):
-    """Background worker for CO flux extraction"""
+class FluxMapWorker(QThread):
+    """Background worker for flux extraction"""
     progress = pyqtSignal(int, int)  # (current, total)
     finished = pyqtSignal(dict)       # Results dict
     error = pyqtSignal(str)           # Error message
     
-    def __init__(self, cube_data, CO_catalog, contam_catalog, n_jobs=4, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
+    def __init__(self, cube_data, target_catalog, contam_catalog, n_jobs=4, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
         super().__init__()
         self.cube_data = cube_data
-        self.CO_catalog = CO_catalog
+        self.target_catalog = target_catalog
         self.contam_catalog = contam_catalog
         self.n_jobs = n_jobs
         self.wave_min = wave_min
@@ -43,11 +43,11 @@ class COFluxMapWorker(QThread):
                 self.error.emit("Extraction cancelled by user")
                 return
             
-            from .co_flux_extractor import create_co_flux_map
+            from .flux_map_extractor import create_flux_map
             
-            results = create_co_flux_map(
+            results = create_flux_map(
                 cube_data=self.cube_data,
-                CO_catalog=self.CO_catalog,
+                target_catalog=self.target_catalog,
                 contam_catalog=self.contam_catalog,
                 n_jobs=self.n_jobs,
                 progress_callback=self._emit_progress,
@@ -75,11 +75,32 @@ class COFluxMapWorker(QThread):
         self.cancelled = True
 
 
-class COFluxMapResultsDialog(QDialog):
-    """Display CO flux extraction results with interactive viewer"""
-    
+class FluxMapResultsDialog(QDialog):
+    """Display flux extraction results with interactive viewer"""
+
+    @staticmethod
+    def _species_label(catalog):
+        """
+        Short label for the target catalog's species, for map titles/stats -- e.g. 'H2' if
+        every selected line is H2, 'H2+CO' if a mixed selection, 'Target' as a generic
+        fallback when the catalog is empty/missing or its species can't be determined.
+
+        Args:
+            catalog (pd.DataFrame or None): The target catalog, expected to have a
+                'species' column (same DataFrame passed to create_flux_map())
+
+        Returns:
+            label (str): e.g. 'H2', 'H2+CO', '4 species', or 'Target'
+        """
+        if catalog is None or len(catalog) == 0 or 'species' not in catalog.columns:
+            return 'Target'
+        species = sorted({str(s).strip() for s in catalog['species'].dropna() if str(s).strip()})
+        if not species:
+            return 'Target'
+        return '+'.join(species) if len(species) <= 3 else f'{len(species)} species'
+
     def __init__(self, flux_map, detection_map, header=None, wave_range=None,
-                 wavelength=None, cube_data=None, CO_catalog=None, contam_catalog=None,
+                 wavelength=None, cube_data=None, target_catalog=None, contam_catalog=None,
                  parent=None, excluded_wavelengths=None, flux_unit=None,
                  continuum_params=None, contam_flux_map=None, contam_detection_map=None):
         super().__init__(parent)
@@ -92,8 +113,9 @@ class COFluxMapResultsDialog(QDialog):
         self.wave_range = wave_range
         self.wavelength = wavelength
         self.cube_data = cube_data
-        self.CO_catalog = CO_catalog
+        self.target_catalog = target_catalog
         self.contam_catalog = contam_catalog
+        self.species_label = self._species_label(target_catalog)
         self.continuum_params = continuum_params
         self.selected_pixel = None  # For pixel inspection mode
         self.pixel_selection_enabled = True  # Toggle for pixel clicking
@@ -125,7 +147,7 @@ class COFluxMapResultsDialog(QDialog):
                     # If it's not a valid astropy unit, use it as-is for display
                     self.flux_unit_base = bunit_str
                 
-                # CO flux unit is base flux unit per wavelength
+                # Flux unit is base flux unit per wavelength
                 if isinstance(self.flux_unit_base, u.UnitBase):
                     self.flux_unit = self.flux_unit_base * u.um
                     self.flux_unit_str = f"{self.flux_unit_base} um"
@@ -144,7 +166,7 @@ class COFluxMapResultsDialog(QDialog):
                 self.flux_unit_base = u.MJy / u.sr
                 self.flux_unit = self.flux_unit_base * u.um
         
-        self.setWindowTitle("CO Flux Map Results")
+        self.setWindowTitle(f"{self.species_label} Flux Map Results")
         self.resize(1200, 700)
         self._setup_ui()
     
@@ -164,7 +186,7 @@ class COFluxMapResultsDialog(QDialog):
         
         info_text = (
             f"Valid pixels: {n_valid:,} / {n_total:,} ({100*n_valid/n_total:.1f}%) | "
-            f"Total CO flux: {sum_flux:.4e} | Mean: {mean_flux:.4e} | Max: {max_flux:.4e} | "
+            f"Total {self.species_label} flux: {sum_flux:.4e} | Mean: {mean_flux:.4e} | Max: {max_flux:.4e} | "
             f"Mean detections: {mean_detections:.1f} lines/pixel"
         )
         if self.contam_flux_map is not None:
@@ -189,7 +211,7 @@ class COFluxMapResultsDialog(QDialog):
         ctrl_layout = QHBoxLayout()
         ctrl_layout.addWidget(QLabel("Display:"))
         self.param_combo = QComboBox()
-        param_items = ["CO Flux", "Detection Count"]
+        param_items = [f"{self.species_label} Flux", "Detection Count"]
         if self.contam_flux_map is not None:
             param_items.append("Contam Flux")
         if self.contam_detection_map is not None:
@@ -286,7 +308,7 @@ class COFluxMapResultsDialog(QDialog):
     def _show_pixel_spectrum(self, x, y):
         """Extract and display spectrum for a clicked pixel with fitted Gaussians"""
         try:
-            from .co_flux_extractor import extract_co_flux_from_spectrum
+            from .flux_map_extractor import extract_flux_from_spectrum
             
             # Extract spectrum for this pixel
             spectrum = self.cube_data.get_pixel_spectrum(x, y)
@@ -295,10 +317,10 @@ class COFluxMapResultsDialog(QDialog):
                 QMessageBox.warning(self, "No Data", f"Pixel ({x}, {y}) has no valid data")
                 return
             
-            # Re-extract CO flux for this pixel to get fit info
-            if self.CO_catalog is not None:
-                result = extract_co_flux_from_spectrum(
-                    self.wavelength, spectrum, self.CO_catalog, self.contam_catalog,
+            # Re-extract flux for this pixel to get fit info
+            if self.target_catalog is not None:
+                result = extract_flux_from_spectrum(
+                    self.wavelength, spectrum, self.target_catalog, self.contam_catalog,
                     wave_min=self.wave_range[0] if self.wave_range else None,
                     wave_max=self.wave_range[1] if self.wave_range else None,
                     continuum_params=self.continuum_params,
@@ -317,7 +339,7 @@ class COFluxMapResultsDialog(QDialog):
                 n_lines = self.detection_map[y, x] if 0 <= x < self.detection_map.shape[1] and 0 <= y < self.detection_map.shape[0] else 0
                 info = QLabel(
                     f"<b>Pixel ({x}, {y})</b> | "
-                    f"CO Flux: {flux_val:.4e} {self.flux_unit_str} | "
+                    f"{self.species_label} Flux: {flux_val:.4e} {self.flux_unit_str} | "
                     f"Lines Detected: {n_lines}"
                 )
                 info.setStyleSheet("background-color: #f0f0f0; padding: 4px; border-radius: 3px;")
@@ -341,7 +363,7 @@ class COFluxMapResultsDialog(QDialog):
                     ax.plot(continuum_curve['wave'], continuum_curve['continuum'], color='orange',
                             linestyle='--', linewidth=1.8, label='Continuum', alpha=0.8)
                 
-                # Mark detected CO lines with disposition=1. Grayed out if the line was
+                # Mark detected target lines with disposition=1. Grayed out if the line was
                 # deselected (via the SPECIES dialog) before the map was computed -- this is
                 # a display of that already-applied exclusion, not an interactive control.
                 detected = result.get('detected_lines')
@@ -349,18 +371,18 @@ class COFluxMapResultsDialog(QDialog):
                     try:
                         import pandas as pd
                         if isinstance(detected, pd.DataFrame) and len(detected) > 0:
-                            detected_co = detected[
+                            detected_target = detected[
                                 (detected['disposition'] == 1) &
                                 (detected['line'] >= self.wave_range[0]) &
                                 (detected['line'] <= self.wave_range[1])
                             ]
-                            for idx, line_row in detected_co.iterrows():
+                            for idx, line_row in detected_target.iterrows():
                                 line_wave = float(line_row['line'])
                                 is_excluded = any(abs(line_wave - ew) < 0.001 for ew in self.excluded_wavelengths)
                                 color = 'gray' if is_excluded else 'red'
                                 alpha = 0.3 if is_excluded else 0.5
                                 ax.axvline(line_wave, color=color, alpha=alpha, linewidth=1.5,
-                                           label='CO Lines' if idx == detected_co.index[0] else '')
+                                           label=f'{self.species_label} Lines' if idx == detected_target.index[0] else '')
                     except Exception as e:
                         print(f"DEBUG: Error marking lines: {e}")
                         pass  # Silently skip line marking if it fails
@@ -419,10 +441,10 @@ class COFluxMapResultsDialog(QDialog):
         scale = self.scale_combo.currentText()
         
         # Select data and units
-        if param == "CO Flux":
+        if param == f"{self.species_label} Flux":
             data = self.flux_map
-            title = "CO Rovibrational Flux"
-            cbar_label = f"Integrated CO Flux ({self.flux_unit_str})"
+            title = f"{self.species_label} Rovibrational Flux"
+            cbar_label = f"Integrated {self.species_label} Flux ({self.flux_unit_str})"
         elif param == "Contam Flux":
             data = self.contam_flux_map
             title = "Contaminating-Line Flux"
@@ -433,7 +455,7 @@ class COFluxMapResultsDialog(QDialog):
             cbar_label = "Number of Lines"
         else:
             data = self.detection_map.astype(float)
-            title = "CO Lines Detected"
+            title = f"{self.species_label} Lines Detected"
             cbar_label = "Number of Lines"
 
         # Handle NaN
@@ -464,8 +486,8 @@ class COFluxMapResultsDialog(QDialog):
         """Export results to FITS file"""
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save CO Flux Results",
-            "CO_flux_map.fits",
+            "Save Flux Results",
+            f"{self.species_label}_flux_map.fits",
             "FITS files (*.fits);;All files (*.*)"
         )
         
@@ -490,7 +512,8 @@ class COFluxMapResultsDialog(QDialog):
                         hdu.header['INSTRUME'] = self.cube_data.instrument
                 
                 hdu.header['BUNIT'] = self.flux_unit_str
-                hdu.header['DESC'] = 'CO rovibrational flux: Integrated area under CO line gaussians'
+                hdu.header['SPECIES'] = (self.species_label, 'Target line species')
+                hdu.header['DESC'] = f'{self.species_label} rovibrational flux: Integrated area under target line gaussians'
                 if self.wave_range:
                     hdu.header['WAVEMIN'] = (self.wave_range[0], 'Min wavelength used (um)')
                     hdu.header['WAVEMAX'] = (self.wave_range[1], 'Max wavelength used (um)')
@@ -509,7 +532,7 @@ class COFluxMapResultsDialog(QDialog):
                 hdu = fits.ImageHDU(data=self.detection_map.astype(np.int32))
                 hdu.header['EXTNAME'] = 'DETECTION'
                 hdu.header['BUNIT'] = 'count'
-                hdu.header['DESC'] = 'Number of CO lines detected per pixel'
+                hdu.header['DESC'] = 'Number of target lines detected per pixel'
                 hdul.append(hdu)
 
                 # Contaminant flux HDU (only if this map has one -- older cached results won't)
@@ -517,7 +540,7 @@ class COFluxMapResultsDialog(QDialog):
                     hdu = fits.ImageHDU(data=self.contam_flux_map.astype(np.float32))
                     hdu.header['EXTNAME'] = 'CONTAM_FLUX'
                     hdu.header['BUNIT'] = self.flux_unit_str
-                    hdu.header['DESC'] = 'Contaminating-line flux: integrated area under non-CO line gaussians'
+                    hdu.header['DESC'] = 'Contaminating-line flux: integrated area under non-target line gaussians'
                     hdul.append(hdu)
 
                 # Contaminant detection-count HDU (only if this map has one)
@@ -545,12 +568,12 @@ class COFluxMapResultsDialog(QDialog):
         
         layout = QVBoxLayout()
         
-        stats = "CO FLUX MAP STATISTICS\n" + "="*50 + "\n\n"
-        
+        stats = f"{self.species_label.upper()} FLUX MAP STATISTICS\n" + "="*50 + "\n\n"
+
         # Flux statistics with correct units
         flux_valid = self.flux_map[~np.isnan(self.flux_map)]
         if len(flux_valid) > 0:
-            stats += f"FLUX ({self.flux_unit_str}):\n"
+            stats += f"{self.species_label.upper()} FLUX ({self.flux_unit_str}):\n"
             stats += f"  Count: {len(flux_valid):,}\n"
             stats += f"  Sum:   {np.sum(flux_valid):.4e}\n"
             stats += f"  Mean:  {np.mean(flux_valid):.4e}\n"

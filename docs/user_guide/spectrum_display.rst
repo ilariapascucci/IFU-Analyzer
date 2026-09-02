@@ -104,7 +104,7 @@ is redrawn at the shifted wavelength, labeled Shifted Spectrum:
 
    Applying a shift to the **Full** tab also updates the cube's own
    wavelength axis, since Gaussian fitting, continuum subtraction, HITRAN
-   line-matching, and CO flux extraction all read it directly. Shifting
+   line-matching, and flux extraction all read it directly. Shifting
    Left or Right only affects that tab's own displayed spectrum.
 
 .. list-table::

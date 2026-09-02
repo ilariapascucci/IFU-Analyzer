@@ -168,8 +168,8 @@ Inspecting Individual Pixels
 =============================
 
 With **Pixel Select** on (the default), clicking a pixel on the map opens that pixel's own
-fit, the same control as :doc:`co_flux_extraction`'s pixel inspector, but for a single
-Gaussian instead of a multi-line CO fit. Turn **Pixel Select** off to zoom/pan the map
+fit, the same control as :doc:`flux_extraction`'s pixel inspector, but for a single
+Gaussian instead of a multi-line fit. Turn **Pixel Select** off to zoom/pan the map
 freely instead of reopening this dialog on every click.
 
 .. figure:: ../_static/gaussian_map_pixel.png
@@ -296,6 +296,6 @@ Next Steps
 
 - :doc:`rotational_diagram` — turn per-pixel line fluxes into temperatures, handling the
   upper limits correctly
-- :doc:`co_flux_extraction` — simultaneous multi-line fitting for CO rovibrational bands
+- :doc:`flux_extraction` — simultaneous multi-line fitting for rovibrational bands, any species
 - :doc:`exporting_data` — other export paths
 - :doc:`2d_viewer` — open the exported parameter maps with WCS support

@@ -17,8 +17,8 @@ Documentation sources:
   - docs/user_guide/selecting_regions.rst ("Using the API")
   - docs/user_guide/gaussian_fitting_1d.rst ("Using the API")
   - docs/user_guide/gaussian_fitting_cube.rst ("Using the API")
-  - docs/user_guide/co_flux_extraction.rst ("Using the API", under Multi-Gaussian Fit)
-  - docs/user_guide/co_flux_extraction.rst ("Using the CO Flux API")
+  - docs/user_guide/flux_extraction.rst ("Using the API", under Multi-Gaussian Fit)
+  - docs/user_guide/flux_extraction.rst ("Using the Flux API")
 
 data/ is gitignored, so a fresh clone has no cubes. Sections needing a FITS file
 report [SKIP] rather than failing.
@@ -414,7 +414,7 @@ def cube_returned_keys():
 # ---------------------------------------------------------------------------
 # fit_hitran_lines() runs the same algorithm as the GUI's Multi-Gaussian Fit button:
 # simultaneous nonlinear curve_fit per wavelength chunk, via fit_glines() (see
-# fit_hitran_lines_collective() in co_flux_extractor.py) -- this checks the docs' claim
+# fit_hitran_lines_collective() in flux_map_extractor.py) -- this checks the docs' claim
 # that they produce identical results, not just that the call doesn't crash.
 # Centers/sigmas are bounded (center within +/-1 instrumental sigma of the catalog
 # wavelength, sigma within 0.5-2x the instrumental value) but genuinely fitted, not fixed
@@ -422,7 +422,7 @@ def cube_returned_keys():
 # a fixed reproducibility tolerance, not zero.
 
 @needs_nirspec_cube
-def co_flux_multi_gaussian_api():
+def flux_multi_gaussian_api():
     from cube_explorer.api import load_cube, fit_hitran_lines
     from cube_explorer.line_catalog import load_contaminating_lines_catalog
 
@@ -503,9 +503,9 @@ def co_flux_multi_gaussian_api():
 
 
 # ---------------------------------------------------------------------------
-# CO FLUX -- SINGLE SPECTRUM / FULL MAP API (docs/user_guide/co_flux_extraction.rst,
-# "Using the CO Flux API"). Unlike fit_hitran_lines above, extract_co_flux/create_co_flux_map
-# need a CO line catalog file on disk -- the docs show a placeholder path
+# FLUX -- SINGLE SPECTRUM / FULL MAP API (docs/user_guide/flux_extraction.rst,
+# "Using the Flux API"). Unlike fit_hitran_lines above, extract_flux/create_flux_map
+# need a target line catalog file on disk -- the docs show a placeholder path
 # ("path/to/CO_catalog.ecsv"), so this builds a real one from HITRAN first, in the column
 # format load_CO_line_catalog() actually expects (line_wave_um/species/transition/a), not
 # the wrong wavelength/einstein_coeff format the docs used to show.
@@ -525,63 +525,63 @@ def _build_co_catalog_ecsv():
 
 
 @needs_nirspec_cube
-def co_flux_single_spectrum_api():
+def flux_single_spectrum_api():
     import numpy as np
-    from cube_explorer.api import load_cube, extract_co_flux
+    from cube_explorer.api import load_cube, extract_flux
 
     cube = load_cube(NIRSPEC_CUBE)
     catalog_path = _build_co_catalog_ecsv()
 
-    co_result = extract_co_flux(
+    flux_result = extract_flux(
         wavelength=cube.wavelength,
         spectrum=cube.spectrum,
-        co_catalog_path=catalog_path,
+        target_catalog_path=catalog_path,
         header=cube.header,      # Required for the erg/s/cm2 conversion
         wave_unit=cube.wave_unit,
     )
 
-    print(f"Total CO flux: {co_result['co_flux']:.4e} {co_result['flux_unit']}")
-    print(f"Number of lines detected: {len(co_result['detected_lines'])}")
-    print(f"Mean continuum level: {co_result['mean_continuum']:.3f}")
+    print(f"Total flux: {flux_result['flux']:.4e} {flux_result['flux_unit']}")
+    print(f"Number of lines detected: {len(flux_result['detected_lines'])}")
+    print(f"Mean continuum level: {flux_result['mean_continuum']:.3f}")
 
-    assert co_result['flux_unit'] == 'erg/s/cm2', \
-        f"docs claim erg/s/cm2 when header/wave_unit are given; got {co_result['flux_unit']!r}"
-    assert np.isfinite(co_result['co_flux']) and co_result['co_flux'] > 0, \
-        f"expected a positive finite co_flux, got {co_result['co_flux']!r}"
-    assert len(co_result['detected_lines']) > 0, "expected at least some detected lines"
+    assert flux_result['flux_unit'] == 'erg/s/cm2', \
+        f"docs claim erg/s/cm2 when header/wave_unit are given; got {flux_result['flux_unit']!r}"
+    assert np.isfinite(flux_result['flux']) and flux_result['flux'] > 0, \
+        f"expected a positive finite flux, got {flux_result['flux']!r}"
+    assert len(flux_result['detected_lines']) > 0, "expected at least some detected lines"
 
 
 @needs_nirspec_cube
-def co_flux_map_api():
+def flux_map_api():
     import numpy as np
-    from cube_explorer.api import load_cube, create_co_flux_map
+    from cube_explorer.api import load_cube, create_flux_map
 
     cube = load_cube(NIRSPEC_CUBE)
 
-    # Uses HITRAN automatically by default, or pass co_catalog_path for a custom catalog
-    co_flux_map = create_co_flux_map(
+    # Uses HITRAN automatically by default, or pass target_catalog_path for a custom catalog
+    flux_map_result = create_flux_map(
         cube,
         wavelength_min=4.70, wavelength_max=4.80,
         n_jobs=4,
     )
 
-    print(f"CO flux map shape: {co_flux_map['flux_map'].shape}, unit: {co_flux_map['flux_unit']}")
-    print(f"Mean CO flux: {co_flux_map['flux_map'][co_flux_map['flux_map'] > 0].mean():.4e}")
-    print(f"Pixels with CO detection: {(co_flux_map['detection_map'] > 0).sum()}")
-    print(f"Pixels with a contam detection: {(co_flux_map['contam_detection_map'] > 0).sum()}")
-    print(f"Mean contam flux: {co_flux_map['contam_flux_map'][co_flux_map['contam_flux_map'] > 0].mean():.4e}")
+    print(f"Flux map shape: {flux_map_result['flux_map'].shape}, unit: {flux_map_result['flux_unit']}")
+    print(f"Mean flux: {flux_map_result['flux_map'][flux_map_result['flux_map'] > 0].mean():.4e}")
+    print(f"Pixels with a detection: {(flux_map_result['detection_map'] > 0).sum()}")
+    print(f"Pixels with a contam detection: {(flux_map_result['contam_detection_map'] > 0).sum()}")
+    print(f"Mean contam flux: {flux_map_result['contam_flux_map'][flux_map_result['contam_flux_map'] > 0].mean():.4e}")
 
-    assert co_flux_map['flux_unit'] == 'erg/s/cm2', \
-        f"docs claim erg/s/cm2 for this NIRSpec cube; got {co_flux_map['flux_unit']!r}"
-    assert co_flux_map['wave_range'] == (4.70, 4.80), \
-        f"wavelength_min/max should be forwarded as the fit's wave_range; got {co_flux_map['wave_range']}"
-    n_valid = (~np.isnan(co_flux_map['flux_map'])).sum()
+    assert flux_map_result['flux_unit'] == 'erg/s/cm2', \
+        f"docs claim erg/s/cm2 for this NIRSpec cube; got {flux_map_result['flux_unit']!r}"
+    assert flux_map_result['wave_range'] == (4.70, 4.80), \
+        f"wavelength_min/max should be forwarded as the fit's wave_range; got {flux_map_result['wave_range']}"
+    n_valid = (~np.isnan(flux_map_result['flux_map'])).sum()
     assert n_valid > 0, "expected at least some valid (non-NaN) pixels"
 
-    # docs claim create_co_flux_map now always returns these two additional maps too
+    # docs claim create_flux_map now always returns these two additional maps too
     for key in ('contam_flux_map', 'contam_detection_map'):
-        assert key in co_flux_map, f"docs claim create_co_flux_map always returns {key!r}"
-        assert co_flux_map[key].shape == co_flux_map['flux_map'].shape, \
+        assert key in flux_map_result, f"docs claim create_flux_map always returns {key!r}"
+        assert flux_map_result[key].shape == flux_map_result['flux_map'].shape, \
             f"docs claim {key!r} is the same shape as flux_map"
 
 
@@ -635,9 +635,9 @@ def main():
     run("1D FITTING -- RESULT FIELDS", result_fields)
     run("CUBE FITTING -- FULL CUBE (slow, ~1-2 min)", cube_fitting_the_cube)
     run("CUBE FITTING -- RETURNED KEYS", cube_returned_keys)
-    run("CO FLUX -- MULTI-GAUSSIAN FIT API", co_flux_multi_gaussian_api)
-    run("CO FLUX -- SINGLE SPECTRUM API", co_flux_single_spectrum_api)
-    run("CO FLUX -- FULL MAP API (slow, ~2-3 min)", co_flux_map_api)
+    run("FLUX -- MULTI-GAUSSIAN FIT API", flux_multi_gaussian_api)
+    run("FLUX -- SINGLE SPECTRUM API", flux_single_spectrum_api)
+    run("FLUX -- FULL MAP API (slow, ~2-3 min)", flux_map_api)
     run("ROTATIONAL DIAGRAM API", rotational_diagram_docstring)
 
     print("\n" + "=" * 70)
