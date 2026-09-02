@@ -81,23 +81,26 @@ class FluxMapResultsDialog(QDialog):
     @staticmethod
     def _species_label(catalog):
         """
-        Short label for the target catalog's species, for map titles/stats -- e.g. 'H2' if
-        every selected line is H2, 'H2+CO' if a mixed selection, 'Target' as a generic
-        fallback when the catalog is empty/missing or its species can't be determined.
+        Species label for map titles/stats -- e.g. 'H2', 'CO'. Assumes a single target
+        species per run (the only case this is actually used for -- a mixed-species
+        selection isn't a real usage pattern), so this just takes the first non-empty
+        'species' value rather than summarizing a mix. 'Target' as a generic fallback
+        when the catalog is empty/missing or its species can't be determined.
 
         Args:
             catalog (pd.DataFrame or None): The target catalog, expected to have a
                 'species' column (same DataFrame passed to create_flux_map())
 
         Returns:
-            label (str): e.g. 'H2', 'H2+CO', '4 species', or 'Target'
+            label (str): e.g. 'H2', 'CO', or 'Target'
         """
         if catalog is None or len(catalog) == 0 or 'species' not in catalog.columns:
             return 'Target'
-        species = sorted({str(s).strip() for s in catalog['species'].dropna() if str(s).strip()})
-        if not species:
-            return 'Target'
-        return '+'.join(species) if len(species) <= 3 else f'{len(species)} species'
+        for s in catalog['species'].dropna():
+            s = str(s).strip()
+            if s:
+                return s
+        return 'Target'
 
     def __init__(self, flux_map, detection_map, header=None, wave_range=None,
                  wavelength=None, cube_data=None, target_catalog=None, contam_catalog=None,

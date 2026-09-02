@@ -198,11 +198,12 @@ class GuiFluxMapMixin:
                 preview_flux = preview_flux - continuum
         except Exception: pass
 
-        # Same species-label logic as FluxMapResultsDialog -- 'H2' if every selected line is
-        # H2, 'H2+CO' if mixed, 'Target' as a generic fallback.
-        species_vals = sorted({str(l.get('species', '')).strip() for l in lines if str(l.get('species', '')).strip()})
-        species_label = ('+'.join(species_vals) if 0 < len(species_vals) <= 3
-                          else (f'{len(species_vals)} species' if species_vals else 'Target'))
+        # Same species-label logic as FluxMapResultsDialog._species_label -- assumes a
+        # single target species per run, so this is just the first non-empty 'species'
+        # value seen, with 'Target' as a generic fallback.
+        species_label = next(
+            (s for l in lines if (s := str(l.get('species', '')).strip())), 'Target'
+        )
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{species_label} Flux Map Preview")

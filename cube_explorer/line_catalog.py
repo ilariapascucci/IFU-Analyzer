@@ -349,25 +349,44 @@ def is_hitran_data_cached(wavelength_min, wavelength_max, molecule, isotopologue
     return find_containing_cached_table(wavelength_min, wavelength_max, molecule, isotopologue) is not None
 
 
-# Wavelength ranges/isotopologues common enough to keep pre-cached in hitran_local/
-# for offline use (meetings/demos without internet) -- see warm_hitran_cache.py.
+# Molecules ("common" as in: worth keeping pre-cached in hitran_local/ for offline
+# use -- meetings/demos without internet, see warm_hitran_cache.py) -- not all 55
+# HITRAN has (get_available_molecules()), just these four. But for each one, this
+# is EVERY isotopologue HITRAN has for it (get_available_isotopologues() -- e.g.
+# CO -> [1,2,3,4,5,6]), not a curated subset, so that fetch_hitran_data(...,
+# isotopologue=None) ("search every isotopologue" -- see its docstring) can be
+# served offline too for these molecules, not just isotopologue=1.
+#
+# Hardcoded rather than built by calling get_available_isotopologues() here, since
+# that needs hapi imported, and every other hapi import in this module is lazy/
+# inside a function -- importing it at module level would print HAPI's banner on
+# every `import cube_explorer.line_catalog`, hapi installed or not needed.
+#
 # v_upper/v_lower aren't part of the cache key (HITRAN is cached by (molecule,
 # isotopologue, wavelength range) only, then filtered by transition after loading),
-# so they're documentation here, not a separate cache dimension.
+# so they're documentation here, not a separate cache dimension. Full practical IR
+# range (1-30um) rather than a narrow band per demo -- cheap enough in total that
+# there's no per-demo range/isotopologue to guess right any more.
+_ALL_ISOTOPOLOGUES_BY_MOLECULE = {
+    "H2": [1, 2],
+    "CO": [1, 2, 3, 4, 5, 6],
+    # Far denser than the others (~108k lines for iso1 alone, ~17MB/~15s to fetch) --
+    # don't assume every future molecule added here will stay this cheap; check
+    # size/time before widening one that far.
+    "H2O": [1, 2, 3, 4, 5, 6, 7],
+    # OH iso2 (18O-H) and iso3 (16O-D) exist in HITRAN's isotopologue table but have
+    # no actual line data above ~331 cm-1 (<=30.2um, i.e. entirely outside this app's
+    # 1-30um range) -- confirmed against HITRAN directly, not a fetch bug. Querying
+    # them here would just make every future warm-up "fail" for lines that were
+    # never going to exist, so only the main isotopologue is worth pre-caching.
+    "OH": [1],
+}
 COMMON_HITRAN_QUERIES = [
-    # Full practical IR range rather than a narrow band per demo: 852/2421
-    # lines, ~1s each to fetch -- cheap enough that any CO/H2 iso1 query
-    # (any transition, any CSV's own +/-0.1um pad) is contained by this one
-    # entry, so there's no per-demo range to guess right any more.
-    {"name": "CO iso1 1-30um (all bands)", "molecule": "CO", "isotopologue": 1,
-     "wavelength_min": 1.0, "wavelength_max": 30.0, "v_upper": None, "v_lower": None},
-    {"name": "H2 iso1 1-30um (all bands)", "molecule": "H2", "isotopologue": 1,
-     "wavelength_min": 1.0, "wavelength_max": 30.0, "v_upper": None, "v_lower": None},
-    # H2O is far denser than CO/H2 (~108k lines here vs. ~1-2k) -- still only
-    # 17MB/~15s to fetch once, but don't assume every future molecule added
-    # here will stay this cheap; check size/time before widening one that far.
-    {"name": "H2O iso1 1-30um (all bands)", "molecule": "H2O", "isotopologue": 1,
-     "wavelength_min": 1.0, "wavelength_max": 30.0, "v_upper": None, "v_lower": None},
+    {"name": f"{molecule} iso{isotopologue} 1-30um (all bands)", "molecule": molecule,
+     "isotopologue": isotopologue, "wavelength_min": 1.0, "wavelength_max": 30.0,
+     "v_upper": None, "v_lower": None}
+    for molecule, isotopologues in _ALL_ISOTOPOLOGUES_BY_MOLECULE.items()
+    for isotopologue in isotopologues
 ]
 
 

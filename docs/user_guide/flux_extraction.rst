@@ -190,7 +190,7 @@ The progress dialog updates per pixel as the cube is processed.
 
 The **Display** dropdown in the results window switches between four maps, all from the
 same run. The flux/detection labels reflect whichever species was targeted (e.g. "CO Flux"
-for a CO run, "H2 Flux" for H2, "H2+CO" for a mixed selection) -- the example below used CO:
+for a CO run, "H2 Flux" for H2) -- the example below used CO:
 
 .. figure:: ../_static/coflux_docs.png
    :alt: CO rovibrational flux map, showing a bright compact source
