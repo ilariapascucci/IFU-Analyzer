@@ -300,14 +300,10 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
          # Step 2 & 3: Find the strongest line in each group and set the disposition of other lines to 0
         for group in groups:
             if len(group) > 1:
-                # Prefer main isotopologue (12C16O or CO) if present
-                valid_indices = [idx for idx in group if lines_dispositions.loc[idx, 'species'] in ['CO', '12C16O']]
-                # If there are no valid lines, consider all lines in the group
-                if not valid_indices:
-                    valid_indices = group
-                
-                # Find strongest line
-                strongest_line_idx = max(valid_indices, key=lambda idx: lines_dispositions.loc[idx, 'line_flux'])
+                # No species preference here on purpose (see extract_co_flux_from_spectrum's
+                # matching comment) -- lines_to_search may not be CO at all, so biasing toward
+                # CO/12C16O would be wrong for a non-CO catalog. Just keep the strongest line.
+                strongest_line_idx = max(group, key=lambda idx: lines_dispositions.loc[idx, 'line_flux'])
                 
                 # Mark others as not detected
                 for idx in group:
@@ -1129,12 +1125,14 @@ def extract_co_flux_from_spectrum(spectrum_wave, spectrum_flux, CO_catalog, cont
             'mean_detected_wavelength': np.nan
         }
     
-    # Identify detected CO and contaminating lines in this spectrum
-    # Accept both 'CO' (HITRAN) and '12C16O' (ECSV catalog) species naming conventions
+    # No species filter here on purpose: CO_catalog is whatever primary/target line list the
+    # caller handed in (HITRAN fetch of any molecule, or a custom CSV) -- same as
+    # fit_hitran_lines_collective(), which never discriminates by species either. Every
+    # detected line from THIS catalog counts toward 'co_flux', regardless of what's in its
+    # 'species' column; only contam_catalog's lines land in 'contam_flux'.
     try:
         detected_co = detected_lines[
-            (detected_lines['disposition'] == 1) &
-            (detected_lines['species'].isin(['CO', '12C16O']))
+            (detected_lines['disposition'] == 1)
         ].copy()
     except KeyError as e:
         print(f"  Error: detected_lines missing column - columns are: {detected_lines.columns.tolist()}")
