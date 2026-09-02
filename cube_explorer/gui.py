@@ -42,7 +42,7 @@ from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
-from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
+from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog, is_hitran_data_cached
 from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
@@ -2953,22 +2953,42 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiCOFluxMixin,
                 QMessageBox.Yes
             ) == QMessageBox.Yes
 
-            # Cache refresh option
-            refresh_cache = QMessageBox.question(
-                self,
-                "Cache Option",
-                "Refresh the HITRAN cache for this query?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            ) == QMessageBox.Yes
+            # Cache option: only ask when this exact query is already sitting in
+            # hitran_local/ -- offer the offline copy first instead of defaulting
+            # to a network refresh (there's nothing to "refresh" when nothing's
+            # cached yet, so that case just fetches without asking).
+            refresh_cache = False
+            if isotopologue is not None and is_hitran_data_cached(
+                wavelength_min, wavelength_max, molecule, isotopologue
+            ):
+                use_local = QMessageBox.question(
+                    self,
+                    "Local Data Available",
+                    f"{molecule} (isotopologue {isotopologue}), "
+                    f"{wavelength_min:.3f}-{wavelength_max:.3f} µm is already "
+                    f"cached locally -- no internet needed.\n\n"
+                    "Use the local copy? (Choose No to check HITRAN online instead.)",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                ) == QMessageBox.Yes
+                refresh_cache = not use_local
 
             # Fetch HITRAN data
-            results = hitran_gui_interface(
+            results, fetch_meta = hitran_gui_interface(
                 wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache
             )
 
             if not results:
-                QMessageBox.information(self, "No Matches", "No HITRAN lines found in this range.")
+                if fetch_meta.get('error'):
+                    QMessageBox.warning(
+                        self, "HITRAN Unavailable",
+                        f"Could not retrieve {molecule} data for "
+                        f"{wavelength_min:.3f}-{wavelength_max:.3f} µm.\n\n"
+                        f"No offline copy covers this range, and the online "
+                        f"fetch failed:\n{fetch_meta.get('message', 'unknown error')}"
+                    )
+                else:
+                    QMessageBox.information(self, "No Matches", "No HITRAN lines found in this range.")
                 return
 
             # Filter by transition level based on molecule (molecule-specific logic)

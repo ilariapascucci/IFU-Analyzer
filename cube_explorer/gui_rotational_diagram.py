@@ -56,14 +56,20 @@ class HitranFetchThread(QThread):
     
     def run(self):
         try:
-            hitran_data, _ = fetch_hitran_data(
+            hitran_data, fetch_meta = fetch_hitran_data(
                 self.wl_min, self.wl_max,
                 molecule=self.molecule,
                 isotopologue=self.isotopologue,
                 v_upper=self.v_upper,
                 v_lower=self.v_lower
             )
-            self.finished.emit(hitran_data)
+            # fetch_hitran_data catches its own exceptions and reports failure via
+            # fetch_meta rather than raising -- route that to .error, not .finished,
+            # so a real offline/network failure isn't shown as "no lines found".
+            if fetch_meta.get('error'):
+                self.error.emit(fetch_meta.get('message', 'HITRAN fetch failed'))
+            else:
+                self.finished.emit(hitran_data)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -984,26 +990,30 @@ class RotationalDiagramWindow(QMainWindow):
             wl_max = max(all_wavelengths) + 0.1
             
             hitran_cache = {}  # Cache HITRAN data by species
-            
+            failed_species = {}  # species -> message, for genuine fetch failures (not "zero lines")
+
             progress = QProgressDialog(
                 "Enriching CSV data with HITRAN information...",
                 None, 0, len(species_list), self
             )
             progress.setWindowModality(Qt.WindowModal)
-            
+
             # Fetch HITRAN data for each species
             for idx, species in enumerate(species_list):
                 progress.setValue(idx)
                 try:
-                    hitran_data, _ = fetch_hitran_data(
+                    hitran_data, fetch_meta = fetch_hitran_data(
                         wl_min, wl_max,
                         molecule=species,
                         isotopologue=1
                     )
                     hitran_cache[species] = hitran_data
+                    if fetch_meta.get('error'):
+                        failed_species[species] = fetch_meta.get('message', 'unknown error')
                 except Exception as e:
                     print(f"Warning: Could not fetch HITRAN data for {species}: {e}")
                     hitran_cache[species] = []
+                    failed_species[species] = str(e)
             
             progress.close()
             
@@ -1045,9 +1055,14 @@ class RotationalDiagramWindow(QMainWindow):
                         'transition': 'NA',
                         'species': species
                     }
-                    print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um "
-                          f"-- A_ul/E_u/g_u left blank; this line is excluded from fitting "
-                          f"until they're entered manually.")
+                    if species in failed_species:
+                        print(f"Warning: Could not fetch HITRAN data for {species} at "
+                              f"{wavelength:.6f} um ({failed_species[species]}) -- "
+                              f"A_ul/E_u/g_u left blank.")
+                    else:
+                        print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um "
+                              f"-- A_ul/E_u/g_u left blank; this line is excluded from fitting "
+                              f"until they're entered manually.")
 
                 # Flux is optional in the CSV
                 if 'flux' in csv_row:
@@ -1087,11 +1102,22 @@ class RotationalDiagramWindow(QMainWindow):
                      f"disabled (shown in red) until you enter A_ul, E_u, and g_u "
                      f"manually.\n"
             )
+            # Distinguish "genuinely not in HITRAN" from "couldn't reach HITRAN at
+            # all for this species" -- the latter isn't a real zero-match result,
+            # it's an offline/network failure, and saying otherwise is misleading.
+            fetch_fail_note = (
+                "" if not failed_species
+                else "\nCould not fetch HITRAN data for: " + ", ".join(
+                    f"{sp} ({msg})" for sp, msg in sorted(failed_species.items())
+                ) + "\nNo offline copy covers this range -- check your internet "
+                    "connection, or pre-cache this range while online.\n"
+            )
             QMessageBox.information(
                 self,
                 "Import Successful",
                 f"Imported {len(rows)} rows from CSV\n"
                 f"Matched {matched}/{len(rows)} lines to HITRAN data\n"
+                f"{fetch_fail_note}"
                 f"{unmatched_note}"
                 f"{flux_note}"
             )

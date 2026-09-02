@@ -9,7 +9,7 @@
 
 # Ignore any large data folders
 /data/
-/hitran_local/
+#/hitran_local/
 /CO/
 /cube_explorer/__pycache__/
 

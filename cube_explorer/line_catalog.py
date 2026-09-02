@@ -264,6 +264,113 @@ def get_cache_age(table_name):
         return None
     return None
 
+def compute_hitran_table_name(wavelength_min, wavelength_max, molecule, isotopologue=1):
+    """
+    Compute the hitran_local/ cache key fetch_hitran_data() would use for this
+    query, without importing hapi or touching the network.
+
+    Args:
+        wavelength_min, wavelength_max (float): Wavelength range in um
+        molecule (str): Molecule name, per get_available_molecules()
+        isotopologue (int): HITRAN isotopologue number
+
+    Returns:
+        table_name (str): Cache key, or None if molecule isn't recognized
+    """
+    M = get_available_molecules().get(molecule)
+    if M is None:
+        return None
+    wavelength_min_val = _extract_wavelength_value(wavelength_min)
+    wavelength_max_val = _extract_wavelength_value(wavelength_max)
+    wavenum_min = 1e4 / wavelength_max_val
+    wavenum_max = 1e4 / wavelength_min_val
+    return f'{molecule}_{M}_{isotopologue}_{int(wavenum_min)}_{int(wavenum_max)}'
+
+
+def find_containing_cached_table(wavelength_min, wavelength_max, molecule, isotopologue=1):
+    """
+    Find an already-cached table for this (molecule, isotopologue) whose
+    wavenumber range fully contains the requested range, even when its own
+    bounds don't match exactly -- lets a narrower query reuse a wider table
+    that was already fetched instead of attempting a new exact-range download.
+
+    Args:
+        wavelength_min, wavelength_max (float): Wavelength range in um
+        molecule (str): Molecule name, per get_available_molecules()
+        isotopologue (int): HITRAN isotopologue number
+
+    Returns:
+        table_name (str): Name of the smallest containing cached table, or
+            None if no cached table covers this range
+    """
+    M = get_available_molecules().get(molecule)
+    if M is None or not os.path.isdir('hitran_local'):
+        return None
+    wavelength_min_val = _extract_wavelength_value(wavelength_min)
+    wavelength_max_val = _extract_wavelength_value(wavelength_max)
+    wavenum_min = 1e4 / wavelength_max_val
+    wavenum_max = 1e4 / wavelength_min_val
+
+    prefix = f'{molecule}_{M}_{isotopologue}_'
+    best_name, best_span = None, None
+    for fname in os.listdir('hitran_local'):
+        if not (fname.startswith(prefix) and fname.endswith('.data')):
+            continue
+        try:
+            lo_str, hi_str = fname[len(prefix):-len('.data')].split('_')
+            lo, hi = int(lo_str), int(hi_str)
+        except ValueError:
+            continue
+        if lo <= wavenum_min and hi >= wavenum_max:
+            span = hi - lo
+            if best_span is None or span < best_span:
+                best_name, best_span = fname[:-len('.data')], span
+    return best_name
+
+
+def is_hitran_data_cached(wavelength_min, wavelength_max, molecule, isotopologue=1):
+    """
+    Check whether fetch_hitran_data() can already serve this query from
+    hitran_local/ (an exact-range match or a wider containing table), without
+    touching the network -- lets a caller offer "use the local copy" before
+    defaulting to an online refresh.
+
+    Args:
+        wavelength_min, wavelength_max (float): Wavelength range in um
+        molecule (str): Molecule name, per get_available_molecules()
+        isotopologue (int): HITRAN isotopologue number
+
+    Returns:
+        cached (bool): True if a local .data file already covers this query
+    """
+    table_name = compute_hitran_table_name(wavelength_min, wavelength_max, molecule, isotopologue)
+    if table_name is not None and os.path.exists(os.path.join('hitran_local', f'{table_name}.data')):
+        return True
+    return find_containing_cached_table(wavelength_min, wavelength_max, molecule, isotopologue) is not None
+
+
+# Wavelength ranges/isotopologues common enough to keep pre-cached in hitran_local/
+# for offline use (meetings/demos without internet) -- see warm_hitran_cache.py.
+# v_upper/v_lower aren't part of the cache key (HITRAN is cached by (molecule,
+# isotopologue, wavelength range) only, then filtered by transition after loading),
+# so they're documentation here, not a separate cache dimension.
+COMMON_HITRAN_QUERIES = [
+    # Full practical IR range rather than a narrow band per demo: 852/2421
+    # lines, ~1s each to fetch -- cheap enough that any CO/H2 iso1 query
+    # (any transition, any CSV's own +/-0.1um pad) is contained by this one
+    # entry, so there's no per-demo range to guess right any more.
+    {"name": "CO iso1 1-30um (all bands)", "molecule": "CO", "isotopologue": 1,
+     "wavelength_min": 1.0, "wavelength_max": 30.0, "v_upper": None, "v_lower": None},
+    {"name": "H2 iso1 1-30um (all bands)", "molecule": "H2", "isotopologue": 1,
+     "wavelength_min": 1.0, "wavelength_max": 30.0, "v_upper": None, "v_lower": None},
+    # H2O is far denser than CO/H2 (~108k lines here vs. ~1-2k) -- still only
+    # 17MB/~15s to fetch once, but don't assume every future molecule added
+    # here will stay this cheap; check size/time before widening one that far.
+    {"name": "H2O iso1 1-30um (all bands)", "molecule": "H2O", "isotopologue": 1,
+     "wavelength_min": 1.0, "wavelength_max": 30.0, "v_upper": None, "v_lower": None},
+]
+
+
 def get_available_isotopologues(molecule):
     """
     List the isotopologue numbers HITRAN has data for, for a given molecule
@@ -308,13 +415,20 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
             print(f"Molecule '{molecule}' not found in HITRAN")
             return [], {}
         combined_rows = []
+        errors = []
         for iso_num in iso_list:
-            rows, _ = _fetch_hitran_data_single_iso(
+            rows, meta = _fetch_hitran_data_single_iso(
                 wavelength_min, wavelength_max, molecule, iso_num,
                 refresh_cache, cache_days, v_upper, v_lower,
             )
             combined_rows.extend(rows)
+            if meta.get('error'):
+                errors.append(meta.get('message', 'unknown error'))
         combined_rows.sort(key=lambda r: r['wavelength'])
+        # Only surface as a fetch failure if EVERY isotopologue failed -- some
+        # succeeding means real (if incomplete) data came back.
+        if not combined_rows and errors:
+            return combined_rows, {'error': True, 'message': '; '.join(errors)}
         return combined_rows, {}
 
     return _fetch_hitran_data_single_iso(
@@ -329,7 +443,7 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
     except ImportError:
         print("Error: HAPI not installed!")
         print("Install with: pip install hitran-api")
-        return [], {}
+        return [], {'error': True, 'message': 'HAPI (hitran-api) is not installed'}
 
     mol_numbers = get_available_molecules()
     if molecule not in mol_numbers:
@@ -346,7 +460,15 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
     wavelength_max_val = _extract_wavelength_value(wavelength_max)
     wavenum_min = 1e4 / wavelength_max_val
     wavenum_max = 1e4 / wavelength_min_val
-    table_name = f'{molecule}_{M}_{I}_{int(wavenum_min)}_{int(wavenum_max)}'
+    table_name = compute_hitran_table_name(wavelength_min, wavelength_max, molecule, I)
+
+    # A wider already-cached table covering this range serves it just as well as
+    # an exact-range one -- reuse it instead of attempting a new (possibly
+    # offline) download for the narrower range.
+    if not refresh_cache:
+        containing = find_containing_cached_table(wavelength_min, wavelength_max, molecule, I)
+        if containing is not None:
+            table_name = containing
 
     try:
         # Ensure hitran_local directory exists
@@ -485,8 +607,11 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
         print(f"[OK] Retrieved {len(data_rows)} lines\n")
         return data_rows, {}
     except Exception as e:
+        # Distinguish this from a real "zero lines in range" result -- e.g. no
+        # offline copy covers this range and the network fetch itself failed
+        # (no internet) -- so callers don't report it as if HITRAN had nothing.
         print(f"[ERROR] {str(e)}")
-        return [], {}
+        return [], {'error': True, 'message': str(e)}
 
 def display_results(results):
     """
@@ -529,16 +654,22 @@ def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=
         refresh_cache: Force cache refresh
         v_upper: Optional upper vibrational level filter (None = include all)
         v_lower: Optional lower vibrational level filter (None = include all)
+
+    Returns:
+        results, meta (tuple): Line-data rows, and a dict with 'error'=True and
+            a 'message' when the fetch itself failed (vs. a genuine zero-line
+            result), so the GUI can tell "not in HITRAN" apart from "offline
+            and no cache covers this range".
     """
     try:
-        results, _ = fetch_hitran_data(
+        results, meta = fetch_hitran_data(
             wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache,
             v_upper=v_upper, v_lower=v_lower
         )
-        return results
+        return results, meta
     except Exception as e:
         print(f"Error in HITRAN GUI interface: {e}")
-        return []
+        return [], {'error': True, 'message': str(e)}
 
 # Example GUI integration point (to be connected to the main GUI application):
 # Functions above are designed to be imported and used by the GUI; no CLI entry point here.
