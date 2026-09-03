@@ -41,12 +41,20 @@ from .unit_converter import (
     extract_units, extract_value_from_quantity,
 )
 
-# Derived from fit_glines' own bounds (center +/-1sigma, fitted sigma in [0.5,2]x instrumental):
-# 3*(2x instrumental sigma) + 1sigma center shift = 7sigma is as far as real flux can ever land.
-DEFAULT_SIGMA_MULTIPLIER = 7.0
+# fit_glines' actual curve_fit bounds on fitted sigma, x instrumental sigma.
+SIGMA_BOUND_LOWER_MULTIPLIER = 0.5
+SIGMA_BOUND_UPPER_MULTIPLIER = 2.0
+
+# Systematic flux-calibration floor (Pascucci, told directly for the rot-diagram case;
+# applied uniformly here so every consumer of area_error gets the same number).
+SYSTEMATIC_FLUX_ERROR_FRACTION = 0.05
 
 # Display/diagnostic-only reduced constant (does not affect curve_fit)
 DISPLAY_CROP_SIGMA_MULTIPLIER = 3.0
+
+# Derived from the bounds above (center +/-1sigma, fitted sigma <= SIGMA_BOUND_UPPER_MULTIPLIER):
+# 3*(2x instrumental sigma) + 1sigma center shift = 7sigma is as far as real flux can land.
+DEFAULT_SIGMA_MULTIPLIER = 7.0
 
 # ================== Unit Utilities ==================
 
@@ -525,7 +533,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         lower_bounds_2d = np.column_stack((
             [0.0] * len(filtered_lines),
             filtered_lines['line'] - line_sigmas,
-            0.5 * line_sigmas
+            SIGMA_BOUND_LOWER_MULTIPLIER * line_sigmas
         ))
         lower_bounds = np.ravel(lower_bounds_2d)
         lower_bounds = np.insert(lower_bounds, [0, 0], [p0base - 2 * np.abs(p0slope), -2 * np.abs(p0slope)])
@@ -533,14 +541,14 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         upper_bounds_2d = np.column_stack((
             filtered_lines['max_amplitude'].astype(float) * 1.1,
             filtered_lines['line'] + line_sigmas,
-            2 * line_sigmas
+            SIGMA_BOUND_UPPER_MULTIPLIER * line_sigmas
         ))
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
 
-        # Perform the fit (Pascucci fit_Glines) (maxfev from 10k to 1k)
+        # Perform the fit (Pascucci fit_Glines) (maxfev from 10k to 5k)
         par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0,
-                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=1000)
+                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=5000)
         print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
 
         a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
@@ -617,8 +625,8 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                 y_fit_local = a + b * (x_local - min_freq_chunk)
                 for jj in range(0, len(par), 3):
                     y_fit_local = y_fit_local + gaussian(x_local, par[jj], par[jj + 1], par[jj + 2])
-                # Same local linear term, but only this line's own Gaussian -- for a
-                # per-line plot that shouldn't draw a neighbor sharing this chunk.
+                # Same real local continuum, but only this line's own real fitted Gaussian --
+                # not cropped, so any divergence from y_fit_local near a neighbor stays visible.
                 y_fit_own = a + b * (x_local - min_freq_chunk) + gaussian(x_local, amp_i, cen_i, sig_i)
                 return {
                     'wavelength': cat_wave, 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
@@ -832,23 +840,68 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
 
     y_corrected = spectrum_y - continuum
 
-    def _local_max_amp(wl):
+    def _local_max_amp(wl, half_window=2):
         """
         Estimate max_amplitude for a line the same simple way find_lines() does: local
         peak-to-trough over a small window around the catalog wavelength.
 
         Args:
             wl (float): Catalog (rest) wavelength to center the window on
+            half_window (int): Samples on each side of the nearest pixel to include
 
         Returns:
-            amplitude (float): Local peak-to-trough amplitude, or 0.0 if the window is empty
+            amplitude (float): Local peak-to-trough amplitude, or NaN if the window is empty
+                or every sample in it is NaN (a real gap, not a genuinely zero-flux line)
         """
         idx_c = int(np.argmin(np.abs(spectrum_x - wl)))
-        w0, w1 = max(0, idx_c - 2), min(len(spectrum_x), idx_c + 3)
+        w0, w1 = max(0, idx_c - half_window), min(len(spectrum_x), idx_c + half_window + 1)
         local = y_corrected[w0:w1]
-        return float(np.nanmax(local) - np.nanmin(local)) if len(local) else 0.0
+        if len(local) == 0 or not np.any(np.isfinite(local)):
+            return np.nan
+        return float(np.nanmax(local) - np.nanmin(local))
 
-    lines_data = [(orig_idx, wl, line, max(_local_max_amp(wl), 1e-6)) for orig_idx, wl, line in valid]
+    def _no_signal_result(wl, reason):
+        """
+        A failed GaussianFitResult for a line fit_glines never got a chance to attempt --
+        reported the same honest way a fit that ran and failed inside fit_glines is, not
+        silently dropped or given a made-up amplitude.
+
+        Args:
+            wl (float): Catalog wavelength this line was requested at
+            reason (str): Human-readable reason no fit was attempted
+
+        Returns:
+            result (GaussianFitResult): success=False, message=reason, all-zero fit fields
+        """
+        empty = np.array([])
+        return GaussianFitResult(
+            amplitude=0, center=wl, sigma=0, fwhm=0, area=0,
+            baseline_slope=0.0, baseline_intercept=0.0,
+            x_data=empty, y_data=empty, baseline=empty, y_corrected=empty,
+            y_fit=empty, residuals=empty,
+            r_squared=0, success=False, message=reason,
+        )
+
+    # No amplitude floor: a line with no real local signal gets one real retry (wider
+    # window), then is excluded and reported via _no_signal_result, not given a fake amplitude.
+    lines_data = []
+    skipped = []
+    for orig_idx, wl, line in valid:
+        amp = _local_max_amp(wl)
+        if not np.isfinite(amp) or amp <= 0:
+            amp = _local_max_amp(wl, half_window=5)
+        if not np.isfinite(amp) or amp <= 0:
+            skipped.append((orig_idx, line, _no_signal_result(
+                wl, f"No usable signal near {wl:.6f} µm (flat or missing data even in a "
+                    f"widened window) -- line excluded rather than fit with a guessed amplitude.")))
+            continue
+        lines_data.append((orig_idx, wl, line, amp))
+
+    if not lines_data:
+        results = [None] * len(hitran_lines)
+        for orig_idx, line, result in skipped:
+            results[orig_idx] = (line, result)
+        return [r for r in results if r is not None], [], None
 
     # Per-line sigma from the instrument's own resolution (_line_sigma), not one shared guess
     # -- a single estimate over the whole spectrum can't know each line's real width (varies ~2x).
@@ -860,12 +913,20 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     })
 
     if contam_lines is not None and len(contam_lines) > 0:
-        contam_wls = contam_lines['line_wave_um'].astype(float).values
+        # Same "no real signal -> excluded, not faked" rule as the requested lines above --
+        # a phantom contaminant would just add an unconstrained Gaussian with nothing to explain.
+        contam_pairs = []
+        for wl in contam_lines['line_wave_um'].astype(float).values:
+            amp = _local_max_amp(wl)
+            if not np.isfinite(amp) or amp <= 0:
+                amp = _local_max_amp(wl, half_window=5)
+            if np.isfinite(amp) and amp > 0:
+                contam_pairs.append((wl, amp))
         detcontaminating_lines = pd.DataFrame({
-            'line': contam_wls,
-            'disposition': [1] * len(contam_wls),
-            'max_amplitude': [max(_local_max_amp(wl), 1e-6) for wl in contam_wls],
-            'sigma': [_line_sigma(wl, header) for wl in contam_wls],
+            'line': [p[0] for p in contam_pairs],
+            'disposition': [1] * len(contam_pairs),
+            'max_amplitude': [p[1] for p in contam_pairs],
+            'sigma': [_line_sigma(p[0], header) for p in contam_pairs],
         })
     else:
         detcontaminating_lines = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'sigma'])
@@ -929,6 +990,21 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             # genuinely incomplete; "UNKNOWN" flags that visibly instead of guessing a unit.
             flux_unit = (header.get('BUNIT') if header is not None else None) or 'UNKNOWN'
             area_unit = f"{flux_unit}·{unit.lower() if unit else 'UNKNOWN'}"
+
+        # Pascucci's area-error formula (statistical), plus her flux-calibration floor in
+        # quadrature -- one number, applied uniformly to every consumer, not just rot diag.
+        amp_err, sig_err = fit.get('amplitude_error'), fit.get('sigma_error')
+        if amp_err is not None and sig_err is not None and area_native:
+            area_error_native = np.sqrt(2 * np.pi * (
+                fit['sigma'] ** 2 * amp_err ** 2 + fit['amplitude'] ** 2 * sig_err ** 2
+            ))
+            area_error_statistical = area_error_native * (area / area_native)
+            area_error = float(np.sqrt(
+                area_error_statistical ** 2 + (SYSTEMATIC_FLUX_ERROR_FRACTION * area) ** 2
+            ))
+        else:
+            area_error = None
+
         # R2 from this line's own local peak (DISPLAY_CROP_SIGMA_MULTIPLIER window), not the
         # whole shared-chunk span -- else every line sharing a chunk reports the same number.
         local_mask = np.abs(fit['x_data'] - fit['center']) <= DISPLAY_CROP_SIGMA_MULTIPLIER * abs(fit['sigma'])
@@ -947,6 +1023,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             y_fit=fit['y_fit'], residuals=residuals,
             r_squared=r_squared, success=True, message=message,
             amplitude_error=fit.get('amplitude_error'), sigma_error=fit.get('sigma_error'),
+            area_error=area_error,
             catalog_sigma=fit.get('catalog_sigma'), noise_std=fit.get('noise_std'),
             y_fit_own=fit.get('y_fit_own'),
         )
@@ -956,6 +1033,10 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         fit = by_wavelength.get(round(wl, 9))
         if fit is not None:
             results[orig_idx] = (line, _to_result(fit))
+    # Lines excluded before fit_glines ever ran (see _no_signal_result above) -- carried
+    # through so the caller sees every requested line accounted for, success or not.
+    for orig_idx, line, result in skipped:
+        results[orig_idx] = (line, result)
 
     contam_results = []
     if contam_lines is not None and len(contam_lines) > 0:

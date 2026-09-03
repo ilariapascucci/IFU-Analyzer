@@ -467,10 +467,17 @@ STATUS: {result.message}
             self.multi_gauss_progress.close()
 
         fit_results = [{'line': line, 'result': result} for line, result in fit_pairs if result.success]
+        # Every requested line unaccounted for above -- shown in the results dialog below,
+        # not just silently absent from the table, per-line reason and all.
+        failed_results = [{'line': line, 'result': result} for line, result in fit_pairs if not result.success]
         contam_results = [{'line': line, 'result': result} for line, result in contam_pairs]
 
         if not fit_results:
-            QMessageBox.warning(self, "Fit Failed", "Could not fit any HITRAN lines.")
+            detail = "\n".join(
+                f"  - {r['line'].get('species', 'line')}: {r['result'].message}" for r in failed_results
+            )
+            QMessageBox.warning(self, "Fit Failed",
+                                 "Could not fit any HITRAN lines." + (f"\n\n{detail}" if detail else ""))
             return
 
         self.multi_gauss_results = fit_results
@@ -478,7 +485,7 @@ STATUS: {result.message}
         self.multi_gauss_result_cache = (fit_results, contam_results)
         self.multi_gauss_cache_key = getattr(self, '_multi_gauss_cache_key_pending', None)
         self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
-        self._show_multi_gaussian_results(fit_results, contam_results, None)
+        self._show_multi_gaussian_results(fit_results, contam_results, None, failed_results=failed_results)
 
     def _plot_multi_gaussian_on_spectrum(self, fit_results, contam_results=None):
         ax = self.spec_plotter.ax
@@ -551,18 +558,32 @@ STATUS: {result.message}
         ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw_idle()
 
-    def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None):
+    def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None,
+                                      failed_results=None):
         wave_unit = clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm'))
         flux_unit = clean_flux_unit(getattr(self.cube_data, 'flux_unit', 'MJy/sr'))
         fallback_area_unit = f"{flux_unit}·{wave_unit}"
+        failed_results = failed_results or []
 
-        results_text = f"MULTI-GAUSSIAN FIT RESULTS\n{'='*70}\nSuccessfully fitted {len(fit_results)} lines\n"
+        header_line = f"Successfully fitted {len(fit_results)} lines"
+        if failed_results:
+            header_line += f" ({len(failed_results)} requested line(s) could not be fit -- see below)"
+        results_text = f"MULTI-GAUSSIAN FIT RESULTS\n{'='*70}\n{header_line}\n"
         if velocity_shift_kms is not None:
             results_text += (f"Applied a {velocity_shift_kms:+.2f} km/s wavelength shift to every line's "
                               f"fixed center (estimated from these lines' own peaks) -- "
                               f"'Center (λ)' below reflects this, 'Line λ (catalog)' does not.\n")
+
+        if failed_results:
+            results_text += f"\nSKIPPED / FAILED LINES:\n{'='*70}\n"
+            for idx, fail_info in enumerate(failed_results, 1):
+                result, line = fail_info['result'], fail_info['line']
+                wl = line.get('lambda_micron', line.get('wavelength'))
+                wl_text = f"{wl:.6f} {wave_unit}" if wl is not None else "N/A"
+                results_text += f"{idx}. {line.get('species', 'Unknown')} @ {wl_text}: {result.message}\n"
+
         results_text += f"\nFITTED LINES:\n{'='*70}\n"
-        
+
         for idx, fit_info in enumerate(fit_results, 1):
             result, line = fit_info['result'], fit_info['line']
 
@@ -576,6 +597,7 @@ STATUS: {result.message}
             e_upper = line.get('e_upper')
             e_upper_text = f"{e_upper:.2f} K" if e_upper is not None else "N/A"
 
+            area_err_text = f" ± {result.area_error:.4e}" if result.area_error is not None else ""
             results_text += f"""Line {idx}: {line.get('species', 'Unknown')}
   Line λ (catalog):      {catalog_wave_text}
   Transition:            {transition_text}
@@ -585,7 +607,7 @@ STATUS: {result.message}
   Amplitude:             {result.amplitude:.4e} {flux_unit}
   Sigma (σ):             {result.sigma:.6g} {wave_unit}
   FWHM:                  {result.fwhm:.6g} {wave_unit}
-  Integrated Area:       {result.area:.4e} {result.area_unit or fallback_area_unit}
+  Integrated Area:       {result.area:.4e}{area_err_text} {result.area_unit or fallback_area_unit}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
         
         def _sum_area(results_list):
@@ -604,9 +626,16 @@ STATUS: {result.message}
         mean_r2 = np.mean(r2_values) if r2_values else float('nan')
         n_good = sum(1 for r2 in r2_values if r2 >= 0.5)
 
+        # True quadrature sum over every line's real area_error, nothing excluded --
+        # numerator and error always cover the same set of lines.
+        area_errors = [fit_info['result'].area_error for fit_info in fit_results]
+        total_flux_error = (float(np.sqrt(sum(e ** 2 for e in area_errors)))
+                             if total_flux is not None and all(e is not None for e in area_errors) else None)
+
         results_text += f"\nOVERALL:\n  Total lines fitted:    {len(fit_results)}\n"
         if total_flux is not None:
-            results_text += f"  Total Integrated Flux: {total_flux:.4e} {total_flux_unit}\n"
+            err_text = f" ± {total_flux_error:.4e}" if total_flux_error is not None else ""
+            results_text += f"  Total Integrated Flux: {total_flux:.4e}{err_text} {total_flux_unit}\n"
         else:
             results_text += f"  Total Integrated Flux: {total_flux_unit}\n"
         results_text += f"  Mean R²:               {mean_r2:.4f}\n"
@@ -625,10 +654,11 @@ STATUS: {result.message}
             )
             for idx, contam_info in enumerate(contam_results, 1):
                 result, line = contam_info['result'], contam_info['line']
+                area_err_text = f" ± {result.area_error:.4e}" if result.area_error is not None else ""
                 results_text += (
                     f"{idx}. {line.get('species', 'Contaminant')} @ {result.center:.6f} {wave_unit}  "
                     f"amplitude={result.amplitude:.4e} {flux_unit}  "
-                    f"area={result.area:.4e} {result.area_unit or fallback_area_unit}\n"
+                    f"area={result.area:.4e}{area_err_text} {result.area_unit or fallback_area_unit}\n"
                 )
 
         poor_fits = [fit_info for fit_info in fit_results if fit_info['result'].r_squared < 0.5]

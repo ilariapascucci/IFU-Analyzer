@@ -36,10 +36,6 @@ _PYMC_RANDOM_SEED = 42  # PyMC random seed for deterministic approach
 # Empirically (K swept 1e-3 to 1e6): <~100 doesn't enforce it, >~1e5 breaks the sampler; 1e3 is mid-plateau.
 UL_BARRIER_K = 1e3
 
-# Systematic flux-calibration floor (Pascucci): statistical error alone understates
-# true uncertainty; added in quadrature: sqrt(statistical^2 + (this*flux)^2).
-SYSTEMATIC_FLUX_ERROR_FRACTION = 0.05
-
 '''
 HITRAN DATA
 '''
@@ -301,21 +297,9 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         # real error, since is_upper_limit only controls display, not whether it exists.
         is_upper_limit = flux_integrated < F_ul_cgs
 
-        # Pascucci's area-error formula: sqrt(2pi*(sigma^2*amp_err^2 + amp^2*sigma_err^2)),
-        # assuming amp/sigma uncorrelated; scaled to CGS via this line's own area/area_native ratio.
-        if fit_result.amplitude_error is None or fit_result.sigma_error is None or not fit_result.area_native:
-            flux_error = None
-        else:
-            area_err_native = np.sqrt(2 * np.pi * (
-                fit_result.sigma ** 2 * fit_result.amplitude_error ** 2 +
-                fit_result.amplitude ** 2 * fit_result.sigma_error ** 2
-            ))
-            flux_error_statistical = area_err_native * (fit_result.area / fit_result.area_native)
-            # Systematic flux-calibration floor added in quadrature -- see
-            # SYSTEMATIC_FLUX_ERROR_FRACTION's own comment for why.
-            flux_error = float(np.sqrt(
-                flux_error_statistical ** 2 + (SYSTEMATIC_FLUX_ERROR_FRACTION * flux_integrated) ** 2
-            ))
+        # fit_result.area_error already includes the systematic floor -- computed once in
+        # flux_map_extractor._to_result, same number every consumer gets, not redone here.
+        flux_error = fit_result.area_error
 
         print(f"[BATCH_FLUX] Line @ {wl:.6f} um (collective):")
         print(f"  flux = {flux_integrated:.4e} erg/s/cm^2")

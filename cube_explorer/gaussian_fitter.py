@@ -203,11 +203,13 @@ class GaussianFitResult:
     # Only populated by fit_hitran_lines_collective's simultaneous curve_fit
     amplitude_error: Optional[float] = None
     sigma_error: Optional[float] = None
+    # Pascucci's area-error formula, same one rotational_diagram_h2_fitter.py already uses.
+    area_error: Optional[float] = None
     catalog_sigma: Optional[float] = None
     noise_std: Optional[float] = None
 
-    # Local continuum + this line's own Gaussian only, no neighbor in a shared chunk.
-    # None when the fit failed.
+    # Real local continuum + this one line's own real fitted Gaussian, not cropped --
+    # distinct from y_fit (the whole chunk's real joint model). None when the fit failed.
     y_fit_own: Optional[np.ndarray] = None
 
     def __str__(self):
