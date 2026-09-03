@@ -9,17 +9,17 @@ from .unit_converter import convert_wavelength
 
 def _merge_primary_into_sci(hdul, sci_key):
     """
-    Return SCI header with PRIMARY keywords added as fallback.
+    Return the SCI header with PRIMARY keywords added as a fallback.
 
     Args:
-        hdul (astropy.io.fits.Header) : FITS file header
-        sci_key (int): index of SCI header
-    
+        hdul (astropy.io.fits.HDUList): Open FITS file
+        sci_key (int or str): Index or name of the SCI header
+
     Returns:
-        sci_hdr (astropy.io.fits.Header): copy of SCI header
+        sci_hdr (astropy.io.fits.Header): Copy of the SCI header, with PRIMARY keys added
 
     Raises:
-        Exception: If no key was found
+        KeyError: if sci_key is not in hdul
     """
 
     sci_hdr = hdul[sci_key].header.copy()
@@ -53,21 +53,14 @@ TELESCOPE_LOADERS = {
 
 def detect_instrument(hdul):
     """
-    Detect the instrument/telescope used to obtain the data from FITS headers
-    using header keywords.
+    Detect the instrument or telescope from FITS header keywords. Checks every HDU, since
+    some files keep the instrument name outside the primary header.
 
     Args:
-        hdul (astropy.io.fits.Header): FITS file header
+        hdul (astropy.io.fits.HDUList): Open FITS file
 
     Returns:
-        instrument (str): Name of detected instrument ('MUSE', 'MIRI', 'NIRSpec')
-                          None if no known instrument is detected
-
-    Note:
-        - Checks all HDUs in case metadata is not in primary header
-        - Uses case-insensitive matching for robustness
-        - Currently supports MUSE, MIRI, and NIRSpec
-        - Returns None rather than raising an exception if no match
+        instrument (str or None): 'MUSE', 'MIRI', or 'NIRSpec', or None if not found
     """
 
     for hdu in hdul:
@@ -91,12 +84,12 @@ def get_spectral_resolution(wavelength, instrument, header=None):
     Calculate spectral resolution R(lambda) = lambda/delta_lambda for different instruments.
 
     Args:
-        wavelength (float): wavelength in units
-        instrument (str): instrument name ('NIRSPEC', 'MIRI')
-        header (astropy.io.fits.Header): FITS file header. Required for NIRSpec to get grating info
+        wavelength (float): Wavelength, in microns
+        instrument (str): Instrument name ('NIRSPEC' or 'MIRI')
+        header (astropy.io.fits.Header): FITS header. Required for NIRSpec, to read the grating
 
     Returns:
-        spectral resolution (float): R(lambda)
+        resolution (float): Spectral resolution R(lambda) at this wavelength
 
     Raises:
         ValueError: If instrument cannot be detected or grating is invalid
@@ -142,18 +135,15 @@ def get_spectral_resolution(wavelength, instrument, header=None):
 
 def infer_spec_axis(header, cube_shape):
     """
-    Determine which axis contains spectral information based on FITS header by using NAXIS3.
+    Find which axis holds the spectral data, using the header's NAXIS3 value.
 
     Args:
         header (astropy.io.fits.Header): FITS header for the cube
         cube_shape (tuple): Shape of the loaded data cube
 
     Returns:
-        int: Index of spectral axis (0 = first axis, 2 = last axis for 3D cube)
-             Returns 0 by default if cannot determine from header.
-
-    Raises:
-        Exception: If any error occurs
+        axis (int): Index of the spectral axis (0 = first, 2 = last, for a 3D cube).
+            Returns 0 if the header does not give a clear answer.
     """
     try:
         naxis3 = header.get('NAXIS3', None)
@@ -169,8 +159,8 @@ def infer_spec_axis(header, cube_shape):
 
 def get_wavelength(header, instrument, cube_shape):
     """
-    Calculate wavelength array from FITS header based on instrument type: Angstroms for
-    MUSE, microns for MIRI/NIRSpec, checking CTYPE3 for the axis type along the way.
+    Calculate the wavelength array from a FITS header. Returns Angstroms for MUSE and
+    microns for MIRI/NIRSpec, and checks CTYPE3 for the axis type.
 
     Args:
         header (astropy.io.fits.Header): FITS header for the cube
@@ -178,13 +168,10 @@ def get_wavelength(header, instrument, cube_shape):
         cube_shape (tuple): Shape of the loaded data cube
 
     Returns:
-        dict: 'wavelength' (Quantity) and 'unit' (str), plus 'flux_unit'/'wave_error'
-              for MUSE or 'flux_unit'/'mjd_avg'/'exposure_time'/'pa_aper' for
-              MIRI/NIRSpec. Callers apply the extra keys onto the cube with setattr.
-
-    Raises:
-        ValueError: If wavelength is invalid
-        Exception: If any other error occurs during calculations
+        result (dict): Has 'wavelength' (Quantity) and 'unit' (str). Also has 'flux_unit'
+            and 'wave_error' for MUSE, or 'flux_unit', 'mjd_avg', 'exposure_time', and
+            'pa_aper' for MIRI/NIRSpec. The caller sets these extra keys onto the cube
+            with setattr. On error, returns a dummy dict instead of raising.
     """
 
     try:
@@ -219,10 +206,8 @@ def get_wavelength(header, instrument, cube_shape):
                 raise ValueError("Unexpected MUSE wavelength axis configuration")
 
         elif instrument in ["MIRI", "NIRSpec"]:
-            # Get wavelength solution. By this point TELESCOPE_LOADERS has
-            # already resolved `header` to the SCI extension (or fallen back
-            # to the primary HDU if there wasn't one), so no further lookup
-            # is needed here.
+            # By this point, TELESCOPE_LOADERS already resolved `header` to the SCI
+            # extension, or fell back to the primary HDU. No further lookup is needed here.
             crval3 = float(header["CRVAL3"])
             cdelt3 = float(header["CDELT3"])
             crpix3 = float(header["CRPIX3"])

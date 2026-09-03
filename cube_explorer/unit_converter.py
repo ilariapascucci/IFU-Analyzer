@@ -1,10 +1,9 @@
 """
 Unit Conversion Utilities
 
-Handles conversion between different wavelength and flux units
-commonly used in spectroscopic data. Leverages astropy.units for accurate,
-dimensionally-aware conversions while maintaining backward compatibility with
-string-based units.
+Handles conversion between different wavelength and flux units used in spectroscopic
+data. Uses astropy.units for accurate, unit-aware conversions, and still accepts plain
+unit strings for backward compatibility.
 """
 
 import numpy as np
@@ -17,13 +16,13 @@ from typing import Optional
 
 def extract_units(data):
     """
-    Extract value and unit from astropy Quantity or numpy array.
+    Extract the value and unit from an astropy Quantity, or from a plain array.
 
     Args:
-        data (array/Quantity): Data with units
+        data (array or Quantity): Data, with or without units
 
     Returns:
-        tuple (array, str): data value with string unit
+        result (tuple): (value, unit_string). unit_string is None for a plain array
     """
 
     if hasattr(data, 'unit'):
@@ -59,10 +58,10 @@ def extract_value_from_quantity(value):
 @lru_cache(maxsize=64)
 def _string_to_astropy_unit(unit_str):
     """
-    Convert a string unit representation to astropy unit object.
+    Convert a string unit representation to an astropy unit object.
 
-    Delegates entirely to astropy's own parser -- verified it already handles every
-    real unit spelling this project's FITS headers use ('um', 'Angstrom').
+    Delegates entirely to astropy's own parser. This parser already handles every real
+    unit spelling this project's FITS headers use, for example 'um' and 'Angstrom'.
 
     Args:
         unit_str (str): String like 'Angstrom', 'um', 'nm', 'km/s', etc.
@@ -110,8 +109,8 @@ def convert_wavelength(value, from_unit, to_unit):
 
 def are_units_compatible(unit1, unit2):
     """
-    Check if two units are compatible (both wavelength or both velocity), via
-    astropy's own physical-type comparison rather than a hardcoded unit list.
+    Check if two units are compatible, for example both wavelength or both velocity.
+    Uses astropy's own physical-type comparison, not a hardcoded unit list.
 
     Args:
         unit1 (str/Unit/Quantity): First unit
@@ -149,9 +148,6 @@ def pixel_solid_angle(header):
 
     Returns:
         area (Quantity): Area of one pixel in steradians, or None if the header lacks the pixel scales
-
-    Raises:
-        Exception: if any errors occur
     """
 
     if header is None:
@@ -201,17 +197,17 @@ def _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header):
 
 def integrated_flux_to_cgs(value, flux_unit, wavelength=None, header=None, wave_unit=None):
     """
-    Convert an integrated line flux (e.g. a Gaussian area) to erg/s/cm**2.
+    Convert an integrated line flux (for example, a Gaussian area) to erg/s/cm**2.
 
-    Dispatches by unit, not instrument name: MUSE's erg/s/cm**2/Angstrom needs no
-    correction, MIRI/NIRSpec's MJy/sr needs the pixel solid angle and c/lambda**2 jacobian.
+    Dispatches by unit, not instrument name. MUSE's erg/s/cm**2/Angstrom needs no
+    correction. MIRI and NIRSpec's MJy/sr needs the pixel solid angle and the c/lambda**2 jacobian.
 
     Args:
         value (float): Integrated flux in flux_unit x wave_unit
         flux_unit (str): Flux unit string, typically the BUNIT header keyword
-        wavelength (float): Line centre, in wave_unit. Required for MJy/sr, unused for MUSE
-        header (astropy.io.fits.Header): FITS header supplying CDELT1/CDELT2. Required for MJy/sr
-        wave_unit (str): Wavelength unit string, e.g. 'Angstrom' or 'um'
+        wavelength (float): Line center, in wave_unit. Required for MJy/sr, not used for MUSE
+        header (astropy.io.fits.Header): FITS header with CDELT1 and CDELT2. Required for MJy/sr
+        wave_unit (str): Wavelength unit string, for example 'Angstrom' or 'um'
 
     Returns:
         flux (float): Flux in erg/s/cm**2, or None if the units cannot reach it
@@ -243,9 +239,9 @@ def _resolve_flux_unit(flux_unit_input: Optional[str], header) -> Optional[str]:
 
 def get_wave_unit(header, fallback: Optional[str] = None) -> Optional[str]:
     """
-    Get the cube's wavelength unit from the header's CUNIT3, falling back if absent.
-    Returns the raw string as-is -- callers pass it to _string_to_astropy_unit, so no
-    normalization step is needed here.
+    Get the cube's wavelength unit from the header's CUNIT3 value, or use the fallback.
+    Returns the raw string. The caller passes it to _string_to_astropy_unit, so this
+    function does not need to normalize it.
 
     Args:
         header (astropy.io.fits.Header): FITS header to read CUNIT3 from
@@ -271,7 +267,7 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         center_val (float): Line center wavelength in wavelength units (um or Angstrom)
         header (astropy.io.fits.Header): FITS header to extract CDELT1/CDELT2 for the pixel solid angle
         wave_unit (str): Wavelength unit (Angstrom, um)
-        flux_unit_input (str): Flux unit from header (e.g. 'MJy/sr'). Falls back to the header's BUNIT if None
+        flux_unit_input (str): Flux unit from header, for example 'MJy/sr'. Falls back to the header's BUNIT if None
 
     Returns:
         area (float): Area in erg/s/cm**2, or None if wave_unit isn't a wavelength unit or conversion fails
@@ -283,9 +279,9 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
     try:
         wave_astropy_unit = _string_to_astropy_unit(wave_unit)
         if wave_astropy_unit is None or wave_astropy_unit.physical_type != 'length':
-            return None  # e.g. a velocity axis -- needs a rest wavelength to convert, which we don't have
+            return None  # A velocity axis, for example, needs a rest wavelength we do not have
 
-        # Gaussian area in native units: A * sigma * sqrt(2*pi), carrying [flux_unit * wave_unit]
+        # Gaussian area in native units, A * sigma * sqrt(2*pi), carrying [flux_unit * wave_unit]
         area_native = amplitude_mjy_sr * sigma_val * np.sqrt(2 * np.pi)
 
         return integrated_flux_to_cgs(
@@ -301,35 +297,38 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
 
 def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None):
     """
-    Unit labels for fitted Gaussian parameter maps, probed by running the real
-    conversions on a value of 1.0 so a label can never drift from the number it describes.
+    Unit labels for fitted Gaussian parameter maps. Probes this by running the real
+    conversion on a value of 1.0, so a label can never drift from the number it names.
 
     Args:
-        flux_unit (str): Cube flux unit, typically BUNIT (e.g. 'MJy/sr')
-        wave_unit (str): Spectral axis unit (e.g. 'um', 'Angstrom')
-        header (astropy.io.fits.Header): FITS header supplying CDELT1/CDELT2. Required for MJy/sr; unused for MUSE
-        wavelength (float): A representative wavelength in wave_unit (e.g. the fit window centre)
+        flux_unit (str): Cube flux unit, typically BUNIT (for example, 'MJy/sr')
+        wave_unit (str): Spectral axis unit (for example, 'um' or 'Angstrom')
+        header (astropy.io.fits.Header): FITS header with CDELT1 and CDELT2. Required
+            for MJy/sr, not used for MUSE
+        wavelength (float): A representative wavelength in wave_unit (for example, the
+            fit window's center)
 
     Returns:
-        labels (dict): 'wave', 'amplitude', 'area' keys; amplitude/area carry CGS units when reachable, otherwise the cube's own units
+        labels (dict): Has 'wave', 'amplitude', and 'area' keys. amplitude and area use
+            CGS units when reachable, or the cube's own units otherwise
     """
     wave_astropy_unit = _string_to_astropy_unit(wave_unit)
     wave_label = wave_astropy_unit.to_string() if wave_astropy_unit is not None \
         else (str(wave_unit).strip() if wave_unit else '')
 
-    # Probe with the real conversion: whatever it can do, the maps already did.
+    # Probes with the real conversion. Whatever it can do, the maps already did.
     integrated = integrated_flux_to_cgs(1.0, flux_unit, wavelength, header, wave_unit)
 
     if integrated is not None and wave_astropy_unit is not None:
         return {
             'wave': wave_label,
-            # An amplitude is a flux *density*, so it keeps a per-wavelength; an area has
-            # integrated the spectral axis away and is a plain flux.
+            # An amplitude is a flux density, so it keeps a per-wavelength unit. An
+            # area has integrated over the spectral axis, so it is a plain flux.
             'amplitude': (CGS_FLUX / wave_astropy_unit).to_string(),
             'area': CGS_FLUX.to_string(),
         }
 
-    # Not convertible (Jy/beam, or a missing header): report the cube's own units.
+    # Not convertible, for example Jy/beam, or a missing header. Reports the cube's own units.
     flux_astropy_unit = _string_to_astropy_unit(flux_unit)
     if flux_astropy_unit is None:
         native_amp = str(flux_unit).strip() if flux_unit else 'native'
@@ -344,8 +343,8 @@ def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None)
 
 def _clean_unit_str(unit_str, empty_fallback):
     """
-    Shared body for clean_flux_unit/clean_wave_unit: render via astropy's own
-    unicode formatter, falling back to the raw string if astropy can't parse it.
+    Shared body for clean_flux_unit and clean_wave_unit. Renders through astropy's own
+    unicode formatter, and falls back to the raw string if astropy cannot parse it.
 
     Args:
         unit_str (str): Unit string to clean
@@ -364,10 +363,10 @@ def _clean_unit_str(unit_str, empty_fallback):
 
 def clean_flux_unit(unit_str):
     """
-    Convert a flux unit string (e.g. from BUNIT) to compact unicode notation for display.
+    Convert a flux unit string (for example, from BUNIT) to compact unicode notation for display.
 
     Args:
-        unit_str (str): Flux unit string (e.g., from BUNIT header keyword)
+        unit_str (str): Flux unit string, for example from the BUNIT header keyword
 
     Returns:
         cleaned (str): Cleaned unit string suitable for display

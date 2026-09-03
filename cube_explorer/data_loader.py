@@ -61,11 +61,10 @@ class CubeData:
             filename (str): Path to the FITS file to load
 
         Returns:
-            success (bool): True if loading was successful
+            success (bool): True if loading succeeded
 
         Raises:
-            ValueError: If instrument cannot be detected or data shape is invalid
-            Exception: If any other error occurs during loading
+            Exception: if the file cannot be loaded; wraps the underlying error message
         """
 
         try:
@@ -84,13 +83,13 @@ class CubeData:
             # Load data using appropriate loader for detected instrument
             self.header, data = TELESCOPE_LOADERS[self.instrument](self.hdul)
 
-            # Non-ALMA instruments just squeeze safely
+            # Drop any length-1 axes, for example a stray Stokes axis in the FITS data
             data = np.squeeze(data)
 
             if data.ndim != 3:
                 raise ValueError(
                     f"Expected a 3D spectral cube, but got shape {data.shape}. "
-                    "For 2D FITS images (e.g. parameter/moment maps), use the 2D viewer instead."
+                    "For 2D FITS images, for example parameter or moment maps, use the 2D viewer instead."
                 )
                 
             print(f"Data shape after processing: {data.shape}")  # Debug info
@@ -152,17 +151,13 @@ class CubeData:
 
     def _compute_spectrum(self):
         """
-        Compute the total spectrum by summing over spatial dimensions.
+        Compute the total spectrum by summing over the spatial dimensions.
 
         Args:
             None
 
         Returns:
-            spectrum (array): 1D array containing the summed spectrum
-                          Returns zeros if computation fails
-
-        Raises:
-            Exception: Exception: If any error occurs during copmutation
+            spectrum (array): 1D summed spectrum. All zeros if the computation fails
         """
 
         if self.cube is None:
@@ -203,17 +198,13 @@ class CubeData:
 
     def get_slice(self, idx):
         """
-        Extract a 2D slice from the data cube at a specific spectral index.
+        Extract a 2D slice from the data cube at a given spectral index.
 
         Args:
             idx (int): Index along the spectral axis to extract
 
         Returns:
-            numpy.ndarray: 2D array of the extracted slice, dtype=float32
-                         None if extraction fails
-
-        Raises:
-            Exception: If any error occurs during calculations
+            slice_data (numpy.ndarray): 2D array, dtype float32, or None if extraction fails
         """
 
         try:
@@ -238,11 +229,7 @@ class CubeData:
             instrument (str, optional): Override detected instrument type
 
         Returns:
-            tuple (tuple): (ra, dec) in degrees
-                  Both values None if transformation fails
-
-        Raises:
-            Exception: If any error occurs during calculations
+            coords (tuple): (ra, dec) in degrees, or (None, None) if the transform fails
         """
         instrument = instrument or self.instrument
         ra = dec = None
@@ -300,18 +287,18 @@ class CubeData:
 
     def compute_region_spectrum(self, mask):
         """
-        Compute mean spectrum for pixels inside a given mask.
-        
+        Compute the mean spectrum over the pixels inside a mask.
+
         Args:
-            mask (array): Boolean mask of same size as spatial dimensions
-                                True values indicate pixels to include
+            mask (array): Boolean mask, same spatial size as the cube. True marks a
+                pixel to include
 
         Returns:
-            spectrum (array): 1D array containing mean spectrum of masked region
-                         Returns zeros if computation fails or no valid pixels
+            spectrum (array): 1D mean spectrum of the masked region. All zeros if the
+                computation fails or the mask has no True pixels
 
         Raises:
-            ValueError: If mask dimensions don't match data
+            ValueError: if mask is not a 2D array
         """
 
         # Expect spectral axis to be first (0). If not, move it temporarily.
@@ -361,18 +348,14 @@ class CubeData:
 
     def get_pixel_spectrum(self, x, y):
         """
-        Extract spectrum for a single pixel from the data cube.
+        Extract the spectrum of a single pixel from the data cube.
 
         Args:
             x (int): X pixel coordinate (0-based)
             y (int): Y pixel coordinate (0-based)
 
         Returns:
-            spectrum (array): 1D array containing the pixel's spectrum in float32
-                         None if extraction fails
-
-        Raises:
-            Exception: If any error occurs during calculations
+            spectrum (array): 1D pixel spectrum, dtype float32, or None if extraction fails
         """
 
         if self.cube is None:
@@ -383,19 +366,12 @@ class CubeData:
                 # cube shape (nspec, ny, nx)
                 return np.array(self.cube[:, int(y), int(x)], dtype='float32')
             else:
-                # spectral axis not first; index appropriately
-                slicing = [slice(None)] * self.cube.ndim
-                slicing[1 if self.spec_axis != 1 else 0] = slice(None)
-                # generic approach: take all along spectral axis
-                idx = [slice(None)] * self.cube.ndim
-                idx[self.spec_axis] = slice(None)
-                idx[1 if self.spec_axis != 1 else 0] = int(y)
-                idx[2 if self.spec_axis != 2 else 1] = int(x)
-                # build a tuple with safe bounds: try common layout (spec,y,x)
+                # The spectral axis is not first here. Try the common (spec, y, x)
+                # layout first, and fall back to moving the axis if that fails.
                 try:
                     return np.array(self.cube[:, int(y), int(x)], dtype='float32')
                 except Exception:
-                    # fallback: move spectral axis to front for indexing
+                    # Fallback: move the spectral axis to the front, then index.
                     tmp = np.moveaxis(self.cube, self.spec_axis, 0)
                     return np.array(tmp[:, int(y), int(x)], dtype='float32')
         except Exception as e:
@@ -405,17 +381,15 @@ class CubeData:
 
     def free_memory(self):
         """
-        Clean up resources and free memory.
+        Clean up resources and free memory: close the FITS file, delete the memmap
+        cache file, and delete the large cube/spectrum arrays. Logs a warning and
+        continues on error, instead of raising.
 
         Args:
             None
-        
+
         Returns:
             None
-        
-        Raises:
-            AttributeError: Warning during cleanup
-            OSError: Warning during cleanup
         """
         
         try:

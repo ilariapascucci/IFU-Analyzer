@@ -197,7 +197,7 @@ class GaussianFitResult:
     message: str  # Status or error message
 
     # Unit bookkeeping for area
-    area_unit: str = ""  # Units of area, e.g. "erg/s/cm**2"
+    area_unit: str = ""  # Units of area, for example "erg/s/cm**2"
     area_native: float = 0.0  # Area before any CGS conversion
 
     # Only populated by fit_hitran_lines_collective's simultaneous curve_fit
@@ -208,8 +208,8 @@ class GaussianFitResult:
     catalog_sigma: Optional[float] = None
     noise_std: Optional[float] = None
 
-    # Real local continuum + this one line's own real fitted Gaussian, not cropped --
-    # distinct from y_fit (the whole chunk's real joint model). None when the fit failed.
+    # The local continuum plus this one line's own fitted Gaussian, not cropped. This is
+    # distinct from y_fit (the whole chunk's joint model). None when the fit failed.
     y_fit_own: Optional[np.ndarray] = None
 
     def __str__(self):
@@ -341,7 +341,7 @@ def safe_nanstd(arr: np.ndarray, fallback: float = 0.0) -> float:
     Returns fallback value if array has fewer than 2 finite values.
     
     Args:
-        arr (array): Input array (may contain NaNs)
+        arr (array): Input array, can contain NaNs
         fallback (float): Value to return if insufficient finite values
     
     Returns:
@@ -693,10 +693,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
         )
     
     # ========== STEP 3: DEFINE BOUNDS (CONSTRAINTS) ==========
-    # Set up bounds to constrain fit and prevent unphysical solutions
-    # Amplitude: [0, 10x max(y_corrected)] - must be positive, reasonable upper limit
-    # Center: [lambda_min, lambda_max] - must be within selected range
-    # Sigma: [reasonable_min, reasonable_max] - must be positive, not too large
+    # Sets bounds to keep the fit physical: amplitude in [0, 10x max], center inside
+    # the selected range, and sigma in a reasonable range.
     x_range = x2 - x1
     
     # If peak is explicitly selected, keep Gaussian narrow and focused
@@ -752,9 +750,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
             area = area_cgs
             area_unit = "erg/s/cm²"
         else:
-            # Conversion unavailable (no header, or flux is not MJy/sr). Report the
-            # native area labelled with the units it is actually in, rather than
-            # assuming MJy/sr.
+            # Conversion unavailable (no header, or flux is not MJy/sr). Reports the
+            # native area, labeled with its real units, instead of assuming MJy/sr.
             area = area_native
             flux_unit = (header.get('BUNIT', 'flux') if header is not None else 'flux')
             area_unit = f"{flux_unit}·{unit.lower() if unit else 'wave'}"
@@ -906,7 +903,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         noise_max (float): Optional right boundary of a line-free noise region
         header (astropy.io.fits.Header): Optional FITS header for unit conversion (reads CDELT1, CDELT2)
         wave_unit (str): Wavelength unit string
-        flux_unit (str): Input flux unit (e.g. 'MJy/sr', 'Jy/beam'), used for CGS conversion validation
+        flux_unit (str): Input flux unit, for example 'MJy/sr' or 'Jy/beam'. Used to check the CGS conversion
         lambda_0 (float): Optional line-list reference wavelength (um) to seed the global 1D fit
         progress_callback (callable): Optional progress_callback(current, total) called after each row
         cancel_event (threading.Event): Checked once per cube row; if set, fitting stops after
@@ -1049,7 +1046,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 global_guess = (amp_guess_tot, center_guess_tot, sigma_guess_tot)
 
             global_fit_info = {
-                "amplitude": float(global_guess[0]),  # native flux unit, e.g. MJy/sr -- not CGS-converted
+                "amplitude": float(global_guess[0]),  # Native flux unit, for example MJy/sr. Not CGS-converted
                 "center": float(global_guess[1]),
                 "sigma": float(global_guess[2]),
                 "center_source": center_source,
@@ -1150,17 +1147,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             n_finite = np.count_nonzero(finite_mask)
 
             if n_finite == 0:
-                # Completely outside the FOV (all-NaN spectrum) \u2014 leave every output as NaN.
-                # Do NOT assign an upper-limit area here; the noise estimate would rely on the
-                # safe_nanstd fallback (1.0), which is an entirely artificial number.
+                # Completely outside the FOV (all-NaN spectrum). Leaves every output NaN, with
+                # no upper-limit area: the only noise estimate here (safe_nanstd's 1.0 fallback) is artificial.
                 continue
 
             if n_finite < 5:
-                # Some data but insufficient for a full fit \u2014 assign an upper limit.
-                # (prevents meaningless R\u00b2 computations on near-empty spectra)
-                # Use fallback=None so safe_nanstd signals "no estimate" when y_data has
-                # fewer than 2 finite values (n_finite == 1).  In that case there is no
-                # real noise measurement available and we must not invent one.
+                # Some data, but not enough for a full fit: assigns an upper limit instead.
+                # Uses fallback=None so safe_nanstd can signal "no real estimate" rather than inventing one.
                 std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else safe_nanstd(y_data, fallback=None)
                 if std_temp is None or not np.isfinite(std_temp):
                     # Cannot compute a real noise estimate \u2014 pixel has no usable data,
@@ -1184,9 +1177,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 # Use METHOD B/C: shape-based or MAD-based guess depending on noise regime
                 guess = estimate_initial_gaussian_guess(x_data, y_corrected, std_val, mean_val)
                 if guess is None:
-                    # Could not even form an initial guess. Only the area (an upper limit) is
-                    # meaningful here -- storing the limit amplitude and a window-midpoint
-                    # center would put invented numbers into a pixel that was never fitted.
+                    # Could not form an initial guess. Only the area (an upper limit) means
+                    # anything here; a limit amplitude and midpoint center would be invented numbers.
                     _mark_upper_limit(ix, std_val, x_range / 4.0, (x1 + x2) / 2, fit_failed=True)
                     continue
                 amp_guess, center_guess, sigma_guess = guess
@@ -1289,9 +1281,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 # Determine if this is a true detection or upper limit
                 # Check: (1) fit converged, (2) amplitude > SNR threshold, (3) fit improves residuals
                 std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else safe_nanstd(y_corrected, fallback=1.0)
-                # Residual scatter after fitting, used only to ask "did the fit reduce
-                # the scatter versus the raw data" -- a different question from chi2
-                # above, which asks "how big are the residuals relative to real noise".
+                # Residual scatter after the fit. This only asks if the fit reduced scatter
+                # from the raw data, a different question from chi2 above (how big residuals are versus real noise).
                 residual_scatter = np.std(residuals, ddof=0)
                 std_with_fit = residual_scatter
                 fit_improves = fit_success and (std_with_fit < std_no_fit)
@@ -1383,18 +1374,16 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             fit_failed_map[iy, :] = fl_row
             residuals_cube[:, iy, :] = res_row
 
-            # Progress per row. The callback fires every row so a GUI progress bar
-            # actually moves; the console print stays throttled to every 5th row so a
-            # large cube does not flood the terminal.
+            # Progress per row. The callback fires every row, so a GUI progress bar moves.
+            # The console print stays throttled to every 5th row, so a large cube does not flood the terminal.
             completed += n_x
             if progress_callback:
                 progress_callback(completed, total_pixels)
             if completed % (n_x * 5) == 0:
                 print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
     else:
-        # Parallel path using ThreadPoolExecutor
-        # ThreadPoolExecutor works with nested functions (unlike ProcessPoolExecutor)
-        # and provides good performance for Gaussian fitting
+        # This parallel path uses ThreadPoolExecutor, since it works with nested functions
+        # (ProcessPoolExecutor does not) and gives good performance for Gaussian fitting.
         print(f"Using {n_jobs} worker threads ({total_pixels:,} pixels)")
 
         with ThreadPoolExecutor(max_workers=n_jobs) as ex:
@@ -1402,9 +1391,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             for fut in as_completed(futures):
                 if cancel_event is not None and cancel_event.is_set():
                     cancelled = True
-                    # Drop rows that have not started yet; the executor's own __exit__
-                    # still blocks (wait=True) until whatever is already in flight
-                    # finishes, so a handful of rows complete after this point.
+                    # Drops rows that have not started yet. The executor's own __exit__ still
+                    # blocks (wait=True) until in-flight rows finish, so a few rows complete after this point.
                     for f in futures:
                         f.cancel()
                     break
@@ -1444,7 +1432,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     print(f"    of which the fit itself failed: {n_failed} ({100*n_failed/total_pixels:.1f}%)")
 
     return {
-        'amplitude': amplitude_map,  # Native flux unit (e.g. MJy/sr) -- not CGS-converted
+        'amplitude': amplitude_map,  # Native flux unit, for example MJy/sr. Not CGS-converted
         'center': center_map,
         'sigma': sigma_map,
         'fwhm': fwhm_map,
