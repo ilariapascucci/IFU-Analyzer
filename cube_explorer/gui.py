@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
     QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog, QDoubleSpinBox,
-    QSizePolicy
+    QSizePolicy, QCheckBox
 )
 from PyQt5.QtCore import Qt, QPoint, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont
@@ -629,6 +629,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
         self.multi_gauss_fit_btn = QPushButton("Multi-Gauss")
+        self.multi_gauss_chunkwide_checkbox = QCheckBox("Chunk-wide fit curve")
+        self.multi_gauss_chunkwide_checkbox.setChecked(True)
         self.flux_map_btn = QPushButton("Flux Map")
         
         self.auto_continuum_toggle = QPushButton("Automatic Continuum")
@@ -720,6 +722,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gauss_fit_btn.clicked.connect(self._fit_gaussian)
         self.gauss_map_btn.clicked.connect(self._fit_gaussian_map)
         self.multi_gauss_fit_btn.clicked.connect(self._fit_multi_gaussian)
+        self.multi_gauss_chunkwide_checkbox.toggled.connect(self._on_multi_gauss_display_mode_changed)
         self.flux_map_btn.clicked.connect(self._extract_flux_map)
         self.save_results_btn.clicked.connect(self._save_results_ascii)
         self.subtract_continuum_btn.clicked.connect(self._activate_continuum_subtraction)
@@ -740,6 +743,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
         self.multi_gauss_fit_btn.setToolTip("Fit Gaussians to all selected HITRAN lines using current continuum")
+        self.multi_gauss_chunkwide_checkbox.setToolTip(
+            "Checked: draw the real joint fit curve, shared by every line in the same chunk. "
+            "Unchecked: draw each line's own Gaussian alone, cropped to its own peak."
+        )
         self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
         self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
         self.custom_subtract_btn.setToolTip("Manually select continuum points")
@@ -1006,6 +1013,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_group.add_button(self.load_custom_lines_btn)
         self.hitran_group.add_button(self.load_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
+        self.hitran_group.add_button(self.multi_gauss_chunkwide_checkbox)
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)

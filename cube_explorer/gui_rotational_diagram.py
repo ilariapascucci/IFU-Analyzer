@@ -27,7 +27,9 @@ from .rotational_diagram_h2_fitter import (
     get_gu, compute_line_fluxes_collective, model_1T, model_2T,
 )
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
-from .flux_map_extractor import _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
+from .flux_map_extractor import (
+    _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian,
+)
 
 
 # Constants
@@ -1624,33 +1626,78 @@ class RotationalDiagramWindow(QMainWindow):
         info.setStyleSheet("background-color: #f0f0f0; padding: 4px; border-radius: 3px;")
         layout.addWidget(info)
 
+        chunkwide_checkbox = QCheckBox("Chunk-wide fit curve")
+        chunkwide_checkbox.setChecked(True)
+        chunkwide_checkbox.setToolTip(
+            "Checked: draw the real joint fit curve, shared by every line in the same chunk. "
+            "Unchecked: draw this line's own Gaussian alone, cropped to its own peak."
+        )
+        layout.addWidget(chunkwide_checkbox)
+
         fig = Figure(figsize=(8, 5))
         ax = fig.add_subplot(111)
         canvas = FigureCanvas(fig)
 
         x = np.asarray(data['x_data'])
         global_continuum = np.asarray(data['baseline'])
-        # Own Gaussian only, no neighbor sharing this chunk. Falls back to the
-        # full-chunk y_fit for data stashed before this field existed.
-        y_fit_own = data.get('y_fit_own')
-        model = y_fit_own if y_fit_own is not None else data['y_fit']
-        y_fit = np.asarray(model) + global_continuum
 
-        own_gaussian = gaussian(x, data['amplitude'], data['center'], data['sigma'])
-        baseline = y_fit - own_gaussian
+        def _own_curve():
+            """
+            This line's own Gaussian alone, cropped to DISPLAY_CROP_SIGMA_MULTIPLIER.
 
-        # Fine grid (not just real pixels) so the shading matches the true analytic flux.
-        # Cropped to DISPLAY_CROP_SIGMA_MULTIPLIER, same convention as elsewhere.
-        if len(x) >= 2 and x.max() > x.min():
+            Args:
+                None
+
+            Returns:
+                curve (tuple): (x_curve, baseline_curve, y_fit_curve) arrays
+            """
+            # Falls back to the full-chunk y_fit for data stashed before y_fit_own existed.
+            y_fit_own = data.get('y_fit_own')
+            model = y_fit_own if y_fit_own is not None else data['y_fit']
+            y_fit = np.asarray(model) + global_continuum
+            own_gaussian = gaussian(x, data['amplitude'], data['center'], data['sigma'])
+            baseline = y_fit - own_gaussian
+            if len(x) < 2 or x.max() <= x.min():
+                return x, baseline, y_fit
             crop_half_width = DISPLAY_CROP_SIGMA_MULTIPLIER * abs(data['sigma'])
             lo = max(x.min(), data['center'] - crop_half_width)
             hi = min(x.max(), data['center'] + crop_half_width)
             x_curve = np.linspace(lo, hi, 300)
             baseline_curve = np.interp(x_curve, x, baseline)
             own_gaussian_curve = gaussian(x_curve, data['amplitude'], data['center'], data['sigma'])
-            y_fit_curve = baseline_curve + own_gaussian_curve
-        else:
-            x_curve, baseline_curve, y_fit_curve = x, baseline, y_fit
+            return x_curve, baseline_curve, baseline_curve + own_gaussian_curve
+
+        def _chunk_curve():
+            """
+            The real joint fit's own chunk: continuum plus every Gaussian curve_fit
+            solved for at once, not just this line's own component.
+
+            Args:
+                None
+
+            Returns:
+                curve (tuple): (x_curve, baseline_curve, y_fit_curve) arrays
+            """
+            y_fit = np.asarray(data['y_fit']) + global_continuum
+            return x, global_continuum, y_fit
+
+        fit_artists = []
+
+        def _draw_fit(chunk_wide):
+            for artist in fit_artists:
+                try: artist.remove()
+                except Exception: pass
+            fit_artists.clear()
+            x_curve, baseline_curve, y_fit_curve = _chunk_curve() if chunk_wide else _own_curve()
+            b_line, = ax.plot(x_curve, baseline_curve, 'k--', linewidth=2, alpha=0.7,
+                               label='Baseline', zorder=9)
+            g_line, = ax.plot(x_curve, y_fit_curve, 'r-', linewidth=3, alpha=0.9,
+                               label='Gaussian Fit', zorder=10)
+            fill = ax.fill_between(x_curve, baseline_curve, y_fit_curve, color='red',
+                                    alpha=0.2, label='Integrated Area', zorder=7)
+            fit_artists.extend([b_line, g_line, fill])
+            ax.legend(fontsize=8)
+            canvas.draw_idle()
 
         # Wider context: pad by a fixed number of the spectrum's own native sample
         # spacing rather than a hardcoded wavelength range, so this scales sensibly
@@ -1673,9 +1720,8 @@ class RotationalDiagramWindow(QMainWindow):
             pad = 0.5 * (x.max() - x.min())
             ax.set_xlim(x.min() - pad, x.max() + pad)
 
-        ax.plot(x_curve, baseline_curve, 'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=9)
-        ax.plot(x_curve, y_fit_curve, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=10)
-        ax.fill_between(x_curve, baseline_curve, y_fit_curve, color='red', alpha=0.2, label='Integrated Area', zorder=7)
+        _draw_fit(chunkwide_checkbox.isChecked())
+        chunkwide_checkbox.toggled.connect(_draw_fit)
 
         # Disable matplotlib's default "+1.703e1"-style offset notation -- with a
         # narrow x-range far from zero it otherwise shows tick labels like "0.000"
@@ -1688,7 +1734,6 @@ class RotationalDiagramWindow(QMainWindow):
         ax.set_ylabel(f'Flux ({bunit})' if bunit else 'Flux')
         ax.set_title(f"Line @ {data['wavelength']:.6f} μm", fontweight='bold')
         ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=8)
         fig.tight_layout()
         canvas.draw()
 

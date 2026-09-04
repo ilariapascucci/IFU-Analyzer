@@ -52,6 +52,10 @@ SYSTEMATIC_FLUX_ERROR_FRACTION = 0.05
 # Display/diagnostic-only reduced constant (does not affect curve_fit)
 DISPLAY_CROP_SIGMA_MULTIPLIER = 3.0
 
+# A line whose area_error exceeds this fraction of its own area is flagged unreliable
+# (near-singular covariance, usually two lines blended under 1 instrumental sigma apart).
+AREA_ERROR_SANITY_RATIO = 1.0
+
 # Derived from the bounds above (center +/-1sigma, fitted sigma <= SIGMA_BOUND_UPPER_MULTIPLIER):
 # 3*(2x instrumental sigma) + 1sigma center shift = 7sigma is as far as real flux can land.
 DEFAULT_SIGMA_MULTIPLIER = 7.0
@@ -382,9 +386,9 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         xwave (array): Wavelength array
         yflux (array): Flux array. The continuum is still in it; this function fits the
             continuum and the lines together
-        list_wboundaries (array): Flat, sorted chunk boundaries. Each consecutive pair makes
-            one chunk. This array sets which lines belong to which chunk; each line belongs
-            to exactly one chunk
+        list_wboundaries (array): Flat, sorted chunk boundaries: elements [2*i, 2*i+1] make
+            chunk i's own (lo, hi). This array sets which lines belong to which chunk; each
+            line belongs to exactly one chunk
         detco_lines (pd.DataFrame): Detected CO lines with 'line'/'disposition'/'max_amplitude',
             plus an optional per-line 'sigma' (falls back to the shared `sigma` if absent)
         detcontaminating_lines (pd.DataFrame): Same columns, for contaminating lines
@@ -432,10 +436,64 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
     pool_nat_lo = pool_wave - half_width_sigma * pool_sigma
     pool_nat_hi = pool_wave + half_width_sigma * pool_sigma
 
+    def _fit_record(cen_i, amp_i, sig_i, cat_wave, amp_err_i, sig_err_i, catalog_sigma_i,
+                     a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk):
+        """
+        Build one line's per_line_fits/per_contam_fits dict from a joint fit's own params.
+
+        Args:
+            cen_i (float): This line's fitted center
+            amp_i (float): This line's fitted amplitude
+            sig_i (float): This line's fitted sigma
+            cat_wave (float): Catalog (rest) wavelength for this line
+            amp_err_i (float): This line's amplitude uncertainty
+            sig_err_i (float): This line's sigma uncertainty
+            catalog_sigma_i (float): The fixed instrumental sigma this line was given
+            a (float): Joint fit's continuum offset
+            b (float): Joint fit's continuum slope
+            par (array): Joint fit's Gaussian parameters, 3 per line, amp/center/sigma order
+            min_freq_chunk (float): This extent's own minimum, continuum's x origin
+            x_local (array): This extent's own wavelength samples
+            y_local (array): This extent's own flux samples
+            noise_std_chunk (float): This extent's own residual-based noise estimate
+
+        Returns:
+            record (dict): Per-line fit dict, see fit_glines' own Returns for its keys
+        """
+        # Full extent model: the local continuum plus every Gaussian in it, not just this
+        # line's own. This shows the real data, including overlap with a neighbor.
+        y_fit_local = a + b * (x_local - min_freq_chunk)
+        for jj in range(0, len(par), 3):
+            y_fit_local = y_fit_local + gaussian(x_local, par[jj], par[jj + 1], par[jj + 2])
+        # Same local continuum, but only this line's own fitted Gaussian, not cropped.
+        # Any gap from y_fit_local near a neighbor line stays visible here.
+        y_fit_own = a + b * (x_local - min_freq_chunk) + gaussian(x_local, amp_i, cen_i, sig_i)
+        return {
+            'wavelength': cat_wave, 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
+            'area': amp_i * sig_i * np.sqrt(2 * np.pi),
+            # amp_err_i/sig_err_i: from curve_fit's joint covariance matrix, not a separate
+            # local fit. A line that overlaps a close neighbor gets a larger error here.
+            'amplitude_error': amp_err_i,
+            'sigma_error': sig_err_i,
+            # catalog_sigma_i: the fixed instrumental sigma given as input, not the fitted
+            # `sig_i`. Used for the upper-limit Gaussian when the fit is not real.
+            'catalog_sigma': catalog_sigma_i,
+            'noise_std': noise_std_chunk,
+            'x_data': x_local, 'y_data': y_local, 'y_fit': y_fit_local,
+            'y_fit_own': y_fit_own,
+            'success': True, 'message': 'Success',
+        }
+
     print('===== Start fitting...')
     start_time = time.time()
 
-    for ii in range(len(list_wboundaries) - 1):
+    n_chunks = len(list_wboundaries) // 2
+    # Keyed by each extent's own (lo, hi). Distinct owners can widen to the exact same
+    # extent in a dense line list -- reuse that joint fit instead of repeating it per owner.
+    extent_fit_cache = {}
+    # Step 2, not 1: each chunk is its own (lo, hi) pair at [ii, ii+1]. Extent pairs can
+    # genuinely overlap between chunks by design, so a sliding-window read is wrong here.
+    for ii in range(0, len(list_wboundaries), 2):
         xwave_min, xwave_max = list_wboundaries[ii], list_wboundaries[ii + 1]
         # xwave_min/xwave_max set which lines belong to this chunk. ext_min/ext_max (can be
         # wider) set the data the chunk fits and plots, so a small chunk keeps each line's window.
@@ -463,6 +521,49 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         # Find number of contaminating lines for Gauss fit and store
         ncont_lines = filtered_contaminatinglines.shape[0]
         n_co = len(filtered_colines)
+
+        cache_key = (round(float(ext_min), 9), round(float(ext_max), 9))
+        cached = extent_fit_cache.get(cache_key)
+        if cached is not None and cached['success']:
+            print(f'  [CACHE] Reusing joint fit for extent {cache_key}: '
+                  f'{n_co} owned CO + {ncont_lines} owned contaminant line(s)')
+            a, b, par, cov = cached['a'], cached['b'], cached['par'], cached['cov']
+            pool_wave_cached = cached['pool_wave']
+            min_freq_chunk, noise_std_chunk = cached['min_freq_chunk'], cached['noise_std_chunk']
+            x_local, y_local = xwave[idx_xwave], yflux[idx_xwave]
+
+            # Nearest-match, not exact float equality -- robust to any float-path drift
+            # between how this owner's line and the cache-populating owner's line arrived.
+            def _cached_slice(line_wave):
+                k = int(np.argmin(np.abs(pool_wave_cached - line_wave)))
+                amp_i, cen_i, sig_i = par[3 * k], par[3 * k + 1], par[3 * k + 2]
+                amp_err_i = float(np.sqrt(np.abs(cov[2 + 3 * k, 2 + 3 * k])))
+                sig_err_i = float(np.sqrt(np.abs(cov[2 + 3 * k + 2, 2 + 3 * k + 2])))
+                return amp_i, cen_i, sig_i, amp_err_i, sig_err_i
+
+            current_sum_CO = 0.0
+            for _, coline in filtered_colines.iterrows():
+                amp_i, cen_i, sig_i, amp_err_i, sig_err_i = _cached_slice(float(coline['line']))
+                current_sum_CO += amp_i * sig_i * np.sqrt(2 * np.pi)
+                catalog_sigma_i = coline['sigma'] if 'sigma' in coline else sigma
+                per_line_fits.append(_fit_record(
+                    cen_i, amp_i, sig_i, coline['line'], amp_err_i, sig_err_i, catalog_sigma_i,
+                    a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
+            current_sum_contaminating = 0.0
+            for _, contam_line in filtered_contaminatinglines.iterrows():
+                amp_j, cen_j, sig_j, amp_err_j, sig_err_j = _cached_slice(float(contam_line['line']))
+                current_sum_contaminating += amp_j * sig_j * np.sqrt(2 * np.pi)
+                catalog_sigma_j = contam_line['sigma'] if 'sigma' in contam_line else sigma
+                per_contam_fits.append(_fit_record(
+                    cen_j, amp_j, sig_j, contam_line['line'], amp_err_j, sig_err_j, catalog_sigma_j,
+                    a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
+
+            sum_CO_area = sum_CO_area + current_sum_CO
+            sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
+            mean_cont = mean_cont + a
+            if progress_callback is not None:
+                progress_callback(ii // 2 + 1, n_chunks)
+            continue
 
         # A borrowed line is not owned by this chunk, but its window overlaps this chunk's
         # data. This code fits it here too, but does not sum its flux; its own chunk does that.
@@ -546,20 +647,25 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         upper_bounds = np.ravel(upper_bounds_2d)
         upper_bounds = np.insert(upper_bounds, [0, 0], [p0base + 2 * np.abs(p0slope), 2 * np.abs(p0slope)])
 
-        # Perform the fit (Pascucci fit_Glines) (maxfev from 10k to 5k)
-        par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0,
-                             bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=5000)
-        print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
-
-        a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
-        par = par[2:]  # Extracts which parameters relate to the Gaussians
-        print(f'  [FIT DEBUG] continuum: a={a:.6e} {flux_unit_label}, b={b:.6e} {flux_unit_label}/{wave_unit_label}; '
-              f'{len(par)//3} Gaussian components')
-        if len(par) >= 3:
-            print(f'  [FIT DEBUG] First line: amp={par[0]:.6e} {flux_unit_label}, center={par[1]:.6f} {wave_unit_label}, '
-                  f'sigma={par[2]:.6e} {wave_unit_label}')
-
+        # Perform the fit (Pascucci fit_Glines). Inside the try on purpose now -- a real
+        # non-convergence must hit the RANSAC fallback below, not crash the whole run.
         try:
+            if cached is not None and not cached['success']:
+                # A prior owner already hit this exact extent and failed; curve_fit is
+                # deterministic on the same data, so skip straight to the fallback.
+                raise RuntimeError('curve_fit already failed for this extent (cached)')
+            par, cov = curve_fit(many_gaussians_list, xwave[idx_xwave], yflux[idx_xwave], p0=p0,
+                                 bounds=(lower_bounds, upper_bounds), method='trf', ftol=1e-5, maxfev=5000)
+            print(f'  [FIT DEBUG] curve_fit succeeded, returned {len(par)} parameters')
+
+            a, b = par[0], par[1]  # Extracts which parameters relate to the continuum
+            par = par[2:]  # Extracts which parameters relate to the Gaussians
+            print(f'  [FIT DEBUG] continuum: a={a:.6e} {flux_unit_label}, b={b:.6e} {flux_unit_label}/{wave_unit_label}; '
+                  f'{len(par)//3} Gaussian components')
+            if len(par) >= 3:
+                print(f'  [FIT DEBUG] First line: amp={par[0]:.6e} {flux_unit_label}, center={par[1]:.6f} {wave_unit_label}, '
+                      f'sigma={par[2]:.6e} {wave_unit_label}')
+
             bfit = many_gaussians_list(xwave[idx_xwave], a, b, *par)
             df_residual.loc[idx_xwave, 'residual'] = yflux[idx_xwave] - bfit
             # many_gaussians_list's continuum term is a + b*(x - min_freq), not a + b*x. This
@@ -599,69 +705,32 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             # filtered_lines holds CO lines, then contaminating lines. `par` follows the same
             # order in 3-param groups: filtered_colines.iloc[i] maps to par[3*i:3*i+3].
             min_freq_chunk = np.nanmin(xwave[idx_xwave])
-
-            def _local_fit_record(cen_i, amp_i, sig_i, cat_wave, amp_err_i, sig_err_i, catalog_sigma_i):
-                """
-                Build one line's per_line_fits/per_contam_fits dict from this chunk's fit.
-
-                Args:
-                    cen_i (float): This line's fitted center
-                    amp_i (float): This line's fitted amplitude
-                    sig_i (float): This line's fitted sigma
-                    cat_wave (float): Catalog (rest) wavelength for this line
-                    amp_err_i (float): This line's amplitude uncertainty
-                    sig_err_i (float): This line's sigma uncertainty
-                    catalog_sigma_i (float): The fixed instrumental sigma this line was given
-
-                Returns:
-                    record (dict): Per-line fit dict, see fit_glines' own Returns for its keys
-                """
-                # This is the chunk's own fit window, not a separate crop. A plot built from
-                # this record shows exactly what curve_fit saw, and DEFAULT_SIGMA_MULTIPLIER controls it.
-                x_local = xwave[idx_xwave]
-                y_local = yflux[idx_xwave]
-                # Full chunk model: the local continuum plus every Gaussian in the chunk, not
-                # just this line's own. This shows the real data, including overlap with a neighbor.
-                y_fit_local = a + b * (x_local - min_freq_chunk)
-                for jj in range(0, len(par), 3):
-                    y_fit_local = y_fit_local + gaussian(x_local, par[jj], par[jj + 1], par[jj + 2])
-                # Same local continuum, but only this line's own fitted Gaussian, not cropped.
-                # Any gap from y_fit_local near a neighbor line stays visible here.
-                y_fit_own = a + b * (x_local - min_freq_chunk) + gaussian(x_local, amp_i, cen_i, sig_i)
-                return {
-                    'wavelength': cat_wave, 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
-                    'area': amp_i * sig_i * np.sqrt(2 * np.pi),
-                    # amp_err_i: from curve_fit's joint covariance matrix, not a separate local
-                    # fit. A line that overlaps a close neighbor gets a larger error here.
-                    'amplitude_error': amp_err_i,
-                    # sig_err_i: from the same joint covariance matrix. With amp_err_i, this
-                    # feeds Pascucci's area_err = sqrt(2pi*(sigma**2*amp_err**2 + amp**2*sig_err**2)).
-                    'sigma_error': sig_err_i,
-                    # catalog_sigma_i: the fixed instrumental sigma given as input, not the
-                    # fitted `sig_i`. Used for the upper-limit Gaussian when the fit is not real.
-                    'catalog_sigma': catalog_sigma_i,
-                    'noise_std': noise_std_chunk,
-                    'x_data': x_local, 'y_data': y_local, 'y_fit': y_fit_local,
-                    'y_fit_own': y_fit_own,
-                    'success': True, 'message': 'Success',
-                }
+            x_local, y_local = xwave[idx_xwave], yflux[idx_xwave]
+            extent_fit_cache[cache_key] = {
+                'success': True, 'a': a, 'b': b, 'par': par, 'cov': cov,
+                'pool_wave': filtered_lines['line'].astype(float).values,
+                'min_freq_chunk': min_freq_chunk, 'noise_std_chunk': noise_std_chunk,
+            }
 
             for i, (_, coline) in enumerate(filtered_colines.iterrows()):
                 amp_err_i = float(np.sqrt(np.abs(cov[2 + 3 * i, 2 + 3 * i])))
                 sig_err_i = float(np.sqrt(np.abs(cov[2 + 3 * i + 2, 2 + 3 * i + 2])))
-                per_line_fits.append(_local_fit_record(
-                    par[3 * i + 1], par[3 * i], par[3 * i + 2], coline['line'], amp_err_i, sig_err_i, line_sigmas[i]
-                ))
+                per_line_fits.append(_fit_record(
+                    par[3 * i + 1], par[3 * i], par[3 * i + 2], coline['line'], amp_err_i, sig_err_i,
+                    line_sigmas[i], a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
             for j, (_, contam_line) in enumerate(filtered_contaminatinglines.iterrows()):
                 jj = 3 * (n_co + j)
                 amp_err_j = float(np.sqrt(np.abs(cov[2 + jj, 2 + jj])))
                 sig_err_j = float(np.sqrt(np.abs(cov[2 + jj + 2, 2 + jj + 2])))
-                per_contam_fits.append(_local_fit_record(
-                    par[jj + 1], par[jj], par[jj + 2], contam_line['line'], amp_err_j, sig_err_j, line_sigmas[n_co + j]
-                ))
+                per_contam_fits.append(_fit_record(
+                    par[jj + 1], par[jj], par[jj + 2], contam_line['line'], amp_err_j, sig_err_j,
+                    line_sigmas[n_co + j], a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
 
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
+            # Cache the failure too -- a later owner sharing this extent gets the same
+            # RuntimeError from curve_fit, so it should skip straight to its own fallback.
+            extent_fit_cache[cache_key] = {'success': False}
             continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1)
             # Uses median(line_sigmas), not the scalar sigma. This gives the same value when
             # broadcast (Flux Map), but the real per-line width when it varies (fit_hitran_lines_collective).
@@ -696,17 +765,17 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
               f'Cumulative contam: {sum_contaminating_area:.6e} {flux_unit_label}·{wave_unit_label}')
 
         if progress_callback is not None:
-            progress_callback(ii + 1, len(list_wboundaries) - 1)
+            progress_callback(ii // 2 + 1, n_chunks)
 
     end_time = time.time()
     print(f"Fitting took {np.around(end_time - start_time, decimals=1)} seconds")
     print('===== End fitting')
     print(f'[FINAL FLUX] Total CO flux: {sum_CO_area:.6e} {flux_unit_label}·{wave_unit_label}, '
           f'Total contam flux: {sum_contaminating_area:.6e} {flux_unit_label}·{wave_unit_label}, '
-          f'Mean continuum: {mean_cont/(len(list_wboundaries) - 1):.6e} {flux_unit_label} '
+          f'Mean continuum: {mean_cont/n_chunks:.6e} {flux_unit_label} '
           f'(all native/raw -- not yet CGS-converted; conversion happens in the caller)')
 
-    mean_cont = mean_cont / (len(list_wboundaries) - 1)
+    mean_cont = mean_cont / n_chunks
 
     return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits, per_contam_fits
 
@@ -742,43 +811,77 @@ def _line_sigma(wl, header):
 
 
 
-def _merged_wave_boundaries(centers, sigmas, half_width_sigma=DEFAULT_SIGMA_MULTIPLIER):
+def _trough_is_elevated(center_a, center_b, xwave, y_corrected, noise_std, snr_threshold):
     """
-    Build fit_glines' list_wboundaries from each line's own instrumental width, not a
-    fixed grid. Give each line a [center - N*sigma, center + N*sigma] window, then merge
-    overlapping windows into shared chunks. max_chunk_width below sets a cap on chunk size.
+    Check the real spectrum between two line centers for a genuine blend.
+
+    Args:
+        center_a (float): First line's center wavelength
+        center_b (float): Second line's center wavelength
+        xwave (array): Real wavelength array
+        y_corrected (array): Real continuum-subtracted flux array, same length as xwave
+        noise_std (float): Real noise estimate, same units as y_corrected
+        snr_threshold (float): Trough must exceed this many noise_std to count as elevated
+
+    Returns:
+        elevated (bool): True if the two lines must be fit together (real flux stays above
+            noise between them, or there is no real data there to judge by). False if the
+            spectrum drops back to baseline, so the two lines can be fit separately.
+    """
+    mid = (center_a + center_b) / 2.0
+    nearest = np.argsort(np.abs(xwave - mid))[:6]
+    local = y_corrected[nearest]
+    if len(local) == 0 or not np.any(np.isfinite(local)):
+        return True
+    return float(np.nanmin(local)) > snr_threshold * noise_std
+
+
+def _merged_wave_boundaries(centers, sigmas, xwave, y_corrected, noise_std,
+                             half_width_sigma=DEFAULT_SIGMA_MULTIPLIER, snr_threshold=3.0):
+    """
+    Build fit_glines' list_wboundaries from each line's own instrumental width and the
+    real spectrum, not a fixed grid or a size cap. Give each line a
+    [center - N*sigma, center + N*sigma] window. Merge two overlapping windows only when
+    the real data between their centers stays above the noise floor (a genuine blend).
 
     Args:
         centers (array): Line center wavelengths
         sigmas (array): Each line's own instrumental sigma, same units as centers
+        xwave (array): Real wavelength array, for the blend check between candidate lines
+        y_corrected (array): Real continuum-subtracted flux array, same length as xwave
+        noise_std (float): Real noise estimate, same units as y_corrected
         half_width_sigma (float): Each line's window half-width, in multiples of its own sigma
+        snr_threshold (float): Trough significance bar for the blend check, in units of
+            noise_std. Matches find_lines' own default detection threshold.
 
     Returns:
         ownership_boundaries (array): Flat, sorted chunk boundaries. Each consecutive pair
             makes one chunk. This array sets which lines fit_glines assigns to which chunk.
-            It has a size cap, so a dense line list still splits into separate fits.
+            Size is whatever the real blending in the data supports, not a fixed limit.
         extent_boundaries (array): Same shape as ownership_boundaries, and paired the same
-            way. Each pair is widened, never narrowed, to cover every owned line's own
-            +/-half_width_sigma window. Capping chunk membership must never cost a member
-            its own data. fit_glines must use this array to fit and plot, not ownership_boundaries.
+            way. Each pair is widened, never narrowed, to cover every owned or borrowed
+            line's own +/-half_width_sigma window, so none of them is ever data-starved.
+            fit_glines must use this array to fit and plot, not ownership_boundaries.
     """
-    # Caps a chunk's width, in multiples of its starting line's sigma. This stops merging
-    # from cascading a dense line list into one huge shared continuum. Verified on real cases.
-    max_chunk_width = 3 * (2 * half_width_sigma)  # sigma units
     intervals = sorted(
-        (c - half_width_sigma * s, c + half_width_sigma * s, s)
+        (c - half_width_sigma * s, c + half_width_sigma * s, s, c)
         for c, s in zip(centers, sigmas)
     )
     merged = [list(intervals[0][:2])]
-    anchor_start, anchor_sigma = intervals[0][0], intervals[0][2]
-    for lo, hi, s in intervals[1:]:
-        fits_cap = (hi - anchor_start) <= max_chunk_width * anchor_sigma
-        if lo <= merged[-1][1] and fits_cap:
+    prev_center = intervals[0][3]
+    for lo, hi, s, c in intervals[1:]:
+        windows_overlap = lo <= merged[-1][1]
+        blended = windows_overlap and _trough_is_elevated(
+            prev_center, c, xwave, y_corrected, noise_std, snr_threshold)
+        if blended:
             merged[-1][1] = max(merged[-1][1], hi)
         else:
-            lo = max(lo, merged[-1][1])  # keep chunks non-overlapping even when capped
-            merged.append([lo, hi])
-            anchor_start, anchor_sigma = lo, s
+            # Cut at the real midpoint, not the previous chunk's raw edge -- that edge
+            # can reach past this line's window and leave hi < lo otherwise.
+            cut = (prev_center + c) / 2.0
+            merged[-1][1] = min(merged[-1][1], cut)
+            merged.append([max(lo, cut), hi])
+        prev_center = c
     ownership_boundaries = np.array([b for lo, hi in merged for b in (lo, hi)])
 
     centers_arr = np.asarray(centers, dtype=float)
@@ -790,6 +893,15 @@ def _merged_wave_boundaries(centers, sigmas, half_width_sigma=DEFAULT_SIGMA_MULT
         if np.any(owned):
             lo = min(lo, np.min(windows_lo[owned]))
             hi = max(hi, np.max(windows_hi[owned]))
+        # Also widen for borrowed neighbors (not just owned members), repeating until
+        # stable -- their real data must never be starved either.
+        while True:
+            reaching_in = (windows_lo < hi) & (windows_hi > lo)
+            new_lo = min(lo, np.min(windows_lo[reaching_in])) if np.any(reaching_in) else lo
+            new_hi = max(hi, np.max(windows_hi[reaching_in])) if np.any(reaching_in) else hi
+            if new_lo >= lo and new_hi <= hi:
+                break
+            lo, hi = new_lo, new_hi
         extent_pairs.append((lo, hi))
     extent_boundaries = np.array([b for lo, hi in extent_pairs for b in (lo, hi)])
 
@@ -932,10 +1044,16 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     else:
         detcontaminating_lines = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'sigma'])
 
+    # Same fallback chain as extract_flux_from_spectrum's shared_noise_std, for the
+    # merge blend-check below (real signal between two lines, not a formula guess).
+    noise_std = compute_noise_std(spectrum_x, y_corrected, degree=1)
+    if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
+        noise_std = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected))) * 1.4826
+
     all_centers = list(detco_lines['line']) + list(detcontaminating_lines['line'])
     all_sigmas = list(detco_lines['sigma']) + list(detcontaminating_lines['sigma'])
     wave_boundaries, wave_boundaries_extent = _merged_wave_boundaries(
-        all_centers, all_sigmas, half_width_sigma=sigma_multiplier)
+        all_centers, all_sigmas, spectrum_x, y_corrected, noise_std, half_width_sigma=sigma_multiplier)
 
     # This is only fit_glines' scalar fallback, for the RuntimeError path. The per-line
     # 'sigma' column above drives the real fit.
@@ -1260,7 +1378,8 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         wave_boundaries_extent = None
         if wave_boundaries is None:
             all_centers = list(detected_target['line']) + list(detected_contam['line'])
-            wave_boundaries, wave_boundaries_extent = _merged_wave_boundaries(all_centers, list(all_sigmas))
+            wave_boundaries, wave_boundaries_extent = _merged_wave_boundaries(
+                all_centers, list(all_sigmas), spectrum_wave, spectrum_flux, shared_noise_std)
 
         print(f"  [DEBUG] Before fit_glines: median sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
         print(f"  [DEBUG] Fitting {len(detected_target)} target + {len(detected_contam)} contaminating lines")
@@ -1291,11 +1410,22 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         if len(detected_co_only) > 0:
             mean_detected_wavelength = np.mean(detected_co_only['line'].values)
 
-    # conversion
+    # contam_flux needs its own reference wavelength, not the target lines' -- a pixel
+    # can have a real detected contaminant with zero detected target lines, and
+    # mean_detected_wavelength would then be nan (detected_contam is already
+    # disposition==1 only, unlike detected_target, so no extra filter needed here).
+    mean_detected_contam_wavelength = np.nan
+    if len(detected_contam) > 0 and 'line' in detected_contam.columns:
+        mean_detected_contam_wavelength = np.mean(detected_contam['line'].values)
+
+    # conversion -- flux and contam_flux each convert off their own detections, not
+    # gated on the other one having succeeded.
     flux_cgs = _to_cgs(flux, mean_detected_wavelength)
     if flux_cgs is not None:
-        contam_flux_cgs = _to_cgs(contam_flux, mean_detected_wavelength)
-        flux, contam_flux = flux_cgs, contam_flux_cgs if contam_flux_cgs is not None else contam_flux
+        flux = flux_cgs
+    contam_flux_cgs = _to_cgs(contam_flux, mean_detected_contam_wavelength)
+    if contam_flux_cgs is not None:
+        contam_flux = contam_flux_cgs
 
     # continuum_curve so far only holds fit_glines' own per-chunk baseline (a + b*wave), fit
     # against the ALREADY continuum-subtracted spectrum.

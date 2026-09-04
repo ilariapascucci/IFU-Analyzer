@@ -7,7 +7,10 @@ from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
-from .flux_map_extractor import fit_auto_continuum, fit_hitran_lines_collective, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
+from .flux_map_extractor import (
+    fit_auto_continuum, fit_hitran_lines_collective, DISPLAY_CROP_SIGMA_MULTIPLIER,
+    AREA_ERROR_SANITY_RATIO, SIGMA_BOUND_LOWER_MULTIPLIER, SIGMA_BOUND_UPPER_MULTIPLIER, gaussian,
+)
 
 # Below this many samples in the fit window, a 1D fit will not run without a noise
 # region. The noise value itself does not enter the fit; the gate exists because a
@@ -528,15 +531,35 @@ STATUS: {result.message}
             fit_fine = base_fine + gaussian(x_fine, result.amplitude, result.center, result.sigma) / norm_factor
             return x_fine, base_fine, fit_fine
 
-        for idx, fit_info in enumerate(fit_results):
+        # Continuum plus every Gaussian curve_fit solved for at once, not just this
+        # line's own. Lines sharing an extent give the same curve -- draw it once.
+        def _chunk_curve(result):
+            x_data = result.x_data
+            fit_abs = (np.asarray(result.y_fit) + result.baseline) / norm_factor
+            base_abs = np.asarray(result.baseline) / norm_factor
+            return x_data, base_abs, fit_abs
+
+        chunk_wide = (not hasattr(self, 'multi_gauss_chunkwide_checkbox')
+                      or self.multi_gauss_chunkwide_checkbox.isChecked())
+        seen_extents = set()
+        idx = 0
+        for fit_info in fit_results:
             result = fit_info['result']
-            x_local, base_local, fit_local = _own_curve(result)
+            if chunk_wide:
+                extent_key = (round(float(result.x_data[0]), 6), round(float(result.x_data[-1]), 6))
+                if extent_key in seen_extents:
+                    continue
+                seen_extents.add(extent_key)
+                x_local, base_local, fit_local = _chunk_curve(result)
+            else:
+                x_local, base_local, fit_local = _own_curve(result)
             baseline_line, = ax.plot(x_local, base_local, 'k--', linewidth=2, alpha=0.7,
                                       label='Baseline' if idx == 0 else '', zorder=10)
             gauss_line, = ax.plot(x_local, fit_local, 'r-', linewidth=3, alpha=0.9,
                                    label='Gaussian Fit' if idx == 0 else '', zorder=11)
             fill = ax.fill_between(x_local, base_local, fit_local, color='red', alpha=0.2, zorder=9)
             self.multi_gauss_artists.extend([baseline_line, gauss_line, fill])
+            idx += 1
 
         # Contaminating lines get their own distinctly-colored curve -- these aren't part of
         # the requested fit_results, so drawing them in red alongside real hits would make it
@@ -557,6 +580,20 @@ STATUS: {result.message}
 
         ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw_idle()
+
+    def _on_multi_gauss_display_mode_changed(self):
+        """
+        Redraw the last multi-Gaussian fit under the new curve-display mode.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if getattr(self, 'multi_gauss_results', None):
+            self._plot_multi_gaussian_on_spectrum(
+                self.multi_gauss_results, getattr(self, 'multi_gauss_contam_results', None))
 
     def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None,
                                       failed_results=None):
@@ -582,10 +619,63 @@ STATUS: {result.message}
                 wl_text = f"{wl:.6f} {wave_unit}" if wl is not None else "N/A"
                 results_text += f"{idx}. {line.get('species', 'Unknown')} @ {wl_text}: {result.message}\n"
 
-        results_text += f"\nFITTED LINES:\n{'='*70}\n"
+        results_text += f"\nFITTED LINES (target and contaminant, by wavelength):\n{'='*70}\n"
 
-        for idx, fit_info in enumerate(fit_results, 1):
-            result, line = fit_info['result'], fit_info['line']
+        def _unreliable_reason(result):
+            """
+            Which known mechanism makes this line's area_error unreliable, if any.
+
+            Args:
+                result (GaussianFitResult): One line's fit result
+
+            Returns:
+                reason (str): 'bound' if fitted sigma is pinned at its curve_fit
+                    bound (an optimizer-boundary artifact, not real flux ambiguity),
+                    'blend' if area_error exceeds AREA_ERROR_SANITY_RATIO times the
+                    area for any other reason (usually a genuine close blend), or
+                    None if the line is reliable
+            """
+            if (result.area_error is None
+                    or abs(result.area_error) <= AREA_ERROR_SANITY_RATIO * abs(result.area)):
+                return None
+            if result.catalog_sigma:
+                lower = SIGMA_BOUND_LOWER_MULTIPLIER * result.catalog_sigma
+                upper = SIGMA_BOUND_UPPER_MULTIPLIER * result.catalog_sigma
+                if abs(result.sigma - lower) < 0.01 * lower or abs(result.sigma - upper) < 0.01 * upper:
+                    return 'bound'
+            return 'blend'
+
+        # Interleaved by wavelength (not target lines then contaminants in two separate
+        # blocks) so the listing reads in the same order the lines actually sit in the
+        # spectrum. Line N / Contam N each number within their own kind, not globally.
+        merged_entries = (
+            [('line', idx, fit_info) for idx, fit_info in enumerate(fit_results, 1)]
+            + [('contam', idx, contam_info) for idx, contam_info in enumerate(contam_results or [], 1)]
+        )
+        merged_entries.sort(key=lambda e: e[2]['result'].center)
+
+        for kind, idx, info in merged_entries:
+            result, line = info['result'], info['line']
+            area_err_text = f" ± {result.area_error:.4e}" if result.area_error is not None else ""
+            reason = _unreliable_reason(result)
+            if reason == 'bound':
+                reliability_tag = "  [FLAG: sigma pinned at fit bound]"
+            elif reason == 'blend':
+                reliability_tag = "  [FLAG: error exceeds area]"
+            else:
+                reliability_tag = ""
+
+            if kind == 'contam':
+                results_text += (
+                    f"Contam {idx}: {line.get('species', 'Contaminant')} (not one of the "
+                    f"{len(fit_results)} target lines; shown in grey on the plot)\n"
+                    f"  Center (λ):            {result.center:.6f} {wave_unit}\n"
+                    f"  Amplitude:             {result.amplitude:.4e} {flux_unit}\n"
+                    f"  Integrated Area:       {result.area:.4e}{area_err_text} "
+                    f"{result.area_unit or fallback_area_unit}{reliability_tag}\n"
+                    f"  {'─'*60}\n"
+                )
+                continue
 
             # Catalog identification -- present for HITRAN-sourced lines, absent for
             # custom .lst catalogs, so each is only shown when the line dict has it.
@@ -597,7 +687,6 @@ STATUS: {result.message}
             e_upper = line.get('e_upper')
             e_upper_text = f"{e_upper:.2f} K" if e_upper is not None else "N/A"
 
-            area_err_text = f" ± {result.area_error:.4e}" if result.area_error is not None else ""
             results_text += f"""Line {idx}: {line.get('species', 'Unknown')}
   Line λ (catalog):      {catalog_wave_text}
   Transition:            {transition_text}
@@ -607,9 +696,9 @@ STATUS: {result.message}
   Amplitude:             {result.amplitude:.4e} {flux_unit}
   Sigma (σ):             {result.sigma:.6g} {wave_unit}
   FWHM:                  {result.fwhm:.6g} {wave_unit}
-  Integrated Area:       {result.area:.4e}{area_err_text} {result.area_unit or fallback_area_unit}
+  Integrated Area:       {result.area:.4e}{area_err_text} {result.area_unit or fallback_area_unit}{reliability_tag}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
-        
+
         def _sum_area(results_list):
             """(total, unit_text) if every result shares one area_unit, else (None, note)
             explaining why not -- summing across mismatched units would silently produce a
@@ -626,11 +715,14 @@ STATUS: {result.message}
         mean_r2 = np.mean(r2_values) if r2_values else float('nan')
         n_good = sum(1 for r2 in r2_values if r2 >= 0.5)
 
-        # True quadrature sum over every line's real area_error, nothing excluded --
-        # numerator and error always cover the same set of lines.
-        area_errors = [fit_info['result'].area_error for fit_info in fit_results]
+        # Quadrature sum over every RELIABLE line's area_error. An unreliable line's
+        # area is still counted in total_flux above -- only its error is excluded,
+        # so one near-singular covariance can't dominate the whole total's error bar.
+        reliable_fits = [fit_info for fit_info in fit_results if _unreliable_reason(fit_info['result']) is None]
+        area_errors = [fit_info['result'].area_error for fit_info in reliable_fits]
         total_flux_error = (float(np.sqrt(sum(e ** 2 for e in area_errors)))
-                             if total_flux is not None and all(e is not None for e in area_errors) else None)
+                             if total_flux is not None and area_errors and all(e is not None for e in area_errors)
+                             else None)
 
         results_text += f"\nOVERALL:\n  Total lines fitted:    {len(fit_results)}\n"
         if total_flux is not None:
@@ -647,19 +739,6 @@ STATUS: {result.message}
                 results_text += f"  Total Contaminant Flux: {total_contam_flux:.4e} {total_contam_flux_unit}\n"
             else:
                 results_text += f"  Total Contaminant Flux: {total_contam_flux_unit}\n"
-
-            results_text += (
-                f"\nCONTAMINATING LINES (not part of the {len(fit_results)} lines above -- "
-                f"shown in grey on the plot):\n{'='*70}\n"
-            )
-            for idx, contam_info in enumerate(contam_results, 1):
-                result, line = contam_info['result'], contam_info['line']
-                area_err_text = f" ± {result.area_error:.4e}" if result.area_error is not None else ""
-                results_text += (
-                    f"{idx}. {line.get('species', 'Contaminant')} @ {result.center:.6f} {wave_unit}  "
-                    f"amplitude={result.amplitude:.4e} {flux_unit}  "
-                    f"area={result.area:.4e}{area_err_text} {result.area_unit or fallback_area_unit}\n"
-                )
 
         poor_fits = [fit_info for fit_info in fit_results if fit_info['result'].r_squared < 0.5]
         contam_loaded = getattr(self, 'contam_lines', None) is not None and len(self.contam_lines) > 0
