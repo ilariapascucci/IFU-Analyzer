@@ -52,6 +52,12 @@ from .unit_converter import convert_wavelength, are_units_compatible, clean_flux
 from astropy.units import Quantity
 
 
+# The 2D FITS viewer (gui_2d.py / analyzer_2d.py) ships on main but is not
+# feature-complete. Its GUI entry point stays hidden until it is ready; flip
+# this to True on a feature branch to work on it.
+ENABLE_2D_VIEWER = False
+
+
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
     """
     Extract numeric value from wavelength Quantity or array.
@@ -528,9 +534,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.new_window_btn.setToolTip("Open a new Cube Explorer window")
         self.new_window_btn.clicked.connect(self._open_new_window)
 
-        self.two_d_btn = QPushButton("2D")
-        self.two_d_btn.setToolTip("Open a 2D FITS analyzer window")
-        self.two_d_btn.clicked.connect(self.open_2d_window)
+        if ENABLE_2D_VIEWER:
+            self.two_d_btn = QPushButton("2D")
+            self.two_d_btn.setToolTip("Open a 2D FITS analyzer window")
+            self.two_d_btn.clicked.connect(self.open_2d_window)
 
         self.rot_diag_btn = QPushButton("Rot Diag")
         self.rot_diag_btn.setToolTip("Open rotational diagram analyzer for H2")
@@ -544,7 +551,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.controls_layout.addWidget(self.header_btn)
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
-        self.controls_layout.addWidget(self.two_d_btn)
+        if ENABLE_2D_VIEWER:
+            self.controls_layout.addWidget(self.two_d_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
