@@ -37,6 +37,7 @@ from .gui_continuum import GuiContinuumMixin
 from .gui_gaussian import GuiGaussianMixin
 from .gui_flux_map import GuiFluxMapMixin
 from .gui_spectrum import GuiSpectrumMixin
+from .gui_region_selection import RegionSelectionMixin
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
@@ -271,7 +272,8 @@ class WavelengthSpinBox(QDoubleSpinBox):
         self.setValue(float(wl[idx]))
 
 
-class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin, GuiSpectrumMixin):
+class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin, GuiSpectrumMixin,
+                   RegionSelectionMixin):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Cube Explorer")
@@ -556,6 +558,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.slice1_plotter = SlicePlotter(self.slice1_fig)
         self.slice1_toolbar = CustomNavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "left"))
+        self.slice1_canvas.mpl_connect("motion_notify_event", lambda e: self._on_slice_hover(e, "left"))
 
         # Right slice
         self.slice2_fig = Figure(figsize=(4, 4), dpi=100)
@@ -565,6 +568,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.slice2_plotter = SlicePlotter(self.slice2_fig)
         self.slice2_toolbar = CustomNavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "right"))
+        self.slice2_canvas.mpl_connect("motion_notify_event", lambda e: self._on_slice_hover(e, "right"))
 
         # Spectrum
         self.spec_fig = Figure(figsize=(8, 3), dpi=100)
@@ -586,6 +590,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.stats2_label = QLabel("Slice 2 Stats:\n-")
         self.stats2_label.setMinimumWidth(150)
         self.stats2_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
+
+        # Live cursor readout under each slice (Pixel + Value)
+        self.hover1_label = QLabel("Cursor Info:\n-")
+        self.hover1_label.setMinimumWidth(150)
+        self.hover1_label.setWordWrap(True)
+        self.hover1_label.setStyleSheet("font-size: 10pt; color: #333;")
+
+        self.hover2_label = QLabel("Cursor Info:\n-")
+        self.hover2_label.setMinimumWidth(150)
+        self.hover2_label.setWordWrap(True)
+        self.hover2_label.setStyleSheet("font-size: 10pt; color: #333;")
 
         # Slice selection buttons
         self.set_left_btn = QPushButton("Set Left Slice")
@@ -909,6 +924,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Left stats column (will take 25% of left half)
         left_stats_layout = QVBoxLayout()
         left_stats_layout.addWidget(self.stats1_label)
+        left_stats_layout.addSpacing(12)
+        left_stats_layout.addWidget(self.hover1_label)
         left_stats_layout.addStretch()
 
         # Left combined area (slice + sidebar) (will take 75% of left half)
@@ -942,6 +959,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # RIGHT HALF (mirror)
         right_stats_layout = QVBoxLayout()
         right_stats_layout.addWidget(self.stats2_label)
+        right_stats_layout.addSpacing(12)
+        right_stats_layout.addWidget(self.hover2_label)
         right_stats_layout.addStretch()
 
         right_combined = QHBoxLayout()
@@ -1401,6 +1420,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         
         # Intensity stats with units
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
+        total_sum, std = np.nansum(image), np.nanstd(image)
         unit_raw = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
         unit = clean_flux_unit(unit_raw)
         stats_label.setText(
@@ -1408,6 +1428,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             f"min={mn:.3e}\n"
             f"max={mx:.3e}\n"
             f"mean={mean:.3e}\n"
+            f"sum={total_sum:.3e}\n"
+            f"std={std:.3e}\n"
         )
 
         # Force redraw
@@ -1418,510 +1440,35 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.slice2_canvas.draw()
             self.last_idx_right = idx
 
-    def _set_region_state(self, side, new_state):
-        """Central state transition for region-selection interaction on one side.
-
-        Single source of truth for shape-button enablement, the Edit Shape
-        button's enabled/checked state, and InteractivePatch handler wiring -
-        so these can never drift out of sync with each other (which is what
-        previously let stale drag handlers survive an erase, and let editing
-        be always-on with no explicit commit step).
-        """
-        selector = self.region_selector_left if side == "left" else self.region_selector_right
-        edit_btn = self.edit_shape_btn_l if side == "left" else self.edit_shape_btn_r
-        old_state = self.region_state.get(side, "idle")
-
-        # Leaving "editing" always unwires the drag handlers first, regardless
-        # of which state we're moving to (placed or idle).
-        if old_state == "editing" and new_state != "editing" and selector.interactive_patch is not None:
-            selector.interactive_patch.disconnect_handlers()
-
-        self.region_state[side] = new_state
-
-        if new_state == "idle":
-            for btn in self.shape_buttons[side].values():
-                btn.setEnabled(True)
-                btn.setChecked(False)
-            edit_btn.setEnabled(False)
-            edit_btn.setChecked(False)
-        elif new_state == "drawing":
-            active_shape = self.active_shape if self.active_target == side else None
-            for shape, btn in self.shape_buttons[side].items():
-                btn.setEnabled(shape == active_shape)
-            edit_btn.setEnabled(False)
-            edit_btn.setChecked(False)
-        elif new_state == "placed":
-            for btn in self.shape_buttons[side].values():
-                btn.setEnabled(False)
-                btn.setChecked(False)
-            sel = self.last_selection_left if side == "left" else self.last_selection_right
-            edit_btn.setEnabled(bool(sel) and sel.get("shape") != "*")
-            edit_btn.setChecked(False)
-        elif new_state == "editing":
-            for btn in self.shape_buttons[side].values():
-                btn.setEnabled(False)
-            edit_btn.setEnabled(True)
-            edit_btn.setChecked(True)
-            if selector.interactive_patch is not None:
-                selector.interactive_patch.connect()
-
-    def _toggle_edit_shape(self, side):
-        """Handle the Edit Shape button click for one side."""
-        state = self.region_state.get(side, "idle")
-        if state == "placed":
-            self._set_region_state(side, "editing")
-        elif state == "editing":
-            self._set_region_state(side, "placed")
-        else:
-            # Button should be disabled outside placed/editing; guard defensively.
-            edit_btn = self.edit_shape_btn_l if side == "left" else self.edit_shape_btn_r
-            edit_btn.setChecked(False)
-
-    def _set_shape(self, shape, target):
-        """Handle shape button activation"""
-        # Update active shape and target
-        if self.active_shape == shape and self.active_target == target:
-            self.active_shape = None
-            self.active_target = None
-        else:
-            self.active_shape = shape
-            self.active_target = target
-
-        # Update button states
-        for side in ["left", "right"]:
-            for btn_shape, btn in self.shape_buttons[side].items():
-                btn.setChecked(
-                    side == target and btn_shape == shape and self.active_shape is not None
-                )
-
-        # Activate appropriate selector
-        selector = (
-            self.region_selector_left if target == "left" else self.region_selector_right
-        )
-        if self.active_shape:
-            selector.activate_selector(shape)
-            self._set_region_state(target, "drawing")
-        else:
-            selector.activate_selector(None)
-            self._set_region_state(target, "idle")
-
-    def _handle_region_select(self, mask, patch, coords, target):
-        """Handle region selection completion"""
-        # Store selection (coords are xmin,xmax,ymin,ymax)
-        xmin, xmax, ymin, ymax = coords
-
-        # Determine which slice index and image to use
+    # ----- Region selection: the shared controller lives in RegionSelectionMixin.
+    # ----- These hooks feed it the 3D window's cube-backed data. ----------------
+    def _region_image(self, target):
+        """2D array currently shown in the given panel ('left'/'right'), or None."""
         idx = self.last_idx_left if target == "left" else self.last_idx_right
-        image = self.cube_data.get_slice(idx)
-        if image is None:
-            return
+        return self.cube_data.get_slice(idx)
 
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
+    def _region_flux_unit(self, target):
+        """Cleaned flux-unit string for the given panel ('' when unknown)."""
+        unit_raw = getattr(self.cube_data, "flux_unit", "")
+        return clean_flux_unit(unit_raw) if unit_raw else ""
 
-        # This callback also fires on every mouse-move tick of a live
-        # drag/resize while "editing" (not just once when a selection first
-        # completes) - in that case we must NOT tear down the handles or
-        # touch region_state, since the drag is still in progress.
-        is_live_edit_tick = self.region_state.get(target) == "editing"
+    def _region_stats_placeholder(self, target):
+        return "Slice 1 Stats:\n-" if target == "left" else "Slice 2 Stats:\n-"
 
-        # Build full-size mask matching the image shape
-        if mask.shape == image.shape:
-            full_mask = mask
-        else:
-            full_mask = np.zeros_like(image, dtype=bool)
-            h_mask, w_mask = mask.shape
-            y0 = ymin
-            x0 = xmin
-            y1 = y0 + h_mask
-            x1 = x0 + w_mask
+    # Pixel readout stays Pixel + Intensity only: RA/DEC omitted (mixin default
+    # _region_pixel_coords -> None; cube spaxel sky position often unavailable
+    # and not useful here) and wavelength omitted (already on the spectrum and
+    # the slice title - no need for a third copy), so no _region_pixel_* /
+    # _region_pixel_extra_lines overrides.
 
-            y0, y1 = int(y0), int(y1)
-            x0, x1 = int(x0), int(x1)
-            
-            # Clip to image bounds
-            y1 = min(y1, image.shape[0])
-            x1 = min(x1, image.shape[1])
-            full_mask[y0:y1, x0:x1] = mask[:(y1-y0), :(x1-x0)]
-
-        # Determine the shape identity. Normally read from the selector (not
-        # self.active_shape) since copy_selection sets it there directly. But
-        # during a live edit-tick, selector.active_shape is already stale -
-        # activate_selector(None) at the end of the ORIGINAL completed draw
-        # already reset it to None, so re-reading it here on every drag tick
-        # would silently overwrite the selection's shape (e.g. a moved
-        # freeform losing its "✏" identity and degrading to a rectangle).
-        # A live edit is always modifying an already-placed selection, so its
-        # shape can never change mid-edit - reuse the existing one.
-        if is_live_edit_tick:
-            existing_sel = self.last_selection_left if target == "left" else self.last_selection_right
-            shape = existing_sel["shape"] if existing_sel else selector.active_shape
-        else:
-            shape = selector.active_shape
-
-        # Save selection with full mask and label.
-        selection = {
-            "shape": shape,
-            "coords": coords,
-            "mask": full_mask,
-            "label": f'{target.capitalize()} Selection',
-            "patch": patch  # Store patch for lasso recreation
-        }
-        if target == "left":
-            self.last_selection_left = selection
-        else:
-            self.last_selection_right = selection
-
-        # Update plot: add patch and record it
-        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-        # When creating a region, remove previous pixel marker(s) so selection is exclusive
-        if hasattr(plotter.ax, 'pixel_marker'):
-            for artist in getattr(plotter.ax, 'pixel_marker'):
-                try:
-                    artist.remove()
-                except Exception:
-                    pass
-            plotter.ax.pixel_marker = []
-
-        # Remove previous region patches so only last selection remains
-        if hasattr(plotter.ax, 'area_artists'):
-            for artist in getattr(plotter.ax, 'area_artists'):
-                try:
-                    artist.remove()
-                except Exception:
-                    pass
-        plotter.ax.area_artists = []
-
-        # Remove all handle scatter collections so they don't linger - but not
-        # during a live edit-tick, where the only handle collection that
-        # exists IS the one belonging to the shape currently being dragged.
-        if not is_live_edit_tick:
-            for collection in list(plotter.ax.collections):
-                try:
-                    if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
-                        collection.remove()
-                        print(f"[DEBUG] Removed lingering handle collection")
-                except Exception as e:
-                    print(f"[DEBUG] Error removing lingering handle collection: {e}")
-
-        # Add the new patch and record it
-        plotter.ax.add_patch(patch)
-        plotter.ax.area_artists.append(patch)
-        
-        # Hide the selector handles after selection is complete
-        if selector.selector is not None:
+    def _region_on_change(self, target, kind):
+        if kind == "clear":
             try:
-                # Set selector to non-interactive to hide handles
-                if hasattr(selector.selector, 'set_active'):
-                    selector.selector.set_active(False)
-                # Alternatively, make it invisible
-                if hasattr(selector.selector, 'set_visible'):
-                    selector.selector.set_visible(False)
-            except Exception as e:
-                print(f"[DEBUG] Could not hide selector handles: {e}")
-        
-        if target == "left":
-            self.slice1_canvas.draw()
-        else:
-            self.slice2_canvas.draw()
-        
-        # Deselect the shape button and deactivate the selector
-        self.active_shape = None
-        self.active_target = None
-        for side in ["left", "right"]:
-            for btn in self.shape_buttons[side].values():
-                btn.setChecked(False)
-        selector.activate_selector(None)
-        if not is_live_edit_tick:
-            self._set_region_state(target, "placed")
-
-        # Compute stats for the selected area and update label
-        selected_area = image[full_mask]
-        if selected_area.size > 0:
-            mn = np.nanmin(selected_area)
-            mx = np.nanmax(selected_area)
-            mean = np.nanmean(selected_area)
-            total_sum = np.nansum(selected_area) # Add sum
-            std = np.nanstd(selected_area) # Add standard deviation
-            
-            stats_label = self.stats1_label if target == "left" else self.stats2_label
-            current_text = stats_label.text().split("\n")
-            
-            # Keep the slice stats if they exist (they start with "Intensity:")
-            slice_stats = [line for line in current_text if line.startswith("Intensity:")]
-            
-            # Get cleaned flux unit
-            unit_raw = getattr(self.cube_data, "flux_unit", "")
-            unit = clean_flux_unit(unit_raw) if unit_raw else ""
-
-            # Create region stats with sum and std. The unit goes on its own
-            # line (matching the slice-stats label above) so it is not clipped
-            # by the narrow stats panel.
-            region_stats = [
-                "Intensity (Area Selected)" if unit else "Intensity (Area Selected):",
-            ]
-            if unit:
-                region_stats.append(f"[{unit}]:")
-            region_stats += [
-                f"min={mn:.3e}",
-                f"max={mx:.3e}",
-                f"mean={mean:.3e}",
-                f"sum={total_sum:.3e}",
-                f"std={std:.3e}"
-            ]
-            
-            # Combine stats (slice stats first, then region stats)
-            combined_stats = slice_stats + [""] + region_stats if slice_stats else region_stats
-            stats_label.setText("\n".join(combined_stats))
-
-        # Diagnostic: print mask summary to help debug zero spectra
-        try:
-            n_pixels = int(np.count_nonzero(full_mask))
-        except Exception:
-            n_pixels = None
-        print(f"REGION DEBUG [{target}] mask pixels={n_pixels}, mask_shape={full_mask.shape}")
-        print(f"REGION DEBUG [left] type={type(self.last_selection_left)}, shape={getattr(self.last_selection_left, 'shape', None)}")
-
-        # Note: the region spectrum is no longer plotted as an always-visible
-        # overlay here - it's shown only when this side's spectrum tab is
-        # active, via the _refresh_active_spectrum_tab() call below.
-
-        # Ensure the slice canvas is redrawn to show handles (use draw() for live updates)
-        try:
-            if target == "left":
-                self.slice1_canvas.draw()
-            else:
-                self.slice2_canvas.draw()
-        except Exception as e:
-            print(f"[DEBUG] Error updating slice canvas: {e}")
-
-        # Keep the spectrum tab live if this side's tab is the active one
-        if self.active_spectrum_tab == target:
+                self.spec_canvas.draw()
+            except Exception:
+                pass
+        if getattr(self, "active_spectrum_tab", None) == target:
             self._refresh_active_spectrum_tab()
-
-    def copy_selection(self, source, target):
-        """Copy region selection from one side to the other"""
-        source_selection = (
-            self.last_selection_right if source == "right" else self.last_selection_left
-        )
-        if not source_selection:
-            return
-
-        if source_selection["shape"] == "*":
-            # Handle pixel selection
-            x, y = source_selection["coords"]
-            self._handle_pixel_click(x, y, target)
-        elif source_selection["shape"] == "✏":
-            # Handle lasso selection - need to recreate from vertices
-            if "patch" in source_selection and hasattr(source_selection["patch"], "lasso_verts"):
-                verts = source_selection["patch"].lasso_verts
-                selector = (
-                    self.region_selector_left if target == "left" else self.region_selector_right
-                )
-                selector.active_shape = "✏"
-                # Call on_lasso_select directly with the stored vertices
-                selector.on_lasso_select(verts)
-            else:
-                # Fallback: try to create from bounding box if vertices not available
-                selector = (
-                    self.region_selector_left if target == "left" else self.region_selector_right
-                )
-                selector.active_shape = source_selection["shape"]
-                try:
-                    # Convert coords to integers for safety
-                    coords = tuple(int(c) for c in source_selection["coords"])
-                    selector.create_region(coords)
-                except Exception as e:
-                    print(f"[DEBUG] Error copying lasso: {e}")
-        else:
-            # Handle regular region selection (rectangle, circle, ellipse)
-            selector = (
-                self.region_selector_left if target == "left" else self.region_selector_right
-            )
-            selector.active_shape = source_selection["shape"]
-            # Convert coords to integers for safety
-            coords = tuple(int(c) for c in source_selection["coords"])
-            selector.create_region(coords)
-
-    def clear_region(self, target):
-        """Clear the current region selection and remove overlays for a side"""
-        state = self.region_state.get(target, "idle")
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-
-        if state == "drawing":
-            # Abort the in-progress draw - nothing has been placed yet.
-            self.active_shape = None
-            self.active_target = None
-            selector.activate_selector(None)
-            for btn in self.shape_buttons[target].values():
-                btn.setChecked(False)
-            self._set_region_state(target, "idle")
-            return
-
-        if target == "left":
-            sel = self.last_selection_left
-            plotter = self.slice1_plotter
-        else:
-            sel = self.last_selection_right
-            plotter = self.slice2_plotter
-
-        # Disconnect and drop the interactive patch so its drag handlers don't
-        # survive the erase - previously they stayed wired to the canvas and
-        # could resurrect/interfere with a later draw in the same spot.
-        if selector.interactive_patch is not None:
-            selector.interactive_patch.disconnect()
-            selector.interactive_patch = None
-
-        if not sel:
-            self._set_region_state(target, "idle")
-            return
-
-        # Remove pixel marker (point/"*" selections don't use area_artists)
-        if hasattr(plotter.ax, 'pixel_marker'):
-            for marker in plotter.ax.pixel_marker:
-                try:
-                    marker.remove()
-                except Exception:
-                    pass
-            plotter.ax.pixel_marker = []
-
-        # Remove patches from the slice axes
-        if hasattr(plotter.ax, 'area_artists'):
-            for artist in plotter.ax.area_artists:
-                try:
-                    artist.remove()
-                except Exception:
-                    pass
-            plotter.ax.area_artists = []
-
-        # Remove all handle scatter collections associated with patches
-        for collection in list(plotter.ax.collections):
-            try:
-                if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
-                    collection.remove()
-                    print(f"[DEBUG] Removed handle scatter collection")
-            except Exception as e:
-                print(f"[DEBUG] Error removing handle collection: {e}")
-
-        # Redraw slice and spectrum
-        if target == "left":
-            self.slice1_canvas.draw()
-            self.last_selection_left = None
-            self.stats1_label.setText("Slice 1 Stats:\n-")
-        else:
-            self.slice2_canvas.draw()
-            self.last_selection_right = None
-            self.stats2_label.setText("Slice 2 Stats:\n-")
-
-        try:
-            self.spec_canvas.draw()
-        except Exception:
-            pass
-
-        self._set_region_state(target, "idle")
-
-        # This side's tab (if active) now has no selection - _refresh_active_spectrum_tab
-        # will correctly show it as empty rather than falling back to Full.
-        if self.active_spectrum_tab == target:
-            self._refresh_active_spectrum_tab()
-
-    def _handle_pixel_click(self, x, y, target):
-        """Handle pixel selection"""
-        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-        stats_label = self.stats1_label if target == "left" else self.stats2_label
-        idx = self.last_idx_left if target == "left" else self.last_idx_right
-        
-        try:
-            # Get pixel intensity
-            image = self.cube_data.get_slice(idx)
-            if image is None:
-                return
-                
-            if 0 <= y < image.shape[0] and 0 <= x < image.shape[1]:
-                intensity = float(image[y, x])  # Ensure it's a regular float
-                
-                # Store selection for later use
-                label = f'{target.capitalize()} Selection'
-                if target == "left":
-                    self.last_selection_left = {"shape": "*", "coords": (x, y), "mask": None, "label": label}
-                else:
-                    self.last_selection_right = {"shape": "*", "coords": (x, y), "mask": None, "label": label}
-
-                # Get coordinates
-                ra, dec = self.cube_data.get_coords(x, y)
-
-                # Update stats label with appropriate formatting
-                stats_text = [
-                    f"Pixel: (x={x}, y={y})",
-                    f"Intensity={intensity:.3e}"
-                ]
-                
-                if ra is not None and dec is not None:
-                    stats_text.extend([
-                        f"RA={ra:.6f}°",
-                        f"DEC={dec:.6f}°"
-                    ])
-                    
-                if self.cube_data.wavelength is not None:
-                    # Extract wavelength value, handling Quantity objects
-                    wave = _extract_wavelength_value(self.cube_data.wavelength, idx)
-                    if self.cube_data.wave_unit == "Å":
-                        stats_text.append(f"λ={wave:.6f} Å")
-                    elif self.cube_data.wave_unit == "µm":
-                        stats_text.append(f"λ={wave:.6f} µm")
-                    elif self.cube_data.wave_unit == "km/s":
-                        stats_text.append(f"v={wave:.1f} km/s")
-                    else:
-                        stats_text.append(f"λ={wave:.6f}")
-
-                stats_label.setText("\n".join(stats_text))
-
-                # When clicking a pixel remove any existing region patches (exclusive selection)
-                selector = self.region_selector_left if target == "left" else self.region_selector_right
-                if selector.interactive_patch is not None:
-                    selector.interactive_patch.disconnect()
-                    selector.interactive_patch = None
-
-                if hasattr(plotter.ax, 'area_artists'):
-                    for artist in getattr(plotter.ax, 'area_artists'):
-                        try:
-                            artist.remove()
-                        except Exception:
-                            pass
-                    plotter.ax.area_artists = []
-
-                # Remove all handle scatter collections
-                for collection in list(plotter.ax.collections):
-                    try:
-                        if hasattr(collection, '_is_handle_collection') and collection._is_handle_collection:
-                            collection.remove()
-                    except Exception:
-                        pass
-
-                # Clear existing pixel markers
-                if hasattr(plotter.ax, 'pixel_marker'):
-                    for marker in plotter.ax.pixel_marker:
-                        marker.remove()
-                    plotter.ax.pixel_marker = []
-
-                # Update marker
-                plotter.update_pixel_marker(x, y)
-                
-                # Force immediate redraw
-                if target == "left":
-                    self.slice1_canvas.draw()
-                else:
-                    self.slice2_canvas.draw()
-                
-                self.active_shape = None
-                self.active_target = None
-                self._set_region_state(target, "placed")
-
-                # Keep the spectrum tab live if this side's tab is the active one
-                if self.active_spectrum_tab == target:
-                    self._refresh_active_spectrum_tab()
-
-        except Exception as e:
-            print(f"Error handling pixel click: {e}")
 
     def _on_slice_click(self, event, target):
         """Handle clicks on slice display"""
@@ -1938,6 +1485,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         x = int(round(event.xdata))
         y = int(round(event.ydata))
         self._handle_pixel_click(x, y, target)
+
+    def _on_slice_hover(self, event, target):
+        """Live cursor readout (pixel + value) as the mouse moves over a slice."""
+        hover_label = self.hover1_label if target == "left" else self.hover2_label
+        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
+        if (event.inaxes != plotter.ax or event.xdata is None or event.ydata is None
+                or not getattr(self, "cube_data", None)):
+            hover_label.setText("Cursor Info:\n-")
+            return
+        ix, iy = int(round(event.xdata)), int(round(event.ydata))
+        image = self._region_image(target)
+        if image is None or not (0 <= iy < image.shape[0] and 0 <= ix < image.shape[1]):
+            hover_label.setText("Cursor Info:\n-")
+            return
+        unit = self._region_flux_unit(target)
+        unit_str = f" [{unit}]" if unit else ""
+        hover_label.setText(
+            f"Cursor Info:\nPixel: {ix}, {iy}\nVal: {float(image[iy, ix]):.4e}{unit_str}")
 
     def _on_spec_click(self, event):
         """Handle clicks on the spectrum display"""
@@ -2100,51 +1665,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         else:
             self.set_left_btn.setChecked(False)
             self.active_target = "right" if self.set_right_btn.isChecked() else None
-
-    def _recreate_region(self, xmin, xmax, ymin, ymax, mask, target):
-        """Recreate a region selection's visual patch after changing slices.
-
-        Delegates to the same RegionSelector.create_region/on_lasso_select
-        pipeline used for an organic draw or a copy_selection() (rather than
-        hand-building a static patch), so the shape type is always correct
-        (read from the stored selection, not selector.active_shape - which is
-        always None here since activate_selector(None) resets it right after
-        any selection completes), lasso is handled, and the result gets a
-        fresh (unconnected) InteractivePatch instead of one pointing at a
-        stale, already-removed artist.
-        """
-        sel = self.last_selection_left if target == "left" else self.last_selection_right
-        if not sel:
-            return
-        shape = sel.get("shape")
-
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-
-        # Drop any existing interactive patch before rebuilding - its patch
-        # reference is about to become stale the moment a new artist is made.
-        if selector.interactive_patch is not None:
-            selector.interactive_patch.disconnect()
-            selector.interactive_patch = None
-
-        selector.active_shape = shape
-        if shape == "✏":
-            verts = getattr(sel.get("patch"), "lasso_verts", None)
-            if verts is not None:
-                selector.on_lasso_select(verts)
-            else:
-                # No stored vertices to rebuild from - fall back to the
-                # selection's bounding box as a rectangle.
-                selector.active_shape = "▭"
-                selector.create_region((xmin, xmax, ymin, ymax))
-        else:
-            selector.create_region((xmin, xmax, ymin, ymax))
-        selector.active_shape = None
-
-        # create_region/on_lasso_select call back into _handle_region_select,
-        # which redraws the slice/spectrum, updates last_selection_*, and
-        # transitions region_state to "placed".
-
-
 
     def apply_doppler_shift(self):
         """Preview a multiplicative Doppler shift for whichever spectrum tab
@@ -3442,7 +2962,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
     def open_2d_window(self):
         try:
-            from .ifu_analyzer_2d import Ifu_analyzer_2d_window  # new file/module
+            from .gui_2d import Ifu_analyzer_2d_window
 
             two_d_window = Ifu_analyzer_2d_window()
             two_d_window.resize(self.width(), self.height())

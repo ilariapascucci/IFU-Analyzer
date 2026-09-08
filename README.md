@@ -648,7 +648,8 @@ IFU-Analyzer/
 │   ├── gui_continuum.py        # Continuum subtraction mixin (auto + custom modes)
 │   ├── gui_gaussian.py         # Gaussian fitting mixin
 │   ├── gui_flux_map.py         # Flux mapping mixin (any target species)
-│   ├── ifu_analyzer_2d.py      # 2D FITS dual viewer (WCS, rotation, contours, superimpose, resolution matching)
+│   ├── gui_2d.py               # 2D FITS dual viewer window (WCS, rotation, contours, superimpose)
+│   ├── analyzer_2d.py          # GUI-free reprojection + Gaussian-convolution resolution matching for gui_2d
 │   ├── data_loader.py          # FITS loading & instrument detection
 │   ├── gaussian_fitter.py      # Gaussian fitting algorithms
 │   ├── flux_map_extractor.py   # Rovibrational flux mapping (any target species)

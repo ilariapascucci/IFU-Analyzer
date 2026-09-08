@@ -1,5 +1,7 @@
 """
-Main GUI class for the Dual 2D FITS Viewer
+Dual 2D FITS Viewer - the ``Ifu_analyzer_2d_window`` QWidget plus its batch
+resolution-matching dialog. The reprojection/convolution math lives in
+``analyzer_2d.py`` (GUI-free); this module is Qt only.
 """
 
 import os
@@ -9,22 +11,19 @@ import tempfile
 import warnings
 import traceback
 import numpy as np
-import matplotlib.patches as patches
 from astropy.io import fits
 from astropy.wcs import WCS
-from astropy.wcs.utils import proj_plane_pixel_scales  # used by: _get_pixel_size_arcsec
-from astropy.stats import sigma_clipped_stats
-from astropy.convolution import convolve_fft, Gaussian2DKernel  # used by: gaussian_convolve_match
-from astropy.coordinates import SkyCoord  # used by: build_target_wcs_for_batch, _apply_loaded_contour
-import astropy.units as u  # used by: build_target_wcs_for_batch, _apply_loaded_contour
-from scipy.ndimage import rotate
+from astropy.stats import sigma_clipped_stats  # used by: _apply_contour
+from astropy.coordinates import SkyCoord  # used by: _apply_loaded_contour
+import astropy.units as u  # used by: _apply_loaded_contour
+from scipy.ndimage import rotate  # used by: rotate_image
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -35,629 +34,20 @@ from PyQt5.QtCore import Qt
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
-
-# ==============================================================================
-# RESOLUTION MATCHING HELPERS  (v3, clean implementation)
-# ==============================================================================
-
-def _get_pixel_size_arcsec(header):
-    """Return the celestial pixel scale (arcsec/pixel) from a FITS header.
-
-    Uses ``astropy.wcs.utils.proj_plane_pixel_scales`` so that rotated CD
-    / PC matrices (e.g. JWST IFU) are handled correctly.  Falls back to
-    raw CDELT keywords if the WCS cannot be built.
-    """
-    try:
-        w = WCS(header)
-        if w.has_celestial:
-            return abs(float(proj_plane_pixel_scales(w.celestial)[0])) * 3600.0
-    except Exception:
-        pass
-    for k in ('CDELT1', 'CD1_1'):
-        if k in header:
-            try:
-                return abs(float(header[k])) * 3600.0
-            except Exception:
-                pass
-    return None
-
-
-def _make_2d_wcs(header):
-    """Build a clean 2-D celestial WCS from a header (drops trivial axes)."""
-    try:
-        w = WCS(header)
-        if w.pixel_n_dim > 2 and w.has_celestial:
-            return w.celestial
-        while w.pixel_n_dim > 2:
-            w = w.dropaxis(w.pixel_n_dim - 1)
-        return w
-    except Exception:
-        return None
-    
-# ----------------------------------------------------------------------
-# 2. Gaussian convolution -- pure astropy, NaN-aware, flux-preserving
-# ----------------------------------------------------------------------
-
-def gaussian_convolve_match(image, sigma_pix):
-    """
-    Smooth ``image`` with a Gaussian of width ``sigma_pix`` (in pixels)
-    using ``astropy.convolution.convolve_fft``.
-
-    * NaN pixels in the input are interpolated through during the
-      convolution and then put back as NaN (the convolution itself sees
-      a continuous image, so flux from real pixels does not "leak" into
-      NaN regions in the output).
-
-    * After convolution, total flux over the originally-finite pixel
-      mask is renormalised to match the input total.  This compensates
-      for kernel-spill across the image edge -- without it, a Gaussian
-      whose tails reach beyond the array boundary would silently lose
-      a fraction of the flux.
-
-    Returns a new array; ``image`` is not modified.
-
-    If ``sigma_pix <= 0`` (the two scales already match), this returns
-    ``image.copy()`` unchanged -- the function is a no-op in that case,
-    so calling it repeatedly on a same-resolution pair is idempotent.
-    """
-    image = np.asarray(image, dtype=float)
-    if not np.isfinite(sigma_pix) or sigma_pix <= 0.05:
-        return image.copy()
-
-    kernel = Gaussian2DKernel(x_stddev=float(sigma_pix))
-
-    finite_mask = np.isfinite(image)
-    sum_in = float(np.nansum(image[finite_mask]))
-
-    # nan_treatment='interpolate': during convolution NaNs are replaced
-    # by the local kernel-weighted mean of finite neighbours, so the
-    # convolution computes correctly across NaN gaps.
-    # preserve_nan=True: original NaN positions are restored at the end.
-    out = convolve_fft(
-        image, kernel,
-        nan_treatment='interpolate',
-        preserve_nan=True,
-        boundary='fill', fill_value=0.0,
-        normalize_kernel=True,
-        allow_huge=True,
-    )
-
-    out = np.array(out, dtype=float)
-    out = np.where(finite_mask, out, np.nan)
-    sum_out = float(np.nansum(out[finite_mask]))
-    if sum_in != 0.0 and sum_out != 0.0:
-        scale = sum_in / sum_out
-        if 0.5 < scale < 2.0:
-            out = np.where(finite_mask, out * scale, np.nan)
-
-    return out
-
-
-# ----------------------------------------------------------------------
-# 3. Building output WCS at the worst pixel scale
-# ----------------------------------------------------------------------
-
-def _decompose_cd(wcs):
-    """Return (rotation_unit_vectors, x_scale_deg, y_scale_deg) for a WCS.
-
-    We split the CD matrix into rotation columns (unit vectors) and the
-    per-axis scales.  This lets us re-build a CD matrix with the same
-    ROTATION but a DIFFERENT (coarser) pixel scale.
-    """
-    try:
-        cd = wcs.pixel_scale_matrix
-    except Exception:
-        cd = np.diag(np.asarray(wcs.wcs.cdelt, dtype=float))
-    sx = float(np.hypot(cd[0, 0], cd[1, 0]))   # |column 1|
-    sy = float(np.hypot(cd[0, 1], cd[1, 1]))   # |column 2|
-    ux = cd[:, 0] / sx if sx > 0 else np.array([1.0, 0.0])
-    uy = cd[:, 1] / sy if sy > 0 else np.array([0.0, 1.0])
-    sign_x = -1.0 if cd[0, 0] < 0 else 1.0   # follow input parity
-    sign_y =  1.0 if cd[1, 1] > 0 else -1.0
-    return ux, uy, sx, sy, sign_x, sign_y
-
-
-def build_target_wcs_for_pair(fine_wcs, fine_shape, target_pix_arcsec):
-    """
-    Output WCS for a single fine image being matched to a coarser scale.
-
-    The output WCS:
-      - has the same celestial CENTRE as the fine image,
-      - inherits the fine image's ROTATION,
-      - uses ``target_pix_arcsec`` as its pixel scale,
-      - has shape large enough to fully contain the fine image.
-
-    Returns ``(out_wcs, (ny, nx))``.
-    """
-    ny_in, nx_in = fine_shape
-    cx_in = (nx_in - 1) / 2.0
-    cy_in = (ny_in - 1) / 2.0
-    sky_centre = fine_wcs.pixel_to_world(cx_in, cy_in)
-
-    ux, uy, sx_deg, sy_deg, sign_x, sign_y = _decompose_cd(fine_wcs)
-    pix_deg = target_pix_arcsec / 3600.0
-
-    out = WCS(naxis=2)
-    out.wcs.ctype = ['RA---TAN', 'DEC--TAN']
-    out.wcs.crval = [float(sky_centre.ra.deg), float(sky_centre.dec.deg)]
-    out.wcs.cunit = ['deg', 'deg']
-    out.wcs.cd = np.column_stack([ux * pix_deg * sign_x,
-                                  uy * pix_deg * sign_y])
-
-    # Output shape: scale up the fine FOV by (fine_pix / target_pix), pad +2
-    fine_pix_x_arcsec = sx_deg * 3600.0
-    fine_pix_y_arcsec = sy_deg * 3600.0
-    nx_out = int(np.ceil(nx_in * fine_pix_x_arcsec / target_pix_arcsec)) + 2
-    ny_out = int(np.ceil(ny_in * fine_pix_y_arcsec / target_pix_arcsec)) + 2
-    if nx_out % 2 == 0:
-        nx_out += 1
-    if ny_out % 2 == 0:
-        ny_out += 1
-    out.wcs.crpix = [(nx_out + 1) / 2.0, (ny_out + 1) / 2.0]
-    return out, (ny_out, nx_out)
-
-
-def build_target_wcs_for_batch(input_wcss_and_shapes, target_pix_arcsec):
-    """
-    Output WCS that covers the UNION of every input image's footprint
-    at the coarse target scale, oriented to match the LARGEST-AREA input.
-
-    Returns ``(out_wcs, (ny, nx))``.
-    """
-    inputs = list(input_wcss_and_shapes)
-
-    # Find the largest-area image (proxy: just shape * pix^2 in arcsec^2).
-    # This is the "reference" for orientation and centre.
-    best_idx = 0
-    best_area = -1.0
-    all_corners_ra = []
-    all_corners_dec = []
-    for idx, (w, shape) in enumerate(inputs):
-        ny, nx = shape
-        xs = np.array([-0.5, nx - 0.5, nx - 0.5, -0.5])
-        ys = np.array([-0.5, -0.5, ny - 0.5, ny - 0.5])
-        sky = w.pixel_to_world(xs, ys)
-        all_corners_ra.append(np.asarray(sky.ra.deg))
-        all_corners_dec.append(np.asarray(sky.dec.deg))
-        # Approx tangent-plane area using small-angle on cos(dec)
-        ra = np.asarray(sky.ra.deg); dec = np.asarray(sky.dec.deg)
-        dec0 = float(np.mean(dec))
-        x = (ra - np.mean(ra)) * np.cos(np.deg2rad(dec0))
-        y = (dec - np.mean(dec))
-        a = 0.5 * abs((x[0]*y[1] - x[1]*y[0]) + (x[1]*y[2] - x[2]*y[1])
-                      + (x[2]*y[3] - x[3]*y[2]) + (x[3]*y[0] - x[0]*y[3]))
-        if a > best_area:
-            best_area = a
-            best_idx = idx
-
-    ref_wcs, ref_shape = inputs[best_idx]
-    ref_cx = (ref_shape[1] - 1) / 2.0
-    ref_cy = (ref_shape[0] - 1) / 2.0
-    sky_centre = ref_wcs.pixel_to_world(ref_cx, ref_cy)
-    ux, uy, _, _, sign_x, sign_y = _decompose_cd(ref_wcs)
-    pix_deg = target_pix_arcsec / 3600.0
-
-    out = WCS(naxis=2)
-    out.wcs.ctype = ['RA---TAN', 'DEC--TAN']
-    out.wcs.crval = [float(sky_centre.ra.deg), float(sky_centre.dec.deg)]
-    out.wcs.cunit = ['deg', 'deg']
-    out.wcs.cd = np.column_stack([ux * pix_deg * sign_x,
-                                  uy * pix_deg * sign_y])
-    # Provisional CRPIX at (1,1); we'll re-centre below
-    out.wcs.crpix = [1.0, 1.0]
-
-    # Project every input corner into the (provisional) target pixel grid
-    ra = np.concatenate(all_corners_ra)
-    dec = np.concatenate(all_corners_dec)
-    sky = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame='icrs')
-    px, py = out.world_to_pixel(sky)
-    px = np.asarray(px); py = np.asarray(py)
-
-    pad = 2
-    nx_out = int(np.ceil(np.nanmax(px) - np.nanmin(px))) + 2 * pad + 1
-    ny_out = int(np.ceil(np.nanmax(py) - np.nanmin(py))) + 2 * pad + 1
-    if nx_out % 2 == 0:
-        nx_out += 1
-    if ny_out % 2 == 0:
-        ny_out += 1
-
-    # Re-centre: place ref centre at the middle of the new grid
-    px0, py0 = out.world_to_pixel(sky_centre)
-    out.wcs.crpix = [
-        float(out.wcs.crpix[0] + ((nx_out + 1) / 2.0 - float(px0))),
-        float(out.wcs.crpix[1] + ((ny_out + 1) / 2.0 - float(py0))),
-    ]
-    return out, (ny_out, nx_out)
-
-
-# ----------------------------------------------------------------------
-# 4. Flux-conserving exact reprojection (reproject_exact equivalent)
-# ----------------------------------------------------------------------
-
-def _polygon_area(xs, ys):
-    """Shoelace area (always non-negative)."""
-    n = len(xs)
-    if n < 3:
-        return 0.0
-    s = 0.0
-    for i in range(n):
-        j = (i + 1) % n
-        s += xs[i] * ys[j] - xs[j] * ys[i]
-    return abs(s) * 0.5
-
-
-def _ensure_ccw(xs, ys):
-    """Force a polygon to be counter-clockwise."""
-    n = len(xs)
-    s = 0.0
-    for i in range(n):
-        j = (i + 1) % n
-        s += xs[i] * ys[j] - xs[j] * ys[i]
-    if s < 0:
-        return list(reversed(xs)), list(reversed(ys))
-    return list(xs), list(ys)
-
-
-def _sutherland_hodgman(subj_x, subj_y, clip_x, clip_y):
-    """Clip the (CCW) subject polygon by the (CCW) clip polygon."""
-    out_x = list(subj_x)
-    out_y = list(subj_y)
-    n_clip = len(clip_x)
-    for c in range(n_clip):
-        if not out_x:
-            break
-        cx1, cy1 = clip_x[c], clip_y[c]
-        cx2, cy2 = clip_x[(c + 1) % n_clip], clip_y[(c + 1) % n_clip]
-        ex, ey = cx2 - cx1, cy2 - cy1
-        in_x, in_y = out_x, out_y
-        out_x, out_y = [], []
-        if not in_x:
-            break
-        sx = in_x[-1]
-        sy = in_y[-1]
-        for i in range(len(in_x)):
-            ex_pt = in_x[i]
-            ey_pt = in_y[i]
-            inside_e = (ex * (ey_pt - cy1) - ey * (ex_pt - cx1)) >= 0.0
-            inside_s = (ex * (sy - cy1) - ey * (sx - cx1)) >= 0.0
-            if inside_e:
-                if not inside_s:
-                    # Compute intersection
-                    dx, dy = ex_pt - sx, ey_pt - sy
-                    denom = ex * dy - dx * ey
-                    if denom != 0:
-                        t = (ex * (cy1 - sy) - ey * (cx1 - sx)) / denom
-                        out_x.append(sx + t * dx)
-                        out_y.append(sy + t * dy)
-                out_x.append(ex_pt)
-                out_y.append(ey_pt)
-            elif inside_s:
-                dx, dy = ex_pt - sx, ey_pt - sy
-                denom = ex * dy - dx * ey
-                if denom != 0:
-                    t = (ex * (cy1 - sy) - ey * (cx1 - sx)) / denom
-                    out_x.append(sx + t * dx)
-                    out_y.append(sy + t * dy)
-            sx, sy = ex_pt, ey_pt
-    return out_x, out_y
-
-
-def _project_to_tan(ra_deg, dec_deg, ra0_deg, dec0_deg):
-    """Gnomonic (TAN) projection of (ra, dec) onto a tangent plane at
-    (ra0, dec0).  Inputs/outputs are arrays in degrees / radians."""
-    ra = np.deg2rad(ra_deg)
-    dec = np.deg2rad(dec_deg)
-    ra0 = np.deg2rad(ra0_deg)
-    dec0 = np.deg2rad(dec0_deg)
-    cos_c = (np.sin(dec0) * np.sin(dec)
-             + np.cos(dec0) * np.cos(dec) * np.cos(ra - ra0))
-    cos_c = np.where(np.abs(cos_c) < 1e-12, 1e-12, cos_c)
-    xi = np.cos(dec) * np.sin(ra - ra0) / cos_c
-    eta = (np.cos(dec0) * np.sin(dec)
-           - np.sin(dec0) * np.cos(dec) * np.cos(ra - ra0)) / cos_c
-    return xi, eta
-
-
-def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
-    """
-    Flux-conserving reprojection by spherical-polygon intersection.
-
-    Implements the same algorithm as ``reproject.reproject_exact`` from
-    the reproject package -- but as a self-contained function with no
-    external reproject dependency.
-
-    For every output pixel:
-      1. Project its 4 corners to sky.
-      2. Build a local TAN tangent plane at its centre.
-      3. Find input pixels whose centres lie close to the output pixel
-         (within a small bounding-box margin).
-      4. For each candidate input pixel: project its 4 corners into the
-         same tangent plane, clip against the output pixel polygon,
-         compute the overlap area.
-      5. Surface-brightness mode (default):
-            output = Σ(input * overlap) / Σ(overlap)
-         Flux mode:
-            output = Σ(input * overlap / input_full_area)
-         The latter conserves the simple sum (Σ output == Σ input) for
-         per-pixel-flux units (erg/s/cm², counts, ...).
-
-    Returns (out, coverage, area_acc):
-       out        - reprojected image (NaN where no input overlaps)
-       coverage   - fractional output-pixel coverage in [0, 1]
-       area_acc   - absolute overlap area per output pixel, in steradians
-    """
-    image = np.asarray(image, dtype=float)
-    ny_in, nx_in = image.shape
-    ny_out, nx_out = dst_shape
-
-    # Sky positions of every INPUT pixel CORNER
-    yy, xx = np.indices((ny_in + 1, nx_in + 1), dtype=float)
-    xx -= 0.5; yy -= 0.5
-    in_sky = src_wcs.pixel_to_world(xx.ravel(), yy.ravel())
-    in_ra = np.asarray(in_sky.ra.deg).reshape(ny_in + 1, nx_in + 1)
-    in_dec = np.asarray(in_sky.dec.deg).reshape(ny_in + 1, nx_in + 1)
-
-    # Sky positions of every OUTPUT pixel CORNER
-    yy, xx = np.indices((ny_out + 1, nx_out + 1), dtype=float)
-    xx -= 0.5; yy -= 0.5
-    out_sky = dst_wcs.pixel_to_world(xx.ravel(), yy.ravel())
-    out_ra = np.asarray(out_sky.ra.deg).reshape(ny_out + 1, nx_out + 1)
-    out_dec = np.asarray(out_sky.dec.deg).reshape(ny_out + 1, nx_out + 1)
-
-    # Locate every INPUT pixel CENTRE in OUTPUT pixel coords (for
-    # candidate selection -- O(N) speedup).
-    yy, xx = np.indices((ny_in, nx_in), dtype=float)
-    in_centres = src_wcs.pixel_to_world(xx.ravel(), yy.ravel())
-    x_in_out, y_in_out = dst_wcs.world_to_pixel(in_centres)
-    x_in_out = np.asarray(x_in_out).reshape(ny_in, nx_in)
-    y_in_out = np.asarray(y_in_out).reshape(ny_in, nx_in)
-
-    finite_mask = np.isfinite(image) & np.isfinite(x_in_out) & np.isfinite(y_in_out)
-    flat_y = y_in_out[finite_mask]
-    flat_x = x_in_out[finite_mask]
-    flat_jj, flat_ii = np.where(finite_mask)
-    flat_v = image[finite_mask]
-    # Sort by y for fast row-window lookup
-    order = np.argsort(flat_y, kind='stable')
-    flat_y = flat_y[order]; flat_x = flat_x[order]
-    flat_jj = flat_jj[order]; flat_ii = flat_ii[order]
-    flat_v = flat_v[order]
-
-    # Margin: cover one full output pixel + one input-pixel size in
-    # output-pixel units, so we never miss a partially-overlapping pixel.
-    try:
-        dx = x_in_out[:, 1:] - x_in_out[:, :-1]
-        dy = y_in_out[1:, :] - y_in_out[:-1, :]
-        in_in_out_size = float(np.nanmedian(np.abs(np.concatenate(
-            [dx.ravel(), dy.ravel()]))))
-        if not np.isfinite(in_in_out_size) or in_in_out_size <= 0:
-            in_in_out_size = 1.0
-    except Exception:
-        in_in_out_size = 1.0
-    margin = max(1.5, in_in_out_size + 1.0)
-
-    flux_acc = np.zeros(dst_shape, dtype=float)
-    area_acc = np.zeros(dst_shape, dtype=float)
-    out_pix_area = np.zeros(dst_shape, dtype=float)
-
-    for j in range(ny_out):
-        # Candidate input pixels are those whose y-in-output is within margin of j
-        i_lo = np.searchsorted(flat_y, j - margin, side='left')
-        i_hi = np.searchsorted(flat_y, j + margin, side='right')
-        cand_x = flat_x[i_lo:i_hi]
-        cand_jj = flat_jj[i_lo:i_hi]
-        cand_ii = flat_ii[i_lo:i_hi]
-        cand_v = flat_v[i_lo:i_hi]
-        for i in range(nx_out):
-            o_ra = (out_ra[j, i], out_ra[j, i+1],
-                    out_ra[j+1, i+1], out_ra[j+1, i])
-            o_dec = (out_dec[j, i], out_dec[j, i+1],
-                     out_dec[j+1, i+1], out_dec[j+1, i])
-            if not all(np.isfinite(o_ra)) or not all(np.isfinite(o_dec)):
-                continue
-            ra0 = sum(o_ra) * 0.25
-            dec0 = sum(o_dec) * 0.25
-            ox_arr, oy_arr = _project_to_tan(
-                np.asarray(o_ra), np.asarray(o_dec), ra0, dec0)
-            ox_l, oy_l = _ensure_ccw(ox_arr.tolist(), oy_arr.tolist())
-            out_pix_area[j, i] = _polygon_area(ox_l, oy_l)
-            if i_lo == i_hi:
-                continue
-            # Filter candidates by x as well
-            sel = (cand_x >= i - margin) & (cand_x <= i + margin)
-            if not np.any(sel):
-                continue
-            sjj = cand_jj[sel]; sii = cand_ii[sel]; svv = cand_v[sel]
-            ns = len(sii)
-            # Project all candidate input corners into this TAN plane
-            ira = np.empty((ns, 4)); idec = np.empty((ns, 4))
-            ira[:, 0] = in_ra[sjj,     sii]
-            ira[:, 1] = in_ra[sjj,     sii + 1]
-            ira[:, 2] = in_ra[sjj + 1, sii + 1]
-            ira[:, 3] = in_ra[sjj + 1, sii]
-            idec[:, 0] = in_dec[sjj,     sii]
-            idec[:, 1] = in_dec[sjj,     sii + 1]
-            idec[:, 2] = in_dec[sjj + 1, sii + 1]
-            idec[:, 3] = in_dec[sjj + 1, sii]
-            ix_4, iy_4 = _project_to_tan(ira, idec, ra0, dec0)
-            for k in range(ns):
-                if not np.all(np.isfinite(ira[k])) or not np.all(np.isfinite(idec[k])):
-                    continue
-                ix_l, iy_l = _ensure_ccw(ix_4[k].tolist(), iy_4[k].tolist())
-                px, py = _sutherland_hodgman(ix_l, iy_l, ox_l, oy_l)
-                if len(px) < 3:
-                    continue
-                a = _polygon_area(px, py)
-                if a <= 0.0:
-                    continue
-                if conserve_flux:
-                    in_full = _polygon_area(ix_l, iy_l)
-                    if in_full <= 0:
-                        continue
-                    flux_acc[j, i] += svv[k] * (a / in_full)
-                else:
-                    flux_acc[j, i] += svv[k] * a
-                area_acc[j, i] += a
-
-    coverage = np.zeros(dst_shape, dtype=float)
-    valid = out_pix_area > 0
-    coverage[valid] = area_acc[valid] / out_pix_area[valid]
-    coverage = np.clip(coverage, 0.0, 1.0)
-
-    out = np.full(dst_shape, np.nan)
-    has_overlap = coverage >= (1.0 - 1e-6)
-    
-    if conserve_flux:
-        out[has_overlap] = flux_acc[has_overlap]
-    else:
-        out[has_overlap] = flux_acc[has_overlap] / area_acc[has_overlap]
-    return out, coverage, area_acc
-
-
-# ----------------------------------------------------------------------
-# 5. BUNIT helpers (unit-aware flux audit and per-pixel-flux detection)
-# ----------------------------------------------------------------------
-
-def _is_per_pixel_flux_unit(bunit):
-    """Heuristic: does this BUNIT indicate per-pixel total flux (vs SB)?
-
-    Per-pixel flux units (erg/s/cm², counts, DN, electrons, plain Jy)
-    require ``conserve_flux=True`` in :func:`reproject_exact` so that
-    Σ output == Σ input.  Surface-brightness units (MJy/sr, Jy/beam,
-    Jy/arcsec², ...) need the default SB mode.
-    """
-    if bunit is None:
-        return False
-    s = str(bunit).strip().lower().replace(' ', '')
-    sb_markers = ['/sr', 'sr-1', 'sr^-1',
-                  '/arcsec2', 'arcsec-2', 'arcsec^-2',
-                  '/beam', 'beam-1', 'beam^-1',
-                  '/pix', 'pix-1', 'pix^-1',
-                  '/deg2', 'deg-2']
-    if any(m in s for m in sb_markers):
-        return False
-    per_pix_markers = [
-        'erg/(s*cm2)', 'erg/s/cm2', 'erg.s-1.cm-2', 'ergs-1cm-2',
-        'jy', 'mjy', 'ujy', 'njy',
-        'counts', 'count', 'cts', 'ct',
-        'dn', 'electrons', 'electron', 'e-', 'photons', 'photon',
-        'w/m2', 'wm-2', 'w.m-2',
-    ]
-    return any(s == m or s.endswith(m) for m in per_pix_markers)
-
-
-# ----------------------------------------------------------------------
-# 5b. WCS footprint overlap check
-# ----------------------------------------------------------------------
-
-def _wcs_footprints_overlap(wcs1, shape1, wcs2, shape2):
-    """Return True if the two image footprints share ANY sky coverage.
-
-    Projects the corners + centre of each image into the other image's
-    pixel frame.  If at least one sample point lands inside the other
-    image's pixel bounds the two footprints overlap.
-
-    The check covers four cases correctly:
-      * Partial overlap (corners cross the boundary)
-      * One image entirely inside the other (inner corners land inside)
-      * Thin-strip / rotated overlaps (extra midpoint samples help)
-      * Zero overlap (all samples land outside → returns False)
-
-    Returns True on any exception so the caller is never blocked by a
-    WCS that cannot be evaluated.
-    """
-    try:
-        ny1, nx1 = shape1
-        ny2, nx2 = shape2
-
-        # Sample 5 points per image: 4 corners + centre
-        xs1 = np.array([-0.5, nx1 - 0.5, nx1 - 0.5, -0.5, (nx1 - 1) / 2.0])
-        ys1 = np.array([-0.5, -0.5,      ny1 - 0.5, ny1 - 0.5, (ny1 - 1) / 2.0])
-        xs2 = np.array([-0.5, nx2 - 0.5, nx2 - 0.5, -0.5, (nx2 - 1) / 2.0])
-        ys2 = np.array([-0.5, -0.5,      ny2 - 0.5, ny2 - 0.5, (ny2 - 1) / 2.0])
-
-        # Project image-1 points into image-2 pixel space
-        sky1 = wcs1.pixel_to_world(xs1, ys1)
-        px_1in2, py_1in2 = wcs2.world_to_pixel(sky1)
-        px_1in2 = np.asarray(px_1in2, dtype=float)
-        py_1in2 = np.asarray(py_1in2, dtype=float)
-        if np.any(
-            np.isfinite(px_1in2) & np.isfinite(py_1in2)
-            & (px_1in2 >= -0.5) & (px_1in2 <= nx2 - 0.5)
-            & (py_1in2 >= -0.5) & (py_1in2 <= ny2 - 0.5)
-        ):
-            return True
-
-        # Project image-2 points into image-1 pixel space
-        sky2 = wcs2.pixel_to_world(xs2, ys2)
-        px_2in1, py_2in1 = wcs1.world_to_pixel(sky2)
-        px_2in1 = np.asarray(px_2in1, dtype=float)
-        py_2in1 = np.asarray(py_2in1, dtype=float)
-        if np.any(
-            np.isfinite(px_2in1) & np.isfinite(py_2in1)
-            & (px_2in1 >= -0.5) & (px_2in1 <= nx1 - 0.5)
-            & (py_2in1 >= -0.5) & (py_2in1 <= ny1 - 0.5)
-        ):
-            return True
-
-        return False
-    except Exception:
-        # Cannot evaluate the WCS — assume overlap so the caller is not
-        # blocked by a degenerate header; the reprojection will produce
-        # an all-NaN result if there really is no overlap.
-        return True
-
-
-def _log_norm_vmin(data):
-    """Return the ``vmin`` to use for a ``LogNorm`` over ``data``.
-
-    Uses the smallest strictly-positive finite value so the log stretch
-    spans the decades the data actually occupies, instead of an arbitrary
-    floor like ``1e-10`` (which — if the true positive minimum is much
-    higher — wastes most of the color range on values that don't exist
-    and washes out the display). Falls back to ``1e-5`` when there is no
-    positive data at all.
-    """
-    finite = data[np.isfinite(data)]
-    positive = finite[finite > 0]
-    return float(np.nanmin(positive)) if positive.size else 1e-5
-
-
-# ----------------------------------------------------------------------
-# 6. Backwards-compatibility aliases for the rest of the file
-# ----------------------------------------------------------------------
-# The GUI code calls into these names; keep them all pointing at the new
-# clean implementation.
-
-def _nan_safe_gaussian_filter(image, sigma=None, sigma_pix=None):
-    """Backwards-compatible alias accepting either keyword name."""
-    if sigma_pix is None:
-        sigma_pix = sigma
-    return gaussian_convolve_match(image, sigma_pix=sigma_pix)
-
-
-_build_matched_output_wcs = build_target_wcs_for_pair
-_build_common_output_wcs = build_target_wcs_for_batch
-_reproject_exact_polygon = reproject_exact
-
-
-def _reproject_exact_flux(image, src_wcs, dst_wcs, dst_shape, subgrid=None,
-                          conserve_flux=False):
-    out, fp, _ = reproject_exact(image, src_wcs, dst_wcs, dst_shape,
-                                 conserve_flux=conserve_flux)
-    return out, fp
-
-
-def _reproject_wcs_to_wcs(image, src_wcs, dst_wcs, dst_shape, order=1):
-    out, fp, _ = reproject_exact(image, src_wcs, dst_wcs, dst_shape)
-    return out, fp
-
-
-def _reproject_flux_conserving(image, src_wcs, dst_wcs, dst_shape,
-                               conserve_flux=False, subgrid=None):
-    out, fp, _ = reproject_exact(image, src_wcs, dst_wcs, dst_shape,
-                                 conserve_flux=conserve_flux)
-    return out, fp
+from .gui import CollapsibleButtonGroup
+from .gui_region_selection import RegionSelectionMixin
+from .analyzer_2d import (
+    _get_pixel_size_arcsec,
+    _make_2d_wcs,
+    gaussian_convolve_match,
+    build_target_wcs_for_pair,
+    build_target_wcs_for_batch,
+    reproject_exact,
+    _is_per_pixel_flux_unit,
+    _wcs_footprints_overlap,
+    _log_norm_vmin,
+    _reproject_wcs_to_wcs,
+)
 
 # BATCH MATCH RESOLUTION DIALOG
 # ==============================================================================
@@ -938,7 +328,7 @@ class BatchMatchResolutionDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
 
-class Ifu_analyzer_2d_window(QWidget):
+class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("2D FITS Dual Viewer")
@@ -962,6 +352,17 @@ class Ifu_analyzer_2d_window(QWidget):
         self._init_ui()
 
     def closeEvent(self, event):
+        # Drop this window's collapsible groups from CollapsibleButtonGroup's
+        # class-level registry so its cross-window accordion logic never calls
+        # into a deleted widget after this window is gone.
+        for _g in (getattr(self, 'contour_group', None),
+                   getattr(self, 'convolution_group', None)):
+            try:
+                if _g in CollapsibleButtonGroup._all_groups:
+                    CollapsibleButtonGroup._all_groups.remove(_g)
+            except Exception:
+                pass
+
         self.image_left = None
         self.image_right = None
         self.base_image_left = None
@@ -975,6 +376,9 @@ class Ifu_analyzer_2d_window(QWidget):
         self.active_target = None
         self.last_selection_left = None
         self.last_selection_right = None
+        # Region-interaction state machine per side:
+        # idle -> drawing -> placed -> editing (see _set_region_state).
+        self.region_state = {"left": "idle", "right": "idle"}
         self.last_contour_right_wcs = None
         self.last_contour_right_level = None
         self.scale_left = 'Linear'
@@ -1003,12 +407,12 @@ class Ifu_analyzer_2d_window(QWidget):
 
     def _init_ui(self):
         # Stats labels - WordWrap enabled to prevent text cutoff
-        self.stats1_label = QLabel("Image Stats:\n-")
+        self.stats1_label = QLabel("Intensity:\n-")
         self.stats1_label.setMinimumWidth(150)
         self.stats1_label.setWordWrap(True)
         self.stats1_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
         
-        self.stats2_label = QLabel("Image Stats:\n-")
+        self.stats2_label = QLabel("Intensity:\n-")
         self.stats2_label.setMinimumWidth(150)
         self.stats2_label.setWordWrap(True)
         self.stats2_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
@@ -1080,6 +484,20 @@ class Ifu_analyzer_2d_window(QWidget):
                 elif target == 'right' and self.image_right is not None:
                     self.display_image('right')
 
+    def copy_colormap(self, source, target):
+        """Copy the source panel's colormap onto the target panel (matches 3D)."""
+        src_cmap = getattr(self, 'slice1_cmap' if source == 'left' else 'slice2_cmap', None)
+        if not src_cmap:
+            return
+        if target == 'left':
+            self.slice1_cmap = src_cmap
+            if self.image_left is not None:
+                self.display_image('left')
+        else:
+            self.slice2_cmap = src_cmap
+            if self.image_right is not None:
+                self.display_image('right')
+
     def _init_shape_controls(self):
         def make_shape_button(symbol, target, callback=None):
             btn = QPushButton(symbol)
@@ -1114,17 +532,30 @@ class Ifu_analyzer_2d_window(QWidget):
         self.scale_combo_right.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
         self.scale_combo_right.currentTextChanged.connect(lambda: self._change_scale('right'))
 
+        # Copy button sits on its own side's sidebar and pulls the OTHER
+        # panel's selection onto this one (matches the 3D window convention).
         self.copy_btn_l = QPushButton("⎘")
         self.copy_btn_l.setFixedSize(40, 40)
         self.copy_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.copy_btn_l.setToolTip("Copy selection from left slice to right")
-        self.copy_btn_l.clicked.connect(lambda: self.copy_selection(source="left", target="right"))
+        self.copy_btn_l.setToolTip("Copy selection from right slice to left")
+        self.copy_btn_l.clicked.connect(lambda: self.copy_selection(source="right", target="left"))
 
         self.copy_btn_r = QPushButton("⎘")
         self.copy_btn_r.setFixedSize(40, 40)
         self.copy_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.copy_btn_r.setToolTip("Copy selection from right slice to left")
-        self.copy_btn_r.clicked.connect(lambda: self.copy_selection(source="right", target="left"))
+        self.copy_btn_r.setToolTip("Copy selection from left slice to right")
+        self.copy_btn_r.clicked.connect(lambda: self.copy_selection(source="left", target="right"))
+
+        # Copy the OTHER panel's colormap onto this one (matches the 3D window).
+        self.copy_color_btn_l = QPushButton("⎘🌈")
+        self.copy_color_btn_l.setFixedSize(40, 40)
+        self.copy_color_btn_l.setToolTip("Copy right slice colormap to left slice")
+        self.copy_color_btn_l.clicked.connect(lambda: self.copy_colormap('right', 'left'))
+
+        self.copy_color_btn_r = QPushButton("⎘🌈")
+        self.copy_color_btn_r.setFixedSize(40, 40)
+        self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
+        self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left', 'right'))
 
         self.erase_btn_l = QPushButton("✖")
         self.erase_btn_l.setFixedSize(40, 40)
@@ -1136,63 +567,78 @@ class Ifu_analyzer_2d_window(QWidget):
         self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
 
-        # =========================================================
-        # BOTTOM PANEL CONTROLS (STYLED LARGER, NO BOLD)
-        # =========================================================
-        control_style = "font-size: 10pt; padding: 4px;"
-        btn_style = "QPushButton { font-size: 11pt; padding: 8px 16px; }"
+        # Edit Shape: toggles drag/resize handles on a placed selection.
+        # Enabled only in the "placed" state (and not for pixel selections).
+        self.edit_shape_btn_l = QPushButton("✎")
+        self.edit_shape_btn_l.setCheckable(True)
+        self.edit_shape_btn_l.setFixedSize(40, 40)
+        self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_l.setEnabled(False)
+        self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
 
-        # ----- UNIFIED ROTATION CONTROLS -----
-        self.rot_dir = QComboBox()
-        self.rot_dir.addItems(["Counter-Clockwise", "Clockwise"])
-        self.rot_dir.setStyleSheet(control_style)
-        
+        self.edit_shape_btn_r = QPushButton("✎")
+        self.edit_shape_btn_r.setCheckable(True)
+        self.edit_shape_btn_r.setFixedSize(40, 40)
+        self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_r.setEnabled(False)
+        self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
+
+        # =========================================================
+        # BOTTOM PANEL CONTROLS - plain default styling, matching the 3D
+        # window and the Open/Header/Save buttons above.
+        # =========================================================
+
+        # ----- ROTATION CONTROLS (per-panel; no "which slice?" prompt) -----
+        self.rot_ccw_radio = QRadioButton("Counter-Clockwise")
+        self.rot_cw_radio = QRadioButton("Clockwise")
+        self.rot_ccw_radio.setChecked(True)
+        self.rot_dir_group = QButtonGroup(self)
+        self.rot_dir_group.addButton(self.rot_ccw_radio)
+        self.rot_dir_group.addButton(self.rot_cw_radio)
+
         self.angle_spin = QDoubleSpinBox()
         self.angle_spin.setRange(0.0, 360.0)
         self.angle_spin.setValue(90.0)
         self.angle_spin.setSuffix(" °")
-        self.angle_spin.setStyleSheet(control_style)
-        
-        self.rotate_btn = QPushButton("Rotate")
-        self.rotate_btn.setStyleSheet(btn_style)
-        self.rotate_btn.clicked.connect(self._prompt_and_rotate)
-        
-        self.save_btn = QPushButton("Save FITS")
-        self.save_btn.setStyleSheet(btn_style)
-        self.save_btn.clicked.connect(self._prompt_and_save)
+        self.angle_spin.setMaximumWidth(90)
 
-        # ----- NEW CONTOUR CONTROLS -----
-        self.contour_btn = QPushButton("Plot Contour")
-        self.contour_btn.setStyleSheet(btn_style)
+        self.rotate_left_btn = QPushButton("Rotate Left")
+        self.rotate_left_btn.clicked.connect(lambda: self.rotate_image("left"))
+
+        self.rotate_right_btn = QPushButton("Rotate Right")
+        self.rotate_right_btn.clicked.connect(lambda: self.rotate_image("right"))
+
+        # ----- CONTOUR CONTROLS (grouped under the "Contour" collapsible) -----
+        self.contour_btn = QPushButton("Plot")
         self.contour_btn.clicked.connect(self._prompt_and_contour)
 
-        self.superimpose_btn = QPushButton("Superimpose WCS")
-        self.superimpose_btn.setStyleSheet(btn_style)
+        self.superimpose_btn = QPushButton("Superimpose")
         self.superimpose_btn.clicked.connect(self._prompt_and_superimpose)
-        
-        self.save_contour_btn = QPushButton("Save Contour Mask")
-        self.save_contour_btn.setStyleSheet(btn_style)
+
+        self.save_contour_btn = QPushButton("Save")
+        self.save_contour_btn.setToolTip("Save the active contour's coordinates to a text/CSV file")
         self.save_contour_btn.clicked.connect(self._prompt_and_save_contour)
 
-        self.load_contour_btn = QPushButton("Load Saved Contour")
-        self.load_contour_btn.setStyleSheet(btn_style)
+        self.load_contour_btn = QPushButton("Load")
+        self.load_contour_btn.setToolTip("Overlay a contour saved from this or another image")
         self.load_contour_btn.clicked.connect(self._prompt_and_load_contour)
 
-        self.clear_contour_btn = QPushButton("Clear Contours")
-        self.clear_contour_btn.setStyleSheet(btn_style)
+        self.clear_contour_btn = QPushButton("Clear")
+        self.clear_contour_btn.setToolTip("Remove all contours from a panel")
         self.clear_contour_btn.clicked.connect(self._prompt_and_clear_contours)
 
-        self.match_res_btn = QPushButton("Slides Convolute")
-        self.match_res_btn.setStyleSheet(btn_style)
+        # ----- CONVOLUTION CONTROLS (grouped under the "Convolution" collapsible) -----
+        self.match_res_btn = QPushButton("Pair")
         self.match_res_btn.setToolTip(
-            "Convolve the higher-resolution slide (left/right) to match the\n"
+            "Convolve the higher-resolution panel (left/right) to match the\n"
             "coarser pixel size of the other, then reproject onto a common\n"
             "WCS grid. Flux is conserved via spherical-polygon intersection."
         )
         self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
 
-        self.batch_match_btn = QPushButton("Batch Convolution")
-        self.batch_match_btn.setStyleSheet(btn_style)
+        self.batch_match_btn = QPushButton("Batch")
         self.batch_match_btn.setToolTip(
             "Select multiple 2D FITS files. All are convolved to the worst\n"
             "(largest) pixel scale among them and reprojected onto a common\n"
@@ -1201,77 +647,121 @@ class Ifu_analyzer_2d_window(QWidget):
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
 
     def copy_selection(self, source, target):
-        """Copy region selection from one side to the other"""
-        source_selection = self.last_selection_right if source == "right" else self.last_selection_left
-        if not source_selection:
+        """Copy a region selection onto the other panel.
+
+        WCS-aware: the selection's corners are reprojected through both panels'
+        WCS so it lands on the same patch of sky. A rectangle whose sky
+        footprint is no longer axis-aligned on the target (the two WCS differ
+        in rotation/scale) is copied as a polygon; circles/ellipses are copied
+        as their reprojected bounding box. Falls back to a plain pixel-index
+        copy when either panel has no usable celestial WCS.
+        """
+        src_sel = self.last_selection_right if source == "right" else self.last_selection_left
+        if not src_sel:
             return
 
-        if source_selection["shape"] == "*":
-            # Handle pixel selection
-            x, y = source_selection["coords"]
-            self._handle_pixel_click(x, y, target)
-        elif source_selection["shape"] == "✏":
-            # Handle lasso selection - need to recreate from vertices
-            if "patch" in source_selection and hasattr(source_selection["patch"], "lasso_verts"):
-                verts = source_selection["patch"].lasso_verts
-                selector = self.region_selector_left if target == "left" else self.region_selector_right
-                selector.active_shape = "✏"
-                # Call on_lasso_select directly with the stored vertices
-                selector.on_lasso_select(verts)
-            else:
-                # Fallback: try to create from bounding box if vertices not available
-                selector = self.region_selector_left if target == "left" else self.region_selector_right
-                selector.active_shape = source_selection["shape"]
+        src_wcs = self.wcs_left if source == "left" else self.wcs_right
+        tgt_wcs = self.wcs_left if target == "left" else self.wcs_right
+        tgt_img = self.image_left if target == "left" else self.image_right
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+        shape = src_sel["shape"]
+
+        wcs_ok = (
+            tgt_img is not None
+            and src_wcs is not None and getattr(src_wcs, "has_celestial", False)
+            and tgt_wcs is not None and getattr(tgt_wcs, "has_celestial", False)
+        )
+
+        def _to_target_px(xs, ys):
+            sw = src_wcs.celestial if src_wcs.pixel_n_dim > 2 else src_wcs
+            tw = tgt_wcs.celestial if tgt_wcs.pixel_n_dim > 2 else tgt_wcs
+            sky = sw.pixel_to_world(np.asarray(xs, float), np.asarray(ys, float))
+            tx, ty = tw.world_to_pixel(sky)
+            return np.asarray(tx, float), np.asarray(ty, float)
+
+        # ---- pixel ("*") ----
+        if shape == "*":
+            x, y = src_sel["coords"]
+            if wcs_ok:
                 try:
-                    # Convert coords to integers for safety
-                    coords = tuple(int(c) for c in source_selection["coords"])
-                    selector.create_region(coords)
-                except Exception as e:
+                    tx, ty = _to_target_px([x], [y])
+                    if np.isfinite(tx[0]) and np.isfinite(ty[0]):
+                        x, y = float(tx[0]), float(ty[0])
+                except Exception:
                     pass
-        else:
-            # Handle regular region selection (rectangle, circle, ellipse)
-            selector = self.region_selector_left if target == "left" else self.region_selector_right
-            selector.active_shape = source_selection["shape"]
+            self._handle_pixel_click(int(round(x)), int(round(y)), target)
+            return
+
+        # ---- lasso ("✏") ----
+        if shape == "✏":
+            patch = src_sel.get("patch")
+            if patch is None or not hasattr(patch, "lasso_verts"):
+                return
+            verts = np.asarray(patch.lasso_verts, dtype=float)
+            if wcs_ok:
+                try:
+                    tx, ty = _to_target_px(verts[:, 0], verts[:, 1])
+                    if np.all(np.isfinite(tx)) and np.all(np.isfinite(ty)):
+                        ny, nx = tgt_img.shape
+                        verts = np.column_stack(
+                            [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
+                except Exception:
+                    pass
+            selector.active_shape = "✏"
             try:
-                # Convert coords to integers for safety
-                coords = tuple(int(c) for c in source_selection["coords"])
-                selector.create_region(coords)
-            except Exception as e:
+                selector.on_lasso_select(verts)
+            except Exception:
                 pass
+            return
+
+        # ---- rectangle / circle / ellipse ----
+        xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
+        if wcs_ok:
+            try:
+                cx = [xmin, xmax, xmax, xmin]
+                cy = [ymin, ymin, ymax, ymax]
+                tx, ty = _to_target_px(cx, cy)
+                if not (np.all(np.isfinite(tx)) and np.all(np.isfinite(ty))):
+                    raise ValueError("non-finite reprojected corners")
+                ny, nx = tgt_img.shape
+                axis_aligned = (
+                    abs(tx[0] - tx[3]) < 0.5 and abs(tx[1] - tx[2]) < 0.5 and
+                    abs(ty[0] - ty[1]) < 0.5 and abs(ty[2] - ty[3]) < 0.5
+                )
+                if shape == "▭" and not axis_aligned:
+                    verts = np.column_stack(
+                        [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
+                    selector.active_shape = "✏"
+                    try:
+                        selector.on_lasso_select(verts)
+                    except Exception:
+                        pass
+                    return
+                # round (not truncate) so a copy between identical/near-identical
+                # grids is exact instead of drifting a pixel on the TAN round-trip
+                xmin = max(0, min(nx - 1, int(round(float(np.min(tx))))))
+                xmax = max(0, min(nx - 1, int(round(float(np.max(tx))))))
+                ymin = max(0, min(ny - 1, int(round(float(np.min(ty))))))
+                ymax = max(0, min(ny - 1, int(round(float(np.max(ty))))))
+                if xmax - xmin < 1 or ymax - ymin < 1:
+                    QMessageBox.information(
+                        self, "Copy Region",
+                        "The source selection does not overlap the other "
+                        "panel's field of view.")
+                    return
+            except Exception:
+                xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
+
+        selector.active_shape = shape
+        try:
+            selector.create_region((int(round(xmin)), int(round(xmax)),
+                                    int(round(ymin)), int(round(ymax))))
+        except Exception:
+            pass
 
     def _open_batch_match_dialog(self):
         dialog = BatchMatchResolutionDialog(self)
         dialog.exec_()
-
-    def _prompt_and_rotate(self):
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Select Target")
-        msg.setText("Which slice would you like to rotate?")
-        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        
-        msg.exec_()
-        
-        if msg.clickedButton() == btn_left:
-            self.rotate_image("left")
-        elif msg.clickedButton() == btn_right:
-            self.rotate_image("right")
-
-    def _prompt_and_save(self):
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Select Target")
-        msg.setText("Which slice would you like to save?")
-        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        
-        msg.exec_()
-        
-        if msg.clickedButton() == btn_left:
-            self.save_fits("left")
-        elif msg.clickedButton() == btn_right:
-            self.save_fits("right")
 
     def _prompt_and_contour(self):
         dialog = QDialog(self)
@@ -1430,20 +920,43 @@ class Ifu_analyzer_2d_window(QWidget):
             QMessageBox.critical(self, "Contour Error", f"Could not generate contours:\n{str(e)}")
             traceback.print_exc()
 
-    def _prompt_and_clear_contours(self):
+    def _contour_target(self, action):
+        """Resolve which panel a contour action applies to.
+
+        Auto-picks the panel that has an active contour; only prompts when
+        BOTH panels do, and warns when neither does. ``action`` is a short
+        verb used in the messages ("save", "clear").
+        """
+        sides = [
+            side for side, plotter in (("left", self.slice1_plotter),
+                                       ("right", self.slice2_plotter))
+            if getattr(plotter, "current_contour", None)
+            or getattr(plotter, "contours", None)
+        ]
+        if not sides:
+            QMessageBox.warning(self, "No Contour",
+                                f"There is no active contour to {action}.")
+            return None
+        if len(sides) == 1:
+            return sides[0]
+
         msg = QMessageBox(self)
-        msg.setWindowTitle("Clear Contours")
-        msg.setText("Which slice's contours would you like to completely remove?")
+        msg.setWindowTitle("Select Panel")
+        msg.setText(f"Both panels have contours. Which one would you like to {action}?")
         btn_left = msg.addButton("Left", QMessageBox.ActionRole)
         btn_right = msg.addButton("Right", QMessageBox.ActionRole)
         msg.addButton("Cancel", QMessageBox.RejectRole)
-        
         msg.exec_()
-        
         if msg.clickedButton() == btn_left:
-            self.clear_contours("left")
-        elif msg.clickedButton() == btn_right:
-            self.clear_contours("right")
+            return "left"
+        if msg.clickedButton() == btn_right:
+            return "right"
+        return None
+
+    def _prompt_and_clear_contours(self):
+        target = self._contour_target("clear")
+        if target:
+            self.clear_contours(target)
 
     def clear_contours(self, target):
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
@@ -1479,17 +992,9 @@ class Ifu_analyzer_2d_window(QWidget):
             self.last_contour_right_level = None
 
     def _prompt_and_save_contour(self):
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Save Contour")
-        msg.setText("Which slice's contour would you like to save?")
-        btn_left  = msg.addButton("Left",   QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right",  QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        msg.exec_()
-        if msg.clickedButton() == btn_left:
-            self._save_contour_txt("left")
-        elif msg.clickedButton() == btn_right:
-            self._save_contour_txt("right")
+        target = self._contour_target("save")
+        if target:
+            self._save_contour_txt(target)
 
     def _save_contour_txt(self, target):
         plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
@@ -1745,11 +1250,15 @@ class Ifu_analyzer_2d_window(QWidget):
         
         self.header_left_btn = QPushButton("Header")
         self.header_left_btn.clicked.connect(lambda: self.show_header("left"))
-        
+
+        self.save_left_btn = QPushButton("Save FITS")
+        self.save_left_btn.clicked.connect(lambda: self.save_fits("left"))
+
         # Left Stats strictly bounded so they don't stretch Canvas space
         left_stats_layout = QVBoxLayout()
         left_stats_layout.addWidget(self.open_left_btn)
         left_stats_layout.addWidget(self.header_left_btn)
+        left_stats_layout.addWidget(self.save_left_btn)
         left_stats_layout.addWidget(self.stats1_label)
         left_stats_layout.addSpacing(15) 
         left_stats_layout.addWidget(self.hover1_label)
@@ -1774,6 +1283,9 @@ class Ifu_analyzer_2d_window(QWidget):
         left_sidebar.addWidget(self.scale_combo_left)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
+        left_sidebar.addWidget(self.copy_btn_l)
+        left_sidebar.addWidget(self.copy_color_btn_l)
+        left_sidebar.addWidget(self.edit_shape_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
         left_sidebar.addStretch()
 
@@ -1794,10 +1306,14 @@ class Ifu_analyzer_2d_window(QWidget):
         self.header_right_btn = QPushButton("Header")
         self.header_right_btn.clicked.connect(lambda: self.show_header("right"))
 
+        self.save_right_btn = QPushButton("Save FITS")
+        self.save_right_btn.clicked.connect(lambda: self.save_fits("right"))
+
         # Right Stats strictly bounded
         right_stats_layout = QVBoxLayout()
         right_stats_layout.addWidget(self.open_right_btn)
         right_stats_layout.addWidget(self.header_right_btn)
+        right_stats_layout.addWidget(self.save_right_btn)
         right_stats_layout.addWidget(self.stats2_label)
         right_stats_layout.addSpacing(15)
         right_stats_layout.addWidget(self.hover2_label)
@@ -1822,6 +1338,9 @@ class Ifu_analyzer_2d_window(QWidget):
         right_sidebar.addWidget(self.scale_combo_right)
         for shape in ["*", "▭", "◯", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
+        right_sidebar.addWidget(self.copy_btn_r)
+        right_sidebar.addWidget(self.copy_color_btn_r)
+        right_sidebar.addWidget(self.edit_shape_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
         right_sidebar.addStretch()
 
@@ -1836,64 +1355,43 @@ class Ifu_analyzer_2d_window(QWidget):
         top_layout.addLayout(left_half, 1)
         top_layout.addLayout(right_half, 1)
 
-        self.bottom_panel = QWidget()
-        bottom_layout = QHBoxLayout(self.bottom_panel)
+        # ===== BOTTOM CONTROLS: two tiers packed right under the slice panels =====
+        # Tier 1 (upstairs): the two collapsible groups, nothing else.
+        self.contour_group = CollapsibleButtonGroup("Contour")
+        for _b in (self.contour_btn, self.save_contour_btn,
+                   self.load_contour_btn, self.clear_contour_btn):
+            self.contour_group.add_button(_b)
 
-        lbl_style = "font-size: 11pt; color: #333;"
+        self.convolution_group = CollapsibleButtonGroup("Convolution")
+        for _b in (self.match_res_btn, self.batch_match_btn):
+            self.convolution_group.add_button(_b)
 
-        # Left controls (Rotate)
+        tier1 = QHBoxLayout()
+        tier1.setContentsMargins(0, 0, 0, 0)
+        tier1.addWidget(self.contour_group)
+        tier1.addWidget(self.convolution_group)
+        tier1.addStretch(1)
+
+        # Tier 2 (downstairs): rotation cluster on the left, Superimpose on the right.
         rotate_widget = QWidget()
-        rotate_layout = QVBoxLayout(rotate_widget)
-        rotate_layout.setContentsMargins(0,0,0,0)
-        rotate_lbl = QLabel("Actions:")
-        rotate_lbl.setStyleSheet(lbl_style)
-        rotate_layout.addWidget(rotate_lbl)
-        rotate_layout.addWidget(self.rot_dir)
-        rotate_layout.addWidget(self.angle_spin)
-        rotate_layout.addWidget(self.rotate_btn)
-        
-        # Right controls (Contours)
-        contour_widget = QWidget()
-        contour_layout = QVBoxLayout(contour_widget)
-        contour_layout.setContentsMargins(0,0,0,0)
-        contour_lbl = QLabel("Contours:")
-        contour_lbl.setStyleSheet(lbl_style)
-        contour_layout.addWidget(contour_lbl)
-        contour_layout.addWidget(self.contour_btn)
-        contour_layout.addWidget(self.superimpose_btn)
-        contour_layout.addWidget(self.save_contour_btn)
-        contour_layout.addWidget(self.load_contour_btn)
-        contour_layout.addWidget(self.clear_contour_btn)
+        rotate_row = QHBoxLayout(rotate_widget)
+        rotate_row.setContentsMargins(0, 0, 0, 0)
+        rotate_row.addWidget(self.rot_ccw_radio)
+        rotate_row.addWidget(self.rot_cw_radio)
+        rotate_row.addWidget(self.angle_spin)
+        rotate_row.addWidget(self.rotate_left_btn)
+        rotate_row.addWidget(self.rotate_right_btn)
 
-        match_res_widget = QWidget()
-        match_res_layout = QVBoxLayout(match_res_widget)
-        match_res_layout.setContentsMargins(0, 0, 0, 0)
-        match_res_lbl = QLabel("Resolution:")
-        match_res_lbl.setStyleSheet(lbl_style)
-        match_res_layout.addWidget(match_res_lbl)
-        match_res_layout.addWidget(self.match_res_btn)
-        match_res_layout.addWidget(self.batch_match_btn)
+        tier2 = QHBoxLayout()
+        tier2.setContentsMargins(0, 0, 0, 0)
+        tier2.addWidget(rotate_widget)
+        tier2.addStretch(1)
+        tier2.addWidget(self.superimpose_btn)
 
-        save_widget = QWidget()
-        save_layout = QVBoxLayout(save_widget)
-        save_layout.setContentsMargins(0,0,0,0)
-        save_layout.addStretch() 
-        save_layout.addWidget(self.save_btn)
-
-        bottom_layout.addStretch(1) 
-        bottom_layout.addWidget(rotate_widget)
-        bottom_layout.addSpacing(30)
-        bottom_layout.addWidget(contour_widget)
-        bottom_layout.addSpacing(30)
-        bottom_layout.addWidget(match_res_widget)
-        
-        bottom_layout.addStretch(3) 
-        bottom_layout.addWidget(save_widget, alignment=Qt.AlignBottom)
-        bottom_layout.addStretch(6) 
-
-        main_layout.addLayout(top_layout, 2)
-        main_layout.addStretch(1) 
-        main_layout.addWidget(self.bottom_panel, 0)
+        main_layout.addLayout(top_layout, 3)
+        main_layout.addLayout(tier1, 0)
+        main_layout.addLayout(tier2, 0)
+        main_layout.addStretch(2)  # empty space fills the rest (no spectrum here)
 
         self.setLayout(main_layout)
 
@@ -1993,6 +1491,18 @@ class Ifu_analyzer_2d_window(QWidget):
         plotter.cbar_ax = plotter.fig.add_axes(cbar_rect)
         plotter.cbar_ax.set_visible(False)
 
+        # The figure was cleared above, so the old RegionSelector now points at
+        # a dead axes. Tear down its interactive patch first (its drag handlers
+        # are wired to the still-live canvas and would otherwise leak), then
+        # rebind a fresh selector to the new axes and reset this side to idle.
+        old_selector = self.region_selector_left if target == 'left' else self.region_selector_right
+        if old_selector is not None and getattr(old_selector, 'interactive_patch', None) is not None:
+            try:
+                old_selector.interactive_patch.disconnect()
+            except Exception:
+                pass
+            old_selector.interactive_patch = None
+
         if target == 'left':
             self.region_selector_left = RegionSelector(
                 plotter.ax, canvas,
@@ -2001,6 +1511,13 @@ class Ifu_analyzer_2d_window(QWidget):
             self.region_selector_right = RegionSelector(
                 plotter.ax, canvas,
                 lambda mask, patch, coords: self._handle_region_select(mask, patch, coords, 'right'))
+
+        if target == 'left':
+            self.last_selection_left = None
+        else:
+            self.last_selection_right = None
+        if getattr(self, 'region_state', None) is not None:
+            self._set_region_state(target, "idle")
 
     def load_2d_fits(self, target):
         fname, _ = QFileDialog.getOpenFileName(
@@ -2041,15 +1558,31 @@ class Ifu_analyzer_2d_window(QWidget):
                             pass
                 
                 if data is None:
-                    QMessageBox.warning(self, "Load Error", "No image data found in FITS file.")
+                    # No HDU squeezed down to 2D. Distinguish a genuine
+                    # multi-plane cube (reject with guidance) from a file that
+                    # really has no image data.
+                    cube_shape = None
+                    for hdu in hdul:
+                        if hdu.data is None or getattr(hdu.data, 'size', 0) == 0:
+                            continue
+                        sq = np.squeeze(hdu.data)
+                        if sq.ndim > 2:
+                            cube_shape = tuple(sq.shape)
+                            break
+                    if cube_shape is not None:
+                        QMessageBox.warning(
+                            self, "3D Cube Not Supported",
+                            f"This file holds a {cube_shape} data cube, not a 2D image.\n\n"
+                            "The 2D viewer needs a single plane. Extract or collapse a "
+                            "slice in the main window first, then open that saved 2D FITS here.")
+                    else:
+                        QMessageBox.warning(
+                            self, "Load Error", "No image data found in FITS file.")
                     return
 
-                data = np.squeeze(data)
-                if data.ndim != 2:
-                    QMessageBox.warning(self, "Dimension Error", 
-                                        f"Expected a 2D image, but got a {data.ndim}D array.\n"
-                                        "Please select a 2D FITS file.")
-                    return
+                # data is already the squeezed 2D array from the loop above
+                # ((1, ny, nx) / (ny, nx, 1) degenerate axes are accepted);
+                # true multi-plane cubes are rejected before this point.
 
                 # --- NEW CLEANUP BLOCK: Remove dangling 3D JWST keys ---
                 header['NAXIS'] = 2
@@ -2099,7 +1632,7 @@ class Ifu_analyzer_2d_window(QWidget):
         if angle == 0.0:
             return
             
-        if self.rot_dir.currentText() == "Clockwise":
+        if self.rot_cw_radio.isChecked():
             angle = -angle
 
         if target == "left":
@@ -2338,15 +1871,22 @@ class Ifu_analyzer_2d_window(QWidget):
             
         plotter.cbar = cbar
 
-        # 5. Update Statistics Panel
+        # 5. Update Statistics Panel  (unit on its own line so the narrow
+        # stats column doesn't clip it - matches the 3D window)
         mn   = np.nanmin(image)
         mx   = np.nanmax(image)
         mean = np.nanmean(image)
+        total_sum = np.nansum(image)
+        std  = np.nanstd(image)
+        bunit = header['BUNIT'] if (header is not None and 'BUNIT' in header) else ''
+        unit_line = f"[{bunit}]:\n" if bunit else ""
         stats_label.setText(
-            f"Image Stats{unit_str}\n"
+            f"Intensity\n{unit_line}"
             f"min={mn:.3e}\n"
             f"max={mx:.3e}\n"
-            f"mean={mean:.3e}"
+            f"mean={mean:.3e}\n"
+            f"sum={total_sum:.3e}\n"
+            f"std={std:.3e}"
         )
 
         # 6. Refresh Canvas
@@ -2399,180 +1939,27 @@ class Ifu_analyzer_2d_window(QWidget):
         text = f"Cursor Info:\nPixel: {ix}, {iy}\n{wcs_str}Val: {val:.4e}{unit_str}"
         hover_label.setText(text)
 
-    def _set_shape(self, shape, target):
-        if self.active_shape == shape and self.active_target == target:
-            self.active_shape = None
-            self.active_target = None
-        else:
-            self.active_shape = shape
-            self.active_target = target
+    # ----- Region selection: the shared controller lives in RegionSelectionMixin.
+    # ----- These hooks feed it this window's per-panel image + header WCS. ------
+    def _region_image(self, target):
+        return self.image_left if target == "left" else self.image_right
 
-        for side in ["left", "right"]:
-            for btn_shape, btn in self.shape_buttons[side].items():
-                btn.setChecked(side == target and btn_shape == shape and self.active_shape is not None)
-
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-        selector.activate_selector(shape if self.active_shape else None)
-
-    def _handle_region_select(self, mask, patch, coords, target):
-        image = self.image_left if target == "left" else self.image_right
+    def _region_flux_unit(self, target):
         header = self.header_left if target == "left" else self.header_right
-        
-        # FIXED: Changed 'xNone' to 'None' to resolve NameError
-        if image is None: return
+        if header is not None and "BUNIT" in header:
+            return str(header["BUNIT"])
+        return ""
 
-        xmin, xmax, ymin, ymax = coords
-
-        # Build the full-size mask matching the image dimensions
-        if mask.shape == image.shape:
-            full_mask = mask
-        else:
-            full_mask = np.zeros_like(image, dtype=bool)
-            h_mask, w_mask = mask.shape
-            y0, x0 = int(ymin), int(xmin)
-            y1, x1 = min(y0 + h_mask, image.shape[0]), min(x0 + w_mask, image.shape[1])
-            full_mask[y0:y1, x0:x1] = mask[:(y1-y0), :(x1-x0)]
-
-        selection = {"shape": self.active_shape, "coords": coords, "mask": full_mask, "patch": patch}
-        
-        if target == "left": self.last_selection_left = selection
-        else: self.last_selection_right = selection
-
-        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-        
-        # Clean up previous area artists
-        if hasattr(plotter.ax, 'area_artists'):
-            for artist in getattr(plotter.ax, 'area_artists'):
-                try: artist.remove()
-                except Exception: pass
-        plotter.ax.area_artists = []
-
-        plotter.ax.add_patch(patch)
-        plotter.ax.area_artists.append(patch)
-        
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-        if selector.selector is not None:
-            try: selector.selector.set_visible(False)
-            except Exception: pass
-        
-        # Reset UI button states
-        self.active_shape = None
-        self.active_target = None
-        for side in ["left", "right"]:
-            for btn in self.shape_buttons[side].values():
-                btn.setChecked(False)
-        selector.activate_selector(None)
-
-        selected_area = image[full_mask]
-        if selected_area.size > 0:
-            mn, mx, mean = np.nanmin(selected_area), np.nanmax(selected_area), np.nanmean(selected_area)
-            total_sum, std = np.nansum(selected_area), np.nanstd(selected_area)
-
-            stats_label = self.stats1_label if target == "left" else self.stats2_label
-            current_text = stats_label.text().split("\n")
-            slice_stats = [line for line in current_text if line.startswith("Image Stats")]
-
-            bunit = ""
-            unit_str = ""
-            if header is not None and 'BUNIT' in header:
-                bunit = str(header['BUNIT'])
-                unit_str = f" [{bunit}]"
-
-            region_stats = [
-                f"Selected Area Stats{unit_str}:",
-                f"min={mn:.3e}", f"max={mx:.3e}", f"mean={mean:.3e}",
-                f"Sum={total_sum:.3e}",
-                f"std={std:.3e}",
-            ]
-
-            combined_stats = slice_stats + [""] + region_stats if slice_stats else region_stats
-            stats_label.setText("\n".join(combined_stats))
-
-        if target == "left": self.slice1_canvas.draw()
-        else: self.slice2_canvas.draw()
-
-    def clear_region(self, target):
-        if target == "left":
-            self.last_selection_left = None
-            plotter = self.slice1_plotter
-        else:
-            self.last_selection_right = None
-            plotter = self.slice2_plotter
-
-        # Clear physical shapes
-        if hasattr(plotter.ax, 'area_artists'):
-            for artist in plotter.ax.area_artists:
-                try: artist.remove()
-                except Exception: pass
-            plotter.ax.area_artists = []
-
-        # Clear pixel marks
-        if hasattr(plotter.ax, 'pixel_marker'):
-            for marker in plotter.ax.pixel_marker:
-                try: marker.remove()
-                except Exception: pass
-            plotter.ax.pixel_marker = []
-            
-        if hasattr(plotter, 'current_contour') and plotter.current_contour:
-            if hasattr(plotter.current_contour, 'collections'):
-                for c in plotter.current_contour.collections:
-                    try: c.remove()
-                    except Exception: pass
-            else:
-                try: plotter.current_contour.remove()
-                except Exception: pass
-            plotter.current_contour = None
-            
-        if target == "left":
-            self.last_contour_left_img = None
-            self.last_contour_left_wcs = None
-            self.last_contour_left_level = None
-        else:
-            self.last_contour_right_img = None
-            self.last_contour_right_wcs = None
-            self.last_contour_right_level = None
-
-        if target == "left" and self.image_left is not None:
-            self.display_image("left", "Left Image")
-        elif target == "right" and self.image_right is not None:
-            self.display_image("right", "Right Image")
-
-    def _handle_pixel_click(self, x, y, target):
-        image = self.image_left if target == "left" else self.image_right
-        header = self.header_left if target == "left" else self.header_right
-        if image is None: return
-                
-        if 0 <= y < image.shape[0] and 0 <= x < image.shape[1]:
-            intensity = float(image[y, x])
-            
-            if target == "left": self.last_selection_left = {"shape": "*", "coords": (x, y), "mask": None}
-            else: self.last_selection_right = {"shape": "*", "coords": (x, y), "mask": None}
-
-            stats_label = self.stats1_label if target == "left" else self.stats2_label
-            
-            unit_str = ""
-            if header is not None and 'BUNIT' in header:
-                unit_str = f" {header['BUNIT']}"
-                
-            stats_label.setText(f"Pixel: (x={x}, y={y})\nIntensity={intensity:.3e}{unit_str}")
-
-            plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-            
-            if hasattr(plotter.ax, 'area_artists'):
-                for artist in plotter.ax.area_artists:
-                    try: artist.remove()
-                    except Exception: pass
-                plotter.ax.area_artists = []
-
-            if hasattr(plotter.ax, 'pixel_marker'):
-                for marker in plotter.ax.pixel_marker:
-                    marker.remove()
-                plotter.ax.pixel_marker = []
-
-            plotter.update_pixel_marker(x, y)
-            
-            if target == "left": self.slice1_canvas.draw()
-            else: self.slice2_canvas.draw()
+    def _region_pixel_coords(self, target, x, y):
+        wcs_obj = self.wcs_left if target == "left" else self.wcs_right
+        if wcs_obj is None or not getattr(wcs_obj, "has_celestial", False):
+            return None, None
+        try:
+            w2d = wcs_obj.celestial if wcs_obj.pixel_n_dim > 2 else wcs_obj
+            sky = w2d.pixel_to_world(x, y)
+            return float(sky.ra.deg), float(sky.dec.deg)
+        except Exception:
+            return None, None
 
     def _on_slice_click(self, event, target):
         if event.inaxes is None or self.active_shape != "*": return
