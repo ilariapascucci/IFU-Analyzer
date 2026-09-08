@@ -2,9 +2,10 @@
 Rotational diagram fitting for non-H2 molecules (e.g. CO).
 
 No OPR (ortho-para ratio) here -- that's H2-only nuclear-spin-statistics physics,
-see rotational_diagram_h2_fitter.py. Q(T) comes from HITRAN's own TIPS-2021 data
-(via HAPI's partitionSum()) instead of a hardcoded per-molecule formula, so this
-one function works for any molecule get_available_molecules() knows about.
+see rotational_diagram_h2_fitter.py. Q(T) comes from HITRAN's own TIPS data (via
+HAPI's partitionSum(); TIPS-2025 by default with hapi >= 1.3) instead of a
+hardcoded per-molecule formula, so this one function works for any molecule
+get_available_molecules() knows about.
 
 Reuses the molecule-agnostic engine (upper_limit_1T/2T, model_1T/2T, compute_Nu,
 gaussian_flux_upper_limit, compute_line_fluxes_collective) straight from

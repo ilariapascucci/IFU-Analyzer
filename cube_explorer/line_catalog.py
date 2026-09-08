@@ -219,6 +219,8 @@ def get_available_molecules():
         'CH3CN': 41, 'CF4': 42, 'C4H2': 43, 'HC3N': 44, 'H2': 45, 'CS': 46,
         'SO3': 47, 'C2N2': 48, 'COCl2': 49, 'SO': 50, 'CH3F': 51, 'GeH4': 52,
         'CS2': 53, 'CH3I': 54, 'NF3': 55,
+        # 56-61 added to HITRAN post-2020; only fetchable with hitran-api >= 1.3.0.0
+        'H3p': 56, 'CH3': 57, 'S2': 58, 'COFCl': 59, 'HONO': 60, 'ClNO2': 61,
     }
 
 def convert_to_numpy(data):
@@ -235,23 +237,25 @@ def convert_to_numpy(data):
 
 def delete_cache_properly(table_name):
     """Delete specific table cache files without removing the hitran_local directory"""
+    # hapi >= 1.3.0.0 replaced purgeCache with dropTable, which only clears the
+    # in-memory table cache (its on-disk delete is a TODO) -- remove the files too.
     try:
-        from hapi import purgeCache
-        purgeCache(table_name)
-        print(f"Purged cache for {table_name}")
+        from hapi import dropTable
+        dropTable(table_name)
+    except Exception:
+        pass
+    try:
+        removed = False
+        for ext in ('data', 'header'):
+            path = f'hitran_local/{table_name}.{ext}'
+            if os.path.exists(path):
+                os.remove(path)
+                removed = True
+                print(f"Removed {path}")
+        if not removed:
+            print(f"No cache files found for {table_name}")
     except Exception as e:
-        # Fallback: manually delete just the table files
-        try:
-            data_file = f'hitran_local/{table_name}.data'
-            header_file = f'hitran_local/{table_name}.header'
-            if os.path.exists(data_file):
-                os.remove(data_file)
-                print(f"Removed {data_file}")
-            if os.path.exists(header_file):
-                os.remove(header_file)
-                print(f"Removed {header_file}")
-        except Exception as e2:
-            print(f"Could not delete cache files: {e2}")
+        print(f"Could not delete cache files: {e}")
 
 def get_cache_age(table_name):
     try:

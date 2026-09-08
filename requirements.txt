@@ -37,7 +37,7 @@ nutpie>=0.13                # Compiled NUTS sampler (numba) -- PyMC's own PyTens
 # ============================================================================
 # HITRAN DATABASE & SPECTROSCOPY
 # ============================================================================
-hitran-api>=1.2.2.4        # Import for HITRAN
+hitran-api>=1.3.0.0        # HITRAN line lists (>=1.3.0.0 adds molecules 56-61; renamed purgeCache -> dropTable)
 
 # ============================================================================
 # DOCUMENTATION (only needed to rebuild docs/ with `cd docs && make html`)
