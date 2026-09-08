@@ -208,6 +208,60 @@ def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=Non
     return data_rows, all_species
 
 # -------------------- HITRAN Utilities --------------------
+
+# Two HITRAN cache directories. hitran_local/ is the committed offline starter
+# pack (see _ALL_ISOTOPOLOGUES_BY_MOLECULE). hitran_cache/ holds on-demand fetches.
+BUNDLED_HITRAN_DIR = 'hitran_local'
+USER_HITRAN_DIR = 'hitran_cache'
+HITRAN_DIRS = (BUNDLED_HITRAN_DIR, USER_HITRAN_DIR)
+
+_hitran_db_started = False
+_hitran_write_dir = None  # directory the last db_begin() selected for fetch() output
+
+
+def _ensure_hitran_db():
+    """
+    Open both HITRAN cache directories with db_begin() once per process.
+    db_begin() merges them into one in-memory table set, so a table from either
+    directory is readable. A module flag makes later calls a no-op.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    global _hitran_db_started, _hitran_write_dir
+    if _hitran_db_started:
+        return
+    from hapi import db_begin
+    for d in HITRAN_DIRS:
+        os.makedirs(d, exist_ok=True)
+        db_begin(d)
+    _hitran_db_started = True
+    _hitran_write_dir = HITRAN_DIRS[-1]
+
+
+def _point_hitran_writes(dest):
+    """
+    Select the directory that the next fetch() writes to. This is a no-op when
+    the target does not change, because db_begin() reloads the whole directory.
+
+    Args:
+        dest (str): Cache directory for new downloads.
+
+    Returns:
+        None
+    """
+    global _hitran_write_dir
+    if dest == _hitran_write_dir:
+        return
+    from hapi import db_begin
+    os.makedirs(dest, exist_ok=True)
+    db_begin(dest)
+    _hitran_write_dir = dest
+
+
 def get_available_molecules():
     return {
         'H2O': 1, 'CO2': 2, 'O3': 3, 'N2O': 4, 'CO': 5, 'CH4': 6, 'O2': 7, 'NO': 8,
@@ -236,9 +290,19 @@ def convert_to_numpy(data):
     return np.array([data], dtype=float)
 
 def delete_cache_properly(table_name):
-    """Delete specific table cache files without removing the hitran_local directory"""
-    # hapi >= 1.3.0.0 replaced purgeCache with dropTable, which only clears the
-    # in-memory table cache (its on-disk delete is a TODO) -- remove the files too.
+    """
+    Delete a cached table's files from the on-demand cache directory. This never
+    touches the committed bundle (hitran_local/). Rebuild the bundle with
+    warm_hitran_cache.py.
+
+    Args:
+        table_name (str): HITRAN table name, without extension.
+
+    Returns:
+        None
+    """
+    # hapi >= 1.3.0.0 replaced purgeCache with dropTable. dropTable only clears
+    # the in-memory cache (on-disk delete is a TODO), so this also removes files.
     try:
         from hapi import dropTable
         dropTable(table_name)
@@ -247,23 +311,32 @@ def delete_cache_properly(table_name):
     try:
         removed = False
         for ext in ('data', 'header'):
-            path = f'hitran_local/{table_name}.{ext}'
+            path = os.path.join(USER_HITRAN_DIR, f'{table_name}.{ext}')
             if os.path.exists(path):
                 os.remove(path)
                 removed = True
                 print(f"Removed {path}")
         if not removed:
-            print(f"No cache files found for {table_name}")
+            print(f"No cache files found for {table_name} in {USER_HITRAN_DIR}/")
     except Exception as e:
         print(f"Could not delete cache files: {e}")
 
 def get_cache_age(table_name):
+    """
+    Return the age in days of an on-demand cache table's .data file, or None.
+    Bundled tables ship with the repository, so their mtime is not a real cache
+    age. This function checks only USER_HITRAN_DIR.
+
+    Args:
+        table_name (str): HITRAN table name, without extension.
+
+    Returns:
+        age_days (float): File age in days, or None when the file is absent.
+    """
     try:
-        data_file = f'hitran_local/{table_name}.data'
+        data_file = os.path.join(USER_HITRAN_DIR, f'{table_name}.data')
         if os.path.exists(data_file):
-            mod_time = os.path.getmtime(data_file)
-            age_seconds = time.time() - mod_time
-            return age_seconds / (24 * 3600)
+            return (time.time() - os.path.getmtime(data_file)) / (24 * 3600)
     except Exception:
         return None
     return None
@@ -308,7 +381,7 @@ def find_containing_cached_table(wavelength_min, wavelength_max, molecule, isoto
             None if no cached table covers this range
     """
     M = get_available_molecules().get(molecule)
-    if M is None or not os.path.isdir('hitran_local'):
+    if M is None:
         return None
     wavelength_min_val = _extract_wavelength_value(wavelength_min)
     wavelength_max_val = _extract_wavelength_value(wavelength_max)
@@ -317,27 +390,29 @@ def find_containing_cached_table(wavelength_min, wavelength_max, molecule, isoto
 
     prefix = f'{molecule}_{M}_{isotopologue}_'
     best_name, best_span = None, None
-    for fname in os.listdir('hitran_local'):
-        if not (fname.startswith(prefix) and fname.endswith('.data')):
+    for cache_dir in HITRAN_DIRS:
+        if not os.path.isdir(cache_dir):
             continue
-        try:
-            lo_str, hi_str = fname[len(prefix):-len('.data')].split('_')
-            lo, hi = int(lo_str), int(hi_str)
-        except ValueError:
-            continue
-        if lo <= wavenum_min and hi >= wavenum_max:
-            span = hi - lo
-            if best_span is None or span < best_span:
-                best_name, best_span = fname[:-len('.data')], span
+        for fname in os.listdir(cache_dir):
+            if not (fname.startswith(prefix) and fname.endswith('.data')):
+                continue
+            try:
+                lo_str, hi_str = fname[len(prefix):-len('.data')].split('_')
+                lo, hi = int(lo_str), int(hi_str)
+            except ValueError:
+                continue
+            if lo <= wavenum_min and hi >= wavenum_max:
+                span = hi - lo
+                if best_span is None or span < best_span:
+                    best_name, best_span = fname[:-len('.data')], span
     return best_name
 
 
 def is_hitran_data_cached(wavelength_min, wavelength_max, molecule, isotopologue=1):
     """
-    Check whether fetch_hitran_data() can already serve this query from
-    hitran_local/ (an exact-range match or a wider containing table), without
-    touching the network -- lets a caller offer "use the local copy" before
-    defaulting to an online refresh.
+    Check whether fetch_hitran_data() can serve this query from either cache
+    directory (an exact-range table, or a wider table that contains it), with no
+    network access. A caller can then offer the local copy before an online refresh.
 
     Args:
         wavelength_min, wavelength_max (float): Wavelength range in um
@@ -348,42 +423,23 @@ def is_hitran_data_cached(wavelength_min, wavelength_max, molecule, isotopologue
         cached (bool): True if a local .data file already covers this query
     """
     table_name = compute_hitran_table_name(wavelength_min, wavelength_max, molecule, isotopologue)
-    if table_name is not None and os.path.exists(os.path.join('hitran_local', f'{table_name}.data')):
+    if table_name is not None and any(
+        os.path.exists(os.path.join(d, f'{table_name}.data')) for d in HITRAN_DIRS
+    ):
         return True
     return find_containing_cached_table(wavelength_min, wavelength_max, molecule, isotopologue) is not None
 
 
-# Molecules ("common" as in: worth keeping pre-cached in hitran_local/ for offline
-# use -- meetings/demos without internet, see warm_hitran_cache.py) -- not all 55
-# HITRAN has (get_available_molecules()), just these four. But for each one, this
-# is EVERY isotopologue HITRAN has for it (get_available_isotopologues() -- e.g.
-# CO -> [1,2,3,4,5,6]), not a curated subset, so that fetch_hitran_data(...,
-# isotopologue=None) ("search every isotopologue" -- see its docstring) can be
-# served offline too for these molecules, not just isotopologue=1.
-#
-# Hardcoded rather than built by calling get_available_isotopologues() here, since
-# that needs hapi imported, and every other hapi import in this module is lazy/
-# inside a function -- importing it at module level would print HAPI's banner on
-# every `import cube_explorer.line_catalog`, hapi installed or not needed.
-#
-# v_upper/v_lower aren't part of the cache key (HITRAN is cached by (molecule,
-# isotopologue, wavelength range) only, then filtered by transition after loading),
-# so they're documentation here, not a separate cache dimension. Full practical IR
-# range (1-30um) rather than a narrow band per demo -- cheap enough in total that
-# there's no per-demo range/isotopologue to guess right any more.
+# The offline starter pack: molecules and isotopologues bundled in hitran_local/
+# so core disk analysis works with no internet. warm_hitran_cache.py builds it.
 _ALL_ISOTOPOLOGUES_BY_MOLECULE = {
-    "H2": [1, 2],
-    "CO": [1, 2, 3, 4, 5, 6],
-    # Far denser than the others (~108k lines for iso1 alone, ~17MB/~15s to fetch) --
-    # don't assume every future molecule added here will stay this cheap; check
-    # size/time before widening one that far.
-    "H2O": [1, 2, 3, 4, 5, 6, 7],
-    # OH iso2 (18O-H) and iso3 (16O-D) exist in HITRAN's isotopologue table but have
-    # no actual line data above ~331 cm-1 (<=30.2um, i.e. entirely outside this app's
-    # 1-30um range) -- confirmed against HITRAN directly, not a fetch bug. Querying
-    # them here would just make every future warm-up "fail" for lines that were
-    # never going to exist, so only the main isotopologue is worth pre-caching.
-    "OH": [1],
+    "H2O": [1, 2],      # H2(16O); H2(18O) -- water-isotope work in bright disks
+    "CO2": [1, 2],      # 12CO2; 13CO2 (Grant+2023 GW Lup, CX Tau, MINDS)
+    "CO": [1, 2, 3],    # 12CO / 13CO / C18O -- the 4.5-4.9um NIRSpec rovib set
+    "OH": [1],          # isos 2 (18O-H), 3 (16O-D) have no lines <30um (checked vs HITRAN)
+    "HCN": [1, 2],      # H(12C)(14N); H(13C)(14N) (MINDS)
+    "C2H2": [1, 2],     # 12C2H2; (12C)(13C)H2 in carbon-rich disks (iso2 is ~0.5MB)
+    "H2": [1, 2],       # H2; HD
 }
 COMMON_HITRAN_QUERIES = [
     {"name": f"{molecule} iso{isotopologue} 1-30um (all bands)", "molecule": molecule,
@@ -411,7 +467,7 @@ def get_available_isotopologues(molecule):
     return sorted(i for (m, i) in ISO.keys() if m == M)
 
 
-def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None):
+def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None, write_dir=None):
     """
     Retrieves molecular spectroscopic line data from the HITRAN database using HAPI.
     Implements smart caching to minimize downloads, converts wavelength ranges to
@@ -431,6 +487,8 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
         cache_days: Cache age threshold
         v_upper: Filter by upper vibrational level (optional, e.g., 1 for v=1)
         v_lower: Filter by lower vibrational level (optional, e.g., 0 for v=0)
+        write_dir: Directory for a fresh download. Defaults to the on-demand
+            cache (hitran_cache/); warm_hitran_cache.py passes hitran_local/.
     """
     if isotopologue is None:
         iso_list = get_available_isotopologues(molecule)
@@ -442,7 +500,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
         for iso_num in iso_list:
             rows, meta = _fetch_hitran_data_single_iso(
                 wavelength_min, wavelength_max, molecule, iso_num,
-                refresh_cache, cache_days, v_upper, v_lower,
+                refresh_cache, cache_days, v_upper, v_lower, write_dir,
             )
             combined_rows.extend(rows)
             if meta.get('error'):
@@ -456,13 +514,13 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
 
     return _fetch_hitran_data_single_iso(
         wavelength_min, wavelength_max, molecule, isotopologue,
-        refresh_cache, cache_days, v_upper, v_lower,
+        refresh_cache, cache_days, v_upper, v_lower, write_dir,
     )
 
 
-def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None):
+def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None, write_dir=None):
     try:
-        from hapi import db_begin, fetch, getColumns, tableList, ISO
+        from hapi import fetch, getColumns, tableList, ISO
     except ImportError:
         print("Error: HAPI not installed!")
         print("Install with: pip install hitran-api")
@@ -494,9 +552,7 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
             table_name = containing
 
     try:
-        # Ensure hitran_local directory exists
-        os.makedirs('hitran_local', exist_ok=True)
-        db_begin('hitran_local')
+        _ensure_hitran_db()
 
         # Check for existing cached data
         try:
@@ -521,9 +577,11 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
         if data_cached and not refresh_cache:
             print(f"[OK] Using cached {molecule} data")
         else:
+            dest = write_dir or USER_HITRAN_DIR
+            _point_hitran_writes(dest)
             print(f"[INFO] Downloading {molecule} from HITRAN...")
             fetch(table_name, M, I, wavenum_min, wavenum_max)
-            print(f"[OK] Download complete - cached locally")
+            print(f"[OK] Download complete - cached in {dest}/")
 
         print(f"[INFO] Processing data...\n")
         data_rows = []

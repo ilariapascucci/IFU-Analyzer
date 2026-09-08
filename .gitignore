@@ -9,7 +9,9 @@
 
 # Ignore any large data folders
 /data/
-#/hitran_local/
+# hitran_local/ is committed: the offline HITRAN starter pack, built by
+# warm_hitran_cache.py. Only on-demand fetches (in hitran_cache/) are ignored.
+/hitran_cache/
 /CO/
 /cube_explorer/__pycache__/
 
