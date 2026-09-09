@@ -42,7 +42,7 @@ from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
-from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog, is_hitran_data_cached
+from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
@@ -2476,25 +2476,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             else:
                 isotopologue = None
 
-            # Cache option: only ask when this exact query is already sitting in
-            # hitran_local/ -- offer the offline copy first instead of defaulting
-            # to a network refresh (there's nothing to "refresh" when nothing's
-            # cached yet, so that case just fetches without asking).
+            # Fully-covered locally -> use it, no prompt. HITRAN line data doesn't
+            # change month to month, so there's nothing meaningful "online" would
+            # give you here that the local copy doesn't already have. (Nothing
+            # cached yet -> refresh_cache stays False too; that case just fetches
+            # online without asking, same as always.)
             refresh_cache = False
-            if isotopologue is not None and is_hitran_data_cached(
-                wavelength_min, wavelength_max, molecule, isotopologue
-            ):
-                use_local = QMessageBox.question(
-                    self,
-                    "Local Data Available",
-                    f"{molecule} (isotopologue {isotopologue}), "
-                    f"{wavelength_min:.3f}-{wavelength_max:.3f} µm is already "
-                    f"cached locally -- no internet needed.\n\n"
-                    "Use the local copy? (Choose No to check HITRAN online instead.)",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes
-                ) == QMessageBox.Yes
-                refresh_cache = not use_local
 
             # Fetch HITRAN data
             results, fetch_meta = hitran_gui_interface(
@@ -2520,7 +2507,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 want_filter = QMessageBox.question(
                     self, "Transition Filter",
                     f"Filter {molecule} lines by transition?",
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
                 ) == QMessageBox.Yes
                 if want_filter:
                     filtered = apply_transition_filter(self, results, molecule)
