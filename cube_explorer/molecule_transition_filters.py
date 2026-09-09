@@ -8,7 +8,7 @@ apply_transition_filter(); no per-molecule transition code lives in gui.py.
 
 import re
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QLineEdit
-from .transition_patterns import TRANSITION_PATTERNS
+from .transition_patterns import get_transition_pattern as _pattern_for
 
 
 def _field_names(pattern_info):
@@ -38,7 +38,7 @@ def get_user_transition_inputs(parent, molecule):
         user_inputs (dict): {field_name: value}, or None if the user cancelled
             or the molecule has no pattern entry.
     """
-    pattern_info = TRANSITION_PATTERNS.get(molecule.upper())
+    pattern_info = _pattern_for(molecule)
     if not pattern_info:
         QMessageBox.warning(parent, "Error", f"'{molecule}' has no transition pattern.")
         return None
@@ -80,7 +80,7 @@ def filter_hitran_by_transition(results, molecule, user_inputs):
         filtered (list): The rows that match. All rows if the molecule has no
             usable pattern.
     """
-    pattern_info = TRANSITION_PATTERNS.get(molecule.upper())
+    pattern_info = _pattern_for(molecule)
     if not pattern_info:
         return results
 

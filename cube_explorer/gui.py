@@ -2445,12 +2445,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             )
             if not ok:
                 return
-            molecule = molecule.strip().upper()
-            if molecule == "":
+            typed = molecule.strip()
+            if typed == "":
                 QMessageBox.warning(self, "Invalid Input", "Molecule cannot be empty.")
                 return
-            if molecule not in mol_map:
-                QMessageBox.warning(self, "Unknown Molecule", f"'{molecule}' is not in the HITRAN list.")
+            # Resolve case-insensitively -- mol_map keys keep HITRAN's own casing
+            # (HCl, NOp, H3p), so a bare .upper() would reject them.
+            molecule = {k.upper(): k for k in mol_map}.get(typed.upper())
+            if molecule is None:
+                QMessageBox.warning(self, "Unknown Molecule", f"'{typed}' is not in the HITRAN list.")
                 return
 
             # Isotopologue selection -- optional: someone unsure which isotopologue

@@ -263,18 +263,30 @@ def _point_hitran_writes(dest):
 
 
 def get_available_molecules():
+    """
+    Map molecule name to its HITRAN molecule id, for every molecule with
+    line-by-line data in this app's 1-30um range.
+
+    Args:
+        None
+
+    Returns:
+        molecules (dict): {name: hitran_id}, 52 entries.
+    """
+    # Excluded on purpose: SF6/CF4/NF3/ClONO2 (HITRAN has them as cross-sections,
+    # no line list); O (atomic, 2 far-IR lines); S2 (UV electronic); HOBr/C2N2/
+    # HONO (line lists, but all > 30um). Re-add the last three if the range grows.
     return {
         'H2O': 1, 'CO2': 2, 'O3': 3, 'N2O': 4, 'CO': 5, 'CH4': 6, 'O2': 7, 'NO': 8,
         'SO2': 9, 'NO2': 10, 'NH3': 11, 'HNO3': 12, 'OH': 13, 'HF': 14, 'HCl': 15,
         'HBr': 16, 'HI': 17, 'ClO': 18, 'OCS': 19, 'H2CO': 20, 'HOCl': 21, 'N2': 22,
         'HCN': 23, 'CH3Cl': 24, 'H2O2': 25, 'C2H2': 26, 'C2H6': 27, 'PH3': 28,
-        'COF2': 29, 'SF6': 30, 'H2S': 31, 'HCOOH': 32, 'HO2': 33, 'O': 34,
-        'ClONO2': 35, 'NOp': 36, 'HOBr': 37, 'C2H4': 38, 'CH3OH': 39, 'CH3Br': 40,
-        'CH3CN': 41, 'CF4': 42, 'C4H2': 43, 'HC3N': 44, 'H2': 45, 'CS': 46,
-        'SO3': 47, 'C2N2': 48, 'COCl2': 49, 'SO': 50, 'CH3F': 51, 'GeH4': 52,
-        'CS2': 53, 'CH3I': 54, 'NF3': 55,
+        'COF2': 29, 'H2S': 31, 'HCOOH': 32, 'HO2': 33, 'NOp': 36, 'C2H4': 38,
+        'CH3OH': 39, 'CH3Br': 40, 'CH3CN': 41, 'C4H2': 43, 'HC3N': 44, 'H2': 45,
+        'CS': 46, 'SO3': 47, 'COCl2': 49, 'SO': 50, 'CH3F': 51, 'GeH4': 52,
+        'CS2': 53, 'CH3I': 54,
         # 56-61 added to HITRAN post-2020; only fetchable with hitran-api >= 1.3.0.0
-        'H3p': 56, 'CH3': 57, 'S2': 58, 'COFCl': 59, 'HONO': 60, 'ClNO2': 61,
+        'H3p': 56, 'CH3': 57, 'COFCl': 59, 'ClNO2': 61,
     }
 
 def convert_to_numpy(data):
