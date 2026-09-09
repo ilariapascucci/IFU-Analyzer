@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QLabel, QWidget, QCheckBox
+    QTableWidgetItem, QLabel
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
@@ -44,6 +44,20 @@ class SpeciesDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setRowCount(len(rows))
         layout.addWidget(self.table)
+
+        # Click-to-sort on Wavelength/Species/A-coeff/E_upper -- not Transition,
+        # whose mixed notation formats sort badly as plain text. See _reorder_rows().
+        self._SORTABLE_COLUMNS = {1, 2, 4, 5}
+        self._sort_column = None
+        self._sort_order = Qt.AscendingOrder
+        header = self.table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self.on_header_clicked)
+        for col in self._SORTABLE_COLUMNS:
+            header_item = self.table.horizontalHeaderItem(col)
+            if header_item:
+                header_item.setToolTip("Click to sort")
 
         # If we have plotted_rows, use them to determine checkboxes
         # Otherwise (first time), check all boxes
@@ -127,32 +141,27 @@ class SpeciesDialog(QDialog):
           - None => check only those present in self.plotted_keys
         """
         for i, row in enumerate(rows):
-            checkbox_widget = QWidget()
-            checkbox = QCheckBox()
             # Decide default state:
             if default_checked is True:
-                checkbox.setChecked(True)
+                checked = True
             elif default_checked is False:
-                checkbox.setChecked(False)
+                checked = False
             else:  # default_checked is None -> reflect plotted_rows membership
-                checkbox.setChecked(self._row_key(row) in self.plotted_keys)
-
-            layout = QHBoxLayout()
-            layout.addWidget(checkbox)
-            layout.setAlignment(Qt.AlignCenter)
-            layout.setContentsMargins(0, 0, 0, 0)
-            checkbox_widget.setLayout(layout)
+                checked = self._row_key(row) in self.plotted_keys
 
             # Tint rows by source so HITRAN / contaminant / custom-imported lines
             # read apart at a glance, echoing the same colors used on the spectrum
             # itself (darkred/orange for HITRAN, black/dimgray for contaminants).
             tint = self._row_tint(row)
-            if tint is not None:
-                checkbox_widget.setStyleSheet(
-                    f"background-color: rgba({tint.red()}, {tint.green()}, {tint.blue()}, {tint.alpha()});"
-                )
 
-            self.table.setCellWidget(i, 0, checkbox_widget)
+            # A real checkable item, not a QCheckBox widget -- a widget does not
+            # survive a header-click row reorder (see gui_rotational_diagram.py).
+            select_item = QTableWidgetItem()
+            select_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            select_item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+            if tint is not None:
+                select_item.setBackground(tint)
+            self.table.setItem(i, 0, select_item)
 
             # Wavelength
             lam = row.get('lambda_micron') if 'lambda_micron' in row else row.get('wavelength')
@@ -223,49 +232,116 @@ class SpeciesDialog(QDialog):
     def get_selected_rows(self):
         selected = []
         for i in range(self.table.rowCount()):
-            checkbox_widget = self.table.cellWidget(i, 0)
-            if checkbox_widget is None:
-                continue
-            checkbox = checkbox_widget.layout().itemAt(0).widget()  # get QCheckBox
-            if checkbox.isChecked():
+            item = self.table.item(i, 0)
+            if item and item.checkState() == Qt.Checked:
                 selected.append(self.rows[i])
         print("DEBUG selected rows:", [r.get('lambda_micron') or r.get('wavelength') for r in selected])
         return selected
-    
+
     @staticmethod
     def get_row_wavelength(row):
         return row.get("lambda_micron") or row.get("wavelength")
 
     def select_all_rows(self):
         for i in range(self.table.rowCount()):
-            widget = self.table.cellWidget(i, 0)
-            if widget is None:
-                continue
-            cb = widget.layout().itemAt(0).widget()
-            cb.setChecked(True)
+            item = self.table.item(i, 0)
+            if item:
+                item.setCheckState(Qt.Checked)
 
     def unselect_all_rows(self):
         for i in range(self.table.rowCount()):
-            widget = self.table.cellWidget(i, 0)
-            if widget is None:
-                continue
-            cb = widget.layout().itemAt(0).widget()
-            cb.setChecked(False)
+            item = self.table.item(i, 0)
+            if item:
+                item.setCheckState(Qt.Unchecked)
 
     def select_detection_only(self):
         """Check only the lines being detected (HITRAN or custom-imported), uncheck contaminants."""
         for i in range(self.table.rowCount()):
-            widget = self.table.cellWidget(i, 0)
-            if widget is None:
-                continue
-            cb = widget.layout().itemAt(0).widget()
-            cb.setChecked(self.rows[i].get('source') != 'Contaminant')
+            item = self.table.item(i, 0)
+            if item:
+                item.setCheckState(Qt.Unchecked if self.rows[i].get('source') == 'Contaminant' else Qt.Checked)
 
     def select_contaminating_only(self):
         """Check only contaminating lines, uncheck the detection lines."""
         for i in range(self.table.rowCount()):
-            widget = self.table.cellWidget(i, 0)
-            if widget is None:
-                continue
-            cb = widget.layout().itemAt(0).widget()
-            cb.setChecked(self.rows[i].get('source') == 'Contaminant')
+            item = self.table.item(i, 0)
+            if item:
+                item.setCheckState(Qt.Checked if self.rows[i].get('source') == 'Contaminant' else Qt.Unchecked)
+
+    def on_header_clicked(self, column):
+        """Click-to-sort: the first click on a column sorts ascending, a
+        second click reverses it.
+
+        Args:
+            column (int): Table column index the user clicked.
+
+        Returns:
+            None: Reorders self.table's rows in place.
+        """
+        if column not in self._SORTABLE_COLUMNS:
+            return
+        if self.table.rowCount() == 0:
+            return
+
+        if self._sort_column == column and self._sort_order == Qt.AscendingOrder:
+            self._sort_order = Qt.DescendingOrder
+        else:
+            self._sort_order = Qt.AscendingOrder
+        self._sort_column = column
+
+        n = self.table.rowCount()
+        order = sorted(
+            range(n),
+            key=lambda r: self._sort_key(r, column),
+            reverse=(self._sort_order == Qt.DescendingOrder),
+        )
+        self._reorder_rows(order)
+        self.table.horizontalHeader().setSortIndicator(column, self._sort_order)
+
+    def _sort_key(self, row, column):
+        """Sort key for one cell: numeric for Wavelength/A-coeff/E_upper,
+        lowercased text for Species. A missing numeric value ranks lowest.
+
+        Args:
+            row (int): Table row index.
+            column (int): Table column index. Must be in self._SORTABLE_COLUMNS.
+
+        Returns:
+            key (float | str): Sort key for this cell.
+        """
+        item = self.table.item(row, column)
+        text = item.text().strip() if item else ""
+        if column == 2:
+            return text.lower()
+        try:
+            return float(text)
+        except ValueError:
+            return float('-inf')
+
+    def _reorder_rows(self, order):
+        """Move the table's rows into `order`. Every column is a real
+        QTableWidgetItem, so a plain take-and-reinsert of items is enough.
+
+        Args:
+            order (list[int]): New row i holds old row order[i].
+
+        Returns:
+            None: Reorders self.table and self.rows in place.
+        """
+        table = self.table
+        n = table.rowCount()
+        if list(order) == list(range(n)):
+            return
+
+        table.blockSignals(True)
+        table.setUpdatesEnabled(False)
+        try:
+            n_cols = table.columnCount()
+            old_items = {c: [table.takeItem(r, c) for r in range(n)] for c in range(n_cols)}
+            for new_row, old_row in enumerate(order):
+                for c in range(n_cols):
+                    table.setItem(new_row, c, old_items[c][old_row])
+            self.rows = [self.rows[old_row] for old_row in order]
+        finally:
+            table.setUpdatesEnabled(True)
+            table.blockSignals(False)
