@@ -1728,7 +1728,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             fill = ax.fill_between(x_curve, baseline_curve, y_fit_curve, color='red',
                                     alpha=0.2, label='Integrated Area', zorder=7)
             fit_artists.extend([b_line, g_line, fill])
-            ax.legend(fontsize=8)
+            ax.legend(loc='upper right', fontsize=8)
             canvas.draw_idle()
 
         # Wider context: pad by a fixed number of the spectrum's own native sample
@@ -1751,6 +1751,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         elif len(x) > 0 and x.max() > x.min():
             pad = 0.5 * (x.max() - x.min())
             ax.set_xlim(x.min() - pad, x.max() + pad)
+
+        # Marks this row's own fitted center -- with the chunk-wide curve on,
+        # several lines' peaks can appear in one curve, same as the main
+        # window's per-line markers disambiguate a shared multi-Gaussian fit.
+        ax.axvline(center, color='darkred', linestyle='--', linewidth=1.5, alpha=0.8, zorder=8)
 
         _draw_fit(chunkwide_checkbox.isChecked())
         chunkwide_checkbox.toggled.connect(_draw_fit)
