@@ -22,6 +22,7 @@ from matplotlib.figure import Figure
 
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
+from .table_drag_select import SortableCheckboxTableMixin
 from .rotational_diagram_h2_fitter import (
     rotational_diagram as rotational_diagram_h2,
     get_gu, compute_line_fluxes_collective, model_1T, model_2T,
@@ -200,7 +201,7 @@ class BatchFluxWorker(QThread):
             self.error.emit(str(e))
 
 
-class RotationalDiagramWindow(QMainWindow):
+class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
     """Main window for rotational diagram analysis"""
     
     def __init__(self, parent_gui=None):  # parent_gui kept for backward compatibility, not used
@@ -286,18 +287,12 @@ class RotationalDiagramWindow(QMainWindow):
         )
         main_layout.addWidget(self.lines_table)
 
-        # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux
-        # -- see _reorder_lines_table_rows() (not Qt's own setSortingEnabled).
-        self._SORTABLE_COLUMNS = {1, 3, 4, 5, 6, 7, 8, 10}
-        header = self.lines_table.horizontalHeader()
-        header.setSectionsClickable(True)
-        header.setSortIndicatorShown(True)
-        header.sectionClicked.connect(self.on_lines_table_header_clicked)
-        for col in self._SORTABLE_COLUMNS:
-            header_item = self.lines_table.horizontalHeaderItem(col)
-            if header_item:
-                header_item.setToolTip("Click to sort")
-        
+        # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux.
+        # Also wires click-and-drag on column 0 to check/uncheck a run of rows at once.
+        self._init_sortable_checkbox_table(
+            self.lines_table, {1, 3, 4, 5, 6, 7, 8, 10}, self._lines_table_sort_key
+        )
+
         # Connect table changes for auto-calculation
         self.lines_table.itemChanged.connect(self.on_table_item_changed)
         # "Fit" column (14) opens the fit-view dialog on double-click, once
@@ -1818,9 +1813,7 @@ class RotationalDiagramWindow(QMainWindow):
         # wrong line.
         self._line_fit_plot_data = {}
         self._water_warnings = {}
-        self._sort_column = None
-        self._sort_order = Qt.AscendingOrder
-        self.lines_table.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)
+        self._reset_sort_state()
         self.water_lines_checkbox.blockSignals(True)
         self.water_lines_checkbox.setChecked(False)
         self.water_lines_checkbox.blockSignals(False)
@@ -1835,9 +1828,10 @@ class RotationalDiagramWindow(QMainWindow):
                 "to include it in the fit."
             )
 
-            # Row-select checkbox
+            # Row-select checkbox -- checked by default (a line with no HITRAN
+            # match stays unchecked too, since it's disabled until completed).
             select_item = self._make_checkable_item(
-                enabled=matched, tooltip=("" if matched else unmatched_tip)
+                checked=matched, enabled=matched, tooltip=("" if matched else unmatched_tip)
             )
             self.lines_table.setItem(row, 0, select_item)
 
@@ -1940,39 +1934,23 @@ class RotationalDiagramWindow(QMainWindow):
         
         # Set initial edit/read-only status based on current mode
         self.update_error_columns()
+        # Rows just defaulted to checked -- reflect that in the Run Fit button.
+        self.on_line_selected()
 
-    def on_lines_table_header_clicked(self, column):
-        """Click-to-sort: the first click on a column sorts ascending, a second
-        click reverses it. A running flux calculation blocks the sort, because
-        it writes results into the table by row index.
+    def _on_sortable_header_clicked(self, column):
+        """Override the mixin's click-to-sort: block it while a background
+        flux calculation is writing results into the table by row index,
+        since reordering rows mid-calculation would land results on the wrong line.
 
         Args:
             column (int): Table column index the user clicked.
 
         Returns:
-            None: Reorders self.lines_table's rows in place.
+            None: Defers to SortableCheckboxTableMixin's sort, unless blocked.
         """
-        if column not in self._SORTABLE_COLUMNS:
-            return
-        if self.lines_table.rowCount() == 0:
-            return
         if not self.calculate_fluxes_btn.isEnabled():
             return
-
-        if self._sort_column == column and self._sort_order == Qt.AscendingOrder:
-            self._sort_order = Qt.DescendingOrder
-        else:
-            self._sort_order = Qt.AscendingOrder
-        self._sort_column = column
-
-        n = self.lines_table.rowCount()
-        order = sorted(
-            range(n),
-            key=lambda r: self._lines_table_sort_key(r, column),
-            reverse=(self._sort_order == Qt.DescendingOrder),
-        )
-        self._reorder_lines_table_rows(order)
-        self.lines_table.horizontalHeader().setSortIndicator(column, self._sort_order)
+        super()._on_sortable_header_clicked(column)
 
     def _lines_table_sort_key(self, row, column):
         """Numeric sort key for one cell. A missing or unparseable value (a
@@ -2006,43 +1984,24 @@ class RotationalDiagramWindow(QMainWindow):
         except ValueError:
             return float('-inf')
 
-    def _reorder_lines_table_rows(self, order):
-        """Move lines_table's rows into `order`. Every column is a real
-        QTableWidgetItem (no QCheckBox/QLabel cell widgets), so a plain
-        take-and-reinsert of items is enough; nothing needs rebinding.
+    def _permute_extra_row_state(self, order, row_map):
+        """Keep self.hitran_lines, _line_fit_plot_data, and _water_warnings in
+        step with a lines_table reorder (all three are keyed by row index).
 
         Args:
             order (list[int]): New row i holds old row order[i].
+            row_map (dict[int, int]): Old row index -> new row index.
 
         Returns:
-            None: Reorders self.lines_table and its row-indexed state in place.
+            None: Reassigns the three attributes in place.
         """
-        table = self.lines_table
-        n = table.rowCount()
-        if list(order) == list(range(n)):
-            return
-
-        table.blockSignals(True)
-        table.setUpdatesEnabled(False)
-        try:
-            n_cols = table.columnCount()
-            old_items = {c: [table.takeItem(r, c) for r in range(n)] for c in range(n_cols)}
-
-            for new_row, old_row in enumerate(order):
-                for c in range(n_cols):
-                    table.setItem(new_row, c, old_items[c][old_row])
-
-            row_map = {old_row: new_row for new_row, old_row in enumerate(order)}
-            self.hitran_lines = [self.hitran_lines[old_row] for old_row in order]
-            self._line_fit_plot_data = {
-                row_map[old_row]: v for old_row, v in self._line_fit_plot_data.items()
-            }
-            self._water_warnings = {
-                row_map[old_row]: v for old_row, v in self._water_warnings.items()
-            }
-        finally:
-            table.setUpdatesEnabled(True)
-            table.blockSignals(False)
+        self.hitran_lines = [self.hitran_lines[old_row] for old_row in order]
+        self._line_fit_plot_data = {
+            row_map[old_row]: v for old_row, v in self._line_fit_plot_data.items()
+        }
+        self._water_warnings = {
+            row_map[old_row]: v for old_row, v in self._water_warnings.items()
+        }
 
     def on_line_selected(self):
         """Enable Run Fit only once >=2 lines are checked"""

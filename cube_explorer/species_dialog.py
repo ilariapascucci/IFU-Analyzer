@@ -5,7 +5,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
-class SpeciesDialog(QDialog):
+from .table_drag_select import SortableCheckboxTableMixin
+
+class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
     """
     Dialog that shows a table of filtered spectral lines with
     checkboxes so the user can choose which lines to plot.
@@ -46,18 +48,9 @@ class SpeciesDialog(QDialog):
         layout.addWidget(self.table)
 
         # Click-to-sort on Wavelength/Species/A-coeff/E_upper -- not Transition,
-        # whose mixed notation formats sort badly as plain text. See _reorder_rows().
-        self._SORTABLE_COLUMNS = {1, 2, 4, 5}
-        self._sort_column = None
-        self._sort_order = Qt.AscendingOrder
-        header = self.table.horizontalHeader()
-        header.setSectionsClickable(True)
-        header.setSortIndicatorShown(True)
-        header.sectionClicked.connect(self.on_header_clicked)
-        for col in self._SORTABLE_COLUMNS:
-            header_item = self.table.horizontalHeaderItem(col)
-            if header_item:
-                header_item.setToolTip("Click to sort")
+        # whose mixed notation formats sort badly as plain text. Also wires
+        # click-and-drag on column 0 to check/uncheck a run of rows at once.
+        self._init_sortable_checkbox_table(self.table, {1, 2, 4, 5}, self._sort_key)
 
         # If we have plotted_rows, use them to determine checkboxes
         # Otherwise (first time), check all boxes
@@ -268,36 +261,6 @@ class SpeciesDialog(QDialog):
             if item:
                 item.setCheckState(Qt.Checked if self.rows[i].get('source') == 'Contaminant' else Qt.Unchecked)
 
-    def on_header_clicked(self, column):
-        """Click-to-sort: the first click on a column sorts ascending, a
-        second click reverses it.
-
-        Args:
-            column (int): Table column index the user clicked.
-
-        Returns:
-            None: Reorders self.table's rows in place.
-        """
-        if column not in self._SORTABLE_COLUMNS:
-            return
-        if self.table.rowCount() == 0:
-            return
-
-        if self._sort_column == column and self._sort_order == Qt.AscendingOrder:
-            self._sort_order = Qt.DescendingOrder
-        else:
-            self._sort_order = Qt.AscendingOrder
-        self._sort_column = column
-
-        n = self.table.rowCount()
-        order = sorted(
-            range(n),
-            key=lambda r: self._sort_key(r, column),
-            reverse=(self._sort_order == Qt.DescendingOrder),
-        )
-        self._reorder_rows(order)
-        self.table.horizontalHeader().setSortIndicator(column, self._sort_order)
-
     def _sort_key(self, row, column):
         """Sort key for one cell: numeric for Wavelength/A-coeff/E_upper,
         lowercased text for Species. A missing numeric value ranks lowest.
@@ -318,30 +281,15 @@ class SpeciesDialog(QDialog):
         except ValueError:
             return float('-inf')
 
-    def _reorder_rows(self, order):
-        """Move the table's rows into `order`. Every column is a real
-        QTableWidgetItem, so a plain take-and-reinsert of items is enough.
+    def _permute_extra_row_state(self, order, row_map):
+        """Keep self.rows (row -> catalog dict) in step with a table reorder.
 
         Args:
             order (list[int]): New row i holds old row order[i].
+            row_map (dict[int, int]): Old row index -> new row index. Unused
+                here -- self.rows only needs the same permutation as the table.
 
         Returns:
-            None: Reorders self.table and self.rows in place.
+            None: Reassigns self.rows in place.
         """
-        table = self.table
-        n = table.rowCount()
-        if list(order) == list(range(n)):
-            return
-
-        table.blockSignals(True)
-        table.setUpdatesEnabled(False)
-        try:
-            n_cols = table.columnCount()
-            old_items = {c: [table.takeItem(r, c) for r in range(n)] for c in range(n_cols)}
-            for new_row, old_row in enumerate(order):
-                for c in range(n_cols):
-                    table.setItem(new_row, c, old_items[c][old_row])
-            self.rows = [self.rows[old_row] for old_row in order]
-        finally:
-            table.setUpdatesEnabled(True)
-            table.blockSignals(False)
+        self.rows = [self.rows[old_row] for old_row in order]
