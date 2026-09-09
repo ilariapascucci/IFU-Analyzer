@@ -801,7 +801,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.load_contam_btn = QPushButton("Contam. Lines")
         self.load_contam_btn.setToolTip("(Optional) Load CSV file with contaminating lines")
         self.load_contam_btn.clicked.connect(self._load_contaminating_lines_dialog)
-        
+
+        self.mark_contam_btn = QPushButton("Mark Contaminant")
+        self.mark_contam_btn.setCheckable(True)
+        self.mark_contam_btn.setToolTip(
+            "Click, then click a feature on the spectrum to mark it as a contaminant line -- "
+            "no HITRAN match needed (shown as species \"N/A\"). Stays on so you can mark "
+            "several in a row; click it again to stop. To remove one, uncheck it in \"Lines\" "
+            "or click its marker on the spectrum."
+        )
+        self.mark_contam_btn.toggled.connect(self._toggle_mark_contam_mode)
+
         self.show_species_btn = QPushButton("Lines")
         self.show_species_btn.setToolTip("Show available HITRAN species")
         self.show_species_btn.clicked.connect(self.show_available_species)
@@ -1033,6 +1043,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.load_custom_lines_btn)
         self.hitran_group.add_button(self.load_contam_btn)
+        self.hitran_group.add_button(self.mark_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.flux_map_btn)
@@ -1508,6 +1519,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
     def _on_spec_click(self, event):
         """Handle clicks on the spectrum display"""
         if event.inaxes != self.spec_plotter.ax:
+            return
+
+        # "Mark Contaminant" mode takes priority over everything else below --
+        # a click here always means "add a contaminant", not "deselect" or "navigate".
+        if event.button == 1 and getattr(self, 'mark_contam_btn', None) and self.mark_contam_btn.isChecked() \
+                and event.xdata is not None:
+            self._add_manual_contaminant(event.xdata)
             return
 
         # LEFT CLICK: Check if clicking near a plotted spectral line to deselect it
@@ -2638,6 +2656,67 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load custom line list:\n{e}")
 
+    def _toggle_mark_contam_mode(self, checked):
+        """Mutually exclusive with the Gaussian-boundary buttons -- a spectrum
+        click can only mean one thing at a time, so turning this on clears
+        any active boundary-picking mode (and vice versa, in gui_gaussian.py).
+
+        Args:
+            checked (bool): New checked state of mark_contam_btn.
+
+        Returns:
+            None: Clears gauss_mode and the boundary buttons' checked state.
+        """
+        if not checked:
+            return
+        self.gauss_mode = None
+        for btn in (self.gauss_left_btn, self.gauss_peak_btn, self.gauss_right_btn,
+                    self.gauss_noise_left_btn, self.gauss_noise_right_btn):
+            btn.setChecked(False)
+
+    def _manual_contam_rows(self):
+        """Rows of self.contam_lines added by clicking the spectrum (see
+        _add_manual_contaminant), not a CSV import. These survive a new CSV
+        import instead of being replaced by it.
+
+        Args: None
+
+        Returns:
+            rows (pd.DataFrame): The manually-added rows, or an empty DataFrame.
+        """
+        if self.contam_lines is None or 'origin' not in self.contam_lines.columns:
+            return pd.DataFrame(columns=['line_wave_um', 'species', 'origin'])
+        return self.contam_lines[self.contam_lines['origin'] == 'manual'].reset_index(drop=True)
+
+    def _add_manual_contaminant(self, wavelength):
+        """Add a spectrum-clicked wavelength as a contaminant with no known
+        species. Merges into self.contam_lines and redraws the same way a
+        CSV import does, so it gets excluded from the fit the same way.
+
+        Args:
+            wavelength (float): Wavelength (cube's own unit) that was clicked.
+
+        Returns:
+            None: Updates self.contam_lines and redraws the spectrum's markers.
+        """
+        if self.contam_lines is not None and len(self.contam_lines):
+            if 'origin' not in self.contam_lines.columns:
+                self.contam_lines['origin'] = 'csv'
+            # Skip a near-duplicate click -- screen-pixel tolerance, not
+            # wavelength, so it stays consistent regardless of plot zoom.
+            ax = self.spec_plotter.ax
+            click_x_px = ax.transData.transform((wavelength, 0))[0]
+            for wl in self.contam_lines['line_wave_um'].astype(float):
+                if abs(ax.transData.transform((wl, 0))[0] - click_x_px) < 5:
+                    return
+
+        new_row = pd.DataFrame([{'line_wave_um': float(wavelength), 'species': 'N/A', 'origin': 'manual'}])
+        self.contam_lines = new_row if self.contam_lines is None or len(self.contam_lines) == 0 \
+            else pd.concat([self.contam_lines, new_row], ignore_index=True)
+
+        print(f"[OK] Marked contaminant at {wavelength:.6f} µm (no species -- excluded from the fit's own reported results)")
+        self.plot_contaminating_lines()
+
     def _load_contaminating_lines_dialog(self):
         """
         Allow user to load an optional contaminating lines CSV file.
@@ -2681,53 +2760,60 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             # Load the contaminating lines catalog
             loaded = load_contaminating_lines_catalog(file_path)
 
-            if loaded is not None and len(loaded) > 0:
-                total_loaded = len(loaded)
-                in_range = loaded[
-                    (loaded['line_wave_um'] >= wavelength_min) & (loaded['line_wave_um'] <= wavelength_max)
-                ].reset_index(drop=True)
-                if len(in_range) == 0:
-                    QMessageBox.information(
-                        self, "No Lines In Range",
-                        f"Loaded {total_loaded} line(s) from this file, but none fall within "
-                        f"the current range ({wavelength_min:.6f}-{wavelength_max:.6f} µm)."
-                    )
-                    self.contam_lines = None
-                    return
-                self.contam_lines = in_range
-
-                print(
-                    f"[OK] Loaded {len(self.contam_lines)} of {total_loaded} contaminating lines from "
-                    f"{os.path.basename(file_path)} within {wavelength_min:.6f}-{wavelength_max:.6f} µm"
-                )
-
-                # Show wavelength range of loaded lines
-                min_wave = self.contam_lines['line_wave_um'].min()
-                max_wave = self.contam_lines['line_wave_um'].max()
-                print(f"  Wavelength range: {min_wave:.6f} - {max_wave:.6f} um")
-
-                # Mark them on the spectrum right away (dark grey), same as HITRAN selections
-                self.plot_contaminating_lines()
-
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"✓ Loaded {len(self.contam_lines)} of {total_loaded} contaminating lines "
-                    f"(within {wavelength_min:.6f}-{wavelength_max:.6f} µm)\n\n"
-                    f"Wavelength range: {min_wave:.6f} - {max_wave:.6f} μm\n\n"
-                    f"These lines will be used when extracting flux."
-                )
-            else:
+            if loaded is None or len(loaded) == 0:
                 QMessageBox.warning(self, "Empty File", "The CSV file is empty or has no valid lines.")
-                self.contam_lines = None
+                return  # Leaves self.contam_lines untouched -- a failed import isn't destructive.
+
+            total_loaded = len(loaded)
+            in_range = loaded[
+                (loaded['line_wave_um'] >= wavelength_min) & (loaded['line_wave_um'] <= wavelength_max)
+            ].reset_index(drop=True).copy()
+            in_range['origin'] = 'csv'
+
+            # Manually-clicked contaminants (see _add_manual_contaminant) survive a
+            # new CSV import -- only the previously-loaded CSV rows get replaced.
+            manual_rows = self._manual_contam_rows()
+
+            if len(in_range) == 0:
+                QMessageBox.information(
+                    self, "No Lines In Range",
+                    f"Loaded {total_loaded} line(s) from this file, but none fall within "
+                    f"the current range ({wavelength_min:.6f}-{wavelength_max:.6f} µm)."
+                )
+                self.contam_lines = manual_rows if len(manual_rows) else None
+                return
+            self.contam_lines = pd.concat([manual_rows, in_range], ignore_index=True)
+
+            print(
+                f"[OK] Loaded {len(in_range)} of {total_loaded} contaminating lines from "
+                f"{os.path.basename(file_path)} within {wavelength_min:.6f}-{wavelength_max:.6f} µm"
+                + (f" (+{len(manual_rows)} manually-marked kept)" if len(manual_rows) else "")
+            )
+
+            # Show wavelength range of loaded lines
+            min_wave = in_range['line_wave_um'].min()
+            max_wave = in_range['line_wave_um'].max()
+            print(f"  Wavelength range: {min_wave:.6f} - {max_wave:.6f} um")
+
+            # Mark them on the spectrum right away (dark grey), same as HITRAN selections
+            self.plot_contaminating_lines()
+
+            QMessageBox.information(
+                self,
+                "Success",
+                f"✓ Loaded {len(in_range)} of {total_loaded} contaminating lines "
+                f"(within {wavelength_min:.6f}-{wavelength_max:.6f} µm)\n\n"
+                f"Wavelength range: {min_wave:.6f} - {max_wave:.6f} μm\n\n"
+                + (f"Kept {len(manual_rows)} manually-marked contaminant(s) from before.\n\n" if len(manual_rows) else "")
+                + f"These lines will be used when extracting flux."
+            )
 
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Error Loading File",
                 f"Failed to load contaminating lines:\n{e}"
-            )
-            self.contam_lines = None
+            )  # self.contam_lines is untouched -- a failed import isn't destructive.
 
     def _spectrum_home_reset(self):
         """Custom home action for spectrum: show original spectrum and clear overlays"""

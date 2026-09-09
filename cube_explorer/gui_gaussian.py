@@ -30,6 +30,7 @@ class GuiGaussianMixin:
             self.gauss_right_btn.setChecked(False)
             self.gauss_noise_left_btn.setChecked(False)
             self.gauss_noise_right_btn.setChecked(False)
+            self.mark_contam_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -40,6 +41,7 @@ class GuiGaussianMixin:
             self.gauss_right_btn.setChecked(False)
             self.gauss_noise_left_btn.setChecked(False)
             self.gauss_noise_right_btn.setChecked(False)
+            self.mark_contam_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -50,6 +52,7 @@ class GuiGaussianMixin:
             self.gauss_peak_btn.setChecked(False)
             self.gauss_noise_left_btn.setChecked(False)
             self.gauss_noise_right_btn.setChecked(False)
+            self.mark_contam_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -60,6 +63,7 @@ class GuiGaussianMixin:
             self.gauss_peak_btn.setChecked(False)
             self.gauss_right_btn.setChecked(False)
             self.gauss_noise_right_btn.setChecked(False)
+            self.mark_contam_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -70,6 +74,7 @@ class GuiGaussianMixin:
             self.gauss_peak_btn.setChecked(False)
             self.gauss_right_btn.setChecked(False)
             self.gauss_noise_left_btn.setChecked(False)
+            self.mark_contam_btn.setChecked(False)
         else:
             self.gauss_mode = None
 
@@ -363,17 +368,39 @@ STATUS: {result.message}
         except Exception as e:
             print(f"[DEBUG] Error clearing Gaussian fit: {e}")
 
+    def _active_contam_lines(self):
+        """Contaminant lines currently checked/plotted, not the full loaded
+        catalog -- unchecking one in the Lines dialog, or clicking its marker
+        off the spectrum, must exclude it from the fit, not just the picture.
+
+        Args: None
+
+        Returns:
+            contam_lines (pd.DataFrame | None): self.contam_lines filtered to
+                rows whose wavelength is in self.plotted_lines, or None.
+        """
+        contam_lines = getattr(self, 'contam_lines', None)
+        if contam_lines is None or len(contam_lines) == 0:
+            return None
+        active_wl = [
+            SpeciesDialog.get_row_wavelength(r)
+            for r in self.plotted_lines if r.get('source') == 'Contaminant'
+        ]
+        if not active_wl:
+            return None
+        mask = contam_lines['line_wave_um'].apply(
+            lambda wl: any(abs(wl - w) < 1e-6 for w in active_wl)
+        )
+        active = contam_lines[mask].reset_index(drop=True)
+        return active if len(active) else None
+
     def _fit_multi_gaussian(self):
         if not hasattr(self, 'plotted_lines') or not self.plotted_lines:
             QMessageBox.warning(self, "No Lines Selected", "Please first select HITRAN lines to fit.")
             return
 
-        # plotted_lines mixes detection lines with any checked contaminant markers
-        # (both share one list for the Lines table/plot). Contaminants are already
-        # handled separately below via contam_lines=self.contam_lines -- passing
-        # them again here too would also fit them as if they were real requested
-        # lines (red, with their own amplitude/area reported) instead of staying
-        # in their own grey "accounted for, not reported" role.
+        # plotted_lines mixes detection lines with checked contaminants (one shared
+        # list). _active_contam_lines() filters contam_lines to just the checked ones.
         detection_lines = [r for r in self.plotted_lines if r.get('source') != 'Contaminant']
         if not detection_lines:
             QMessageBox.warning(self, "No Detection Lines Selected", "Please select at least one detection line (not just contaminants) to fit.")
@@ -392,7 +419,7 @@ STATUS: {result.message}
             QMessageBox.warning(self, "Data Error", "Data mismatch.")
             return
 
-        contam_lines = getattr(self, 'contam_lines', None)
+        contam_lines = self._active_contam_lines()
 
         # Cache key: which lines (by wavelength) and contaminants are being fit, on which
         # tab. If unchanged since the last successful run, offer the cached results instead
