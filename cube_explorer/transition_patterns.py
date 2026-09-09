@@ -17,7 +17,7 @@ O, S2, ...) have no entry, so the GUI just does not offer the filter for them.
 TRANSITION_PATTERNS = {
     'CO': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=1->0, J=56->57',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -27,7 +27,7 @@ TRANSITION_PATTERNS = {
     },
     'H2': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=1->0, J=18->20',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -37,7 +37,7 @@ TRANSITION_PATTERNS = {
     },
     'OH': {
         'match': 'regex',
-        'regex': r'v=X(?P<omega_upper>\\d/\\d)\\s+(?P<v_upper>\\d+)->X(?P<omega_lower>\\d/\\d)\\s+(?P<v_lower>\\d+)',
+        'regex': r'v=X(?P<omega_upper>\d/\d)\s+(?P<v_upper>\d+)->X(?P<omega_lower>\d/\d)\s+(?P<v_lower>\d+)',
         'example': 'v=X3/2   8->X1/2   7, J=9->10',
         'description': 'X(2)Pi band: spin-orbit ladder Omega and v, upper -> lower. J is ignored.',
         'fields': [
@@ -85,7 +85,7 @@ TRANSITION_PATTERNS = {
     },
     'CS': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=2->1, J=97->98',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -176,7 +176,7 @@ TRANSITION_PATTERNS = {
     },
     'HF': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=10->10, J=13->12',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -186,7 +186,7 @@ TRANSITION_PATTERNS = {
     },
     'HCl': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=1->1, J=17->16',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -196,7 +196,7 @@ TRANSITION_PATTERNS = {
     },
     'HBr': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=7->7, J=27->26',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -206,7 +206,7 @@ TRANSITION_PATTERNS = {
     },
     'HI': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=5->5, J=33->32',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -216,7 +216,7 @@ TRANSITION_PATTERNS = {
     },
     'N2': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=0->0, J=43->41',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -226,7 +226,7 @@ TRANSITION_PATTERNS = {
     },
     'NOp': {
         'match': 'regex',
-        'regex': r'v=(?P<v_upper>\\d+)->(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
         'example': 'v=6->5, J=99->100',
         'description': 'Vibrational band: upper v -> lower v. J is ignored.',
         'fields': [
@@ -236,7 +236,7 @@ TRANSITION_PATTERNS = {
     },
     'NO': {
         'match': 'regex',
-        'regex': r'v=X(?P<omega_upper>\\d/\\d)\\s+(?P<v_upper>\\d+)->X(?P<omega_lower>\\d/\\d)\\s+(?P<v_lower>\\d+)',
+        'regex': r'v=X(?P<omega_upper>\d/\d)\s+(?P<v_upper>\d+)->X(?P<omega_lower>\d/\d)\s+(?P<v_lower>\d+)',
         'example': 'v=X3/2   6->X1/2   6, J=106->105',
         'description': 'X(2)Pi band: spin-orbit ladder Omega and v, upper -> lower. J is ignored.',
         'fields': [
@@ -248,7 +248,7 @@ TRANSITION_PATTERNS = {
     },
     'ClO': {
         'match': 'regex',
-        'regex': r'v=X(?P<omega_upper>\\d/\\d)\\s+(?P<v_upper>\\d+)->X(?P<omega_lower>\\d/\\d)\\s+(?P<v_lower>\\d+)',
+        'regex': r'v=X(?P<omega_upper>\d/\d)\s+(?P<v_upper>\d+)->X(?P<omega_lower>\d/\d)\s+(?P<v_lower>\d+)',
         'example': 'v=X3/2   1->X1/2   0, J=42->43',
         'description': 'X(2)Pi band: spin-orbit ladder Omega and v, upper -> lower. J is ignored.',
         'fields': [
@@ -260,7 +260,7 @@ TRANSITION_PATTERNS = {
     },
     'O2': {
         'match': 'regex',
-        'regex': r'v=(?P<state_upper>[A-Za-z])\\s+(?P<v_upper>\\d+)->(?P<state_lower>[A-Za-z])\\s+(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<state_upper>[A-Za-z])\s+(?P<v_upper>\d+)->(?P<state_lower>[A-Za-z])\s+(?P<v_lower>\d+)',
         'example': 'v=X      1->X      0, J=37->39',
         'description': 'Electronic-state band: state letter and v, upper -> lower. J is ignored.',
         'fields': [
@@ -272,7 +272,7 @@ TRANSITION_PATTERNS = {
     },
     'SO': {
         'match': 'regex',
-        'regex': r'v=(?P<state_upper>[A-Za-z])\\s+(?P<v_upper>\\d+)->(?P<state_lower>[A-Za-z])\\s+(?P<v_lower>\\d+)',
+        'regex': r'v=(?P<state_upper>[A-Za-z])\s+(?P<v_upper>\d+)->(?P<state_lower>[A-Za-z])\s+(?P<v_lower>\d+)',
         'example': 'v=a      1->X      6, J=16->16',
         'description': 'Electronic-state band: state letter and v, upper -> lower. J is ignored.',
         'fields': [

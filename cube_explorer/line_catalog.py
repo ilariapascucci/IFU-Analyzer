@@ -215,15 +215,17 @@ BUNDLED_HITRAN_DIR = 'hitran_local'
 USER_HITRAN_DIR = 'hitran_cache'
 HITRAN_DIRS = (BUNDLED_HITRAN_DIR, USER_HITRAN_DIR)
 
-_hitran_db_started = False
-_hitran_write_dir = None  # directory the last db_begin() selected for fetch() output
+_hitran_initialised = False
+_hitran_write_dir = None  # directory HAPI writes a fresh fetch() into
 
 
-def _ensure_hitran_db():
+def _hitran_init():
     """
-    Open both HITRAN cache directories with db_begin() once per process.
-    db_begin() merges them into one in-memory table set, so a table from either
-    directory is readable. A module flag makes later calls a no-op.
+    Prepare HAPI's local database without loading any table.
+
+    db_begin() would parse every .data file in both cache directories; instead
+    tables load one at a time in _load_one_hitran_table(). This only makes the
+    directories and points HAPI's write target at the on-demand cache.
 
     Args:
         None
@@ -231,21 +233,51 @@ def _ensure_hitran_db():
     Returns:
         None
     """
-    global _hitran_db_started, _hitran_write_dir
-    if _hitran_db_started:
+    global _hitran_initialised, _hitran_write_dir
+    if _hitran_initialised:
         return
-    from hapi import db_begin
+    import hapi
     for d in HITRAN_DIRS:
         os.makedirs(d, exist_ok=True)
-        db_begin(d)
-    _hitran_db_started = True
-    _hitran_write_dir = HITRAN_DIRS[-1]
+    hapi.VARIABLES['BACKEND_DATABASE_NAME'] = USER_HITRAN_DIR
+    _hitran_write_dir = USER_HITRAN_DIR
+    _hitran_initialised = True
+
+
+def _load_one_hitran_table(table_name):
+    """
+    Load a single cached table into HAPI's in-memory cache.
+
+    Reads only that table's .data/.header, from BUNDLED_HITRAN_DIR first then
+    USER_HITRAN_DIR -- never the rest of the directory. Restores HAPI's write
+    target afterward so a later fetch() still goes to the on-demand cache.
+
+    Args:
+        table_name (str): HITRAN table name, without extension.
+
+    Returns:
+        loaded (bool): True if the table is now in HAPI's cache.
+    """
+    import hapi
+    if table_name in hapi.LOCAL_TABLE_CACHE:
+        return True
+    saved = hapi.VARIABLES.get('BACKEND_DATABASE_NAME')
+    try:
+        for d in HITRAN_DIRS:
+            if os.path.exists(os.path.join(d, f'{table_name}.data')):
+                hapi.VARIABLES['BACKEND_DATABASE_NAME'] = d
+                hapi.storage2cache(table_name)
+                return table_name in hapi.LOCAL_TABLE_CACHE
+        return False
+    except Exception:
+        return False
+    finally:
+        hapi.VARIABLES['BACKEND_DATABASE_NAME'] = saved
 
 
 def _point_hitran_writes(dest):
     """
-    Select the directory that the next fetch() writes to. This is a no-op when
-    the target does not change, because db_begin() reloads the whole directory.
+    Point HAPI's write target at `dest` so the next fetch() caches there.
 
     Args:
         dest (str): Cache directory for new downloads.
@@ -256,9 +288,9 @@ def _point_hitran_writes(dest):
     global _hitran_write_dir
     if dest == _hitran_write_dir:
         return
-    from hapi import db_begin
+    import hapi
     os.makedirs(dest, exist_ok=True)
-    db_begin(dest)
+    hapi.VARIABLES['BACKEND_DATABASE_NAME'] = dest
     _hitran_write_dir = dest
 
 
@@ -532,7 +564,7 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
 
 def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None, write_dir=None):
     try:
-        from hapi import fetch, getColumns, tableList, ISO
+        from hapi import fetch, getColumns, ISO
     except ImportError:
         print("Error: HAPI not installed!")
         print("Install with: pip install hitran-api")
@@ -564,14 +596,12 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
             table_name = containing
 
     try:
-        _ensure_hitran_db()
+        _hitran_init()
 
-        # Check for existing cached data
-        try:
-            existing_tables = tableList()
-            data_cached = table_name in existing_tables
-        except Exception:
-            data_cached = False
+        # Cheap filename check -- no table parsed yet.
+        data_cached = any(
+            os.path.exists(os.path.join(d, f'{table_name}.data')) for d in HITRAN_DIRS
+        )
 
         # Non-interactive cache policy: if cached and older than threshold, only refresh when requested
         if data_cached and not refresh_cache:
@@ -587,6 +617,9 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
             data_cached = False
 
         if data_cached and not refresh_cache:
+            if not _load_one_hitran_table(table_name):
+                return [], {'error': True,
+                            'message': f'cached table {table_name} could not be read'}
             print(f"[OK] Using cached {molecule} data")
         else:
             dest = write_dir or USER_HITRAN_DIR
