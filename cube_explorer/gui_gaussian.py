@@ -539,20 +539,17 @@ STATUS: {result.message}
             base_abs = np.asarray(result.baseline) / norm_factor
             return x_data, base_abs, fit_abs
 
-        chunk_wide = (not hasattr(self, 'multi_gauss_chunkwide_checkbox')
-                      or self.multi_gauss_chunkwide_checkbox.isChecked())
+        # Always the real joint chunk curve here (never the per-line crop) -- lines
+        # sharing an extent are deduped so the same curve isn't drawn/stacked twice.
         seen_extents = set()
         idx = 0
         for fit_info in fit_results:
             result = fit_info['result']
-            if chunk_wide:
-                extent_key = (round(float(result.x_data[0]), 6), round(float(result.x_data[-1]), 6))
-                if extent_key in seen_extents:
-                    continue
-                seen_extents.add(extent_key)
-                x_local, base_local, fit_local = _chunk_curve(result)
-            else:
-                x_local, base_local, fit_local = _own_curve(result)
+            extent_key = (round(float(result.x_data[0]), 6), round(float(result.x_data[-1]), 6))
+            if extent_key in seen_extents:
+                continue
+            seen_extents.add(extent_key)
+            x_local, base_local, fit_local = _chunk_curve(result)
             baseline_line, = ax.plot(x_local, base_local, 'k--', linewidth=2, alpha=0.7,
                                       label='Baseline' if idx == 0 else '', zorder=10)
             gauss_line, = ax.plot(x_local, fit_local, 'r-', linewidth=3, alpha=0.9,
@@ -580,20 +577,6 @@ STATUS: {result.message}
 
         ax.legend(loc='upper right', fontsize=8)
         self.spec_canvas.draw_idle()
-
-    def _on_multi_gauss_display_mode_changed(self):
-        """
-        Redraw the last multi-Gaussian fit under the new curve-display mode.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        if getattr(self, 'multi_gauss_results', None):
-            self._plot_multi_gaussian_on_spectrum(
-                self.multi_gauss_results, getattr(self, 'multi_gauss_contam_results', None))
 
     def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None,
                                       failed_results=None):
