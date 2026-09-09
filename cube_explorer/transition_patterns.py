@@ -1,23 +1,38 @@
 """
-Transition Regex Patterns for Molecules
+Transition Patterns for Molecules
 
-Defines how each molecule's transitions are formatted in HITRAN data.
-Used for parsing and filtering spectral lines by transition type.
+Describes how each molecule's transition string is formatted in HITRAN data, so
+the GUI can filter lines by transition without any per-molecule code.
+
+An entry has one of two match modes:
+  match='regex'     -- 'regex' has named groups; a line matches when every field
+                       the user filled equals its captured group.
+  match='substring' -- a line matches when "<upper>-><lower>" is in the string.
+'fields' drives the GUI prompts: name (regex group / 'upper'|'lower'), label,
+type ('int' or 'str'), default. Entries without 'match'/'fields' are older,
+unmigrated drafts (regex + 'groups'), not used by the filter yet.
 """
 
-# Regex patterns for extracting transitions from HITRAN data
 TRANSITION_PATTERNS = {
     'CO': {
-        'regex': r'v=(\d+)->(\d+)',
-        'example': 'v=1->0',
-        'description': 'Vibrational transitions: upper->lower',
-        'groups': ['v_upper', 'v_lower'],
+        'match': 'regex',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
+        'example': 'v=1->0, J=56->57',
+        'description': 'Vibrational band: upper v -> lower v. J is ignored.',
+        'fields': [
+            {'name': 'v_upper', 'label': 'Upper vibrational level (v)', 'type': 'int', 'default': 1},
+            {'name': 'v_lower', 'label': 'Lower vibrational level (v)', 'type': 'int', 'default': 0},
+        ],
     },
     'H2': {
-        'regex': r'v=(\d+)->(\d+)',
-        'example': 'v=6->3',
-        'description': 'Vibrational transitions: upper->lower',
-        'groups': ['v_upper', 'v_lower'],
+        'match': 'regex',
+        'regex': r'v=(?P<v_upper>\d+)->(?P<v_lower>\d+)',
+        'example': 'v=1->0, J=18->20',
+        'description': 'Vibrational band: upper v -> lower v. J is ignored.',
+        'fields': [
+            {'name': 'v_upper', 'label': 'Upper vibrational level (v)', 'type': 'int', 'default': 1},
+            {'name': 'v_lower', 'label': 'Lower vibrational level (v)', 'type': 'int', 'default': 0},
+        ],
     },
     'SO': {
         'regex': r'v=(V\d+(?:\+V\d+)*)?->GROUND',
@@ -26,22 +41,34 @@ TRANSITION_PATTERNS = {
         'groups': ['vibrational_modes'],
     },
     'OH': {
-        'regex': r'([A-Z]\d+/\d+)\s+(\d+)->([A-Z]\d+/\d+)\s+(\d+)',
-        'example': 'X1/2   3->X1/2   2',
-        'description': 'Electronic state transitions: state + quantum numbers',
-        'groups': ['upper_state', 'upper_quantum', 'lower_state', 'lower_quantum'],
+        'match': 'regex',
+        'regex': r'v=X(?P<omega_upper>\d/\d)\s+(?P<v_upper>\d+)->X(?P<omega_lower>\d/\d)\s+(?P<v_lower>\d+)',
+        'example': 'v=X3/2   8->X1/2   7, J=9->10',
+        'description': 'X(2)Pi band: spin-orbit ladder Omega and v, upper -> lower. J is ignored.',
+        'fields': [
+            {'name': 'omega_upper', 'label': 'Upper spin-orbit ladder Omega (1/2 or 3/2)', 'type': 'str', 'default': '3/2'},
+            {'name': 'v_upper', 'label': 'Upper vibrational level (v)', 'type': 'int', 'default': 1},
+            {'name': 'omega_lower', 'label': 'Lower spin-orbit ladder Omega (1/2 or 3/2)', 'type': 'str', 'default': '3/2'},
+            {'name': 'v_lower', 'label': 'Lower vibrational level (v)', 'type': 'int', 'default': 0},
+        ],
     },
     'H2O': {
-        'regex': r'v=(\d+(?:\s+\d+)*)->(\d+(?:\s+\d+)*)',
+        'match': 'substring',
         'example': 'v=0 1 0->0 0 0',
-        'description': 'Multi-quantum transitions: space-separated quantum numbers for upper and lower states',
-        'groups': ['upper_quantum', 'lower_quantum'],
+        'description': 'Vibrational state string (v1 v2 v3), upper -> lower.',
+        'fields': [
+            {'name': 'upper', 'label': 'Upper vib state (v1 v2 v3)', 'type': 'str', 'default': '0 1 0'},
+            {'name': 'lower', 'label': 'Lower vib state (v1 v2 v3)', 'type': 'str', 'default': '0 0 0'},
+        ],
     },
     'C2H2': {
-        'regex': r'v=([\d\s+]+?)\s+([ug])\s*->\s*([\d\s+]+?)\s+([ug])',
-        'example': 'v=000 0 3 0 1  u->000 0 0 0 0+ g',
-        'description': 'Rotational-vibrational transitions: quantum numbers + electronic symmetry (u/g)',
-        'groups': ['upper_vibrational', 'upper_symmetry', 'lower_vibrational', 'lower_symmetry'],
+        'match': 'substring',
+        'example': 'v=000 2 0 2 0  g->000 0 1 0 1  u, J=44->45',
+        'description': 'Vibrational state string (v1v2v3 v4 v5 l4 l5 + g/u), upper -> lower. Spacing and +/g/u are literal.',
+        'fields': [
+            {'name': 'upper', 'label': 'Upper vib state (e.g. 000 0 1 0 1  u)', 'type': 'str', 'default': '000 0 1 0 1  u'},
+            {'name': 'lower', 'label': 'Lower vib state (e.g. 000 0 0 0 0+ g)', 'type': 'str', 'default': '000 0 0 0 0+ g'},
+        ],
     },
     'C2H4': {
         'regex': r'v=(V\d+(?:\+V\d+)*)?->GROUND',
@@ -98,10 +125,13 @@ TRANSITION_PATTERNS = {
         'groups': ['upper_state', 'lower_state'],
     },
     'CO2': {
-        'regex': r'v=(\d+(?:\s+\d+)*)->(\d+(?:\s+\d+)*)',
-        'example': 'v=6 0 0 15->0 0 0 01',
-        'description': 'Multi-quantum transitions: space-separated quantum numbers for upper and lower states',
-        'groups': ['upper_quantum', 'lower_quantum'],
+        'match': 'substring',
+        'example': 'v=0 1 1 01->0 0 0 01, J=14->13',
+        'description': 'Vibrational state string (v1 v2 l2 v3 + Fermi rank), upper -> lower.',
+        'fields': [
+            {'name': 'upper', 'label': 'Upper vib state (v1 v2 l2 v3r)', 'type': 'str', 'default': '0 1 1 01'},
+            {'name': 'lower', 'label': 'Lower vib state (v1 v2 l2 v3r)', 'type': 'str', 'default': '0 0 0 01'},
+        ],
     },
     'COF2': {
         'regex': r'v=(\d+(?:\s+\d+)*)->(\d+(?:\s+\d+)*)',
@@ -146,10 +176,13 @@ TRANSITION_PATTERNS = {
         'groups': ['vibrational_modes'],
     },
     'HCN': {
-        'regex': r'v=(\d+)->(\d+)',
-        'example': 'v=4->0',
-        'description': 'Vibrational transitions: upper->lower',
-        'groups': ['v_upper', 'v_lower'],
+        'match': 'substring',
+        'example': 'v=1 0 0 0->0 1 1 1, J=30->29',
+        'description': 'Vibrational state string (v1 v2 l2 v3), upper -> lower.',
+        'fields': [
+            {'name': 'upper', 'label': 'Upper vib state (v1 v2 l2 v3)', 'type': 'str', 'default': '1 0 0 0'},
+            {'name': 'lower', 'label': 'Lower vib state (v1 v2 l2 v3)', 'type': 'str', 'default': '0 0 0 0'},
+        ],
     },
     'HF': {
         'regex': r'v=(\d+)->(\d+)',
@@ -234,35 +267,49 @@ TRANSITION_PATTERNS = {
 
 def get_transition_pattern(molecule):
     """
-    Get transition regex pattern for a molecule.
-    
+    Return the transition pattern entry for a molecule, or None.
+
     Args:
-        molecule (str): Molecule name (e.g., 'CO', 'H2', 'OH', 'SO', 'H2O')
-    
+        molecule (str): Molecule name, e.g. 'CO', 'OH', 'H2O'.
+
     Returns:
-        dict: Pattern info with 'regex', 'example', 'description', 'groups'
+        pattern (dict): The entry (see the module docstring for its keys), or
+            None if the molecule has no entry.
     """
     return TRANSITION_PATTERNS.get(molecule.upper())
 
 
 def get_all_molecules():
-    """Get list of all supported molecules."""
+    """
+    List every molecule name that has a transition pattern entry.
+
+    Args:
+        None
+
+    Returns:
+        molecules (list): Molecule name strings, in dict order.
+    """
     return list(TRANSITION_PATTERNS.keys())
 
 
 def get_pattern_info(molecule):
-    """Get human-readable info about a molecule's transition format."""
+    """
+    Build a short human-readable summary of a molecule's transition format.
+
+    Args:
+        molecule (str): Molecule name, e.g. 'CO'.
+
+    Returns:
+        info (str): Multi-line summary, or a "not found" message.
+    """
     pattern = get_transition_pattern(molecule)
     if not pattern:
         return f"Molecule '{molecule}' not found"
-    
+
     info = f"{molecule} transitions:\n"
     info += f"  Format: {pattern['description']}\n"
     info += f"  Example: {pattern['example']}\n"
-    
+    info += f"  Match: {pattern.get('match', 'regex')}\n"
     if pattern.get('regex'):
         info += f"  Regex: {pattern['regex']}\n"
-    if pattern.get('match_type'):
-        info += f"  Match type: {pattern['match_type']}\n"
-    
     return info

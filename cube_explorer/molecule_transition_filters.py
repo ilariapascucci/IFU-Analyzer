@@ -1,9 +1,9 @@
 """
-Molecule Transition Filtering Module
+Molecule Transition Filtering
 
-Provides generic transition filtering for HITRAN data across different molecules.
-Uses regex patterns from transition_patterns.py to filter lines.
-GUI calls this - no transition logic should be in gui.py
+Prompts the user for a transition and filters HITRAN line rows by it, driven
+entirely by the entries in transition_patterns.py. The GUI calls
+apply_transition_filter(); no per-molecule transition code lives in gui.py.
 """
 
 import re
@@ -11,184 +11,129 @@ from PyQt5.QtWidgets import QInputDialog, QMessageBox, QLineEdit
 from .transition_patterns import TRANSITION_PATTERNS
 
 
+def _field_names(pattern_info):
+    """
+    List the field / capture-group names for a pattern entry, in order.
+
+    Args:
+        pattern_info (dict): One TRANSITION_PATTERNS entry.
+
+    Returns:
+        names (list): Field names from 'fields', or the legacy 'groups' list.
+    """
+    if pattern_info.get('fields'):
+        return [f['name'] for f in pattern_info['fields']]
+    return pattern_info.get('groups', [])
+
+
 def get_user_transition_inputs(parent, molecule):
     """
-    Dynamically prompt user for transition filter inputs based on molecule pattern.
-    
+    Prompt the user for one transition, using the molecule's 'fields' list.
+
     Args:
-        parent: Parent QWidget for dialogs
-        molecule (str): Molecule name (e.g., 'CO', 'H2', 'OH', 'SO', 'H2O')
-    
+        parent (QWidget): Parent for the dialogs.
+        molecule (str): Molecule name, per TRANSITION_PATTERNS.
+
     Returns:
-        dict or None: Dictionary of captured groups and values, or None if user cancelled
+        user_inputs (dict): {field_name: value}, or None if the user cancelled
+            or the molecule has no pattern entry.
     """
     pattern_info = TRANSITION_PATTERNS.get(molecule.upper())
     if not pattern_info:
-        QMessageBox.warning(parent, "Error", f"Molecule '{molecule}' not in transition patterns.")
+        QMessageBox.warning(parent, "Error", f"'{molecule}' has no transition pattern.")
         return None
-    
+
+    fields = pattern_info.get('fields')
+    if not fields:
+        # Legacy entry (regex + 'groups', no 'fields'): guess field type by name.
+        fields = [
+            {'name': g, 'label': g,
+             'type': 'int' if ('quantum' in g.lower() or any(c.isdigit() for c in g)) else 'str',
+             'default': 0 if ('quantum' in g.lower() or any(c.isdigit() for c in g)) else ''}
+            for g in pattern_info.get('groups', [])
+        ]
+
+    title = f"{molecule.upper()} transition"
     user_inputs = {}
-    
-    # For H2O (substring matching), we need direct user input
-    if molecule.upper() == 'H2O':
-        upper_text, ok = QInputDialog.getText(
-            parent,
-            "H₂O Upper Transition Numbers",
-            "Enter upper state (v Ka Kc):\n(e.g., 0 3 0)",
-            QLineEdit.Normal,
-            "0 3 0"
-        )
-        if not ok or not upper_text:
-            return None
-        
-        lower_text, ok = QInputDialog.getText(
-            parent,
-            "H₂O Lower Transition Numbers",
-            "Enter lower state (v Ka Kc):\n(e.g., 0 1 0)",
-            QLineEdit.Normal,
-            "0 1 0"
-        )
-        if not ok or not lower_text:
-            return None
-        
-        user_inputs['upper'] = upper_text
-        user_inputs['lower'] = lower_text
-        return user_inputs
-    
-    # For regex-based molecules, prompt for each capture group
-    groups = pattern_info.get('groups', [])
-    for i, group_name in enumerate(groups):
-        # Determine field type from group name
-        if 'quantum' in group_name.lower() or any(c.isdigit() for c in group_name):
-            # Numeric field
-            value, ok = QInputDialog.getInt(
-                parent,
-                f"{molecule.upper()} Transition Filter",
-                f"Enter {group_name}:\n(e.g., {pattern_info['example'].split()[i] if i < len(pattern_info['example'].split()) else '0'})",
-                0, 0, 100, 1
-            )
-            if not ok:
-                return None
-            user_inputs[group_name] = value
+    for field in fields:
+        prompt = f"{field['label']}\n(e.g. {pattern_info['example']})"
+        if field.get('type') == 'int':
+            value, ok = QInputDialog.getInt(parent, title, prompt, int(field.get('default', 0)), 0, 200, 1)
         else:
-            # String field
-            value, ok = QInputDialog.getText(
-                parent,
-                f"{molecule.upper()} Transition Filter",
-                f"Enter {group_name}:\n(e.g., {pattern_info['example'].split()[i] if i < len(pattern_info['example'].split()) else 'X'})",
-                QLineEdit.Normal,
-                ""
-            )
-            if not ok or not value:
-                return None
-            user_inputs[group_name] = value
-    
+            value, ok = QInputDialog.getText(parent, title, prompt, QLineEdit.Normal, str(field.get('default', '')))
+        if not ok:
+            return None
+        user_inputs[field['name']] = value
     return user_inputs
 
 
 def filter_hitran_by_transition(results, molecule, user_inputs):
     """
-    Filter HITRAN results by transition using regex patterns from transition_patterns.py
-    
+    Keep only the HITRAN rows whose transition string matches user_inputs.
+
     Args:
-        results (list): HITRAN line data from fetch_hitran_data
-        molecule (str): Molecule name (e.g., 'CO', 'H2', 'OH', 'SO', 'H2O')
-        user_inputs (dict): User-provided transition parameters
-    
+        results (list): Line-data rows from fetch_hitran_data().
+        molecule (str): Molecule name, per TRANSITION_PATTERNS.
+        user_inputs (dict): {field_name: value} from get_user_transition_inputs().
+
     Returns:
-        list: Filtered HITRAN results matching the transition criteria
+        filtered (list): The rows that match. All rows if the molecule has no
+            usable pattern.
     """
     pattern_info = TRANSITION_PATTERNS.get(molecule.upper())
     if not pattern_info:
         return results
-    
-    filtered_results = []
-    
-    # Handle H2O substring matching
-    if molecule.upper() == 'H2O':
-        upper = user_inputs.get('upper', '')
-        lower = user_inputs.get('lower', '')
-        search_pattern = f"{upper}->{lower}"
-        
-        for line in results:
-            transition = line.get('transition', '')
-            if transition and search_pattern in transition:
-                filtered_results.append(line)
-        return filtered_results
-    
-    # Handle regex-based molecules
+
+    if pattern_info.get('match') == 'substring':
+        needle = f"{user_inputs.get('upper', '')}->{user_inputs.get('lower', '')}"
+        return [r for r in results if needle in (r.get('transition') or '')]
+
     regex = pattern_info.get('regex')
-    groups = pattern_info.get('groups', [])
-    
     if not regex:
         return results
-    
-    for line in results:
-        transition = line.get('transition', '')
-        if not transition or '->' not in transition:
+    pattern = re.compile(regex)
+    names = _field_names(pattern_info)
+
+    filtered = []
+    for row in results:
+        transition = row.get('transition') or ''
+        match = pattern.search(transition)
+        if not match:
             continue
-        
-        try:
-            match = re.search(regex, transition)
-            if match:
-                # Extract captured groups from regex
-                captured_groups = match.groups()
-                
-                # Check if all user inputs match the captured groups
-                all_match = True
-                for i, group_name in enumerate(groups):
-                    if i < len(captured_groups):
-                        captured_value = captured_groups[i]
-                        expected_value = user_inputs.get(group_name)
-                        
-                        # Convert to same type for comparison
-                        try:
-                            if isinstance(expected_value, int):
-                                captured_value = int(captured_value)
-                            else:
-                                captured_value = str(captured_value)
-                        except:
-                            pass
-                        
-                        if captured_value != expected_value:
-                            all_match = False
-                            break
-                
-                if all_match:
-                    filtered_results.append(line)
-        except (ValueError, AttributeError):
-            pass
-    
-    return filtered_results
+        by_name = match.groupdict()
+        positional = match.groups()
+        for i, name in enumerate(names):
+            expected = user_inputs.get(name)
+            if expected is None or expected == '':
+                continue
+            captured = by_name.get(name) if name in by_name else (positional[i] if i < len(positional) else None)
+            if str(captured).strip() != str(expected).strip():
+                break
+        else:
+            filtered.append(row)
+    return filtered
 
 
 def apply_transition_filter(parent, results, molecule):
     """
-    Main entry point: prompt user for transition inputs and filter results.
-    
+    Prompt for a transition, then return the rows that match it.
+
     Args:
-        parent: Parent QWidget for dialogs
-        results (list): HITRAN line data
-        molecule (str): Molecule name
-    
+        parent (QWidget): Parent for the dialogs.
+        results (list): Line-data rows from fetch_hitran_data().
+        molecule (str): Molecule name, per TRANSITION_PATTERNS.
+
     Returns:
-        list or None: Filtered results, or None if no matches or user cancelled
+        filtered (list): Matching rows, or None if the user cancelled or nothing
+            matched (a dialog explains the empty case).
     """
-    # Get user inputs
     user_inputs = get_user_transition_inputs(parent, molecule)
     if user_inputs is None:
         return None
-    
-    # Filter results
-    filtered_results = filter_hitran_by_transition(results, molecule, user_inputs)
-    
-    # Show error if no matches
-    if not filtered_results:
-        QMessageBox.information(
-            parent,
-            "No Matches",
-            f"No {molecule} lines found matching the specified transition."
-        )
+
+    filtered = filter_hitran_by_transition(results, molecule, user_inputs)
+    if not filtered:
+        QMessageBox.information(parent, "No Matches",
+                               f"No {molecule} lines match that transition.")
         return None
-    
-    return filtered_results
+    return filtered
