@@ -218,6 +218,11 @@ class RotationalDiagramWindow(QMainWindow):
         self.updating_manual_stats = False
         self.updating_flux_error_flag = False
 
+        # Current lines_table sort state: which column header was last clicked, and
+        # in which direction. None = unsorted (natural fetch/import order).
+        self._sort_column = None
+        self._sort_order = Qt.AscendingOrder
+
         # Loaded once and reused to calculate fluxes
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
@@ -280,9 +285,24 @@ class RotationalDiagramWindow(QMainWindow):
             "QHeaderView::section { padding: 2px 6px; }"
         )
         main_layout.addWidget(self.lines_table)
+
+        # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux
+        # -- see _reorder_lines_table_rows() (not Qt's own setSortingEnabled).
+        self._SORTABLE_COLUMNS = {1, 3, 4, 5, 6, 7, 8, 10}
+        header = self.lines_table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(self.on_lines_table_header_clicked)
+        for col in self._SORTABLE_COLUMNS:
+            header_item = self.lines_table.horizontalHeaderItem(col)
+            if header_item:
+                header_item.setToolTip("Click to sort")
         
         # Connect table changes for auto-calculation
         self.lines_table.itemChanged.connect(self.on_table_item_changed)
+        # "Fit" column (14) opens the fit-view dialog on double-click, once
+        # Calculate Fluxes has given that row real data to show.
+        self.lines_table.itemDoubleClicked.connect(self.on_lines_table_item_double_clicked)
 
         # Bottom: Physical parameters + buttons
         bottom_layout = QHBoxLayout()
@@ -606,8 +626,8 @@ class RotationalDiagramWindow(QMainWindow):
     def _update_error_columns_for_row(self, row):
         """Same as update_error_columns() but for one row -- avoids an O(n) sweep
         when only one row actually changed (see sync_flux_error_flag)."""
-        ul_checkbox = self.lines_table.cellWidget(row, 9)
-        if ul_checkbox and ul_checkbox.isChecked():
+        ul_item = self.lines_table.item(row, 9)
+        if ul_item and ul_item.checkState() == Qt.Checked:
             return
 
         flux_error_item = self.lines_table.item(row, 7)
@@ -630,6 +650,16 @@ class RotationalDiagramWindow(QMainWindow):
 
         row = item.row()
         col = item.column()
+
+        # Columns 0 and 9 are checkable items, not QCheckBox widgets, so their
+        # state change routes through this same itemChanged signal.
+        if col == 0:
+            self.on_line_selected()
+            return
+
+        if col == 9:
+            self.sync_flux_error_flag(row)
+            return
 
         # A_ul / E_u / g_u are only editable on rows with no HITRAN match -- keep
         # self.hitran_lines and the row's fit checkbox in sync with what's typed.
@@ -733,7 +763,7 @@ class RotationalDiagramWindow(QMainWindow):
             a_val, e_val, g_val = _parse(3), _parse(4), _parse(5)
             complete = a_val is not None and e_val is not None and g_val is not None and a_val > 0 and g_val > 0
 
-            checkbox = self.lines_table.cellWidget(row, 0)
+            select_item = self.lines_table.item(row, 0)
             cells = [self.lines_table.item(row, c) for c in (3, 4, 5)]
 
             if complete:
@@ -744,9 +774,9 @@ class RotationalDiagramWindow(QMainWindow):
                     if cell:
                         cell.setBackground(QBrush())
                         cell.setToolTip("")
-                if checkbox:
-                    checkbox.setEnabled(True)
-                    checkbox.setToolTip("")
+                if select_item:
+                    select_item.setFlags(select_item.flags() | Qt.ItemIsEnabled)
+                    select_item.setToolTip("")
             else:
                 line.pop('a_coeff', None)
                 line.pop('e_upper', None)
@@ -756,12 +786,12 @@ class RotationalDiagramWindow(QMainWindow):
                     if cell:
                         cell.setBackground(QColor(255, 214, 214))
                         cell.setToolTip(tip)
-                if checkbox:
-                    checkbox.blockSignals(True)
-                    checkbox.setChecked(False)
-                    checkbox.blockSignals(False)
-                    checkbox.setEnabled(False)
-                    checkbox.setToolTip(tip)
+                if select_item:
+                    self.lines_table.blockSignals(True)
+                    select_item.setCheckState(Qt.Unchecked)
+                    self.lines_table.blockSignals(False)
+                    select_item.setFlags(select_item.flags() & ~Qt.ItemIsEnabled)
+                    select_item.setToolTip(tip)
 
             self.on_line_selected()
         finally:
@@ -787,9 +817,9 @@ class RotationalDiagramWindow(QMainWindow):
 
     def sync_calculated_flag(self, row):
         """Reset Calculated?/Source to unset by default when edited."""
-        calc_checkbox = self.lines_table.cellWidget(row, 11)
-        if calc_checkbox:
-            calc_checkbox.setChecked(False)
+        calc_item = self.lines_table.item(row, 11)
+        if calc_item:
+            calc_item.setCheckState(Qt.Unchecked)
         source_item = self.lines_table.item(row, 12)
         if source_item:
             source_item.setText("")
@@ -804,8 +834,8 @@ class RotationalDiagramWindow(QMainWindow):
             pct_item = self.lines_table.item(row, 8)
             if not error_item or not pct_item:
                 return
-            ul_checkbox = self.lines_table.cellWidget(row, 9)
-            is_upper_limit = bool(ul_checkbox and ul_checkbox.isChecked())
+            ul_item = self.lines_table.item(row, 9)
+            is_upper_limit = bool(ul_item and ul_item.checkState() == Qt.Checked)
 
             if is_upper_limit:
                 for item in (error_item, pct_item):
@@ -1332,11 +1362,11 @@ class RotationalDiagramWindow(QMainWindow):
         selected_rows = []
         skipped_rows = []
         for row in range(self.lines_table.rowCount()):
-            checkbox = self.lines_table.cellWidget(row, 0)
-            if checkbox and checkbox.isChecked():
+            select_item = self.lines_table.item(row, 0)
+            if select_item and select_item.checkState() == Qt.Checked:
                 flux_item = self.lines_table.item(row, 6)
-                calc_checkbox = self.lines_table.cellWidget(row, 11)
-                was_calculated = bool(calc_checkbox and calc_checkbox.isChecked())
+                calc_item = self.lines_table.item(row, 11)
+                was_calculated = bool(calc_item and calc_item.checkState() == Qt.Checked)
                 if flux_item and flux_item.text().strip() and not was_calculated:
                     skipped_rows.append(row)
                 else:
@@ -1515,21 +1545,19 @@ class RotationalDiagramWindow(QMainWindow):
             if ul_flux_item:
                 ul_flux_item.setText(f"{F_ul_cgs:.4e}")
 
-            # Auto-check upper limit if detected. Signals blocked so this doesn't
-            # trigger on_line_selected() mid-batch-populate; sync_flux_error_flag()
-            # is called explicitly right after so the stash-and-blank behavior still
-            # applies to freshly-calculated rows, not just later manual toggles.
-            ul_checkbox = self.lines_table.cellWidget(row, 9)
-            if ul_checkbox:
-                ul_checkbox.blockSignals(True)
-                ul_checkbox.setChecked(is_upper_limit)
-                ul_checkbox.blockSignals(False)
+            # Auto-check upper limit if detected. Blocked signals skip on_line_selected();
+            # sync_flux_error_flag() runs right after, so the stash-and-blank still applies.
+            ul_item = self.lines_table.item(row, 9)
+            if ul_item:
+                self.lines_table.blockSignals(True)
+                ul_item.setCheckState(Qt.Checked if is_upper_limit else Qt.Unchecked)
+                self.lines_table.blockSignals(False)
                 self.sync_flux_error_flag(row)
 
             # Mark this row as system-calculated and record its source
-            calc_checkbox = self.lines_table.cellWidget(row, 11)
-            if calc_checkbox:
-                calc_checkbox.setChecked(True)
+            calc_item = self.lines_table.item(row, 11)
+            if calc_item:
+                calc_item.setCheckState(Qt.Checked)
             source_item = self.lines_table.item(row, 12)
             if source_item:
                 source_item.setText(f"{instrument} [{filename}]")
@@ -1574,18 +1602,27 @@ class RotationalDiagramWindow(QMainWindow):
                     "full_spectrum": spectrum,
                     "bunit": bunit,
                 }
-                fit_label = self.lines_table.cellWidget(row, 14)
-                if isinstance(fit_label, QLabel):
-                    fit_label.setText('<a href="#">View</a>')
-                    fit_label.setTextFormat(Qt.RichText)
-                    fit_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-                    fit_label.setOpenExternalLinks(False)
-                    fit_label.setAlignment(Qt.AlignCenter)
-                    try:
-                        fit_label.linkActivated.disconnect()
-                    except TypeError:
-                        pass  # nothing was connected yet
-                    fit_label.linkActivated.connect(lambda _url, r=row: self.show_line_fit(r))
+                fit_item = self.lines_table.item(row, 14)
+                if fit_item:
+                    fit_item.setText("View")
+                    fit_item.setForeground(QColor(0, 0, 238))
+                    font = fit_item.font()
+                    font.setUnderline(True)
+                    fit_item.setFont(font)
+                    fit_item.setToolTip("Double-click to view this line's fit")
+
+    def on_lines_table_item_double_clicked(self, item):
+        """Open the fit-view dialog for a double-clicked "Fit" cell.
+
+        Args:
+            item (QTableWidgetItem): The cell the user double-clicked.
+
+        Returns:
+            None: Opens show_line_fit's dialog as a side effect, if applicable.
+        """
+        if item.column() != 14:
+            return
+        self.show_line_fit(item.row())
 
     def show_line_fit(self, row):
         """Show the Gaussian fit for one line: spectrum, baseline, fit curve, and the
@@ -1752,6 +1789,28 @@ class RotationalDiagramWindow(QMainWindow):
         dlg.setLayout(layout)
         dlg.exec_()
 
+    def _make_checkable_item(self, checked=False, enabled=True, tooltip=""):
+        """Build a checkbox-style cell as a real checkable item, not a QCheckBox
+        widget -- a widget does not survive a header-click row reorder.
+
+        Args:
+            checked (bool): Initial check state.
+            enabled (bool): Whether the user can toggle it.
+            tooltip (str): Tooltip text. Empty string means no tooltip.
+
+        Returns:
+            item (QTableWidgetItem): The configured item, not yet inserted.
+        """
+        item = QTableWidgetItem()
+        flags = Qt.ItemIsUserCheckable | Qt.ItemIsSelectable
+        if enabled:
+            flags |= Qt.ItemIsEnabled
+        item.setFlags(flags)
+        item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+        if tooltip:
+            item.setToolTip(tooltip)
+        return item
+
     def populate_lines_table(self):
         """Populate the unified table with all columns"""
         # Row indices are about to be reassigned to a new set of lines -- old plot
@@ -1759,6 +1818,9 @@ class RotationalDiagramWindow(QMainWindow):
         # wrong line.
         self._line_fit_plot_data = {}
         self._water_warnings = {}
+        self._sort_column = None
+        self._sort_order = Qt.AscendingOrder
+        self.lines_table.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)
         self.water_lines_checkbox.blockSignals(True)
         self.water_lines_checkbox.setChecked(False)
         self.water_lines_checkbox.blockSignals(False)
@@ -1773,13 +1835,11 @@ class RotationalDiagramWindow(QMainWindow):
                 "to include it in the fit."
             )
 
-            # Checkbox
-            checkbox = QCheckBox()
-            checkbox.stateChanged.connect(self.on_line_selected)
-            if not matched:
-                checkbox.setEnabled(False)
-                checkbox.setToolTip(unmatched_tip)
-            self.lines_table.setCellWidget(row, 0, checkbox)
+            # Row-select checkbox
+            select_item = self._make_checkable_item(
+                enabled=matched, tooltip=("" if matched else unmatched_tip)
+            )
+            self.lines_table.setItem(row, 0, select_item)
 
             # Wavelength (read-only)
             wl_item = QTableWidgetItem(f"{line['wavelength']:.6f}")
@@ -1837,26 +1897,22 @@ class RotationalDiagramWindow(QMainWindow):
             # Error % (editable)
             self.lines_table.setItem(row, 8, QTableWidgetItem(""))
 
-            # Upper Limit? (checkbox autosuggested but always editable)
-            ul_checkbox = QCheckBox()
-            ul_checkbox.setToolTip(
+            # Upper Limit? (auto-suggested but always user-editable)
+            ul_item = self._make_checkable_item(tooltip=(
                 "Auto-checked when a line's fit falls below the 3σ noise threshold "
                 "(via Calculate Fluxes). You can check/uncheck this yourself either way."
-            )
-            ul_checkbox.stateChanged.connect(lambda _state, r=row: self.sync_flux_error_flag(r))
-            self.lines_table.setCellWidget(row, 9, ul_checkbox)
+            ))
+            self.lines_table.setItem(row, 9, ul_item)
 
             # UL Flux (editable)
             self.lines_table.setItem(row, 10, QTableWidgetItem(""))
 
             # Calculated? (read-only)
-            calc_checkbox = QCheckBox()
-            calc_checkbox.setEnabled(False)
-            calc_checkbox.setToolTip(
+            calc_item = self._make_checkable_item(enabled=False, tooltip=(
                 "Checked when this line's flux was computed by Calculate Fluxes, rather "
                 "than typed in by hand or imported from CSV."
-            )
-            self.lines_table.setCellWidget(row, 11, calc_checkbox)
+            ))
+            self.lines_table.setItem(row, 11, calc_item)
 
             # Source (read-only)
             source_item = QTableWidgetItem("")
@@ -1868,10 +1924,12 @@ class RotationalDiagramWindow(QMainWindow):
             r2_item.setFlags(r2_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 13, r2_item)
 
-            # Fit (link; becomes clickable once Calculate Fluxes populates plot data for this row)
-            fit_label = QLabel("—")
-            fit_label.setAlignment(Qt.AlignCenter)
-            self.lines_table.setCellWidget(row, 14, fit_label)
+            # Fit (double-click to view; becomes real text once Calculate Fluxes
+            # populates plot data for this row -- see on_lines_table_item_double_clicked)
+            fit_item = QTableWidgetItem("—")
+            fit_item.setFlags(fit_item.flags() & ~Qt.ItemIsEditable)
+            fit_item.setTextAlignment(Qt.AlignCenter)
+            self.lines_table.setItem(row, 14, fit_item)
 
             # H2O Nearby (read-only; filled in by the "Include HITRAN Water Lines" checkbox)
             water_item = QTableWidgetItem("")
@@ -1882,37 +1940,140 @@ class RotationalDiagramWindow(QMainWindow):
         
         # Set initial edit/read-only status based on current mode
         self.update_error_columns()
-    
+
+    def on_lines_table_header_clicked(self, column):
+        """Click-to-sort: the first click on a column sorts ascending, a second
+        click reverses it. A running flux calculation blocks the sort, because
+        it writes results into the table by row index.
+
+        Args:
+            column (int): Table column index the user clicked.
+
+        Returns:
+            None: Reorders self.lines_table's rows in place.
+        """
+        if column not in self._SORTABLE_COLUMNS:
+            return
+        if self.lines_table.rowCount() == 0:
+            return
+        if not self.calculate_fluxes_btn.isEnabled():
+            return
+
+        if self._sort_column == column and self._sort_order == Qt.AscendingOrder:
+            self._sort_order = Qt.DescendingOrder
+        else:
+            self._sort_order = Qt.AscendingOrder
+        self._sort_column = column
+
+        n = self.lines_table.rowCount()
+        order = sorted(
+            range(n),
+            key=lambda r: self._lines_table_sort_key(r, column),
+            reverse=(self._sort_order == Qt.DescendingOrder),
+        )
+        self._reorder_lines_table_rows(order)
+        self.lines_table.horizontalHeader().setSortIndicator(column, self._sort_order)
+
+    def _lines_table_sort_key(self, row, column):
+        """Numeric sort key for one cell. A missing or unparseable value (a
+        blank A_ul/E_u/g_u, or a flux not yet calculated) ranks lowest. An
+        incomplete row never breaks the sort.
+
+        Args:
+            row (int): Table row index.
+            column (int): Table column index. Must be in self._SORTABLE_COLUMNS.
+
+        Returns:
+            key (float): Sort key for this cell.
+        """
+        if column == 1:
+            try:
+                return float(self.hitran_lines[row].get('wavelength', float('-inf')))
+            except (TypeError, ValueError):
+                return float('-inf')
+        if column in (3, 4, 5):
+            field = {3: 'a_coeff', 4: 'e_upper', 5: 'Gp'}[column]
+            try:
+                return float(self.hitran_lines[row].get(field, float('-inf')))
+            except (TypeError, ValueError):
+                return float('-inf')
+        # Flux (6), Flux Error (7), Error % (8), and UL Flux (10) are live-edited --
+        # the table cell holds the true value, not self.hitran_lines.
+        item = self.lines_table.item(row, column)
+        text = item.text().strip() if item else ""
+        try:
+            return float(text)
+        except ValueError:
+            return float('-inf')
+
+    def _reorder_lines_table_rows(self, order):
+        """Move lines_table's rows into `order`. Every column is a real
+        QTableWidgetItem (no QCheckBox/QLabel cell widgets), so a plain
+        take-and-reinsert of items is enough; nothing needs rebinding.
+
+        Args:
+            order (list[int]): New row i holds old row order[i].
+
+        Returns:
+            None: Reorders self.lines_table and its row-indexed state in place.
+        """
+        table = self.lines_table
+        n = table.rowCount()
+        if list(order) == list(range(n)):
+            return
+
+        table.blockSignals(True)
+        table.setUpdatesEnabled(False)
+        try:
+            n_cols = table.columnCount()
+            old_items = {c: [table.takeItem(r, c) for r in range(n)] for c in range(n_cols)}
+
+            for new_row, old_row in enumerate(order):
+                for c in range(n_cols):
+                    table.setItem(new_row, c, old_items[c][old_row])
+
+            row_map = {old_row: new_row for new_row, old_row in enumerate(order)}
+            self.hitran_lines = [self.hitran_lines[old_row] for old_row in order]
+            self._line_fit_plot_data = {
+                row_map[old_row]: v for old_row, v in self._line_fit_plot_data.items()
+            }
+            self._water_warnings = {
+                row_map[old_row]: v for old_row, v in self._water_warnings.items()
+            }
+        finally:
+            table.setUpdatesEnabled(True)
+            table.blockSignals(False)
+
     def on_line_selected(self):
         """Enable Run Fit only once >=2 lines are checked"""
         checked_count = 0
         for row in range(self.lines_table.rowCount()):
-            checkbox = self.lines_table.cellWidget(row, 0)
-            if checkbox and checkbox.isChecked():
+            select_item = self.lines_table.item(row, 0)
+            if select_item and select_item.checkState() == Qt.Checked:
                 checked_count += 1
         self.run_fit_btn.setEnabled(checked_count >= 2)
         self.run_fit_btn.setToolTip(
             "" if checked_count >= 2 else "Select at least 2 lines -- a line fit needs 2+ points."
         )
-    
+
     def select_all_lines(self):
         """Select all lines in the table (skips rows disabled for missing HITRAN data)"""
+        self.lines_table.blockSignals(True)
         for row in range(self.lines_table.rowCount()):
-            checkbox = self.lines_table.cellWidget(row, 0)
-            if checkbox and checkbox.isEnabled():
-                checkbox.blockSignals(True)
-                checkbox.setChecked(True)
-                checkbox.blockSignals(False)
+            select_item = self.lines_table.item(row, 0)
+            if select_item and select_item.flags() & Qt.ItemIsEnabled:
+                select_item.setCheckState(Qt.Checked)
+        self.lines_table.blockSignals(False)
         self.on_line_selected()
-    
+
     def deselect_all_lines(self):
         """Deselect all lines in the table"""
+        self.lines_table.blockSignals(True)
         for row in range(self.lines_table.rowCount()):
-            checkbox = self.lines_table.cellWidget(row, 0)
-            if checkbox:
-                checkbox.blockSignals(True)
-                checkbox.setChecked(False)
-                checkbox.blockSignals(False)
+            select_item = self.lines_table.item(row, 0)
+            if select_item:
+                select_item.setCheckState(Qt.Unchecked)
+        self.lines_table.blockSignals(False)
         self.on_line_selected()
     
     def run_rotational_fit(self):
@@ -1929,8 +2090,8 @@ class RotationalDiagramWindow(QMainWindow):
         
         j_counter = 1
         for row in range(self.lines_table.rowCount()):
-            checkbox = self.lines_table.cellWidget(row, 0)
-            if not checkbox or not checkbox.isChecked():
+            select_item = self.lines_table.item(row, 0)
+            if not select_item or select_item.checkState() != Qt.Checked:
                 continue
 
             line = self.hitran_lines[row]
@@ -1948,8 +2109,8 @@ class RotationalDiagramWindow(QMainWindow):
             
             # Check if this is an upper limit FIRST.
             # Unchecked: use Flux, the real fitted (or manually-entered) value.
-            ul_checkbox = self.lines_table.cellWidget(row, 9)
-            is_upper_limit = bool(ul_checkbox and ul_checkbox.isChecked())
+            ul_item = self.lines_table.item(row, 9)
+            is_upper_limit = bool(ul_item and ul_item.checkState() == Qt.Checked)
 
             flux_col = 6
             if is_upper_limit:

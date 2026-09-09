@@ -730,6 +730,10 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
                     'isotopologue_name': iso_name_pretty,
                 })
 
+        # HAPI returns rows wavenumber-ascending (wavelength-descending) -- sort
+        # ascending here to match the multi-isotopologue path above.
+        data_rows.sort(key=lambda r: r['wavelength'])
+
         print(f"[OK] Retrieved {len(data_rows)} lines\n")
         return data_rows, {}
     except Exception as e:
