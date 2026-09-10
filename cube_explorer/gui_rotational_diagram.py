@@ -31,6 +31,10 @@ from .rotational_diagram_general_fitter import rotational_diagram as rotational_
 from .flux_map_extractor import (
     _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian,
 )
+from .rotational_diagram_map import fit_pixel, _cubes_coaligned, STATUS_OK
+from .rotational_diagram_map_dialogs import (
+    RotDiagMapWorker, RotDiagMapResultsDialog, plot_rot_diagram,
+)
 
 
 # Constants
@@ -390,6 +394,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.run_fit_btn.clicked.connect(self.run_rotational_fit)
         self.run_fit_btn.setEnabled(False)
         bottom_layout.addWidget(self.run_fit_btn)
+
+        self.run_map_btn = QPushButton("Run Map")
+        self.run_map_btn.setToolTip(
+            "Run the same fit at every pixel of the loaded cube(s). Detections "
+            "only, 1T. Load cube(s) with the Load FITS Files button.")
+        self.run_map_btn.clicked.connect(self.run_rotational_map)
+        self.run_map_btn.setEnabled(False)
+        bottom_layout.addWidget(self.run_map_btn)
 
         main_layout.addLayout(bottom_layout)
 
@@ -2019,6 +2031,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.run_fit_btn.setToolTip(
             "" if checked_count >= 2 else "Select at least 2 lines -- a line fit needs 2+ points."
         )
+        # The map needs at least 3 detections a pixel to constrain a 1T slope.
+        self.run_map_btn.setEnabled(checked_count >= 3)
+        self.run_map_btn.setToolTip(
+            "" if checked_count >= 3 else "Select at least 3 lines for a per-pixel map."
+        )
 
     def select_all_lines(self):
         """Select all lines in the table (skips rows disabled for missing HITRAN data)"""
@@ -2202,6 +2219,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_fit_progress.show()
 
         self.run_fit_btn.setEnabled(False)
+        self.run_map_btn.setEnabled(False)
 
         self.rot_fit_worker = RotationalFitWorker(
             fluxes, flux_errors, molecular_data, fit_opr, opr_grid,
@@ -2272,7 +2290,203 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             dlg.close()
         self.on_line_selected()  # re-derive from current checkbox state (>=2), don't just force True
         QMessageBox.critical(self, "Fitting Error", f"Error during fitting:\n{message}")
-    
+
+    def run_rotational_map(self):
+        """Run the same fit at every pixel of the loaded cube(s), 1T, detections only."""
+        cubes = list(self.loaded_batch_cubes)
+        if not cubes:
+            QMessageBox.warning(self, "No Cube",
+                                "Load one or more FITS cubes first (Load FITS Files).")
+            return
+        if len(cubes) > 1:
+            ok, msg = _cubes_coaligned(cubes)
+            if not ok:
+                QMessageBox.warning(
+                    self, "Cubes Not Aligned",
+                    f"The loaded cubes are not on one spatial grid ({msg}).\n"
+                    "Load a single cube, or cubes that share a grid. Reprojection "
+                    "is not supported yet.")
+                return
+
+        line_table, err = self._rot_map_gather_lines()
+        if err:
+            QMessageBox.warning(self, "Lines", err)
+            return
+
+        try:
+            dist_pc = float(self.distance_input.text().strip())
+        except ValueError:
+            QMessageBox.warning(self, "Distance", "Enter a valid distance (pc).")
+            return
+        if self.radius_unknown_check.isChecked():
+            r_au = None
+        else:
+            try:
+                r_au = float(self.radius_input.text().strip())
+            except ValueError:
+                QMessageBox.warning(self, "Radius",
+                                    "Enter a radius (AU), or check Unknown R.")
+                return
+
+        fit_opr = self.fit_opr_check.isChecked()
+        opr_grid = None
+        if fit_opr:
+            try:
+                opr_grid = np.linspace(
+                    float(self.opr_min_input.text().strip()),
+                    float(self.opr_max_input.text().strip()),
+                    int(self.opr_steps_input.text().strip()))
+            except ValueError:
+                QMessageBox.warning(self, "OPR Grid", "Invalid OPR min/max/steps.")
+                return
+
+        cube_arg = cubes[0] if len(cubes) == 1 else cubes
+        fit_kwargs = dict(
+            molecule=self.current_molecule,
+            isotopologue=self.isotopologue_spin.value(),
+            opr=None, fit_opr=fit_opr, opr_grid=opr_grid,
+            dist_pc=dist_pc, r_au=r_au, min_lines=3,
+        )
+
+        # Preview: fit the brightest pixel and show its diagram before the full run.
+        line_waves = [r["wavelength"] for r in line_table]
+        px, py = self._rot_map_brightest_pixel(cubes[0], line_waves)
+        try:
+            preview = fit_pixel(cube_arg, px, py, line_table, **fit_kwargs)
+        except Exception as exc:
+            QMessageBox.critical(self, "Preview Failed", str(exc))
+            return
+        if not self._show_rot_map_preview(preview, px, py):
+            return
+
+        self._rot_map_cube_arg = cube_arg
+        self._rot_map_line_table = line_table
+        self._rot_map_fit_kwargs = fit_kwargs
+
+        self.rot_map_progress = QProgressDialog(
+            "Fitting rotational diagram per pixel...", "Cancel", 0, 0, self)
+        self.rot_map_progress.setWindowTitle("Rotational Diagram Map")
+        self.rot_map_progress.setWindowModality(Qt.WindowModal)
+        self.rot_map_progress.setAutoClose(False)
+        self.rot_map_progress.setAutoReset(False)
+        self.rot_map_progress.canceled.connect(self._cancel_rot_map)
+        self.rot_map_progress.show()
+
+        self.run_fit_btn.setEnabled(False)
+        self.run_map_btn.setEnabled(False)
+
+        self.rot_map_worker = RotDiagMapWorker(cube_arg, line_table, **fit_kwargs)
+        self.rot_map_worker.progress.connect(self._on_rot_map_progress)
+        self.rot_map_worker.finished.connect(self._on_rot_map_complete)
+        self.rot_map_worker.error.connect(self._on_rot_map_error)
+        self.rot_map_worker.start()
+
+    def _rot_map_gather_lines(self):
+        """Return (line_table, error): the checked lines' HITRAN dicts, or an error string."""
+        rows = []
+        for row in range(self.lines_table.rowCount()):
+            item = self.lines_table.item(row, 0)
+            if item and item.checkState() == Qt.Checked:
+                rows.append(self.hitran_lines[row])
+        if len(rows) < 3:
+            return None, "Select at least 3 lines for a per-pixel map."
+        missing = [r for r in rows if r.get("a_coeff") is None or r.get("e_upper") is None]
+        if missing:
+            return None, ("Some checked lines have no A_ul/E_u (no HITRAN match). "
+                          "Deselect them or use lines with catalog data.")
+        return rows, None
+
+    def _rot_map_brightest_pixel(self, cube, line_wavelengths):
+        """Return (x, y) of the pixel with the most flux across the line range."""
+        wl = cube.wavelength
+        wl = wl.value if hasattr(wl, "value") else np.asarray(wl)
+        lo, hi = min(line_wavelengths), max(line_wavelengths)
+        band = (wl >= lo - 0.02) & (wl <= hi + 0.02)
+        ny, nx = cube.cube.shape[1], cube.cube.shape[2]
+        if not np.any(band):
+            return nx // 2, ny // 2
+        with np.errstate(all="ignore"):
+            peak = np.nanmax(cube.cube[band, :, :], axis=0)
+        if np.all(np.isnan(peak)):
+            return nx // 2, ny // 2
+        y, x = np.unravel_index(np.nanargmax(peak), peak.shape)
+        return int(x), int(y)
+
+    def _show_rot_map_preview(self, out, x, y):
+        """Show the brightest pixel's diagram; return True to run the full map."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Run Map -- brightest pixel preview")
+        dlg.resize(880, 520)
+        lay = QVBoxLayout(dlg)
+
+        if out["status"] == STATUS_OK:
+            r1 = out["results"]["1T"]
+            head = (f"Brightest pixel ({x}, {y}): {out['n_lines']} lines, "
+                    f"T = {r1['T']:.0f} +/- {r1['dT']:.0f} K, "
+                    f"red chi2 = {r1.get('red_chi2', float('nan')):.2f}")
+        else:
+            head = f"Brightest pixel ({x}, {y}): no fit -- {out.get('reason', 'n/a')}"
+        lay.addWidget(QLabel(head))
+
+        if out["status"] == STATUS_OK and "_plot_data" in out["results"]:
+            fig = Figure(figsize=(5.5, 4.2), dpi=100)
+            plot_rot_diagram(fig.add_subplot(111), out["results"]["_plot_data"])
+            canvas = FigureCanvas(fig)
+            lay.addWidget(NavigationToolbar(canvas, dlg))
+            lay.addWidget(canvas)
+
+        lay.addWidget(QLabel("Run the fit at every pixel?"))
+        btns = QHBoxLayout()
+        run_btn = QPushButton("Run Map")
+        cancel_btn = QPushButton("Cancel")
+        run_btn.clicked.connect(dlg.accept)
+        cancel_btn.clicked.connect(dlg.reject)
+        btns.addStretch()
+        btns.addWidget(run_btn)
+        btns.addWidget(cancel_btn)
+        lay.addLayout(btns)
+        return dlg.exec_() == QDialog.Accepted
+
+    def _on_rot_map_progress(self, current, total):
+        """Update the map progress dialog."""
+        dlg = getattr(self, "rot_map_progress", None)
+        if dlg is None:
+            return
+        dlg.setRange(0, total)
+        dlg.setValue(current)
+        dlg.setLabelText(f"Fitting rotational diagram: {current}/{total} pixels")
+
+    def _on_rot_map_complete(self, result):
+        """Close progress, re-enable the buttons, and show the map results dialog."""
+        dlg = getattr(self, "rot_map_progress", None)
+        if dlg is not None:
+            dlg.close()
+        self.on_line_selected()
+        RotDiagMapResultsDialog(
+            result, self._rot_map_cube_arg, self._rot_map_line_table,
+            self._rot_map_fit_kwargs, parent=self,
+        ).exec_()
+
+    def _on_rot_map_error(self, message):
+        """Close progress, re-enable the buttons, and report the error."""
+        dlg = getattr(self, "rot_map_progress", None)
+        if dlg is not None:
+            dlg.close()
+        self.on_line_selected()
+        if "cancelled" in message.lower():
+            QMessageBox.information(self, "Cancelled", "Rotational diagram map cancelled.")
+        else:
+            QMessageBox.critical(self, "Map Error", f"Error during map:\n{message}")
+
+    def _cancel_rot_map(self):
+        """Ask the map worker to stop at the next row."""
+        worker = getattr(self, "rot_map_worker", None)
+        if worker is not None:
+            worker.request_cancel()
+        dlg = getattr(self, "rot_map_progress", None)
+        if dlg is not None:
+            dlg.setLabelText("Cancelling...")
+
     def show_results(self, results):
         """Show results with plot"""
         results_text = "\n" + "="*50 + "\n"
