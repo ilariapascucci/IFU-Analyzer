@@ -353,10 +353,11 @@ def cont_fit_ransac(x, y, pdeg, return_params=False, exclude_wavelength_ranges=N
             xfit = xfit[mask]
             yfit = yfit[mask]
 
-    # Create a pipeline with polynomial feature transformation and RANSACRegressor
+    # Pipeline: polynomial features + RANSAC. random_state pinned (like
+    # gaussian_fitter.py) to keep the continuum and its noise estimate reproducible.
     ransac_pipeline = make_pipeline(
         PolynomialFeatures(degree=pdeg),
-        RANSACRegressor()
+        RANSACRegressor(random_state=42)
     )
     # Fit the pipeline on the valid data and calculate the stddev of the residuals
     ransac_pipeline.fit(xfit[:, np.newaxis], yfit)
