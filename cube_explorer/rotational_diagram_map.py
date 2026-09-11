@@ -18,24 +18,22 @@ import numpy as np
 from .unit_converter import extract_units
 from .analyzer_2d import _get_pixel_size_arcsec, _make_2d_wcs
 from .rotational_diagram_h2_fitter import (
-    compute_line_fluxes_collective, get_gu, pc,
+    compute_line_fluxes_collective, get_gu, pc, T_CAP as T_CAP_H2,
     rotational_diagram as rotational_diagram_h2,
 )
 from .rotational_diagram_general_fitter import (
-    rotational_diagram as rotational_diagram_general,
+    rotational_diagram as rotational_diagram_general, T_CAP as T_CAP_GENERAL,
 )
 
-# Status codes for the per-pixel status map.
+# Status codes for the per-pixel status map. Every fit the fitter returns is
+# STATUS_OK, even one pinned at the T ceiling -- nothing is masked.
 STATUS_OK = 0
 STATUS_NO_DATA = 1           # pixel spectrum is empty or all-NaN
 STATUS_TOO_FEW_LINES = 2     # fewer detections than min_lines
 STATUS_FIT_FAILED = 3        # the rotational_diagram call raised
-STATUS_UNCONSTRAINED = 4     # fit hit the T ceiling or the error is >= T
 
-# T ceilings inside the fitters. These must match rotational_diagram_h2_fitter
-# (3000) and rotational_diagram_general_fitter (4000).
-T_CAP_H2 = 3000.0
-T_CAP_GENERAL = 4000.0
+# T_CAP_H2 / T_CAP_GENERAL are imported from the fitters above. Used here only to
+# count how many fits pinned at that bound, for the statistics panel.
 
 MAP_KEYS = ("T", "T_err", "Ncol", "Ncol_err")
 
@@ -362,16 +360,9 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, heade
         return nan, nan, nan, nan, len(fluxes), STATUS_FIT_FAILED
 
     one_t = result["1T"]
-    t_val, dt_val = float(one_t["T"]), float(one_t["dT"])
-    ncol, dncol = float(one_t["Ncol"]), float(one_t["dNcol"])
-
-    # A railed T, or an error at least as large as T, means the lines do not
-    # constrain the slope. Report nothing, not the ceiling value.
-    t_cap = T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL
-    if t_val >= 0.99 * t_cap or not np.isfinite(dt_val) or dt_val >= t_val:
-        return nan, nan, nan, nan, len(fluxes), STATUS_UNCONSTRAINED
-
-    return t_val, dt_val, ncol, dncol, len(fluxes), STATUS_OK
+    return (float(one_t["T"]), float(one_t["dT"]),
+            float(one_t["Ncol"]), float(one_t["dNcol"]),
+            len(fluxes), STATUS_OK)
 
 
 def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
@@ -425,12 +416,66 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
     return {"status": STATUS_OK, "n_lines": len(fluxes), "results": results}
 
 
+def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=1,
+               opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+               min_lines=3, dedup_tol_um=1e-5, contam_lines=None):
+    """
+    Fit one rotational diagram to the summed spectrum over `mask`.
+
+    Args:
+        cube_or_list (CubeData or list): The cube, or co-aligned cubes to stitch
+        line_table (list): Line dicts, see create_rotational_diagram_map
+        mask (np.ndarray): 2D bool of pixels to sum. None sums every pixel
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+            dedup_tol_um, contam_lines: Same meaning as in fit_pixel
+
+    Returns:
+        out (dict): 'status' (int), 'n_pixels' (int), 'n_lines' (int), and on
+            STATUS_OK also 'results'; otherwise 'reason'
+    """
+    cube = _resolve_cube(cube_or_list)
+    wavelength, _unit = extract_units(cube.wavelength)
+    kept, _dropped, line_wavelengths, molecular_data = _prepare_lines(
+        line_table, molecule, dedup_tol_um)
+
+    _n_wave, n_y, n_x = cube.cube.shape
+    if mask is None:
+        coords = [(x, y) for y in range(n_y) for x in range(n_x)]
+    else:
+        coords = [(int(x), int(y)) for y, x in zip(*np.where(mask))]
+
+    specs = [np.asarray(s, dtype=float) for s in
+             (cube.get_pixel_spectrum(x, y) for x, y in coords) if s is not None]
+    if not specs:
+        return {"status": STATUS_NO_DATA, "n_pixels": 0, "n_lines": 0,
+                "reason": "no pixels to combine"}
+    total = np.nansum(np.array(specs), axis=0)
+
+    per_line = compute_line_fluxes_collective(
+        wavelength, total, line_wavelengths, cube.header, contam_lines=contam_lines)
+    fluxes, flux_errors = _collect_detections(per_line)
+    if len(fluxes) < min_lines:
+        return {"status": STATUS_TOO_FEW_LINES, "n_pixels": len(specs),
+                "n_lines": len(fluxes),
+                "reason": f"{len(fluxes)} detections in the summed spectrum, need {min_lines}"}
+
+    try:
+        results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
+                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au)
+    except Exception as exc:
+        return {"status": STATUS_FIT_FAILED, "n_pixels": len(specs),
+                "n_lines": len(fluxes), "reason": str(exc)}
+
+    return {"status": STATUS_OK, "n_pixels": len(specs), "n_lines": len(fluxes),
+            "results": results}
+
+
 def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                                   isotopologue=1, opr=None, fit_opr=False,
                                   opr_grid=None, dist_pc=140.0, r_au=None,
                                   min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
-                                  contam_lines=None, progress_callback=None,
-                                  cancel_flag=None):
+                                  contam_lines=None, region_fit=None,
+                                  progress_callback=None, cancel_flag=None):
     """
     Fit a 1T rotational diagram at every spatial pixel of the cube.
 
@@ -552,13 +597,25 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     print(f">>> Done ({time.time() - start:.1f}s). Fitted {ok}/{total} pixels; "
           f"T range {t_lo:.1f}-{t_hi:.1f} K")
 
+    # One diagram for the whole-cube summed spectrum -- the same thing Run Fit
+    # does, as an anchor for the per-pixel spread. Reused if the caller already
+    # ran it (the preview does).
+    if region_fit is None:
+        region_fit = fit_region(
+            cube, line_table, mask=None, molecule=molecule,
+            isotopologue=isotopologue, opr=opr, fit_opr=fit_opr, opr_grid=opr_grid,
+            dist_pc=dist_pc, r_au=r_au, min_lines=min_lines,
+            dedup_tol_um=dedup_tol_um, contam_lines=contam_lines,
+        )
+
     return {
         "T": t_map, "T_err": dt_map, "Ncol": n_map, "Ncol_err": dn_map,
         "n_lines": nlines_map, "status": status_map,
         "header": cube.header,
         "wave_range": (float(np.nanmin(wavelength)), float(np.nanmax(wavelength))),
         "molecule": molecule, "dist_pc": dist_pc, "r_au": r_au, "opr": opr,
-        "kept_lines": kept, "dropped_lines": dropped,
+        "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
+        "region_fit": region_fit, "kept_lines": kept, "dropped_lines": dropped,
     }
 
 

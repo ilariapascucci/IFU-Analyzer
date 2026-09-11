@@ -19,26 +19,17 @@ from matplotlib.figure import Figure
 from .rotational_diagram_map import (
     create_rotational_diagram_map, save_rotational_diagram_map_fits, fit_pixel,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
-    STATUS_UNCONSTRAINED,
 )
 from .rotational_diagram_h2_fitter import model_1T
 
-STATUS_LABELS = {
-    STATUS_OK: "fitted",
-    STATUS_NO_DATA: "no data",
-    STATUS_TOO_FEW_LINES: "too few lines",
-    STATUS_FIT_FAILED: "fit failed",
-    STATUS_UNCONSTRAINED: "unconstrained",
-}
-
-# param combo label -> (result key, colour-bar label)
+# Display combo: label -> (result key, colour-bar label). "Fit mask" is binary.
 _PARAMS = [
     ("Temperature", "T", "T (K)"),
     ("Temperature error", "T_err", "dT (K)"),
-    ("Column density", "Ncol", "N_u (cm^-2)"),
-    ("Column density error", "Ncol_err", "dN_u (cm^-2)"),
+    ("Column density", "Ncol", "N_u (cm⁻²)"),
+    ("Column density error", "Ncol_err", "dN_u (cm⁻²)"),
     ("Lines used", "n_lines", "detections"),
-    ("Status", "status", "status code"),
+    ("Fit mask", "status", "1 = fitted"),
 ]
 
 
@@ -117,6 +108,81 @@ class RotDiagMapWorker(QThread):
         self.cancelled = True
 
 
+def _opr_line(results):
+    """
+    One text line describing the OPR the fit used, the Run Fit wording.
+
+    Args:
+        results (dict): A rotational_diagram result dict
+
+    Returns:
+        line (str): "OPR = 3.00 (fixed)", "OPR = ... (fitted)", or "" for non-H2
+    """
+    if "OPR" not in results:
+        return ""
+    if "OPR_err" in results:
+        return f"OPR = {results['OPR']:.3f} ± {results['OPR_err']:.3f} (fitted)\n"
+    return f"OPR = {results['OPR']:.2f} (fixed)\n"
+
+
+def _one_t_block(results):
+    """
+    The "--- 1T FIT ---" block, formatted like Run Fit's show_results.
+
+    Args:
+        results (dict): A rotational_diagram result dict with a '1T' entry
+
+    Returns:
+        text (str): The OPR line plus the 1T temperature and column density
+    """
+    r1 = results["1T"]
+    return (
+        _opr_line(results)
+        + "\n--- 1T FIT ---\n"
+        + f"T = {r1['T']:.1f} ± {r1['dT']:.1f} K\n"
+        + f"Ncol = {r1['Ncol']:.2e} ± {r1['dNcol']:.2e} cm⁻²\n"
+    )
+
+
+def region_result_text(region):
+    """
+    Run-Fit-style block for the whole-cube summed spectrum.
+
+    Args:
+        region (dict): create_rotational_diagram_map's 'region_fit' entry, or None
+
+    Returns:
+        text (str): The header, 1T block, and spaxel count, or a short note
+    """
+    bar = "=" * 50
+    head = (f"{bar}\nROTATIONAL DIAGRAM ANALYSIS RESULTS\n"
+            f"(whole-cube summed spectrum -- same as Run Fit)\n{bar}\n\n")
+    if not region or region.get("status") != STATUS_OK:
+        reason = region.get("reason", "no data") if region else "not available"
+        return head + f"No region fit: {reason}\n{bar}\n"
+    return (head + _one_t_block(region["results"])
+            + f"\nSpaxels summed: {region.get('n_pixels', 0)}\n{bar}\n")
+
+
+def pixel_result_text(x, y, out):
+    """
+    Format one pixel's fit like the Run Fit results panel.
+
+    Args:
+        x (int): Spatial x index
+        y (int): Spatial y index
+        out (dict): fit_pixel output
+
+    Returns:
+        text (str): Multi-line summary
+    """
+    bar = "=" * 50
+    head = f"{bar}\nROTATIONAL DIAGRAM ANALYSIS RESULTS -- PIXEL ({x}, {y})\n{bar}\n\n"
+    if out.get("status") != STATUS_OK:
+        return head + f"No fit: {out.get('reason', 'n/a')}\nLines used: {out.get('n_lines', 0)}\n{bar}\n"
+    return head + _one_t_block(out["results"]) + f"\nLines used: {out['n_lines']}\n{bar}\n"
+
+
 def plot_rot_diagram(ax, plot_data):
     """
     Draw one rotational diagram on `ax`, the same style as show_results.
@@ -133,17 +199,12 @@ def plot_rot_diagram(ax, plot_data):
     y_err = np.asarray(plot_data["y_err"], dtype=float)
     popt1 = plot_data.get("popt1")
 
-    y_log10 = y_arr / np.log(10)
-    yerr_log10 = y_err / np.log(10)
-    ax.errorbar(e_arr, y_log10, yerr=yerr_log10, fmt="o", color="black",
-                markersize=6, capsize=4, zorder=3, label="Detection")
-
+    ax.errorbar(e_arr, y_arr / np.log(10), yerr=y_err / np.log(10), fmt="o",
+                color="black", markersize=6, capsize=4, zorder=3, label="Detection")
     if popt1 is not None and len(e_arr) > 1:
         e_fit = np.linspace(np.min(e_arr), np.max(e_arr), 200)
-        ax.plot(e_fit, model_1T(e_fit, *popt1) / np.log(10), "--", linewidth=2,
-                label="1T")
+        ax.plot(e_fit, model_1T(e_fit, *popt1) / np.log(10), "--", linewidth=2, label="1T")
         ax.set_xlim(np.min(e_arr) - 500, np.max(e_arr) + 500)
-
     ax.set_xlabel("E_u (K)", fontsize=12, fontweight="bold")
     ax.set_ylabel("log(N_u / g_u)", fontsize=12, fontweight="bold")
     ax.grid(True, alpha=0.3, linestyle="--")
@@ -178,7 +239,7 @@ class RotDiagMapResultsDialog(QDialog):
 
     def _setup_ui(self):
         """
-        Build the info line, map controls, plot canvas, and buttons.
+        Build the map controls, canvas, and buttons.
 
         Args:
             None
@@ -187,21 +248,6 @@ class RotDiagMapResultsDialog(QDialog):
             None
         """
         layout = QVBoxLayout(self)
-
-        status = self.result["status"]
-        counts = {code: int(np.sum(status == code)) for code in STATUS_LABELS}
-        t_ok = self.result["T"][status == STATUS_OK]
-        rng = (f"{np.nanmin(t_ok):.0f}-{np.nanmax(t_ok):.0f} K"
-               if t_ok.size else "n/a")
-        breakdown = "  ".join(f"{STATUS_LABELS[c]}={counts[c]}" for c in STATUS_LABELS)
-        r_au = self.result.get("r_au")
-        info = QLabel(
-            f"Fitted {counts[STATUS_OK]}/{status.size} px   |   T {rng}   |   "
-            f"R = {'total-molecules mode' if r_au is None else f'{r_au:.2f} AU'}   |   {breakdown}"
-        )
-        info.setStyleSheet("background-color: #f0f0f0; padding: 6px; border-radius: 3px;")
-        info.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(info)
 
         ctrl = QHBoxLayout()
         ctrl.addWidget(QLabel("Display:"))
@@ -216,12 +262,19 @@ class RotDiagMapResultsDialog(QDialog):
         self.cmap_combo.currentIndexChanged.connect(self._update_plot)
         ctrl.addWidget(self.cmap_combo)
 
-        self.pixel_btn = QPushButton("Pixel Select: ON")
+        ctrl.addWidget(QLabel("  Scale:"))
+        self.scale_combo = QComboBox()
+        self.scale_combo.addItems(["Linear", "Log", "Percentile"])
+        self.scale_combo.currentIndexChanged.connect(self._update_plot)
+        ctrl.addWidget(self.scale_combo)
+
+        self.pixel_btn = QPushButton("✓ Pixel Select ON")
         self.pixel_btn.setCheckable(True)
         self.pixel_btn.setChecked(True)
+        self.pixel_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
         self.pixel_btn.clicked.connect(self._toggle_pixel_select)
         ctrl.addWidget(self.pixel_btn)
-        ctrl.addWidget(QLabel("(click a pixel for its diagram; turn off to zoom/pan)"))
+        ctrl.addWidget(QLabel("(click a pixel for its diagram; turn OFF to zoom/pan)"))
         ctrl.addStretch()
         layout.addLayout(ctrl)
 
@@ -235,6 +288,9 @@ class RotDiagMapResultsDialog(QDialog):
         export_btn = QPushButton("Export as FITS")
         export_btn.clicked.connect(self._export_fits)
         btns.addWidget(export_btn)
+        stats_btn = QPushButton("Show Statistics")
+        stats_btn.clicked.connect(self._show_statistics)
+        btns.addWidget(stats_btn)
         btns.addStretch()
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
@@ -245,7 +301,7 @@ class RotDiagMapResultsDialog(QDialog):
 
     def _toggle_pixel_select(self):
         """
-        Flip pixel-select mode and relabel the button.
+        Flip pixel-select mode and restyle the button like Flux Map.
 
         Args:
             None
@@ -254,12 +310,16 @@ class RotDiagMapResultsDialog(QDialog):
             None
         """
         self.pixel_select_enabled = self.pixel_btn.isChecked()
-        self.pixel_btn.setText(
-            "Pixel Select: ON" if self.pixel_select_enabled else "Pixel Select: OFF")
+        if self.pixel_select_enabled:
+            self.pixel_btn.setText("✓ Pixel Select ON")
+            self.pixel_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
+        else:
+            self.pixel_btn.setText("✗ Pixel Select OFF")
+            self.pixel_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
 
     def _update_plot(self):
         """
-        Redraw the selected map.
+        Redraw the selected map with the chosen colormap and scale.
 
         Args:
             None
@@ -267,20 +327,50 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             None
         """
-        _label, key, cbar_label = _PARAMS[self.param_combo.currentIndex()]
-        data = np.asarray(self.result[key], dtype=float)
-        if key in ("T", "T_err", "Ncol", "Ncol_err"):
-            data = np.where(self.result["status"] == STATUS_OK, data, np.nan)
+        label, key, cbar_label = _PARAMS[self.param_combo.currentIndex()]
+        status = self.result["status"]
+
+        if key == "status":
+            data = (status == STATUS_OK).astype(float)
+            cmap, title = "gray", "Fit mask  (white = fitted, black = no fit)"
+        else:
+            data = np.asarray(self.result[key], dtype=float)
+            if key in ("T", "T_err", "Ncol", "Ncol_err"):
+                data = np.where(status == STATUS_OK, data, np.nan)
+            cmap, title = self.cmap_combo.currentText(), label
+            data = self._apply_scale(data)
 
         self.fig.clear()
         ax = self.fig.add_subplot(111)
-        im = ax.imshow(data, origin="lower", cmap=self.cmap_combo.currentText())
-        ax.set_title(_label, fontweight="bold")
+        im = ax.imshow(data, origin="lower", cmap=cmap)
+        ax.set_title(title, fontweight="bold")
         ax.set_xlabel("x [pixel]")
         ax.set_ylabel("y [pixel]")
         self.fig.colorbar(im, ax=ax).set_label(cbar_label)
         self.fig.tight_layout()
         self.canvas.draw()
+
+    def _apply_scale(self, data):
+        """
+        Apply the Scale combo to a 2D array (NaNs preserved).
+
+        Args:
+            data (np.ndarray): The map values
+
+        Returns:
+            scaled (np.ndarray): Log10, percentile-clipped, or unchanged
+        """
+        mode = self.scale_combo.currentText()
+        finite = data[np.isfinite(data)]
+        if mode == "Log":
+            out = np.full_like(data, np.nan)
+            pos = np.isfinite(data) & (data > 0)
+            out[pos] = np.log10(data[pos])
+            return out
+        if mode == "Percentile" and finite.size:
+            lo, hi = np.percentile(finite, [2, 98])
+            return np.clip(data, lo, hi)
+        return data
 
     def _on_canvas_click(self, event):
         """
@@ -298,9 +388,8 @@ class RotDiagMapResultsDialog(QDialog):
             return
         x, y = int(round(event.xdata)), int(round(event.ydata))
         ny, nx = self.result["status"].shape
-        if not (0 <= x < nx and 0 <= y < ny):
-            return
-        self._show_pixel_diagram(x, y)
+        if 0 <= x < nx and 0 <= y < ny:
+            self._show_pixel_diagram(x, y)
 
     def _show_pixel_diagram(self, x, y):
         """
@@ -321,29 +410,18 @@ class RotDiagMapResultsDialog(QDialog):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Pixel ({x}, {y}) rotational diagram")
-        dlg.resize(900, 520)
+        dlg.resize(1050, 520)
         lay = QHBoxLayout(dlg)
 
         text = QTextEdit()
         text.setReadOnly(True)
-        if out["status"] == STATUS_OK:
-            r1 = out["results"]["1T"]
-            text.setText(
-                f"Pixel ({x}, {y})\n"
-                f"lines used : {out['n_lines']}\n"
-                f"T          : {r1['T']:.1f} +/- {r1['dT']:.1f} K\n"
-                f"Ncol       : {r1['Ncol']:.3e} +/- {r1['dNcol']:.3e} cm^-2\n"
-                f"red chi2   : {r1.get('red_chi2', float('nan')):.2f}\n"
-                f"OPR        : {out['results'].get('OPR', 'n/a')}"
-            )
-        else:
-            text.setText(f"Pixel ({x}, {y})\nno fit: {out.get('reason', 'n/a')}\n"
-                         f"lines used: {out.get('n_lines', 0)}")
+        text.setText(pixel_result_text(x, y, out))
         lay.addWidget(text, 1)
 
         if out["status"] == STATUS_OK and "_plot_data" in out["results"]:
-            fig = Figure(figsize=(5.5, 4.5), dpi=100)
+            fig = Figure(figsize=(6.5, 5), dpi=100)
             plot_rot_diagram(fig.add_subplot(111), out["results"]["_plot_data"])
+            fig.tight_layout()
             canvas = FigureCanvasQTAgg(fig)
             box = QWidget()
             box_lay = QVBoxLayout(box)
@@ -351,6 +429,65 @@ class RotDiagMapResultsDialog(QDialog):
             box_lay.addWidget(canvas)
             lay.addWidget(box, 1)
 
+        dlg.exec_()
+
+    def _show_statistics(self):
+        """
+        Show temperature/column stats and the pixel fit breakdown.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        status = self.result["status"]
+        ok = status == STATUS_OK
+        total = status.size
+        n_ok = int(ok.sum())
+        min_lines = self.fit_kwargs.get("min_lines", self.result.get("min_lines", 3))
+        t_cap = self.result.get("t_cap", 3000.0)
+
+        # Region fit first, Run-Fit style, then the per-pixel spread.
+        lines = region_result_text(self.result.get("region_fit")).splitlines() + [""]
+        lines += ["PER-PIXEL SPREAD", "=" * 50, ""]
+
+        def _block(name, arr, fmt):
+            vals = arr[ok]
+            vals = vals[np.isfinite(vals)]
+            if not vals.size:
+                return [f"{name}:", "  (no fitted pixels)", ""]
+            return [
+                f"{name}:",
+                f"  Median:  {format(np.median(vals), fmt)}",
+                f"  Min/Max: {format(np.min(vals), fmt)} / {format(np.max(vals), fmt)}",
+                f"  Std:     {format(np.std(vals), fmt)}",
+                "",
+            ]
+
+        lines += _block("TEMPERATURE (K)", self.result["T"], ".1f")
+        lines += _block("COLUMN DENSITY N_u (cm⁻²)", self.result["Ncol"], ".3e")
+        lines += _block("LINES USED PER FITTED PIXEL", self.result["n_lines"].astype(float), ".1f")
+
+        n_ceiling = int(np.sum(ok & (self.result["T"] >= 0.99 * t_cap)))
+        lines += ["PIXEL STATUS:", f"  Fitted:     {n_ok:,} ({100 * n_ok / total:.1f}%)"]
+        lines.append(f"    of which T pinned at the ceiling (≥ {t_cap:.0f} K): {n_ceiling:,}")
+        lines.append(f"  Not fitted: {total - n_ok:,}")
+        lines.append(f"    no data: {int(np.sum(status == STATUS_NO_DATA)):,}")
+        lines.append(f"    too few lines (< {min_lines} detections): {int(np.sum(status == STATUS_TOO_FEW_LINES)):,}")
+        lines.append(f"    fit failed: {int(np.sum(status == STATUS_FIT_FAILED)):,}")
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Rotational Diagram Map Statistics")
+        dlg.resize(520, 520)
+        v = QVBoxLayout(dlg)
+        body = QLabel("\n".join(lines))
+        body.setStyleSheet("font-family: monospace; white-space: pre;")
+        body.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        v.addWidget(body)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        v.addWidget(close_btn)
         dlg.exec_()
 
     def _export_fits(self):

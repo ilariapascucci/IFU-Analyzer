@@ -36,6 +36,10 @@ _PYMC_RANDOM_SEED = 42  # PyMC random seed for deterministic approach
 # Empirically (K swept 1e-3 to 1e6): <~100 doesn't enforce it, >~1e5 breaks the sampler; 1e3 is mid-plateau.
 UL_BARRIER_K = 1e3
 
+# curve_fit upper bound on T (K), from rotational_diagram_OPRimplement.ipynb.
+# Arbitrary, no theory behind the value; other modules import this rather than repeat it.
+T_CAP = 3000
+
 '''
 HITRAN DATA
 '''
@@ -394,7 +398,7 @@ def _nutpie_progress_callback(label, progress_callback=None):
     return callback
 
 
-def upper_limit_1T(E, y, yerr, is_ul, progress_callback=None, t_cap=3000):
+def upper_limit_1T(E, y, yerr, is_ul, progress_callback=None, t_cap=T_CAP):
     """
     Bayesian 1-temperature rotational diagram fit with hard upper-limit bounds:
     detections get a normal likelihood, upper limits get a steep one-sided
@@ -461,7 +465,7 @@ def upper_limit_1T(E, y, yerr, is_ul, progress_callback=None, t_cap=3000):
     }
 
 
-def upper_limit_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None, t_cap=3000):
+def upper_limit_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None, t_cap=T_CAP):
     """
     Bayesian 2-temperature rotational diagram fit with hard upper-limit bounds:
     ln(N/g) = log(exp(a1 - E/T1) + exp(a2 - E/T2)), same barrier as upper_limit_1T.
@@ -662,9 +666,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     if not fit1T and not fit2T:
         raise ValueError("At least one of fit1T/fit2T must be True -- nothing to fit.")
 
-    # Upper temperature bound for curve_fit -- arbitrary (no theory behind the
-    # specific number).
-    t_cap = 3000
+    t_cap = T_CAP
 
     global wave, Aul, Eu, gu
 

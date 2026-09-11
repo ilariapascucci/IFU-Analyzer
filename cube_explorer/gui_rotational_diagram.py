@@ -31,9 +31,9 @@ from .rotational_diagram_general_fitter import rotational_diagram as rotational_
 from .flux_map_extractor import (
     _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian,
 )
-from .rotational_diagram_map import fit_pixel, _cubes_coaligned, STATUS_OK
+from .rotational_diagram_map import fit_region, _cubes_coaligned, STATUS_OK
 from .rotational_diagram_map_dialogs import (
-    RotDiagMapWorker, RotDiagMapResultsDialog, plot_rot_diagram,
+    RotDiagMapWorker, RotDiagMapResultsDialog, plot_rot_diagram, region_result_text,
 )
 
 
@@ -568,7 +568,17 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
         self.contam_lines = None
         self.contam_status_label.setText("")
-    
+
+    def _reset_batch_cubes(self):
+        """Drop cubes loaded for Calculate Fluxes / Run Map: a new line list is a fresh slate."""
+        # Loading files again with the same lines still appends (load_batch_fits_files).
+        if getattr(self, "loaded_batch_cubes", None):
+            print(f"[rot diag] {len(self.loaded_batch_cubes)} loaded cube(s) cleared: line list changed")
+        self.loaded_batch_fits_paths = []
+        self.loaded_batch_cubes = []
+        self.loaded_batch_spectra = []
+        self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
+
     def update_isotopologue_range(self):
         """Update isotopologue spinner range based on selected molecule"""
         mol_data = MOLECULE_ISOTOPOLOGUES.get(self.current_molecule)
@@ -922,6 +932,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.water_lines_checkbox.setVisible(True)
         self.contam_status_label.setVisible(True)
 
+        self._reset_batch_cubes()
         self.hitran_lines = data
         self.populate_lines_table()
 
@@ -1113,6 +1124,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
                 rows.append(row_data)
 
+            self._reset_batch_cubes()
             self.hitran_lines = rows
             self.populate_lines_table()
 
@@ -2348,15 +2360,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             dist_pc=dist_pc, r_au=r_au, min_lines=3,
         )
 
-        # Preview: fit the brightest pixel and show its diagram before the full run.
-        line_waves = [r["wavelength"] for r in line_table]
-        px, py = self._rot_map_brightest_pixel(cubes[0], line_waves)
+        # Preview: fit the whole-cube summed spectrum -- the Run Fit answer for
+        # this data. Reused by the worker so it is not computed twice.
         try:
-            preview = fit_pixel(cube_arg, px, py, line_table, **fit_kwargs)
+            region = fit_region(cube_arg, line_table, mask=None, **fit_kwargs)
         except Exception as exc:
             QMessageBox.critical(self, "Preview Failed", str(exc))
             return
-        if not self._show_rot_map_preview(preview, px, py):
+        if not self._show_rot_map_preview(region):
             return
 
         self._rot_map_cube_arg = cube_arg
@@ -2375,7 +2386,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.run_fit_btn.setEnabled(False)
         self.run_map_btn.setEnabled(False)
 
-        self.rot_map_worker = RotDiagMapWorker(cube_arg, line_table, **fit_kwargs)
+        self.rot_map_worker = RotDiagMapWorker(
+            cube_arg, line_table, region_fit=region, **fit_kwargs)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
         self.rot_map_worker.error.connect(self._on_rot_map_error)
@@ -2396,46 +2408,31 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                           "Deselect them or use lines with catalog data.")
         return rows, None
 
-    def _rot_map_brightest_pixel(self, cube, line_wavelengths):
-        """Return (x, y) of the pixel with the most flux across the line range."""
-        wl = cube.wavelength
-        wl = wl.value if hasattr(wl, "value") else np.asarray(wl)
-        lo, hi = min(line_wavelengths), max(line_wavelengths)
-        band = (wl >= lo - 0.02) & (wl <= hi + 0.02)
-        ny, nx = cube.cube.shape[1], cube.cube.shape[2]
-        if not np.any(band):
-            return nx // 2, ny // 2
-        with np.errstate(all="ignore"):
-            peak = np.nanmax(cube.cube[band, :, :], axis=0)
-        if np.all(np.isnan(peak)):
-            return nx // 2, ny // 2
-        y, x = np.unravel_index(np.nanargmax(peak), peak.shape)
-        return int(x), int(y)
-
-    def _show_rot_map_preview(self, out, x, y):
-        """Show the brightest pixel's diagram; return True to run the full map."""
+    def _show_rot_map_preview(self, region):
+        """Show the whole-cube (Run Fit) result; return True to run the full map."""
         dlg = QDialog(self)
-        dlg.setWindowTitle("Run Map -- brightest pixel preview")
-        dlg.resize(880, 520)
-        lay = QVBoxLayout(dlg)
+        dlg.setWindowTitle("Run Map -- region fit preview")
+        dlg.resize(980, 540)
+        lay = QHBoxLayout(dlg)
 
-        if out["status"] == STATUS_OK:
-            r1 = out["results"]["1T"]
-            head = (f"Brightest pixel ({x}, {y}): {out['n_lines']} lines, "
-                    f"T = {r1['T']:.0f} +/- {r1['dT']:.0f} K, "
-                    f"red chi2 = {r1.get('red_chi2', float('nan')):.2f}")
-        else:
-            head = f"Brightest pixel ({x}, {y}): no fit -- {out.get('reason', 'n/a')}"
-        lay.addWidget(QLabel(head))
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setText(region_result_text(region))
+        lay.addWidget(text, 1)
 
-        if out["status"] == STATUS_OK and "_plot_data" in out["results"]:
-            fig = Figure(figsize=(5.5, 4.2), dpi=100)
-            plot_rot_diagram(fig.add_subplot(111), out["results"]["_plot_data"])
+        if region.get("status") == STATUS_OK and "_plot_data" in region["results"]:
+            fig = Figure(figsize=(6.5, 4.8), dpi=100)
+            plot_rot_diagram(fig.add_subplot(111), region["results"]["_plot_data"])
+            fig.tight_layout()
             canvas = FigureCanvas(fig)
-            lay.addWidget(NavigationToolbar(canvas, dlg))
-            lay.addWidget(canvas)
+            box = QWidget()
+            box_lay = QVBoxLayout(box)
+            box_lay.addWidget(NavigationToolbar(canvas, dlg))
+            box_lay.addWidget(canvas)
+            lay.addWidget(box, 1)
 
-        lay.addWidget(QLabel("Run the fit at every pixel?"))
+        right = QVBoxLayout()
+        right.addWidget(QLabel("Run the fit at every pixel?"))
         btns = QHBoxLayout()
         run_btn = QPushButton("Run Map")
         cancel_btn = QPushButton("Cancel")
@@ -2444,7 +2441,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         btns.addStretch()
         btns.addWidget(run_btn)
         btns.addWidget(cancel_btn)
-        lay.addLayout(btns)
+        right.addLayout(btns)
+        lay.addLayout(right)
         return dlg.exec_() == QDialog.Accepted
 
     def _on_rot_map_progress(self, current, total):
@@ -2516,7 +2514,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             r1t = results["1T"]
             results_text += "--- 1T FIT ---\n"
             results_text += f"T = {r1t['T']:.1f} ± {r1t['dT']:.1f} K\n"
-            results_text += f"Ncol = {r1t['Ncol']:.2e} ± {r1t['dNcol']:.2e} cm^-2\n"
+            results_text += f"Ncol = {r1t['Ncol']:.2e} ± {r1t['dNcol']:.2e} cm⁻²\n"
             results_text += _convergence_note(r1t)
             results_text += "\n"
 
@@ -2525,8 +2523,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             results_text += "--- 2T FIT ---\n"
             results_text += f"T1 = {r2t['T1']:.1f} ± {r2t.get('dT1', float('nan')):.1f} K\n"
             results_text += f"T2 = {r2t['T2']:.1f} ± {r2t.get('dT2', float('nan')):.1f} K\n"
-            results_text += f"N1 = {r2t['Ncol1']:.2e} ± {r2t.get('dNcol1', float('nan')):.2e} cm^-2\n"
-            results_text += f"N2 = {r2t['Ncol2']:.2e} ± {r2t.get('dNcol2', float('nan')):.2e} cm^-2\n"
+            results_text += f"N1 = {r2t['Ncol1']:.2e} ± {r2t.get('dNcol1', float('nan')):.2e} cm⁻²\n"
+            results_text += f"N2 = {r2t['Ncol2']:.2e} ± {r2t.get('dNcol2', float('nan')):.2e} cm⁻²\n"
             results_text += _convergence_note(r2t)
 
         results_text += "="*50 + "\n"
@@ -2538,6 +2536,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             .replace("σ", "sigma")
             .replace("≈", "~=")
             .replace("⚠", "WARNING:")
+            .replace("⁻²", "-2")
         )
         print(console_text)
 
