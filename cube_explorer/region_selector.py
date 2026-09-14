@@ -5,7 +5,7 @@ Region selection and analysis functionality
 import numpy as np
 from matplotlib.widgets import RectangleSelector, EllipseSelector, LassoSelector
 from matplotlib.path import Path
-from matplotlib.patches import Rectangle, Polygon, PathPatch
+from matplotlib.patches import Rectangle, PathPatch
 from matplotlib.lines import Line2D
 
 
@@ -51,6 +51,81 @@ def _any_touch_ellipse_mask(width, height):
     closest_x = np.clip(0.0, x_lo, x_hi)
     closest_y = np.clip(0.0, y_lo, y_hi)
     return closest_x ** 2 + closest_y ** 2 <= 1
+
+
+def _segment_intersects_boxes_vec(x0, y0, x1, y1, xmin, xmax, ymin, ymax):
+    """Liang-Barsky test: does the segment (x0,y0)-(x1,y1) intersect each of
+    many axis-aligned boxes? Tests this one edge on its own, so it stays
+    correct even where the polygon it belongs to crosses itself -- unlike a
+    signed-area/clipping approach, which can cancel out real area at a
+    self-intersection (a real risk for a freehand lasso).
+
+    Args:
+        x0, y0, x1, y1 (float): Segment endpoints
+        xmin, xmax, ymin, ymax (np.ndarray): Same-shape box bounds, one entry per box
+
+    Returns:
+        touches (np.ndarray): Bool array, same shape as xmin
+    """
+    dx, dy = x1 - x0, y1 - y0
+    t0 = np.zeros(xmin.shape, dtype=float)
+    t1 = np.ones(xmin.shape, dtype=float)
+    valid = np.ones(xmin.shape, dtype=bool)
+
+    for p, q in ((-dx, x0 - xmin), (dx, xmax - x0), (-dy, y0 - ymin), (dy, ymax - y0)):
+        if p == 0:
+            valid &= (q >= 0)
+            continue
+        t = q / p
+        if p < 0:
+            valid &= (t <= t1)
+            t0 = np.where(t > t0, t, t0)
+        else:
+            valid &= (t >= t0)
+            t1 = np.where(t < t1, t, t1)
+    return valid & (t0 <= t1)
+
+
+def _any_touch_polygon_mask(verts, xmin, ymin, width, height):
+    """Boolean mask for an arbitrary (possibly self-intersecting) polygon: a
+    pixel counts as in if its own unit square touches the polygon at all.
+
+    Starts from the existing point-in-polygon mask (exact for any pixel not
+    right at the edge), then ORs in an exact edge-vs-box test for every
+    pixel, one polygon edge at a time (vectorized across the whole grid per
+    edge). Each edge is tested independently, so self-intersections
+    elsewhere in the polygon can't corrupt the result the way a signed-area
+    method could.
+
+    Args:
+        verts (np.ndarray): Polygon vertices, absolute data coordinates
+        xmin (int): Mask's column 0 in absolute data coordinates
+        ymin (int): Mask's row 0 in absolute data coordinates
+        width (int): Mask width in pixels
+        height (int): Mask height in pixels
+
+    Returns:
+        mask (np.ndarray): 2D bool array, shape (height, width)
+    """
+    verts = np.asarray(verts, dtype=float)
+    yy, xx = np.indices((height, width))
+    box_xmin = (xx + xmin - 0.5).astype(float)
+    box_xmax = (xx + xmin + 0.5).astype(float)
+    box_ymin = (yy + ymin - 0.5).astype(float)
+    box_ymax = (yy + ymin + 0.5).astype(float)
+
+    path = Path(verts)
+    centers = np.column_stack([(xx + xmin).ravel(), (yy + ymin).ravel()])
+    mask = path.contains_points(centers).reshape(height, width)
+
+    n = len(verts)
+    for i in range(n):
+        j = (i + 1) % n
+        touched = _segment_intersects_boxes_vec(
+            verts[i, 0], verts[i, 1], verts[j, 0], verts[j, 1],
+            box_xmin, box_xmax, box_ymin, box_ymax)
+        mask |= touched
+    return mask
 
 
 def _mask_boundary_path(mask, xmin, ymin):
@@ -310,11 +385,12 @@ class InteractivePatch:
                     'xpress': event.xdata,
                     'ypress': event.ydata,
                     'coords': self.coords,
-                    # Snapshot vertices at press time so each motion tick can
-                    # apply the TOTAL displacement-since-press to a fixed
-                    # baseline, instead of stacking onto the previous tick's
+                    # Snapshot the real vertices (not the patch's staircase
+                    # outline) at press time so each motion tick can apply
+                    # the TOTAL displacement-since-press to a fixed baseline,
+                    # instead of stacking onto the previous tick's
                     # already-moved vertices (which would compound/drift).
-                    'verts': np.asarray(self.patch.get_xy()).copy()
+                    'verts': np.asarray(self.patch.lasso_verts).copy()
                 }
                 print(f"[DEBUG] Clicked inside polygon to move")
                 return
@@ -436,7 +512,17 @@ class InteractivePatch:
                 dx = xmin - old_xmin
                 dy = ymin - old_ymin
                 new_verts = self.press_data['verts'] + np.array([dx, dy])
-                self.patch.set_xy(new_verts)
+                self.patch.lasso_verts = new_verts
+                # Staircase outline of the actual any-touch mask, not the
+                # raw vertices -- rebuild it for the moved position.
+                ixmin, ixmax = int(round(xmin)), int(round(xmax))
+                iymin, iymax = int(round(ymin)), int(round(ymax))
+                width = max(1, ixmax - ixmin + 1)
+                height = max(1, iymax - iymin + 1)
+                mask = _any_touch_polygon_mask(new_verts, ixmin, iymin, width, height)
+                path = _mask_boundary_path(mask, ixmin, iymin)
+                if path is not None:
+                    self.patch.set_path(path)
         
         # Update handle positions
         self._update_handles()
@@ -721,65 +807,53 @@ class RegionSelector:
         """
         Handle custom shape selection made with the lasso tool.
 
-        Creates a boolean mask from the vertices by:
-        1. Converting vertices to numpy array
-        2. Finding bounding box
-        3. Creating a point grid
-        4. Testing which points are inside the polygon
-
         Args:
             verts (list): List of (x,y) vertex coordinates of the selection
 
         Note:
-            - Uses matplotlib Path for point-in-polygon testing
-            - Creates mask and patch just like other shape types
-            - Bounding box used for coordinate reference
-            - Results in a mask that exactly matches drawn shape
+            - A pixel counts as in if it touches the drawn polygon at all
+              (see _any_touch_polygon_mask), not just if its centre does
+            - The drawn outline traces that mask's real edges (a staircase)
+              instead of the smooth polygon the user actually clicked
+            - lasso_verts (the real clicked/dragged vertices) is kept on the
+              patch regardless, since copying/recreating this selection
+              needs the true shape, not its staircase outline
             - Made movable (dragging the entire shape)
         """
         verts = np.asarray(verts)
         xmin, ymin = np.min(verts, axis=0)
         xmax, ymax = np.max(verts, axis=0)
-        
+
         # Convert to integers to handle decimal pixel coordinates
         xmin, ymin = int(xmin), int(ymin)
         xmax, ymax = int(xmax), int(ymax)
-        
-        nx = int(xmax - xmin + 1)
-        ny = int(ymax - ymin + 1)
-        x, y = np.meshgrid(np.arange(nx), np.arange(ny))
-        coords = np.vstack((x.flatten(), y.flatten())).T
-        
-        path = Path(verts - [xmin, ymin])
-        mask = path.contains_points(coords).reshape(ny, nx)
-        
-        patch = Polygon(verts, edgecolor='lime', facecolor='none', lw=1.5)
-        # Store vertices on the patch so they can be accessed when copying
+
+        width = xmax - xmin + 1
+        height = ymax - ymin + 1
+        mask = _any_touch_polygon_mask(verts, xmin, ymin, width, height)
+
+        path = _mask_boundary_path(mask, xmin, ymin)
+        patch = PathPatch(path, edgecolor='lime', facecolor='none', lw=1.5)
+        # Store the real vertices on the patch (separate from its staircase
+        # outline) so they can be accessed when copying or recreating
         patch.lasso_verts = verts
-        
+
         self.on_select_callback(mask, patch, (xmin, xmax, ymin, ymax))
-        
+
         # Make lasso interactive (movement only)
         def on_lasso_change(new_coords):
             """Callback when lasso is moved.
 
-            Reuses the same `patch` object InteractivePatch._update_patch
-            already moved in place (rather than building a second, separately
-            computed Polygon) - just recomputes the mask from its current
-            vertices and keeps lasso_verts in sync so a later copy or
-            slice-switch-recreate uses the shape's current position.
+            InteractivePatch._update_patch already moved the real vertices
+            (patch.lasso_verts) and rebuilt the staircase outline in place -
+            just recompute the authoritative mask from those same vertices.
             """
-            new_xmin, new_xmax, new_ymin, new_ymax = new_coords
-            new_verts = np.asarray(patch.get_xy())
-            patch.lasso_verts = new_verts
+            new_xmin, new_xmax, new_ymin, new_ymax = (int(round(v)) for v in new_coords)
+            new_verts = np.asarray(patch.lasso_verts)
 
-            nx_new = int(new_xmax - new_xmin + 1)
-            ny_new = int(new_ymax - new_ymin + 1)
-            x_new, y_new = np.meshgrid(np.arange(nx_new), np.arange(ny_new))
-            coords_new = np.vstack((x_new.flatten(), y_new.flatten())).T
-
-            path_new = Path(new_verts - [new_xmin, new_ymin])
-            new_mask = path_new.contains_points(coords_new).reshape(ny_new, nx_new)
+            new_width = new_xmax - new_xmin + 1
+            new_height = new_ymax - new_ymin + 1
+            new_mask = _any_touch_polygon_mask(new_verts, new_xmin, new_ymin, new_width, new_height)
 
             self.on_select_callback(new_mask, patch, new_coords)
         
