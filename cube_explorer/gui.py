@@ -922,6 +922,22 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.erase_btn_r.setToolTip("Clear selection on right slice")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
 
+        # Export the current region as a NaN-masked cube (same shape/WCS as
+        # the loaded cube, just everything outside the region set to NaN).
+        self.export_region_btn_l = QPushButton("💾")
+        self.export_region_btn_l.setFixedSize(40, 40)
+        self.export_region_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.export_region_btn_l.setToolTip("Export left selection as a NaN-masked cube")
+        self.export_region_btn_l.setEnabled(False)
+        self.export_region_btn_l.clicked.connect(lambda: self._export_region_cube("left"))
+
+        self.export_region_btn_r = QPushButton("💾")
+        self.export_region_btn_r.setFixedSize(40, 40)
+        self.export_region_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.export_region_btn_r.setToolTip("Export right selection as a NaN-masked cube")
+        self.export_region_btn_r.setEnabled(False)
+        self.export_region_btn_r.clicked.connect(lambda: self._export_region_cube("right"))
+
     def _setup_main_layout(self):
         """Set up the main application layout"""
         main_layout = QVBoxLayout()
@@ -959,6 +975,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         left_sidebar.addWidget(self.copy_color_btn_l)
         left_sidebar.addWidget(self.edit_shape_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
+        left_sidebar.addWidget(self.export_region_btn_l)
         left_sidebar.addStretch()
 
         left_combined.addLayout(left_slice_layout, 4)
@@ -987,6 +1004,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         right_sidebar.addWidget(self.copy_color_btn_r)
         right_sidebar.addWidget(self.edit_shape_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
+        right_sidebar.addWidget(self.export_region_btn_r)
         right_sidebar.addStretch()
 
         right_slice_layout = QVBoxLayout()
@@ -1481,6 +1499,36 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 pass
         if getattr(self, "active_spectrum_tab", None) == target:
             self._refresh_active_spectrum_tab()
+
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        has_region = bool(sel) and sel.get("shape") != "*"
+        btn = self.export_region_btn_l if target == "left" else self.export_region_btn_r
+        btn.setEnabled(has_region)
+
+    def _export_region_cube(self, target):
+        """Save a copy of the loaded cube to a new FITS file, with every
+        spaxel outside the given panel's selected region set to NaN."""
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        if not sel or sel.get("shape") == "*":
+            QMessageBox.warning(
+                self, "Region Selection Required",
+                f"Select a region (not a single point) on the {target.capitalize()} side first."
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Region as Cube", "", "FITS files (*.fits)")
+        if not path:
+            return
+        if not path.lower().endswith(".fits"):
+            path += ".fits"
+
+        try:
+            self.cube_data.export_region_cube(sel["mask"], path)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not export region cube:\n{e}")
+            return
+        QMessageBox.information(self, "Export Complete", f"Region cube saved to:\n{path}")
 
     def _on_slice_click(self, event, target):
         """Handle clicks on slice display"""

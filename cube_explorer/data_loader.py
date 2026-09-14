@@ -280,6 +280,45 @@ class CubeData:
             return np.zeros(n_spectral, dtype='float32')
 
 
+    def export_region_cube(self, mask, output_path):
+        """
+        Write a copy of this cube to output_path, with every spaxel outside
+        mask set to NaN. Frame size and WCS are unchanged, so the file loads
+        back through the normal loader exactly like any other cube, and a
+        plain nansum over it reduces to the region's own summed spectrum.
+
+        Args:
+            mask (array): Boolean mask, same spatial size as the cube. True keeps a pixel
+            output_path (str): Destination FITS path
+
+        Returns:
+            None: Writes output_path as a side effect
+
+        Raises:
+            ValueError: if no cube is loaded, or mask's shape doesn't match the cube
+        """
+        if self.cube is None:
+            raise ValueError("No cube loaded")
+
+        mask = np.asarray(mask, dtype=bool)
+        spatial_shape = self.cube.shape[1:] if self.spec_axis == 0 else \
+            tuple(s for i, s in enumerate(self.cube.shape) if i != self.spec_axis)
+        if mask.shape != spatial_shape:
+            raise ValueError(f"Mask shape {mask.shape} does not match cube spatial shape {spatial_shape}")
+
+        masked = np.array(self.cube, dtype=np.float32, copy=True)
+        masked[:, ~mask] = np.nan
+
+        out_header = self.header.copy()
+        if self.instrument == "MUSE":
+            # TELESCOPE_LOADERS reads MUSE data from hdul[1] positionally.
+            hdul = fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(data=masked, header=out_header)])
+        else:
+            # MIRI/NIRSpec fall back to hdul[0] when there is no "SCI" HDU.
+            hdul = fits.HDUList([fits.PrimaryHDU(data=masked, header=out_header)])
+        hdul.writeto(output_path, overwrite=True)
+
+
     def get_pixel_spectrum(self, x, y):
         """
         Extract the spectrum of a single pixel from the data cube.
