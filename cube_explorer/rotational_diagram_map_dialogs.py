@@ -17,7 +17,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationTool
 from matplotlib.figure import Figure
 
 from .rotational_diagram_map import (
-    create_rotational_diagram_map, save_rotational_diagram_map_fits, fit_pixel,
+    create_rotational_diagram_map, create_rotational_diagram_map_multi,
+    save_rotational_diagram_map_fits, fit_pixel,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
 )
 from .rotational_diagram_h2_fitter import model_1T
@@ -38,9 +39,15 @@ class RotDiagMapWorker(QThread):
     Background thread that builds the rotational diagram map.
 
     Args:
-        cube_or_list (CubeData or list): One cube, or co-aligned cubes to stitch
-        line_table (list): Line dicts for the fit
-        kwargs (dict): Passed through to create_rotational_diagram_map
+        cube_or_list (CubeData or list): One cube, or co-aligned cubes to stitch.
+            None when cubes_and_lines is given instead
+        line_table (list): Line dicts for the fit. None when cubes_and_lines
+            is given instead
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per cube, for
+            cubes on different grids -- routes to the convolve+reproject path.
+            None for the single-cube/co-aligned path
+        kwargs (dict): Passed through to whichever create_rotational_diagram_map*
+            function is used
 
     Returns:
         None
@@ -50,10 +57,11 @@ class RotDiagMapWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, cube_or_list, line_table, **kwargs):
+    def __init__(self, cube_or_list=None, line_table=None, cubes_and_lines=None, **kwargs):
         super().__init__()
         self.cube_or_list = cube_or_list
         self.line_table = line_table
+        self.cubes_and_lines = cubes_and_lines
         self.kwargs = kwargs
         self.cancelled = False
 
@@ -68,11 +76,18 @@ class RotDiagMapWorker(QThread):
             None
         """
         try:
-            result = create_rotational_diagram_map(
-                self.cube_or_list, self.line_table,
-                progress_callback=self._emit_progress, cancel_flag=self,
-                **self.kwargs,
-            )
+            if self.cubes_and_lines is not None:
+                result = create_rotational_diagram_map_multi(
+                    self.cubes_and_lines,
+                    progress_callback=self._emit_progress, cancel_flag=self,
+                    **self.kwargs,
+                )
+            else:
+                result = create_rotational_diagram_map(
+                    self.cube_or_list, self.line_table,
+                    progress_callback=self._emit_progress, cancel_flag=self,
+                    **self.kwargs,
+                )
             if self.cancelled:
                 self.error.emit("Rotational diagram map cancelled by user")
             elif result is None:
@@ -160,8 +175,10 @@ def region_result_text(region):
     if not region or region.get("status") != STATUS_OK:
         reason = region.get("reason", "no data") if region else "not available"
         return head + f"No region fit: {reason}\n{bar}\n"
-    return (head + _one_t_block(region["results"])
-            + f"\nSpaxels summed: {region.get('n_pixels', 0)}\n{bar}\n")
+    tail = f"\nSpaxels summed: {region.get('n_pixels', 0)}"
+    if region.get("n_cubes"):
+        tail += f" (across {region['n_cubes']} cubes)"
+    return head + _one_t_block(region["results"]) + tail + f"\n{bar}\n"
 
 
 def pixel_result_text(x, y, out):
@@ -402,6 +419,13 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             None
         """
+        if self.cube_or_list is None:
+            QMessageBox.information(
+                self, "Not available for this map",
+                "Per-pixel re-fit is not implemented yet for a convolved/"
+                "reprojected multi-cube map. Use Export as FITS to inspect "
+                "the maps, or Show Statistics for the whole-map summed fit.")
+            return
         try:
             out = fit_pixel(self.cube_or_list, x, y, self.line_table, **self.fit_kwargs)
         except Exception as exc:

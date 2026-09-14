@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
 from .table_drag_select import SortableCheckboxTableMixin
+from .line_catalog import dedupe_colocated_lines
 
 class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
     """
@@ -32,6 +33,17 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
         # one still left the wavelength "present" via its still-checked twin, and both
         # silently re-checked themselves the next time this dialog opened.
         self.plotted_keys = {self._row_key(r) for r in self.plotted_rows}
+
+        # Default-deselect the weaker of a near-duplicate wavelength pair (e.g.
+        # two HD lines at 5.027692 um). Only affects the first-time select-all.
+        _kept, _dropped = dedupe_colocated_lines(
+            rows, 1e-5,
+            line_of=lambda r: {"wavelength": self.get_row_wavelength(r), "a_coeff": r.get("a_coeff") or 0.0},
+        )
+        for weak in _dropped:
+            print(f"[species dialog] default-deselected {self.get_row_wavelength(weak):.6f} um "
+                  f"(A={weak.get('a_coeff') or 0:.3e}) -- co-located duplicate")
+        self._dedup_dropped_keys = {self._row_key(r) for r in _dropped}
 
         layout = QVBoxLayout(self)
 
@@ -136,7 +148,7 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
         for i, row in enumerate(rows):
             # Decide default state:
             if default_checked is True:
-                checked = True
+                checked = self._row_key(row) not in self._dedup_dropped_keys
             elif default_checked is False:
                 checked = False
             else:  # default_checked is None -> reflect plotted_rows membership

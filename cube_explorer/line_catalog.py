@@ -22,6 +22,36 @@ def _extract_wavelength_value(wavelength):
     return wavelength
 
 
+def dedupe_colocated_lines(items, tol_um, line_of=lambda item: item):
+    """
+    Drop the weaker line of each near-coincident pair (same transition
+    tabulated twice in the catalog). tol_um is typically 1e-5, near-exact
+    duplicates only, not physically blended-but-distinct lines.
+
+    Args:
+        items (list): Line dicts, or another item line_of can pull one from
+        tol_um (float): Two lines are the same feature within this many microns
+        line_of (callable): Returns a dict with 'wavelength' (and optionally
+            'a_coeff') for one item; identity by default
+
+    Returns:
+        result (tuple): (kept, dropped) lists of the input items, kept sorted
+            by wavelength
+    """
+    ordered = sorted(items, key=lambda it: line_of(it)["wavelength"])
+    kept, dropped = [], []
+    for item in ordered:
+        if kept and abs(line_of(item)["wavelength"] - line_of(kept[-1])["wavelength"]) <= tol_um:
+            weaker, stronger = sorted(
+                (item, kept[-1]), key=lambda it: line_of(it).get("a_coeff", 0.0)
+            )
+            kept[-1] = stronger
+            dropped.append(weaker)
+        else:
+            kept.append(item)
+    return kept, dropped
+
+
 _ISO_SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 _ISO_SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 

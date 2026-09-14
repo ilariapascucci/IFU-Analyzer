@@ -56,7 +56,7 @@ from astropy.units import Quantity
 # The 2D FITS viewer (gui_2d.py / analyzer_2d.py) ships on main but is not
 # feature-complete. Its GUI entry point stays hidden until it is ready; flip
 # this to True on a feature branch to work on it.
-ENABLE_2D_VIEWER = False
+ENABLE_2D_VIEWER = True
 
 
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):

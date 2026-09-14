@@ -31,10 +31,8 @@ from .rotational_diagram_general_fitter import rotational_diagram as rotational_
 from .flux_map_extractor import (
     _line_sigma, DEFAULT_SIGMA_MULTIPLIER, DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian,
 )
-from .rotational_diagram_map import fit_region, _cubes_coaligned, STATUS_OK
-from .rotational_diagram_map_dialogs import (
-    RotDiagMapWorker, RotDiagMapResultsDialog, plot_rot_diagram, region_result_text,
-)
+from .rotational_diagram_map import _cubes_coaligned, convolution_plan, _line_keys
+from .rotational_diagram_map_dialogs import RotDiagMapWorker, RotDiagMapResultsDialog
 
 
 # Constants
@@ -2081,7 +2079,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             'gu': {}
         }
         
-        j_counter = 1
+        rows_data = []  # (line, flux, flux_error, is_upper_limit), one per selected row
         for row in range(self.lines_table.rowCount()):
             select_item = self.lines_table.item(row, 0)
             if not select_item or select_item.checkState() != Qt.Checked:
@@ -2153,27 +2151,36 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     QMessageBox.warning(self, "Error", f"Invalid error % at row {row+1}")
                     return
             
-            fluxes[j_counter] = flux
+            rows_data.append((line, flux, flux_error, is_upper_limit))
+
+        if not rows_data:
+            QMessageBox.warning(self, "Error", "No lines selected")
+            return
+
+        # H2 keys by the line's own j_lower (matches the notebook), so
+        # apply_OPR's ortho/para check is correct for any line selection.
+        try:
+            keys = _line_keys([r[0] for r in rows_data], self.current_molecule)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+            return
+
+        for key, (line, flux, flux_error, is_upper_limit) in zip(keys, rows_data):
+            fluxes[key] = flux
             if flux_error is not None:
-                flux_errors[j_counter] = flux_error
+                flux_errors[key] = flux_error
             if is_upper_limit:
-                upper_limits[j_counter] = True
-            
-            molecular_data['wavelengths'][j_counter] = line['wavelength']
-            molecular_data['Aul'][j_counter] = line.get('a_coeff', 0)
-            molecular_data['Eu'][j_counter] = line.get('e_upper', 0)
+                upper_limits[key] = True
+
+            molecular_data['wavelengths'][key] = line['wavelength']
+            molecular_data['Aul'][key] = line.get('a_coeff', 0)
+            molecular_data['Eu'][key] = line.get('e_upper', 0)
 
             j_lower = line.get('j_lower')
             if self.current_molecule == 'H2' and line.get('branch') == 'S' and j_lower is not None:
-                molecular_data['gu'][j_counter] = get_gu(j_lower)
+                molecular_data['gu'][key] = get_gu(j_lower)
             else:
-                molecular_data['gu'][j_counter] = line.get('Gp', 1)
-            
-            j_counter += 1
-        
-        if not fluxes:
-            QMessageBox.warning(self, "Error", "No lines selected")
-            return
+                molecular_data['gu'][key] = line.get('Gp', 1)
         
         # Check that R and distance are provided (R may be intentionally left unknown)
         if self.radius_unknown_check.isChecked():
@@ -2304,26 +2311,37 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         QMessageBox.critical(self, "Fitting Error", f"Error during fitting:\n{message}")
 
     def run_rotational_map(self):
-        """Run the same fit at every pixel of the loaded cube(s), 1T, detections only."""
+        """Run the same fit at every pixel of the loaded cube(s), 1T, detections only.
+
+        One cube, or several already on the same grid, stitch their spectra
+        per pixel. Several cubes on different grids convolve to the worst
+        resolution and reproject onto one common WCS instead (see
+        create_rotational_diagram_map_multi).
+        """
         cubes = list(self.loaded_batch_cubes)
         if not cubes:
             QMessageBox.warning(self, "No Cube",
                                 "Load one or more FITS cubes first (Load FITS Files).")
             return
-        if len(cubes) > 1:
-            ok, msg = _cubes_coaligned(cubes)
-            if not ok:
-                QMessageBox.warning(
-                    self, "Cubes Not Aligned",
-                    f"The loaded cubes are not on one spatial grid ({msg}).\n"
-                    "Load a single cube, or cubes that share a grid. Reprojection "
-                    "is not supported yet.")
-                return
 
         line_table, err = self._rot_map_gather_lines()
         if err:
             QMessageBox.warning(self, "Lines", err)
             return
+
+        multi_mode = False
+        cubes_and_lines = None
+        if len(cubes) > 1:
+            ok, msg = _cubes_coaligned(cubes)
+            if not ok:
+                cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, line_table)
+                if match_err:
+                    QMessageBox.warning(
+                        self, "Cubes Not Aligned",
+                        f"The loaded cubes are not on one spatial grid ({msg}), so each "
+                        f"line needs to be matched to the cube that covers it.\n\n{match_err}")
+                    return
+                multi_mode = True
 
         try:
             dist_pc = float(self.distance_input.text().strip())
@@ -2360,18 +2378,34 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             dist_pc=dist_pc, r_au=r_au, min_lines=3,
         )
 
-        # Preview: fit the whole-cube summed spectrum -- the Run Fit answer for
-        # this data. Reused by the worker so it is not computed twice.
-        try:
-            region = fit_region(cube_arg, line_table, mask=None, **fit_kwargs)
-        except Exception as exc:
-            QMessageBox.critical(self, "Preview Failed", str(exc))
-            return
-        if not self._show_rot_map_preview(region):
-            return
+        # Confirm before the run: a cheap, fit-free check -- no region fit, no
+        # plot, nothing that scales with pixel count. What create_rotational_
+        # diagram_map(_multi) computes for its own region-fit cross-check
+        # (shown later in Show Statistics) happens in the worker, not here.
+        if multi_mode:
+            try:
+                plan = convolution_plan(cubes_and_lines)
+            except Exception as exc:
+                QMessageBox.critical(self, "Plan Failed", str(exc))
+                return
+            if not self._show_convolution_plan_confirm(plan):
+                return
+        else:
+            # Same grid either way (stitched cubes share one), so cubes[0]'s
+            # shape stands for all of them.
+            n_y, n_x = cubes[0].cube.shape[1], cubes[0].cube.shape[2]
+            proceed = QMessageBox.question(
+                self, "Run Map",
+                f"No convolution needed -- {len(cubes)} cube(s) already on one grid "
+                f"({n_y}x{n_x} px), {len(line_table)} line(s).\n\n"
+                "Run the fit for every pixel?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if proceed != QMessageBox.Yes:
+                return
 
-        self._rot_map_cube_arg = cube_arg
-        self._rot_map_line_table = line_table
+        self._rot_map_multi_mode = multi_mode
+        self._rot_map_cube_arg = None if multi_mode else cube_arg
+        self._rot_map_line_table = None if multi_mode else line_table
         self._rot_map_fit_kwargs = fit_kwargs
 
         self.rot_map_progress = QProgressDialog(
@@ -2386,12 +2420,42 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.run_fit_btn.setEnabled(False)
         self.run_map_btn.setEnabled(False)
 
-        self.rot_map_worker = RotDiagMapWorker(
-            cube_arg, line_table, region_fit=region, **fit_kwargs)
+        if multi_mode:
+            self.rot_map_worker = RotDiagMapWorker(
+                cubes_and_lines=cubes_and_lines, **fit_kwargs)
+        else:
+            self.rot_map_worker = RotDiagMapWorker(cube_arg, line_table, **fit_kwargs)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
         self.rot_map_worker.error.connect(self._on_rot_map_error)
         self.rot_map_worker.start()
+
+    def _rot_map_match_lines_to_cubes(self, cubes, line_table):
+        """Return (pairs, error): each checked line matched to the loaded cube whose
+        native wavelength range covers it (closest to that cube's centre wavelength
+        if more than one covers it); error names any line no loaded cube covers."""
+        pairs, unmatched = [], []
+        for line in line_table:
+            wl = line["wavelength"]
+            candidates = []
+            for cube in cubes:
+                cwl = cube.wavelength
+                cwl = cwl.value if hasattr(cwl, "value") else np.asarray(cwl)
+                lo, hi = float(np.nanmin(cwl)), float(np.nanmax(cwl))
+                if lo <= wl <= hi:
+                    candidates.append((abs(wl - (lo + hi) / 2.0), cube))
+            if not candidates:
+                unmatched.append(wl)
+                continue
+            candidates.sort(key=lambda c: c[0])
+            pairs.append((candidates[0][1], line))
+        if unmatched:
+            wl_text = ", ".join(f"{w:.4f}" for w in unmatched)
+            return None, f"No loaded cube covers these line(s) (um): {wl_text}."
+        for cube, line in pairs:
+            print(f"[rot map] {line['wavelength']:.4f} um -> "
+                  f"{getattr(cube, 'filename', 'cube')}")
+        return pairs, None
 
     def _rot_map_gather_lines(self):
         """Return (line_table, error): the checked lines' HITRAN dicts, or an error string."""
@@ -2408,31 +2472,33 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                           "Deselect them or use lines with catalog data.")
         return rows, None
 
-    def _show_rot_map_preview(self, region):
-        """Show the whole-cube (Run Fit) result; return True to run the full map."""
+    def _show_convolution_plan_confirm(self, plan):
+        """Show the convolve/reproject plan (no fitting); return True to run the map."""
+        ny, nx = plan["dst_shape"]
+        worst = plan["worst_pix_arcsec"]
+        lines = "\n".join(
+            f"  {c['wavelength']:>9.4f} um  {c['filename'] or 'cube':<28}  "
+            f"native {c['native_pix_arcsec']:.4f}\"/px  "
+            + ("sets the resolution" if c["sigma_pix"] <= 1e-6 else
+               f"blur sigma {c['sigma_arcsec']:.4f}\" ({c['sigma_pix']:.2f} px)")
+            for c in plan["per_cube"]
+        )
+        text = (
+            f"Convolution / reprojection plan\n{'=' * 50}\n\n"
+            f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px (coarsest input)\n\n"
+            f"{lines}\n\n"
+            "Every pixel outside a cube's own reprojected footprint is NaN "
+            "for that line.\n\nRun the fit at every pixel of the common grid?"
+        )
+
         dlg = QDialog(self)
-        dlg.setWindowTitle("Run Map -- region fit preview")
-        dlg.resize(980, 540)
-        lay = QHBoxLayout(dlg)
-
-        text = QTextEdit()
-        text.setReadOnly(True)
-        text.setText(region_result_text(region))
-        lay.addWidget(text, 1)
-
-        if region.get("status") == STATUS_OK and "_plot_data" in region["results"]:
-            fig = Figure(figsize=(6.5, 4.8), dpi=100)
-            plot_rot_diagram(fig.add_subplot(111), region["results"]["_plot_data"])
-            fig.tight_layout()
-            canvas = FigureCanvas(fig)
-            box = QWidget()
-            box_lay = QVBoxLayout(box)
-            box_lay.addWidget(NavigationToolbar(canvas, dlg))
-            box_lay.addWidget(canvas)
-            lay.addWidget(box, 1)
-
-        right = QVBoxLayout()
-        right.addWidget(QLabel("Run the fit at every pixel?"))
+        dlg.setWindowTitle("Run Map -- convolution plan")
+        dlg.resize(640, 420)
+        lay = QVBoxLayout(dlg)
+        body = QLabel(text)
+        body.setStyleSheet("font-family: monospace;")
+        body.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(body)
         btns = QHBoxLayout()
         run_btn = QPushButton("Run Map")
         cancel_btn = QPushButton("Cancel")
@@ -2441,8 +2507,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         btns.addStretch()
         btns.addWidget(run_btn)
         btns.addWidget(cancel_btn)
-        right.addLayout(btns)
-        lay.addLayout(right)
+        lay.addLayout(btns)
         return dlg.exec_() == QDialog.Accepted
 
     def _on_rot_map_progress(self, current, total):
