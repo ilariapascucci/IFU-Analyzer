@@ -2192,10 +2192,21 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                                 "Load one or more FITS cubes first (Load FITS Files).")
             return
 
-        line_table, err = self._rot_map_gather_lines()
+        line_table, discarded_ul, err = self._rot_map_gather_lines()
         if err:
             QMessageBox.warning(self, "Lines", err)
             return
+
+        if discarded_ul:
+            wavelengths = "\n".join(f"  {l['wavelength']:.4f} um" for l in discarded_ul)
+            proceed = QMessageBox.question(
+                self, "Upper Limits Not Supported",
+                "Lines marked Upper Limit will not be considered for the "
+                f"Rotational Diagram Map:\n{wavelengths}\n\n"
+                f"Continue with the remaining {len(line_table)} line(s)?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if proceed != QMessageBox.Yes:
+                return
 
         multi_mode = False
         cubes_and_lines = None
@@ -2326,19 +2337,30 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return pairs, None
 
     def _rot_map_gather_lines(self):
-        """Return (line_table, error): the checked lines' HITRAN dicts, or an error string."""
+        """Return (line_table, discarded_ul, error).
+
+        line_table holds the checked, non-upper-limit lines' HITRAN dicts.
+        Checked lines also marked Upper Limit? are pulled out into
+        discarded_ul instead -- the per-pixel map doesn't support them.
+        """
         rows = []
+        discarded_ul = []
         for row in range(self.lines_table.rowCount()):
             item = self.lines_table.item(row, 0)
-            if item and item.checkState() == Qt.Checked:
+            if not (item and item.checkState() == Qt.Checked):
+                continue
+            ul_item = self.lines_table.item(row, 9)
+            if ul_item and ul_item.checkState() == Qt.Checked:
+                discarded_ul.append(self.hitran_lines[row])
+            else:
                 rows.append(self.hitran_lines[row])
         if len(rows) < 3:
-            return None, "Select at least 3 lines for a per-pixel map."
+            return None, discarded_ul, "Select at least 3 non-upper-limit lines for a per-pixel map."
         missing = [r for r in rows if r.get("a_coeff") is None or r.get("e_upper") is None]
         if missing:
-            return None, ("Some checked lines have no A_ul/E_u (no HITRAN match). "
+            return None, discarded_ul, ("Some checked lines have no A_ul/E_u (no HITRAN match). "
                           "Deselect them or use lines with catalog data.")
-        return rows, None
+        return rows, discarded_ul, None
 
     def _show_convolution_plan_confirm(self, plan):
         """Show the convolve/reproject plan (no fitting); return True to run the map."""
