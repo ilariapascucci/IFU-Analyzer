@@ -5,8 +5,90 @@ Region selection and analysis functionality
 import numpy as np
 from matplotlib.widgets import RectangleSelector, EllipseSelector, LassoSelector
 from matplotlib.path import Path
-from matplotlib.patches import Circle, Ellipse, Rectangle, Polygon
+from matplotlib.patches import Rectangle, Polygon, PathPatch
 from matplotlib.lines import Line2D
+
+
+def _any_touch_circle_mask(width, height):
+    """Boolean mask for a circle centered in a (height, width) box: a pixel
+    counts as in if its own unit square touches the circle at all, found via
+    the closest point of that square (clamped toward the centre) to the edge.
+
+    Args:
+        width (int): Bounding-box width in pixels
+        height (int): Bounding-box height in pixels
+
+    Returns:
+        mask (np.ndarray): 2D bool array, shape (height, width)
+    """
+    yy, xx = np.indices((height, width))
+    cx_rel = (width - 1) / 2.0
+    cy_rel = (height - 1) / 2.0
+    r = min(max((width - 1) / 2.0, 1), max((height - 1) / 2.0, 1))
+    closest_x = np.clip(cx_rel, xx - 0.5, xx + 0.5)
+    closest_y = np.clip(cy_rel, yy - 0.5, yy + 0.5)
+    return (closest_x - cx_rel) ** 2 + (closest_y - cy_rel) ** 2 <= r ** 2
+
+
+def _any_touch_ellipse_mask(width, height):
+    """Same any-touch test as _any_touch_circle_mask, done in a space
+    rescaled by the ellipse's own (a, b) axes so it becomes a unit circle.
+
+    Args:
+        width (int): Bounding-box width in pixels
+        height (int): Bounding-box height in pixels
+
+    Returns:
+        mask (np.ndarray): 2D bool array, shape (height, width)
+    """
+    yy, xx = np.indices((height, width))
+    cx_rel = (width - 1) / 2.0
+    cy_rel = (height - 1) / 2.0
+    a = max((width - 1) / 2.0, 0.5)
+    b = max((height - 1) / 2.0, 0.5)
+    x_lo, x_hi = (xx - 0.5 - cx_rel) / a, (xx + 0.5 - cx_rel) / a
+    y_lo, y_hi = (yy - 0.5 - cy_rel) / b, (yy + 0.5 - cy_rel) / b
+    closest_x = np.clip(0.0, x_lo, x_hi)
+    closest_y = np.clip(0.0, y_lo, y_hi)
+    return closest_x ** 2 + closest_y ** 2 <= 1
+
+
+def _mask_boundary_path(mask, xmin, ymin):
+    """Trace a boolean mask's own pixel edges into a stroke-only Path (a
+    "staircase" outline), so the drawn shape always matches the mask exactly
+    instead of an idealized smooth circle/ellipse standing in for it.
+
+    Args:
+        mask (np.ndarray): 2D bool array
+        xmin (int): Mask's column 0 in absolute data coordinates
+        ymin (int): Mask's row 0 in absolute data coordinates
+
+    Returns:
+        path (matplotlib.path.Path or None): None if mask has no True pixels
+    """
+    ny, nx = mask.shape
+    verts, codes = [], []
+    for iy in range(ny):
+        for ix in range(nx):
+            if not mask[iy, ix]:
+                continue
+            x0, x1 = xmin + ix - 0.5, xmin + ix + 0.5
+            y0, y1 = ymin + iy - 0.5, ymin + iy + 0.5
+            if iy == 0 or not mask[iy - 1, ix]:
+                verts += [(x0, y0), (x1, y0)]
+                codes += [Path.MOVETO, Path.LINETO]
+            if iy == ny - 1 or not mask[iy + 1, ix]:
+                verts += [(x0, y1), (x1, y1)]
+                codes += [Path.MOVETO, Path.LINETO]
+            if ix == 0 or not mask[iy, ix - 1]:
+                verts += [(x0, y0), (x0, y1)]
+                codes += [Path.MOVETO, Path.LINETO]
+            if ix == nx - 1 or not mask[iy, ix + 1]:
+                verts += [(x1, y0), (x1, y1)]
+                codes += [Path.MOVETO, Path.LINETO]
+    if not verts:
+        return None
+    return Path(verts, codes)
 
 
 class InteractivePatch:
@@ -249,10 +331,13 @@ class InteractivePatch:
         """Handle mouse motion - update patch while dragging."""
         if self.press_data is None or event.inaxes != self.ax or event.xdata is None or event.ydata is None:
             return
-        
-        dx = event.xdata - self.press_data['xpress']
-        dy = event.ydata - self.press_data['ypress']
-        
+
+        # Snap every move/resize to a whole-pixel step, matching how the
+        # mask itself is always defined on whole pixels -- what's dragged on
+        # screen never implies a position finer than the mask can represent.
+        dx = round(event.xdata - self.press_data['xpress'])
+        dy = round(event.ydata - self.press_data['ypress'])
+
         old_coords = self.press_data['coords']
         xmin, xmax, ymin, ymax = old_coords
         
@@ -291,10 +376,12 @@ class InteractivePatch:
                 return (xmin, xmax + dx, ymin, ymax)
         
         elif self.shape_type == 'circle':
-            # Resize circle from edge handle
+            # Resize circle from edge handle. Rounded so the radius (and so
+            # the whole bounding box) only ever changes in whole-pixel
+            # steps, even though halving dx/dy could land on a half-pixel.
             cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
             old_r = max(xmax - xmin, ymax - ymin) / 2
-            new_r = max(1, old_r + max(dx, dy) / 2)
+            new_r = max(1, round(old_r + max(dx, dy) / 2))
             return (cx - new_r, cx + new_r, cy - new_r, cy + new_r)
         
         elif self.shape_type == 'ellipse':
@@ -325,20 +412,19 @@ class InteractivePatch:
             self.patch.set_width(width)
             self.patch.set_height(height)
         
-        elif self.shape_type == 'circle':
-            cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
-            r = max(xmax - xmin, ymax - ymin) / 2
-            self.patch.center = (cx, cy)
-            self.patch.set_radius(r)
-        
-        elif self.shape_type == 'ellipse':
-            cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
-            a = (xmax - xmin) / 2
-            b = (ymax - ymin) / 2
-            self.patch.center = (cx, cy)
-            self.patch.set_width(2 * a)
-            self.patch.set_height(2 * b)
-        
+        elif self.shape_type in ('circle', 'ellipse'):
+            # The patch is a staircase outline of the actual any-touch mask,
+            # not an idealized smooth shape -- rebuild it for the new coords
+            # rather than mutating Circle/Ellipse geometry that no longer applies.
+            ixmin, ixmax = int(round(xmin)), int(round(xmax))
+            iymin, iymax = int(round(ymin)), int(round(ymax))
+            width = max(1, ixmax - ixmin + 1)
+            height = max(1, iymax - iymin + 1)
+            mask_fn = _any_touch_circle_mask if self.shape_type == 'circle' else _any_touch_ellipse_mask
+            path = _mask_boundary_path(mask_fn(width, height), ixmin, iymin)
+            if path is not None:
+                self.patch.set_path(path)
+
         elif self.shape_type == 'polygon':
             # Move polygon by applying total displacement-since-press to the
             # vertex snapshot captured at press time (see on_press) - using
@@ -541,76 +627,39 @@ class RegionSelector:
         """
         Create a region mask and visual patch based on current shape type.
 
-        Creates both:
-        1. Boolean mask identifying selected pixels
-        2. Matplotlib patch for visual display
-
-        Handles different shapes:
-        - Circle: Uses radius = min(width,height)/2
-        - Ellipse: Uses full width/height for axes
-        - Rectangle: Uses full width/height
+        Delegates the actual mask/patch construction to
+        _generate_mask_from_coords, so a freshly-drawn shape and one later
+        dragged/resized always use the exact same rule.
 
         Args:
             coords (tuple): (xmin, xmax, ymin, ymax) region bounds
 
         Note:
-            - Generates mask using efficient numpy operations
-            - Creates appropriate matplotlib patch for visualization 
+            - Circle/ellipse pixels count as in if they touch the shape at
+              all (not just if their centre does); the drawn outline traces
+              that mask's real edges instead of an idealized smooth shape
             - Calls callback with created mask, patch and coordinates
-            - Patches use consistent style (cyan outline, no fill)
             - Made interactive with dragging and resizing
         """
-        xmin, xmax, ymin, ymax = coords
-        # Convert to integers to handle decimal pixel coordinates
-        xmin, xmax, ymin, ymax = int(xmin), int(xmax), int(ymin), int(ymax)
-        # Ensure proper ordering
-        xmin, xmax = min(xmin, xmax), max(xmin, xmax)
-        ymin, ymax = min(ymin, ymax), max(ymin, ymax)
-        
-        # dimensions of the bounding box
-        height = ymax - ymin + 1
-        width = xmax - xmin + 1
-        yy, xx = np.indices((height, width))
-
-        if self.active_shape == "◯":  # Circle
-            # center relative to bbox
-            cx_rel = (width - 1) / 2.0
-            cy_rel = (height - 1) / 2.0
-            r = min((width - 1) / 2.0, (height - 1) / 2.0)
-            mask = (xx - cx_rel)**2 + (yy - cy_rel)**2 <= r**2
-            # absolute center for plotting
-            cx_abs = xmin + cx_rel
-            cy_abs = ymin + cy_rel
-            patch = Circle((cx_abs, cy_abs), r, edgecolor='lime', facecolor='none', lw=1.5)
+        if self.active_shape == "◯":
             shape_type = 'circle'
-
-        elif self.active_shape == "⬭":  # Ellipse
-            cx_rel = (width - 1) / 2.0
-            cy_rel = (height - 1) / 2.0
-            a = (width - 1) / 2.0
-            b = (height - 1) / 2.0
-            mask = ((xx - cx_rel) / a)**2 + ((yy - cy_rel) / b)**2 <= 1
-            cx_abs = xmin + cx_rel
-            cy_abs = ymin + cy_rel
-            patch = Ellipse((cx_abs, cy_abs), 2*a, 2*b, edgecolor='lime', facecolor='none', lw=1.5)
+        elif self.active_shape == "⬭":
             shape_type = 'ellipse'
-
-        else:  # Rectangle
-            mask = np.ones((height, width), dtype=bool)
-            patch = Rectangle((xmin, ymin), width-1, height-1,
-                              edgecolor='lime', facecolor='none', lw=1.5)
+        else:
             shape_type = 'rectangle'
+
+        mask, patch, _ = self._generate_mask_from_coords(coords, shape_type)
 
         # Call the callback with the results
         self.on_select_callback(mask, patch, coords)
-        
+
         # Make patch interactive (draggable and resizable)
         def on_patch_change(new_coords):
             """Callback when patch is dragged or resized."""
             new_mask, _, _ = self._generate_mask_from_coords(new_coords, shape_type)
             print(f"[DEBUG] Patch changed to coords: {new_coords}, regenerated mask shape: {new_mask.shape}")
             self.on_select_callback(new_mask, patch, new_coords)
-        
+
         # Disconnect previous interactive patch if any
         if self.interactive_patch is not None:
             print(f"[DEBUG] Disconnecting previous interactive patch")
@@ -619,58 +668,53 @@ class RegionSelector:
             except Exception as e:
                 print(f"[DEBUG] Error disconnecting previous patch: {e}")
             self.interactive_patch = None
-        
+
         # Create new interactive patch
         self.interactive_patch = InteractivePatch(
             self.ax, patch, shape_type, on_patch_change, coords
         )
-    
+
     def _generate_mask_from_coords(self, coords, shape_type):
-        """Generate a mask from coordinates and shape type."""
+        """
+        Generate a mask and matching outline patch from coordinates and shape
+        type. The single implementation used both for a freshly-drawn shape
+        (via create_region) and for every drag/resize update.
+
+        Args:
+            coords (tuple): (xmin, xmax, ymin, ymax) region bounds
+            shape_type (str): 'circle', 'ellipse', or 'rectangle'
+
+        Returns:
+            result (tuple): (mask, patch, coords) -- mask is a 2D bool array;
+                patch is a matplotlib Patch tracing the mask's real edges
+        """
         xmin, xmax, ymin, ymax = coords
         # Convert to integers for mask generation
         xmin, xmax, ymin, ymax = int(xmin), int(xmax), int(ymin), int(ymax)
-        
+
         # Ensure proper ordering
         xmin, xmax = min(xmin, xmax), max(xmin, xmax)
         ymin, ymax = min(ymin, ymax), max(ymin, ymax)
-        
+
         height = max(1, ymax - ymin + 1)
         width = max(1, xmax - xmin + 1)
-        yy, xx = np.indices((height, width))
-        
+
         if shape_type == 'circle':
-            cx_rel = (width - 1) / 2.0
-            cy_rel = (height - 1) / 2.0
-            r = min(max((width - 1) / 2.0, 1), max((height - 1) / 2.0, 1))
-            mask = (xx - cx_rel)**2 + (yy - cy_rel)**2 <= r**2
-        
+            mask = _any_touch_circle_mask(width, height)
         elif shape_type == 'ellipse':
-            cx_rel = (width - 1) / 2.0
-            cy_rel = (height - 1) / 2.0
-            a = max((width - 1) / 2.0, 0.5)
-            b = max((height - 1) / 2.0, 0.5)
-            mask = ((xx - cx_rel) / a)**2 + ((yy - cy_rel) / b)**2 <= 1
-        
+            mask = _any_touch_ellipse_mask(width, height)
         else:  # rectangle
             mask = np.ones((height, width), dtype=bool)
-        
-        # Create a dummy patch for consistency
-        if shape_type == 'circle':
-            cx_abs = xmin + (width - 1) / 2.0
-            cy_abs = ymin + (height - 1) / 2.0
-            r = min((width - 1) / 2.0, (height - 1) / 2.0)
-            patch = Circle((cx_abs, cy_abs), r, edgecolor='lime', facecolor='none', lw=1.5)
-        elif shape_type == 'ellipse':
-            cx_abs = xmin + (width - 1) / 2.0
-            cy_abs = ymin + (height - 1) / 2.0
-            a = (width - 1) / 2.0
-            b = (height - 1) / 2.0
-            patch = Ellipse((cx_abs, cy_abs), 2*a, 2*b, edgecolor='lime', facecolor='none', lw=1.5)
+
+        # Outline traces the mask's own pixel edges exactly (a staircase),
+        # so what's shown always matches what's actually included.
+        if shape_type in ('circle', 'ellipse'):
+            path = _mask_boundary_path(mask, xmin, ymin)
+            patch = PathPatch(path, edgecolor='lime', facecolor='none', lw=1.5)
         else:
             patch = Rectangle((xmin, ymin), width-1, height-1,
                             edgecolor='lime', facecolor='none', lw=1.5)
-        
+
         return mask, patch, coords
 
     def on_lasso_select(self, verts):
