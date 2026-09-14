@@ -283,9 +283,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         main_layout.addWidget(self.lines_table)
 
         # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux.
-        # Also wires click-and-drag on column 0 to check/uncheck a run of rows at once.
+        # Also wires click-and-drag on columns 0 (select) and 9 (Upper Limit?)
+        # to check/uncheck a run of rows at once.
         self._init_sortable_checkbox_table(
-            self.lines_table, {1, 3, 4, 5, 6, 7, 8, 10}, self._lines_table_sort_key
+            self.lines_table, {1, 3, 4, 5, 6, 7, 8, 10}, self._lines_table_sort_key,
+            drag_column={0, 9},
         )
 
         # Connect table changes for auto-calculation

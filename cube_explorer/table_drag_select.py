@@ -5,39 +5,43 @@ from PyQt5.QtCore import QObject, QEvent, Qt
 
 
 class CheckboxColumnDragSelect(QObject):
-    """Event filter that lets a user click-and-drag down one table column to
+    """Event filter that lets a user click-and-drag down a table column to
     set many rows' check state at once, instead of clicking each row alone.
     """
 
-    def __init__(self, table, column=0):
+    def __init__(self, table, columns=0):
         """Install this filter on a table's viewport.
 
         Args:
-            table (QTableWidget): The table to watch. Column `column` must
-                hold checkable items.
-            column (int): The checkbox column to drag across. Default 0.
+            table (QTableWidget): The table to watch. Each column in
+                `columns` must hold checkable items.
+            columns (int | set[int]): The checkbox column(s) to drag across,
+                one at a time -- a drag started in one column stays locked
+                to it even if the mouse drifts into another. Default 0.
 
         Returns:
             None: Installs an event filter on table.viewport() as a side effect.
         """
         super().__init__(table)
         self.table = table
-        self.column = column
+        self.columns = {columns} if isinstance(columns, int) else set(columns)
         self._dragging = False
         self._drag_state = Qt.Checked
+        self._drag_column = None
         self._last_row = None
         table.viewport().installEventFilter(self)
 
-    def _checkable_item(self, row):
+    def _checkable_item(self, row, column):
         """Return row's item in this column, or None if it can't be dragged.
 
         Args:
             row (int): Table row index.
+            column (int): Table column index.
 
         Returns:
             item (QTableWidgetItem | None): The item, if checkable and enabled.
         """
-        item = self.table.item(row, self.column)
+        item = self.table.item(row, column)
         if item is None:
             return None
         flags = item.flags()
@@ -65,15 +69,16 @@ class CheckboxColumnDragSelect(QObject):
         if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
             row = self.table.rowAt(event.pos().y())
             col = self.table.columnAt(event.pos().x())
-            if row < 0 or col != self.column:
+            if row < 0 or col not in self.columns:
                 return False
-            item = self._checkable_item(row)
+            item = self._checkable_item(row, col)
             if item is None:
                 return False
             new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
             item.setCheckState(new_state)
             self._dragging = True
             self._drag_state = new_state
+            self._drag_column = col
             self._last_row = row
             return True
 
@@ -83,7 +88,7 @@ class CheckboxColumnDragSelect(QObject):
                 return True
             lo, hi = sorted((self._last_row, row))
             for r in range(lo, hi + 1):
-                item = self._checkable_item(r)
+                item = self._checkable_item(r, self._drag_column)
                 if item:
                     item.setCheckState(self._drag_state)
             self._last_row = row
@@ -110,7 +115,8 @@ class SortableCheckboxTableMixin:
             table (QTableWidget): The table to make sortable and drag-selectable.
             sortable_columns (set[int]): Column indices that sort on header click.
             sort_key_fn (callable): (row, column) -> a sort key (float or str).
-            drag_column (int): Checkbox column to drag-select across. Default 0.
+            drag_column (int | set[int]): Checkbox column(s) to drag-select
+                across. Default 0.
 
         Returns:
             None: Wires signals and stores state on self as a side effect.
@@ -130,7 +136,7 @@ class SortableCheckboxTableMixin:
             if header_item:
                 header_item.setToolTip("Click to sort")
 
-        self._checkbox_drag_select = CheckboxColumnDragSelect(table, column=drag_column)
+        self._checkbox_drag_select = CheckboxColumnDragSelect(table, columns=drag_column)
 
     def _reset_sort_state(self):
         """Clear the remembered sort column/direction and the header's arrow.
