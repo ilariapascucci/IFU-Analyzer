@@ -490,12 +490,34 @@ def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
 
     out = np.full(dst_shape, np.nan)
     has_overlap = coverage >= (1.0 - 1e-6)
-    
+
     if conserve_flux:
         out[has_overlap] = flux_acc[has_overlap]
     else:
         out[has_overlap] = flux_acc[has_overlap] / area_acc[has_overlap]
     return out, coverage, area_acc
+
+
+def _nan_border_bounds(valid_mask):
+    """Crop bounds that drop only border rows/columns with zero valid pixels.
+
+    Args:
+        valid_mask (np.ndarray): 2D boolean array, True where real data exist.
+
+    Returns:
+        tuple (tuple): (r0, r1, c0, c1) so ``valid_mask[r0:r1, c0:c1]`` is
+            the smallest box containing every True pixel. Equals the full
+            array shape if every row and column already has one.
+    """
+    rows = np.any(valid_mask, axis=1)
+    cols = np.any(valid_mask, axis=0)
+    if not np.any(rows) or not np.any(cols):
+        return 0, valid_mask.shape[0], 0, valid_mask.shape[1]
+    r0 = int(np.argmax(rows))
+    r1 = len(rows) - int(np.argmax(rows[::-1]))
+    c0 = int(np.argmax(cols))
+    c1 = len(cols) - int(np.argmax(cols[::-1]))
+    return r0, r1, c0, c1
 
 
 # ----------------------------------------------------------------------

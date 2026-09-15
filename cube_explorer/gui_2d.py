@@ -43,6 +43,7 @@ from .analyzer_2d import (
     build_target_wcs_for_pair,
     build_target_wcs_for_batch,
     reproject_exact,
+    _nan_border_bounds,
     _is_per_pixel_flux_unit,
     _wcs_footprints_overlap,
     _log_norm_vmin,
@@ -225,7 +226,10 @@ class BatchMatchResolutionDialog(QDialog):
             # ---- 4. For each input, convolve + reproject ---------------
             SR_PER_ARC2 = (np.pi / (180.0 * 3600.0)) ** 2
             with tempfile.TemporaryDirectory() as tmpdir:
-                flux_audit = []
+                # Pass 1: reproject every input; OR their valid masks so a
+                # border row/col is trimmed only where ALL files are empty.
+                per_file = []
+                combined_valid = np.zeros(dst_shape, dtype=bool)
                 for info in images_data:
                     fine_pix = info['pix_scale']
                     fine_data = info['data']
@@ -247,24 +251,50 @@ class BatchMatchResolutionDialog(QDialog):
                         conserve_flux=per_pix)
                     result_img[coverage < 1.0 - 1e-6] = np.nan
                     if not np.any(np.isfinite(result_img)):
-                        if not np.any(np.isfinite(result_img)):
-                            QMessageBox.warning(
-                                self, "Empty Result",
-                                "Slides Convolute completed but the output has no valid pixels.\n\n"
-                                "This usually means the two images overlap only at their edges, "
-                                "so no output pixel is fully covered by the input.\n\n"
-                                "Try a closer-aligned pair of images.")
-                            return
+                        QMessageBox.warning(
+                            self, "Empty Result",
+                            "Slides Convolute completed but the output has no valid pixels.\n\n"
+                            "This usually means the two images overlap only at their edges, "
+                            "so no output pixel is fully covered by the input.\n\n"
+                            "Try a closer-aligned pair of images.")
+                        return
 
-                    out_header = dst_wcs.to_header()
+                    combined_valid |= np.isfinite(result_img)
+                    per_file.append({
+                        'info': info, 'result': result_img, 'coverage': coverage,
+                        'bunit': bunit, 'per_pix': per_pix,
+                        'sigma_arcsec': sigma_arcsec,
+                        'sigma_fine_pix': sigma_fine_pix,
+                    })
+
+                # Trim only the safety-pad border every file left empty.
+                r0, r1, c0, c1 = _nan_border_bounds(combined_valid)
+                out_wcs, out_shape = dst_wcs, dst_shape
+                if (r0, r1, c0, c1) != (0, dst_shape[0], 0, dst_shape[1]):
+                    out_wcs = dst_wcs.deepcopy()
+                    out_wcs.wcs.crpix = [dst_wcs.wcs.crpix[0] - c0,
+                                         dst_wcs.wcs.crpix[1] - r0]
+                    out_shape = (r1 - r0, c1 - c0)
+
+                # Pass 2: crop each file to the shared bounds, write, audit.
+                flux_audit = []
+                for entry in per_file:
+                    info = entry['info']
+                    fine_pix = info['pix_scale']
+                    fine_data = info['data']
+                    bunit, per_pix = entry['bunit'], entry['per_pix']
+                    result_img = entry['result'][r0:r1, c0:c1]
+                    coverage = entry['coverage'][r0:r1, c0:c1]
+
+                    out_header = out_wcs.to_header()
                     out_header['NAXIS'] = 2
-                    out_header['NAXIS1'] = dst_shape[1]
-                    out_header['NAXIS2'] = dst_shape[0]
+                    out_header['NAXIS1'] = out_shape[1]
+                    out_header['NAXIS2'] = out_shape[0]
                     if bunit:
                         out_header['BUNIT'] = bunit
                     out_header['HISTORY'] = (
-                        f"Batch Convolution: sigma={sigma_arcsec:.4f}\" "
-                        f"({sigma_fine_pix:.3f} fine-px); reprojected to "
+                        f"Batch Convolution: sigma={entry['sigma_arcsec']:.4f}\" "
+                        f"({entry['sigma_fine_pix']:.3f} fine-px); reprojected to "
                         f"{worst_pix:.4f}\"/px "
                         f"({'flux' if per_pix else 'SB'} mode)"
                     )
@@ -313,7 +343,7 @@ class BatchMatchResolutionDialog(QDialog):
                 f"Batch Convolution complete!\n\n"
                 f"All {len(images_data)} images standardized to:\n"
                 f"  Pixel size : {worst_pix:.4f} arcsec/px\n"
-                f"  Output grid: {dst_shape[1]} × {dst_shape[0]} px "
+                f"  Output grid: {out_shape[1]} × {out_shape[0]} px "
                 f"(union of FOVs, aligned to largest input)\n\n"
                 f"Flux audit (output_total / input_total):\n"
                 + "\n".join(audit_lines)
@@ -2104,7 +2134,17 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     "Try a closer-aligned pair of images.")
                 return
 
-            # 3. Build a clean output header.
+            # 3. Trim the empty safety-pad border; only fully-empty
+            # rows/columns are dropped, so no measured pixel is lost.
+            r0, r1, c0, c1 = _nan_border_bounds(np.isfinite(result_img))
+            if (r0, r1, c0, c1) != (0, dst_shape[0], 0, dst_shape[1]):
+                result_img = result_img[r0:r1, c0:c1]
+                coverage = coverage[r0:r1, c0:c1]
+                dst_wcs.wcs.crpix = [dst_wcs.wcs.crpix[0] - c0,
+                                     dst_wcs.wcs.crpix[1] - r0]
+                dst_shape = result_img.shape
+
+            # 4. Build a clean output header.
             out_header = dst_wcs.to_header()
             out_header['NAXIS'] = 2
             out_header['NAXIS1'] = dst_shape[1]
