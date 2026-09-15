@@ -136,11 +136,11 @@ def _decompose_cd(wcs):
         cd = np.diag(np.asarray(wcs.wcs.cdelt, dtype=float))
     sx = float(np.hypot(cd[0, 0], cd[1, 0]))   # |column 1|
     sy = float(np.hypot(cd[0, 1], cd[1, 1]))   # |column 2|
+    # [ux, uy] is already the correctly-signed rotation+reflection matrix -
+    # do not re-apply a sign correction (it mirrors rotated CD matrices).
     ux = cd[:, 0] / sx if sx > 0 else np.array([1.0, 0.0])
     uy = cd[:, 1] / sy if sy > 0 else np.array([0.0, 1.0])
-    sign_x = -1.0 if cd[0, 0] < 0 else 1.0   # follow input parity
-    sign_y =  1.0 if cd[1, 1] > 0 else -1.0
-    return ux, uy, sx, sy, sign_x, sign_y
+    return ux, uy, sx, sy
 
 
 def build_target_wcs_for_pair(fine_wcs, fine_shape, target_pix_arcsec):
@@ -160,15 +160,14 @@ def build_target_wcs_for_pair(fine_wcs, fine_shape, target_pix_arcsec):
     cy_in = (ny_in - 1) / 2.0
     sky_centre = fine_wcs.pixel_to_world(cx_in, cy_in)
 
-    ux, uy, sx_deg, sy_deg, sign_x, sign_y = _decompose_cd(fine_wcs)
+    ux, uy, sx_deg, sy_deg = _decompose_cd(fine_wcs)
     pix_deg = target_pix_arcsec / 3600.0
 
     out = WCS(naxis=2)
     out.wcs.ctype = ['RA---TAN', 'DEC--TAN']
     out.wcs.crval = [float(sky_centre.ra.deg), float(sky_centre.dec.deg)]
     out.wcs.cunit = ['deg', 'deg']
-    out.wcs.cd = np.column_stack([ux * pix_deg * sign_x,
-                                  uy * pix_deg * sign_y])
+    out.wcs.cd = np.column_stack([ux * pix_deg, uy * pix_deg])
 
     # Output shape: scale up the fine FOV by (fine_pix / target_pix), pad +2
     fine_pix_x_arcsec = sx_deg * 3600.0
@@ -220,15 +219,14 @@ def build_target_wcs_for_batch(input_wcss_and_shapes, target_pix_arcsec):
     ref_cx = (ref_shape[1] - 1) / 2.0
     ref_cy = (ref_shape[0] - 1) / 2.0
     sky_centre = ref_wcs.pixel_to_world(ref_cx, ref_cy)
-    ux, uy, _, _, sign_x, sign_y = _decompose_cd(ref_wcs)
+    ux, uy, _, _ = _decompose_cd(ref_wcs)
     pix_deg = target_pix_arcsec / 3600.0
 
     out = WCS(naxis=2)
     out.wcs.ctype = ['RA---TAN', 'DEC--TAN']
     out.wcs.crval = [float(sky_centre.ra.deg), float(sky_centre.dec.deg)]
     out.wcs.cunit = ['deg', 'deg']
-    out.wcs.cd = np.column_stack([ux * pix_deg * sign_x,
-                                  uy * pix_deg * sign_y])
+    out.wcs.cd = np.column_stack([ux * pix_deg, uy * pix_deg])
     # Provisional CRPIX at (1,1); we'll re-centre below
     out.wcs.crpix = [1.0, 1.0]
 
