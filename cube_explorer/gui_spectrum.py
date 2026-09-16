@@ -14,7 +14,14 @@ class GuiSpectrumMixin:
     """
 
     def _init_spectrum_tabs(self):
-        """Create the Full/Left/Right spectrum tab bar."""
+        """Create the Full/Left/Right spectrum tab bar.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.spec_tab_bar = QTabBar()
         self.spec_tab_bar.setExpanding(False)
         self.spec_tab_bar.addTab("Full")
@@ -29,10 +36,8 @@ class GuiSpectrumMixin:
         # (the "Full" trace reuses spec_plotter's own global_line).
         self._spec_tab_line_left = None
         self._spec_tab_line_right = None
-        # Whether the user has explicitly picked a wavelength via "Set
-        # Left/Right Slice" yet - the slice-indicator line for a side stays
-        # hidden until then, rather than appearing at the default first-slice
-        # position immediately on cube load.
+        # Whether the user has picked a wavelength via "Set Left/Right Slice"
+        # yet; the indicator line stays hidden until then, not at the default slice.
         self._slice_indicator_set = {"left": False, "right": False}
 
         # Normalize (global, divides everything by Full's own peak) and
@@ -52,10 +57,8 @@ class GuiSpectrumMixin:
         self.overplot_right_checkbox.setEnabled(False)
         self.overplot_right_checkbox.toggled.connect(lambda checked: self._on_overplot_toggled("right", checked))
 
-        # Self-normalize: per-side override of Normalize's "divide by Full's
-        # peak" rule - divide by that side's OWN peak instead, for studying a
-        # region's own line shape independent of its contribution to the
-        # total. Only meaningful while Normalize is on.
+        # Self-normalize overrides Normalize's "divide by Full's peak" per
+        # side, dividing by that side's own peak; meaningful only while Normalize is on.
         self.self_normalize_left = False
         self.self_normalize_right = False
 
@@ -67,33 +70,40 @@ class GuiSpectrumMixin:
         self.self_normalize_right_checkbox.setEnabled(False)
         self.self_normalize_right_checkbox.toggled.connect(lambda checked: self._on_self_normalize_toggled("right", checked))
 
-        # Per-tab Doppler shift: each of Full/Left/Right can be shifted
-        # independently. base_wavelength is the permanent, never-mutated
-        # reference (captured once per cube load); spectrum_shift_factor is
-        # each tab's currently-APPLIED cumulative factor; spectrum_shift_preview
-        # holds a pending, not-yet-applied shift being compared via the
-        # orange preview line. Every shift operation acts only on whichever
-        # tab is active when it's triggered - never propagated across tabs.
+        # Per-tab Doppler shift: base_wavelength is the permanent reference;
+        # spectrum_shift_factor/preview are each tab's own applied/pending shift.
         self.base_wavelength = None
         self.spectrum_shift_factor = {"full": 1.0, "left": 1.0, "right": 1.0}
         self.spectrum_shift_preview = {"full": None, "left": None, "right": None}
         self._shift_preview_line = None
 
-        # Continuum-fit/preview artists, shared across tabs the same way as
-        # _shift_preview_line - only the active tab's own continuum ever
-        # shows at once. The per-tab continuum_fitted/continuum_subtracted/
-        # continuum_mode_applied dicts themselves live in gui.py's
-        # _init_state (GuiContinuumMixin owns the fitting/subtracting logic).
+        # Continuum-fit/preview artists, shared across tabs like
+        # _shift_preview_line; per-tab dicts live in gui.py's _init_state.
         self._continuum_line_artist = None
         self._continuum_zero_line = None
 
     def _on_normalize_toggled(self, checked):
-        """Handle the Normalize checkbox - a global toggle, not per-tab."""
+        """Handle the Normalize checkbox - a global toggle, not per-tab.
+
+        Args:
+            checked (bool): New checked state of the Normalize checkbox.
+
+        Returns:
+            None
+        """
         self.spectrum_normalized = bool(checked)
         self._refresh_active_spectrum_tab()
 
     def _on_overplot_toggled(self, side, checked):
-        """Handle the Show Left/Show Right checkboxes (Full-tab-only overlay)."""
+        """Handle the Show Left/Show Right checkboxes (Full-tab-only overlay).
+
+        Args:
+            side (str): 'left' or 'right'.
+            checked (bool): New checked state of the checkbox.
+
+        Returns:
+            None
+        """
         if side == "left":
             self.overplot_left = bool(checked)
         else:
@@ -101,7 +111,15 @@ class GuiSpectrumMixin:
         self._refresh_active_spectrum_tab()
 
     def _on_self_normalize_toggled(self, side, checked):
-        """Handle the Self-Normalize Left/Right checkboxes."""
+        """Handle the Self-Normalize Left/Right checkboxes.
+
+        Args:
+            side (str): 'left' or 'right'.
+            checked (bool): New checked state of the checkbox.
+
+        Returns:
+            None
+        """
         if side == "left":
             self.self_normalize_left = bool(checked)
         else:
@@ -109,7 +127,14 @@ class GuiSpectrumMixin:
         self._refresh_active_spectrum_tab()
 
     def _full_spectrum_peak(self):
-        """Return the Full spectrum's own peak value, or None if unavailable."""
+        """Return the Full spectrum's own peak value, or None if unavailable.
+
+        Args:
+            None
+
+        Returns:
+            peak (float): The Full spectrum's maximum finite value, or None.
+        """
         original = getattr(self, 'original_spectrum', None)
         if original is None:
             return None
@@ -121,29 +146,36 @@ class GuiSpectrumMixin:
 
     def _maybe_normalize(self, y):
         """Divide by Full's peak if Normalize is on; otherwise return as-is.
+        The one shared rule: applied to Full it's self-normalization,
+        applied to Left/Right it's "relative to Full".
 
-        This is the ONE shared normalization rule (see gui_spectrum.py module
-        docstring / plan): applied to Full it's self-normalization, applied to
-        Left/Right it's "relative to Full" - never an independent per-tab
-        peak-normalize.
+        Args:
+            y (numpy.ndarray): Flux array to normalize.
+
+        Returns:
+            y (numpy.ndarray): Normalized (or unchanged) flux array.
         """
         if not self.spectrum_normalized:
             return y
         peak = self._full_spectrum_peak()
-        # peak <= 0 means the whole spectrum is non-positive (degenerate/
-        # broken data) - dividing by a negative or zero peak would flip
-        # every sign (a downward noise dip would invert into a false
-        # positive bump), so fall back to raw values instead.
+        # A non-positive peak means degenerate data; dividing by it would
+        # flip every sign, so fall back to raw values instead.
         if not peak or peak <= 0:
             return y
         return np.asarray(y, dtype=float) / peak
 
     def _maybe_normalize_side(self, side, y):
         """Normalize Left/Right's data, honoring that side's Self-Normalize
-        override if set - independent of the global Normalize checkbox, since
-        "peak-normalize to my own max" is a complete idea on its own. If
-        Self-Normalize isn't set for this side, falls back to _maybe_normalize
-        (relative to Full's peak, or unchanged if Normalize is off)."""
+        override if set; else falls back to _maybe_normalize (relative to
+        Full's peak, or unchanged if Normalize is off).
+
+        Args:
+            side (str): 'left' or 'right'.
+            y (numpy.ndarray): Flux array to normalize.
+
+        Returns:
+            y (numpy.ndarray): Normalized (or unchanged) flux array.
+        """
         self_normalize = self.self_normalize_left if side == "left" else self.self_normalize_right
         if not self_normalize or y is None:
             return self._maybe_normalize(y)
@@ -153,43 +185,64 @@ class GuiSpectrumMixin:
         if finite.size == 0:
             return y
         own_peak = float(finite.max())
-        # Same degenerate-data guard as _maybe_normalize: a non-positive own
-        # peak would flip every sign if divided through.
+        # Same degenerate-data guard as _maybe_normalize.
         if own_peak <= 0:
             return y
         return arr / own_peak
 
     def _mark_slice_indicator_set(self, target):
         """Record that the user explicitly picked a wavelength for this side
-        (called from _on_spec_click after update_slice_indicator) and refresh
-        visibility so it now shows up on the appropriate tab(s)."""
+        and refresh visibility so it now shows up on the appropriate tab(s).
+
+        Args:
+            target (str): Panel whose indicator to mark, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         self._slice_indicator_set[target] = True
         self._refresh_active_spectrum_tab()
 
     def _reset_slice_indicators(self):
-        """Reset indicator visibility state - call whenever a cube (re)loads."""
+        """Reset indicator visibility state - call whenever a cube (re)loads.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self._slice_indicator_set = {"left": False, "right": False}
 
     def _on_spectrum_tab_changed(self, index):
-        """Handle the user switching the active spectrum tab."""
+        """Handle the user switching the active spectrum tab.
+
+        Args:
+            index (int): New tab index (0=Full, 1=Left, 2=Right).
+
+        Returns:
+            None
+        """
         if 0 <= index < len(self._spectrum_tab_keys):
             new_tab = self._spectrum_tab_keys[index]
             old_tab = getattr(self, 'active_spectrum_tab', 'full')
-            # Swap out Gaussian boundary state for the outgoing tab and load
-            # the incoming tab's own - guarded by hasattr since GuiGaussianMixin
-            # owns this, not GuiSpectrumMixin (loose, optional coupling).
+            # Swap Gaussian boundary state between tabs; guarded by hasattr
+            # since GuiGaussianMixin owns this, not GuiSpectrumMixin.
             if new_tab != old_tab and hasattr(self, '_swap_gaussian_boundaries_for_tab'):
                 self._swap_gaussian_boundaries_for_tab(old_tab, new_tab)
             self.active_spectrum_tab = new_tab
             self._refresh_active_spectrum_tab()
 
     def _get_selection_spectrum(self, sel):
-        """Compute the flux array for one stored selection dict (point or region).
+        """Compute the flux array for one stored selection dict (point or
+        region). Region spectra are scaled by pixel count to stay on a
+        comparable absolute scale to the summed original spectrum.
 
-        Region (non-point) spectra are scaled by pixel count to stay on a
-        comparable absolute scale to the summed original spectrum - matching
-        what the region-overlay line always showed before it was replaced by
-        these tabs.
+        Args:
+            sel (dict): Stored selection dict, or None/empty.
+
+        Returns:
+            spectrum (numpy.ndarray): Flux array for the selection, or None.
         """
         if not sel:
             return None
@@ -208,21 +261,33 @@ class GuiSpectrumMixin:
 
     def _get_tab_raw_flux(self, tab):
         """Return `tab`'s own raw flux array (before continuum subtraction or
-        normalization), or None if that tab has nothing to show (Left/Right
-        with no selection). Full is always original_spectrum; Left/Right are
-        each derived fresh from their own stored selection every call, so
-        there's nothing to accidentally share or overwrite between tabs."""
+        normalization). Full is always original_spectrum; Left/Right are
+        derived fresh from their own stored selection every call.
+
+        Args:
+            tab (str): Tab to read, 'full', 'left', or 'right'.
+
+        Returns:
+            flux (numpy.ndarray): Raw flux array, or None if that tab has
+                nothing to show (Left/Right with no selection).
+        """
         if tab == 'full':
             return getattr(self, 'original_spectrum', None)
         sel = self.last_selection_left if tab == 'left' else self.last_selection_right
         return self._get_selection_spectrum(sel)
 
     def _apply_continuum(self, tab, y):
-        """Subtract `tab`'s own fitted continuum from y, if a continuum
-        subtraction is currently active for that specific tab - otherwise
-        return y unchanged. This is what keeps Full/Left/Right's continuum
-        subtractions independent: each tab's entry in continuum_fitted/
-        continuum_subtracted is only ever read/written for that tab."""
+        """Subtract `tab`'s own fitted continuum from y if subtraction is
+        active for that tab, else return y unchanged. Keeps Full/Left/Right's
+        continuum subtractions independent.
+
+        Args:
+            tab (str): Tab to read continuum state for.
+            y (numpy.ndarray): Flux array to subtract the continuum from.
+
+        Returns:
+            y (numpy.ndarray): Continuum-subtracted (or unchanged) flux array.
+        """
         if y is None:
             return y
         if not self.continuum_subtracted.get(tab, False):
@@ -233,19 +298,30 @@ class GuiSpectrumMixin:
         return np.asarray(y, dtype=float) - np.asarray(continuum, dtype=float)
 
     def _get_active_tab_spectrum(self):
-        """Return the raw flux array currently represented by the active
-        tab, or None if that tab has nothing to show (Left/Right with no
-        selection). Callers (Gaussian fitting) intentionally get the raw,
-        pre-continuum-subtraction flux - continuum subtraction only affects
-        what's drawn on the spectrum plot."""
+        """Return the raw flux array for the active tab. Callers (Gaussian
+        fitting) intentionally get pre-continuum-subtraction flux; that
+        subtraction only affects what's drawn on the plot.
+
+        Args:
+            None
+
+        Returns:
+            flux (numpy.ndarray): Raw flux array, or None if the active tab
+                has nothing to show (Left/Right with no selection).
+        """
         return self._get_tab_raw_flux(getattr(self, 'active_spectrum_tab', 'full'))
 
     def _get_active_tab_line(self):
-        """Return the Line2D currently representing the active tab's own
-        trace (global_line for Full, the dedicated Left/Right line
-        otherwise) - for code that needs to inspect what's actually plotted
-        (e.g. checking if it's normalized) without hardcoding global_line,
-        which is hidden whenever a non-Full tab is active."""
+        """Return the Line2D representing the active tab's own trace
+        (global_line for Full, the dedicated Left/Right line otherwise),
+        for code that needs to inspect what's actually plotted.
+
+        Args:
+            None
+
+        Returns:
+            line (matplotlib.lines.Line2D): The active tab's trace, or None.
+        """
         tab = getattr(self, 'active_spectrum_tab', 'full')
         if tab == 'full':
             return getattr(self.spec_plotter, 'global_line', None)
@@ -253,13 +329,15 @@ class GuiSpectrumMixin:
 
     def _get_tab_wavelength(self, tab):
         """Return this tab's own (possibly independently-shifted) wavelength
-        array: base_wavelength * spectrum_shift_factor[tab].
+        array: base_wavelength * spectrum_shift_factor[tab]. Full's factor
+        stays mirrored into cube_data.wavelength (see gui.py) for unmigrated features.
 
-        This is the general getter a future region-aware Gaussian fitting
-        pass would call instead of reading cube_data.wavelength directly -
-        Full's factor stays mirrored into cube_data.wavelength (see
-        _apply_shift/_revert_shift in gui.py) so unmigrated features keep
-        working unchanged for Full.
+        Args:
+            tab (str): Tab to read, 'full', 'left', or 'right'.
+
+        Returns:
+            wavelength (numpy.ndarray): This tab's wavelength array, or None
+                if no cube is loaded.
         """
         if self.base_wavelength is None:
             return None
@@ -269,10 +347,16 @@ class GuiSpectrumMixin:
     def _ensure_tab_lines(self):
         """Lazily (re)create the dedicated Left/Right trace lines, if missing
         or if the spectrum plotter's axes was replaced (e.g. a new cube was
-        loaded, which builds a brand-new SpectrumPlotter/axes)."""
-        # Darker shades of the slice-indicator colors (cyan/magenta), so the
-        # region trace and its matching indicator line are visibly related
-        # but still distinguishable when both are showing on the same tab.
+        loaded, which builds a brand-new SpectrumPlotter/axes).
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        # Darker shades of the slice-indicator colors (cyan/magenta) keep the
+        # region trace and its indicator line related but distinguishable.
         ax = self.spec_plotter.ax
         if self._spec_tab_line_left is None or self._spec_tab_line_left.axes is not ax:
             self._spec_tab_line_left, = ax.step([], [], where='mid', color='darkcyan', label='Left', zorder=2)
@@ -283,11 +367,14 @@ class GuiSpectrumMixin:
 
     def _ensure_shift_preview_line(self):
         """Lazily (re)create the single shared shift-preview line (orange).
+        Reused across tabs since only the active tab's preview shows at once;
+        a pure preview cue that never touches the real traces' colors/labels.
 
-        Reused across tabs - only the active tab's own preview is ever shown
-        at once, so one line is enough. Always a preview cue, never a
-        permanent state: colors/labels of the real per-tab traces are
-        untouched by shifting.
+        Args:
+            None
+
+        Returns:
+            None
         """
         ax = self.spec_plotter.ax
         if self._shift_preview_line is None or self._shift_preview_line.axes is not ax:
@@ -296,9 +383,14 @@ class GuiSpectrumMixin:
 
     def _ensure_continuum_artists(self):
         """Lazily (re)create the shared continuum-fit and zero-level lines.
+        One of each is enough since only the active tab's continuum shows
+        at once - same reuse pattern as _shift_preview_line.
 
-        One of each is enough since only the active tab's own continuum is
-        ever shown at once - same reuse pattern as _shift_preview_line.
+        Args:
+            None
+
+        Returns:
+            None
         """
         ax = self.spec_plotter.ax
         if self._continuum_line_artist is None or self._continuum_line_artist.axes is not ax:
@@ -313,21 +405,15 @@ class GuiSpectrumMixin:
             self._continuum_zero_line.set_visible(False)
 
     def _refresh_active_spectrum_tab(self):
-        """Show the active tab's own trace, plus any Full-tab overplots and
-        the active tab's own pending shift preview, if any.
+        """Show the active tab's own trace, any Full-tab overplots, and the
+        active tab's own pending shift preview. Each line's x-data comes
+        from _get_tab_wavelength(that tab), since each tab shifts independently.
 
-        Full always shows only the original spectrum (spec_plotter.global_line),
-        normalized if Normalize is on. Left/Right show their own dedicated
-        line whenever (a) their own tab is active, or (b) the Full tab is
-        active and their "Show Left"/"Show Right" checkbox is on - in both
-        cases only if that side currently has a selection, otherwise nothing
-        renders (no fallback to Full). Slice-indicator lines only show once
-        explicitly set, and only on the tab(s) they're relevant to (Left's
-        line on Full+Left, Right's on Full+Right).
+        Args:
+            None
 
-        Each tab has its own independent shift factor, so each line's x-data
-        is computed from _get_tab_wavelength(that tab) rather than a single
-        shared x-array.
+        Returns:
+            None
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             return
@@ -343,19 +429,26 @@ class GuiSpectrumMixin:
         self._ensure_continuum_artists()
         tab = self.active_spectrum_tab
 
-        # Fallback x-array for the (should-be-rare) case base_wavelength
-        # isn't captured yet - keeps this method from breaking outright.
+        # Fallback x-array for the rare case base_wavelength isn't captured
+        # yet - keeps this method from breaking outright.
         fallback_x = global_line.get_xdata()
 
         def tab_x(t):
+            """Return a tab's wavelength array, or the fallback if unset.
+
+            Args:
+                t (str): Tab to read, 'full', 'left', or 'right'.
+
+            Returns:
+                x (numpy.ndarray): The tab's wavelength array, or fallback_x.
+            """
             x = self._get_tab_wavelength(t)
             return x if x is not None else fallback_x
 
         x_full = tab_x("full")
 
-        # Full is always just the original spectrum - never repurposed.
-        # Each tab's own continuum subtraction (if active) applies before
-        # normalization, same as every other per-tab transform here.
+        # Full is always just the original spectrum - never repurposed. Its
+        # continuum subtraction (if active) applies before normalization.
         if tab == "full":
             y = self._apply_continuum("full", getattr(self, 'original_spectrum', None))
             y = self._maybe_normalize(y)
@@ -402,9 +495,8 @@ class GuiSpectrumMixin:
         else:
             self._continuum_line_artist.set_visible(False)
 
-        # Zero-level reference line: shown whenever the active tab currently
-        # has a continuum subtracted, since subtracted values should hover
-        # around zero.
+        # Zero-level reference line: shown when the active tab has a
+        # continuum subtracted, since subtracted values sit near zero.
         self._continuum_zero_line.set_visible(bool(self.continuum_subtracted.get(tab, False)))
 
         # Shift preview: only the ACTIVE tab's own pending preview ever
@@ -469,12 +561,15 @@ class GuiSpectrumMixin:
             pass
 
     def _fit_xlim_to(self, x_array):
-        """Set the spectrum plot's x-limits to span x_array with ~5% padding
-        on each side - the same breathing room matplotlib's own autoscale
-        gives the unshifted view. Used after applying/reverting a shift,
-        where an exact-bounds set_xlim() is needed (to avoid the axis
-        shrinking/growing to whatever the old view window happened to be),
-        but without padding that pins the data right up against both edges.
+        """Set the spectrum plot's x-limits to span x_array with ~5% padding,
+        matching matplotlib's own autoscale. Used after applying/reverting a
+        shift, so the axis fits the new data instead of the old view window.
+
+        Args:
+            x_array (numpy.ndarray): Wavelength array to fit the x-axis to.
+
+        Returns:
+            None
         """
         if x_array is None or len(x_array) == 0:
             return
@@ -484,23 +579,15 @@ class GuiSpectrumMixin:
         self.spec_plotter.ax.set_xlim(data_min - pad, data_max + pad)
 
     def _apply_shared_y_scale(self):
-        """Set y-limits from the ORIGINAL spectrum's range, applied on every
-        tab - not just whichever line happens to be visible.
+        """Set y-limits from the original spectrum's range on every tab, so a
+        region's peak is always seen relative to the full spectrum's. Falls
+        back to fitting the union of visible traces when that guarantee fails.
 
-        A region's flux can never exceed the full spectrum's (it's a subset
-        of the same cube), so a single fixed scale lets you see at a glance
-        how a region's peak compares to the total, instead of each tab
-        auto-scaling to only its own data and hiding that relationship.
+        Args:
+            None
 
-        Uses the normalized range (via _maybe_normalize) when Normalize is on,
-        so the axis correctly spans ~[0, 1] instead of the raw flux range.
-
-        Exception: if a currently-visible Left/Right trace is Self-Normalized,
-        or the active tab currently has a continuum subtracted, the
-        "region <= full" guarantee that justifies sharing Full's scale no
-        longer holds (subtracted values sit near zero, self-normalizing
-        rescales to another region's own peak) - in that case, fit the axis
-        to the union of whatever's actually visible instead.
+        Returns:
+            None
         """
         self_normalized_visible = (
             (self.self_normalize_left
@@ -512,6 +599,8 @@ class GuiSpectrumMixin:
             getattr(self, 'active_spectrum_tab', 'full'), False
         )
 
+        # Self-normalized or continuum-subtracted traces break the "region
+        # <= full" guarantee, so fit to what's actually visible instead.
         if self_normalized_visible or continuum_active_on_shown:
             lines = (self.spec_plotter.global_line, self._spec_tab_line_left, self._spec_tab_line_right,
                      self._shift_preview_line)

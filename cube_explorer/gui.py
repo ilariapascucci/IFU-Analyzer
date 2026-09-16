@@ -53,9 +53,8 @@ from .unit_converter import convert_wavelength, are_units_compatible, clean_flux
 from astropy.units import Quantity
 
 
-# The 2D FITS viewer (gui_2d.py / analyzer_2d.py) ships on main but is not
-# feature-complete. Its GUI entry point stays hidden until it is ready; flip
-# this to True on a feature branch to work on it.
+# Feature flag for the 2D FITS viewer entry point (gui_2d.py). Kept as a
+# toggle for feature-branch work even though it now defaults to enabled.
 ENABLE_2D_VIEWER = True
 
 
@@ -91,15 +90,31 @@ class CollapsibleButtonGroup(QWidget):
     _all_groups = []
     
     def __init__(self, title, parent=None):
+        """Build a collapsible group and register it for accordion behavior.
+
+        Args:
+            title (str): Text label shown on the toggle button.
+            parent (QWidget): Parent widget, or None for a top-level group.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.is_expanded = False
         self.title = title
         # Register this instance globally
         CollapsibleButtonGroup._all_groups.append(self)
         self.init_ui(title)
-    
+
     def init_ui(self, title):
-        """Initialize the UI components"""
+        """Build the toggle button and the collapsible button container.
+
+        Args:
+            title (str): Text label shown on the toggle button.
+
+        Returns:
+            None
+        """
         # Main horizontal layout
         self.main_layout = QHBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -147,24 +162,52 @@ class CollapsibleButtonGroup(QWidget):
         self.animation.setEasingCurve(QEasingCurve.InOutQuad)
     
     def add_button(self, button):
-        """Add a button to this collapsible group"""
+        """Add a button to this collapsible group.
+
+        Args:
+            button (QPushButton): Button to add to the group's container.
+
+        Returns:
+            None
+        """
         # Use default button styling (no custom stylesheet)
         self.button_layout.addWidget(button)
-    
+
     def close_other_groups(self):
-        """Close all other collapsible groups (accordion behavior)"""
+        """Close all other collapsible groups (accordion behavior).
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         for group in CollapsibleButtonGroup._all_groups:
             if group is not self and group.is_expanded:
                 group.close()
-    
+
     def close(self):
-        """Close/collapse this group"""
+        """Close/collapse this group.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.is_expanded:
             self.toggle_btn.setChecked(False)
             self.toggle()
-    
+
     def toggle(self):
-        """Toggle expand/collapse with animation"""
+        """Toggle expand/collapse with animation.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.toggle_btn.isChecked():
             # close other groups when expanding (accordion behavior)
             self.close_other_groups()
@@ -203,6 +246,16 @@ class CustomNavigationToolbar(NavigationToolbar):
     """
     
     def __init__(self, canvas, parent=None, coordinates=True):
+        """Build the toolbar and set every custom action callback to None.
+
+        Args:
+            canvas (FigureCanvas): Matplotlib canvas the toolbar controls.
+            parent (QWidget): Parent widget, or None for a top-level toolbar.
+            coordinates (bool): Whether to show the cursor position readout.
+
+        Returns:
+            None
+        """
         super().__init__(canvas, parent, coordinates)
         # Initialize custom action callbacks
         self.custom_home_action = None
@@ -213,42 +266,84 @@ class CustomNavigationToolbar(NavigationToolbar):
         self.custom_save_action = None
     
     def home(self, *args):
-        """Override home button - calls custom action if set, otherwise default"""
+        """Run the home button's custom action if set, else the default.
+
+        Args:
+            *args: Positional arguments matplotlib passes to the handler.
+
+        Returns:
+            None
+        """
         if self.custom_home_action is not None:
             self.custom_home_action(*args)
         else:
             super().home(*args)
-    
+
     def back(self, *args):
-        """Override back button - calls custom action if set, otherwise default"""
+        """Run the back button's custom action if set, else the default.
+
+        Args:
+            *args: Positional arguments matplotlib passes to the handler.
+
+        Returns:
+            None
+        """
         if self.custom_back_action is not None:
             self.custom_back_action(*args)
         else:
             super().back(*args)
-    
+
     def forward(self, *args):
-        """Override forward button - calls custom action if set, otherwise default"""
+        """Run the forward button's custom action if set, else the default.
+
+        Args:
+            *args: Positional arguments matplotlib passes to the handler.
+
+        Returns:
+            None
+        """
         if self.custom_forward_action is not None:
             self.custom_forward_action(*args)
         else:
             super().forward(*args)
-    
+
     def pan(self, *args):
-        """Override pan button - calls custom action if set, otherwise default"""
+        """Run the pan button's custom action if set, else the default.
+
+        Args:
+            *args: Positional arguments matplotlib passes to the handler.
+
+        Returns:
+            None
+        """
         if self.custom_pan_action is not None:
             self.custom_pan_action(*args)
         else:
             super().pan(*args)
-    
+
     def zoom(self, *args):
-        """Override zoom button - calls custom action if set, otherwise default"""
+        """Run the zoom button's custom action if set, else the default.
+
+        Args:
+            *args: Positional arguments matplotlib passes to the handler.
+
+        Returns:
+            None
+        """
         if self.custom_zoom_action is not None:
             self.custom_zoom_action(*args)
         else:
             super().zoom(*args)
-    
+
     def save_figure(self, *args):
-        """Override save button - calls custom action if set, otherwise default"""
+        """Run the save button's custom action if set, else the default.
+
+        Args:
+            *args: Positional arguments matplotlib passes to the handler.
+
+        Returns:
+            None
+        """
         if self.custom_save_action is not None:
             self.custom_save_action(*args)
         else:
@@ -263,13 +358,37 @@ class WavelengthSpinBox(QDoubleSpinBox):
     """
 
     def __init__(self, parent=None):
+        """Create the spin box with no wavelength grid set yet.
+
+        Args:
+            parent (QWidget): Parent widget, or None for a top-level box.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self._wavelengths = None  # sorted ascending numpy array, or None
 
     def set_wavelength_grid(self, wavelengths):
+        """Set the wavelength grid the spin arrows and keys step through.
+
+        Args:
+            wavelengths (numpy.ndarray): Sorted ascending wavelength values.
+
+        Returns:
+            None
+        """
         self._wavelengths = wavelengths
 
     def stepBy(self, steps):
+        """Move the value to the next/previous wavelength in the grid.
+
+        Args:
+            steps (int): Number of grid steps to move; negative steps back.
+
+        Returns:
+            None
+        """
         wl = self._wavelengths
         if wl is None or len(wl) == 0:
             super().stepBy(steps)
@@ -282,6 +401,14 @@ class WavelengthSpinBox(QDoubleSpinBox):
 class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin, GuiSpectrumMixin,
                    RegionSelectionMixin):
     def __init__(self):
+        """Build the main window and load the CO line catalogs at startup.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         super().__init__()
         self.setWindowTitle("Cube Explorer")
         self.cube_data = CubeData()
@@ -290,10 +417,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._load_CO_catalogs()
 
     def closeEvent(self, event):
-        # A Gaussian map fit runs in its own QThread and previously kept computing (and
-        # printing to the console) after this window closed, since nothing ever told it
-        # to stop. Request cancellation and give it a few seconds to actually exit
-        # before letting the window go away.
+        """Cancel any running Gaussian map fit and free cube memory on close.
+
+        Args:
+            event (QCloseEvent): Close event Qt sends to the widget.
+
+        Returns:
+            None
+        """
+        # A Gaussian map fit runs in its own QThread that keeps computing after
+        # this window closes unless told to stop; cancel it and wait briefly.
         worker = getattr(self, 'gauss_worker', None)
         if worker is not None and worker.isRunning():
             worker.cancel()
@@ -308,7 +441,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         event.accept()
 
     def _load_CO_catalogs(self):
-        """Load CO line catalogs at GUI startup."""
+        """Load CO line catalogs at GUI startup.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         CO_path = os.path.join(base_path, 'data', 'CO', 'CO_comprehensive_linelist_with_g.ecsv')
         
@@ -316,7 +456,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Contaminating lines are now optional - users can load them separately after HITRAN parameters are set
         self.contam_lines = None
     def _clear_all_displays(self):
-        """Clear all plots, selections, and stats when loading a new cube."""
+        """Clear all plots, selections, and stats when loading a new cube.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         print("=== CLEAR ALL DISPLAYS START ===")
         
         # Disconnect interactive patches before clearing axes
@@ -498,6 +645,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         print("=== CLEAR ALL DISPLAYS END ===")
 
     def _init_ui(self):
+        """Build every UI section in order and set up initial state.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         # File controls
         self._init_file_controls()
 
@@ -517,7 +672,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._init_state()
 
     def _init_file_controls(self):
-        """Initialize file control buttons and labels"""
+        """Initialize file control buttons and labels.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.open_btn = QPushButton("Open FITS")
         self.open_btn.clicked.connect(self.load_cube)
         self.open_btn.setToolTip("Browse and load a FITS cube file")
@@ -558,7 +720,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.controls_layout.addStretch()
 
     def _init_plots(self):
-        """Initialize matplotlib figures and canvases"""
+        """Initialize matplotlib figures and canvases.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         # Left slice
         self.slice1_fig = Figure(figsize=(4, 4), dpi=100)
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
@@ -615,9 +784,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.set_left_btn = QPushButton("Set Left Slice")
         self.set_right_btn = QPushButton("Set Right Slice")
 
-        # Direct wavelength entry for each slice - typing a value (or using
-        # the spin arrows) jumps that slice to the closest available
-        # wavelength, kept in sync with clicking on the spectrum/slice.
+        # Typing a wavelength (or using the spin arrows) jumps that slice to
+        # the closest available value, kept in sync with clicking the plots.
         self.left_wave_input = WavelengthSpinBox()
         self.left_wave_input.setFixedWidth(100)
         self.left_wave_input.setDecimals(6)
@@ -817,9 +985,27 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.show_species_btn.clicked.connect(self.show_available_species)
 
     def _init_shape_controls(self):
-        """Initialize shape selection buttons"""
+        """Initialize shape selection buttons.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         # Helper function to create shape buttons
         def make_shape_button(symbol, target, callback=None, checkable=True):
+            """Build one square icon button wired to a shape or callback.
+
+            Args:
+                symbol (str): Unicode glyph shown as the button label.
+                target (str): Side the button applies to ('left' or 'right').
+                callback (callable): Click handler; defaults to _set_shape.
+                checkable (bool): Whether the button stays pressed when set.
+
+            Returns:
+                btn (QPushButton): The configured button.
+            """
             btn = QPushButton(symbol)
             btn.setCheckable(checkable)
             btn.setFixedSize(40, 40)
@@ -939,7 +1125,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.export_region_btn_r.clicked.connect(lambda: self._export_region_cube("right"))
 
     def _setup_main_layout(self):
-        """Set up the main application layout"""
+        """Set up the main application layout.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         main_layout = QVBoxLayout()
 
         # Add controls at top
@@ -1023,10 +1216,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         main_layout.addLayout(top_layout, 1)
 
-        # ===================================================================
-        # COLLAPSIBLE BUTTON GROUPS (snake_case)
-        # ===================================================================
-        
+        # --- Collapsible button groups ---
         # Create collapsible button layout
         collapsible_layout = QHBoxLayout()
         collapsible_layout.setSpacing(0)
@@ -1071,13 +1261,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         
         main_layout.addLayout(collapsible_layout)
 
-        # ===================================================================
-
-        # Spectrum control strip - three zones sharing one row: Slice
-        # Selection (left), the spectrum tabs + view options (middle),
-        # Shifting (right). All three operate through the spectrum itself
-        # rather than the 2D slice images, so they live together here instead
-        # of in the general collapsible-group toolbar above.
+        # Slice selection, spectrum tabs, and shifting share one row here
+        # (not the toolbar above) since all three act on the spectrum itself.
         spec_tab_layout = QHBoxLayout()
         spec_tab_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -1126,7 +1311,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.setLayout(main_layout)
 
     def _cancel_custom_continuum(self):
-        """Cancel custom continuum selection"""
+        """Cancel custom continuum selection.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.custom_continuum_selector is not None:
             self.custom_continuum_selector.clear_all()
             self.custom_continuum_selector.deactivate()
@@ -1142,7 +1334,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         print("[DEBUG] Custom continuum cancelled")
 
     def _init_state(self):
-        """Initialize state variables"""
+        """Initialize state variables.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.active_shape = None
         self.active_target = None
         self.last_idx_left = 0
@@ -1187,19 +1386,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # _swap_gaussian_boundaries_for_tab whenever the active tab changes.
         self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
         
-        # Continuum subtraction state - independent per Full/Left/Right tab,
-        # so fitting/subtracting a continuum on one tab never bleeds into
-        # another (each tab derives its own raw flux on demand via
-        # _get_tab_raw_flux, so there's no shared "backup" to restore -
-        # continuum_subtracted[tab]=False just means "don't subtract").
+        # Continuum subtraction state is independent per tab: each tab derives
+        # its own raw flux via _get_tab_raw_flux, so there is no shared backup.
         self.continuum_fitted = {"full": None, "left": None, "right": None}
         self.continuum_subtracted = {"full": False, "left": False, "right": False}
         self.continuum_mode_applied = {"full": None, "left": None, "right": None}  # 'auto' | 'custom' | None
         self.custom_continuum_selector = None
         self.custom_continuum_active = False
-        # Which tab a custom-continuum point-selection session belongs to -
-        # captured when the session starts, so it stays correct even if the
-        # active tab changes before the session is confirmed/cancelled.
+        # Tab a custom-continuum session belongs to, captured at session start
+        # so it stays correct even if the active tab changes before confirming.
         self._custom_continuum_tab = None
         self.subtract_mode = None  # 'left' or 'right'
         self.subtract_left_x = None
@@ -1225,7 +1420,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         )
 
     def load_cube(self):
-        """Open file dialog and load the selected FITS file"""
+        """Open a file dialog and load the selected FITS file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         fname, _ = QFileDialog.getOpenFileName(
             self, "Open FITS", filter="FITS files (*.fits *.fz *.fit)")
         if not fname:
@@ -1252,9 +1454,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             # Copy spectrum
             self.original_spectrum = self.cube_data.spectrum.copy()
 
-            # Permanent, never-mutated reference wavelength for the per-tab
-            # shift system (each tab's displayed wavelength is derived from
-            # this, never from a mutated-in-place shared array).
+            # Permanent, never-mutated reference wavelength for the per-tab shift
+            # system; each tab's displayed wavelength derives from this array.
             self.base_wavelength = np.array(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
 
             # Update instrument label with filename
@@ -1282,12 +1483,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                     self.spec_canvas.draw()
                 except Exception:
                     pass
-                # New cube: reset slice-indicator "explicitly set" state and
-                # reset to the Full tab (a previously-active Left/Right tab
-                # would otherwise be left pointing at the old cube's stale
-                # selection). setCurrentIndex fires currentChanged, which
-                # refreshes the display - unless it's already 0, in which case
-                # plot_spectrum() above already shows the right thing.
+                # Reset to the Full tab so a previously-active Left/Right tab
+                # doesn't keep pointing at the old cube's stale selection.
                 self._reset_slice_indicators()
                 self.spec_tab_bar.setCurrentIndex(0)
             except Exception as plot_error:
@@ -1321,7 +1518,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             print(f"Detailed error: {e}")  # For debugging
 
     def _open_new_window(self):
-        """Open a new independent CubeExplorer window."""
+        """Open a new independent CubeExplorer window.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             new_win = CubeExplorer()
             new_win.resize(self.width(), self.height())
@@ -1333,7 +1537,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
 
     def show_header(self):
-        """Display FITS headers with HDU selection dialog"""
+        """Display FITS headers with HDU selection dialog.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not hasattr(self.cube_data, 'hdul') or self.cube_data.hdul is None:
             QMessageBox.warning(self, "No file loaded", "Please load a FITS file first.")
             return
@@ -1375,6 +1586,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         close_btn = QPushButton("Close")
         
         def view_selected_header():
+            """Show the header for the HDU currently selected in the list.
+
+            Args:
+                None
+
+            Returns:
+                None
+            """
             selected_idx = list_widget.currentRow()
             if selected_idx >= 0:
                 self._display_header(selected_idx, hdul, hdu_names[selected_idx])
@@ -1390,7 +1609,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.header_selection_dialog.show()
     
     def _display_header(self, hdu_index, hdul, hdu_name):
-        """Display the header for a specific HDU"""
+        """Display the header for a specific HDU.
+
+        Args:
+            hdu_index (int): Index of the HDU to display within hdul.
+            hdul (astropy.io.fits.HDUList): Open FITS HDU list.
+            hdu_name (str): Label shown in the header window's title.
+
+        Returns:
+            None
+        """
         try:
             header = hdul[hdu_index].header
             header_text = "\n".join(
@@ -1418,7 +1646,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.critical(self, "Error", f"Failed to display header: {str(e)}")
 
     def _display_slice(self, idx, target):
-        """Display a wavelength/velocity slice with proper title and intensity units"""
+        """Display a wavelength/velocity slice with proper title and intensity units.
+
+        Args:
+            idx (int): Index of the spectral slice to display.
+            target (str): Panel to update, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         image = self.cube_data.get_slice(idx)
         
         # Select plotter and stats label
@@ -1473,25 +1709,53 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
     # ----- Region selection: the shared controller lives in RegionSelectionMixin.
     # ----- These hooks feed it the 3D window's cube-backed data. ----------------
     def _region_image(self, target):
-        """2D array currently shown in the given panel ('left'/'right'), or None."""
+        """Return the 2D array currently shown in the given panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            image (numpy.ndarray): The displayed slice, or None if unset.
+        """
         idx = self.last_idx_left if target == "left" else self.last_idx_right
         return self.cube_data.get_slice(idx)
 
     def _region_flux_unit(self, target):
-        """Cleaned flux-unit string for the given panel ('' when unknown)."""
+        """Return the cleaned flux-unit string for the given panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            unit (str): Cleaned flux-unit label, or '' when unknown.
+        """
         unit_raw = getattr(self.cube_data, "flux_unit", "")
         return clean_flux_unit(unit_raw) if unit_raw else ""
 
     def _region_stats_placeholder(self, target):
+        """Return the placeholder stats-label text for the given panel.
+
+        Args:
+            target (str): Panel to build the placeholder for, 'left' or 'right'.
+
+        Returns:
+            text (str): Placeholder label text shown before any stats exist.
+        """
         return "Slice 1 Stats:\n-" if target == "left" else "Slice 2 Stats:\n-"
 
-    # Pixel readout stays Pixel + Intensity only: RA/DEC omitted (mixin default
-    # _region_pixel_coords -> None; cube spaxel sky position often unavailable
-    # and not useful here) and wavelength omitted (already on the spectrum and
-    # the slice title - no need for a third copy), so no _region_pixel_* /
-    # _region_pixel_extra_lines overrides.
+    # Pixel readout omits RA/Dec (sky position is often unavailable here) and
+    # wavelength (already shown on the spectrum and slice title).
 
     def _region_on_change(self, target, kind):
+        """React to a region change: redraw the spectrum and update buttons.
+
+        Args:
+            target (str): Panel the change happened on, 'left' or 'right'.
+            kind (str): Kind of change (e.g. 'clear', 'select').
+
+        Returns:
+            None
+        """
         if kind == "clear":
             try:
                 self.spec_canvas.draw()
@@ -1506,8 +1770,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         btn.setEnabled(has_region)
 
     def _export_region_cube(self, target):
-        """Save a copy of the loaded cube to a new FITS file, with every
-        spaxel outside the given panel's selected region set to NaN."""
+        """Save the cube to a new FITS file with spaxels outside the
+        selected region set to NaN.
+
+        Args:
+            target (str): Panel whose selection defines the region, 'left'
+                or 'right'.
+
+        Returns:
+            None
+        """
         sel = self.last_selection_left if target == "left" else self.last_selection_right
         if not sel or sel.get("shape") == "*":
             QMessageBox.warning(
@@ -1531,7 +1803,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         QMessageBox.information(self, "Export Complete", f"Region cube saved to:\n{path}")
 
     def _on_slice_click(self, event, target):
-        """Handle clicks on slice display"""
+        """Handle clicks on slice display.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+            target (str): Panel clicked on, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         if event.inaxes is None:
             return
 
@@ -1547,7 +1827,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._handle_pixel_click(x, y, target)
 
     def _on_slice_hover(self, event, target):
-        """Live cursor readout (pixel + value) as the mouse moves over a slice."""
+        """Live cursor readout (pixel + value) as the mouse moves over a slice.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Motion event.
+            target (str): Panel hovered over, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         hover_label = self.hover1_label if target == "left" else self.hover2_label
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
         if (event.inaxes != plotter.ax or event.xdata is None or event.ydata is None
@@ -1565,7 +1853,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             f"Cursor Info:\nPixel: {ix}, {iy}\nVal: {float(image[iy, ix]):.4e}{unit_str}")
 
     def _on_spec_click(self, event):
-        """Handle clicks on the spectrum display"""
+        """Handle clicks on the spectrum display.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+
+        Returns:
+            None
+        """
         if event.inaxes != self.spec_plotter.ax:
             return
 
@@ -1578,11 +1873,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # LEFT CLICK: Check if clicking near a plotted spectral line to deselect it
         if event.button == 1 and hasattr(self, 'plotted_lines') and self.plotted_lines:
-            # Click tolerance in SCREEN pixels (not wavelength units) so it stays
-            # small and consistent regardless of x-axis zoom level - a fixed
-            # wavelength tolerance would span a huge fraction of the visible
-            # plot when zoomed in, making it very easy to graze and deselect a
-            # line while just trying to start a zoom-drag.
+            # Tolerance is in screen pixels, not wavelength, so it stays small
+            # and consistent across zoom; a wavelength tolerance would over-trigger when zoomed in.
             CLICK_HIT_RADIUS_PX = 5
             mouse_x = event.xdata
             if mouse_x is not None and event.x is not None:
@@ -1661,13 +1953,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._set_slice_index(idx, self.active_target)
 
     def _set_slice_index(self, idx, target):
-        """Set the left/right slice to wavelength index `idx` and refresh
-        every synced UI element - the spectrum indicator line, the slice
-        image, the wavelength spin box, and any active region selection.
+        """Set the left/right slice to wavelength index `idx` and sync every
+        linked UI element. The single point spectrum clicks, slice clicks,
+        and wave-input all route through to stay consistent.
 
-        This is the single place clicking the spectrum, clicking a slice
-        pixel, and typing into left/right_wave_input all funnel through, so
-        they stay in sync with each other no matter which one is used.
+        Args:
+            idx (int): Wavelength index to display.
+            target (str): Panel to update, 'left' or 'right'.
+
+        Returns:
+            None
         """
         if target == "left":
             self.last_idx_left = idx
@@ -1713,8 +2008,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 self._recreate_region(xmin, xmax, ymin, ymax, mask, "right")
 
     def _on_wave_input_changed(self, target):
-        """Handle the user typing/stepping a value in left/right_wave_input -
-        jump that slice to the closest wavelength actually in the cube."""
+        """Jump the slice to the closest wavelength actually in the cube
+        after the user types or steps a value in the wave-input spin box.
+
+        Args:
+            target (str): Panel whose spin box changed, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         if not hasattr(self, 'cube_data') or not hasattr(self.cube_data, 'wavelength'):
             return
         wavelength = _extract_wavelength_value(self.cube_data.wavelength)
@@ -1725,7 +2027,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._set_slice_index(idx, target)
 
     def _select_target(self, target):
-        """Handle slice selection mode"""
+        """Handle slice selection mode.
+
+        Args:
+            target (str): Panel whose Set button was toggled, 'left' or
+                'right'.
+
+        Returns:
+            None
+        """
         if target == "left":
             self.set_right_btn.setChecked(False)
             self.active_target = "left" if self.set_left_btn.isChecked() else None
@@ -1734,12 +2044,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.active_target = "right" if self.set_right_btn.isChecked() else None
 
     def apply_doppler_shift(self):
-        """Preview a multiplicative Doppler shift for whichever spectrum tab
-        is currently active (Full, Left, or Right) - never the others.
+        """Preview a multiplicative Doppler shift for the active spectrum
+        tab (Full, Left, or Right) using lambda_0 = lambda / (1 + v/c),
+        composed on top of that tab's existing shift factor.
 
-        Uses formula: lambda_0 = lambda / (1 + v/c), composed on top of that
-        tab's already-applied shift factor (if any), so repeated previews
-        refine incrementally rather than always starting from scratch.
+        Args:
+            None
+
+        Returns:
+            None
         """
         if not hasattr(self, 'original_spectrum') or self.original_spectrum is None:
             QMessageBox.warning(self, "No Spectrum", "Load a data cube first.")
@@ -1776,22 +2089,22 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self.spectrum_shift_preview[active_tab] = {"velocity": velocity, "factor": new_factor}
 
-        # _refresh_active_spectrum_tab draws the orange preview overplotted
-        # against this tab's own trace/color, applies Normalize consistently,
-        # and enables the Apply Shift / Cancel Preview buttons.
+        # _refresh_active_spectrum_tab draws the orange preview over this
+        # tab's own trace, applies Normalize, and enables the shift buttons.
         self._refresh_active_spectrum_tab()
 
         print(f"[DEBUG] Previewing Doppler shift on '{active_tab}': v={velocity} km/s (cumulative factor={new_factor:.6f})")
 
     def _apply_shift(self):
-        """Commit whichever tab's pending shift preview is active.
+        """Commit whichever tab's pending shift preview is active. Each
+        tab's shift is independent; the trace keeps its own color (orange
+        marks preview only), and Full's cube_data.wavelength stays synced.
 
-        Each tab's shift is independent - applying Left's preview never
-        touches Full or Right. The trace stays in its own original color
-        (orange is a preview-only cue, not a permanent state). If the active
-        tab is Full, cube_data.wavelength is also kept in sync, since
-        Gaussian fitting/continuum/HITRAN/CO-flux all read it directly and
-        haven't been migrated to ask "which tab" yet (see plan).
+        Args:
+            None
+
+        Returns:
+            None
         """
         active_tab = self.active_spectrum_tab
         preview = self.spectrum_shift_preview.get(active_tab)
@@ -1815,9 +2128,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if reply != QMessageBox.Yes:
             return
 
-        # Incremental factor from THIS specific shift (needed for
-        # shift_plot_elements, which moves Gaussian fit artists by a
-        # relative amount, not an absolute position).
+        # Incremental factor from this shift, needed by shift_plot_elements,
+        # which moves Gaussian fit artists by a relative amount.
         old_factor = self.spectrum_shift_factor.get(active_tab, 1.0)
         new_factor = preview["factor"]
         incremental_factor = new_factor / old_factor if old_factor else new_factor
@@ -1825,6 +2137,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.spectrum_shift_factor[active_tab] = new_factor
         self.spectrum_shift_preview[active_tab] = None
 
+        # cube_data.wavelength must stay synced for Full: fitting, continuum,
+        # HITRAN, and CO-flux code still read it directly, not per tab.
         if active_tab == "full":
             new_wavelength = self._get_tab_wavelength("full")
             self.cube_data.wavelength = new_wavelength.copy()
@@ -1833,18 +2147,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             # (unmigrated feature - see plan's deferred section).
             self.spec_plotter.shift_plot_elements(incremental_factor)
 
-        # Auto-fit the x-axis to this tab's new extent (with the same ~5%
-        # padding the unshifted view gets), rather than rescaling whatever
-        # the previous view window happened to be - the wavelength axis
-        # genuinely compresses/expands under this multiplicative shift, so
-        # keeping an old (now-mismatched) view window looks like part of the
-        # spectrum went missing.
+        # Auto-fit the x-axis to this tab's new extent instead of keeping the
+        # old view window, which would look like part of the spectrum went missing.
         self._fit_xlim_to(self._get_tab_wavelength(active_tab))
 
-        # Recomputes proper y-limits from the actual (now-shifted) data,
-        # redraws this tab's trace in its own color (not orange - that was
-        # only ever a preview cue) at the new position, updates its
-        # "(Shifted)" label, and rebuilds the legend.
+        # Recomputes y-limits from the shifted data, redraws the trace in its
+        # own color (orange was only a preview cue), and rebuilds the legend.
         self._refresh_active_spectrum_tab()
 
         QMessageBox.information(
@@ -1858,7 +2166,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
     def _cancel_shift_preview(self):
         """Cancel whichever tab's pending shift preview is active, without
         applying it - removes the orange overplot, leaves the applied
-        factor (if any) untouched."""
+        factor (if any) untouched.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         active_tab = self.active_spectrum_tab
         if not self.spectrum_shift_preview.get(active_tab):
             return
@@ -1868,7 +2183,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
     def _revert_shift(self):
         """Revert whichever tab is active back to its original (unshifted)
-        wavelength - a full reset to factor 1.0, not a step-wise undo."""
+        wavelength - a full reset to factor 1.0, not a step-wise undo.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         active_tab = self.active_spectrum_tab
         if self.spectrum_shift_factor.get(active_tab, 1.0) == 1.0:
             return
@@ -1897,6 +2219,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         print(f"[DEBUG] Reverted shift on '{active_tab}'")
 
     def _open_colormap_dialog(self, target):
+        """Open the colormap picker and apply the chosen map to a slice.
+
+        Args:
+            target (str): Panel to recolor, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         dialog = ColorMapDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             cmap = dialog.selected_cmap
@@ -1908,6 +2238,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 self.slice2_plotter.set_cmap(cmap)
 
     def copy_colormap(self, source, target):
+        """Copy one slice's colormap onto the other slice.
+
+        Args:
+            source (str): Panel to copy the colormap from, 'left' or 'right'.
+            target (str): Panel to copy the colormap to, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         src_cmap = getattr(self, 'slice1_cmap' if source == 'left' else 'slice2_cmap', None)
         if not src_cmap:
             return
@@ -1919,7 +2258,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.slice2_plotter.set_cmap(src_cmap)
 
     def _change_scale(self, target):
-        """Change the intensity scaling (linear, log, sqrt, power) for a slice"""
+        """Change the intensity scaling (linear, log, sqrt, power) for a slice.
+
+        Args:
+            target (str): Panel to rescale, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         scale_combo = self.scale_combo_left if target == 'left' else self.scale_combo_right
         scale_type = scale_combo.currentText()
         
@@ -1935,18 +2281,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self._display_slice(idx, target)
 
     def _contam_rows(self):
-        """
-        Convert the loaded contaminating-line catalog into row dicts shaped like
-        HITRAN/custom detection-line rows (tagged 'source': 'Contaminant'), so
-        they can share the same Lines table, plotting, and hover code as
-        detection lines instead of a separate parallel path.
+        """Convert the contaminating-line catalog into rows shaped like
+        HITRAN/custom rows (tagged 'source': 'Contaminant') so they share
+        the Lines table and plotting code.
 
-        Same optional-column treatment as load_custom_line_catalog(): only
-        'species'/'wavelength' are required of a contaminant CSV, but if it
-        also happens to carry transition/a_coeff/e_upper/isotopologue(_name)
-        columns, those are shown too -- there's no reason to hide real
-        metadata just because a line is tagged as a contaminant rather than a
-        detection.
+        Args:
+            None
+
+        Returns:
+            rows (list[dict]): One dict per contaminating line, or an empty
+                list if no contaminating catalog is loaded.
         """
         if self.contam_lines is None or len(self.contam_lines) == 0:
             return []
@@ -1977,8 +2321,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                     entry['isotopologue'] = int(iso_num)
                 except (TypeError, ValueError):
                     pass
-            # Not run through format_isotopologue_name() -- same reasoning as
-            # load_custom_line_catalog(): that assumes HITRAN's own bracket
+            # Skips format_isotopologue_name(): that assumes HITRAN's bracket
             # notation and would misformat plain user text. Shown as given.
             iso_name = row.get('isotopologue_name')
             if pd.notna(iso_name):
@@ -1989,16 +2332,28 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
     def _combined_line_rows(self):
         """All currently loaded lines -- detection (HITRAN/custom) plus any
         loaded contaminants -- combined and wavelength-sorted, for the shared
-        Lines selection dialog."""
+        Lines selection dialog.
+
+        Args:
+            None
+
+        Returns:
+            rows (list[dict]): Combined, wavelength-sorted line rows.
+        """
         rows = list(getattr(self, 'hitran_lines', None) or []) + self._contam_rows()
         rows.sort(key=lambda r: float(r.get('lambda_micron') or r.get('wavelength') or 0.0))
         return rows
 
     def show_available_species(self):
-        """
-        Show the combined Lines table: detection lines (HITRAN or custom-imported)
-        plus any loaded contaminating lines, with "Detection Only"/"Contaminating
-        Only" buttons to select either set separately.
+        """Show the combined Lines table: detection lines (HITRAN or
+        custom-imported) plus any loaded contaminating lines, with buttons
+        to select either set separately.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         all_lines = self._combined_line_rows()
 
@@ -2022,7 +2377,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
     def plot_selected_lines(self, rows):
         """Replace the full set of plotted lines (detection + contaminant alike)
-        with exactly what's checked in the Lines dialog, then redraw."""
+        with exactly what's checked in the Lines dialog, then redraw.
+
+        Args:
+            rows (list[dict]): Line rows to plot, replacing the current set.
+
+        Returns:
+            None
+        """
         self.plotted_lines = rows.copy()
 
         # Sync the excluded wavelengths set:
@@ -2040,11 +2402,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._draw_plotted_lines()
 
     def plot_contaminating_lines(self):
-        """
-        Merge the loaded contaminating-line catalog into the currently-plotted
-        lines -- replacing only the previously-plotted contaminant markers,
-        leaving any detection lines already on the spectrum untouched -- and
-        redraw. Called right after a contaminating-lines CSV loads.
+        """Merge the contaminating-line catalog into the plotted lines,
+        replacing only previous contaminant markers and leaving detection
+        lines untouched, then redraw. Called after a contaminating CSV loads.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             return
@@ -2057,11 +2423,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._draw_plotted_lines()
 
     def _draw_plotted_lines(self):
-        """
-        Redraw every currently-plotted line marker from self.plotted_lines.
-        Detection lines (HITRAN/Custom) use the darkred/orange scheme; lines
-        tagged 'source': 'Contaminant' use black/dimgray instead, so the two
-        stay visually distinct despite sharing one plotted-lines list.
+        """Redraw every plotted line marker from self.plotted_lines. Detection
+        lines use the darkred/orange scheme; contaminant-tagged lines use
+        black/dimgray so the two stay visually distinct.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         ax = self.spec_plotter.ax
 
@@ -2097,12 +2467,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             line = ax.axvline(λ, color=line_color, linestyle="--", alpha=line_alpha, picker=5)
             # Store row data in the line for hover access
             line.row_data = row
-            # Blended transform (x in data coords, y in axes-fraction coords) instead of a
-            # one-time ax.get_ylim()[1] snapshot -- keeps the label flush with the axes' top
-            # edge even if the y-limit later changes (e.g. via _apply_shared_y_scale), rather
-            # than leaving it anchored to a now-stale, possibly lower, y value. y=1.01 (not
-            # 1.0) so the label's first character clears the top spine instead of sitting
-            # right on top of it.
+            # Blended transform (x data, y axes-fraction) keeps the label flush
+            # with the top edge even if y-limits change later; y=1.01 clears the spine.
             text = ax.text(
                 λ, 1.01, row["species"], transform=ax.get_xaxis_transform(),
                 rotation=90, va="bottom", ha="center",
@@ -2113,7 +2479,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.spec_canvas.draw()
 
     def _on_spec_hover(self, event):
-        """Handle hover events over spectrum plot to show line info."""
+        """Handle hover events over spectrum plot to show line info.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Motion event.
+
+        Returns:
+            None
+        """
 
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             return
@@ -2160,11 +2533,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             else:
                 wavelength_str = f"λ: {wavelength:.6f} {source_unit}"
 
-            # Detection and contaminant rows are formatted identically -- a
-            # contaminant CSV can carry transition/a_coeff/e_upper/isotopologue
-            # columns too (see _contam_rows()), so there's no reason to hard-code
-            # a stripped-down tooltip just because a line is tagged 'Contaminant'.
-            # Whatever's actually missing already shows "N/A" below.
+            # Detection and contaminant rows format identically: a contaminant
+            # CSV can carry the same optional columns, and N/A covers what's missing.
             iso_name = nearest_row.get('isotopologue_name')
             iso_num = nearest_row.get('isotopologue')
             if iso_name:
@@ -2172,10 +2542,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             elif iso_num:
                 species = f"{species} (iso {iso_num})"
             transition = nearest_row.get('transition', 'N/A')
-            # Default to None (not 0) -- 0 is a real value (e.g. E_upper=0 for a
-            # ground-state line), so a genuinely missing field (e.g. a custom-
-            # imported or contaminant line whose CSV didn't include these optional
-            # columns) must format as "N/A" rather than silently print as "0.00e+00".
+            # Defaults to None, not 0: 0 is a real value (e.g. ground-state
+            # E_upper=0), so a missing field must show "N/A", not "0.00e+00".
             a_coeff = nearest_row.get('a_coeff')
             e_upper = nearest_row.get('e_upper')
             a_coeff_text = f"{a_coeff:.2e} s⁻¹" if a_coeff is not None else "N/A"
@@ -2197,9 +2565,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QToolTip.hideText()
 
     def refresh_view(self):
-        """
-        Complete reset: Clear all plots, selections, normalizations, and Gaussian fits.
-        Reload spectrum from original data.
+        """Complete reset: clear all plots, selections, normalizations, and
+        Gaussian fits, then reload the spectrum from the original data.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         print("[DEBUG] === REFRESH VIEW: Complete Reset ===")
         
@@ -2247,9 +2620,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gauss_noise_left_marker = None
         self.gauss_noise_right_marker = None
 
-        # Reset per-tab Gaussian boundary state and the map-fit cache - a new
-        # cube invalidates both (stale marker artists belong to the old axes,
-        # and a cached map/tab key would otherwise wrongly appear "current").
+        # Reset per-tab Gaussian boundary state and the map-fit cache: a new
+        # cube invalidates both, so a cached tab key can't wrongly look current.
         self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
         self.gauss_cache = None
         self.gauss_cache_tab = None
@@ -2258,9 +2630,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gauss_cache_noise_min = None
         self.gauss_cache_noise_max = None
 
-        # Reset per-tab continuum state (the fitted/subtracted continuum
-        # artist itself is recreated lazily by _refresh_active_spectrum_tab -
-        # ax.clear() below drops it, same as the Gaussian/tab-line artists).
+        # Reset per-tab continuum state; the fitted/subtracted artist itself
+        # is recreated lazily by _refresh_active_spectrum_tab after ax.clear().
         self.continuum_fitted = {"full": None, "left": None, "right": None}
         self.continuum_subtracted = {"full": False, "left": False, "right": False}
         self.continuum_mode_applied = {"full": None, "left": None, "right": None}
@@ -2308,10 +2679,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             if hasattr(self, 'original_spectrum') and self.original_spectrum is not None:
                 self.spec_plotter.plot_spectrum(self.original_spectrum)
 
-            # ax.clear() above dropped the dedicated Left/Right tab lines too -
-            # force them to be recreated, and show whatever the active tab
-            # should now display (last_selection_left/right were reset above,
-            # so Left/Right will correctly come back empty unless Full is active).
+            # ax.clear() above dropped the dedicated Left/Right tab lines too;
+            # force them to be recreated so the active tab displays correctly.
             self._spec_tab_line_left = None
             self._spec_tab_line_right = None
             self._continuum_line_artist = None
@@ -2377,10 +2746,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.stats1_label.setText("Slice 1 Stats:\n-")
         self.stats2_label.setText("Slice 2 Stats:\n-")
         
-        # Deactivate region selectors and drop any live interactive patch
-        # (previously only activate_selector(None) was called here, which
-        # stops the mpl selector widget but leaves a connected InteractivePatch
-        # wired to the canvas)
+        # Deactivate region selectors and drop any live interactive patch --
+        # activate_selector(None) alone left a connected InteractivePatch wired.
         if hasattr(self, 'region_selector_left'):
             if self.region_selector_left.interactive_patch is not None:
                 self.region_selector_left.interactive_patch.disconnect()
@@ -2407,10 +2774,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         print("[DEBUG] Refresh complete - all displays reset to initial state")
 
     def _current_wavelength_range(self):
-        """
-        Read + validate the Min/Max wavelength (µm) fields shared by the
-        HITRAN/custom-lines/contaminating-lines loaders. Pops a warning dialog
-        and returns None on invalid input (not a valid number, or min >= max).
+        """Read and validate the Min/Max wavelength (micron) fields shared
+        by the HITRAN/custom-lines/contaminating-lines loaders. Pops a
+        warning dialog and returns None on invalid input.
+
+        Args:
+            None
+
+        Returns:
+            wavelength_range (tuple): (min, max) wavelength in micron, or
+                None if the input is invalid.
         """
         try:
             wavelength_min = float(self.min_wave_input.text())
@@ -2426,18 +2799,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         return wavelength_min, wavelength_max
 
     def _line_range_edge_pad(self):
-        """
-        Safety margin (µm) added around the Min/Max wavelength range when filtering
-        custom/contaminating lines at load time, so a line just outside the typed
-        range but still close enough to bleed into an edge line's own Gaussian isn't
-        silently dropped from the catalog entirely (which -- unlike display -- would
-        also remove it from what the fitter can use as a template).
+        """Safety margin (micron) around the Min/Max wavelength range so a
+        line just outside it that still bleeds into an edge line's Gaussian
+        isn't dropped from the fit-template catalog.
 
-        Computed the same way fit_hitran_lines_collective() pads its own fit window
-        (4x the instrument's line sigma, from _line_sigma()) rather than a separate
-        guessed-at constant, so "close enough to matter to the fit" means the same
-        thing in both places. Returns 0.0 (no padding) if no cube is loaded yet --
-        there's no spectrum to reason about a sigma from.
+        Args:
+            None
+
+        Returns:
+            pad (float): Padding in micron, matching the fit's own edge
+                padding (4x line sigma); 0.0 if no cube is loaded.
         """
         if not hasattr(self, 'cube_data') or self.cube_data is None:
             return 0.0
@@ -2448,20 +2819,20 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             _line_sigma(float(np.nanmin(wave)), header),
             _line_sigma(float(np.nanmax(wave)), header),
         ]
+        # Same 4x-sigma padding fit_hitran_lines_collective() uses, so "close
+        # enough to matter" means the same thing in both places.
         return 4 * max(edge_sigmas)
 
     def _reset_lines_state(self):
-        """
-        Clear everything downstream of the current detection-line catalog --
-        plotted line markers, any multi-Gaussian fit, and the loaded
-        contaminating-line catalog -- whenever the detection-line source
-        changes (a new HITRAN fetch or custom import). Otherwise a stale fit
-        or a contaminant catalog filtered/padded around the *previous*
-        wavelength range would silently stick around next to a newly loaded,
-        unrelated set of lines. Contaminants specifically must be reloaded
-        for the new range rather than carried over -- their fit-time
-        correctness depends on being filtered to the range actually in use
-        (see _load_contaminating_lines_dialog()).
+        """Clear plotted markers, the multi-Gaussian fit, and the
+        contaminating-line catalog when the detection source changes, so
+        stale range-filtered data does not linger.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         if hasattr(self, 'clear_gaussian_fit'):
             self.clear_gaussian_fit()
@@ -2481,9 +2852,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.spec_canvas.draw()
 
     def fetch_hitran_lines(self):
-        """
-        Fetch HITRAN lines based on user input from the GUI.
-        Now includes transition level (vibrational quantum number) filtering.
+        """Fetch HITRAN lines based on user input from the GUI, including
+        transition level (vibrational quantum number) filtering.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         try:
             wave_range = self._current_wavelength_range()
@@ -2514,10 +2890,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 QMessageBox.warning(self, "Unknown Molecule", f"'{typed}' is not in the HITRAN list.")
                 return
 
-            # Isotopologue selection -- optional: someone unsure which isotopologue
-            # a line belongs to can search every isotopologue HITRAN has for this
-            # molecule instead of having to guess a number up front. Each result
-            # row stays individually tagged with its own isotopologue afterward.
+            # Isotopologue is optional: search every isotopologue HITRAN has
+            # instead of guessing one; each result stays tagged with its own.
             know_iso = QMessageBox.question(
                 self,
                 "Isotopologue",
@@ -2542,11 +2916,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             else:
                 isotopologue = None
 
-            # Fully-covered locally -> use it, no prompt. HITRAN line data doesn't
-            # change month to month, so there's nothing meaningful "online" would
-            # give you here that the local copy doesn't already have. (Nothing
-            # cached yet -> refresh_cache stays False too; that case just fetches
-            # online without asking, same as always.)
+            # Always False: HITRAN line data barely changes, so a local copy
+            # is as good as online; fetch happens automatically if nothing is cached.
             refresh_cache = False
 
             # Fetch HITRAN data
@@ -2605,29 +2976,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.critical(self, "Error", f"An error occurred while fetching HITRAN lines:\n{e}")
 
     def _load_custom_lines_dialog(self):
-        """
-        Load a user-supplied line list CSV as a stand-in for a live HITRAN fetch
-        (e.g. no internet access). 'wavelength' and 'species' are required; any
-        other HITRAN-style columns (transition, a_coeff, e_upper, isotopologue,
-        isotopologue_name) are optional and only shown where present. Feeds into
-        the same Lines table / plotting flow as fetch_hitran_lines(), replacing
-        whatever was previously loaded there. Only lines within the current
-        Min/Max wavelength range are kept -- exactly, no edge padding, same as
-        a live HITRAN fetch (which queries that exact range) -- a catalog
-        covering a wider band than what's being searched shouldn't dump
-        irrelevant lines into the table. Unlike contaminating lines, a
-        detection line just outside the range has no fit-suppression role
-        that would justify padding it back in.
+        """Load a user CSV as a stand-in for a live HITRAN fetch (offline
+        use). Requires 'wavelength' and 'species'; feeds the same Lines
+        table as fetch_hitran_lines(), replacing whatever was loaded before.
 
-        Rejected outright if more than one species falls in range: a live
-        HITRAN fetch is always single-molecule by construction (one QInputDialog
-        selection), and fit_hitran_lines_collective()'s single shared velocity
-        shift (estimated from these lines' own peaks) is only physically
-        meaningful for one species at a time -- pooling two species' peaks
-        together would silently average across what could be two unrelated
-        offsets. Contaminating lines have no such restriction (see
-        _load_contaminating_lines_dialog()) since they're never pooled into
-        that shift estimate.
+        Args:
+            None
+
+        Returns:
+            None
         """
         wave_range = self._current_wavelength_range()
         if wave_range is None:
@@ -2659,6 +3016,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 return
 
             total_loaded = len(rows)
+            # Kept exactly to the typed range, no edge padding -- unlike
+            # contaminants, a detection line has no fit-suppression role to justify it.
             rows = [r for r in rows if wavelength_min <= r['wavelength'] <= wavelength_max]
             if not rows:
                 QMessageBox.information(
@@ -2669,6 +3028,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 return
 
             distinct_species = sorted({r['species'] for r in rows})
+            # Detection must be single-species: the fit's shared velocity shift
+            # (from these lines' peaks) is only meaningful for one species at a time.
             if len(distinct_species) > 1:
                 QMessageBox.critical(
                     self, "Multiple Species Found",
@@ -2766,17 +3127,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.plot_contaminating_lines()
 
     def _load_contaminating_lines_dialog(self):
-        """
-        Allow user to load an optional contaminating lines CSV file.
-        This should be done AFTER setting wavelength range and loading HITRAN.
+        """Load an optional contaminating-lines CSV. Do this after setting
+        the wavelength range and loading HITRAN lines. Filtered to the
+        Min/Max range plus a small edge margin (see _line_range_edge_pad()).
 
-        Filtered down to the current Min/Max wavelength range (plus a small
-        edge margin -- see _line_range_edge_pad()) before storing, same as
-        custom detection lines -- a catalog covering a wider band than what's
-        actually being analyzed (in either the multi-Gaussian fit or Flux
-        Map, both of which are themselves scoped to this same range in the
-        GUI) shouldn't clutter the table/plot or slow down fitting with
-        contaminants that can never matter here.
+        Args:
+            None
+
+        Returns:
+            None
         """
         wave_range = self._current_wavelength_range()
         if wave_range is None:
@@ -2864,7 +3223,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             )  # self.contam_lines is untouched -- a failed import isn't destructive.
 
     def _spectrum_home_reset(self):
-        """Custom home action for spectrum: show original spectrum and clear overlays"""
+        """Custom home action for spectrum: show original spectrum and clear overlays.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         print("[DEBUG] Spectrum home button clicked - restoring original spectrum")
         
         # Restore original spectrum if the active tab has a continuum subtracted
@@ -2893,10 +3259,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.spec_canvas.draw()
 
     def _save_results_ascii(self):
-        """Save the active tab's continuum-subtraction result to an ASCII file.
+        """Save the active tab's continuum-subtraction result to an ASCII
+        file. Columns: wavelength, original_spectrum, fitted_continuum,
+        subtracted. Missing values are written as NaN.
 
-        Columns: wavelength, original_spectrum, fitted_continuum, subtracted
-        Missing columns (e.g. no continuum fitted for this tab) are written as NaN.
+        Args:
+            None
+
+        Returns:
+            None
         """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             QMessageBox.warning(self, "No Data", "No spectrum loaded.")
@@ -2915,7 +3286,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.warning(self, "No Data", "No spectrum to save for the active tab.")
             return
 
-        # Continuum may not exist if the user never fitted one for this tab.
+        # The continuum is absent if the user never fitted one for this tab.
         continuum = self.continuum_fitted.get(tab)
         if continuum is None:
             continuum = np.full_like(original, np.nan, dtype=float)
@@ -2961,6 +3332,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             print(f"Error saving results: {e}")
 
     def open_2d_window(self):
+        """Open a new standalone 2D FITS analyzer window.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             from .gui_2d import Ifu_analyzer_2d_window
 
@@ -2976,6 +3355,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.warning(self, "2D Window Error", f"Could not open 2D window:\n{e}")
 
     def open_rotational_diagram(self):
+        """Open a new rotational-diagram analyzer window for H2.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             from .gui_rotational_diagram import RotationalDiagramWindow
 

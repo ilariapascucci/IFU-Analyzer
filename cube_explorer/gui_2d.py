@@ -56,6 +56,17 @@ from .analyzer_2d import (
 class FileListItem(QWidget):
     """Custom widget to display a filename and a remove button in the QListWidget"""
     def __init__(self, filepath, remove_callback, parent=None):
+        """Build the filename label and remove button for this list row.
+
+        Args:
+            filepath (str): Path shown in the label and tooltip.
+            remove_callback (callable): Called with this widget when
+                the remove button is clicked.
+            parent (QWidget): Parent widget, or None for a top-level widget.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.filepath = filepath
         layout = QHBoxLayout(self)
@@ -79,6 +90,14 @@ class FileListItem(QWidget):
 class BatchMatchResolutionDialog(QDialog):
     """Standalone dialog for processing multiple FITS files into a ZIP"""
     def __init__(self, parent=None):
+        """Build the batch resolution-matching dialog's file list and buttons.
+
+        Args:
+            parent (QWidget): Parent widget, or None for a top-level dialog.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.setWindowTitle("Batch Match Resolution & Reproject")
         self.setMinimumSize(500, 400)
@@ -108,6 +127,14 @@ class BatchMatchResolutionDialog(QDialog):
         layout.addLayout(btn_layout)
         
     def add_files(self):
+        """Browse for FITS files and add any new ones to the list.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         files, _ = QFileDialog.getOpenFileNames(self, "Select 2D FITS Files", filter="FITS files (*.fits *.fz *.fit)")
         for f in files:
             if f not in self.filepaths:
@@ -120,6 +147,14 @@ class BatchMatchResolutionDialog(QDialog):
                 self.list_widget.setItemWidget(item, item_widget)
                 
     def remove_file(self, item_widget):
+        """Remove one file from the list and its filepaths.
+
+        Args:
+            item_widget (FileListItem): Row widget whose file to remove.
+
+        Returns:
+            None
+        """
         self.filepaths.remove(item_widget.filepath)
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
@@ -128,20 +163,15 @@ class BatchMatchResolutionDialog(QDialog):
                 break
                 
     def process_and_zip(self):
-        """
-        Batch Convolution: takes N >= 2 input FITS files, finds the worst
-        (coarsest) pixel scale among them, and convolves+reprojects every
-        input onto a SINGLE common destination WCS at that scale.
+        """Take N >= 2 input FITS files and convolve+reproject every one onto
+        a single common destination WCS at the worst (coarsest) pixel scale
+        among them, sized to the union footprint.
 
-        The destination WCS:
-          - has the worst pixel scale (degrades nothing further);
-          - inherits the rotation and centre of the LARGEST-area input;
-          - is sized to cover the UNION of every input footprint.
+        Args:
+            None
 
-        Each output FITS is a 2-HDU file (image + COVERAGE fraction).
-        Inputs that are already at the worst scale are passed through with
-        sigma=0 (no smoothing), and reprojected only when their WCS differs
-        from the common one.  This keeps repeated batch runs idempotent.
+        Returns:
+            None
         """
         if len(self.filepaths) < 2:
             QMessageBox.warning(
@@ -237,6 +267,8 @@ class BatchMatchResolutionDialog(QDialog):
                     bunit = info['header'].get('BUNIT', '')
                     per_pix = _is_per_pixel_flux_unit(bunit)
 
+                    # Inputs already at the worst scale get sigma=0 (no smoothing),
+                    # keeping repeated batch runs idempotent.
                     sigma_arcsec = (
                         max(0.0, worst_pix**2 - fine_pix**2) ** 0.5) / 2.3548
                     sigma_fine_pix = (sigma_arcsec / fine_pix
@@ -360,31 +392,43 @@ class BatchMatchResolutionDialog(QDialog):
 
 class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
     def __init__(self, parent=None):
+        """Build the 2D dual-viewer window and initialize its state.
+
+        Args:
+            parent (QWidget): Parent widget, or None for a top-level window.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.setWindowTitle("2D FITS Dual Viewer")
-        
+
         self.setWindowFlags(Qt.Window)
         self.setMinimumSize(1200, 600)
-        
+
         self.image_left = None
         self.header_left = None
         self.image_right = None
         self.header_right = None
-        # Optional per-pixel coverage fraction for reprojected images (0..1).
-        # Saved alongside the image as a 2nd HDU named "COVERAGE" by the
-        # convolution pipeline.  When present the selected-area integrated
-        # flux uses ``Σ value × pixel_area × coverage`` so that partial-overlap
-        # edge pixels do not over-count.
+        # Optional per-pixel coverage fraction (0-1) for reprojected images,
+        # saved as a "COVERAGE" HDU; flux sums value*pixel_area*coverage.
         self.coverage_left = None
         self.coverage_right = None
-        
+
         self._init_state()
         self._init_ui()
 
     def closeEvent(self, event):
-        # Drop this window's collapsible groups from CollapsibleButtonGroup's
-        # class-level registry so its cross-window accordion logic never calls
-        # into a deleted widget after this window is gone.
+        """Drop this window's collapsible groups and free its images on close.
+
+        Args:
+            event (QCloseEvent): Close event Qt sends to the widget.
+
+        Returns:
+            None
+        """
+        # Drop this window's groups from CollapsibleButtonGroup's class-level
+        # registry so cross-window accordion logic never touches a deleted widget.
         for _g in (getattr(self, 'contour_group', None),
                    getattr(self, 'convolution_group', None)):
             try:
@@ -401,7 +445,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         event.accept()
 
     def _init_state(self):
-        """Initialize state variables"""
+        """Initialize state variables.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.active_shape = None
         self.active_target = None
         self.last_selection_left = None
@@ -436,6 +487,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.last_contour_right_level = None
 
     def _init_ui(self):
+        """Build every UI section in order.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         # Stats labels - WordWrap enabled to prevent text cutoff
         self.stats1_label = QLabel("Intensity:\n-")
         self.stats1_label.setMinimumWidth(150)
@@ -462,6 +521,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self._setup_main_layout()
 
     def _init_plots(self):
+        """Initialize matplotlib figures and canvases.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.slice1_fig = Figure(figsize=(5, 5), dpi=100)
         self.slice1_canvas = FigureCanvas(self.slice1_fig)
         self.slice1_plotter = SlicePlotter(self.slice1_fig)
@@ -488,7 +555,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         )
 
     def _open_colormap_dialog(self, target):
-        """Opens the colormap dialog and applies the selection to the chosen panel."""
+        """Opens the colormap dialog and applies the selection to the chosen panel.
+
+        Args:
+            target (str): Panel to recolor, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         # Open the custom dialog imported at the top of the file
         dialog = ColorMapDialog(self)
         
@@ -515,7 +589,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     self.display_image('right')
 
     def copy_colormap(self, source, target):
-        """Copy the source panel's colormap onto the target panel (matches 3D)."""
+        """Copy the source panel's colormap onto the target panel (matches 3D).
+
+        Args:
+            source (str): Panel to copy the colormap from, 'left' or 'right'.
+            target (str): Panel to copy the colormap to, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         src_cmap = getattr(self, 'slice1_cmap' if source == 'left' else 'slice2_cmap', None)
         if not src_cmap:
             return
@@ -529,7 +611,25 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 self.display_image('right')
 
     def _init_shape_controls(self):
+        """Initialize shape selection buttons.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         def make_shape_button(symbol, target, callback=None):
+            """Build one square icon button wired to a shape or callback.
+
+            Args:
+                symbol (str): Unicode glyph shown as the button label.
+                target (str): Side the button applies to ('left' or 'right').
+                callback (callable): Click handler; defaults to _set_shape.
+
+            Returns:
+                btn (QPushButton): The configured button.
+            """
             btn = QPushButton(symbol)
             btn.setCheckable(True)
             btn.setFixedSize(40, 40)
@@ -615,10 +715,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.edit_shape_btn_r.setEnabled(False)
         self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
 
-        # =========================================================
-        # BOTTOM PANEL CONTROLS - plain default styling, matching the 3D
+        # Bottom panel controls: plain default styling, matching the 3D
         # window and the Open/Header/Save buttons above.
-        # =========================================================
 
         # ----- ROTATION CONTROLS (per-panel; no "which slice?" prompt) -----
         self.rot_ccw_radio = QRadioButton("Counter-Clockwise")
@@ -677,14 +775,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
 
     def copy_selection(self, source, target):
-        """Copy a region selection onto the other panel.
+        """Copy a region selection onto the other panel, WCS-aware: corners
+        reproject through both panels' WCS (rectangles become polygons
+        under rotation), else falls back to a plain pixel-index copy.
 
-        WCS-aware: the selection's corners are reprojected through both panels'
-        WCS so it lands on the same patch of sky. A rectangle whose sky
-        footprint is no longer axis-aligned on the target (the two WCS differ
-        in rotation/scale) is copied as a polygon; circles/ellipses are copied
-        as their reprojected bounding box. Falls back to a plain pixel-index
-        copy when either panel has no usable celestial WCS.
+        Args:
+            source (str): Panel to copy from, 'left' or 'right'.
+            target (str): Panel to copy to, 'left' or 'right'.
+
+        Returns:
+            None
         """
         src_sel = self.last_selection_right if source == "right" else self.last_selection_left
         if not src_sel:
@@ -703,6 +803,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         )
 
         def _to_target_px(xs, ys):
+            """Reproject source-panel pixel coordinates onto the target panel.
+
+            Args:
+                xs (numpy.ndarray): Source-panel x pixel coordinates.
+                ys (numpy.ndarray): Source-panel y pixel coordinates.
+
+            Returns:
+                coords (tuple): (tx, ty) target-panel pixel coordinates.
+            """
             sw = src_wcs.celestial if src_wcs.pixel_n_dim > 2 else src_wcs
             tw = tgt_wcs.celestial if tgt_wcs.pixel_n_dim > 2 else tgt_wcs
             sky = sw.pixel_to_world(np.asarray(xs, float), np.asarray(ys, float))
@@ -722,7 +831,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self._handle_pixel_click(int(round(x)), int(round(y)), target)
             return
 
-        # ---- lasso ("✏") ----
+        # ---- lasso (freehand shape) ----
         if shape == "✏":
             patch = src_sel.get("patch")
             if patch is None or not hasattr(patch, "lasso_verts"):
@@ -790,10 +899,26 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             pass
 
     def _open_batch_match_dialog(self):
+        """Open the batch resolution-matching dialog.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         dialog = BatchMatchResolutionDialog(self)
         dialog.exec_()
 
     def _prompt_and_contour(self):
+        """Ask for target/source/sigma-levels/color, then plot a WCS contour.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         dialog = QDialog(self)
         dialog.setWindowTitle("Plot WCS Contour")
         dialog.setMinimumWidth(400)
@@ -815,7 +940,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         source_layout.addWidget(source_combo)
         layout.addLayout(source_layout)
 
-        # 3. Background Std — LOCAL variable, not self.sigma_input
+        # 3. Background Std - LOCAL variable, not self.sigma_input
         sigma_layout = QHBoxLayout()
         sigma_layout.addWidget(QLabel("Background Std (blank = Astropy auto):"))
         sigma_input = QLineEdit()          # ← local, not self.
@@ -824,7 +949,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         sigma_layout.addWidget(sigma_input)
         layout.addLayout(sigma_layout)
 
-        # 4. Sigma levels — comma-separated multipliers
+        # 4. Sigma levels - comma-separated multipliers
         level_layout = QHBoxLayout()
         level_layout.addWidget(QLabel("Sigma levels (e.g. 3, 5, 10):"))
         level_input = QLineEdit()          # ← local, not self.
@@ -865,9 +990,30 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self._apply_contour(target, source, sigma_str, levels_str, color)
 
     def _apply_contour(self, target, source, sigma_str, levels_str, color):
+        """Compute background-relative sigma-level contours and plot them.
+
+        Args:
+            target (str): Panel to draw the contour on, 'left' or 'right'.
+            source (str): 'self' (own image) or 'other' (the other panel).
+            sigma_str (str): Background std typed by the user, or '' for
+                the automatic sigma-clipped estimate.
+            levels_str (str): Comma-separated sigma multipliers to contour.
+            color (str): Matplotlib color name for the contour lines.
+
+        Returns:
+            None
+        """
         target_plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
 
         def get_2d_wcs(header):
+            """Build a strictly-2D WCS from a FITS header, dropping extra axes.
+
+            Args:
+                header (astropy.io.fits.Header): FITS header, or None.
+
+            Returns:
+                wcs (astropy.wcs.WCS): The 2D WCS, or None if header is None.
+            """
             if header is None: return None
             w = WCS(header)
             while w.pixel_n_dim > 2:
@@ -890,7 +1036,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QMessageBox.warning(self, "Missing Data", "Both images must be loaded.")
             return
 
-        # ── Parse sigma levels ────────────────────────────────────────────────
+        # --- Parse sigma levels ---
         try:
             sigma_levels = [float(x.strip()) for x in levels_str.split(',') if x.strip()]
         except ValueError:
@@ -901,7 +1047,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QMessageBox.warning(self, "Invalid Input", "Enter at least one sigma level.")
             return
 
-        # ── Calculate background stats ────────────────────────────────────────
+        # --- Calculate background stats ---
         valid = source_img[np.isfinite(source_img)]
         if valid.size == 0:
             return
@@ -917,7 +1063,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         else:
             bkg_std = astropy_std
 
-        # ── Build band-pairs: each level N → [N-0.05, N+0.05] × std + median ─
+        # Build band-pairs: each level N maps to [N-0.05, N+0.05] * std + median.
         band_levels = sorted([median_val + n * bkg_std for n in sigma_levels])
 
         ax = target_plotter.ax
@@ -951,11 +1097,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             traceback.print_exc()
 
     def _contour_target(self, action):
-        """Resolve which panel a contour action applies to.
+        """Resolve which panel a contour action applies to. Auto-picks the
+        panel with an active contour; prompts only when both have one, and
+        warns when neither does.
 
-        Auto-picks the panel that has an active contour; only prompts when
-        BOTH panels do, and warns when neither does. ``action`` is a short
-        verb used in the messages ("save", "clear").
+        Args:
+            action (str): Short verb used in the messages ('save', 'clear').
+
+        Returns:
+            side (str): 'left' or 'right', or None if no panel qualifies.
         """
         sides = [
             side for side, plotter in (("left", self.slice1_plotter),
@@ -984,11 +1134,27 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         return None
 
     def _prompt_and_clear_contours(self):
+        """Ask which panel to clear contours from, then clear them.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         target = self._contour_target("clear")
         if target:
             self.clear_contours(target)
 
     def clear_contours(self, target):
+        """Remove every contour artist from a panel.
+
+        Args:
+            target (str): Panel to clear, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
         
         if hasattr(plotter, 'contours'):
@@ -1022,11 +1188,27 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self.last_contour_right_level = None
 
     def _prompt_and_save_contour(self):
+        """Ask which panel to save a contour from, then save it.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         target = self._contour_target("save")
         if target:
             self._save_contour_txt(target)
 
     def _save_contour_txt(self, target):
+        """Write a panel's active contour's coordinates to a text/CSV file.
+
+        Args:
+            target (str): Panel whose contour to save, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
         wcs_obj = self.wcs_left       if target == 'left' else self.wcs_right
         cset    = getattr(plotter, 'current_contour', None)
@@ -1075,7 +1257,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             traceback.print_exc()
 
     def _prompt_and_load_contour(self):
-        """Prompt user for target slice, mask file, and color to overlay a saved contour."""
+        """Prompt user for target slice, mask file, and color to overlay a saved contour.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         msg = QMessageBox(self)
         msg.setWindowTitle("Load Saved Contour")
         msg.setText("Which slice would you like to plot the loaded contour ON?")
@@ -1108,7 +1297,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self._apply_loaded_contour(target, fname, color)
 
     def _apply_loaded_contour(self, target, fname, color):
-        """Loads a saved contour and plots it, reprojected onto this panel's own WCS."""
+        """Loads a saved contour and plots it, reprojected onto this panel's own WCS.
+
+        Args:
+            target (str): Panel to plot on, 'left' or 'right'.
+            fname (str): Path to the saved contour text/CSV file.
+            color (str): Matplotlib color name for the contour lines.
+
+        Returns:
+            None
+        """
         target_plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
         target_img = self.image_left if target == 'left' else self.image_right
         target_wcs = self.wcs_left if target == 'left' else self.wcs_right
@@ -1124,13 +1322,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             x_pix_saved = data[:, 1]
             y_pix_saved = data[:, 2]
 
-            # Prefer RA/Dec (columns 3, 4) converted into THIS panel's pixel
-            # grid, so a contour saved from one image lines up correctly on
-            # a different image (different rotation, shape, or reprojection).
-            # Only fall back to the raw saved pixel coordinates when the file
-            # has no RA/Dec (old export, or no WCS at save time) or this
-            # panel itself has no WCS to convert into — in that case the
-            # contour is only valid if both panels already share a pixel grid.
+            # Prefer RA/Dec converted into this panel's pixel grid so the
+            # contour aligns across different images; else fall back to raw pixels.
             use_sky = data.shape[1] >= 5 and target_wcs is not None
             if use_sky:
                 ra_pts = data[:, 3]
@@ -1166,6 +1359,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             
             class DummyContourSet:
                 def __init__(self, line):
+                    """Wrap a plain Line2D so it looks like a QuadContourSet.
+
+                    Args:
+                        line (matplotlib.lines.Line2D): Plotted contour line.
+
+                    Returns:
+                        None
+                    """
                     self.collections = [line]
             
             target_plotter.contours.append(DummyContourSet(contour_line))
@@ -1181,6 +1382,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             traceback.print_exc()
 
     def _prompt_and_superimpose(self):
+        """Ask for background/overlay/colormap/alpha, then blend one panel's
+        image, reprojected, over the other panel's background image.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.image_left is None or self.image_right is None:
             QMessageBox.warning(self, "Missing Images", "Load an image in BOTH panels before superimposing.")
             return
@@ -1270,6 +1480,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QApplication.restoreOverrideCursor()
 
     def _setup_main_layout(self):
+        """Set up the main application layout.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         main_layout = QVBoxLayout()
         top_layout = QHBoxLayout()
 
@@ -1426,6 +1644,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.setLayout(main_layout)
 
     def show_header(self, target):
+        """Display the FITS header text for a panel.
+
+        Args:
+            target (str): Panel whose header to show, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         header = self.header_left if target == "left" else self.header_right
         
         if header is None:
@@ -1457,6 +1683,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self.header_window_right = header_window
 
     def rebuild_axes(self, target, header):
+        """Rebuild a panel's matplotlib axes from a FITS header's WCS.
+
+        Args:
+            target (str): Panel to rebuild, 'left' or 'right'.
+            header (astropy.io.fits.Header): Header to build the WCS from.
+
+        Returns:
+            None
+        """
         plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
         canvas  = self.slice1_canvas  if target == 'left' else self.slice2_canvas
 
@@ -1466,7 +1701,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         wcs_for_projection = None
 
-        # ── Step 1: Build a clean, strictly-2D, SIP-free WCS ──────────────────
+        # --- Step 1: Build a clean, strictly-2D, SIP-free WCS ---
         try:
             ch = header.copy()
             ch['NAXIS']   = 2
@@ -1508,7 +1743,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         else:
             self.wcs_right = wcs_for_projection
 
-        # ── Step 2: Create axes (WCSAxes if possible, plain fallback) ──────────
+        # --- Step 2: Create axes (WCSAxes if possible, plain fallback) ---
         try:
             if wcs_for_projection is None:
                 raise ValueError("No valid WCS available for projection")
@@ -1521,10 +1756,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         plotter.cbar_ax = plotter.fig.add_axes(cbar_rect)
         plotter.cbar_ax.set_visible(False)
 
-        # The figure was cleared above, so the old RegionSelector now points at
-        # a dead axes. Tear down its interactive patch first (its drag handlers
-        # are wired to the still-live canvas and would otherwise leak), then
-        # rebind a fresh selector to the new axes and reset this side to idle.
+        # The figure was cleared above, so the old RegionSelector's patch
+        # handlers would leak; disconnect it before rebinding a fresh selector.
         old_selector = self.region_selector_left if target == 'left' else self.region_selector_right
         if old_selector is not None and getattr(old_selector, 'interactive_patch', None) is not None:
             try:
@@ -1550,6 +1783,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self._set_region_state(target, "idle")
 
     def load_2d_fits(self, target):
+        """Open a file dialog and load a 2D FITS image into a panel.
+
+        Args:
+            target (str): Panel to load into, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         fname, _ = QFileDialog.getOpenFileName(
             self, f"Open 2D FITS ({target.capitalize()})", filter="FITS files (*.fits *.fz *.fit)")
         
@@ -1572,10 +1813,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                             header = hdu.header.copy()
                             break
 
-                # If a "COVERAGE" extension exists, load it: this is the per-pixel
-                # coverage fraction (0..1) written by the from-scratch reproject
-                # pipeline.  It lets the selected-area integrated-flux readout
-                # weight partial-overlap edge pixels correctly.
+                # "COVERAGE" extension holds the per-pixel coverage fraction (0-1)
+                # from the reproject pipeline, used to weight partial-overlap pixels.
                 for hdu in hdul:
                     name = (getattr(hdu, 'name', '') or '').strip().upper()
                     if name == 'COVERAGE' and hdu.data is not None:
@@ -1588,9 +1827,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                             pass
                 
                 if data is None:
-                    # No HDU squeezed down to 2D. Distinguish a genuine
-                    # multi-plane cube (reject with guidance) from a file that
-                    # really has no image data.
+                    # No HDU squeezed to 2D; distinguish a genuine multi-plane
+                    # cube (reject with guidance) from a file with no image data.
                     cube_shape = None
                     for hdu in hdul:
                         if hdu.data is None or getattr(hdu.data, 'size', 0) == 0:
@@ -1610,9 +1848,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                             self, "Load Error", "No image data found in FITS file.")
                     return
 
-                # data is already the squeezed 2D array from the loop above
-                # ((1, ny, nx) / (ny, nx, 1) degenerate axes are accepted);
-                # true multi-plane cubes are rejected before this point.
+                # data is the squeezed 2D array from the loop above (degenerate
+                # axes accepted); true multi-plane cubes are rejected earlier.
 
                 # --- NEW CLEANUP BLOCK: Remove dangling 3D JWST keys ---
                 header['NAXIS'] = 2
@@ -1651,6 +1888,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             traceback.print_exc()
 
     def rotate_image(self, target):
+        """Rotate a panel's image by the spin box angle and update its WCS.
+
+        Args:
+            target (str): Panel to rotate, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         base_image = self.base_image_left if target == "left" else self.base_image_right
         base_header = self.base_header_left if target == "left" else self.base_header_right
         
@@ -1757,6 +2002,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QApplication.restoreOverrideCursor()
 
     def save_fits(self, target):
+        """Save a panel's image and header to a new FITS file.
+
+        Args:
+            target (str): Panel to save, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         image = self.image_left if target == "left" else self.image_right
         header = self.header_left if target == "left" else self.header_right
         
@@ -1781,6 +2034,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QMessageBox.critical(self, "Error", f"Failed to save FITS file:\n{str(e)}")
 
     def display_image(self, target, title=''):
+        """Render a panel's current image with its colormap and scale.
+
+        Args:
+            target (str): Panel to render, 'left' or 'right'.
+            title (str): Plot title; defaults to no title.
+
+        Returns:
+            None
+        """
         image  = self.image_left   if target == 'left' else self.image_right
         header = self.header_left  if target == 'left' else self.header_right
         if image is None:
@@ -1841,7 +2103,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     except (KeyError, TypeError):
                         ra, dec = ax.coords[0], ax.coords[1]
 
-                    # Choose formatter precision based on FOV — let Astropy auto-pick spacing
+                    # Choose formatter precision based on FOV; Astropy auto-picks spacing.
                     cdelt    = abs(header.get('CDELT1', header.get('CD1_1', 0.0)))
                     ny, nx   = image.shape
                     fov_amin = cdelt * max(nx, ny) * 60.0   # arcmin
@@ -1853,11 +2115,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                         ra.set_major_formatter('hh:mm:ss.s')
                         dec.set_major_formatter('dd:mm:ss')
                     else:
-                        # Sub-arcmin field — needs sub-second RA precision
+                        # Sub-arcmin field needs sub-second RA precision.
                         ra.set_major_formatter('hh:mm:ss.ss')
                         dec.set_major_formatter('dd:mm:ss.s')
 
-                    # ← NO set_ticks() call — Astropy auto-locates ticks for the current FOV
+                    # No set_ticks() call: Astropy auto-locates ticks for the current FOV.
 
                     ra.set_axislabel('RA',   minpad=0.5)
                     dec.set_axislabel('Dec', minpad=0.5)
@@ -1926,7 +2188,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self.slice2_canvas.draw()
 
     def _on_mouse_hover(self, event, target):
-        """Handle dynamic updates of mouse coordinate position and value mapping"""
+        """Handle dynamic updates of mouse coordinate position and value mapping.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Motion event.
+            target (str): Panel hovered over, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
         image = self.image_left if target == 'left' else self.image_right
         header = self.header_left if target == 'left' else self.header_right
@@ -1972,15 +2242,42 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
     # ----- Region selection: the shared controller lives in RegionSelectionMixin.
     # ----- These hooks feed it this window's per-panel image + header WCS. ------
     def _region_image(self, target):
+        """Return the 2D array currently shown in the given panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            image (numpy.ndarray): The displayed image, or None if unset.
+        """
         return self.image_left if target == "left" else self.image_right
 
     def _region_flux_unit(self, target):
+        """Return the flux-unit string for the given panel ('' when unknown).
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            unit (str): Flux-unit label, or '' when unknown.
+        """
         header = self.header_left if target == "left" else self.header_right
         if header is not None and "BUNIT" in header:
             return str(header["BUNIT"])
         return ""
 
     def _region_pixel_coords(self, target, x, y):
+        """Convert a pixel position to sky coordinates for the given panel.
+
+        Args:
+            target (str): Panel the pixel belongs to, 'left' or 'right'.
+            x (float): Pixel x coordinate.
+            y (float): Pixel y coordinate.
+
+        Returns:
+            coords (tuple): (ra, dec) in degrees, or (None, None) if the
+                panel has no celestial WCS.
+        """
         wcs_obj = self.wcs_left if target == "left" else self.wcs_right
         if wcs_obj is None or not getattr(wcs_obj, "has_celestial", False):
             return None, None
@@ -1992,6 +2289,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             return None, None
 
     def _on_slice_click(self, event, target):
+        """Handle clicks on a slice display.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+            target (str): Panel clicked on, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         if event.inaxes is None or self.active_shape != "*": return
 
         ax = self.slice1_plotter.ax if target == "left" else self.slice2_plotter.ax
@@ -2001,27 +2307,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self._handle_pixel_click(x, y, target)
 
     def prompt_and_match_resolution(self):
-        """
-        "Slides Convolute" button: convolve the higher-resolution panel to
-        the worse pixel scale, then reproject onto a grid that preserves
-        the full FOV of the fine image.
+        """"Slides Convolute" button: convolve the higher-resolution panel
+        to the worse pixel scale, then reproject onto a grid sized to the
+        fine image's full FOV (see inline comments for the sigma/WCS math).
 
-        Pipeline (uses the rewritten v3 helpers above):
-          1. Pick whichever panel has the WORSE (larger) pixel scale as
-             the reference; convolve the OTHER panel to that scale.
-          2. Build the destination WCS at the worst scale, inheriting the
-             fine image's rotation and centre, sized to fully cover the
-             fine FOV.
-          3. ``gaussian_convolve_match`` with sigma derived from
-             quadrature: sigma = sqrt(p_target^2 - p_fine^2) / 2.3548
-             (in arcsec), expressed in fine-image pixels.
-          4. ``reproject_exact`` with ``conserve_flux`` chosen from BUNIT.
-          5. Save 2-HDU FITS (image + COVERAGE).
+        Args:
+            None
 
-        If the two images already have the same pixel scale, the
-        convolution would be a no-op (sigma == 0).  Rather than silently
-        re-saving a copy, we tell the user nothing needs doing and
-        return without writing anything.
+        Returns:
+            None
         """
         if self.image_left is None or self.image_right is None:
             QMessageBox.warning(self, "Missing Images",
@@ -2069,9 +2363,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                                 "Could not build a 2D WCS for the fine image.")
             return
 
-        # Guard: refuse to convolve when the two images share no sky
-        # coverage at all.  Without this, the reprojection silently
-        # produces an all-NaN result and the user gets no useful output.
+        # Guard: with no shared sky coverage, reprojection silently
+        # produces an all-NaN result and no useful output.
         ref_wcs = _make_2d_wcs(ref_header)
         if ref_wcs is not None and ref_img is not None:
             if not _wcs_footprints_overlap(
@@ -2208,12 +2501,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QApplication.restoreOverrideCursor()
 
     def _change_scale(self, panel):
-        """Updates the color scale (Linear, Log, Power, etc.) for the specified panel.
+        """Update the color scale (Linear, Log, Power, etc.) for the panel.
+        Persists the choice into self.scale_left/right so a later
+        display_image call doesn't fall back to Linear.
 
-        IMPORTANT: this method must persist the user's choice into
-        ``self.scale_left`` / ``self.scale_right`` so that subsequent calls to
-        ``display_image`` (e.g. after a colormap change) preserve the scale
-        instead of falling back to Linear.
+        Args:
+            panel (str): Panel to rescale, 'left' or 'right'.
+
+        Returns:
+            None
         """
         # Use the exact variable names from _init_plots
         if panel == 'left':
@@ -2225,9 +2521,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             canvas = self.slice2_canvas
             ax = self.slice2_plotter.ax
 
-        # Persist the choice immediately, BEFORE any early-return below, so
-        # that even if no image is loaded yet, the next display_image call
-        # honours the selection.
+        # Persist the choice before any early return, so the next
+        # display_image call honours it even with no image loaded yet.
         scale_type = combo.currentText()
         if panel == 'left':
             self.scale_left = scale_type
