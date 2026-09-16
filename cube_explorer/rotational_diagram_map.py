@@ -990,7 +990,66 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
         "worst_pix_arcsec": worst_pix, "kept_lines": kept_lines, "dropped_lines": dropped,
         "region_fit": region_fit,
+        # Each line's already-convolved/reprojected flux+error map on the
+        # common grid, kept so fit_pixel_multi can re-fit one pixel from a
+        # cheap array lookup instead of re-running convolution/reprojection.
+        "_flux_maps": flux_maps, "_err_maps": err_maps, "_keys": keys,
+        "_molecular_data": molecular_data,
     }
+
+
+def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
+                    fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                    min_lines=3):
+    """
+    Re-fit one pixel of a convolved/reprojected multi-cube map from its
+    already-computed per-line flux/error maps (see create_rotational_
+    diagram_map_multi), instead of re-running convolution/reprojection -- a
+    pixel's blurred value depends on its native neighbours, so there is no
+    cheap standalone re-derivation the way a plain cube's fit_pixel has.
+
+    Args:
+        result (dict): Output of create_rotational_diagram_map_multi
+        x (int): Spatial x index on the common grid
+        y (int): Spatial y index on the common grid
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+            min_lines: Same meaning as in fit_pixel
+
+    Returns:
+        out (dict): Same shape as fit_pixel's return -- 'status', 'n_lines',
+            and on STATUS_OK also 'results' (with '1T' and '_plot_data')
+
+    Raises:
+        KeyError: if result has no cached per-line maps (predates this
+            function, or came from a different map type)
+    """
+    flux_maps = result["_flux_maps"]
+    err_maps = result["_err_maps"]
+    keys = result["_keys"]
+    molecular_data = result["_molecular_data"]
+
+    fluxes, flux_errors = {}, {}
+    for i, key in enumerate(keys):
+        f, e = flux_maps[i][y, x], err_maps[i][y, x]
+        # Same 3-sigma detection idea used everywhere else in this feature,
+        # applied to the same convolved flux/error pair the main per-pixel
+        # loop already used to compute this pixel's map result.
+        if np.isfinite(f) and np.isfinite(e) and e > 0 and f > 3 * e:
+            fluxes[key] = float(f)
+            flux_errors[key] = float(e)
+
+    if len(fluxes) < min_lines:
+        status = STATUS_NO_DATA if not fluxes else STATUS_TOO_FEW_LINES
+        return {"status": status, "n_lines": len(fluxes),
+                "reason": f"{len(fluxes)} detections, need {min_lines}"}
+
+    try:
+        results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
+                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au)
+    except Exception as exc:
+        return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc)}
+
+    return {"status": STATUS_OK, "n_lines": len(fluxes), "results": results}
 
 
 def save_rotational_diagram_map_fits(result, output_path):

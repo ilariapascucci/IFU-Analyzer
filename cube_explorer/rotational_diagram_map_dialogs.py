@@ -18,7 +18,7 @@ from matplotlib.figure import Figure
 
 from .rotational_diagram_map import (
     create_rotational_diagram_map, create_rotational_diagram_map_multi,
-    save_rotational_diagram_map_fits, fit_pixel,
+    save_rotational_diagram_map_fits, fit_pixel, fit_pixel_multi,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
 )
 from .rotational_diagram_h2_fitter import model_1T
@@ -419,15 +419,21 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             None
         """
-        if self.cube_or_list is None:
+        if self.cube_or_list is not None:
+            fit_fn = lambda: fit_pixel(self.cube_or_list, x, y, self.line_table, **self.fit_kwargs)
+        elif "_flux_maps" in self.result:
+            # Convolved/reprojected multi-cube map: re-fit from the already-
+            # computed per-line flux maps instead of re-running convolution.
+            fit_fn = lambda: fit_pixel_multi(self.result, x, y, **self.fit_kwargs)
+        else:
             QMessageBox.information(
                 self, "Not available for this map",
-                "Per-pixel re-fit is not implemented yet for a convolved/"
-                "reprojected multi-cube map. Use Export as FITS to inspect "
-                "the maps, or Show Statistics for the whole-map summed fit.")
+                "Per-pixel re-fit is not available for this map result (it "
+                "predates caching the per-line flux maps) -- re-run Run Map, "
+                "or use Show Statistics for the whole-map summed fit.")
             return
         try:
-            out = fit_pixel(self.cube_or_list, x, y, self.line_table, **self.fit_kwargs)
+            out = fit_fn()
         except Exception as exc:
             QMessageBox.critical(self, "Pixel fit failed", str(exc))
             return
@@ -477,7 +483,11 @@ class RotDiagMapResultsDialog(QDialog):
         lines += ["PER-PIXEL SPREAD", "=" * 50, ""]
 
         def _block(name, arr, fmt):
-            vals = arr[ok]
+            # Upcast from the maps' native float32: squaring a deviation for
+            # Ncol (which spans ~1e17-1e21 cm^-2) overflows float32's ~3.4e38
+            # ceiling during std's internal sum-of-squares, silently reporting
+            # inf even though every individual value is finite.
+            vals = arr[ok].astype(np.float64)
             vals = vals[np.isfinite(vals)]
             if not vals.size:
                 return [f"{name}:", "  (no fitted pixels)", ""]
