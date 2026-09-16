@@ -1,17 +1,7 @@
 """
-Rotational diagram fitting for non-H2 molecules (e.g. CO).
-
-No OPR (ortho-para ratio) here -- that is H2-only nuclear-spin-statistics physics,
-see rotational_diagram_h2_fitter.py. Q(T) comes from HITRAN's TIPS data, through
-HAPI's partitionSum() (TIPS-2025 by default with hapi >= 1.3). There is no
-hardcoded per-molecule formula, so this one function works for any molecule in
-get_available_molecules().
-
-Reuses the molecule-agnostic engine (upper_limit_1T/2T, model_1T/2T, compute_Nu,
-gaussian_flux_upper_limit, compute_line_fluxes_collective) straight from
-rotational_diagram_h2_fitter rather than duplicating it -- that logic doesn't
-depend on OPR or on which Q(T) is used, so there's only one copy of it to keep
-correct.
+Rotational diagram fitting for non-H2 molecules (e.g. CO). No OPR here --
+that is H2-only physics (see rotational_diagram_h2_fitter.py). Q(T) comes
+from HITRAN's TIPS data, so this works for any get_available_molecules() entry.
 """
 
 import numpy as np
@@ -19,6 +9,8 @@ from scipy.optimize import curve_fit
 from hapi import partitionSum
 
 from .line_catalog import get_available_molecules
+# Molecule-agnostic engine reused as-is (doesn't depend on OPR or Q(T)),
+# rather than a second copy that could drift out of sync.
 from .rotational_diagram_h2_fitter import (
     pc, model_1T, model_2T, compute_Nu, upper_limit_1T, upper_limit_2T,
     gaussian_flux_upper_limit, compute_line_fluxes_collective,
@@ -117,9 +109,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         Eu = molecular_data.get('Eu', {})
         gu = molecular_data.get('gu', {})
 
-    # ==========================================================
     # Build dataset (no OPR to correct for here)
-    # ==========================================================
     def _build_dataset():
         """
         Compute excitation diagram arrays.
@@ -167,9 +157,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
                 np.array(is_ul_list, dtype=bool),
                 dropped)
 
-    # ==========================================================
     # Bounded curve_fit helpers
-    # ==========================================================
     def _bounds_1T(y_arr):
         """
         Bounds for the single-temperature model.
@@ -257,9 +245,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
             + (partition_function_err(T, dT, molecule, isotopologue) / Q) ** 2)
         return Ntot, dNtot
 
-    # ==========================================================
     # Build dataset (full data, including upper limits)
-    # ==========================================================
     E_arr, y_arr, y_err, is_ul_mask, dropped_detections = _build_dataset()
 
     if len(E_arr) < 2:
@@ -291,10 +277,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
     # Used below for both 1T's and 2T's own chi2 -- needed regardless of fit1T.
     det_mask = ~is_ul_mask
 
-    # ==========================================================
-    # 1T FIT (final) -- see rotational_diagram_h2_fitter for why this always
-    # runs regardless of fit1T (2T's own fit needs it as a seed either way)
-    # ==========================================================
+    # 1T fit (final): always runs as 2T's own seed, see
+    # rotational_diagram_h2_fitter for why.
     if not use_pymc:
         print("\n--- 1T FIT (curve_fit) ---")
         popt1, pcov1 = _fit_1T_curvefit(E_arr, y_arr, y_err)
@@ -334,9 +318,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
             results["1T"]["n_divergences"] = pymc_diag_1T["n_divergences"]
             results["1T"]["max_r_hat"] = pymc_diag_1T["max_r_hat"]
 
-    # ==========================================================
-    # 2T FIT (final)
-    # ==========================================================
+    # 2T fit (final)
     if fit2T:
         if not use_pymc:
             print("\n--- 2T FIT (curve_fit) ---")

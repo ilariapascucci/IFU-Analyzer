@@ -1,11 +1,7 @@
 """
-Rotational diagram fitting functions for H2 analysis.
-Implements single-temperature and two-temperature rotational diagram fits.
-
-H2-specific: OPR (ortho-para ratio) support and a hardcoded H2 partition function
-(Q_Herbst). For any other molecule (e.g. CO), see rotational_diagram_general_fitter.py,
-which reuses the molecule-agnostic pieces below (upper_limit_1T/2T, model_1T/2T,
-compute_Nu, ...) but has no OPR concept and gets Q(T) from HITRAN instead.
+H2 rotational diagram fits (1T/2T), with OPR (ortho-para ratio) support and
+a hardcoded H2 partition function (Q_Herbst). For any other molecule, see
+rotational_diagram_general_fitter.py instead.
 """
 
 import numpy as np
@@ -339,9 +335,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
     return results
 
 
-# ==========================================================
-# UPPER-LIMIT MODELS (ONLY USED IF ENABLED)
-# ==========================================================
+# Upper-limit models (only used if enabled)
 def _print_pymc_diagnostics(trace, var_names):
     """
     Show PyMC convergence stats in the GUI/console.
@@ -676,9 +670,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         Eu = molecular_data.get('Eu', {})
         gu = molecular_data.get('gu', {})
 
-    # ==========================================================
     # Build dataset for a given trial OPR
-    # ==========================================================
     def _build_dataset(opr_value):
         """
         Compute excitation diagram arrays for a given OPR.
@@ -730,10 +722,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
                 np.array(is_ul_list, dtype=bool),
                 dropped)
 
-    # ==========================================================
-    # Bounded curve_fit helpers (used for both the OPR grid search and the
-    # final fit whenever PyMC/upper-limit handling isn't required)
-    # ==========================================================
+    # Bounded curve_fit helpers, used for the OPR grid search and the final
+    # fit whenever PyMC/upper-limit handling isn't required.
     def _bounds_1T(y_arr):
         """
         Bounds for the single-temperature model.
@@ -868,9 +858,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             + (Q_Herbst_err(T, dT) / Q_Herbst(T)) ** 2)
         return Ntot, dNtot
 
-    # ==========================================================
     # OPR grid search (fast, detections-only, curve_fit)
-    # ==========================================================
     best_opr = OPR if OPR is not None else 3.0
     best_opr_err = None
     best_opr_err_pos = None
@@ -903,9 +891,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         opr_search_data = {"opr_grid": opr_grid, "chi2_list": chi2_arr}
 
-    # ==========================================================
     # Build final dataset at best_opr (full data, including upper limits)
-    # ==========================================================
     E_arr, y_arr, y_err, is_ul_mask, dropped_detections = _build_dataset(best_opr)
 
     if len(E_arr) < 2:
@@ -937,11 +923,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     # Used below for both 1T's and 2T's own chi2 -- needed regardless of fit1T.
     det_mask = ~is_ul_mask
 
-    # ==========================================================
-    # 1T FIT (final)
-    # ==========================================================
-    # Always computed (PyMC barrier or curve_fit) regardless of fit1T -- 2T's own fit
-    # needs this as its seed either way; fit1T only controls whether it's reported below.
+    # 1T fit (final): always computed as 2T's own seed regardless of fit1T,
+    # which only controls whether it's reported below.
     if not use_pymc:
 
         print("\n--- 1T FIT (curve_fit) ---")
@@ -975,9 +958,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         results["dropped_J"] = dropped_detections
 
     if fit1T:
-        # =========================
         # Derived quantities
-        # =========================
         Ntot1, dNtot1 = _derive_column(a1, da1, T1, dT1)
 
         # chi2 uses detections only - upper limits have no meaningful sigma to weight by
@@ -998,9 +979,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             results["1T"]["n_divergences"] = pymc_diag_1T["n_divergences"]
             results["1T"]["max_r_hat"] = pymc_diag_1T["max_r_hat"]
 
-    # ==========================================================
-    # 2T FIT (final)
-    # ==========================================================
+    # 2T fit (final)
     if fit2T:
 
         if not use_pymc:

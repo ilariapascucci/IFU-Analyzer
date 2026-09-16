@@ -1,9 +1,7 @@
 """
-Pixel-by-pixel rotational diagram map.
-
-Runs the region-level rotational diagram fit at every spatial pixel of one cube,
-or of several co-aligned cubes with their spectra stitched. Fits detections only:
-a line below the 3-sigma floor at a pixel is dropped, not made an upper limit.
+Pixel-by-pixel rotational diagram map: runs the region-level fit at every
+spatial pixel of one cube, or several co-aligned cubes with their spectra
+stitched. Detections only -- a line below the 3-sigma floor is dropped.
 """
 
 import sys
@@ -145,13 +143,9 @@ def _resolve_cube(cube_or_list):
 
 def _line_keys(lines, molecule):
     """
-    Assign each line the fit index apply_OPR's is_ortho(J) check needs.
-
-    The notebook keys every per-line dict by the line's own upper-J-derived
-    number (its wave/Aul/Eu dicts use literal S-branch numbers as keys), so
-    is_ortho(key) is always right: J and J+2 (or -2, or +0) share parity. A
-    sequential 1, 2, 3... index only has that property when the kept lines
-    are a complete run starting on the right J parity -- not in general.
+    Assign each line the fit index apply_OPR's is_ortho(J) check needs: the
+    line's own upper-J-derived number, matching the notebook's convention,
+    not a plain sequential 1, 2, 3... which only shares J's parity by luck.
 
     Args:
         lines (list): Line dicts, wavelength-sorted
@@ -990,9 +984,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
         "worst_pix_arcsec": worst_pix, "kept_lines": kept_lines, "dropped_lines": dropped,
         "region_fit": region_fit,
-        # Each line's already-convolved/reprojected flux+error map on the
-        # common grid, kept so fit_pixel_multi can re-fit one pixel from a
-        # cheap array lookup instead of re-running convolution/reprojection.
+        # Each line's convolved/reprojected map, kept so fit_pixel_multi can
+        # re-fit one pixel from a cheap lookup instead of redoing convolution.
         "_flux_maps": flux_maps, "_err_maps": err_maps, "_keys": keys,
         "_molecular_data": molecular_data,
     }
@@ -1002,11 +995,9 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
                     min_lines=3):
     """
-    Re-fit one pixel of a convolved/reprojected multi-cube map from its
-    already-computed per-line flux/error maps (see create_rotational_
-    diagram_map_multi), instead of re-running convolution/reprojection -- a
-    pixel's blurred value depends on its native neighbours, so there is no
-    cheap standalone re-derivation the way a plain cube's fit_pixel has.
+    Re-fit one pixel of a convolved/reprojected map from its cached per-line
+    flux/error maps instead of redoing convolution -- a blurred pixel depends
+    on its native neighbours, so it can't be looked up alone.
 
     Args:
         result (dict): Output of create_rotational_diagram_map_multi
@@ -1031,9 +1022,8 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
     fluxes, flux_errors = {}, {}
     for i, key in enumerate(keys):
         f, e = flux_maps[i][y, x], err_maps[i][y, x]
-        # Same 3-sigma detection idea used everywhere else in this feature,
-        # applied to the same convolved flux/error pair the main per-pixel
-        # loop already used to compute this pixel's map result.
+        # Same 3-sigma detection rule used everywhere else in this feature,
+        # on the same convolved flux/error pair the map loop already used.
         if np.isfinite(f) and np.isfinite(e) and e > 0 and f > 3 * e:
             fluxes[key] = float(f)
             flux_errors[key] = float(e)

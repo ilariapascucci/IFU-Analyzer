@@ -483,10 +483,8 @@ class RotDiagMapResultsDialog(QDialog):
         lines += ["PER-PIXEL SPREAD", "=" * 50, ""]
 
         def _block(name, arr, fmt):
-            # Upcast from the maps' native float32: squaring a deviation for
-            # Ncol (which spans ~1e17-1e21 cm^-2) overflows float32's ~3.4e38
-            # ceiling during std's internal sum-of-squares, silently reporting
-            # inf even though every individual value is finite.
+            # Upcast from float32: Ncol's ~1e17-1e21 range overflows float32
+            # during std's internal squaring, wrongly reporting inf.
             vals = arr[ok].astype(np.float64)
             vals = vals[np.isfinite(vals)]
             if not vals.size:

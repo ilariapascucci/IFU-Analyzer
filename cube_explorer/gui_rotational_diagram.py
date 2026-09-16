@@ -66,9 +66,8 @@ class HitranFetchThread(QThread):
                 v_upper=self.v_upper,
                 v_lower=self.v_lower
             )
-            # fetch_hitran_data catches its own exceptions and reports failure via
-            # fetch_meta rather than raising -- route that to .error, not .finished,
-            # so a real offline/network failure isn't shown as "no lines found".
+            # fetch_hitran_data reports failure via fetch_meta, not by raising --
+            # route that to .error so a real network failure isn't shown as "no lines found".
             if fetch_meta.get('error'):
                 self.error.emit(fetch_meta.get('message', 'HITRAN fetch failed'))
             else:
@@ -92,9 +91,8 @@ class RotationalFitWorker(QThread):
         self.fit_opr = fit_opr
         self.opr_grid = opr_grid
         self.fit2T = fit2T
-        # Default: report 1T only when 2T wasn't requested -- the "1T"/"2T" dropdown is
-        # mutually exclusive, so asking for 2T means 1T's own result isn't wanted (its
-        # cheap curve_fit seed is still used internally either way, just not reported).
+        # Default: report 1T only when 2T wasn't requested -- 1T's cheap
+        # curve_fit seed still runs internally either way, just unreported.
         self.fit1T = (not fit2T) if fit1T is None else fit1T
         self.R = R
         self.dist = dist
@@ -144,10 +142,9 @@ class RotationalFitWorker(QThread):
 
 
 class BatchFluxWorker(QThread):
-    """Background thread for calculate_fluxes_batch's actual fitting -- Qt widgets
-    aren't thread-safe to touch from here, so this only computes; the finished-signal
-    handler applies everything to the table back on the main thread
-    (_apply_batch_flux_group_results)."""
+    """Background thread for calculate_fluxes_batch's fitting -- Qt widgets
+    aren't thread-safe here, so this only computes; _apply_batch_flux_group_results
+    applies everything to the table back on the main thread."""
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
     progress = pyqtSignal(int, int)  # (FITS-file group index, total groups)
@@ -283,8 +280,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         main_layout.addWidget(self.lines_table)
 
         # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux.
-        # Also wires click-and-drag on columns 0 (select) and 9 (Upper Limit?)
-        # to check/uncheck a run of rows at once.
+        # Also drag-checks columns 0 (select) and 9 (Upper Limit?) across rows.
         self._init_sortable_checkbox_table(
             self.lines_table, {1, 3, 4, 5, 6, 7, 8, 10}, self._lines_table_sort_key,
             drag_column={0, 9},
@@ -519,19 +515,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.fit_opr_check.setChecked(False)
         self.fit_opr_check.setEnabled(is_h2)
 
-        # Lines fetched/imported for the previous molecule don't mean anything for
-        # the new one (different wavelengths, A_ul, E_u, isotopologue) -- start
-        # from a clean sheet rather than leave a stale, mismatched table around.
+        # A new molecule means different wavelengths/A_ul/E_u -- start clean
+        # rather than leave the old molecule's stale table around.
         self._clear_loaded_lines()
 
     def _clear_loaded_lines(self):
-        """Discard any fetched/imported lines and reset the lines table/workflow
-        back to its pre-load state (same as before the first Fetch/Import). Also
-        drops any FITS cubes/contaminant catalog loaded for the previous molecule --
-        load_batch_fits_files() appends within one molecule's workflow (so pulling
-        files from another folder doesn't lose earlier ones), but switching molecule
-        is a new workflow, not more files for the old one, so this is where that
-        accumulation should stop and start over."""
+        """Discard fetched/imported lines and drop the FITS cubes/contaminant
+        catalog loaded for the previous molecule -- a molecule switch is a
+        new workflow, not more files for the old one."""
         self.hitran_lines = []
         self.workflow_mode = None
         self.populate_lines_table()
@@ -1051,7 +1042,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 wavelength = csv_row['wavelength']
                 hitran_lines = hitran_cache.get(species, [])
                 
-                # Find matching HITRAN line (within 0.0001 μm = 4 decimal places)
+                # Find matching HITRAN line (within 0.0001 um = 4 decimal places)
                 best_match = None
                 best_diff = float('inf')
                 
@@ -1130,9 +1121,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                      f"disabled (shown in red) until you enter A_ul, E_u, and g_u "
                      f"manually.\n"
             )
-            # Distinguish "genuinely not in HITRAN" from "couldn't reach HITRAN at
-            # all for this species" -- the latter isn't a real zero-match result,
-            # it's an offline/network failure, and saying otherwise is misleading.
+            # Distinguish "genuinely not in HITRAN" from "couldn't reach HITRAN" --
+            # the latter is a network failure, not a real zero-match result.
             fetch_fail_note = (
                 "" if not failed_species
                 else "\nCould not fetch HITRAN data for: " + ", ".join(
@@ -1294,11 +1284,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_fluxes_batch(selected_rows, skipped_rows)
 
     def calculate_fluxes_batch(self, selected_rows, skipped_rows=None):
-        """Lines sharing a covering FITS file are fit together, simultaneously, via
-        compute_line_fluxes_collective. The fitting itself runs in a background
-        BatchFluxWorker (QThread) so the GUI doesn't freeze while it computes --
-        results come back via _on_batch_flux_complete, which applies them to the
-        table on the main thread (Qt widgets aren't thread-safe otherwise)."""
+        """Lines sharing a FITS file are fit together via
+        compute_line_fluxes_collective, in a background BatchFluxWorker so
+        the GUI doesn't freeze; _on_batch_flux_complete applies results."""
 
         loaded_cubes = self.loaded_batch_cubes
 
@@ -1392,10 +1380,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         QMessageBox.critical(self, "Calculation Error", f"Unexpected error calculating fluxes:\n{message}")
 
     def _apply_batch_flux_group_results(self, group):
-        """Apply one FITS-file group's computed fluxes to the table. Main-thread only
-        (Qt widgets) -- called from _on_batch_flux_complete once BatchFluxWorker
-        finishes; this is exactly the per-row logic that used to run inline inside
-        calculate_fluxes_batch's own loop."""
+        """Apply one FITS-file group's computed fluxes to the table.
+        Main-thread only (Qt widgets) -- called from
+        _on_batch_flux_complete once BatchFluxWorker finishes."""
         rows = group["rows"]
         group_results = group["results"]
         wavelength = group["wavelength"]
@@ -1421,13 +1408,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if flux_item:
                 flux_item.setText(f"{flux_integrated:.4e}")
 
-            # Error is always computed now (real curve_fit-covariance error,
-            # regardless of the upper-limit call) -- None only if it was genuinely
-            # uncomputable, not because this line happens to be a upper limit. It
-            # still gets written here either way; sync_flux_error_flag() below is
-            # what actually stashes-and-blanks it for a checked Upper Limit row (and
-            # would restore it if you later uncheck that box), so overriding the
-            # auto-classification always has a real error ready, not nothing.
+            # Error is always the real curve_fit value, written regardless of
+            # upper-limit status; sync_flux_error_flag() stashes/blanks it below.
             error_item = self.lines_table.item(row, 7)
             if error_item:
                 error_item.setText(f"{flux_error:.4e}" if flux_error is not None else "")
@@ -1476,8 +1458,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     r2_item.setBackground(QColor(255, 214, 214) if r_squared < 0.5 else QBrush())
 
             # Stash this line's fit plot data and turn the Fit cell into a real
-            # link -- only once real data exists for it, so it's never a dead
-            # link pointing at nothing.
+            # link, only once real data exists so it's never a dead link.
             if all(result.get(k) is not None for k in ("x_data", "y_data", "baseline", "y_fit")):
                 self._line_fit_plot_data[row] = {
                     "wavelength": wl,
@@ -1494,10 +1475,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     "flux_cgs": result.get("flux_cgs"),
                     "flux_error_cgs": result.get("flux_error_cgs"),
                     "is_upper_limit": result.get("is_upper_limit"),
-                    # Full spectrum this line's fit came from (already loaded in
-                    # this window independently of the main window) -- lets the
-                    # fit dialog show real spectral context around the line
-                    # instead of being confined to the fit's own narrow window.
+                    # Full spectrum this fit came from, so the fit dialog can
+                    # show real context instead of just the fit's own narrow window.
                     "full_wavelength": wavelength,
                     "full_spectrum": spectrum,
                     "bunit": bunit,
@@ -1525,13 +1504,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.show_line_fit(item.row())
 
     def show_line_fit(self, row):
-        """Show the Gaussian fit for one line: spectrum, baseline, fit curve, and the
-        shaded area under the curve -- same visual style as the main window's
-        Multi-Gaussian fit display (visualization.py's plot_gaussian_fit). The
-        background spectrum trace comes from the full wavelength/spectrum arrays this
-        window already loaded independently (not the main window's, which may be
-        showing an unrelated cube) -- gives real spectral context around the line
-        instead of being confined to the fit's own narrow +/-3*sigma window.
+        """Show the Gaussian fit for one line: spectrum, baseline, fit curve,
+        and shaded area, matching the main window's Multi-Gaussian display.
+        Uses this window's own loaded spectrum, not the main window's cube.
         """
         data = self._line_fit_plot_data.get(row)
         if data is None:
@@ -1636,9 +1611,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             ax.legend(loc='upper right', fontsize=8)
             canvas.draw_idle()
 
-        # Wider context: pad by a fixed number of the spectrum's own native sample
-        # spacing rather than a hardcoded wavelength range, so this scales sensibly
-        # across instruments (MIRI vs. NIRSpec have very different um/pixel scales).
+        # Pad by the spectrum's own sample spacing, not a fixed wavelength
+        # range, so this scales across instruments (MIRI vs. NIRSpec differ a lot).
         full_wave = data.get('full_wavelength')
         full_spec = data.get('full_spectrum')
         center = data.get('center') if data.get('center') is not None else float(np.mean(x))
@@ -1657,18 +1631,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             pad = 0.5 * (x.max() - x.min())
             ax.set_xlim(x.min() - pad, x.max() + pad)
 
-        # Marks this row's own fitted center -- with the chunk-wide curve on,
-        # several lines' peaks can appear in one curve, same as the main
-        # window's per-line markers disambiguate a shared multi-Gaussian fit.
+        # Marks this row's own fitted center, since the chunk-wide curve can
+        # show several lines' peaks at once (same as the main window's markers).
         ax.axvline(center, color='darkred', linestyle='--', linewidth=1.5, alpha=0.8, zorder=8)
 
         _draw_fit(chunkwide_checkbox.isChecked())
         chunkwide_checkbox.toggled.connect(_draw_fit)
 
-        # Disable matplotlib's default "+1.703e1"-style offset notation -- with a
-        # narrow x-range far from zero it otherwise shows tick labels like "0.000"
-        # that look like the wavelength axis starts at 0, when it's really an offset
-        # from a corner annotation that's easy to miss.
+        # Disable matplotlib's "+1.703e1"-style offset notation -- otherwise a
+        # narrow x-range shows "0.000"-like ticks that look like they start at 0.
         ax.ticklabel_format(axis='x', useOffset=False, style='plain')
 
         ax.set_xlabel('Wavelength (μm)')
@@ -1818,7 +1789,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 12, source_item)
 
-            # Fit R² (read-only; filled in by Calculate Fluxes, blank for manually-entered flux)
+            # Fit R^2 (read-only; filled in by Calculate Fluxes, blank for manually-entered flux)
             r2_item = QTableWidgetItem("")
             r2_item.setFlags(r2_item.flags() & ~Qt.ItemIsEditable)
             self.lines_table.setItem(row, 13, r2_item)
@@ -1997,11 +1968,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             error_text = error_item.text().strip()
             error_pct_text = pct_item.text().strip()
             if is_upper_limit and not error_text and not error_pct_text:
-                # sync_flux_error_flag() blanks these cells and stashes the previous
-                # value in Qt.UserRole when Upper Limit is checked (the value is still
-                # real, just hidden). Recover it here so it still reaches flux_errors
-                # (upper_limit_1T/upper_limit_2T's hard barrier doesn't use an upper
-                # limit's own error, but it's kept for consistency/possible display).
+                # sync_flux_error_flag() blanks these cells and stashes the real
+                # value in Qt.UserRole when Upper Limit is checked -- recover it here.
                 error_text = (error_item.data(Qt.UserRole) or "").strip()
                 error_pct_text = (pct_item.data(Qt.UserRole) or "").strip()
 
@@ -2125,10 +2093,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         dlg = getattr(self, 'rot_fit_progress', None)
         if dlg is None:
             return
-        # In 2T mode, the "1T" phase is just 2T's own silent seed computation -- label it
-        # as such instead of "Running 1T fit", which would misleadingly suggest a 1T
-        # result the user didn't ask for and won't see reported. Same progress numbers
-        # either way, just different label text.
+        # In 2T mode, the "1T" phase is just 2T's own silent seed -- label it as
+        # such, not "Running 1T fit", which would suggest an unreported 1T result.
         worker = getattr(self, 'rot_fit_worker', None)
         if phase == "1T" and worker is not None and getattr(worker, 'fit2T', False):
             label = "Preparing 2T fit"
@@ -2136,11 +2102,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             label = f"Running {phase} fit"
 
         if total <= 0:
-            # upper_limit_1T/2T send (0, 0) right before nutpie.compile_pymc_model(),
-            # which has no sub-progress hook of its own -- this is usually the
-            # dominant chunk of wall time (~20-50s), so show a busy/indeterminate
-            # bar instead of leaving the dialog looking stalled on the fit's
-            # initial static text for that whole stretch.
+            # upper_limit_1T/2T send (0, 0) before the ~20-50s nutpie compile
+            # step, which has no sub-progress hook -- show a busy bar instead.
             dlg.setRange(0, 0)
             dlg.setLabelText(f"{label}: compiling model (nutpie)...")
             return
@@ -2181,12 +2144,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         QMessageBox.critical(self, "Fitting Error", f"Error during fitting:\n{message}")
 
     def run_rotational_map(self):
-        """Run the same fit at every pixel of the loaded cube(s), 1T, detections only.
-
-        One cube, or several already on the same grid, stitch their spectra
-        per pixel. Several cubes on different grids convolve to the worst
-        resolution and reproject onto one common WCS instead (see
-        create_rotational_diagram_map_multi).
+        """Run the same fit at every pixel of the loaded cube(s), 1T,
+        detections only. Cubes on one grid stitch per pixel; cubes on
+        different grids convolve/reproject onto a common WCS instead.
         """
         cubes = list(self.loaded_batch_cubes)
         if not cubes:
@@ -2259,10 +2219,29 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             dist_pc=dist_pc, r_au=r_au, min_lines=3,
         )
 
-        # Confirm before the run: a cheap, fit-free check -- no region fit, no
-        # plot, nothing that scales with pixel count. What create_rotational_
-        # diagram_map(_multi) computes for its own region-fit cross-check
-        # (shown later in Show Statistics) happens in the worker, not here.
+        # Reuse a cached result if the same cubes/lines/settings produced one.
+        # Stashed since multi-mode nulls self._rot_map_line_table below.
+        cache = getattr(self, "_rot_map_cache", None)
+        cache_key = self._rot_map_cache_key(cubes, line_table, multi_mode, fit_kwargs)
+        self._rot_map_pending_cache_key = cache_key
+        if cache is not None and cache["key"] == cache_key:
+            reply = QMessageBox.question(
+                self, "Cached Results Available",
+                "A map with these same cubes, lines, and settings is already "
+                "cached.\n\n"
+                "Click 'Yes' to reopen the cached results (instant)\n"
+                "Click 'No' to recompute",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if reply == QMessageBox.Yes:
+                self._rot_map_multi_mode = cache["multi_mode"]
+                self._rot_map_cube_arg = cache["cube_arg"]
+                self._rot_map_line_table = cache["line_table"]
+                self._rot_map_fit_kwargs = cache["fit_kwargs"]
+                self._show_rot_map_results(cache["result"])
+                return
+
+        # Confirm before the run: a cheap, fit-free check, nothing that scales
+        # with pixel count. The real region-fit cross-check runs later, in the worker.
         if multi_mode:
             try:
                 plan = convolution_plan(cubes_and_lines)
@@ -2339,11 +2318,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return pairs, None
 
     def _rot_map_gather_lines(self):
-        """Return (line_table, discarded_ul, error).
-
-        line_table holds the checked, non-upper-limit lines' HITRAN dicts.
-        Checked lines also marked Upper Limit? are pulled out into
-        discarded_ul instead -- the per-pixel map doesn't support them.
+        """Return (line_table, discarded_ul, error): line_table holds the
+        checked, non-upper-limit lines; checked lines also marked Upper
+        Limit? go to discarded_ul instead, since the map doesn't support them.
         """
         rows = []
         discarded_ul = []
@@ -2411,16 +2388,54 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         dlg.setValue(current)
         dlg.setLabelText(f"Fitting rotational diagram: {current}/{total} pixels")
 
-    def _on_rot_map_complete(self, result):
-        """Close progress, re-enable the buttons, and show the map results dialog."""
-        dlg = getattr(self, "rot_map_progress", None)
-        if dlg is not None:
-            dlg.close()
-        self.on_line_selected()
+    def _rot_map_cache_key(self, cubes, line_table, multi_mode, fit_kwargs):
+        """Snapshot of everything that determines Run Map's output, so a
+        repeat click with identical inputs can reuse a cached result instead
+        of recomputing.
+
+        Args:
+            cubes (list): Currently loaded CubeData objects
+            line_table (list): Line dicts Run Map would use
+            multi_mode (bool): Whether cubes need convolution/reprojection
+            fit_kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/
+                dist_pc/r_au/min_lines, as built in run_rotational_map
+
+        Returns:
+            key (tuple): Hashable, comparable snapshot
+        """
+        filenames = tuple(getattr(c, "filename", None) for c in cubes)
+        wavelengths = tuple(sorted(round(l["wavelength"], 6) for l in line_table))
+        kwargs_items = []
+        for k in sorted(fit_kwargs):
+            v = fit_kwargs[k]
+            if isinstance(v, np.ndarray):
+                v = tuple(np.round(v, 6).tolist())
+            kwargs_items.append((k, v))
+        return (multi_mode, filenames, wavelengths, tuple(kwargs_items))
+
+    def _show_rot_map_results(self, result):
+        """Build and show the map results dialog for an already-computed result."""
         RotDiagMapResultsDialog(
             result, self._rot_map_cube_arg, self._rot_map_line_table,
             self._rot_map_fit_kwargs, parent=self,
         ).exec_()
+
+    def _on_rot_map_complete(self, result):
+        """Close progress, re-enable the buttons, cache the result so closing
+        the results window doesn't force a recompute, and show it."""
+        dlg = getattr(self, "rot_map_progress", None)
+        if dlg is not None:
+            dlg.close()
+        self.on_line_selected()
+        self._rot_map_cache = {
+            "key": self._rot_map_pending_cache_key,
+            "result": result,
+            "multi_mode": self._rot_map_multi_mode,
+            "cube_arg": self._rot_map_cube_arg,
+            "line_table": self._rot_map_line_table,
+            "fit_kwargs": self._rot_map_fit_kwargs,
+        }
+        self._show_rot_map_results(result)
 
     def _on_rot_map_error(self, message):
         """Close progress, re-enable the buttons, and report the error."""
@@ -2530,13 +2545,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
             det = ~is_ul
 
-            # Detections — black circles with error bars
+            # Detections -- black circles with error bars
             if np.any(det):
                 ax.errorbar(E_arr[det], y_arr_log10[det], yerr=y_err_log10[det],
                             fmt='o', color='black', markersize=6, capsize=4, zorder=3,
                             label='Detection')
 
-            # Upper limits — red downward arrows, no error bar
+            # Upper limits -- red downward arrows, no error bar
             if np.any(is_ul):
                 ax.errorbar(E_arr[is_ul], y_arr_log10[is_ul], yerr=0.15,
                             fmt='v', color='red', markersize=8,
