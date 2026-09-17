@@ -22,16 +22,18 @@ import astropy.units as u  # used by: build_target_wcs_for_batch
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 
-# ==============================================================================
-# RESOLUTION MATCHING HELPERS  (v3, clean implementation)
-# ==============================================================================
+# --- Resolution matching helpers (v3, clean implementation) ---
 
 def _get_pixel_size_arcsec(header):
     """Return the celestial pixel scale (arcsec/pixel) from a FITS header.
+    Uses proj_plane_pixel_scales so rotated CD/PC matrices (e.g. JWST IFU)
+    are handled correctly; falls back to raw CDELT if the WCS fails.
 
-    Uses ``astropy.wcs.utils.proj_plane_pixel_scales`` so that rotated CD
-    / PC matrices (e.g. JWST IFU) are handled correctly.  Falls back to
-    raw CDELT keywords if the WCS cannot be built.
+    Args:
+        header (astropy.io.fits.Header): FITS header to read the WCS from.
+
+    Returns:
+        scale (float): Pixel scale in arcsec/pixel, or None if not found.
     """
     try:
         w = WCS(header)
@@ -49,7 +51,14 @@ def _get_pixel_size_arcsec(header):
 
 
 def _make_2d_wcs(header):
-    """Build a clean 2-D celestial WCS from a header (drops trivial axes)."""
+    """Build a clean 2-D celestial WCS from a header (drops trivial axes).
+
+    Args:
+        header (astropy.io.fits.Header): FITS header to build the WCS from.
+
+    Returns:
+        wcs (astropy.wcs.WCS): The 2D WCS, or None if it could not be built.
+    """
     try:
         w = WCS(header)
         if w.pixel_n_dim > 2 and w.has_celestial:
@@ -60,31 +69,19 @@ def _make_2d_wcs(header):
     except Exception:
         return None
     
-# ----------------------------------------------------------------------
-# 2. Gaussian convolution -- pure astropy, NaN-aware, flux-preserving
-# ----------------------------------------------------------------------
+# --- Gaussian convolution: pure astropy, NaN-aware, flux-preserving ---
 
 def gaussian_convolve_match(image, sigma_pix):
-    """
-    Smooth ``image`` with a Gaussian of width ``sigma_pix`` (in pixels)
-    using ``astropy.convolution.convolve_fft``.
+    """Smooth `image` with a Gaussian of width `sigma_pix` (pixels), NaN-aware
+    and flux-preserving. Returns a new array (image is not modified); a
+    no-op copy is returned when sigma_pix <= 0 (scales already match).
 
-    * NaN pixels in the input are interpolated through during the
-      convolution and then put back as NaN (the convolution itself sees
-      a continuous image, so flux from real pixels does not "leak" into
-      NaN regions in the output).
+    Args:
+        image (numpy.ndarray): 2D image to smooth.
+        sigma_pix (float): Gaussian sigma in pixels; <=0.05 is a no-op.
 
-    * After convolution, total flux over the originally-finite pixel
-      mask is renormalised to match the input total.  This compensates
-      for kernel-spill across the image edge -- without it, a Gaussian
-      whose tails reach beyond the array boundary would silently lose
-      a fraction of the flux.
-
-    Returns a new array; ``image`` is not modified.
-
-    If ``sigma_pix <= 0`` (the two scales already match), this returns
-    ``image.copy()`` unchanged -- the function is a no-op in that case,
-    so calling it repeatedly on a same-resolution pair is idempotent.
+    Returns:
+        out (numpy.ndarray): The smoothed image, same shape as image.
     """
     image = np.asarray(image, dtype=float)
     if not np.isfinite(sigma_pix) or sigma_pix <= 0.05:
@@ -95,10 +92,8 @@ def gaussian_convolve_match(image, sigma_pix):
     finite_mask = np.isfinite(image)
     sum_in = float(np.nansum(image[finite_mask]))
 
-    # nan_treatment='interpolate': during convolution NaNs are replaced
-    # by the local kernel-weighted mean of finite neighbours, so the
-    # convolution computes correctly across NaN gaps.
-    # preserve_nan=True: original NaN positions are restored at the end.
+    # NaNs are interpolated from finite neighbours during convolution, then
+    # restored (preserve_nan) so flux never leaks into NaN regions.
     out = convolve_fft(
         image, kernel,
         nan_treatment='interpolate',
@@ -111,6 +106,8 @@ def gaussian_convolve_match(image, sigma_pix):
     out = np.array(out, dtype=float)
     out = np.where(finite_mask, out, np.nan)
     sum_out = float(np.nansum(out[finite_mask]))
+    # Renormalize to the input's total flux: this compensates for kernel-spill
+    # across the image edge, which would otherwise silently lose some flux.
     if sum_in != 0.0 and sum_out != 0.0:
         scale = sum_in / sum_out
         if 0.5 < scale < 2.0:
@@ -119,16 +116,19 @@ def gaussian_convolve_match(image, sigma_pix):
     return out
 
 
-# ----------------------------------------------------------------------
-# 3. Building output WCS at the worst pixel scale
-# ----------------------------------------------------------------------
+# --- Building output WCS at the worst pixel scale ---
 
 def _decompose_cd(wcs):
-    """Return (rotation_unit_vectors, x_scale_deg, y_scale_deg) for a WCS.
+    """Split a WCS's CD matrix into rotation unit vectors and per-axis
+    scales, so a new CD matrix can reuse the rotation at a different
+    (coarser) pixel scale.
 
-    We split the CD matrix into rotation columns (unit vectors) and the
-    per-axis scales.  This lets us re-build a CD matrix with the same
-    ROTATION but a DIFFERENT (coarser) pixel scale.
+    Args:
+        wcs (astropy.wcs.WCS): WCS whose CD matrix to decompose.
+
+    Returns:
+        result (tuple): (ux, uy, x_scale_deg, y_scale_deg) -- rotation unit
+            vectors and per-axis pixel scales in degrees.
     """
     try:
         cd = wcs.pixel_scale_matrix
@@ -144,16 +144,17 @@ def _decompose_cd(wcs):
 
 
 def build_target_wcs_for_pair(fine_wcs, fine_shape, target_pix_arcsec):
-    """
-    Output WCS for a single fine image being matched to a coarser scale.
+    """Output WCS for a single fine image matched to a coarser scale: same
+    celestial centre and rotation as the fine image, at target_pix_arcsec,
+    sized to fully contain the fine image.
 
-    The output WCS:
-      - has the same celestial CENTRE as the fine image,
-      - inherits the fine image's ROTATION,
-      - uses ``target_pix_arcsec`` as its pixel scale,
-      - has shape large enough to fully contain the fine image.
+    Args:
+        fine_wcs (astropy.wcs.WCS): WCS of the higher-resolution image.
+        fine_shape (tuple): (ny, nx) shape of the higher-resolution image.
+        target_pix_arcsec (float): Output pixel scale in arcsec/pixel.
 
-    Returns ``(out_wcs, (ny, nx))``.
+    Returns:
+        result (tuple): (out_wcs, (ny, nx)) -- the output WCS and shape.
     """
     ny_in, nx_in = fine_shape
     cx_in = (nx_in - 1) / 2.0
@@ -183,11 +184,15 @@ def build_target_wcs_for_pair(fine_wcs, fine_shape, target_pix_arcsec):
 
 
 def build_target_wcs_for_batch(input_wcss_and_shapes, target_pix_arcsec):
-    """
-    Output WCS that covers the UNION of every input image's footprint
-    at the coarse target scale, oriented to match the LARGEST-AREA input.
+    """Output WCS covering the union of every input image's footprint at
+    the coarse target scale, oriented to match the largest-area input.
 
-    Returns ``(out_wcs, (ny, nx))``.
+    Args:
+        input_wcss_and_shapes (list): (wcs, shape) pairs for every input.
+        target_pix_arcsec (float): Output pixel scale in arcsec/pixel.
+
+    Returns:
+        result (tuple): (out_wcs, (ny, nx)) -- the output WCS and shape.
     """
     inputs = list(input_wcss_and_shapes)
 
@@ -254,12 +259,18 @@ def build_target_wcs_for_batch(input_wcss_and_shapes, target_pix_arcsec):
     return out, (ny_out, nx_out)
 
 
-# ----------------------------------------------------------------------
-# 4. Flux-conserving exact reprojection (reproject_exact equivalent)
-# ----------------------------------------------------------------------
+# --- Flux-conserving exact reprojection (reproject_exact equivalent) ---
 
 def _polygon_area(xs, ys):
-    """Shoelace area (always non-negative)."""
+    """Shoelace area (always non-negative).
+
+    Args:
+        xs (numpy.ndarray): Polygon vertex x coordinates.
+        ys (numpy.ndarray): Polygon vertex y coordinates.
+
+    Returns:
+        area (float): Polygon area.
+    """
     n = len(xs)
     if n < 3:
         return 0.0
@@ -271,7 +282,15 @@ def _polygon_area(xs, ys):
 
 
 def _ensure_ccw(xs, ys):
-    """Force a polygon to be counter-clockwise."""
+    """Force a polygon to be counter-clockwise.
+
+    Args:
+        xs (list): Polygon vertex x coordinates.
+        ys (list): Polygon vertex y coordinates.
+
+    Returns:
+        coords (tuple): (xs, ys) in counter-clockwise order.
+    """
     n = len(xs)
     s = 0.0
     for i in range(n):
@@ -283,7 +302,17 @@ def _ensure_ccw(xs, ys):
 
 
 def _sutherland_hodgman(subj_x, subj_y, clip_x, clip_y):
-    """Clip the (CCW) subject polygon by the (CCW) clip polygon."""
+    """Clip the (CCW) subject polygon by the (CCW) clip polygon.
+
+    Args:
+        subj_x (list): Subject polygon vertex x coordinates.
+        subj_y (list): Subject polygon vertex y coordinates.
+        clip_x (list): Clip polygon vertex x coordinates.
+        clip_y (list): Clip polygon vertex y coordinates.
+
+    Returns:
+        coords (tuple): (out_x, out_y) vertices of the clipped polygon.
+    """
     out_x = list(subj_x)
     out_y = list(subj_y)
     n_clip = len(clip_x)
@@ -328,7 +357,17 @@ def _sutherland_hodgman(subj_x, subj_y, clip_x, clip_y):
 
 def _project_to_tan(ra_deg, dec_deg, ra0_deg, dec0_deg):
     """Gnomonic (TAN) projection of (ra, dec) onto a tangent plane at
-    (ra0, dec0).  Inputs/outputs are arrays in degrees / radians."""
+    (ra0, dec0). Inputs are degrees; outputs are tangent-plane radians.
+
+    Args:
+        ra_deg (numpy.ndarray): RA of the points to project, in degrees.
+        dec_deg (numpy.ndarray): Dec of the points to project, in degrees.
+        ra0_deg (float): RA of the tangent point, in degrees.
+        dec0_deg (float): Dec of the tangent point, in degrees.
+
+    Returns:
+        coords (tuple): (xi, eta) tangent-plane coordinates, in radians.
+    """
     ra = np.deg2rad(ra_deg)
     dec = np.deg2rad(dec_deg)
     ra0 = np.deg2rad(ra0_deg)
@@ -343,32 +382,22 @@ def _project_to_tan(ra_deg, dec_deg, ra0_deg, dec0_deg):
 
 
 def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
-    """
-    Flux-conserving reprojection by spherical-polygon intersection.
+    """Flux-conserving reprojection by spherical-polygon intersection; the
+    same algorithm as reproject.reproject_exact, self-contained with no
+    external reproject dependency. See inline comments for the per-pixel steps.
 
-    Implements the same algorithm as ``reproject.reproject_exact`` from
-    the reproject package -- but as a self-contained function with no
-    external reproject dependency.
+    Args:
+        image (numpy.ndarray): 2D input image.
+        src_wcs (astropy.wcs.WCS): WCS of the input image.
+        dst_wcs (astropy.wcs.WCS): WCS of the output grid.
+        dst_shape (tuple): (ny, nx) shape of the output grid.
+        conserve_flux (bool): True for flux mode (conserves the sum);
+            False (default) for surface-brightness mode.
 
-    For every output pixel:
-      1. Project its 4 corners to sky.
-      2. Build a local TAN tangent plane at its centre.
-      3. Find input pixels whose centres lie close to the output pixel
-         (within a small bounding-box margin).
-      4. For each candidate input pixel: project its 4 corners into the
-         same tangent plane, clip against the output pixel polygon,
-         compute the overlap area.
-      5. Surface-brightness mode (default):
-            output = Σ(input * overlap) / Σ(overlap)
-         Flux mode:
-            output = Σ(input * overlap / input_full_area)
-         The latter conserves the simple sum (Σ output == Σ input) for
-         per-pixel-flux units (erg/s/cm², counts, ...).
-
-    Returns (out, coverage, area_acc):
-       out        - reprojected image (NaN where no input overlaps)
-       coverage   - fractional output-pixel coverage in [0, 1]
-       area_acc   - absolute overlap area per output pixel, in steradians
+    Returns:
+        result (tuple): (out, coverage, area_acc) -- reprojected image (NaN
+            where nothing overlaps), fractional coverage in [0, 1], and
+            absolute overlap area per output pixel in steradians.
     """
     image = np.asarray(image, dtype=float)
     ny_in, nx_in = image.shape
@@ -424,6 +453,8 @@ def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
     area_acc = np.zeros(dst_shape, dtype=float)
     out_pix_area = np.zeros(dst_shape, dtype=float)
 
+    # For each output pixel: project its corners to sky, build a local TAN
+    # plane at its centre, then clip overlapping input-pixel polygons against it.
     for j in range(ny_out):
         # Candidate input pixels are those whose y-in-output is within margin of j
         i_lo = np.searchsorted(flat_y, j - margin, side='left')
@@ -475,6 +506,8 @@ def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
                 if a <= 0.0:
                     continue
                 if conserve_flux:
+                    # Flux mode: weight by area/full-input-area so the plain
+                    # sum is conserved (per-pixel-flux units like erg/s/cm^2).
                     in_full = _polygon_area(ix_l, iy_l)
                     if in_full <= 0:
                         continue
@@ -520,17 +553,18 @@ def _nan_border_bounds(valid_mask):
     return r0, r1, c0, c1
 
 
-# ----------------------------------------------------------------------
-# 5. BUNIT helpers (unit-aware flux audit and per-pixel-flux detection)
-# ----------------------------------------------------------------------
+# --- BUNIT helpers (unit-aware flux audit and per-pixel-flux detection) ---
 
 def _is_per_pixel_flux_unit(bunit):
     """Heuristic: does this BUNIT indicate per-pixel total flux (vs SB)?
+    Per-pixel units (erg/s/cm^2, counts, DN, electrons, plain Jy) need
+    conserve_flux=True in reproject_exact; SB units (MJy/sr, Jy/beam) don't.
 
-    Per-pixel flux units (erg/s/cm², counts, DN, electrons, plain Jy)
-    require ``conserve_flux=True`` in :func:`reproject_exact` so that
-    Σ output == Σ input.  Surface-brightness units (MJy/sr, Jy/beam,
-    Jy/arcsec², ...) need the default SB mode.
+    Args:
+        bunit (str): FITS BUNIT header value, or None.
+
+    Returns:
+        is_flux (bool): True if bunit looks like a per-pixel flux unit.
     """
     if bunit is None:
         return False
@@ -552,25 +586,23 @@ def _is_per_pixel_flux_unit(bunit):
     return any(s == m or s.endswith(m) for m in per_pix_markers)
 
 
-# ----------------------------------------------------------------------
-# 5b. WCS footprint overlap check
-# ----------------------------------------------------------------------
+# --- WCS footprint overlap check ---
 
 def _wcs_footprints_overlap(wcs1, shape1, wcs2, shape2):
-    """Return True if the two image footprints share ANY sky coverage.
+    """Return True if the two image footprints share any sky coverage.
+    Projects each image's corners and centre into the other's pixel frame
+    (covers partial overlap, containment, and rotated/thin-strip cases).
 
-    Projects the corners + centre of each image into the other image's
-    pixel frame.  If at least one sample point lands inside the other
-    image's pixel bounds the two footprints overlap.
+    Args:
+        wcs1 (astropy.wcs.WCS): WCS of the first image.
+        shape1 (tuple): (ny, nx) shape of the first image.
+        wcs2 (astropy.wcs.WCS): WCS of the second image.
+        shape2 (tuple): (ny, nx) shape of the second image.
 
-    The check covers four cases correctly:
-      * Partial overlap (corners cross the boundary)
-      * One image entirely inside the other (inner corners land inside)
-      * Thin-strip / rotated overlaps (extra midpoint samples help)
-      * Zero overlap (all samples land outside → returns False)
-
-    Returns True on any exception so the caller is never blocked by a
-    WCS that cannot be evaluated.
+    Returns:
+        overlap (bool): True if any sample point falls inside the other
+            image; also True on any exception, so a WCS that cannot be
+            evaluated never blocks the caller.
     """
     try:
         ny1, nx1 = shape1
@@ -608,35 +640,40 @@ def _wcs_footprints_overlap(wcs1, shape1, wcs2, shape2):
 
         return False
     except Exception:
-        # Cannot evaluate the WCS — assume overlap so the caller is not
-        # blocked by a degenerate header; the reprojection will produce
-        # an all-NaN result if there really is no overlap.
+        # Cannot evaluate the WCS: assume overlap so a degenerate header
+        # never blocks the caller; a real non-overlap yields all-NaN output.
         return True
 
 
 def _log_norm_vmin(data):
-    """Return the ``vmin`` to use for a ``LogNorm`` over ``data``.
+    """Return the `vmin` to use for a LogNorm over `data`: the smallest
+    strictly-positive finite value, so the log stretch spans the decades
+    the data actually occupies instead of an arbitrary fixed floor.
 
-    Uses the smallest strictly-positive finite value so the log stretch
-    spans the decades the data actually occupies, instead of an arbitrary
-    floor like ``1e-10`` (which — if the true positive minimum is much
-    higher — wastes most of the color range on values that don't exist
-    and washes out the display). Falls back to ``1e-5`` when there is no
-    positive data at all.
+    Args:
+        data (numpy.ndarray): Data array the LogNorm will be applied to.
+
+    Returns:
+        vmin (float): Smallest positive finite value, or 1e-5 if none.
     """
     finite = data[np.isfinite(data)]
     positive = finite[finite > 0]
     return float(np.nanmin(positive)) if positive.size else 1e-5
 
 
-# ----------------------------------------------------------------------
-# 6. Backwards-compatibility aliases for the rest of the file
-# ----------------------------------------------------------------------
-# The GUI code calls into these names; keep them all pointing at the new
-# clean implementation.
+# --- Backwards-compatibility aliases: the GUI code calls these names ---
 
 def _nan_safe_gaussian_filter(image, sigma=None, sigma_pix=None):
-    """Backwards-compatible alias accepting either keyword name."""
+    """Backwards-compatible alias accepting either keyword name.
+
+    Args:
+        image (numpy.ndarray): 2D image to smooth.
+        sigma (float): Gaussian sigma in pixels (legacy keyword).
+        sigma_pix (float): Gaussian sigma in pixels (current keyword).
+
+    Returns:
+        out (numpy.ndarray): The smoothed image.
+    """
     if sigma_pix is None:
         sigma_pix = sigma
     return gaussian_convolve_match(image, sigma_pix=sigma_pix)
@@ -649,18 +686,56 @@ _reproject_exact_polygon = reproject_exact
 
 def _reproject_exact_flux(image, src_wcs, dst_wcs, dst_shape, subgrid=None,
                           conserve_flux=False):
+    """Backwards-compatible alias for reproject_exact dropping area_acc.
+
+    Args:
+        image (numpy.ndarray): 2D input image.
+        src_wcs (astropy.wcs.WCS): WCS of the input image.
+        dst_wcs (astropy.wcs.WCS): WCS of the output grid.
+        dst_shape (tuple): (ny, nx) shape of the output grid.
+        subgrid: Unused; kept for backward compatibility.
+        conserve_flux (bool): True for flux mode, False for SB mode.
+
+    Returns:
+        result (tuple): (out, coverage) from reproject_exact.
+    """
     out, fp, _ = reproject_exact(image, src_wcs, dst_wcs, dst_shape,
                                  conserve_flux=conserve_flux)
     return out, fp
 
 
 def _reproject_wcs_to_wcs(image, src_wcs, dst_wcs, dst_shape, order=1):
+    """Backwards-compatible alias for reproject_exact in surface-brightness mode.
+
+    Args:
+        image (numpy.ndarray): 2D input image.
+        src_wcs (astropy.wcs.WCS): WCS of the input image.
+        dst_wcs (astropy.wcs.WCS): WCS of the output grid.
+        dst_shape (tuple): (ny, nx) shape of the output grid.
+        order: Unused; kept for backward compatibility.
+
+    Returns:
+        result (tuple): (out, coverage) from reproject_exact.
+    """
     out, fp, _ = reproject_exact(image, src_wcs, dst_wcs, dst_shape)
     return out, fp
 
 
 def _reproject_flux_conserving(image, src_wcs, dst_wcs, dst_shape,
                                conserve_flux=False, subgrid=None):
+    """Backwards-compatible alias for reproject_exact dropping area_acc.
+
+    Args:
+        image (numpy.ndarray): 2D input image.
+        src_wcs (astropy.wcs.WCS): WCS of the input image.
+        dst_wcs (astropy.wcs.WCS): WCS of the output grid.
+        dst_shape (tuple): (ny, nx) shape of the output grid.
+        conserve_flux (bool): True for flux mode, False for SB mode.
+        subgrid: Unused; kept for backward compatibility.
+
+    Returns:
+        result (tuple): (out, coverage) from reproject_exact.
+    """
     out, fp, _ = reproject_exact(image, src_wcs, dst_wcs, dst_shape,
                                  conserve_flux=conserve_flux)
     return out, fp

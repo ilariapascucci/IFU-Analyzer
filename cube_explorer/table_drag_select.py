@@ -60,7 +60,7 @@ class CheckboxColumnDragSelect(QObject):
             handled (bool): True to stop this event from propagating further.
         """
         # A mouse event can stay queued past its window's close -- by the time
-        # Qt delivers it, the table's C++ object may already be gone.
+        # Qt delivers it, the table's C++ object is sometimes already gone.
         if sip.isdeleted(self.table):
             return False
         if obj is not self.table.viewport():

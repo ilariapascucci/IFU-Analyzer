@@ -282,10 +282,9 @@ class CubeData:
 
     def export_region_cube(self, mask, output_path):
         """
-        Write a copy of this cube to output_path, with every spaxel outside
-        mask set to NaN. Frame size and WCS are unchanged, so the file loads
-        back through the normal loader exactly like any other cube, and a
-        plain nansum over it reduces to the region's own summed spectrum.
+        Write a copy of this cube to output_path, with every spaxel outside mask
+        set to NaN. Frame size and WCS stay unchanged, so the file loads back
+        through the normal loader and a plain nansum reduces to the region's spectrum.
 
         Args:
             mask (array): Boolean mask, same spatial size as the cube. True keeps a pixel

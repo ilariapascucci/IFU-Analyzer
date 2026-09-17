@@ -19,9 +19,14 @@ class GuiFluxMapMixin:
     """
 
     def _extract_flux_map(self):
-        """
-        Extract rovibrational flux from entire cube.
-        Includes validation checks and preview before processing.
+        """Extract rovibrational flux from entire cube. Includes validation
+        checks and preview before processing.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         if not hasattr(self, 'cube_data') or self.cube_data is None or self.cube_data.cube is None:
             QMessageBox.warning(self, "No Data", "Load a FITS cube first")
@@ -99,15 +104,8 @@ class GuiFluxMapMixin:
                     results_dialog.exec_()
                     return
         
-        # Source of truth is self.plotted_lines -- exactly what the Lines dialog (species_dialog)
-        # currently has checked, the same list the main spectrum plot and Multi-Gaussian already
-        # use. Previously this read self.hitran_lines (the *entire* fetched/loaded catalog, e.g.
-        # all 183 lines from a wide HITRAN query) minus flux_map_excluded_wavelengths (only ever
-        # populated by individually clicking a line marker on the plot, never by the Lines
-        # dialog's checkboxes) -- so deselecting lines in the Lines dialog had no effect here at
-        # all, and a separate, unrelated proximity-clustering pass (_filter_co_flux_lines) is
-        # what actually decided the count shown in the preview. Both are gone now: whatever's
-        # checked in the Lines dialog is what gets fit, full stop, mirroring Multi-Gaussian.
+        # Source of truth is self.plotted_lines: exactly what's checked in the
+        # Lines dialog, mirroring Multi-Gaussian (previously ignored checkbox state).
         if not getattr(self, 'plotted_lines', None):
             QMessageBox.warning(self, "No Lines Selected", "Fetch/load lines and select them in the Lines dialog first.")
             return
@@ -116,6 +114,14 @@ class GuiFluxMapMixin:
         contam_rows = [r for r in self.plotted_lines if r.get('source') == 'Contaminant']
 
         def _in_range(row):
+            """Check whether a line row's wavelength falls in [wave_min, wave_max].
+
+            Args:
+                row (dict): A line row, as used throughout the Lines dialog.
+
+            Returns:
+                in_range (bool): True if the row's wavelength is in range.
+            """
             wave = SpeciesDialog.get_row_wavelength(row)
             return wave is not None and wave_min <= float(wave) <= wave_max
 
@@ -129,8 +135,8 @@ class GuiFluxMapMixin:
         cube_shape = self.cube_data.cube.shape
         spectrum_wave, _ = extract_units(self.cube_data.wavelength)
 
-        # Preview the brightest pixel within the fit range rather than the cube's geometric
-        # center, which may have little or no target-line signal
+        # Preview the brightest pixel within the fit range rather than the cube's
+        # geometric center, which can have little or no target-line signal.
         wave_mask = (spectrum_wave >= wave_min) & (spectrum_wave <= wave_max)
         preview_y, preview_x = cube_shape[1] // 2, cube_shape[2] // 2
         if np.any(wave_mask):
@@ -145,18 +151,24 @@ class GuiFluxMapMixin:
         if confirmation != QMessageBox.Yes:
             return
         
-        # Capped at 4, not higher: measured directly on this workload (many small,
-        # independent per-pixel curve_fit calls) -- above 4 concurrent threads, throughput
-        # gets *worse*, not better (BLAS-internal threading inside each curve_fit call
-        # contends with the outer ThreadPoolExecutor threads for the same cores).
+        # Capped at 4: measured on this workload, more threads make it worse
+        # (BLAS-internal threading contends with the outer ThreadPoolExecutor).
         try: n_jobs = min(os.cpu_count() or 4, 4)
         except Exception: n_jobs = 4
         
-        # Same filtered_lines/contam_rows computed above (and already shown in the preview) --
-        # converted to the 'line_wave_um'/'species' DataFrame shape find_lines()/fit_glines()
-        # expect. No species override here: unlike the old hitran_df path, this never force-
-        # labels every row 'CO' -- Flux Map fits whatever's actually selected, any species.
+        # Converts filtered_lines/contam_rows to the DataFrame shape find_lines()/
+        # fit_glines() expect; no species override, unlike the old hitran_df path.
         def _rows_to_catalog(rows):
+            """Convert line rows to the 'line_wave_um'/'species' DataFrame
+            shape find_lines()/fit_glines() expect.
+
+            Args:
+                rows (list): Line rows to convert.
+
+            Returns:
+                df (pandas.DataFrame): Rows with the wavelength column
+                    renamed to 'line_wave_um'.
+            """
             if not rows:
                 return pd.DataFrame(columns=['line_wave_um', 'species'])
             df = pd.DataFrame(rows)
@@ -188,8 +200,20 @@ class GuiFluxMapMixin:
         self.flux_map_worker.start()
     
     def _show_flux_map_confirmation(self, lines, spectrum_wave, spectrum_flux, pixel_x, pixel_y):
-        # Flux Map always continuum-subtracts every pixel (with default or custom
-        # parameters, chosen in the popup before this preview), so the preview should too
+        """Preview the brightest in-range pixel's continuum-subtracted
+        spectrum and line positions, and confirm before running the map.
+
+        Args:
+            lines (list): Filtered target-line rows to mark on the preview.
+            spectrum_wave (numpy.ndarray): Wavelength array for the preview pixel.
+            spectrum_flux (numpy.ndarray): Flux array for the preview pixel.
+            pixel_x (int): Preview pixel's x coordinate.
+            pixel_y (int): Preview pixel's y coordinate.
+
+        Returns:
+            reply: QMessageBox.Yes if the user chose to proceed, else another value.
+        """
+        # Flux Map always continuum-subtracts every pixel, so the preview does too.
         preview_flux = spectrum_flux.copy()
         continuum = None
         try:
@@ -198,9 +222,8 @@ class GuiFluxMapMixin:
                 preview_flux = preview_flux - continuum
         except Exception: pass
 
-        # Same species-label logic as FluxMapResultsDialog._species_label -- assumes a
-        # single target species per run, so this is just the first non-empty 'species'
-        # value seen, with 'Target' as a generic fallback.
+        # Same species-label logic as FluxMapResultsDialog._species_label:
+        # first non-empty 'species' value seen, 'Target' as the fallback.
         species_label = next(
             (s for l in lines if (s := str(l.get('species', '')).strip())), 'Target'
         )
@@ -215,9 +238,8 @@ class GuiFluxMapMixin:
 
         fig = Figure(figsize=(10, 4), dpi=100)
         ax = fig.add_subplot(111)
-        # Raw spectrum + the fitted continuum drawn on top (same style as the pixel-inspect
-        # dialog) -- lets you judge whether the continuum fit itself looks right before
-        # committing to the full extraction, which the continuum-subtracted view alone can't show.
+        # Raw spectrum + fitted continuum (pixel-inspect style) lets you judge
+        # the continuum fit before committing to the full extraction.
         ax.plot(spectrum_wave, spectrum_flux, 'k-', linewidth=1.2, label='Spectrum', alpha=0.8)
         if continuum is not None and not np.all(np.isnan(continuum)):
             ax.plot(spectrum_wave, continuum, color='orange', linestyle='--', linewidth=1.8,
@@ -266,11 +288,28 @@ class GuiFluxMapMixin:
         return QMessageBox.Yes if dlg.exec_() == QDialog.Accepted else QMessageBox.No
     
     def _update_flux_map_progress(self, current, total):
+        """Update the flux map progress dialog.
+
+        Args:
+            current (int): Pixels extracted so far.
+            total (int): Total pixels to extract.
+
+        Returns:
+            None
+        """
         self.flux_map_progress.setMaximum(total)
         self.flux_map_progress.setValue(current)
         self.flux_map_progress.setLabelText(f"Extracting flux: {current}/{total} pixels")
     
     def _on_flux_map_complete(self, result):
+        """Cache the completed flux map and show its results dialog.
+
+        Args:
+            result (dict): Flux map results from FluxMapWorker.
+
+        Returns:
+            None
+        """
         self.flux_map_progress.close()
         self.flux_map_result_cache = result
         # Snapshot of what was actually selected (self.plotted_lines), not the full fetched
@@ -296,11 +335,27 @@ class GuiFluxMapMixin:
         results_dialog.exec_()
     
     def _on_flux_map_error(self, error_msg):
+        """Show a failed (or cancelled) flux map extraction's message.
+
+        Args:
+            error_msg (str): Error message from FluxMapWorker.
+
+        Returns:
+            None
+        """
         self.flux_map_progress.close()
         if "cancelled" not in error_msg.lower(): QMessageBox.critical(self, "Extraction Error", error_msg)
         else: QMessageBox.information(self, "Extraction Cancelled", "Flux extraction was cancelled")
-    
+
     def _cancel_flux_map_extraction(self):
+        """Request cancellation of the running flux map extraction.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if hasattr(self, 'flux_map_worker') and self.flux_map_worker:
             self.flux_map_worker.request_cancel()
             self.flux_map_progress.setLabelText("Cancelling extraction...")

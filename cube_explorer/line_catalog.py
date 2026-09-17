@@ -13,9 +13,14 @@ from astropy.io import ascii
 
 # -------------------- Helper Functions --------------------
 def _extract_wavelength_value(wavelength):
-    """
-    Extract numeric value from wavelength Quantity or return raw value.
+    """Extract numeric value from wavelength Quantity or return raw value.
     Allows division operations to work with both Quantity and raw arrays.
+
+    Args:
+        wavelength: Quantity, scalar, or array.
+
+    Returns:
+        value: Numeric value(s) with units stripped if Quantity.
     """
     if isinstance(wavelength, Quantity):
         return wavelength.value
@@ -57,10 +62,15 @@ _ISO_SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 
 
 def format_isotopologue_name(iso_name):
-    """
-    Convert a HITRAN/HAPI isotopologue formula (e.g. '(13C)(16O)') into a
+    """Convert a HITRAN/HAPI isotopologue formula (e.g. '(13C)(16O)') into a
     readable isotope-labeled formula with mass numbers as superscripts and
-    atom counts as subscripts (e.g. '¹³C¹⁶O').
+    atom counts as subscripts.
+
+    Args:
+        iso_name (str): Raw HITRAN/HAPI isotopologue formula, or falsy.
+
+    Returns:
+        name (str): Formatted formula, or '' if iso_name is falsy.
     """
     if not iso_name:
         return ""
@@ -75,10 +85,16 @@ def format_isotopologue_name(iso_name):
 
 # -------------------- Species Normalization --------------------
 def normalize_species_input(user_input):
-    """
-    Converts various species input formats into standardized bracketed notation.
-    Handles space-separated (Fe II), concatenated (FeII), numeric (Fe2), and 
-    already-bracketed formats.
+    """Converts various species input formats into standardized bracketed
+    notation. Handles space-separated (Fe II), concatenated (FeII),
+    numeric (Fe2), and already-bracketed formats.
+
+    Args:
+        user_input (str): Raw species text typed by the user.
+
+    Returns:
+        species (str): Standardized bracketed notation (e.g. '[Fe II]'),
+            or user_input unchanged if it doesn't match a known pattern.
     """
     if not user_input:
         return user_input
@@ -139,10 +155,19 @@ def normalize_species_input(user_input):
 
 # -------------------- Local Line Filter --------------------
 def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=None):
-    """
-    Parse a local spectral line list and return entries within wavelength range.
-    If species is None or empty, return ALL lines in range.
-    Otherwise perform case-insensitive exact or bracketed element matching.
+    """Parse a local spectral line list and return entries within a
+    wavelength range, optionally filtered by species (case-insensitive
+    exact or bracketed element match).
+
+    Args:
+        file_path (str): Path to the local line-list text file.
+        wavelength_min (float): Minimum wavelength to keep.
+        wavelength_max (float): Maximum wavelength to keep.
+        species (str): Species to filter to, or None/'' for all lines.
+
+    Returns:
+        result (tuple): (data_rows, all_species) -- matching line entries
+            and a dict of every species seen in range.
     """
     if not os.path.exists(file_path):
         print(f"Error: File '{file_path}' not found.")
@@ -250,12 +275,9 @@ _hitran_write_dir = None  # directory HAPI writes a fresh fetch() into
 
 
 def _hitran_init():
-    """
-    Prepare HAPI's local database without loading any table.
-
-    db_begin() would parse every .data file in both cache directories; instead
-    tables load one at a time in _load_one_hitran_table(). This only makes the
-    directories and points HAPI's write target at the on-demand cache.
+    """Prepare HAPI's local database without loading any table. db_begin()
+    would parse every .data file in both cache directories; instead tables
+    load one at a time in _load_one_hitran_table().
 
     Args:
         None
@@ -275,12 +297,9 @@ def _hitran_init():
 
 
 def _load_one_hitran_table(table_name):
-    """
-    Load a single cached table into HAPI's in-memory cache.
-
-    Reads only that table's .data/.header, from BUNDLED_HITRAN_DIR first then
-    USER_HITRAN_DIR -- never the rest of the directory. Restores HAPI's write
-    target afterward so a later fetch() still goes to the on-demand cache.
+    """Load a single cached table into HAPI's in-memory cache, from
+    BUNDLED_HITRAN_DIR first then USER_HITRAN_DIR, restoring HAPI's write
+    target afterward so a later fetch() still targets the on-demand cache.
 
     Args:
         table_name (str): HITRAN table name, without extension.
@@ -335,9 +354,8 @@ def get_available_molecules():
     Returns:
         molecules (dict): {name: hitran_id}, 52 entries.
     """
-    # Excluded on purpose: SF6/CF4/NF3/ClONO2 (HITRAN has them as cross-sections,
-    # no line list); O (atomic, 2 far-IR lines); S2 (UV electronic); HOBr/C2N2/
-    # HONO (line lists, but all > 30um). Re-add the last three if the range grows.
+    # Excluded: SF6/CF4/NF3/ClONO2 (cross-sections, no line list), O (2 far-IR
+    # lines), S2 (UV electronic); HOBr/C2N2/HONO have lines but all > 30um.
     return {
         'H2O': 1, 'CO2': 2, 'O3': 3, 'N2O': 4, 'CO': 5, 'CH4': 6, 'O2': 7, 'NO': 8,
         'SO2': 9, 'NO2': 10, 'NH3': 11, 'HNO3': 12, 'OH': 13, 'HF': 14, 'HCl': 15,
@@ -352,6 +370,14 @@ def get_available_molecules():
     }
 
 def convert_to_numpy(data):
+    """Convert a scalar, list, tuple, or array into a float numpy array.
+
+    Args:
+        data: Value to convert, or None.
+
+    Returns:
+        arr (numpy.ndarray): Float array, or None if data is None.
+    """
     if data is None:
         return None
     if isinstance(data, np.ndarray):
@@ -439,11 +465,9 @@ def compute_hitran_table_name(wavelength_min, wavelength_max, molecule, isotopol
 
 
 def find_containing_cached_table(wavelength_min, wavelength_max, molecule, isotopologue=1):
-    """
-    Find an already-cached table for this (molecule, isotopologue) whose
-    wavenumber range fully contains the requested range, even when its own
-    bounds don't match exactly -- lets a narrower query reuse a wider table
-    that was already fetched instead of attempting a new exact-range download.
+    """Find an already-cached table for this (molecule, isotopologue) whose
+    wavenumber range fully contains the requested range, so a narrower query
+    can reuse a wider table instead of a new exact-range download.
 
     Args:
         wavelength_min, wavelength_max (float): Wavelength range in um
@@ -525,11 +549,16 @@ COMMON_HITRAN_QUERIES = [
 
 
 def get_available_isotopologues(molecule):
-    """
-    List the isotopologue numbers HITRAN has data for, for a given molecule
-    (e.g. CO -> [1, 2, 3, 4, 5, 6]). Used to support isotopologue=None ("any
-    isotopologue") in fetch_hitran_data(). Returns [] if HAPI isn't installed
-    or the molecule isn't recognized.
+    """List the isotopologue numbers HITRAN has data for a given molecule
+    (e.g. CO -> [1, 2, 3, 4, 5, 6]). Used to support isotopologue=None
+    ("any isotopologue") in fetch_hitran_data().
+
+    Args:
+        molecule (str): Molecule name, per get_available_molecules().
+
+    Returns:
+        isotopologues (list): Sorted isotopologue numbers, or [] if HAPI
+            isn't installed or the molecule isn't recognized.
     """
     try:
         from hapi import ISO
@@ -542,15 +571,12 @@ def get_available_isotopologues(molecule):
 
 
 def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None, write_dir=None):
-    """
-    Retrieves molecular spectroscopic line data from the HITRAN database using HAPI.
-    Implements smart caching to minimize downloads, converts wavelength ranges to
-    wavenumbers, extracts quantum numbers for transition labeling, and calculates
-    upper energy levels. Handles both cached and fresh data with user prompts for
-    cache refresh based on age.
+    """Retrieve molecular spectroscopic line data from HITRAN via HAPI, with
+    smart caching, wavelength-to-wavenumber conversion, quantum-number
+    transition labeling, and upper energy level calculation.
 
     Args:
-        wavelength_min, wavelength_max: Wavelength range in µm
+        wavelength_min, wavelength_max: Wavelength range in micron
         molecule: Molecule name (e.g., 'CO')
         isotopologue: Isotopologue number (default 1), or None to fetch every
             isotopologue HITRAN has for this molecule in range (e.g. for a user
@@ -563,6 +589,10 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
         v_lower: Filter by lower vibrational level (optional, e.g., 0 for v=0)
         write_dir: Directory for a fresh download. Defaults to the on-demand
             cache (hitran_cache/); warm_hitran_cache.py passes hitran_local/.
+
+    Returns:
+        result (tuple): (rows, meta) -- list of line-data dicts, and a meta
+            dict with 'error'/'message' set when the fetch failed.
     """
     if isotopologue is None:
         iso_list = get_available_isotopologues(molecule)
@@ -593,6 +623,23 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
 
 
 def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isotopologue, refresh_cache=False, cache_days=30, v_upper=None, v_lower=None, write_dir=None):
+    """Fetch (or reuse cached) HITRAN line data for one specific isotopologue.
+
+    Args:
+        wavelength_min, wavelength_max (float): Wavelength range in micron.
+        molecule (str): Molecule name (e.g., 'CO').
+        isotopologue (int): HITRAN isotopologue number.
+        refresh_cache (bool): Force a fresh download instead of using the cache.
+        cache_days (int): Cache age threshold in days.
+        v_upper (int): Filter by upper vibrational level, or None.
+        v_lower (int): Filter by lower vibrational level, or None.
+        write_dir (str): Directory for a fresh download, or None for the
+            default on-demand cache.
+
+    Returns:
+        result (tuple): (rows, meta) -- list of line-data dicts, and a meta
+            dict with 'error'/'message' set when the fetch failed.
+    """
     try:
         from hapi import fetch, getColumns, ISO
     except ImportError:
@@ -610,16 +657,15 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
     # Isotopologue formula (e.g. '(13C)(16O)') for display in the GUI table/tooltips
     iso_entry = ISO.get((M, I))
     iso_name_pretty = format_isotopologue_name(iso_entry[1]) if iso_entry else None
-    # Convert wavelength (μm) to wavenumber (cm⁻¹)
+    # Convert wavelength (micron) to wavenumber (1/cm)
     wavelength_min_val = _extract_wavelength_value(wavelength_min)
     wavelength_max_val = _extract_wavelength_value(wavelength_max)
     wavenum_min = 1e4 / wavelength_max_val
     wavenum_max = 1e4 / wavelength_min_val
     table_name = compute_hitran_table_name(wavelength_min, wavelength_max, molecule, I)
 
-    # A wider already-cached table covering this range serves it just as well as
-    # an exact-range one -- reuse it instead of attempting a new (possibly
-    # offline) download for the narrower range.
+    # A wider already-cached table covering this range serves just as well as
+    # an exact-range one, so reuse it instead of a new narrower-range download.
     if not refresh_cache:
         containing = find_containing_cached_table(wavelength_min, wavelength_max, molecule, I)
         if containing is not None:
@@ -686,7 +732,7 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
         A = convert_to_numpy(A)
         elower = convert_to_numpy(elower)
         wavelength = 1e4 / nu  # Convert wavenumber to wavelength (already dimensionless)
-        # Calculate upper energy level: E_upper = (E_lower + ν) × 1.44 [K]
+        # Calculate upper energy level: E_upper = (E_lower + nu) * 1.44 [K]
         eupper = (elower + nu) * 1.44
         species_name = molecule
 
@@ -767,17 +813,21 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
         print(f"[OK] Retrieved {len(data_rows)} lines\n")
         return data_rows, {}
     except Exception as e:
-        # Distinguish this from a real "zero lines in range" result -- e.g. no
-        # offline copy covers this range and the network fetch itself failed
-        # (no internet) -- so callers don't report it as if HITRAN had nothing.
+        # Distinguish this from a real "zero lines in range" result, so callers
+        # don't report a failed offline/network fetch as if HITRAN had nothing.
         print(f"[ERROR] {str(e)}")
         return [], {'error': True, 'message': str(e)}
 
 def display_results(results):
-    """
-    Formats and prints spectral line data in a clean tabular layout. Displays
-    wavelength, wavenumber, species, transition notation, Einstein A-coefficient,
-    and upper energy level for each line, sorted by wavelength.
+    """Formats and prints spectral line data in a clean tabular layout:
+    wavelength, wavenumber, species, transition, A-coefficient, and
+    upper energy level for each line, sorted by wavelength.
+
+    Args:
+        results (list): Line-data dicts to display.
+
+    Returns:
+        None
     """
     if not results:
         print("No entries found.")
@@ -807,7 +857,7 @@ def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=
     GUI-compatible function to fetch HITRAN data and return results for display.
     
     Args:
-        wavelength_min, wavelength_max: Wavelength range in µm
+        wavelength_min, wavelength_max: Wavelength range in micron
         molecule: Molecule name
         isotopologue: Isotopologue number (default 1), or None for every
             isotopologue HITRAN has for this molecule
@@ -836,19 +886,15 @@ def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=
 
 # -------------------- CO Catalog Loading --------------------
 def load_CO_line_catalog(filepath):
-    """
-    Load CO rovibrational line catalog from ECSV format.
-    
-    Parameters
-    ----------
-    filepath : str
-        Path to the ECSV file (e.g., 'data/CO/CO_comprehensive_linelist_with_g.ecsv')
-    
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with columns: trans_id, species, line_wave_um, a, transition, eupper(K), 
-        highv, highj, lowv, lowj, gp, nu-err, nu-ref
+    """Load CO rovibrational line catalog from ECSV format.
+
+    Args:
+        filepath (str): Path to the ECSV file.
+
+    Returns:
+        CO_lines (pandas.DataFrame): Columns trans_id, species, line_wave_um,
+            a, transition, eupper(K), highv, highj, lowv, lowj, gp, nu-err,
+            nu-ref; None if the file is missing or fails to load.
     """
     try:
         if not os.path.exists(filepath):
@@ -861,30 +907,21 @@ def load_CO_line_catalog(filepath):
         return None
 
 def load_contaminating_lines_catalog(filepath):
-    """
-    Load contaminating lines catalog from CSV format.
+    """Load contaminating lines catalog from CSV format. 'wavelength' and
+    'species' are both required (same as load_custom_line_catalog()); other
+    columns are optional and carried through as-is if present.
 
-    'wavelength' and 'species' are both required (same as load_custom_line_catalog()
-    -- every imported line needs to be identifiable, contaminant or not). Everything
-    else is optional and carried through as-is if present.
+    Args:
+        filepath (str): Path to the CSV file.
 
-    Parameters
-    ----------
-    filepath : str
-        Path to the CSV file (e.g., 'data/CO/ContaminatingLines.csv')
+    Returns:
+        contam_lines (pandas.DataFrame): line_wave_um (renamed from
+            'wavelength'), species, and any other CSV columns. Rows missing
+            wavelength or species are dropped individually. None if the file
+            is missing, empty, or every row is dropped.
 
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame with columns: line_wave_um (renamed from 'wavelength'), species,
-        and any other columns the CSV had. Rows missing wavelength or species are
-        dropped individually (with a console note) rather than failing the whole
-        file. None if the file is missing, empty, or every row is dropped.
-
-    Raises
-    ------
-    ValueError
-        If the CSV file does not contain a 'wavelength' or 'species' column.
+    Raises:
+        ValueError: if the CSV lacks a 'wavelength' or 'species' column.
     """
     try:
         if not os.path.exists(filepath):
@@ -904,9 +941,8 @@ def load_contaminating_lines_catalog(filepath):
             print(error_msg)
             raise ValueError(error_msg)
 
-        # Drop rows missing either value -- unlike other optional columns, these two
-        # aren't defaulted, since every imported line needs a real, distinguishable
-        # identity rather than a generic placeholder.
+        # Drop rows missing either value: unlike other columns, these two
+        # aren't defaulted, since every line needs a real, distinguishable identity.
         total = len(contam_lines)
         contam_lines = contam_lines[contam_lines['wavelength'].notna() & contam_lines['species'].notna()]
         contam_lines = contam_lines[contam_lines['species'].astype(str).str.strip() != '']
@@ -930,43 +966,20 @@ def load_contaminating_lines_catalog(filepath):
 
 
 def load_custom_line_catalog(filepath):
-    """
-    Load a user-supplied, HITRAN-like line list from CSV -- for offline use (e.g. no
-    internet access to query HITRAN directly), or to hand-pick lines HITRAN doesn't
-    have. Populates the same row-dict shape fetch_hitran_data() returns, so these
-    lines drop into the existing Lines table / plotting / multi-Gaussian fitting
-    exactly like a live HITRAN fetch would.
+    """Load a user-supplied, HITRAN-like line list from CSV for offline use,
+    populating the same row-dict shape fetch_hitran_data() returns so these
+    lines drop into the existing Lines table/plotting/fitting unchanged.
 
-    'wavelength' (µm) and 'species' are required. fit_hitran_lines_collective()
-    only ever fixes each line's *center* from the catalog -- its width comes from
-    the instrument's own spectral resolution, not a catalog value -- so wavelength
-    is the only thing physically needed to fit these lines; species is required
-    anyway so every imported line is actually identifiable in the table/tooltips/
-    results, rather than a wall of indistinguishable "Unknown" entries. Everything
-    past those two is optional and purely for display (species dialog table, hover
-    tooltip, results text), each already tolerant of missing values via
-    .get(key, default) at every call site:
-        transition, a_coeff, e_upper, isotopologue, isotopologue_name,
-        wavelength_unit (defaults to 'µm' if the column is absent).
+    Args:
+        filepath (str): Path to the CSV file.
 
-    Parameters
-    ----------
-    filepath : str
-        Path to the CSV file.
+    Returns:
+        rows (list): One dict per row, tagged 'source': 'Custom'. None if
+            the file is missing, empty, or lacks 'wavelength'/'species'.
+            Rows missing either value are skipped individually.
 
-    Returns
-    -------
-    list of dict
-        One dict per row, tagged 'source': 'Custom' (so the species dialog's
-        HITRAN-only filter and pink row-highlighting correctly treat these as
-        non-HITRAN). None if the file is missing, empty, or lacks 'wavelength'/
-        'species'. Rows missing either value are skipped individually (with a
-        console note) rather than failing the whole file.
-
-    Raises
-    ------
-    ValueError
-        If the CSV file does not contain a 'wavelength' or 'species' column.
+    Raises:
+        ValueError: if the CSV lacks a 'wavelength' or 'species' column.
     """
     try:
         if not os.path.exists(filepath):
@@ -986,17 +999,26 @@ def load_custom_line_catalog(filepath):
             raise ValueError(error_msg)
 
         def _clean(value):
+            """Replace a pandas NaN with None; pass other values through.
+
+            Args:
+                value: Cell value read from the CSV.
+
+            Returns:
+                value: None if value is NaN, else value unchanged.
+            """
             return None if pd.isna(value) else value
 
         rows = []
         skipped = 0
+        # Only wavelength is physically needed (width comes from instrument
+        # resolution); species is required anyway so every line is identifiable.
         for _, row in df.iterrows():
             wl = _clean(row.get('wavelength'))
             species = _clean(row.get('species'))
             if wl is None or species is None or not str(species).strip():
                 skipped += 1
-                continue  # Missing center or identity -- not usable, and species
-                          # is required so this isn't defaulted to "Unknown".
+                continue
             entry = {
                 'model': 'Custom',
                 'source': 'Custom',
@@ -1020,10 +1042,8 @@ def load_custom_line_catalog(filepath):
                     entry['isotopologue'] = int(iso_num)
                 except (TypeError, ValueError):
                     pass
-            # Not run through format_isotopologue_name() -- that assumes HITRAN's
-            # own '(13C)(16O)'-style bracket notation, and would misformat plain
-            # user text (e.g. subscripting a mass number it mistakes for a count).
-            # Shown exactly as given instead.
+            # Skips format_isotopologue_name(): that assumes HITRAN's bracket
+            # notation and would misformat plain user text. Shown as given.
             iso_name = _clean(row.get('isotopologue_name'))
             if iso_name is not None:
                 entry['isotopologue_name'] = str(iso_name)

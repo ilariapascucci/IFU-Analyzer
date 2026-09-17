@@ -29,43 +29,104 @@ class RegionSelectionMixin:
 
     # ------------------------------------------------------------------ hooks
     def _region_image(self, target):
-        """2D array shown in panel ``target`` ('left'/'right'), or None."""
+        """2D array shown in panel ``target`` ('left'/'right'), or None.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            image (numpy.ndarray): The displayed image. Hosts must override
+                this; the base implementation always raises.
+        """
         raise NotImplementedError
 
     def _region_flux_unit(self, target):
-        """Cleaned flux-unit string for panel ``target`` ('' when unknown)."""
+        """Cleaned flux-unit string for panel ``target`` ('' when unknown).
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            unit (str): Flux-unit label; '' by default.
+        """
         return ""
 
     def _region_pixel_coords(self, target, x, y):
-        """(ra_deg, dec_deg) for pixel (x, y) in panel ``target``; (None, None) if unavailable."""
+        """(ra_deg, dec_deg) for pixel (x, y) in panel ``target``.
+
+        Args:
+            target (str): Panel the pixel belongs to, 'left' or 'right'.
+            x (float): Pixel x coordinate.
+            y (float): Pixel y coordinate.
+
+        Returns:
+            coords (tuple): (ra_deg, dec_deg); (None, None) by default.
+        """
         return None, None
 
     def _region_pixel_extra_lines(self, target, x, y):
-        """Extra stat lines for a pixel click (3D adds wavelength/velocity; 2D adds nothing)."""
+        """Extra stat lines for a pixel click (3D adds wavelength/velocity;
+        2D adds nothing).
+
+        Args:
+            target (str): Panel the pixel belongs to, 'left' or 'right'.
+            x (float): Pixel x coordinate.
+            y (float): Pixel y coordinate.
+
+        Returns:
+            lines (list): Extra text lines to show; [] by default.
+        """
         return []
 
     def _region_stats_placeholder(self, target):
-        """Text a stats label reverts to when its selection is cleared."""
+        """Text a stats label reverts to when its selection is cleared.
+
+        Args:
+            target (str): Panel to build the placeholder for, 'left' or 'right'.
+
+        Returns:
+            text (str): Placeholder label text.
+        """
         return "Intensity:\n-"
 
     def _region_slice_stat_keep(self, line):
         """True for existing stats-label lines to preserve above region stats.
-        Default keeps nothing - a region selection replaces the panel stats."""
+        Default keeps nothing - a region selection replaces the panel stats.
+
+        Args:
+            line (str): One line of the current stats label text.
+
+        Returns:
+            keep (bool): Whether to preserve this line; False by default.
+        """
         return False
 
     def _region_on_change(self, target, kind):
-        """Post-hook after a selection changes. ``kind`` in {'select','pixel','clear'}.
+        """Post-hook after a selection changes. 3D refreshes the active
+        spectrum tab; the 2D viewer redraws the panel.
 
-        3D refreshes the active spectrum tab; the 2D viewer redraws the panel.
+        Args:
+            target (str): Panel the change happened on, 'left' or 'right'.
+            kind (str): Kind of change: 'select', 'pixel', or 'clear'.
+
+        Returns:
+            None
         """
         pass
 
     # -------------------------------------------------------------- state machine
     def _set_region_state(self, side, new_state):
         """Single source of truth for shape-button enablement, the Edit Shape
-        button state, and InteractivePatch handler wiring, so they can never
-        drift out of sync (stale drag handlers surviving an erase; editing
-        being always-on with no explicit commit step)."""
+        button state, and InteractivePatch handler wiring, so they never
+        drift out of sync.
+
+        Args:
+            side (str): Panel to update, 'left' or 'right'.
+            new_state (str): New state: 'idle', 'drawing', 'placed', or 'editing'.
+
+        Returns:
+            None
+        """
         selector = self.region_selector_left if side == "left" else self.region_selector_right
         edit_btn = self.edit_shape_btn_l if side == "left" else self.edit_shape_btn_r
         old_state = self.region_state.get(side, "idle")
@@ -103,7 +164,15 @@ class RegionSelectionMixin:
                 selector.interactive_patch.connect()
 
     def _toggle_edit_shape(self, side):
-        """Handle the Edit Shape button click for one side."""
+        """Handle the Edit Shape button click for one side.
+
+        Args:
+            side (str): Panel whose Edit Shape button was clicked, 'left'
+                or 'right'.
+
+        Returns:
+            None
+        """
         state = self.region_state.get(side, "idle")
         if state == "placed":
             self._set_region_state(side, "editing")
@@ -114,7 +183,15 @@ class RegionSelectionMixin:
             edit_btn.setChecked(False)
 
     def _set_shape(self, shape, target):
-        """Handle shape button activation."""
+        """Handle shape button activation.
+
+        Args:
+            shape (str): Shape symbol that was clicked.
+            target (str): Panel the shape applies to, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         if self.active_shape == shape and self.active_target == target:
             self.active_shape = None
             self.active_target = None
@@ -138,7 +215,17 @@ class RegionSelectionMixin:
 
     # ---------------------------------------------------------- region completed
     def _handle_region_select(self, mask, patch, coords, target):
-        """Handle region selection completion (also fires on every live edit tick)."""
+        """Handle region selection completion (also fires on every live edit tick).
+
+        Args:
+            mask (numpy.ndarray): Boolean mask of the selected pixels.
+            patch (matplotlib.patches.Patch): Patch outlining the selection.
+            coords (tuple): (xmin, xmax, ymin, ymax) region bounds.
+            target (str): Panel the selection is on, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         xmin, xmax, ymin, ymax = coords
 
         image = self._region_image(target)
@@ -148,8 +235,7 @@ class RegionSelectionMixin:
         selector = self.region_selector_left if target == "left" else self.region_selector_right
 
         # This callback also fires on every mouse-move tick of a live drag/resize
-        # while "editing" - in that case we must NOT tear down the handles or
-        # touch region_state, since the drag is still in progress.
+        # while "editing"; don't tear down handles or touch region_state mid-drag.
         is_live_edit_tick = self.region_state.get(target) == "editing"
 
         if mask.shape == image.shape:
@@ -162,10 +248,8 @@ class RegionSelectionMixin:
             x1 = min(int(x0 + w_mask), image.shape[1])
             full_mask[y0:y1, x0:x1] = mask[:(y1 - y0), :(x1 - x0)]
 
-        # Shape identity: during a live edit-tick selector.active_shape is already
-        # stale (reset to None when the original draw completed), so re-reading it
-        # would drop a moved freeform's "✏" identity. A live edit only moves an
-        # already-placed selection, so reuse its shape.
+        # During a live edit-tick, selector.active_shape is stale (reset to None
+        # when the draw completed); reuse the existing selection's own shape instead.
         if is_live_edit_tick:
             existing_sel = self.last_selection_left if target == "left" else self.last_selection_right
             shape = existing_sel["shape"] if existing_sel else selector.active_shape
@@ -216,8 +300,7 @@ class RegionSelectionMixin:
         plotter.ax.area_artists.append(patch)
 
         # Draw now, while the mpl selector is still connected, so it recaptures
-        # its blit background with this patch included (otherwise it restores a
-        # stale background over the patch after this callback returns).
+        # its blit background with this patch; otherwise a stale background shows.
         canvas = self.slice1_canvas if target == "left" else self.slice2_canvas
         canvas.draw()
 
@@ -271,7 +354,15 @@ class RegionSelectionMixin:
 
     # ---------------------------------------------------------- copy / recreate
     def copy_selection(self, source, target):
-        """Copy the region selection from one panel to the other."""
+        """Copy the region selection from one panel to the other.
+
+        Args:
+            source (str): Panel to copy from, 'left' or 'right'.
+            target (str): Panel to copy to, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         source_selection = (
             self.last_selection_right if source == "right" else self.last_selection_left
         )
@@ -301,9 +392,21 @@ class RegionSelectionMixin:
             pass
 
     def _recreate_region(self, xmin, xmax, ymin, ymax, mask, target):
-        """Recreate a placed selection's visual patch (e.g. after a slice change),
-        via the same RegionSelector pipeline used for an organic draw, so the
-        shape type stays correct and lasso is handled."""
+        """Recreate a placed selection's visual patch (e.g. after a slice
+        change), via the same RegionSelector pipeline used for an organic
+        draw, so the shape type stays correct and lasso is handled.
+
+        Args:
+            xmin (int): Region's minimum x coordinate.
+            xmax (int): Region's maximum x coordinate.
+            ymin (int): Region's minimum y coordinate.
+            ymax (int): Region's maximum y coordinate.
+            mask (numpy.ndarray): Boolean mask of the selected pixels.
+            target (str): Panel to recreate on, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         sel = self.last_selection_left if target == "left" else self.last_selection_right
         if not sel:
             return
@@ -328,7 +431,14 @@ class RegionSelectionMixin:
 
     # ---------------------------------------------------------------- clear
     def clear_region(self, target):
-        """Clear the current region selection and its overlays for a panel."""
+        """Clear the current region selection and its overlays for a panel.
+
+        Args:
+            target (str): Panel to clear, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         state = self.region_state.get(target, "idle")
         selector = self.region_selector_left if target == "left" else self.region_selector_right
 
@@ -396,7 +506,16 @@ class RegionSelectionMixin:
 
     # ---------------------------------------------------------------- pixel
     def _handle_pixel_click(self, x, y, target):
-        """Handle a single-pixel ('*') selection."""
+        """Handle a single-pixel ('*') selection.
+
+        Args:
+            x (int): Pixel x coordinate.
+            y (int): Pixel y coordinate.
+            target (str): Panel the click is on, 'left' or 'right'.
+
+        Returns:
+            None
+        """
         plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
         stats_label = self.stats1_label if target == "left" else self.stats2_label
         selector = self.region_selector_left if target == "left" else self.region_selector_right

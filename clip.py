@@ -14,16 +14,19 @@ except ImportError:
     print("Warning: Could not import CubeData. Ensure clip.py is outside the cube_explorer folder.")
 
 def save_output(cube, wavelength, data, data_type="continuum", output_name=None):
-    """
-    Saves spectral data. For subtracted spectra, it saves the original 
-    flux alongside the fit to ensure unit consistency (MJy/sr).
+    """Save spectral data. For subtracted spectra, also saves the original
+    flux alongside the fit to keep units consistent (MJy/sr).
 
-    Parameters
-    ----------
-    output_name : str, optional
-        Filename to write (without extension).  When provided the
-        interactive ``input()`` prompt is skipped — useful when calling
-        this function from a Jupyter notebook or script.
+    Args:
+        cube (CubeData): Loaded cube, for header/unit metadata.
+        wavelength (numpy.ndarray): Wavelength array to write.
+        data (numpy.ndarray): Continuum or subtracted-spectrum values to write.
+        data_type (str): 'continuum' or 'subtracted spectrum'.
+        output_name (str): Filename (without extension) to write; skips the
+            interactive input() prompt when given.
+
+    Returns:
+        None
     """
     if output_name is not None:
         fname = str(output_name).strip()
@@ -64,7 +67,14 @@ def save_output(cube, wavelength, data, data_type="continuum", output_name=None)
 
 
 def run_subtract_continuum(args):
-    """Subtract a constant value, a loaded continuum file, or calculate from raw points."""
+    """Subtract a constant value, a loaded continuum file, or calculate from raw points.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI arguments for this subcommand.
+
+    Returns:
+        None
+    """
     print(f"Loading cube: {args.input}")
     cube = CubeData()
     if not cube.load_from_file(args.input):
@@ -137,7 +147,14 @@ def run_subtract_continuum(args):
 
 
 def run_auto_continuum(args):
-    """Run automatic continuum subtraction using space-separated parameters."""
+    """Run automatic continuum subtraction using space-separated parameters.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI arguments for this subcommand.
+
+    Returns:
+        None
+    """
     print(f"Loading cube: {args.input}")
     cube = CubeData()
     if not cube.load_from_file(args.input):
@@ -193,7 +210,14 @@ def run_auto_continuum(args):
 
 
 def run_custom_continuum(args):
-    """Run custom continuum fitting using a saved TXT file of points."""
+    """Run custom continuum fitting using a saved TXT file of points.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI arguments for this subcommand.
+
+    Returns:
+        None
+    """
     print(f"Loading cube: {args.input}")
     cube = CubeData()
     if not cube.load_from_file(args.input):
@@ -224,7 +248,14 @@ def run_custom_continuum(args):
 
 
 def run_2d_rotate(args):
-    """Rotate a 2D FITS file and prompt to save it."""
+    """Rotate a 2D FITS file and prompt to save it.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI arguments for this subcommand.
+
+    Returns:
+        None
+    """
     print(f"Loading 2D FITS: {args.input}")
     with fits.open(args.input) as hdul:
         data = np.squeeze(hdul[0].data)
@@ -253,7 +284,14 @@ def run_2d_rotate(args):
 
 
 def run_2d_contour(args):
-    """Generate contour coordinates, calculate RA/Dec via WCS, and prompt to save."""
+    """Generate contour coordinates, calculate RA/Dec via WCS, and prompt to save.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI arguments for this subcommand.
+
+    Returns:
+        None
+    """
     print(f"Loading 2D FITS: {args.input}")
     with fits.open(args.input) as hdul:
         data = np.squeeze(hdul[0].data)
@@ -299,29 +337,27 @@ def run_2d_contour(args):
     print(f"[OK] Saved contour map to {out_name}")
     plt.close(fig)  # Release figure; prevents stale figures in Jupyter
 
-# =============================================================================
-# Jupyter / script convenience wrappers
-# =============================================================================
-# The run_*() functions above require an argparse.Namespace object, which is
-# awkward to build interactively.  The functions below accept plain keyword
-# arguments and are meant to be called directly from a Jupyter notebook:
-#
-#   from clip import auto_continuum, subtract_continuum, custom_continuum
-#   from clip import rotate_2d, contour_2d
-#
-# All output_name parameters default to None, which triggers the usual
-# interactive input() prompt.  Pass a string to skip the prompt:
-#
-#   auto_continuum("mycube.fits", output_name="my_continuum")
-# =============================================================================
+# --- Jupyter/script wrappers: plain-kwarg versions of the run_*() functions
+# above, for calling directly without building an argparse.Namespace. ---
 
 def auto_continuum(input_file, window=51, sigma=2.0, width=1, distance=3,
                    exclusion=3, iters=2, smoothing=5, output_name=None):
-    """Compute an automatic continuum fit and save it.
+    """Compute an automatic continuum fit and save it. window/sigma/width/
+    distance/exclusion/iters/smoothing match the CLI's --params order.
 
-    Parameters match the --params order of the CLI:
-    window, sigma, width, distance, exclusion, iters, smoothing.
-    Pass output_name to skip the interactive filename prompt.
+    Args:
+        input_file (str): Path to the input FITS cube.
+        window (int): Median-filter window size.
+        sigma (float): Peak-detection prominence threshold, in sigma.
+        width (int): Minimum peak width in pixels.
+        distance (int): Minimum distance between detected peaks.
+        exclusion (int): Pixels excluded around each peak.
+        iters (int): Outlier-rejection iterations.
+        smoothing (int): Spline smoothing divisor.
+        output_name (str): Filename to skip the interactive prompt, or None.
+
+    Returns:
+        None
     """
     from argparse import Namespace
     args = Namespace(
@@ -344,9 +380,14 @@ def auto_continuum(input_file, window=51, sigma=2.0, width=1, distance=3,
 def subtract_continuum(input_file, continuum, output_name=None):
     """Subtract a continuum from a cube spectrum and save the result.
 
-    continuum can be a numeric constant, a fitted-continuum .txt file, or
-    a raw points .txt/.csv file (same rules as the CLI --continuum flag).
-    Pass output_name to skip the interactive filename prompt.
+    Args:
+        input_file (str): Path to the input FITS cube.
+        continuum: Numeric constant, fitted-continuum .txt file path, or raw
+            points .txt/.csv file path (same rules as CLI --continuum).
+        output_name (str): Filename to skip the interactive prompt, or None.
+
+    Returns:
+        None
     """
     from argparse import Namespace
     args = Namespace(input=input_file, continuum=str(continuum))
@@ -365,8 +406,13 @@ def subtract_continuum(input_file, continuum, output_name=None):
 def custom_continuum(input_file, points_file, output_name=None):
     """Fit a cubic spline to custom continuum anchor points and subtract.
 
-    points_file is a comma-separated text file of (wavelength, flux) pairs.
-    Pass output_name to skip the interactive filename prompt.
+    Args:
+        input_file (str): Path to the input FITS cube.
+        points_file (str): Comma-separated text file of (wavelength, flux) pairs.
+        output_name (str): Filename to skip the interactive prompt, or None.
+
+    Returns:
+        None
     """
     from argparse import Namespace
     args = Namespace(input=input_file, points=points_file)
@@ -385,7 +431,13 @@ def custom_continuum(input_file, points_file, output_name=None):
 def rotate_2d(input_file, angle, output_name=None):
     """Rotate a 2D FITS image by angle degrees and save.
 
-    Pass output_name to skip the interactive filename prompt.
+    Args:
+        input_file (str): Path to the input 2D FITS file.
+        angle (float): Rotation angle in degrees.
+        output_name (str): Filename to skip the interactive prompt, or None.
+
+    Returns:
+        None
     """
     from argparse import Namespace
     import functools
@@ -408,8 +460,13 @@ def rotate_2d(input_file, angle, output_name=None):
 def contour_2d(input_file, levels, output_name=None):
     """Generate contour coordinates for a 2D FITS image and save.
 
-    levels is a list of sigma multiples, e.g. [3, 5, 10].
-    Pass output_name to skip the interactive filename prompt.
+    Args:
+        input_file (str): Path to the input 2D FITS file.
+        levels (list): Sigma multiples for contour levels, e.g. [3, 5, 10].
+        output_name (str): Filename to skip the interactive prompt, or None.
+
+    Returns:
+        None
     """
     from argparse import Namespace
     import builtins
@@ -427,6 +484,14 @@ def contour_2d(input_file, levels, output_name=None):
 
 
 def main():
+    """Parse CLI arguments and dispatch to the matching run_*() subcommand.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     parser = argparse.ArgumentParser(description="IFU Analyzer Command Line Interface")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

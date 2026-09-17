@@ -243,7 +243,14 @@ _SAMPLE_CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
 
 
 def _cube_fixture():
-    """Load the sample cube once, or None if the gitignored data is absent."""
+    """Load the sample cube once, or None if the gitignored data is absent.
+
+    Args:
+        None
+
+    Returns:
+        cube (CubeData): The loaded sample cube, or None if unavailable.
+    """
     if not os.path.exists(_SAMPLE_CUBE):
         return None
     return _api.load_cube(_SAMPLE_CUBE)
@@ -254,8 +261,25 @@ _no_data = "sample cube not available (data/ is gitignored)"
 
 
 def _needs_cube(fn):
-    """Wrap a check so it reports UNTESTED instead of failing without data."""
+    """Wrap a check so it reports UNTESTED instead of failing without data.
+
+    Args:
+        fn (callable): Check function taking a loaded cube.
+
+    Returns:
+        wrapper (callable): No-arg function that runs fn(cube) if the
+            sample cube is available, else returns the UNTESTED note.
+    """
     def wrapper():
+        """Run fn against the sample cube, or report it as untested.
+
+        Args:
+            None
+
+        Returns:
+            result (tuple): (message, note) -- fn's result, or (None, note)
+                when the sample cube is unavailable.
+        """
         if _cube is None:
             return None, _no_data
         return fn(_cube)
@@ -264,25 +288,46 @@ def _needs_cube(fn):
 
 @_needs_cube
 def _check_load_cube(cube):
+    """Check that load_cube() detects the instrument and cube shape.
+
+    Args:
+        cube (CubeData): Loaded sample cube.
+
+    Returns:
+        result (tuple): (message, note) for the test report.
+    """
     return f"{cube.instrument}, {cube.cube.shape}", None
 
 
 @_needs_cube
 def _check_fit_continuum(cube):
+    """Check that fit_continuum() returns a continuum array.
+
+    Args:
+        cube (CubeData): Loaded sample cube.
+
+    Returns:
+        result (tuple): (message, note) for the test report.
+    """
     cont = _api.fit_continuum(cube.wavelength, cube.spectrum)
     return f"continuum of {len(cont)} points", None
 
 
-# A real line in the MIRI ch1-long cube, taken from an actual GUI session rather
-# than guessed: left / peak / right as clicked, giving R^2 = 0.965. The same
-# numbers appear in test_docs_api.py, in docs/user_guide/gaussian_fitting_1d.rst,
-# and in the screenshot on that page (docs/_static/gaussian_1d_fit.png), so all
-# four agree on what a good fit looks like.
+# A real line in the MIRI ch1-long cube, from an actual GUI session (R^2 = 0.965).
+# Also used in test_docs_api.py and docs/user_guide/gaussian_fitting_1d.rst.
 LINE_X1, LINE_PEAK, LINE_X2 = 7.491492, 7.503455, 7.516985
 
 
 @_needs_cube
 def _check_fit_line(cube):
+    """Check that fit_line() fits the reference MIRI line successfully.
+
+    Args:
+        cube (CubeData): Loaded sample cube.
+
+    Returns:
+        result (tuple): (message, note) for the test report.
+    """
     r = _api.fit_line(cube.wavelength, cube.spectrum, LINE_X1, LINE_X2,
                       peak_x=LINE_PEAK, header=cube.header,
                       wave_unit=cube.wave_unit)
@@ -292,6 +337,14 @@ def _check_fit_line(cube):
 
 @_needs_cube
 def _check_measure_equivalent_width(cube):
+    """Check that measure_equivalent_width() returns a value for the reference line.
+
+    Args:
+        cube (CubeData): Loaded sample cube.
+
+    Returns:
+        result (tuple): (message, note) for the test report.
+    """
     fit = _api.fit_line(cube.wavelength, cube.spectrum, LINE_X1, LINE_X2,
                         peak_x=LINE_PEAK, header=cube.header,
                         wave_unit=cube.wave_unit)
@@ -301,31 +354,79 @@ def _check_measure_equivalent_width(cube):
 
 
 def _check_create_gaussian_map():
+    """Check that create_gaussian_map() returns maps for a synthetic cube.
+
+    Args:
+        None
+
+    Returns:
+        result (tuple): (message, note) for the test report.
+    """
     maps = create_gaussian_map(synthetic_cube_data, lam_min=4.60, lam_max=4.75,
                                n_jobs=2)
     return f"{len(maps)} maps from synthetic cube", None
 
 
 def _check_export_residual_cube():
+    """Check that export_residual_cube() returns a residual cube array.
+
+    Args:
+        None
+
+    Returns:
+        result (tuple): (message, note) for the test report.
+    """
     resid = export_residual_cube(synthetic_cube_data, lam_min=4.60,
                                  lam_max=4.75, n_jobs=2, return_cube=True)
     return f"residual cube {resid.shape}", None
 
 
 def _check_fit_hitran_lines():
+    """Report fit_hitran_lines() as covered elsewhere rather than re-testing it.
+
+    Args:
+        None
+
+    Returns:
+        result (tuple): (None, note) marking this check as covered elsewhere.
+    """
     # Exercised in full by API TEST 2 above, against the NIRSpec fixture.
     return None, "covered by API TEST 2 (needs NIRSpec fixture + HITRAN cache)"
 
 
 def _check_extract_flux():
+    """Report extract_flux() as untested due to a missing fixture.
+
+    Args:
+        None
+
+    Returns:
+        result (tuple): (None, note) explaining why this check is skipped.
+    """
     return None, "needs a CO line catalog (.ecsv) fixture"
 
 
 def _check_create_flux_map():
+    """Report create_flux_map() as untested due to a missing fixture.
+
+    Args:
+        None
+
+    Returns:
+        result (tuple): (None, note) explaining why this check is skipped.
+    """
     return None, "needs a CO line catalog fixture and a full-cube run"
 
 
 def _check_rotational_diagram():
+    """Report rotational_diagram() as untested due to a missing fixture.
+
+    Args:
+        None
+
+    Returns:
+        result (tuple): (None, note) explaining why this check is skipped.
+    """
     return None, "needs molecular_data + flux dict fixture"
 
 

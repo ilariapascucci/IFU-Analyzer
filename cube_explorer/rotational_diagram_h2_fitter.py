@@ -376,6 +376,14 @@ def _nutpie_progress_callback(label, progress_callback=None):
     next_milestone = [0]
 
     def callback(chain_progresses):
+        """Print and forward progress every ~10% of total draws.
+
+        Args:
+            chain_progresses (list): nutpie PyChainProgress objects, one per chain.
+
+        Returns:
+            None
+        """
         current = sum(cp.finished_draws for cp in chain_progresses)
         total = sum(cp.total_draws for cp in chain_progresses)
         if total <= 0:

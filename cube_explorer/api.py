@@ -83,20 +83,20 @@ import numpy as np
 
 
 def _as_float_array(values):
-    """
-    Return a plain float ndarray, stripping astropy units if present.
+    """Return a plain float ndarray, stripping astropy units if present.
+    load_cube returns cube.wavelength as a Quantity; arithmetic on a united
+    array can silently produce NaN, so every entry point normalizes through this.
 
-    ``load_cube`` returns ``cube.wavelength`` as an astropy Quantity. Several
-    of the underlying algorithms do arithmetic that silently produces NaN when
-    handed a united array, so every public entry point normalises its inputs
-    through this helper first.
+    Args:
+        values: Quantity, scalar, list, or array to convert.
+
+    Returns:
+        arr (numpy.ndarray): Float array with units stripped.
     """
     return np.asarray(getattr(values, "value", values), dtype=float)
 
 
-# ============================================================================
-# DATA LOADING API
-# ============================================================================
+# --- Data Loading API ---
 
 from .data_loader import CubeData
 
@@ -127,18 +127,12 @@ def load_cube(filename):
     return cube
 
 
-# ============================================================================
-# REGION EXTRACTION API
-# ============================================================================
+# --- Region Extraction API ---
 
 def extract_pixel_spectrum(cube, x, y):
-    """
-    Extract the 1D spectrum at a single spatial pixel.
-
-    This is the same lookup the GUI uses for point selections and pixel
-    clicks -- prefer it over indexing ``cube.cube`` directly, since it
-    always applies the correct (wavelength, y, x) axis order regardless of
-    how a given FITS file stores its axes.
+    """Extract the 1D spectrum at a single spatial pixel. This is the same
+    lookup the GUI uses; prefer it over indexing cube.cube directly, since
+    it always applies the correct (wavelength, y, x) axis order.
 
     Args:
         cube (CubeData): Loaded cube, as returned by load_cube()
@@ -156,14 +150,9 @@ def extract_pixel_spectrum(cube, x, y):
 
 
 def extract_region_spectrum(cube, mask):
-    """
-    Extract the mean spectrum over an arbitrary spatial region.
-
-    This is the same averaging the GUI uses for Rectangle/Circle/Ellipse/
-    Freehand region selections -- any of those tools reduce to a 2D boolean
-    mask internally. Prefer it over averaging a manual slice: it excludes
-    NaN pixels from each wavelength's mean instead of letting a single NaN
-    pixel turn the whole region's value at that wavelength into NaN.
+    """Extract the mean spectrum over an arbitrary spatial region, the same
+    averaging the GUI uses for region selections (each reduces to a 2D
+    boolean mask). Excludes NaN pixels instead of propagating NaN.
 
     Args:
         cube (CubeData): Loaded cube, as returned by load_cube()
@@ -182,19 +171,14 @@ def extract_region_spectrum(cube, mask):
     return cube.compute_region_spectrum(mask)
 
 
-# ============================================================================
-# CONTINUUM FITTING API
-# ============================================================================
+# --- Continuum Fitting API ---
 
 from .flux_map_extractor import fit_auto_continuum
 
 def fit_continuum(wavelength, flux, method='auto', **kwargs):
-    """
-    Fit continuum to a spectrum using automatic peak detection.
-
-    This is the automated continuum subtraction method used in the GUI.
-    It detects emission/absorption peaks and fits a smooth continuum
-    through the remaining points.
+    """Fit continuum to a spectrum using automatic peak detection: the same
+    method the GUI uses, detecting emission/absorption peaks and fitting a
+    smooth continuum through the remaining points.
 
     Args:
         wavelength (array-like): Wavelength/frequency values
@@ -225,9 +209,7 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
     )
 
 
-# ============================================================================
-# GAUSSIAN FITTING API
-# ============================================================================
+# --- Gaussian Fitting API ---
 
 from .gaussian_fitter import (
     fit_gaussian_to_line,
@@ -240,13 +222,9 @@ from .line_catalog import fetch_hitran_data
 
 def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
              header=None, wave_unit=None):
-    """
-    Fit a Gaussian to an emission line in a spectrum.
-
-    The underlying fitter needs a starting guess for the line center. In the
-    GUI that comes from the wavelength you click on; here it defaults to the
-    brightest sample between ``x1`` and ``x2``, or you can pass ``peak_x``
-    explicitly.
+    """Fit a Gaussian to an emission line in a spectrum. The fitter needs a
+    starting guess for the line center; here it defaults to the brightest
+    sample between x1 and x2, or pass peak_x explicitly.
 
     Args:
         wavelength (array-like): Wavelength/frequency values. Astropy
@@ -267,9 +245,9 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
         ``fwhm``, ``area``, ``area_unit``, ``area_native``, ``baseline_slope``,
         ``baseline_intercept``, ``r_squared``, ``success`` and ``message``.
 
-        ``area`` is in erg/s/cm² when ``header`` is supplied and the cube is in
-        MJy/sr (MIRI, NIRSpec); otherwise it stays in flux×wavelength units.
-        Check ``area_unit`` rather than assuming — it always states which.
+        ``area`` is in erg/s/cm^2 when ``header`` is supplied and the cube is
+        in MJy/sr (MIRI, NIRSpec); otherwise it stays in flux*wavelength units.
+        Check ``area_unit`` rather than assuming; it always states which.
         ``area_native`` is the unconverted value, which is what you want when
         dividing by a continuum measured in the cube's own units.
 
@@ -320,17 +298,9 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
 def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None,
                      isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None,
                      header=None, wave_unit=None, continuum=None, contam_catalog=None):
-    """
-    Fit HITRAN spectral lines automatically using database lookup.
-
-    This is the same algorithm as the GUI's **Multi-Gaussian Fit** button, not a
-    separate approximation of it: every requested line, plus any contaminant sharing
-    its wavelength chunk, is fit simultaneously in one nonlinear ``curve_fit`` per
-    chunk (``fit_glines``, via ``fit_hitran_lines_collective``) -- not an independent
-    per-line fit, so overlapping lines don't double-claim shared flux. Each line's
-    starting width comes from the instrument's real spectral resolution, but its
-    center and sigma are free parameters within a bound around that (catalog
-    wavelength +/- the instrumental sigma), not fixed.
+    """Fit HITRAN spectral lines automatically using database lookup. Same
+    algorithm as the GUI's Multi-Gaussian Fit: every requested line and any
+    contaminant sharing its chunk fit simultaneously, so they don't double-claim flux.
 
     Args:
         wavelength (array-like): Wavelength/frequency values
@@ -368,7 +338,7 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             - fwhm: Full width at half maximum
             - area: Integrated line flux, in the units given by ``area_unit``
             - area_native: Integrated line flux before any CGS conversion
-            - area_unit: Units of ``area`` -- ``'erg/s/cm²'`` only when header/wave_unit
+            - area_unit: Units of ``area`` -- ``'erg/s/cm^2'`` only when header/wave_unit
               let it convert; always check this rather than assuming
             - r_squared: Fit quality
             - success: Whether fit succeeded
@@ -417,10 +387,8 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     else:
         continuum_arr = _as_float_array(continuum)
 
-    # Fit every line (plus any contaminant sharing its chunk) simultaneously via curve_fit.
-    # Contaminant fits (if contam_catalog was given) aren't surfaced here -- they exist to
-    # keep the requested lines' amplitudes honest, not as an additional reportable result.
-    # Third return value is a placeholder (no velocity-shift correction in this version).
+    # Contaminant fits (if given) aren't surfaced; they only keep requested
+    # lines' amplitudes honest. Center/sigma are free within a bound, not fixed.
     fit_pairs, _contam_pairs, _ = _fit_hitran_lines_internal(
         wl, sp, hitran_lines, continuum_arr,
         header=header, wave_unit=wave_unit,
@@ -446,16 +414,9 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
 
 
 def measure_equivalent_width(fit_result, wavelength=None, continuum_spectrum=None):
-    """
-    Calculate equivalent width from a Gaussian fit result.
-
-    Equivalent width is the width of an imaginary rectangular line with the
-    same total area as the observed line.
-
-    The underlying calculation needs a single continuum level. If you pass a
-    full continuum array, it is averaged over the wavelengths that were
-    actually fitted, so the level reflects the line's own neighbourhood
-    rather than the whole spectrum.
+    """Calculate equivalent width (the width of an imaginary rectangular
+    line with the same area) from a Gaussian fit result. A full continuum
+    array is averaged over the wavelengths actually fitted.
 
     Args:
         fit_result (GaussianFitResult): Result from :func:`fit_line`.
@@ -578,9 +539,7 @@ def export_residual_cube(cube_data, out_path="residual_cube.fits", lam_min=None,
     )
 
 
-# ============================================================================
-# CO FLUX EXTRACTION API
-# ============================================================================
+# --- CO Flux Extraction API ---
 
 import pandas as pd
 from .flux_map_extractor import (
@@ -592,14 +551,9 @@ from .line_catalog import load_CO_line_catalog, load_contaminating_lines_catalog
 def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalog_path=None,
                      snr_threshold=3.0, continuum_params=None,
                      header=None, wave_unit=None):
-    """
-    Extract total flux by fitting all target lines in a spectrum.
-
-    Fits multiple target rovibrational lines simultaneously with contaminating
-    lines and continuum, then integrates total flux. This is the same algorithm
-    as the GUI's Flux Map button, run on a single spectrum instead of every pixel.
-    Always fits and subtracts a continuum before fitting lines, using the same
-    method as the GUI's Automatic Continuum.
+    """Extract total flux by fitting all target lines in a spectrum
+    simultaneously with contaminating lines and continuum; the same
+    algorithm as the GUI's Flux Map button, run on a single spectrum.
 
     Args:
         wavelength (array-like): Wavelength values in same units as catalog
@@ -661,17 +615,9 @@ def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalo
 
 def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_path=None, n_jobs=8,
                         wavelength_min=None, wavelength_max=None, continuum_params=None):
-    """
-    Create a 2D map of target-line flux across the entire data cube.
-
-    Fits target lines in every pixel and generates output FITS maps. Can use either:
-    - Automatic HITRAN fetching (default: CO, like fit_hitran_lines -- pass
-      target_catalog_path for any other species)
-    - Custom target catalog file (if target_catalog_path provided)
-
-    This is the same algorithm as the GUI's Flux Map button: continuum subtraction
-    (default parameters, or your own via continuum_params) followed by a simultaneous
-    multi-Gaussian fit per pixel.
+    """Create a 2D map of target-line flux across the entire data cube:
+    HITRAN CO by default, or a custom target_catalog_path. Same algorithm
+    as the GUI's Flux Map button (continuum subtraction, then per-pixel fit).
 
     Args:
         cube_data (CubeData): Loaded cube from load_cube()
@@ -746,9 +692,7 @@ def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_p
     )
 
 
-# ============================================================================
-# ROTATIONAL DIAGRAM API
-# ============================================================================
+# --- Rotational Diagram API ---
 
 from .rotational_diagram_h2_fitter import rotational_diagram as _rotational_diagram_h2, pc as _rot_diag_pc
 from .rotational_diagram_general_fitter import rotational_diagram as _rotational_diagram_general
@@ -798,15 +742,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     )
 
 
-# ============================================================================
-# UNIT CONVERSION API
-# ============================================================================
-
-# Note: Standard unit conversion functions like wavelength_to_velocity()
-# are available but not exported here. Use astropy.units for unit conversions:
-#   from astropy.units import Quantity
-#   wavelength = 2.293 * u.um
-#   frequency = wavelength.to(u.Hz, equivalencies=u.brightness_temperature(wavelength))
+# --- Unit Conversion API: no wrapper functions here, use astropy.units
+# directly, e.g. (2.293*u.um).to(u.Hz, equivalencies=u.brightness_temperature(...)). ---
 __all__ = [
     # Data Loading
     'load_cube',

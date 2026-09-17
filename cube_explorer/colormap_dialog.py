@@ -13,6 +13,14 @@ class ColorMapDialog(QDialog):
     """Dialog to select a matplotlib colormap (includes colorblind-friendly options)."""
     
     def __init__(self, parent=None):
+        """Build the colormap picker with a live gradient preview.
+
+        Args:
+            parent (QWidget): Parent widget, or None for a top-level dialog.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.setWindowTitle("Select Colormap")
         self.setMinimumWidth(300)
@@ -56,7 +64,14 @@ class ColorMapDialog(QDialog):
         self.setLayout(layout)
 
     def _draw_preview(self, cmap_name):
-        """Draw a gradient preview of the selected colormap."""
+        """Draw a gradient preview of the selected colormap.
+
+        Args:
+            cmap_name (str): Name of the matplotlib colormap to preview.
+
+        Returns:
+            None
+        """
         self.preview_fig.clear()
         ax = self.preview_fig.add_subplot(111)
         grad = np.linspace(0, 1, 256).reshape(1, -1)
@@ -67,13 +82,27 @@ class ColorMapDialog(QDialog):
         self.preview_canvas.draw_idle()
 
     def _update_preview(self, cmap_name):
-        """Update preview when user selects a different colormap."""
+        """Update preview when user selects a different colormap.
+
+        Args:
+            cmap_name (str): Name of the newly selected colormap, or empty.
+
+        Returns:
+            None
+        """
         if cmap_name:
             self.selected_cmap = cmap_name
             self._draw_preview(cmap_name)
 
     def accept(self):
-        """Handle OK button - ensure a colormap is selected."""
+        """Handle OK button - ensure a colormap is selected.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.selected_cmap is None:
             # Ensure something selected
             current = self.list_widget.currentItem()

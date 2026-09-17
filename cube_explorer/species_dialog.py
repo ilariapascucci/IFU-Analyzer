@@ -18,20 +18,28 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
     """
 
     def __init__(self, rows, parent=None, plotted_rows=None):
+        """Build the filtered-lines table dialog and its checkbox state.
+
+        Args:
+            rows (list): Line rows to display, each a dict with
+                'lambda_micron', 'species', 'transition', etc.
+            parent (QWidget): Parent widget, or None for a top-level dialog.
+            plotted_rows (list): Rows currently plotted in the main GUI, used
+                to pre-check their checkboxes; empty/None checks all rows.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.setWindowTitle("Filtered Spectral Lines")
         self.setMinimumSize(700, 400)
 
         self.rows = rows  # the catalog rows shown in the dialog
-        # plotted_rows is a list of dicts stored in the main GUI (may be empty)
+        # plotted_rows is a list of dicts stored in the main GUI; can be empty
         self.plotted_rows = plotted_rows or []
 
-        # Keyed on the full row identity, not just wavelength -- two HITRAN entries can
-        # share a wavelength (e.g. two HD transitions at 5.027692 um with the same
-        # transition label and E_upper but a different A coefficient; see _row_key).
-        # Matching by wavelength alone collapsed them into one set entry, so deselecting
-        # one still left the wavelength "present" via its still-checked twin, and both
-        # silently re-checked themselves the next time this dialog opened.
+        # Keyed on full row identity (see _row_key), not just wavelength: two
+        # HITRAN entries can share one, so wavelength-only matching double-selected.
         self.plotted_keys = {self._row_key(r) for r in self.plotted_rows}
 
         # Default-deselect the weaker of a near-duplicate wavelength pair (e.g.
@@ -59,9 +67,8 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
         self.table.setRowCount(len(rows))
         layout.addWidget(self.table)
 
-        # Click-to-sort on Wavelength/Species/A-coeff/E_upper -- not Transition,
-        # whose mixed notation formats sort badly as plain text. Also wires
-        # click-and-drag on column 0 to check/uncheck a run of rows at once.
+        # Click-to-sort on Wavelength/Species/A-coeff/E_upper, not Transition
+        # (sorts badly as plain text); also wires drag-select on column 0.
         self._init_sortable_checkbox_table(self.table, {1, 2, 4, 5}, self._sort_key)
 
         # If we have plotted_rows, use them to determine checkboxes
@@ -108,12 +115,9 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
 
     @staticmethod
     def _row_key(row):
-        """
-        Identify a row precisely enough to distinguish two HITRAN entries that share a
-        wavelength (e.g. two HD transitions at 5.027692 um, same transition label and
-        E_upper, different A coefficient) -- wavelength alone can't tell them apart, so
-        every column shown in the table (plus isotopologue, not shown as its own column
-        but folded into the Species text) goes into the key.
+        """Identify a row precisely enough to distinguish two HITRAN entries
+        sharing a wavelength but differing in A coefficient; every column
+        shown in the table (plus isotopologue) goes into the key.
 
         Args:
             row (dict): A line row, as used throughout this dialog
@@ -125,6 +129,15 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
                 still-comparable rows don't all collide on None
         """
         def _num(value, ndigits):
+            """Round a value to ndigits, or None if it can't be parsed as a float.
+
+            Args:
+                value: Value to round.
+                ndigits (int): Number of decimal digits to round to.
+
+            Returns:
+                rounded (float): The rounded value, or None if unparseable.
+            """
             try:
                 return round(float(value), ndigits)
             except (TypeError, ValueError):
@@ -138,12 +151,15 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
         )
 
     def populate_table(self, rows, default_checked=True):
-        """
-        Populate the table. Each row gets a checkbox.
-        default_checked:
-          - True => check all rows
-          - False => uncheck all rows
-          - None => check only those present in self.plotted_keys
+        """Populate the table; each row gets a checkbox.
+
+        Args:
+            rows (list): Line rows to display.
+            default_checked (bool): True checks all rows, False unchecks
+                all rows, None checks only rows in self.plotted_keys.
+
+        Returns:
+            None
         """
         for i, row in enumerate(rows):
             # Decide default state:
@@ -154,9 +170,8 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
             else:  # default_checked is None -> reflect plotted_rows membership
                 checked = self._row_key(row) in self.plotted_keys
 
-            # Tint rows by source so HITRAN / contaminant / custom-imported lines
-            # read apart at a glance, echoing the same colors used on the spectrum
-            # itself (darkred/orange for HITRAN, black/dimgray for contaminants).
+            # Tint rows by source (HITRAN/contaminant/custom) to match the
+            # same colors used for these lines on the spectrum plot.
             tint = self._row_tint(row)
 
             # A real checkable item, not a QCheckBox widget -- a widget does not
@@ -175,7 +190,7 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
                 item.setBackground(tint)
             self.table.setItem(i, 1, item)
 
-            # Species (append isotopologue formula/number when available, e.g. "CO (¹²C¹⁶O)")
+            # Species (append isotopologue formula/number when available, e.g. "CO (13C16O)")
             species_text = row.get("species", "")
             iso_name = row.get("isotopologue_name")
             iso_num = row.get("isotopologue")
@@ -226,7 +241,14 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
 
     @staticmethod
     def _row_tint(row):
-        """Faint background tint by source, or None for an untinted (Custom) row."""
+        """Faint background tint by source, or None for an untinted (Custom) row.
+
+        Args:
+            row (dict): A line row, as used throughout this dialog.
+
+        Returns:
+            color (QColor): Faint tint color, or None for an untinted row.
+        """
         source = row.get('source')
         if source == 'HITRAN':
             return QColor(255, 200, 200, 80)  # Faint red, matches the darkred/orange marker
@@ -235,6 +257,14 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
         return None
 
     def get_selected_rows(self):
+        """Return the rows currently checked in the table.
+
+        Args:
+            None
+
+        Returns:
+            selected (list): Checked line rows, in table order.
+        """
         selected = []
         for i in range(self.table.rowCount()):
             item = self.table.item(i, 0)
@@ -245,29 +275,67 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
 
     @staticmethod
     def get_row_wavelength(row):
+        """Return a row's wavelength, from whichever key it's stored under.
+
+        Args:
+            row (dict): A line row, as used throughout this dialog.
+
+        Returns:
+            wavelength (float): The row's wavelength.
+        """
         return row.get("lambda_micron") or row.get("wavelength")
 
     def select_all_rows(self):
+        """Check every row's checkbox.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         for i in range(self.table.rowCount()):
             item = self.table.item(i, 0)
             if item:
                 item.setCheckState(Qt.Checked)
 
     def unselect_all_rows(self):
+        """Uncheck every row's checkbox.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         for i in range(self.table.rowCount()):
             item = self.table.item(i, 0)
             if item:
                 item.setCheckState(Qt.Unchecked)
 
     def select_detection_only(self):
-        """Check only the lines being detected (HITRAN or custom-imported), uncheck contaminants."""
+        """Check only the lines being detected (HITRAN or custom-imported), uncheck contaminants.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         for i in range(self.table.rowCount()):
             item = self.table.item(i, 0)
             if item:
                 item.setCheckState(Qt.Unchecked if self.rows[i].get('source') == 'Contaminant' else Qt.Checked)
 
     def select_contaminating_only(self):
-        """Check only contaminating lines, uncheck the detection lines."""
+        """Check only contaminating lines, uncheck the detection lines.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         for i in range(self.table.rowCount()):
             item = self.table.item(i, 0)
             if item:

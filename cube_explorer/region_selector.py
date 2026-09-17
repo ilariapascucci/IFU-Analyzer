@@ -55,10 +55,8 @@ def _any_touch_ellipse_mask(width, height):
 
 def _segment_intersects_boxes_vec(x0, y0, x1, y1, xmin, xmax, ymin, ymax):
     """Liang-Barsky test: does the segment (x0,y0)-(x1,y1) intersect each of
-    many axis-aligned boxes? Tests this one edge on its own, so it stays
-    correct even where the polygon it belongs to crosses itself -- unlike a
-    signed-area/clipping approach, which can cancel out real area at a
-    self-intersection (a real risk for a freehand lasso).
+    many axis-aligned boxes? Tests each edge independently, so it stays
+    correct at a self-intersecting polygon (a real risk for a freehand lasso).
 
     Args:
         x0, y0, x1, y1 (float): Segment endpoints
@@ -89,13 +87,7 @@ def _segment_intersects_boxes_vec(x0, y0, x1, y1, xmin, xmax, ymin, ymax):
 def _any_touch_polygon_mask(verts, xmin, ymin, width, height):
     """Boolean mask for an arbitrary (possibly self-intersecting) polygon: a
     pixel counts as in if its own unit square touches the polygon at all.
-
-    Starts from the existing point-in-polygon mask (exact for any pixel not
-    right at the edge), then ORs in an exact edge-vs-box test for every
-    pixel, one polygon edge at a time (vectorized across the whole grid per
-    edge). Each edge is tested independently, so self-intersections
-    elsewhere in the polygon can't corrupt the result the way a signed-area
-    method could.
+    Starts from point-in-polygon, then ORs in an edge-vs-box test per edge.
 
     Args:
         verts (np.ndarray): Polygon vertices, absolute data coordinates
@@ -185,16 +177,18 @@ class InteractivePatch:
     HANDLE_HIT_RADIUS_PX = 8  # click tolerance for resize handles, in screen pixels
 
     def __init__(self, ax, patch, shape_type, on_change_callback, coords=None):
-        """
-        Initialize an interactive patch. Does NOT connect event handlers or
-        create handles yet - call connect() to make it interactive.
+        """Initialize an interactive patch. Does not connect event handlers
+        or create handles yet; call connect() to make it interactive.
 
         Args:
-            ax: matplotlib axes
-            patch: matplotlib patch object
-            shape_type: 'rectangle', 'circle', 'ellipse', or 'polygon'
-            on_change_callback: function(new_coords) to call on changes
-            coords: initial coordinates (xmin, xmax, ymin, ymax)
+            ax (matplotlib.axes.Axes): Axes the patch is drawn on.
+            patch (matplotlib.patches.Patch): Patch object to make interactive.
+            shape_type (str): 'rectangle', 'circle', 'ellipse', or 'polygon'.
+            on_change_callback (callable): function(new_coords) to call on changes.
+            coords (tuple): Initial (xmin, xmax, ymin, ymax), or None.
+
+        Returns:
+            None
         """
         self.ax = ax
         self.patch = patch
@@ -213,7 +207,14 @@ class InteractivePatch:
         self._connected = False
 
     def connect(self):
-        """Wire up event handlers and show resize handles."""
+        """Wire up event handlers and show resize handles.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self._connected:
             return
         ax = self.ax
@@ -229,7 +230,14 @@ class InteractivePatch:
             ax.figure.canvas.draw_idle()
 
     def disconnect_handlers(self):
-        """Unwire event handlers and hide resize handles, keeping the patch itself intact."""
+        """Unwire event handlers and hide resize handles, keeping the patch itself intact.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not self._connected:
             return
         try:
@@ -260,7 +268,14 @@ class InteractivePatch:
             print(f"[DEBUG] Error redrawing after disconnect_handlers: {e}")
     
     def _create_handles(self):
-        """Create visual resize handles for the patch."""
+        """Create visual resize handles for the patch.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         xmin, xmax, ymin, ymax = self.coords
         
         if self.shape_type == 'rectangle':
@@ -310,7 +325,14 @@ class InteractivePatch:
 
     
     def on_press(self, event):
-        """Handle mouse press to start dragging."""
+        """Handle mouse press to start dragging.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Press event.
+
+        Returns:
+            None
+        """
         if event.inaxes != self.ax or event.button != 1 or event.xdata is None or event.ydata is None:
             return
         
@@ -385,11 +407,8 @@ class InteractivePatch:
                     'xpress': event.xdata,
                     'ypress': event.ydata,
                     'coords': self.coords,
-                    # Snapshot the real vertices (not the patch's staircase
-                    # outline) at press time so each motion tick can apply
-                    # the TOTAL displacement-since-press to a fixed baseline,
-                    # instead of stacking onto the previous tick's
-                    # already-moved vertices (which would compound/drift).
+                    # Snapshot the real vertices at press time so each motion
+                    # tick applies total displacement, not compounding drift.
                     'verts': np.asarray(self.patch.lasso_verts).copy()
                 }
                 print(f"[DEBUG] Clicked inside polygon to move")
@@ -399,18 +418,31 @@ class InteractivePatch:
 
     
     def on_release(self, event):
-        """Handle mouse release."""
+        """Handle mouse release.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Release event.
+
+        Returns:
+            None
+        """
         self.active_handle = None
         self.press_data = None
-    
+
     def on_motion(self, event):
-        """Handle mouse motion - update patch while dragging."""
+        """Handle mouse motion - update patch while dragging.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Motion event.
+
+        Returns:
+            None
+        """
         if self.press_data is None or event.inaxes != self.ax or event.xdata is None or event.ydata is None:
             return
 
         # Snap every move/resize to a whole-pixel step, matching how the
-        # mask itself is always defined on whole pixels -- what's dragged on
-        # screen never implies a position finer than the mask can represent.
+        # mask itself is always defined on whole pixels.
         dx = round(event.xdata - self.press_data['xpress'])
         dy = round(event.ydata - self.press_data['ypress'])
 
@@ -428,7 +460,17 @@ class InteractivePatch:
                 self._update_patch(new_coords)
     
     def _resize_from_handle(self, coords, dx, dy):
-        """Calculate new coordinates when resizing from a handle."""
+        """Calculate new coordinates when resizing from a handle.
+
+        Args:
+            coords (tuple): Current (xmin, xmax, ymin, ymax).
+            dx (float): Horizontal displacement since press.
+            dy (float): Vertical displacement since press.
+
+        Returns:
+            coords (tuple): New (xmin, xmax, ymin, ymax), or None if the
+                active handle/shape combination has no resize behavior.
+        """
         xmin, xmax, ymin, ymax = coords
         h_idx = self.active_handle
         
@@ -452,9 +494,8 @@ class InteractivePatch:
                 return (xmin, xmax + dx, ymin, ymax)
         
         elif self.shape_type == 'circle':
-            # Resize circle from edge handle. Rounded so the radius (and so
-            # the whole bounding box) only ever changes in whole-pixel
-            # steps, even though halving dx/dy could land on a half-pixel.
+            # Resize circle from edge handle, rounded so the radius only
+            # ever changes in whole-pixel steps.
             cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
             old_r = max(xmax - xmin, ymax - ymin) / 2
             new_r = max(1, round(old_r + max(dx, dy) / 2))
@@ -474,7 +515,14 @@ class InteractivePatch:
         return None
     
     def _update_patch(self, new_coords):
-        """Update the patch geometry and redraw handles."""
+        """Update the patch geometry and redraw handles.
+
+        Args:
+            new_coords (tuple): New (xmin, xmax, ymin, ymax) for the patch.
+
+        Returns:
+            None
+        """
         xmin, xmax, ymin, ymax = new_coords
         
         # Update coordinates
@@ -489,9 +537,8 @@ class InteractivePatch:
             self.patch.set_height(height)
         
         elif self.shape_type in ('circle', 'ellipse'):
-            # The patch is a staircase outline of the actual any-touch mask,
-            # not an idealized smooth shape -- rebuild it for the new coords
-            # rather than mutating Circle/Ellipse geometry that no longer applies.
+            # The patch is a staircase outline of the any-touch mask, not an
+            # idealized shape, so rebuild it rather than mutate the geometry.
             ixmin, ixmax = int(round(xmin)), int(round(xmax))
             iymin, iymax = int(round(ymin)), int(round(ymax))
             width = max(1, ixmax - ixmin + 1)
@@ -502,10 +549,8 @@ class InteractivePatch:
                 self.patch.set_path(path)
 
         elif self.shape_type == 'polygon':
-            # Move polygon by applying total displacement-since-press to the
-            # vertex snapshot captured at press time (see on_press) - using
-            # the patch's current (already-moved) vertices here would double
-            # count displacement on every tick after the first.
+            # Apply total displacement-since-press to the vertex snapshot
+            # from on_press; using the current vertices would double-count.
             if self.press_data and 'verts' in self.press_data:
                 old_coords = self.press_data['coords']
                 old_xmin, old_xmax, old_ymin, old_ymax = old_coords
@@ -535,7 +580,14 @@ class InteractivePatch:
         self.on_change_callback(new_coords)
     
     def _update_handles(self):
-        """Update visual positions of resize handles."""
+        """Update visual positions of resize handles.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         xmin, xmax, ymin, ymax = self.coords
         
         if self.shape_type == 'rectangle':
@@ -575,7 +627,14 @@ class InteractivePatch:
     def disconnect(self):
         """Fully tear down: unwire handlers, remove handles, and drop the patch
         reference. Use this when the shape itself is being removed (e.g. erased).
-        Safe to call even if the patch was never connect()-ed."""
+        Safe to call even if the patch was never connect()-ed.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         print(f"[DEBUG] Disconnecting InteractivePatch for {self.shape_type}")
         self.disconnect_handlers()
         self.patch = None
@@ -615,6 +674,9 @@ class RegionSelector:
                 - mask is a boolean array showing selected pixels
                 - patch is a matplotlib patch object for the selection
                 - coords is the selection bounds (xmin,xmax,ymin,ymax)
+
+        Returns:
+            None
         """
         self.ax = ax
         self.canvas = canvas
@@ -625,22 +687,15 @@ class RegionSelector:
         self.image = None  # Will store the current image for mask generation
 
     def activate_selector(self, shape):
-        """
-        Activate a specific type of region selector.
-
-        Sets up the appropriate matplotlib widget based on shape:
-        - '*': Point selection (handled by click events)
-        - '▭': Rectangle selector 
-        - '◯'/'⬭': Ellipse selector
-        - '✏': Lasso selector for custom shapes
+        """Activate a matplotlib selector widget matching `shape` (point,
+        rectangle, ellipse/circle, or lasso), disconnecting any existing
+        selector first. Point selection is handled separately via clicks.
 
         Args:
-            shape (str): The shape to activate, or None to deactivate selection
+            shape (str): The shape to activate, or None to deactivate selection.
 
-        Note:
-            - Disconnects any existing selector before creating new one
-            - Sets up appropriate event handlers and selection parameters
-            - Point selection ('*') is handled separately through click events
+        Returns:
+            None
         """
         if self.selector is not None:
             self.selector.disconnect_events()
@@ -685,20 +740,15 @@ class RegionSelector:
             )
 
     def on_select(self, eclick, erelease):
-        """
-        Handle rectangle/ellipse selection events.
-
-        Called when a selection is completed with rectangle or ellipse selectors.
-        Converts the selection coordinates to integers and creates the region.
+        """Handle a completed rectangle/ellipse selection: converts the
+        coordinates to ordered integers and creates the region.
 
         Args:
-            eclick (matplotlib.backend_bases.MouseEvent): Mouse press event
-            erelease (matplotlib.backend_bases.MouseEvent): Mouse release event
+            eclick (matplotlib.backend_bases.MouseEvent): Mouse press event.
+            erelease (matplotlib.backend_bases.MouseEvent): Mouse release event.
 
-        Note:
-            - Converts floating point coordinates to integers
-            - Ensures coordinates are ordered (min, max)
-            - Delegates region creation to create_region
+        Returns:
+            None
         """
         # Get selection bounds
         x0, y0 = int(eclick.xdata), int(eclick.ydata)
@@ -710,22 +760,14 @@ class RegionSelector:
         self.create_region(coords)
 
     def create_region(self, coords):
-        """
-        Create a region mask and visual patch based on current shape type.
-
-        Delegates the actual mask/patch construction to
-        _generate_mask_from_coords, so a freshly-drawn shape and one later
-        dragged/resized always use the exact same rule.
+        """Create a region mask and visual patch based on current shape
+        type, via _generate_mask_from_coords, then make it interactive.
 
         Args:
-            coords (tuple): (xmin, xmax, ymin, ymax) region bounds
+            coords (tuple): (xmin, xmax, ymin, ymax) region bounds.
 
-        Note:
-            - Circle/ellipse pixels count as in if they touch the shape at
-              all (not just if their centre does); the drawn outline traces
-              that mask's real edges instead of an idealized smooth shape
-            - Calls callback with created mask, patch and coordinates
-            - Made interactive with dragging and resizing
+        Returns:
+            None
         """
         if self.active_shape == "◯":
             shape_type = 'circle'
@@ -741,7 +783,14 @@ class RegionSelector:
 
         # Make patch interactive (draggable and resizable)
         def on_patch_change(new_coords):
-            """Callback when patch is dragged or resized."""
+            """Regenerate the mask and re-run the selection callback.
+
+            Args:
+                new_coords (tuple): New (xmin, xmax, ymin, ymax) region bounds.
+
+            Returns:
+                None
+            """
             new_mask, _, _ = self._generate_mask_from_coords(new_coords, shape_type)
             print(f"[DEBUG] Patch changed to coords: {new_coords}, regenerated mask shape: {new_mask.shape}")
             self.on_select_callback(new_mask, patch, new_coords)
@@ -804,21 +853,13 @@ class RegionSelector:
         return mask, patch, coords
 
     def on_lasso_select(self, verts):
-        """
-        Handle custom shape selection made with the lasso tool.
+        """Handle custom shape selection made with the lasso tool.
 
         Args:
-            verts (list): List of (x,y) vertex coordinates of the selection
+            verts (list): List of (x,y) vertex coordinates of the selection.
 
-        Note:
-            - A pixel counts as in if it touches the drawn polygon at all
-              (see _any_touch_polygon_mask), not just if its centre does
-            - The drawn outline traces that mask's real edges (a staircase)
-              instead of the smooth polygon the user actually clicked
-            - lasso_verts (the real clicked/dragged vertices) is kept on the
-              patch regardless, since copying/recreating this selection
-              needs the true shape, not its staircase outline
-            - Made movable (dragging the entire shape)
+        Returns:
+            None
         """
         verts = np.asarray(verts)
         xmin, ymin = np.min(verts, axis=0)
@@ -842,11 +883,14 @@ class RegionSelector:
 
         # Make lasso interactive (movement only)
         def on_lasso_change(new_coords):
-            """Callback when lasso is moved.
+            """Recompute the mask from the vertices _update_patch already
+            moved and rebuilt the staircase outline for.
 
-            InteractivePatch._update_patch already moved the real vertices
-            (patch.lasso_verts) and rebuilt the staircase outline in place -
-            just recompute the authoritative mask from those same vertices.
+            Args:
+                new_coords (tuple): New (xmin, xmax, ymin, ymax) region bounds.
+
+            Returns:
+                None
             """
             new_xmin, new_xmax, new_ymin, new_ymax = (int(round(v)) for v in new_coords)
             new_verts = np.asarray(patch.lasso_verts)

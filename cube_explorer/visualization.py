@@ -55,13 +55,15 @@ class SpectrumPlotter:
     """
 
     def __init__(self, figure, wavelength=None, wave_unit=""):
-        """
-        Initialize the spectrum plotter.
+        """Initialize the spectrum plotter.
 
         Args:
-            figure (matplotlib.figure.Figure): Figure to plot on
-            wavelength (numpy.ndarray, optional): Wavelength/velocity values
-            wave_unit (str, optional): Unit for spectral axis (Å, µm, km/s)
+            figure (matplotlib.figure.Figure): Figure to plot on.
+            wavelength (numpy.ndarray): Wavelength/velocity values, or None.
+            wave_unit (str): Unit for spectral axis (Angstrom, micron, km/s).
+
+        Returns:
+            None
         """
         self.fig = figure
         self.ax = self.fig.add_subplot(111)
@@ -74,24 +76,16 @@ class SpectrumPlotter:
         self.global_line = None
 
     def plot_spectrum(self, spectrum, ax=None):
-        """
-        Plot the main integrated spectrum of the data cube.
-
-        Handles:
-        - Setting up x-axis (wavelength/velocity)
-        - Plotting the spectrum data
-        - Adding appropriate axis labels
-        - Creating slice indicator lines
-        - Handling invalid data cases
+        """Plot the main integrated spectrum: sets up the x-axis
+        (wavelength/velocity, or index if unavailable), plots the data,
+        adds axis labels, and creates hidden slice indicator lines.
 
         Args:
-            spectrum (numpy.ndarray): 1D array of spectral values
+            spectrum (numpy.ndarray): 1D array of spectral values.
+            ax: Unused; kept for backward compatibility.
 
-        Note:
-            - Uses wavelength values if available, otherwise index
-            - Handles all-NaN spectra gracefully
-            - Creates persistent vertical lines for slice indication
-            - Sets up proper axis labels based on units
+        Returns:
+            ax (matplotlib.axes.Axes): The axes the spectrum was plotted on.
         """
 
         print("DEBUG plot_spectrum called")
@@ -141,14 +135,12 @@ class SpectrumPlotter:
                 ylabel = f"Flux [{clean_flux_unit(self.cube_data.flux_unit)}]"
             else:
                 # No flux_unit available - use generic label instead of guessing
-                # (wavelength alone doesn't determine flux unit: µm could be Jy OR MJy/sr)
+                # (wavelength alone doesn't determine flux unit: micron could be Jy or MJy/sr)
                 ylabel = "Flux [units unknown]"
             self.ax.set_ylabel(ylabel)
 
-            # Create slice indicator lines spanning current y-limits. Start
-            # hidden - they're only shown once the user explicitly picks a
-            # wavelength via "Set Left/Right Slice", not at the default
-            # first-slice position immediately on load.
+            # Slice indicator lines start hidden; shown only once the user
+            # explicitly picks a wavelength via "Set Left/Right Slice".
             ymin, ymax = self.ax.get_ylim()
             self.vline_left = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='cyan', lw=1.5, label='Left slice', zorder=3)[0]
             self.vline_right = self.ax.plot([x[0], x[0]], [ymin, ymax], '--', color='magenta', lw=1.5, label='Right slice', zorder=3)[0]
@@ -167,11 +159,13 @@ class SpectrumPlotter:
         return self.ax
 
     def plot_gaussian_fit(self, result):
-        """
-        Plot Gaussian fit results on the spectrum.
-        
+        """Plot Gaussian fit results on the spectrum.
+
         Args:
-            result: GaussianFitResult object containing fit parameters and data
+            result: GaussianFitResult object containing fit parameters and data.
+
+        Returns:
+            None
         """
         # Clear previous fit lines if any
         if not hasattr(self, 'gauss_fit_artists'):
@@ -186,7 +180,7 @@ class SpectrumPlotter:
         
         # Get normalization factor from global spectrum if it was normalized
         if hasattr(self, 'global_line') and self.global_line is not None:
-            # Check if spectrum was normalized (median should be ~1)
+            # Check if spectrum was normalized (median is then ~1)
             global_y = self.global_line.get_ydata()
             global_median = np.nanmedian(global_y[np.isfinite(global_y)])
             
@@ -265,14 +259,28 @@ class SpectrumPlotter:
 
 
     def normalize_global(self, factor):
-        """Normalize the global spectrum line in-place."""
+        """Normalize the global spectrum line in-place.
+
+        Args:
+            factor (float): Value to divide the spectrum's y-data by.
+
+        Returns:
+            None
+        """
         if hasattr(self, 'global_line'):
             ydata = self.global_line.get_ydata()
             self.global_line.set_ydata(ydata / factor)
             self.fig.canvas.draw()
-    
+
     def update_spectrum(self, spectrum):
-        """Update the global spectrum with new data (e.g., normalized)."""
+        """Update the global spectrum with new data (e.g., normalized).
+
+        Args:
+            spectrum (numpy.ndarray): New spectrum values.
+
+        Returns:
+            None
+        """
         if hasattr(self, 'global_line') and self.global_line is not None:
             # Get x values - extract from Quantity if needed
             if self.wavelength is not None and len(self.wavelength) == len(spectrum):
@@ -302,23 +310,15 @@ class SpectrumPlotter:
 
 
     def update_slice_indicator(self, wavelength_idx, target="left"):
-        """
-        Update the position of a slice indicator line.
-
-        Moves the vertical line showing current slice position for either
-        the left or right display.
+        """Move the vertical line showing the current slice position for
+        either the left or right display, preserving y-axis limits.
 
         Args:
-            wavelength_idx (int): Index into wavelength array for new position
-            target (str, optional): Which line to update ('left' or 'right')
+            wavelength_idx (int): Index into wavelength array for new position.
+            target (str): Which line to update, 'left' or 'right'.
 
-        Note:
-            - Maintains y-axis limits when updating
-            - Handles missing wavelength data gracefully
-            - Creates new line if one doesn't exist
-            - Color codes lines by side (red=left, blue=right)
-            - Safe to call if lines haven't been created yet
-            - Handles both Quantity and raw wavelength arrays
+        Returns:
+            None
         """
         if self.wavelength is None:
             return
@@ -347,13 +347,15 @@ class SpectrumPlotter:
             print(f"Error updating slice indicator: {e}")
 
     def shift_plot_elements(self, shift_factor):
-        """
-        Shift all plot elements (Gaussian fit, slice indicators, vertical line markers) by the wavelength shift factor.
-        
-        This is called when a Doppler shift is applied to ensure all graphics move with the spectrum.
-        
+        """Shift all plot elements (Gaussian fit, slice indicators, vertical
+        line markers) by the wavelength shift factor, called when a Doppler
+        shift is applied so all graphics move with the spectrum.
+
         Args:
-            shift_factor (float): The wavelength shift factor (e.g., 1 / (1 + v/c))
+            shift_factor (float): The wavelength shift factor (e.g., 1 / (1 + v/c)).
+
+        Returns:
+            None
         """
         # Shift Gaussian fit artists if they exist
         if hasattr(self, 'gauss_fit_artists') and self.gauss_fit_artists:
@@ -429,15 +431,13 @@ class SlicePlotter:
     """
     
     def __init__(self, figure):
-        """
-        Initialize the slice plotter.
+        """Initialize the slice plotter with custom axes positioning.
 
         Args:
-            figure (matplotlib.figure.Figure): Figure to plot on
+            figure (matplotlib.figure.Figure): Figure to plot on.
 
-        Note:
-            - Sets up axes with custom positioning
-            - Initializes empty attributes for later use
+        Returns:
+            None
         """
         self.fig = figure
         # Clear any existing axes
@@ -454,24 +454,19 @@ class SlicePlotter:
         self.fig.canvas.draw()
 
     def plot_slice(self, image, title="", cmap=None, scale='Linear', flux_unit=""):
-        """
-        Plot a 2D slice image with colorbar.
+        """Plot a 2D slice image with colorbar, creating or updating it as
+        needed (origin lower-left, 'magma' colormap by default).
 
         Args:
-            image (numpy.ndarray): 2D array of intensity values
-            title (str, optional): Title for the plot
-            cmap (str, optional): Colormap name
-            scale (str, optional): Intensity scaling - 'Linear', 'Log', 'Sqrt', or 'Power (γ=2)'
-            flux_unit (str, optional): Unit string for the flux/intensity values
+            image (numpy.ndarray): 2D array of intensity values.
+            title (str): Title for the plot.
+            cmap (str): Colormap name, or None to keep the current one.
+            scale (str): Intensity scaling: 'Linear', 'Log', 'Sqrt', or
+                'Power (gamma=2)'.
+            flux_unit (str): Unit string for the flux/intensity values.
 
-        Note:
-            - Uses 'magma' colormap for visualization by default
-            - Origin at lower left (astronomical convention)
-            - Nearest neighbor interpolation for pixel accuracy
-            - Creates or updates colorbar as needed
-            - Maintains consistent colorbar size and position
-            - Supports multiple scaling options for intensity
-            - Displays flux units on colorbar if provided
+        Returns:
+            None
         """
         # If axes are empty (or cleared), reset self.im
         if self.im is None or not self.ax.has_data():
@@ -554,7 +549,14 @@ class SlicePlotter:
         self.fig.canvas.draw_idle()
 
     def set_cmap(self, cmap_name):
-        """Update the colormap for the existing slice image."""
+        """Update the colormap for the existing slice image.
+
+        Args:
+            cmap_name (str): Matplotlib colormap name to apply.
+
+        Returns:
+            None
+        """
         self.current_cmap = cmap_name
         if self.im is not None:
             try:
@@ -566,18 +568,15 @@ class SlicePlotter:
         self.fig.canvas.draw_idle()
 
     def update_pixel_marker(self, x, y):
-        """
-        Update or create a marker showing selected pixel position.
+        """Update or create a marker (red +) showing the selected pixel,
+        removing any existing marker first.
 
         Args:
-            x (int): X coordinate of selected pixel
-            y (int): Y coordinate of selected pixel
+            x (int): X coordinate of selected pixel.
+            y (int): Y coordinate of selected pixel.
 
-        Note:
-            - Removes any existing markers before adding new one
-            - Uses red plus symbol (+) for visibility
-            - Consistent marker size and line width
-            - Maintains list of markers for cleanup
+        Returns:
+            None
         """
         if not hasattr(self.ax, 'pixel_marker'):
             self.ax.pixel_marker = []
@@ -595,24 +594,17 @@ class SlicePlotter:
 # ================== Flux Extraction Visualization ==================
 
 def plot_fit_residuals(wavelength, spectrum_flux, model_flux, title="Multi-Gaussian Fit Diagnostics"):
-    """
-    Create diagnostic plot comparing observed spectrum to fitted model.
-    
-    Parameters
-    ----------
-    wavelength : array-like
-        Wavelength values
-    spectrum_flux : array-like
-        Observed spectrum flux
-    model_flux : array-like
-        Best-fit model flux
-    title : str
-        Plot title
-    
-    Returns
-    -------
-    matplotlib.figure.Figure
-        Figure with 3 panels: observed, model, residuals
+    """Create diagnostic plot comparing observed spectrum to fitted model.
+
+    Args:
+        wavelength (numpy.ndarray): Wavelength values.
+        spectrum_flux (numpy.ndarray): Observed spectrum flux.
+        model_flux (numpy.ndarray): Best-fit model flux.
+        title (str): Plot title.
+
+    Returns:
+        fig (matplotlib.figure.Figure): Figure with 3 panels: observed,
+            model, residuals.
     """
     fig, axes = plt.subplots(3, 1, figsize=(12, 8))
     
@@ -647,28 +639,21 @@ def plot_fit_residuals(wavelength, spectrum_flux, model_flux, title="Multi-Gauss
 
 def plot_line_decomposition(wavelength, spectrum_flux, model_flux, continuum_flux, 
                              line_components, line_names=None):
-    """
-    Create plot showing individual line decomposition of multi-Gaussian fit.
-    
-    Parameters
-    ----------
-    wavelength : array-like
-        Wavelength values
-    spectrum_flux : array-like
-        Observed spectrum
-    model_flux : array-like
-        Total fitted model
-    continuum_flux : array-like
-        Fitted continuum
-    line_components : list of array-like
-        Individual Gaussian components (not including continuum)
-    line_names : list of str, optional
-        Names for each line (e.g., ["CO P(4)", "CO P(5)"])
-    
-    Returns
-    -------
-    matplotlib.figure.Figure
-        Figure with spectrum and individual line decomposition
+    """Create plot showing individual line decomposition of multi-Gaussian fit.
+
+    Args:
+        wavelength (numpy.ndarray): Wavelength values.
+        spectrum_flux (numpy.ndarray): Observed spectrum.
+        model_flux (numpy.ndarray): Total fitted model.
+        continuum_flux (numpy.ndarray): Fitted continuum.
+        line_components (list): Individual Gaussian components (excluding
+            continuum).
+        line_names (list): Names for each line (e.g., ["CO P(4)", "CO P(5)"]),
+            or None to auto-generate.
+
+    Returns:
+        fig (matplotlib.figure.Figure): Figure with spectrum and individual
+            line decomposition.
     """
     if line_names is None:
         line_names = [f"Line {i}" for i in range(len(line_components))]
@@ -699,22 +684,17 @@ def plot_line_decomposition(wavelength, spectrum_flux, model_flux, continuum_flu
 
 
 def plot_flux_map_diagnostics(flux_map, detection_map, error_map=None):
-    """
-    Create diagnostic plots for flux extraction map results.
+    """Create diagnostic plots for flux extraction map results.
 
-    Parameters
-    ----------
-    flux_map : array-like
-        2D map of integrated flux
-    detection_map : array-like
-        2D map of detection counts (lines per pixel)
-    error_map : array-like, optional
-        2D map of flux uncertainties
-    
-    Returns
-    -------
-    matplotlib.figure.Figure
-        Figure with 2-3 panels showing flux, detections, and errors
+    Args:
+        flux_map (numpy.ndarray): 2D map of integrated flux.
+        detection_map (numpy.ndarray): 2D map of detection counts (lines
+            per pixel).
+        error_map (numpy.ndarray): 2D map of flux uncertainties, or None.
+
+    Returns:
+        fig (matplotlib.figure.Figure): Figure with 2-3 panels showing
+            flux, detections, and errors.
     """
     n_panels = 3 if error_map is not None else 2
     fig, axes = plt.subplots(1, n_panels, figsize=(15, 5))

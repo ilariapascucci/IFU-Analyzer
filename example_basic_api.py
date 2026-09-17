@@ -23,7 +23,15 @@ from cube_explorer.visualization import plot_line_decomposition
 
 
 def fit_continuum_directly(wavelength, flux):
-    """Fit continuum using the GUI's exact algorithm"""
+    """Fit continuum using the GUI's exact algorithm.
+
+    Args:
+        wavelength (ndarray): Wavelength array for the spectrum.
+        flux (ndarray): Flux array matching wavelength.
+
+    Returns:
+        continuum_values (ndarray): Smoothed continuum, same shape as wavelength, NaN where masked out.
+    """
     from scipy.ndimage import median_filter
     from scipy.interpolate import UnivariateSpline
     from scipy.signal import find_peaks
@@ -113,6 +121,14 @@ def fit_continuum_directly(wavelength, flux):
 
 
 def main():
+    """Run the end-to-end example: load a cube, extract a spectrum, and fit CO lines.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     print("\n" + "=" * 70)
     print(" IFU Analyzer - Direct GUI Function Usage")
     print("=" * 70 + "\n")
@@ -183,7 +199,7 @@ def main():
             idx = np.argmin(np.abs(wavelength - wl_center))
             flux_at_center = spectrum[idx]
             
-            # Extract small window around this line (±20 pixels)
+            # Extract small window around this line (+/-20 pixels)
             window_idx = slice(max(0, idx-20), min(len(spectrum), idx+20))
             flux_window = spectrum[window_idx]
             

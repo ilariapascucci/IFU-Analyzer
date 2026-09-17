@@ -47,6 +47,9 @@ class GaussianMapWorker(QThread):
             header: FITS header for unit/metadata information
             wave_unit: Wavelength unit string
             lambda_0: Rest wavelength for velocity calculations
+
+        Returns:
+            None
         """
         super().__init__()
         self.cube = cube
@@ -65,14 +68,25 @@ class GaussianMapWorker(QThread):
 
     def cancel(self):
         """Request that the run stop after the currently in-flight rows finish.
+        Does not block; call wait() on this QThread to pause until it exits.
 
-        Does not block. Call wait() on this QThread afterward if you need the caller
-        to pause until the thread has actually exited.
+        Args:
+            None
+
+        Returns:
+            None
         """
         self._cancel_event.set()
 
     def run(self):
-        """Execute fitting in background thread"""
+        """Execute fitting in background thread.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             from .gaussian_fitter import fit_gaussians_per_pixel
             results = fit_gaussians_per_pixel(
@@ -91,9 +105,8 @@ class GaussianMapWorker(QThread):
                 progress_callback=self._emit_progress,
                 cancel_event=self._cancel_event,
             )
-            # results is None when cancel() was called before completion. Nothing is
-            # listening by then (the window that owned this worker is closing), so
-            # there is nothing useful to emit -- just let the thread end.
+            # results is None when cancel() fired before completion; nothing
+            # is listening by then, so just let the thread end.
             if results is not None:
                 self.finished.emit(results)
         except Exception as e:
@@ -101,7 +114,15 @@ class GaussianMapWorker(QThread):
 
 
     def _emit_progress(self, current, total):
-        """Emit progress signal"""
+        """Emit progress signal.
+
+        Args:
+            current (int): Pixels fit so far.
+            total (int): Total pixels to fit.
+
+        Returns:
+            None
+        """
         self.progress.emit(current, total)
 
 
@@ -119,6 +140,21 @@ class MultiGaussianFitWorker(QThread):
 
     def __init__(self, spectrum_x, spectrum_y, hitran_lines, continuum,
                  header=None, wave_unit=None, contam_lines=None):
+        """Store the multi-Gaussian fit inputs for run() to use.
+
+        Args:
+            spectrum_x (numpy.ndarray): Wavelength array to fit against.
+            spectrum_y (numpy.ndarray): Flux array to fit.
+            hitran_lines (list): Detection line rows to fit.
+            continuum (numpy.ndarray): Continuum to subtract before fitting.
+            header (astropy.io.fits.Header): FITS header for unit handling.
+            wave_unit (str): Wavelength unit string.
+            contam_lines (pandas.DataFrame): Contaminating lines to exclude,
+                or None.
+
+        Returns:
+            None
+        """
         super().__init__()
         self.spectrum_x = spectrum_x
         self.spectrum_y = spectrum_y
@@ -129,6 +165,14 @@ class MultiGaussianFitWorker(QThread):
         self.contam_lines = contam_lines
 
     def run(self):
+        """Fit every detection line simultaneously and emit `finished` or `error`.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             from .flux_map_extractor import fit_hitran_lines_collective
             fit_pairs, contam_pairs, _ = fit_hitran_lines_collective(
@@ -141,6 +185,15 @@ class MultiGaussianFitWorker(QThread):
             self.error.emit(str(e))
 
     def _emit_progress(self, current, total):
+        """Relay a fit-progress update through the `progress` signal.
+
+        Args:
+            current (int): Chunks fit so far.
+            total (int): Total chunks to fit.
+
+        Returns:
+            None
+        """
         self.progress.emit(current, total)
 
 
@@ -154,6 +207,21 @@ class GaussianMapResultsDialog(QDialog):
     
     def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None,
                  noise_min=None, noise_max=None):
+        """Build the Gaussian map results dialog and its parameter maps.
+
+        Args:
+            parent (QWidget): Parent widget.
+            results (dict): Per-pixel Gaussian map results to display.
+            cube_data (CubeData): Loaded cube, for units/metadata.
+            gauss_left_x (float): Left fit boundary used for the map.
+            gauss_right_x (float): Right fit boundary used for the map.
+            wavelength (numpy.ndarray): Wavelength array for the single-pixel view.
+            noise_min (float): Noise region lower bound the fit used, or None.
+            noise_max (float): Noise region upper bound the fit used, or None.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.parent_widget = parent
         self.results = results
@@ -179,7 +247,14 @@ class GaussianMapResultsDialog(QDialog):
         self._setup_ui()
     
     def _get_wavelength_unit(self):
-        """Extract wavelength unit from cube_data or results"""
+        """Extract wavelength unit from cube_data or results.
+
+        Args:
+            None
+
+        Returns:
+            unit (str): Wavelength unit string, defaulting to 'um'.
+        """
         # Prioritize cube_data since it has the actual unit used for fitting
         if hasattr(self.cube_data, 'wave_unit') and self.cube_data.wave_unit:
             return self.cube_data.wave_unit
@@ -189,22 +264,29 @@ class GaussianMapResultsDialog(QDialog):
         return 'um'  # Default fallback
     
     def _get_flux_unit(self):
-        """Extract flux unit from cube_data"""
+        """Extract flux unit from cube_data.
+
+        Args:
+            None
+
+        Returns:
+            unit (str): Flux unit string, defaulting to 'native'.
+        """
         if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
             return self.cube_data.flux_unit
         return 'native'  # Default fallback
     
     def _get_parameter_units(self):
+        """Determine unit strings for all parameters based on instrument/data.
+
+        Args:
+            None
+
+        Returns:
+            units (dict): parameter -> (unit_label, colormap) pairs.
         """
-        Determine unit strings for all parameters based on instrument/data.
-        
-        Returns dict with parameter -> (unit_label, colormap) pairs
-        """
-        # Ask unit_converter what the maps are in rather than pattern-matching BUNIT here.
-        # It probes with the same conversions the fitter used, so the label cannot claim a
-        # unit the numbers are not in -- which is how these maps ended up labelled
-        # "[ΜM]" (from 'µm'.upper()) and "erg/(s*cm2*sr)" (an amplitude that is really
-        # per-wavelength, with the steradian already divided out).
+        # Ask unit_converter what the maps are in, not pattern-matched BUNIT:
+        # that previously mislabeled units (e.g. an uppercased micron symbol).
         header = getattr(self.cube_data, 'header', None)
         lam_mid = (min(self.gauss_left_x, self.gauss_right_x)
                    + max(self.gauss_left_x, self.gauss_right_x)) / 2.0
@@ -229,7 +311,14 @@ class GaussianMapResultsDialog(QDialog):
         }
     
     def _setup_ui(self):
-        """Initialize dialog UI components"""
+        """Initialize dialog UI components.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         layout = QVBoxLayout()
         
         # Info label with detection stats
@@ -295,9 +384,8 @@ class GaussianMapResultsDialog(QDialog):
         param_layout.addStretch()
         layout.addLayout(param_layout)
 
-        # Own row, below the selectors: on one line with them the window ends up wider
-        # than the map it holds. Same control as the flux map -- clicking a pixel
-        # opens its fit, and the toggle gets out of the way for the toolbar's zoom/pan.
+        # Own row, below the selectors, so the window doesn't end up wider than
+        # the map; same pixel-select control as the flux map.
         select_layout = QHBoxLayout()
         self.pixel_select_btn = QPushButton("✓ Pixel Select ON")
         self.pixel_select_btn.setCheckable(True)
@@ -345,7 +433,14 @@ class GaussianMapResultsDialog(QDialog):
         self.setLayout(layout)
     
     def _update_plot(self):
-        """Update plot when parameter selection changes"""
+        """Update plot when parameter selection changes.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         
@@ -465,7 +560,14 @@ class GaussianMapResultsDialog(QDialog):
         self.canvas.draw()
     
     def _toggle_pixel_selection(self):
-        """Toggle click-a-pixel mode so the matplotlib toolbar can be used instead"""
+        """Toggle click-a-pixel mode so the matplotlib toolbar can be used instead.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.pixel_selection_enabled = self.pixel_select_btn.isChecked()
         if self.pixel_selection_enabled:
             self.pixel_select_btn.setText("✓ Pixel Select ON")
@@ -475,7 +577,14 @@ class GaussianMapResultsDialog(QDialog):
             self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
 
     def _on_canvas_click(self, event):
-        """Open the single-pixel fit view for the clicked map pixel"""
+        """Open the single-pixel fit view for the clicked map pixel.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+
+        Returns:
+            None
+        """
         if not self.pixel_selection_enabled:
             return
         if event.inaxes is None or event.xdata is None or event.ydata is None:
@@ -490,7 +599,15 @@ class GaussianMapResultsDialog(QDialog):
         self._show_pixel_fit(row, col)
 
     def _show_pixel_fit(self, row, col):
-        """Show the stored fit for one pixel (row = y index, col = x index)"""
+        """Show the stored fit for one pixel (row = y index, col = x index).
+
+        Args:
+            row (int): Pixel row (y) index.
+            col (int): Pixel column (x) index.
+
+        Returns:
+            None
+        """
         if self.wavelength is None:
             QMessageBox.warning(self, "No Wavelength Data",
                                 "Wavelength array not available for pixel inspection")
@@ -532,7 +649,14 @@ class GaussianMapResultsDialog(QDialog):
         dlg.exec_()
 
     def _handle_residuals_display(self, ax):
-        """Handle residuals display with export button"""
+        """Handle residuals display with export button.
+
+        Args:
+            ax (matplotlib.axes.Axes): Axes to draw the residuals map on.
+
+        Returns:
+            None
+        """
         if 'residuals_cube' in self.results:
             residual_cube = self.results['residuals_cube']
             # Show middle wavelength slice
@@ -608,7 +732,14 @@ class GaussianMapResultsDialog(QDialog):
         self.canvas.draw()
     
     def _export_residuals(self):
-        """Export residuals cube to FITS file"""
+        """Export residuals cube to FITS file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         # Generate filename from original cube filename
         if hasattr(self.cube_data, 'filename') and self.cube_data.filename:
             base_name = os.path.splitext(os.path.basename(self.cube_data.filename))[0]
@@ -649,7 +780,14 @@ class GaussianMapResultsDialog(QDialog):
                 )
     
     def _export_current_parameter(self):
-        """Export the currently displayed parameter as a 3D FITS map"""
+        """Export the currently displayed parameter as a 3D FITS map.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         param_name = self.param_combo.currentText()
         
         # Generate base filename from original cube filename
@@ -835,6 +973,17 @@ class HITRANGaussianResultsDialog(QDialog):
     """
     
     def __init__(self, parent, results, wave_unit='um', flux_unit=''):
+        """Build the HITRAN multi-Gaussian fit results table dialog.
+
+        Args:
+            parent (QWidget): Parent widget.
+            results (list): Per-line fit result dicts to display.
+            wave_unit (str): Wavelength unit label for the table.
+            flux_unit (str): Flux unit label for the table.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.setWindowTitle("HITRAN Gaussian Fit Results")
         self.setMinimumSize(1000, 600)
@@ -931,7 +1080,14 @@ class HITRANGaussianResultsDialog(QDialog):
         self.setLayout(layout)
     
     def _export_to_csv(self):
-        """Export results to CSV file"""
+        """Export results to CSV file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         from PyQt5.QtWidgets import QFileDialog
         import csv
         

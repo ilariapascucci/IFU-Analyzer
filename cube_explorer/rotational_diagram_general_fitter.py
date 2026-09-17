@@ -114,6 +114,9 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         """
         Compute excitation diagram arrays.
 
+        Args:
+            None
+
         Returns:
             E, y, y_err, is_ul, dropped (tuple): Arrays (E in K, y=log(Nu/gu)) plus
                 the list of J values dropped for missing error data

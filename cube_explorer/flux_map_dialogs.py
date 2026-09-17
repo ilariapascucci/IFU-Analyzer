@@ -25,6 +25,21 @@ class FluxMapWorker(QThread):
     error = pyqtSignal(str)           # Error message
     
     def __init__(self, cube_data, target_catalog, contam_catalog, n_jobs=4, wave_min=None, wave_max=None, excluded_wavelengths=None, continuum_params=None):
+        """Store flux-map fit inputs for run() to use.
+
+        Args:
+            cube_data (CubeData): Loaded cube to extract flux from.
+            target_catalog (pandas.DataFrame): Target line catalog.
+            contam_catalog (pandas.DataFrame): Contaminating lines, or None.
+            n_jobs (int): Number of parallel worker threads.
+            wave_min (float): Minimum wavelength to fit, or None.
+            wave_max (float): Maximum wavelength to fit, or None.
+            excluded_wavelengths (set): Wavelengths excluded from the fit.
+            continuum_params (dict): Continuum-fitting parameter overrides.
+
+        Returns:
+            None
+        """
         super().__init__()
         self.cube_data = cube_data
         self.target_catalog = target_catalog
@@ -37,7 +52,14 @@ class FluxMapWorker(QThread):
         self.cancelled = False  # Flag to stop processing
     
     def run(self):
-        """Execute extraction"""
+        """Execute extraction.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             if self.cancelled:
                 self.error.emit("Extraction cancelled by user")
@@ -68,10 +90,26 @@ class FluxMapWorker(QThread):
             self.error.emit(error_msg)
     
     def _emit_progress(self, current, total):
+        """Relay a fit-progress update through the `progress` signal.
+
+        Args:
+            current (int): Pixels fit so far.
+            total (int): Total pixels to fit.
+
+        Returns:
+            None
+        """
         self.progress.emit(current, total)
-    
+
     def request_cancel(self):
-        """Request cancellation"""
+        """Request cancellation.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.cancelled = True
 
 
@@ -80,12 +118,9 @@ class FluxMapResultsDialog(QDialog):
 
     @staticmethod
     def _species_label(catalog):
-        """
-        Species label for map titles/stats -- e.g. 'H2', 'CO'. Assumes a single target
-        species per run (the only case this is actually used for -- a mixed-species
-        selection isn't a real usage pattern), so this just takes the first non-empty
-        'species' value rather than summarizing a mix. 'Target' as a generic fallback
-        when the catalog is empty/missing or its species can't be determined.
+        """Species label for map titles/stats -- e.g. 'H2', 'CO'. Assumes a
+        single target species per run, so this takes the first non-empty
+        'species' value; 'Target' is the fallback when none can be determined.
 
         Args:
             catalog (pd.DataFrame or None): The target catalog, expected to have a
@@ -106,6 +141,28 @@ class FluxMapResultsDialog(QDialog):
                  wavelength=None, cube_data=None, target_catalog=None, contam_catalog=None,
                  parent=None, excluded_wavelengths=None, flux_unit=None,
                  continuum_params=None, contam_flux_map=None, contam_detection_map=None):
+        """Build the flux map results dialog and its interactive viewer.
+
+        Args:
+            flux_map (numpy.ndarray): 2D map of integrated target-line flux.
+            detection_map (numpy.ndarray): 2D map of detection counts.
+            header (astropy.io.fits.Header): FITS header, for units/metadata.
+            wave_range (tuple): (wavelength_min, wavelength_max) fit range.
+            wavelength (numpy.ndarray): Wavelength array for pixel inspection.
+            cube_data (CubeData): Loaded cube the map was fit from.
+            target_catalog (pandas.DataFrame): Target line catalog used.
+            contam_catalog (pandas.DataFrame): Contaminating lines used, or None.
+            parent (QWidget): Parent GUI window.
+            excluded_wavelengths (set): Wavelengths excluded from the fit.
+            flux_unit (str): Output flux unit, or None to derive from header.
+            continuum_params (dict): Continuum-fitting parameters used.
+            contam_flux_map (numpy.ndarray): 2D contaminant flux map, or None.
+            contam_detection_map (numpy.ndarray): 2D contaminant detection
+                map, or None.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.flux_map = flux_map
         self.detection_map = detection_map
@@ -174,6 +231,14 @@ class FluxMapResultsDialog(QDialog):
         self._setup_ui()
     
     def _setup_ui(self):
+        """Build the results dialog's tabs, plots, and controls.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         from PyQt5.QtWidgets import QTabWidget
         layout = QVBoxLayout()
         
@@ -282,7 +347,14 @@ class FluxMapResultsDialog(QDialog):
         self._update_plot()
     
     def _toggle_pixel_selection(self):
-        """Toggle pixel selection mode on/off"""
+        """Toggle pixel selection mode on/off.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.pixel_selection_enabled = self.pixel_select_btn.isChecked()
         if self.pixel_selection_enabled:
             self.pixel_select_btn.setText("✓ Pixel Select ON")
@@ -292,7 +364,14 @@ class FluxMapResultsDialog(QDialog):
             self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
     
     def _on_canvas_click(self, event):
-        """Handle click on flux map to inspect pixel spectrum"""
+        """Handle click on flux map to inspect pixel spectrum.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+
+        Returns:
+            None
+        """
         # Only process clicks if pixel selection is enabled
         if not self.pixel_selection_enabled:
             return
@@ -309,7 +388,15 @@ class FluxMapResultsDialog(QDialog):
             self._show_pixel_spectrum(x, y)
     
     def _show_pixel_spectrum(self, x, y):
-        """Extract and display spectrum for a clicked pixel with fitted Gaussians"""
+        """Extract and display spectrum for a clicked pixel with fitted Gaussians.
+
+        Args:
+            x (int): Pixel x coordinate.
+            y (int): Pixel y coordinate.
+
+        Returns:
+            None
+        """
         try:
             from .flux_map_extractor import extract_flux_from_spectrum
             
@@ -358,17 +445,15 @@ class FluxMapResultsDialog(QDialog):
                 # Plot spectrum
                 ax.plot(self.wavelength, spectrum, 'k-', label='Spectrum', linewidth=1.2, alpha=0.8)
 
-                # Plot the actual fitted continuum trend (a + b*wave per fit chunk), not just its
-                # mean -- a flat line at the mean continuum is only meaningful within the fit
-                # window and is misleading once drawn across the full spectrum
+                # Plot the actual fitted continuum trend, not just its mean; a
+                # flat mean line would mislead once drawn across the full spectrum.
                 continuum_curve = result.get('continuum_curve')
                 if continuum_curve is not None and len(continuum_curve) > 0:
                     ax.plot(continuum_curve['wave'], continuum_curve['continuum'], color='orange',
                             linestyle='--', linewidth=1.8, label='Continuum', alpha=0.8)
                 
-                # Mark detected target lines with disposition=1. Grayed out if the line was
-                # deselected (via the SPECIES dialog) before the map was computed -- this is
-                # a display of that already-applied exclusion, not an interactive control.
+                # Grayed out if deselected via the species dialog before the map
+                # was computed; this only displays that exclusion, not a control.
                 detected = result.get('detected_lines')
                 if detected is not None:
                     try:
@@ -435,7 +520,14 @@ class FluxMapResultsDialog(QDialog):
             QMessageBox.critical(self, "Error", f"Failed to inspect pixel:\n{str(e)}")
 
     def _update_plot(self):
-        """Update visualization"""
+        """Update visualization.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.fig.clear()
         ax = self.fig.add_subplot(111)
         
@@ -486,7 +578,14 @@ class FluxMapResultsDialog(QDialog):
         self.canvas.draw()
     
     def _export_to_fits(self):
-        """Export results to FITS file"""
+        """Export results to FITS file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Flux Results",
@@ -564,7 +663,14 @@ class FluxMapResultsDialog(QDialog):
                 QMessageBox.critical(self, "Error", error_msg)
     
     def _show_statistics(self):
-        """Show detailed statistics"""
+        """Show detailed statistics.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         dlg = QDialog(self)
         dlg.setWindowTitle("Statistics")
         dlg.resize(500, 350)

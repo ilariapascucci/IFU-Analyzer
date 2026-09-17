@@ -18,21 +18,17 @@ class CustomContinuumSelector:
     """
     
     def __init__(self, ax, canvas, wavelength, flux, parent_widget=None):
-        """
-        Initialize the custom continuum selector
-        
-        Parameters
-        ----------
-        ax : matplotlib axes
-            The spectrum plot axes
-        canvas : FigureCanvas
-            The matplotlib canvas
-        wavelength : array
-            Wavelength/frequency array
-        flux : array
-            The actual spectrum data (blue line) - points will snap to this
-        parent_widget : QWidget
-            Parent widget for showing messages
+        """Initialize the custom continuum selector.
+
+        Args:
+            ax (matplotlib.axes.Axes): The spectrum plot axes.
+            canvas (FigureCanvas): The matplotlib canvas.
+            wavelength (numpy.ndarray): Wavelength/frequency array.
+            flux (numpy.ndarray): The spectrum data; points snap to this.
+            parent_widget (QWidget): Parent widget for showing messages.
+
+        Returns:
+            None
         """
         self.ax = ax
         self.canvas = canvas
@@ -60,7 +56,14 @@ class CustomContinuumSelector:
         self.recommended_points = 5
         
     def activate(self):
-        """Activate the custom continuum selector"""
+        """Activate the custom continuum selector.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.is_active:
             return
             
@@ -103,7 +106,14 @@ class CustomContinuumSelector:
         print("[DEBUG] Click on spectrum - points will snap to data")
         
     def deactivate(self):
-        """Deactivate the custom continuum selector"""
+        """Deactivate the custom continuum selector.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not self.is_active:
             return
             
@@ -123,7 +133,14 @@ class CustomContinuumSelector:
         print("[DEBUG] Custom continuum selector deactivated")
 
     def set_delete_mode(self, state):
-        """Toggle left-click delete mode"""
+        """Toggle left-click delete mode.
+
+        Args:
+            state (bool): True to delete points on left-click, False to add.
+
+        Returns:
+            None
+        """
         self.delete_mode = state
         if state:
             print("[DEBUG] Custom continuum: Delete mode ON (left-click to remove)")
@@ -131,7 +148,14 @@ class CustomContinuumSelector:
             print("[DEBUG] Custom continuum: Delete mode OFF (left-click to add)")
             
     def on_key_press(self, event):
-        """Handle keyboard events"""
+        """Handle keyboard events.
+
+        Args:
+            event (matplotlib.backend_bases.KeyEvent): Key press event.
+
+        Returns:
+            None
+        """
         print(f"[DEBUG] Key pressed: {event.key}")
         print(f"[DEBUG] Current points: {len(self.continuum_points)}")
         
@@ -155,7 +179,14 @@ class CustomContinuumSelector:
 
                     
     def _on_click(self, event):
-        """Handle mouse click events - SNAP to nearest spectrum point"""
+        """Handle mouse click events - SNAP to nearest spectrum point.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+
+        Returns:
+            None
+        """
         if event.inaxes != self.ax:
             return
             
@@ -189,7 +220,14 @@ class CustomContinuumSelector:
         self._add_point(x_snap, y_snap)
         
     def _on_pick(self, event):
-        """Handle pick events (clicking on existing points to remove them)"""
+        """Handle pick events (clicking on existing points to remove them).
+
+        Args:
+            event (matplotlib.backend_bases.PickEvent): Pick event.
+
+        Returns:
+            None
+        """
         is_right_click = event.mouseevent.button == 3
         is_left_click_delete = event.mouseevent.button == 1 and self.delete_mode
         
@@ -200,7 +238,15 @@ class CustomContinuumSelector:
             self._remove_point(event.artist)
         
     def _add_point(self, x, y):
-        """Add a continuum point at (x, y)"""
+        """Add a continuum point at (x, y).
+
+        Args:
+            x (float): Wavelength of the snapped point.
+            y (float): Flux of the snapped point.
+
+        Returns:
+            None
+        """
         # Check if point already exists at this x location
         for existing_x, existing_y in self.continuum_points:
             if np.abs(existing_x - x) < 1e-10:
@@ -245,7 +291,14 @@ class CustomContinuumSelector:
 
             
     def _remove_point(self, artist):
-        """Remove a continuum point"""
+        """Remove a continuum point.
+
+        Args:
+            artist (matplotlib.lines.Line2D): Marker artist to remove.
+
+        Returns:
+            None
+        """
         try:
             # Store current axis limits
             current_xlim = self.ax.get_xlim()
@@ -275,7 +328,14 @@ class CustomContinuumSelector:
 
             
     def _clear_points(self):
-        """Clear all continuum points"""
+        """Clear all continuum points.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         for artist in self.continuum_artists:
             try:
                 artist.remove()
@@ -297,14 +357,16 @@ class CustomContinuumSelector:
         print("[DEBUG] All points cleared")
         
     def fit_continuum(self):
-        """
-        Fit a cubic spline through the selected continuum points.
-        ...docstring...
+        """Fit a cubic spline through the selected continuum points. The
+        OK-button caller already enforces the minimum-points check and its
+        own preview dialog; this only does the math, with no dialogs of its own.
 
-        Note: the OK-button caller (on_custom_ok_clicked) already enforces
-        the minimum-points check and shows its own preview-and-confirm
-        dialog. This method just does the math and returns the array; it
-        does NOT show dialogs of its own to avoid stacking modals.
+        Args:
+            None
+
+        Returns:
+            continuum (numpy.ndarray): Fitted continuum evaluated at
+                self.wavelength, or None if too few points or fitting fails.
         """
         if len(self.continuum_points) < self.min_points:
             return None
@@ -344,7 +406,14 @@ class CustomContinuumSelector:
             return None
             
     def show_fitted_line(self):
-        """Show the fitted continuum line on the plot (RED spline)"""
+        """Show the fitted continuum line on the plot (RED spline).
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.fitted_continuum is None:
             return
         
@@ -377,18 +446,38 @@ class CustomContinuumSelector:
 
         
     def get_fitted_continuum(self):
-        """Return the fitted continuum array"""
+        """Return the fitted continuum array.
+
+        Args:
+            None
+
+        Returns:
+            continuum (numpy.ndarray): The fitted continuum, or None if
+                fit_continuum() has not run successfully yet.
+        """
         return self.fitted_continuum
-        
+
     def clear_all(self):
-        """Clear all points and fitted continuum"""
+        """Clear all points and fitted continuum.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self._clear_points()
         print("[DEBUG] Custom continuum selection cleared")
 
     def load_points(self, points):
-        """
-        Takes a list of (x, y) tuples from a saved file, 
-        clears the current canvas, and draws the loaded points.
+        """Take a list of (x, y) tuples from a saved file, clear the
+        current canvas, and draw the loaded points.
+
+        Args:
+            points (list): (x, y) tuples to load.
+
+        Returns:
+            None
         """
         self._clear_points()
         for x, y in points:

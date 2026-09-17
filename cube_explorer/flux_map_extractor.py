@@ -536,6 +536,14 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             # Nearest-match, not exact float equality -- robust to any float-path drift
             # between how this owner's line and the cache-populating owner's line arrived.
             def _cached_slice(line_wave):
+                """Look up the cached fit slice nearest to this line's wavelength.
+
+                Args:
+                    line_wave (float): Wavelength of the line to look up.
+
+                Returns:
+                    slice (tuple): (amplitude, center, sigma, amp_err, sig_err) for the nearest cached line.
+                """
                 k = int(np.argmin(np.abs(pool_wave_cached - line_wave)))
                 amp_i, cen_i, sig_i = par[3 * k], par[3 * k + 1], par[3 * k + 2]
                 amp_err_i = float(np.sqrt(np.abs(cov[2 + 3 * k, 2 + 3 * k])))
@@ -730,7 +738,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
             # Cache the failure too -- a later owner sharing this extent gets the same
-            # RuntimeError from curve_fit, so it should skip straight to its own fallback.
+            # RuntimeError from curve_fit, skipping straight to its own fallback.
             extent_fit_cache[cache_key] = {'success': False}
             continuum, std_residuals = cont_fit_ransac(xwave[idx_xwave], yflux[idx_xwave], pdeg=1)
             # Uses median(line_sigmas), not the scalar sigma. This gives the same value when
@@ -840,10 +848,9 @@ def _trough_is_elevated(center_a, center_b, xwave, y_corrected, noise_std, snr_t
 def _merged_wave_boundaries(centers, sigmas, xwave, y_corrected, noise_std,
                              half_width_sigma=DEFAULT_SIGMA_MULTIPLIER, snr_threshold=3.0):
     """
-    Build fit_glines' list_wboundaries from each line's own instrumental width and the
-    real spectrum, not a fixed grid or a size cap. Give each line a
-    [center - N*sigma, center + N*sigma] window. Merge two overlapping windows only when
-    the real data between their centers stays above the noise floor (a genuine blend).
+    Build fit_glines' list_wboundaries from each line's own instrumental width and
+    the real spectrum, not a fixed grid or a size cap. Each line gets a
+    [center-N*sigma, center+N*sigma] window; two overlapping windows merge only when the real data between them stays above the noise floor (a genuine blend).
 
     Args:
         centers (array): Line center wavelengths
@@ -1385,7 +1392,7 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         print(f"  [DEBUG] Before fit_glines: median sigma={sigma:.6f}, n_waves={len(wave_boundaries)} boundaries")
         print(f"  [DEBUG] Fitting {len(detected_target)} target + {len(detected_contam)} contaminating lines")
         # This code has no fallback string (see fit_glines' docstring). None here means the
-        # header is missing something a MIRI, NIRSpec, or MUSE header should have.
+        # header is missing something normally present in a MIRI, NIRSpec, or MUSE header.
         flux, contam_flux, mean_cont, residuals, continuum_curve, _, _ = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
             detected_target, detected_contam, sigma,
@@ -1411,10 +1418,8 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         if len(detected_co_only) > 0:
             mean_detected_wavelength = np.mean(detected_co_only['line'].values)
 
-    # contam_flux needs its own reference wavelength, not the target lines' -- a pixel
-    # can have a real detected contaminant with zero detected target lines, and
-    # mean_detected_wavelength would then be nan (detected_contam is already
-    # disposition==1 only, unlike detected_target, so no extra filter needed here).
+    # contam_flux needs its own reference wavelength (a pixel can have a contaminant
+    # but no target lines). detected_contam is already disposition==1 only -- no extra filter needed.
     mean_detected_contam_wavelength = np.nan
     if len(detected_contam) > 0 and 'line' in detected_contam.columns:
         mean_detected_contam_wavelength = np.mean(detected_contam['line'].values)

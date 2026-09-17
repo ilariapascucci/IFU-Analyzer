@@ -12,9 +12,8 @@ from .flux_map_extractor import (
     AREA_ERROR_SANITY_RATIO, SIGMA_BOUND_LOWER_MULTIPLIER, SIGMA_BOUND_UPPER_MULTIPLIER, gaussian,
 )
 
-# Below this many samples in the fit window, a 1D fit will not run without a noise
-# region. The noise value itself does not enter the fit; the gate exists because a
-# window this narrow is too poorly sampled to trust on its own.
+# Below this many samples, a fit needs a noise region to run; too narrow a
+# window is otherwise too poorly sampled to trust on its own.
 NOISE_REQUIRED_BELOW_N_POINTS = 15
 
 
@@ -24,6 +23,14 @@ class GuiGaussianMixin:
     """
 
     def _activate_gaussian_left(self):
+        """Toggle boundary-picking mode to the Gaussian left edge.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.gauss_left_btn.isChecked():
             self.gauss_mode = 'left'
             self.gauss_peak_btn.setChecked(False)
@@ -35,6 +42,14 @@ class GuiGaussianMixin:
             self.gauss_mode = None
 
     def _activate_gaussian_peak(self):
+        """Toggle boundary-picking mode to the Gaussian peak center.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.gauss_peak_btn.isChecked():
             self.gauss_mode = 'peak'
             self.gauss_left_btn.setChecked(False)
@@ -46,6 +61,14 @@ class GuiGaussianMixin:
             self.gauss_mode = None
 
     def _activate_gaussian_right(self):
+        """Toggle boundary-picking mode to the Gaussian right edge.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.gauss_right_btn.isChecked():
             self.gauss_mode = 'right'
             self.gauss_left_btn.setChecked(False)
@@ -57,6 +80,14 @@ class GuiGaussianMixin:
             self.gauss_mode = None
 
     def _activate_gaussian_noise_left(self):
+        """Toggle boundary-picking mode to the left noise-region edge.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.gauss_noise_left_btn.isChecked():
             self.gauss_mode = 'noise_left'
             self.gauss_left_btn.setChecked(False)
@@ -68,6 +99,14 @@ class GuiGaussianMixin:
             self.gauss_mode = None
 
     def _activate_gaussian_noise_right(self):
+        """Toggle boundary-picking mode to the right noise-region edge.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.gauss_noise_right_btn.isChecked():
             self.gauss_mode = 'noise_right'
             self.gauss_left_btn.setChecked(False)
@@ -79,6 +118,14 @@ class GuiGaussianMixin:
             self.gauss_mode = None
 
     def _mark_gaussian_boundary(self, x_pos):
+        """Place the marker for whichever Gaussian boundary is active.
+
+        Args:
+            x_pos (float): Wavelength position clicked on the spectrum.
+
+        Returns:
+            None
+        """
         ax = self.spec_plotter.ax
         
         if self.gauss_mode == 'left':
@@ -130,9 +177,15 @@ class GuiGaussianMixin:
 
     def _swap_gaussian_boundaries_for_tab(self, old_tab, new_tab):
         """Save the outgoing tab's Gaussian boundary state, then load the
-        incoming tab's - keeps gauss_left_x/peak_x/etc. and their markers as a
-        live view of "the active tab's boundaries" without touching every
-        other place in this file that reads them.
+        incoming tab's, keeping gauss_left_x/peak_x/etc. as a live view of
+        "the active tab's boundaries".
+
+        Args:
+            old_tab (str): Tab being switched away from.
+            new_tab (str): Tab being switched to.
+
+        Returns:
+            None
         """
         if not hasattr(self, 'gauss_boundaries'):
             self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
@@ -158,6 +211,16 @@ class GuiGaussianMixin:
                 except Exception: pass
 
     def _find_nearest_line_in_range(self, lam_min, lam_max):
+        """Find the loaded line closest to the middle of a wavelength range.
+
+        Args:
+            lam_min (float): Lower bound of the range.
+            lam_max (float): Upper bound of the range.
+
+        Returns:
+            wavelength (float): Nearest line's wavelength, or None if no
+                loaded line falls within the range.
+        """
         if not hasattr(self, 'hitran_lines') or not self.hitran_lines:
             return None
 
@@ -181,6 +244,14 @@ class GuiGaussianMixin:
         return float(line_wavelengths[closest_idx])
 
     def _fit_gaussian(self):
+        """Fit a single Gaussian to the currently selected line boundaries.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.gauss_left_x is None or self.gauss_right_x is None:
             QMessageBox.warning(self, "Missing Boundaries", "Please select LEFT, PEAK, and RIGHT boundaries in order.")
             return
@@ -193,10 +264,8 @@ class GuiGaussianMixin:
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
             return
 
-        # Read the ACTIVE tab's own (possibly shifted) wavelength/flux, not
-        # the pristine cube-wide spectrum - boundaries were clicked against
-        # whatever's currently displayed, so the fit must search the same
-        # coordinate space or lam_min/lam_max end up mismatched.
+        # Read the active tab's own (possibly shifted) spectrum, not the
+        # pristine cube-wide one, so lam_min/lam_max match what was clicked.
         spectrum_x = self._get_tab_wavelength(self.active_spectrum_tab)
         spectrum_y = self._get_active_tab_spectrum()
 
@@ -244,6 +313,14 @@ class GuiGaussianMixin:
             QMessageBox.critical(self, "Error", f"Gaussian fitting error:\n{str(e)}")
 
     def _display_gaussian_results(self, result: GaussianFitResult):
+        """Show a single Gaussian fit's inputs and fitted results in a dialog.
+
+        Args:
+            result (GaussianFitResult): Completed fit result to display.
+
+        Returns:
+            None
+        """
         wave_unit_raw = getattr(self.cube_data, 'wave_unit', 'spectral units')
         flux_unit_raw = getattr(self.cube_data, 'flux_unit', 'flux units')
         wave_unit = clean_wave_unit(wave_unit_raw)
@@ -260,6 +337,14 @@ class GuiGaussianMixin:
         # Echo back the boundaries the user clicked so the fitted values can be
         # compared against what was actually asked for.
         def _fmt_input(val):
+            """Format a boundary value with its wave unit, or 'not set'.
+
+            Args:
+                val (float): Boundary value, or None.
+
+            Returns:
+                text (str): Formatted value string.
+            """
             return f"{val:.6f} {wave_unit}" if val is not None else "not set"
 
         left_x = getattr(self, 'gauss_left_x', None)
@@ -268,9 +353,8 @@ class GuiGaussianMixin:
         noise_left_x = getattr(self, 'gauss_noise_left_x', None)
         noise_right_x = getattr(self, 'gauss_noise_right_x', None)
 
-        # A noise region is only demanded for narrow windows (<15 points), and even
-        # then it does not feed into the fitted values. Say which case applies so an
-        # unset noise region doesn't read as something the user forgot.
+        # Noise is only required for narrow windows and never feeds the fit;
+        # say which case applies so an unset region doesn't look forgotten.
         n_points = len(result.x_data)
         requirement = "required" if n_points < NOISE_REQUIRED_BELOW_N_POINTS else "not required"
         if noise_left_x is not None and noise_right_x is not None:
@@ -329,6 +413,14 @@ STATUS: {result.message}
         dlg.exec_()
 
     def clear_gaussian_fit(self):
+        """Clear all Gaussian fit/boundary markers and reset fit state.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             if hasattr(self.spec_plotter, 'gauss_fit_artists'):
                 for artist in self.spec_plotter.gauss_fit_artists:
@@ -395,6 +487,14 @@ STATUS: {result.message}
         return active if len(active) else None
 
     def _fit_multi_gaussian(self):
+        """Fit every selected HITRAN detection line simultaneously.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not hasattr(self, 'plotted_lines') or not self.plotted_lines:
             QMessageBox.warning(self, "No Lines Selected", "Please first select HITRAN lines to fit.")
             return
@@ -421,11 +521,8 @@ STATUS: {result.message}
 
         contam_lines = self._active_contam_lines()
 
-        # Cache key: which lines (by wavelength) and contaminants are being fit, on which
-        # tab. If unchanged since the last successful run, offer the cached results instead
-        # of re-running fit_glines, which can take real time (tens of seconds) on a crowded
-        # line list -- the same "reopen instantly or re-run" choice Flux Map already
-        # offers for its own (much longer) full-cube fits.
+        # Cache key: lines/contaminants/tab being fit. If unchanged since the
+        # last run, offer cached results instead of re-running the slow fit.
         cache_key = (
             tuple(sorted(round(float(r.get('wavelength', 0)), 6) for r in detection_lines)),
             tuple(sorted(round(float(w), 6) for w in contam_lines['line_wave_um']))
@@ -448,10 +545,8 @@ STATUS: {result.message}
                 self._show_multi_gaussian_results(fit_results, contam_results, None)
                 return
 
-        # Auto-compute continuum with default values if not already fitted for this tab.
-        # self.continuum_fitted is always a dict ({"full"/"left"/"right": array or None}),
-        # never None itself -- checking `is None` on the dict can never be true, and the
-        # else branch was grabbing the whole dict instead of this tab's own array.
+        # continuum_fitted is always a dict, never None; check this tab's own
+        # entry (not the dict) so an unfit tab is correctly detected.
         if not hasattr(self, 'continuum_fitted') or self.continuum_fitted.get(self.active_spectrum_tab) is None:
             try:
                 continuum_y = fit_auto_continuum(spectrum_x, spectrum_y)
@@ -468,10 +563,8 @@ STATUS: {result.message}
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
             contam_lines=contam_lines,
         )
-        # No cancel button: fit_glines has no cooperative-cancellation checkpoint (unlike
-        # Flux Map's per-pixel cancel_flag), and QThread.terminate() is unsafe to wire up
-        # in its place. min=max=0 starts the bar as an indeterminate "busy" indicator until
-        # the first progress signal reports how many chunks there actually are.
+        # No cancel button: fit_glines has no cancellation checkpoint, and
+        # QThread.terminate() is unsafe here. min=max=0 shows a busy indicator.
         self.multi_gauss_progress = QProgressDialog("Fitting HITRAN lines...", None, 0, 0, self)
         self.multi_gauss_progress.setWindowModality(Qt.WindowModal)
         self.multi_gauss_progress.setMinimumDuration(0)
@@ -482,17 +575,43 @@ STATUS: {result.message}
         self.multi_gauss_worker.start()
 
     def _update_multi_gaussian_progress(self, current, total):
+        """Update the multi-Gaussian fit progress dialog.
+
+        Args:
+            current (int): Chunks fit so far.
+            total (int): Total chunks to fit.
+
+        Returns:
+            None
+        """
         if hasattr(self, 'multi_gauss_progress'):
             self.multi_gauss_progress.setMaximum(total)
             self.multi_gauss_progress.setValue(current)
             self.multi_gauss_progress.setLabelText(f"Fitting HITRAN lines... chunk {current}/{total}")
 
     def _on_multi_gaussian_fit_error(self, message):
+        """Show a failed multi-Gaussian fit's error message.
+
+        Args:
+            message (str): Error message from MultiGaussianFitWorker.
+
+        Returns:
+            None
+        """
         if hasattr(self, 'multi_gauss_progress'):
             self.multi_gauss_progress.close()
         QMessageBox.critical(self, "Fit Error", f"Multi-Gaussian fit failed:\n{message}")
 
     def _on_multi_gaussian_fit_complete(self, fit_pairs, contam_pairs):
+        """Split fit results into successes/failures and show them.
+
+        Args:
+            fit_pairs (list): (line, result) pairs for requested detection lines.
+            contam_pairs (list): (line, result) pairs for contaminant lines.
+
+        Returns:
+            None
+        """
         if hasattr(self, 'multi_gauss_progress'):
             self.multi_gauss_progress.close()
 
@@ -518,6 +637,15 @@ STATUS: {result.message}
         self._show_multi_gaussian_results(fit_results, contam_results, None, failed_results=failed_results)
 
     def _plot_multi_gaussian_on_spectrum(self, fit_results, contam_results=None):
+        """Draw every fitted line's baseline/Gaussian curve on the spectrum.
+
+        Args:
+            fit_results (list): {'line', 'result'} dicts for detection lines.
+            contam_results (list): {'line', 'result'} dicts for contaminants.
+
+        Returns:
+            None
+        """
         ax = self.spec_plotter.ax
         if not hasattr(self, 'multi_gauss_artists'): self.multi_gauss_artists = []
         for artist in self.multi_gauss_artists:
@@ -525,9 +653,8 @@ STATUS: {result.message}
             except Exception: pass
         self.multi_gauss_artists = []
         
-        # Use whichever line the ACTIVE tab actually shows - global_line is
-        # hidden (and stale) whenever a non-Full tab is active, so checking
-        # it unconditionally would misjudge whether Left/Right is normalized.
+        # Use whichever line the active tab shows; global_line is stale
+        # whenever a non-Full tab is active.
         norm_factor = 1.0
         active_line = self._get_active_tab_line() if hasattr(self, '_get_active_tab_line') else getattr(self.spec_plotter, 'global_line', None)
         if active_line is not None:
@@ -539,10 +666,17 @@ STATUS: {result.message}
                     fit_median = np.nanmedian(np.concatenate([fit['result'].y_data for fit in fit_results]))
                     norm_factor = fit_median if fit_median > 0 else 1.0
         
-        # Own Gaussian only (not the full chunk sum, so a close neighbor never bleeds
-        # in), on a fine grid (not just real pixels, so shading matches reported flux).
-        # Cropped to DISPLAY_CROP_SIGMA_MULTIPLIER -- same footprint as before.
+        # Own Gaussian only (not the chunk sum, so neighbors don't bleed in), on
+        # a fine grid, cropped to DISPLAY_CROP_SIGMA_MULTIPLIER.
         def _own_curve(result):
+            """Build one line's own baseline/fit curve on a fine x-grid.
+
+            Args:
+                result (GaussianFitResult): The line's fit result.
+
+            Returns:
+                curve (tuple): (x_fine, base_fine, fit_fine) arrays.
+            """
             x_data = result.x_data
             model = result.y_fit_own if result.y_fit_own is not None else result.y_fit
             y_abs = (np.asarray(model) + result.baseline) / norm_factor
@@ -561,6 +695,14 @@ STATUS: {result.message}
         # Continuum plus every Gaussian curve_fit solved for at once, not just this
         # line's own. Lines sharing an extent give the same curve -- draw it once.
         def _chunk_curve(result):
+            """Build the joint chunk curve (all lines the fit solved together).
+
+            Args:
+                result (GaussianFitResult): Any line's fit result sharing the chunk.
+
+            Returns:
+                curve (tuple): (x_data, base_abs, fit_abs) arrays.
+            """
             x_data = result.x_data
             fit_abs = (np.asarray(result.y_fit) + result.baseline) / norm_factor
             base_abs = np.asarray(result.baseline) / norm_factor
@@ -585,9 +727,8 @@ STATUS: {result.message}
             self.multi_gauss_artists.extend([baseline_line, gauss_line, fill])
             idx += 1
 
-        # Contaminating lines get their own distinctly-colored curve -- these aren't part of
-        # the requested fit_results, so drawing them in red alongside real hits would make it
-        # look like an extra, unreported detection instead of a different species entirely.
+        # Contaminants get their own color: drawing them in red alongside real
+        # hits would look like an extra, unreported detection.
         seen_species = set()
         for contam_info in (contam_results or []):
             result = contam_info['result']
@@ -595,10 +736,8 @@ STATUS: {result.message}
             label = f"Contaminant ({species})" if species not in seen_species else ''
             seen_species.add(species)
             x_local, base_local, fit_local = _own_curve(result)
-            # Outline only, no fill -- enough to show "this peak is accounted for and it isn't
-            # CO" without visually competing with the red fill for the requested lines. Grey
-            # (rather than red) mirrors the black/dimgray marker used for this same
-            # contaminant on the spectrum before fitting.
+            # Outline only, no fill, so it doesn't compete with the red fill;
+            # grey mirrors the marker this contaminant used before fitting.
             contam_line, = ax.plot(x_local, fit_local, color='dimgray', linewidth=2, alpha=1.0, label=label, zorder=12)
             self.multi_gauss_artists.append(contam_line)
 
@@ -607,6 +746,18 @@ STATUS: {result.message}
 
     def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None,
                                       failed_results=None):
+        """Build and show the multi-Gaussian fit results text dialog.
+
+        Args:
+            fit_results (list): {'line', 'result'} dicts for detection lines.
+            contam_results (list): {'line', 'result'} dicts for contaminants.
+            velocity_shift_kms (float): Applied velocity shift, or None.
+            failed_results (list): {'line', 'result'} dicts for lines that
+                could not be fit.
+
+        Returns:
+            None
+        """
         wave_unit = clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm'))
         flux_unit = clean_flux_unit(getattr(self.cube_data, 'flux_unit', 'MJy/sr'))
         fallback_area_unit = f"{flux_unit}·{wave_unit}"
@@ -655,9 +806,8 @@ STATUS: {result.message}
                     return 'bound'
             return 'blend'
 
-        # Interleaved by wavelength (not target lines then contaminants in two separate
-        # blocks) so the listing reads in the same order the lines actually sit in the
-        # spectrum. Line N / Contam N each number within their own kind, not globally.
+        # Interleaved by wavelength so the listing matches spectrum order;
+        # Line N / Contam N number within their own kind, not globally.
         merged_entries = (
             [('line', idx, fit_info) for idx, fit_info in enumerate(fit_results, 1)]
             + [('contam', idx, contam_info) for idx, contam_info in enumerate(contam_results or [], 1)]
@@ -710,9 +860,16 @@ STATUS: {result.message}
   R²:                    {result.r_squared:.4f}\n  {'─'*60}\n"""
 
         def _sum_area(results_list):
-            """(total, unit_text) if every result shares one area_unit, else (None, note)
-            explaining why not -- summing across mismatched units would silently produce a
-            meaningless number, so this refuses rather than guessing."""
+            """Sum area across results only if they share one area_unit;
+            refuses to sum mismatched units rather than guessing.
+
+            Args:
+                results_list (list): {'line', 'result'} dicts to sum.
+
+            Returns:
+                result (tuple): (total, unit_text) if all results share a
+                    unit; (None, note) explaining why not, otherwise.
+            """
             if not results_list:
                 return 0.0, fallback_area_unit
             units = {r['result'].area_unit or fallback_area_unit for r in results_list}
@@ -725,9 +882,8 @@ STATUS: {result.message}
         mean_r2 = np.mean(r2_values) if r2_values else float('nan')
         n_good = sum(1 for r2 in r2_values if r2 >= 0.5)
 
-        # Quadrature sum over every RELIABLE line's area_error. An unreliable line's
-        # area is still counted in total_flux above -- only its error is excluded,
-        # so one near-singular covariance can't dominate the whole total's error bar.
+        # Quadrature sum over reliable lines' area_error only; an unreliable
+        # line's area still counts in total_flux, just not its error.
         reliable_fits = [fit_info for fit_info in fit_results if _unreliable_reason(fit_info['result']) is None]
         area_errors = [fit_info['result'].area_error for fit_info in reliable_fits]
         total_flux_error = (float(np.sqrt(sum(e ** 2 for e in area_errors)))
@@ -762,9 +918,8 @@ STATUS: {result.message}
 
         dlg = QDialog(self)
         dlg.setWindowTitle("Multi-Gaussian Fit Results")
-        # Each line entry is now 4 rows taller (catalog wavelength, transition, A
-        # coeff, E_upper), so the dialog needs more headroom than before to avoid
-        # scrolling for a typical 5-10 line fit.
+        # Extra headroom for the 4 added rows per line (catalog wavelength,
+        # transition, A coeff, E_upper), to avoid scrolling for 5-10 lines.
         dlg.setMinimumSize(750, 750)
         layout = QVBoxLayout()
         text_display = QTextEdit()
@@ -784,6 +939,14 @@ STATUS: {result.message}
         dlg.exec_()
 
     def _fit_gaussian_map(self):
+        """Fit a Gaussian at every pixel of the cube (or a region on Left/Right).
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.gauss_left_x is None or self.gauss_right_x is None:
             QMessageBox.warning(self, "Missing Boundaries", "Please select both LEFT and RIGHT boundaries first.")
             return
@@ -791,10 +954,8 @@ STATUS: {result.message}
         if not hasattr(self, 'cube_data') or self.cube_data is None:
             return
 
-        # A cancelled worker keeps running for a few seconds while its in-flight rows
-        # finish (see cancel() docstring). Starting a second fit on top of that would
-        # briefly run two 8-thread pools at once -- worse than the problem cancel was
-        # meant to solve.
+        # A cancelled worker keeps running briefly while in-flight rows finish;
+        # starting a second fit on top would run two thread pools at once.
         prev_worker = getattr(self, 'gauss_worker', None)
         if prev_worker is not None and prev_worker.isRunning():
             QMessageBox.warning(
@@ -804,12 +965,8 @@ STATUS: {result.message}
             )
             return
         
-        # A Gaussian map needs the whole cube fit (fit_gaussians_per_pixel/
-        # GaussianMapWorker have no mask support), but Left/Right's DISPLAYED
-        # map is masked to that side's region afterward (see
-        # _mask_gaussian_map_results_for_tab) - so a real, multi-pixel region
-        # selection is required on those tabs, same as apply_doppler_shift's
-        # "select a region on this side first" guard.
+        # The fit always covers the whole cube; Left/Right's displayed map is
+        # masked to that side's region afterward, so a region is required.
         active_tab = self.active_spectrum_tab
         tab_label = active_tab.capitalize()
         region_mask = None
@@ -830,9 +987,6 @@ STATUS: {result.message}
         if cube is None or wavelength is None: return
 
         lam_min, lam_max = min(self.gauss_left_x, self.gauss_right_x), max(self.gauss_left_x, self.gauss_right_x)
-        # if np.count_nonzero((wavelength >= lam_min) & (wavelength <= lam_max)) < 50:
-        #     if QMessageBox.warning(self, "Narrow Fit Region", "Region is very narrow (<50 points). Continue?", QMessageBox.Yes | QMessageBox.No) == QMessageBox.No:
-        #         return
 
         if self.gauss_noise_left_x is None or self.gauss_noise_right_x is None:
             QMessageBox.warning(self, "Noise Region Required", "You MUST define a noise region for map fitting.")
@@ -840,10 +994,8 @@ STATUS: {result.message}
 
         noise_min, noise_max = min(self.gauss_noise_left_x, self.gauss_noise_right_x), max(self.gauss_noise_left_x, self.gauss_noise_right_x)
 
-        # gauss_cache_tab is required alongside the existing bounds: two tabs
-        # can share the same lam/noise bounds but need different result maps
-        # (masked differently), so a bounds-only match would wrongly serve
-        # one tab's cached map to another.
+        # gauss_cache_tab must also match: two tabs can share bounds but need
+        # different (differently masked) result maps.
         if (getattr(self, 'gauss_cache', None) is not None and
             getattr(self, 'gauss_cache_tab', None) == active_tab and
             self.gauss_cache_lam_min == lam_min and self.gauss_cache_lam_max == lam_max and
@@ -854,12 +1006,8 @@ STATUS: {result.message}
         
         if QMessageBox.question(self, "Fit Map", "Continue with map fitting?", QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes: return
 
-        # A real 0-100 bar, not a busy spinner: the worker reports progress once per
-        # cube row. autoClose/autoReset are off so reaching 100% does not dismiss the
-        # dialog before the post-fit unit conversion has finished. The cube is fully
-        # occupying every worker thread while this runs, so "Hide" (dismiss but keep
-        # computing) is not useful here the way it might be for a lighter task --
-        # "Cancel" actually frees the CPU back up.
+        # Real 0-100 bar (worker reports per row) with autoClose/autoReset off,
+        # so it survives past 100% until post-fit unit conversion finishes.
         n_pixels = cube.shape[1] * cube.shape[2]
         self.gauss_progress = QProgressDialog(
             f"Fitting Gaussians to {n_pixels:,} pixels...", "Cancel", 0, 100, self)
@@ -874,8 +1022,7 @@ STATUS: {result.message}
         self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max) if hasattr(self, 'hitran_lines') else None
 
         # Capture which tab/mask this run belongs to now, not read it back
-        # later from self.active_spectrum_tab - the fit runs in a background
-        # QThread, so the user could switch tabs before it finishes.
+        # later, since the user could switch tabs before the QThread finishes.
         self._gauss_map_fit_tab = active_tab
         self._gauss_map_fit_mask = region_mask
 
@@ -891,18 +1038,29 @@ STATUS: {result.message}
         self.gauss_worker.start()
 
     def _on_gaussian_map_cancel_clicked(self):
-        """Stop a running Gaussian map fit. The dialog itself is already hidden by the
-        time this runs (Qt hides it as part of the button click), so there is nothing
-        to update here -- just tell the worker to stop. fit_gaussians_per_pixel prints
-        its own "Fitting cancelled: N/M pixels completed" line once the in-flight rows
-        actually finish, which is the real confirmation it stopped.
+        """Stop a running Gaussian map fit. Qt already hides the dialog as
+        part of the button click, so this just tells the worker to stop.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
         worker = getattr(self, 'gauss_worker', None)
         if worker is not None and worker.isRunning():
             worker.cancel()
 
     def _on_gaussian_map_progress(self, current, total):
-        """Mirror the worker's per-row progress into the progress dialog."""
+        """Mirror the worker's per-row progress into the progress dialog.
+
+        Args:
+            current (int): Pixels fit so far.
+            total (int): Total pixels to fit.
+
+        Returns:
+            None
+        """
         dlg = getattr(self, 'gauss_progress', None)
         if dlg is None or total <= 0 or dlg.wasCanceled():
             return
@@ -913,10 +1071,17 @@ STATUS: {result.message}
 
     def _mask_gaussian_map_results_for_tab(self, results, tab, mask):
         """Copy results and set every spatial parameter map to NaN (False for
-        boolean maps) outside the region mask - Full always passes through
-        unmasked. The fit itself is never restricted (fit_gaussians_per_pixel
-        has no mask support), so this only changes what's cached/displayed
-        for Left/Right, not what's computed.
+        boolean maps) outside the region mask; Full passes through unmasked.
+        Only changes what's cached/displayed, not what was actually fit.
+
+        Args:
+            results (dict): Per-pixel Gaussian map results to mask.
+            tab (str): Tab the results belong to, 'full', 'left', or 'right'.
+            mask (numpy.ndarray): Boolean region mask, or None.
+
+        Returns:
+            results (dict): The masked results, or the input unchanged for
+                Full or when no mask applies.
         """
         if tab not in ("left", "right") or mask is None or results is None:
             return results
@@ -936,6 +1101,14 @@ STATUS: {result.message}
         return masked
 
     def _on_gaussian_map_complete(self, results):
+        """Cache the completed Gaussian map fit and show its results.
+
+        Args:
+            results (dict): Per-pixel Gaussian map results from the worker.
+
+        Returns:
+            None
+        """
         self.gauss_progress.close()
         tab = getattr(self, '_gauss_map_fit_tab', self.active_spectrum_tab)
         mask = getattr(self, '_gauss_map_fit_mask', None)
@@ -949,20 +1122,34 @@ STATUS: {result.message}
         self._show_gaussian_map_results(masked_results, tab=tab)
 
     def _on_gaussian_map_error(self, error_msg):
+        """Show a failed Gaussian map fit's error message.
+
+        Args:
+            error_msg (str): Error message from the map worker.
+
+        Returns:
+            None
+        """
         self.gauss_progress.close()
         QMessageBox.critical(self, "Error", f"Gaussian map fitting error:\n{error_msg}")
 
     def _show_gaussian_map_results(self, results: dict, tab=None):
-        # tab defaults to whichever is active NOW, but callers with a result
-        # tied to a specific tab (a background fit that finished after the
-        # user switched tabs, or a cache hit) pass it explicitly so the
-        # wavelength axis shown always matches the results being displayed.
+        """Open the Gaussian map results dialog for a tab's completed fit.
+
+        Args:
+            results (dict): Per-pixel Gaussian map results to display.
+            tab (str): Tab the results belong to; defaults to the active tab.
+
+        Returns:
+            None
+        """
+        # tab defaults to the active one; callers with results tied to a
+        # specific tab pass it explicitly so the axis matches the results.
         if tab is None:
             tab = self.active_spectrum_tab
         wavelength = self._get_tab_wavelength(tab)
-        # Noise bounds come from the cache, not the live markers: the markers can be
-        # cleared or moved after a fit, but the single-pixel view has to draw the
-        # threshold these results were actually decided against.
+        # Noise bounds come from the cache, not the live markers, which can be
+        # cleared/moved after a fit; the view must show the actual threshold used.
         dlg = GaussianMapResultsDialog(
             self, results, self.cube_data, self.gauss_left_x, self.gauss_right_x,
             wavelength=wavelength,

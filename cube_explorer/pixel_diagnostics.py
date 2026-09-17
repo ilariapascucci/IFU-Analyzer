@@ -31,7 +31,14 @@ CONTEXT_PAD_FRACTION = 1.5
 
 
 def _extract_wavelength_value(wavelength):
-    """Extract numeric value from wavelength Quantity or return raw value."""
+    """Extract numeric value from wavelength Quantity or return raw value.
+
+    Args:
+        wavelength (Quantity or ndarray): Wavelength array, with or without units.
+
+    Returns:
+        value (ndarray): Plain numeric wavelength array.
+    """
     if isinstance(wavelength, Quantity):
         return wavelength.value
     return wavelength
@@ -56,6 +63,27 @@ class PixelFitDialog(QDialog):
     def __init__(self, parent, cube, wavelength, lam_min, lam_max, fit_results,
                  row, col, fac_above_stdres=3.0, noise_min=None, noise_max=None,
                  flux_unit='', wave_unit='', area_unit=''):
+        """Build the pixel inspector and render the stored fit immediately.
+
+        Args:
+            parent (QWidget): Parent widget.
+            cube (ndarray): 3D data cube (n_wavelength, n_y, n_x).
+            wavelength (ndarray or Quantity): 1D wavelength array matching the cube.
+            lam_min (float): One edge of the fit window (order does not matter).
+            lam_max (float): Other edge of the fit window.
+            fit_results (dict): Result dict returned by fit_gaussians_per_pixel().
+            row (int): Pixel row index (y).
+            col (int): Pixel column index (x).
+            fac_above_stdres (float): Detection threshold in units of noise.
+            noise_min (float): Lower edge of the line-free noise region, or None.
+            noise_max (float): Upper edge of the line-free noise region, or None.
+            flux_unit (str): Display-only flux unit string.
+            wave_unit (str): Display-only wavelength unit string.
+            area_unit (str): Display-only area unit string.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.cube = cube
         self.fit_results = fit_results
@@ -66,8 +94,8 @@ class PixelFitDialog(QDialog):
         self.wave_unit = wave_unit or ''
         self.area_unit = area_unit or ''
 
-        # The caller may hand over the raw Left/Right click positions in either
-        # order; the fit itself always used min/max.
+        # Callers pass raw Left/Right click positions in either order; the fit
+        # itself always used min/max.
         self.lam_min = min(lam_min, lam_max)
         self.lam_max = max(lam_min, lam_max)
 
@@ -95,6 +123,14 @@ class PixelFitDialog(QDialog):
         self._plot_pixel()
 
     def _setup_ui(self):
+        """Build the status label, plot canvas, and stats panel layout.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         layout = QVBoxLayout()
 
         self.status_label = QLabel()
@@ -133,6 +169,14 @@ class PixelFitDialog(QDialog):
         self.setLayout(layout)
 
     def _plot_pixel(self):
+        """Plot the stored spectrum, baseline, and fitted Gaussian for this pixel.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         row, col = self.row, self.col
         y_data = self.cube[self.wave_mask, row, col]
 
@@ -143,9 +187,8 @@ class PixelFitDialog(QDialog):
         chi2_red = self.fit_results['r_squared'][row, col]
         status = pixel_fit_status(self.fit_results, row, col)
 
-        # The same endpoint-to-endpoint straight line the fitter subtracts before
-        # fitting. This is NOT the continuum-subtraction tool -- it is local to the
-        # fit window, and it is what puts the Gaussian on a zero baseline.
+        # Same endpoint-to-endpoint line the fitter subtracts -- local to the fit
+        # window, not the continuum-subtraction tool, putting the Gaussian on a zero baseline.
         baseline = calculate_baseline(
             self.x_data[0], y_data[0], self.x_data[-1], y_data[-1], self.x_data, y_data)
         y_corrected = y_data - baseline
@@ -190,18 +233,8 @@ class PixelFitDialog(QDialog):
         ax_data.grid(True, alpha=0.3)
         ax_data.set_xlim(self.lam_min - pad, self.lam_max + pad)
 
-        # A residual panel (data - model per wavelength, against +/-1 sigma and
-        # +/-fac_above_stdres sigma bands) used to sit below this one. It is the only view
-        # that shows *how* a fit is wrong rather than just that it is -- random scatter
-        # means the Gaussian fit the line, while a pattern (positive at the center,
-        # negative in the wings) means the width is wrong.
-        #
-        # Removed deliberately on 2026-08-20, not because the idea is wrong but because
-        # its noise bands are drawn from compute_noise_std, which currently reads ~0.4x the
-        # true sigma. On real data that made ~1 sigma residuals look like a 5 sigma
-        # disaster -- the panel accused good fits of being bad. Restore it once the noise
-        # estimator is settled; `residuals` is still computed above and its mean/std are
-        # reported in the text panel, which needs no sigma to be meaningful.
+        # Residual panel removed 2026-08-20 -- compute_noise_std reads ~0.4x true sigma,
+        # so good fits looked like 5-sigma failures. Restore once the noise estimator is fixed.
 
         self.fig.tight_layout()
         self.canvas.draw()
@@ -211,6 +244,23 @@ class PixelFitDialog(QDialog):
 
     def _update_text(self, status, amplitude, center, sigma, area, chi2_red,
                      y_data, y_corrected, residuals, has_curve):
+        """Render the status label and stats panel text for this pixel.
+
+        Args:
+            status (int): Pixel fit status code (detection, upper limit, or no data).
+            amplitude (float): Fitted Gaussian amplitude, or NaN.
+            center (float): Fitted Gaussian center wavelength, or NaN.
+            sigma (float): Fitted Gaussian sigma, or NaN.
+            area (float): Fitted or upper-limit line area.
+            chi2_red (float): Reduced chi-squared stored for this pixel.
+            y_data (ndarray): Raw flux values in the fit window.
+            y_corrected (ndarray): Baseline-subtracted flux values.
+            residuals (ndarray): Data minus model residuals, or NaN array.
+            has_curve (bool): Whether a fitted curve exists to report against.
+
+        Returns:
+            None
+        """
         if status == STATUS_DETECTION:
             status_text = "DETECTION - fitted, and passed the detection test"
         elif status == STATUS_UPPER_LIMIT:
@@ -226,6 +276,15 @@ class PixelFitDialog(QDialog):
         self.status_label.setText(f"Pixel (x={self.col}, y={self.row})   |   {status_text}")
 
         def fmt(val, spec=".6e"):
+            """Format a value, or return "NaN" if it is missing or non-finite.
+
+            Args:
+                val (float): Value to format.
+                spec (str): Format spec string to apply.
+
+            Returns:
+                text (str): Formatted value, or "NaN".
+            """
             if val is None or not np.isfinite(val):
                 return "NaN"
             return format(val, spec)
@@ -257,9 +316,8 @@ class PixelFitDialog(QDialog):
             f" Points     {n_finite} finite / {len(y_data)}",
         ]
 
-        # R^2 against the baseline-subtracted data, recomputed here for this window.
-        # The map stores reduced chi2, not R^2 -- they answer different questions, so
-        # both are shown rather than one standing in for the other.
+        # R^2 (recomputed here) and reduced chi2 (from the map) answer different
+        # questions, so both are shown rather than one standing in for the other.
         if has_curve:
             ss_res = np.nansum(residuals ** 2)
             ss_tot = np.nansum((y_corrected - np.nanmean(y_corrected)) ** 2)

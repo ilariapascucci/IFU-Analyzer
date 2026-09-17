@@ -58,6 +58,17 @@ class RotDiagMapWorker(QThread):
     error = pyqtSignal(str)
 
     def __init__(self, cube_or_list=None, line_table=None, cubes_and_lines=None, **kwargs):
+        """Store the fit inputs for run() to consume on the worker thread.
+
+        Args:
+            cube_or_list (CubeData or list): One cube, or co-aligned cubes to stitch.
+            line_table (list): Line dicts for the fit.
+            cubes_and_lines (list): (CubeData, line_dict) pairs for cubes on different grids.
+            kwargs (dict): Passed through to whichever create_rotational_diagram_map* function is used.
+
+        Returns:
+            None
+        """
         super().__init__()
         self.cube_or_list = cube_or_list
         self.line_table = line_table
@@ -244,6 +255,18 @@ class RotDiagMapResultsDialog(QDialog):
     """
 
     def __init__(self, result, cube_or_list, line_table, fit_kwargs, parent=None):
+        """Store the map result and build the viewer UI.
+
+        Args:
+            result (dict): Output of create_rotational_diagram_map.
+            cube_or_list (CubeData or list): Same cube(s) the map was built from.
+            line_table (list): Same line list, for re-fitting a clicked pixel.
+            fit_kwargs (dict): molecule/isotopologue/opr/... for fit_pixel.
+            parent (QWidget): Parent widget.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.result = result
         self.cube_or_list = cube_or_list
@@ -483,6 +506,16 @@ class RotDiagMapResultsDialog(QDialog):
         lines += ["PER-PIXEL SPREAD", "=" * 50, ""]
 
         def _block(name, arr, fmt):
+            """Format one parameter's median/min/max/std over the fitted pixels.
+
+            Args:
+                name (str): Section heading to print.
+                arr (ndarray): Per-pixel values for this parameter.
+                fmt (str): Format spec applied to each printed number.
+
+            Returns:
+                lines (list): Text lines for this section, including a trailing blank line.
+            """
             # Upcast from float32: Ncol's ~1e17-1e21 range overflows float32
             # during std's internal squaring, wrongly reporting inf.
             vals = arr[ok].astype(np.float64)

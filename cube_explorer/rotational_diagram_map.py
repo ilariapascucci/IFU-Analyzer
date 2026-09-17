@@ -48,6 +48,14 @@ class _StitchedCube:
     """
 
     def __init__(self, cubes):
+        """Concatenate the cubes' wavelength grids into one sorted axis.
+
+        Args:
+            cubes (list): CubeData objects that pass _cubes_coaligned.
+
+        Returns:
+            None
+        """
         self._cubes = cubes
         waves = [np.asarray(extract_units(c.wavelength)[0], dtype=float) for c in cubes]
         cat = np.concatenate(waves)

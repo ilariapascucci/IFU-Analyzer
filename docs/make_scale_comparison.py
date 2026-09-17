@@ -41,11 +41,16 @@ CMAP = "magma"
 
 def build_norm(image, scale):
     """
-    Return (normalized_image, norm) for a scale.
+    Return (normalized_image, norm) for a scale, mirroring the branches in
+    visualization.py's plot_slice(). Log and Sqrt shift non-positive data rather
+    than clipping it, which is why the image itself can come back modified.
 
-    Mirrors the branches in visualization.py plot_slice(). Log and Sqrt shift
-    non-positive data rather than clipping it, which is why the image itself
-    can come back modified.
+    Args:
+        image (ndarray): 2D slice to normalize.
+        scale (str): One of the SCALES entries ("Linear", "Log", "Sqrt", "Power (gamma=2)").
+
+    Returns:
+        result (tuple): (image, norm) -- the (possibly shifted) image and its matplotlib Normalize.
     """
     vmin, vmax = np.nanmin(image), np.nanmax(image)
 
@@ -68,6 +73,14 @@ def build_norm(image, scale):
 
 
 def main():
+    """Render the four-scale comparison figure and save it under docs/_static.
+
+    Args:
+        None
+
+    Returns:
+        exit_code (int): 0 on success, 1 if the sample cube is missing.
+    """
     if not os.path.exists(CUBE_PATH):
         print(f"[ERROR] sample cube not found: {CUBE_PATH}")
         print("        data/ is gitignored; this figure can only be rebuilt "

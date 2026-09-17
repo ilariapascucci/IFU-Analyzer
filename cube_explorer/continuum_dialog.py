@@ -13,6 +13,14 @@ class ContinuumParametersDialog(QDialog):
     """Dialog to set continuum fitting parameters with explanations"""
     
     def __init__(self, parent=None):
+        """Build the continuum parameters dialog with default values.
+
+        Args:
+            parent (QWidget): Parent widget, or None for a top-level dialog.
+
+        Returns:
+            None
+        """
         super().__init__(parent)
         self.setWindowTitle("Continuum Fitting Parameters")
         self.setMinimumSize(650, 600)
@@ -31,7 +39,14 @@ class ContinuumParametersDialog(QDialog):
         self._setup_ui()
     
     def _setup_ui(self):
-        """Create the dialog UI with parameter inputs and explanations"""
+        """Create the dialog UI with parameter inputs and explanations.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         layout = QVBoxLayout()
         
         # Title and algorithm explanation
@@ -226,12 +241,33 @@ class ContinuumParametersDialog(QDialog):
         self.setLayout(layout)
     
     def _create_section_header(self, text):
-        """Create a styled section header"""
+        """Create a styled section header.
+
+        Args:
+            text (str): Header text to display.
+
+        Returns:
+            label (QLabel): The styled header label.
+        """
         label = QLabel(f"<b style='font-size: 11pt; color: #2d73c5;'>{text}</b>")
         return label
-    
+
     def _create_parameter_input(self, parent_layout, name, label, default, min_val, max_val, step, description):
-        """Create a parameter input widget with label and description"""
+        """Create a parameter input widget with label and description.
+
+        Args:
+            parent_layout (QLayout): Layout to add the widget to.
+            name (str): Parameter key, e.g. 'window_size'.
+            label (str): Label text shown next to the input.
+            default (int or float): Initial value.
+            min_val (int or float): Minimum allowed value.
+            max_val (int or float): Maximum allowed value.
+            step (int or float): Spin box step size.
+            description (str): HTML description shown below the input.
+
+        Returns:
+            spinbox (QSpinBox or QDoubleSpinBox): The created input widget.
+        """
         # Container for this parameter
         param_widget = QWidget()
         param_layout = QVBoxLayout(param_widget)
@@ -273,13 +309,27 @@ class ContinuumParametersDialog(QDialog):
         return spinbox
     
     def _ensure_odd(self, spinbox):
-        """Ensure window_size is always odd"""
+        """Ensure window_size is always odd.
+
+        Args:
+            spinbox (QSpinBox): The window_size spin box to correct.
+
+        Returns:
+            None
+        """
         value = spinbox.value()
         if value % 2 == 0:
             spinbox.setValue(value + 1)
     
     def _reset_defaults(self):
-        """Reset all parameters to default values"""
+        """Reset all parameters to default values.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         defaults = {
             'window_size': 51,
             'sigma_threshold': 2.0,
@@ -294,7 +344,14 @@ class ContinuumParametersDialog(QDialog):
             self.input_widgets[param_name].setValue(default_value)
     
     def get_parameters(self):
-        """Get the current parameter values"""
+        """Get the current parameter values.
+
+        Args:
+            None
+
+        Returns:
+            params (dict): Current continuum-fitting parameter values.
+        """
         return {
             'window_size': int(self.input_widgets['window_size'].value()),
             'sigma_threshold': float(self.input_widgets['sigma_threshold'].value()),

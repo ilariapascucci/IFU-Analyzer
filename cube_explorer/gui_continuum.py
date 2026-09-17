@@ -8,7 +8,15 @@ from .unit_converter import clean_flux_unit, clean_wave_unit
 from .flux_map_extractor import fit_auto_continuum
 
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
-    # Standard helper function used across the app
+    """Extract a numeric wavelength value from a Quantity or plain array.
+
+    Args:
+        wavelength_quantity_or_array: Wavelength Quantity, scalar, or array.
+        index (int): Optional index to read; None reads the whole value.
+
+    Returns:
+        value: Numeric value(s) with units stripped if Quantity.
+    """
     from astropy.units import Quantity
     if isinstance(wavelength_quantity_or_array, Quantity):
         if index is not None:
@@ -39,6 +47,14 @@ class GuiContinuumMixin:
     """
 
     def _on_continuum_line_clicked(self, checked):
+        """Handle the Continuum Line toggle: fit and show, or clear it.
+
+        Args:
+            checked (bool): New checked state of the toggle.
+
+        Returns:
+            None
+        """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
             self.continuum_line_btn.setChecked(False)
@@ -70,6 +86,15 @@ class GuiContinuumMixin:
                 self._refresh_active_spectrum_tab()
 
     def _fit_and_display_continuum(self, params=None):
+        """Fit an automatic continuum for the active tab and display it.
+
+        Args:
+            params (dict): fit_auto_continuum() keyword arguments, or None
+                for the default parameters.
+
+        Returns:
+            None
+        """
         if params is None:
             params = {'window_size': 51, 'sigma_threshold': 2.0, 'peak_width': 1,
                       'peak_distance': 3, 'peak_exclusion': 3, 'iterations': 2, 'smoothing_factor': 5}
@@ -82,9 +107,8 @@ class GuiContinuumMixin:
             if wavelength is None or flux is None:
                 return
 
-            # Same algorithm Flux Map/the API use (fit_auto_continuum) -- one
-            # shared, GUI-independent implementation instead of two copies that could
-            # silently drift apart.
+            # Same algorithm Flux Map/the API use (fit_auto_continuum), so
+            # there's one shared implementation instead of copies that drift apart.
             continuum_values = fit_auto_continuum(wavelength, flux, **params)
             self.continuum_fitted[tab] = continuum_values
             self.continuum_mode_applied[tab] = 'auto'
@@ -99,6 +123,14 @@ class GuiContinuumMixin:
             self.subtract_continuum_btn.setEnabled(True)
 
     def _activate_continuum_subtraction(self):
+        """Handle the Subtract Continuum toggle for the active tab.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             self.subtract_continuum_btn.setChecked(False)
             return
@@ -132,6 +164,14 @@ class GuiContinuumMixin:
             self._restore_original_spectrum()
 
     def _perform_global_continuum_subtraction(self):
+        """Subtract the active tab's fitted continuum from its spectrum.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         tab = self.active_spectrum_tab
         try:
             flux = self._get_tab_raw_flux(tab)
@@ -162,6 +202,14 @@ class GuiContinuumMixin:
             self.subtract_continuum_btn.setChecked(False)
 
     def _activate_custom_continuum_subtraction(self):
+        """Handle the Custom Subtract toggle for the active tab.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not hasattr(self, 'spec_plotter') or self.spec_plotter is None:
             self.custom_subtract_btn.setChecked(False)
             return
@@ -217,12 +265,28 @@ class GuiContinuumMixin:
                 self.custom_continuum_active = False
 
     def _restore_from_custom_subtract(self):
+        """Undo a custom continuum subtraction for its owning tab.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
         self.continuum_subtracted[tab] = False
         self.continuum_mode_applied[tab] = None
         self._refresh_active_spectrum_tab()
 
     def _perform_custom_subtraction(self, continuum):
+        """Apply a custom-fitted continuum subtraction to its owning tab.
+
+        Args:
+            continuum (numpy.ndarray): Custom-fitted continuum to subtract.
+
+        Returns:
+            None
+        """
         tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
         try:
             self.continuum_fitted[tab] = continuum
@@ -237,12 +301,28 @@ class GuiContinuumMixin:
             )
 
     def _restore_original_spectrum(self):
+        """Undo any continuum subtraction for the active tab.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         tab = self.active_spectrum_tab
         self.continuum_subtracted[tab] = False
         self.continuum_mode_applied[tab] = None
         self._refresh_active_spectrum_tab()
 
     def on_auto_continuum_toggle(self):
+        """Handle the Automatic Continuum group toggle.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.auto_continuum_toggle.isChecked():
             if self.custom_continuum_toggle.isChecked():
                 if self.has_custom_progress():
@@ -263,6 +343,14 @@ class GuiContinuumMixin:
             self.hide_all_action_buttons()
 
     def on_custom_continuum_toggle(self):
+        """Handle the Custom Continuum group toggle.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if self.custom_continuum_toggle.isChecked():
             if self.auto_continuum_toggle.isChecked():
                 if self.has_automatic_progress():
@@ -283,12 +371,28 @@ class GuiContinuumMixin:
             self.hide_all_action_buttons()
 
     def show_automatic_buttons(self):
+        """Show the automatic-continuum action buttons, hiding the rest.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.hide_all_action_buttons()
         self.continuum_line_btn.show()
         self.subtract_continuum_btn.show()
         self.custom_ok_btn.hide()
 
     def show_custom_buttons(self):
+        """Show the custom-continuum action buttons, hiding the rest.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.hide_all_action_buttons()
         self.custom_subtract_btn.show()
         self.custom_delete_btn.show()
@@ -297,6 +401,14 @@ class GuiContinuumMixin:
         self.custom_ok_btn.show()
 
     def hide_all_action_buttons(self):
+        """Hide every continuum action button.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
@@ -306,17 +418,41 @@ class GuiContinuumMixin:
         self.custom_ok_btn.hide()
 
     def has_automatic_progress(self):
+        """Check whether the active tab has automatic-continuum progress.
+
+        Args:
+            None
+
+        Returns:
+            has_progress (bool): True if any automatic-continuum state exists.
+        """
         tab = self.active_spectrum_tab
         return (self.continuum_line_btn.isChecked() or self.subtract_continuum_btn.isChecked() or
                self.continuum_fitted.get(tab) is not None or
                self.continuum_subtracted.get(tab, False))
 
     def has_custom_progress(self):
+        """Check whether the active tab has custom-continuum progress.
+
+        Args:
+            None
+
+        Returns:
+            has_progress (bool): True if any custom-continuum state exists.
+        """
         return (self.custom_subtract_btn.isChecked() or
                (hasattr(self, 'custom_continuum_active') and self.custom_continuum_active) or
                self.continuum_mode_applied.get(self.active_spectrum_tab) == 'custom')
 
     def clear_automatic_progress(self):
+        """Reset the active tab's automatic-continuum state.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             tab = self.active_spectrum_tab
             self.continuum_line_btn.setChecked(False)
@@ -330,6 +466,14 @@ class GuiContinuumMixin:
         except Exception: pass
 
     def clear_custom_progress(self):
+        """Reset the custom-continuum session's state.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         try:
             self.custom_subtract_btn.setChecked(False)
             self.custom_delete_btn.setChecked(False)
@@ -343,19 +487,38 @@ class GuiContinuumMixin:
         except Exception: pass
 
     def _on_custom_delete_toggled(self, checked):
+        """Handle the Delete Point toggle for custom continuum selection.
+
+        Args:
+            checked (bool): New checked state of the toggle.
+
+        Returns:
+            None
+        """
         if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
             self.custom_continuum_selector.set_delete_mode(checked)
 
     def _finalize_custom_continuum(self):
-        """Keyboard ENTER alternative to clicking the OK button.
+        """Keyboard ENTER alternative to clicking the OK button; delegates
+        to the same handler so both paths behave identically.
 
-        custom_continuum.py's CustomContinuumSelector calls this when
-        the user presses ENTER on the canvas. We just delegate to the
-        existing OK-button handler so both paths behave identically.
+        Args:
+            None
+
+        Returns:
+            None
         """
         self.on_custom_ok_clicked()
 
     def on_custom_ok_clicked(self):
+        """Preview the custom-fitted continuum and confirm before subtracting.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not self.custom_continuum_active or self.custom_continuum_selector is None:
             return
 
@@ -374,7 +537,7 @@ class GuiContinuumMixin:
             wavelength = self._get_tab_wavelength(tab)
             ax = self.spec_plotter.ax
 
-            # ── Remove any stale preview line from a previous OK click ──
+            # --- Remove any stale preview line from a previous OK click ---
             if hasattr(self, '_custom_preview_line') and self._custom_preview_line is not None:
                 try:
                     self._custom_preview_line.remove()
@@ -382,7 +545,7 @@ class GuiContinuumMixin:
                     pass
                 self._custom_preview_line = None
 
-            # ── Draw the fitted continuum over the ORIGINAL spectrum ────
+            # --- Draw the fitted continuum over the original spectrum ---
             self._custom_preview_line = ax.plot(
                 wavelength, continuum,
                 color='orange', linewidth=2, linestyle='-',
@@ -392,7 +555,7 @@ class GuiContinuumMixin:
             self.spec_canvas.draw()
             QApplication.processEvents()
 
-            # ── Ask for confirmation ────────────────────────────────────
+            # --- Ask for confirmation ---
             reply = QMessageBox.question(
                 self, "Confirm Subtraction",
                 "The fitted continuum is shown in orange.\n\nSubtract it from the spectrum?",
@@ -419,6 +582,14 @@ class GuiContinuumMixin:
 
 
     def _save_custom_points(self):
+        """Save the current custom-continuum points to a text/CSV file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
             QMessageBox.warning(self, "Not Active", "Start a custom continuum session first by clicking 'Custom Subtract'.")
             return
@@ -442,6 +613,14 @@ class GuiContinuumMixin:
             QMessageBox.critical(self, "Error", f"Failed to save points:\n{str(e)}")
 
     def _load_custom_points(self):
+        """Load custom-continuum points from a text/CSV file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
             QMessageBox.warning(self, "Not Active", "Please click 'Custom Subtract' to start a session before loading points.")
             return

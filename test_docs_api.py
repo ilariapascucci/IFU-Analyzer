@@ -30,9 +30,8 @@ Run:
 import os
 import sys
 
-# Documented snippets end with plt.show(), which blocks on an interactive
-# backend. Force a headless backend so the suite runs unattended. This is a
-# harness concern -- the snippets themselves stay verbatim.
+# Force a headless backend so documented plt.show() calls don't block; a
+# harness concern only -- the snippets themselves stay verbatim.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
@@ -46,7 +45,15 @@ _CUBE_MAPS = {}
 
 
 def run(name, func):
-    """Run one documented example; record pass/fail/skip."""
+    """Run one documented example; record pass/fail/skip.
+
+    Args:
+        name (str): Label for the example, printed and stored in results.
+        func (callable): Example function to run.
+
+    Returns:
+        None
+    """
     print("\n" + "=" * 70)
     print(f" {name}")
     print("=" * 70)
@@ -77,26 +84,56 @@ def run(name, func):
 
 
 def needs_cube(func):
+    """Mark an example as needing the sample MIRI cube; skip it if absent.
+
+    Args:
+        func (callable): Example function to mark.
+
+    Returns:
+        func (callable): The same function, with needs_cube set.
+    """
     func.needs_cube = True
     return func
 
 
 def needs_nirspec_cube(func):
+    """Mark an example as needing the sample NIRSpec cube; skip it if absent.
+
+    Args:
+        func (callable): Example function to mark.
+
+    Returns:
+        func (callable): The same function, with needs_nirspec_cube set.
+    """
     func.needs_nirspec_cube = True
     return func
 
 
 def needs_muse_cube(func):
+    """Mark an example as needing the sample MUSE cube; skip it if absent.
+
+    Args:
+        func (callable): Example function to mark.
+
+    Returns:
+        func (callable): The same function, with needs_muse_cube set.
+    """
     func.needs_muse_cube = True
     return func
 
 
-# ---------------------------------------------------------------------------
-# BASIC DATA LOADING
-# ---------------------------------------------------------------------------
+# --- Basic data loading ---
 
 @needs_cube
 def basic_data_loading():
+    """Documented example: load a cube and print its basic properties.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube
 
     # Load a FITS file (instrument auto-detected)
@@ -108,12 +145,18 @@ def basic_data_loading():
     print(f"Spectrum shape: {cube.spectrum.shape}")
 
 
-# ---------------------------------------------------------------------------
-# ACCESS CUBE COMPONENTS
-# ---------------------------------------------------------------------------
+# --- Access cube components ---
 
 @needs_cube
 def access_cube_components():
+    """Documented example: access every attribute of a loaded cube.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube
 
     cube = load_cube(CUBE)
@@ -141,17 +184,20 @@ def access_cube_components():
     print(f"Instrument: {instrument}")
 
 
-# ---------------------------------------------------------------------------
-# EXTRACT SPECTRA FROM SPECIFIC REGIONS (docs/user_guide/selecting_regions.rst,
-# "Using the API"). extract_pixel_spectrum/extract_region_spectrum wrap the same
-# CubeData.get_pixel_spectrum/compute_region_spectrum methods the GUI itself uses
-# (gui_spectrum.py) -- this checks the docs' two concrete claims: (1) the pixel
-# call uses [y, x] axis order, not [x, y], and (2) the region call excludes NaN
-# pixels from the mean instead of propagating NaN like a naive .mean() would.
-# ---------------------------------------------------------------------------
+# --- Extract spectra from specific regions ---
 
 @needs_cube
 def extract_spectra_from_regions():
+    """Documented example: extract_pixel_spectrum/extract_region_spectrum
+    wrap CubeData.get_pixel_spectrum/compute_region_spectrum (gui_spectrum.py),
+    checking the docs' claims: pixel uses [y, x] order; region excludes NaN.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     import numpy as np
     from cube_explorer.api import load_cube, extract_pixel_spectrum, extract_region_spectrum
 
@@ -200,12 +246,18 @@ def extract_spectra_from_regions():
     plt.show()
 
 
-# ---------------------------------------------------------------------------
-# AVAILABLE CUBE PROPERTIES
-# ---------------------------------------------------------------------------
+# --- Available cube properties ---
 
 @needs_cube
 def available_cube_properties():
+    """Documented example: print every property listed for a loaded cube.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube
 
     cube = load_cube(CUBE)
@@ -229,15 +281,20 @@ def available_cube_properties():
     print(f"Observation date:  {cube.header.get('DATE-OBS')}")
 
 
-# ---------------------------------------------------------------------------
-# MUSE INSTRUMENT DETECTION (docs/user_guide/loading_data.rst, "Supported
-# Instruments"). basic_data_loading/access_cube_components/available_cube_properties
-# above cover the API shape using the MIRI fixture; this checks the docs' separate
-# claim that MUSE is auto-detected too, which nothing else in this suite exercises.
-# ---------------------------------------------------------------------------
+# --- MUSE instrument detection ---
 
 @needs_muse_cube
 def muse_instrument_detection():
+    """Documented example: earlier tests cover the API shape using the MIRI
+    fixture; this checks the docs' separate claim that MUSE is auto-detected
+    too, which nothing else in this suite exercises.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube
 
     cube = load_cube(MUSE_CUBE)
@@ -250,12 +307,18 @@ def muse_instrument_detection():
         f"docs claim MUSE is auto-detected; got instrument={cube.instrument!r}"
 
 
-# ---------------------------------------------------------------------------
-# 1D SPECTRUM FITTING -- FITTING ONE LINE
-# ---------------------------------------------------------------------------
+# --- 1D spectrum fitting: fitting one line ---
 
 @needs_cube
 def fitting_one_line():
+    """Documented example: fit a single Gaussian line with fit_line().
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube, fit_line
 
     cube = load_cube(CUBE)
@@ -280,12 +343,18 @@ def fitting_one_line():
         print(f"Fit failed: {result.message}")
 
 
-# ---------------------------------------------------------------------------
-# 1D SPECTRUM FITTING -- RESULT FIELDS
-# ---------------------------------------------------------------------------
+# --- 1D spectrum fitting: result fields ---
 
 @needs_cube
 def result_fields():
+    """Documented example: read every documented field of a fit_line() result.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube, fit_line
 
     cube = load_cube(CUBE)
@@ -318,15 +387,20 @@ def result_fields():
     print(f"All documented fields readable; area_unit={result.area_unit}")
 
 
-# ---------------------------------------------------------------------------
-# PIXEL-BY-PIXEL CUBE FITTING -- FITTING THE CUBE
-# ---------------------------------------------------------------------------
-# Slow-ish: a real full-cube run, ~1-2 minutes. It stays because the page quotes
-# concrete detection counts, and an example nobody runs is how the counts drift
-# away from the code.
+# --- Pixel-by-pixel cube fitting: fitting the cube ---
 
 @needs_cube
 def cube_fitting_the_cube():
+    """Documented example: a real full-cube fit (~1-2 minutes), kept because
+    the docs page quotes concrete detection counts that would otherwise
+    drift unnoticed from the code.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube, create_gaussian_map
 
     cube = load_cube(CUBE)
@@ -372,15 +446,20 @@ def cube_fitting_the_cube():
     _CUBE_MAPS['maps'] = maps
 
 
-# ---------------------------------------------------------------------------
-# PIXEL-BY-PIXEL CUBE FITTING -- RETURNED KEYS
-# ---------------------------------------------------------------------------
+# --- Pixel-by-pixel cube fitting: returned keys ---
 
 @needs_cube
 def cube_returned_keys():
-    # Reuses the fit from the previous test: the documented snippet here is the key
-    # list, not the call, and a second full-cube run would cost another three minutes
-    # to re-derive maps we already have.
+    """Documented example: reuses the previous test's fit (the snippet here
+    is the key list, not the call) so a second three-minute full-cube run
+    isn't needed to re-derive maps already computed.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     maps = _CUBE_MAPS.get('maps')
     if maps is None:
         raise RuntimeError("cube fit unavailable - the preceding cube test must run first")
@@ -409,20 +488,20 @@ def cube_returned_keys():
           f"global amplitude={maps['global_fit']['amplitude']:.4e} (native)")
 
 
-# ---------------------------------------------------------------------------
-# CO FLUX EXTRACTION -- MULTI-GAUSSIAN FIT, USING THE API
-# ---------------------------------------------------------------------------
-# fit_hitran_lines() runs the same algorithm as the GUI's Multi-Gaussian Fit button:
-# simultaneous nonlinear curve_fit per wavelength chunk, via fit_glines() (see
-# fit_hitran_lines_collective() in flux_map_extractor.py) -- this checks the docs' claim
-# that they produce identical results, not just that the call doesn't crash.
-# Centers/sigmas are bounded (center within +/-1 instrumental sigma of the catalog
-# wavelength, sigma within 0.5-2x the instrumental value) but genuinely fitted, not fixed
-# -- so unlike the exact-catalog-match this test used to check, the match here is against
-# a fixed reproducibility tolerance, not zero.
+# --- CO flux extraction: multi-Gaussian fit, using the API ---
 
 @needs_nirspec_cube
 def flux_multi_gaussian_api():
+    """Documented example: fit_hitran_lines() runs the same algorithm as the
+    GUI's Multi-Gaussian Fit button (fit_glines() per chunk); checks that
+    results reproduce a verified GUI run within tolerance, not just "runs".
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import load_cube, fit_hitran_lines
     from cube_explorer.line_catalog import load_contaminating_lines_catalog
 
@@ -447,10 +526,8 @@ def flux_multi_gaussian_api():
     for r in sorted(detected, key=lambda r: r['wavelength']):
         print(f"  {r['wavelength']:.6f} um  area={r['area']:.4e} {r['area_unit']}  R2={r['r_squared']:.4f}")
 
-    # "This reproduces the worked example above exactly" -- all 56 v=1->0 fitted centers
-    # (bounded, not catalog-exact) and areas from the GUI screenshot, to the digit. Lines
-    # 55/56 here (4.783681, 4.793562) are the exact two lines shown in the docs' "Reading
-    # the results" worked example, cross-checked against a real GUI run.
+    # Reproduces the docs' worked example: all 56 v=1->0 fitted centers/areas match
+    # a real GUI run; lines 55/56 (4.783681, 4.793562) are the docs' own example lines.
     expected = {
         4.402940: (1.7523e-16, 0.9522), 4.407340: (2.0514e-16, 0.9760),
         4.411409: (3.2444e-16, 0.9919), 4.416001: (1.1136e-16, 0.9964),
@@ -484,10 +561,8 @@ def flux_multi_gaussian_api():
     assert len(detected) == 56, f"docs' worked example has 56 detected lines, got {len(detected)}"
     for r in detected:
         match = min(expected, key=lambda c: abs(c - r['wavelength']))
-        # Centers are bounded (+/-1 instrumental sigma of the catalog wavelength) but
-        # genuinely fitted -- close, not catalog-exact. curve_fit itself is deterministic
-        # for identical input, so this checks reproducibility against a verified real run,
-        # not "hasn't drifted from HITRAN."
+        # Centers are bounded but genuinely fitted, not catalog-exact; curve_fit
+        # is deterministic, so this checks reproducibility against a real run.
         assert abs(match - r['wavelength']) < 1e-3, \
             f"fitted center {r['wavelength']:.6f} doesn't match any documented line closely enough"
         exp_area, exp_r2 = expected[match]
@@ -502,15 +577,19 @@ def flux_multi_gaussian_api():
           f"(centers, areas, R2, units)")
 
 
-# ---------------------------------------------------------------------------
-# FLUX -- SINGLE SPECTRUM / FULL MAP API (docs/user_guide/flux_extraction.rst,
-# "Using the Flux API"). Unlike fit_hitran_lines above, extract_flux/create_flux_map
-# need a target line catalog file on disk -- the docs show a placeholder path
-# ("path/to/CO_catalog.ecsv"), so this builds a real one from HITRAN first, in the column
-# format load_CO_line_catalog() actually expects (line_wave_um/species/transition/a), not
-# the wrong wavelength/einstein_coeff format the docs used to show.
+# --- Flux: single spectrum / full map API ---
 
 def _build_co_catalog_ecsv():
+    """Build a real HITRAN-derived CO catalog ECSV, since extract_flux/
+    create_flux_map need one on disk and the docs only show a placeholder
+    path, in the column format load_CO_line_catalog() actually expects.
+
+    Args:
+        None
+
+    Returns:
+        path (str): Path to the written ECSV catalog file.
+    """
     from cube_explorer.line_catalog import fetch_hitran_data
     from astropy.table import Table
     hitran_lines, _ = fetch_hitran_data(4.70, 4.80, 'CO', isotopologue=1, v_upper=1, v_lower=0)
@@ -526,6 +605,15 @@ def _build_co_catalog_ecsv():
 
 @needs_nirspec_cube
 def flux_single_spectrum_api():
+    """Documented example: extract total flux from a summed spectrum with
+    extract_flux() using a real HITRAN-derived CO catalog.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     import numpy as np
     from cube_explorer.api import load_cube, extract_flux
 
@@ -553,6 +641,15 @@ def flux_single_spectrum_api():
 
 @needs_nirspec_cube
 def flux_map_api():
+    """Documented example: build a per-pixel flux map with create_flux_map(),
+    using HITRAN automatically (no target_catalog_path given).
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     import numpy as np
     from cube_explorer.api import load_cube, create_flux_map
 
@@ -585,13 +682,18 @@ def flux_map_api():
             f"docs claim {key!r} is the same shape as flux_map"
 
 
-# ---------------------------------------------------------------------------
-# ROTATIONAL DIAGRAM (cube_explorer/api.py module docstring, "Example Usage").
-# molecular_data/fluxes below are the H2 v=0->0 S(1)-S(7) lines from data/H2_lines.csv,
-# matched against HITRAN (see api.py's docstring note) -- no FITS fixture needed, so this
-# runs unconditionally rather than behind @needs_cube.
+# --- Rotational diagram ---
 
 def rotational_diagram_docstring():
+    """Documented example: fit an H2 v=0->0 S(1)-S(7) rotational diagram.
+    No FITS fixture needed, so this runs unconditionally.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     from cube_explorer.api import rotational_diagram
 
     molecular_data = {
@@ -622,6 +724,14 @@ def rotational_diagram_docstring():
 # ---------------------------------------------------------------------------
 
 def main():
+    """Run every documented example and print a pass/fail/skip summary.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     print("\n" + "=" * 70)
     print(" IFU ANALYZER -- DOCUMENTATION API TEST SUITE")
     print("=" * 70)
