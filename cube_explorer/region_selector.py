@@ -647,7 +647,7 @@ class RegionSelector:
     This class provides functionality to select regions using different shapes:
     - Points (*)
     - Rectangles (▭)
-    - Circles (◯) 
+    - Circles (○)
     - Ellipses (⬭)
     - Custom/Lasso (✏)
     
@@ -722,7 +722,7 @@ class RegionSelector:
                 self.selector.set_visible(True)
             if hasattr(self.selector, 'set_active'):
                 self.selector.set_active(True)
-        elif shape in ["◯", "⬭"]:  # circle or ellipse
+        elif shape in ["○", "⬭"]:  # circle or ellipse
             self.selector = EllipseSelector(
                 self.ax,
                 self.on_select,
@@ -769,7 +769,7 @@ class RegionSelector:
         Returns:
             None
         """
-        if self.active_shape == "◯":
+        if self.active_shape == "○":
             shape_type = 'circle'
         elif self.active_shape == "⬭":
             shape_type = 'ellipse'

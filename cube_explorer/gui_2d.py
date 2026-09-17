@@ -23,7 +23,7 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup, QMenu
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -632,7 +632,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             """
             btn = QPushButton(symbol)
             btn.setCheckable(True)
-            btn.setFixedSize(40, 40)
+            btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
             if callback is None:
                 btn.clicked.connect(lambda _, s=symbol: self._set_shape(s, target=target))
@@ -640,60 +640,76 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 btn.clicked.connect(callback)
             return btn
 
-        shapes = ["*", "▭", "◯", "⬭", "✏"]
+        shapes = ["*", "▭", "○", "⬭", "✏"]
         self.shape_buttons = {
             "left": {shape: make_shape_button(shape, "left") for shape in shapes},
             "right": {shape: make_shape_button(shape, "right") for shape in shapes}
         }
 
         self.color_btn_left = QPushButton("🌈")
-        self.color_btn_left.setFixedSize(40, 40)
+        self.color_btn_left.setFixedSize(35, 35)
         self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
 
         self.color_btn_right = QPushButton("🌈")
-        self.color_btn_right.setFixedSize(40, 40)
+        self.color_btn_right.setFixedSize(35, 35)
         self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
 
-        self.scale_combo_left = QComboBox()
-        self.scale_combo_left.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
-        self.scale_combo_left.currentTextChanged.connect(lambda: self._change_scale('left'))
-        
-        self.scale_combo_right = QComboBox()
-        self.scale_combo_right.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
-        self.scale_combo_right.currentTextChanged.connect(lambda: self._change_scale('right'))
+        # Scale selection buttons - square icon buttons that pop up a menu
+        # of the available intensity scalings, matching the other square buttons.
+        def make_scale_button(target):
+            """Build a square button that pops up the scale-choice menu.
+
+            Args:
+                target (str): Panel the button applies to ('left' or 'right').
+
+            Returns:
+                btn (QPushButton): The configured button.
+            """
+            btn = QPushButton("🎚")
+            btn.setFixedSize(35, 35)
+            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+            menu = QMenu(btn)
+            for scale_type in ["Linear", "Log", "Sqrt", "Power (γ=2)"]:
+                menu.addAction(scale_type, lambda s=scale_type: self._change_scale(target, s))
+            btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
+            btn.setToolTip(f"Intensity scaling for {target} slice (Linear)")
+            return btn
+
+        self.scale_btn_left = make_scale_button('left')
+        self.scale_btn_right = make_scale_button('right')
 
         # Copy button sits on its own side's sidebar and pulls the OTHER
         # panel's selection onto this one (matches the 3D window convention).
         self.copy_btn_l = QPushButton("⎘")
-        self.copy_btn_l.setFixedSize(40, 40)
+        self.copy_btn_l.setFixedSize(35, 35)
         self.copy_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.copy_btn_l.setToolTip("Copy selection from right slice to left")
         self.copy_btn_l.clicked.connect(lambda: self.copy_selection(source="right", target="left"))
 
         self.copy_btn_r = QPushButton("⎘")
-        self.copy_btn_r.setFixedSize(40, 40)
+        self.copy_btn_r.setFixedSize(35, 35)
         self.copy_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.copy_btn_r.setToolTip("Copy selection from left slice to right")
         self.copy_btn_r.clicked.connect(lambda: self.copy_selection(source="left", target="right"))
 
         # Copy the OTHER panel's colormap onto this one (matches the 3D window).
         self.copy_color_btn_l = QPushButton("⎘🌈")
-        self.copy_color_btn_l.setFixedSize(40, 40)
+        self.copy_color_btn_l.setFixedSize(35, 35)
         self.copy_color_btn_l.setToolTip("Copy right slice colormap to left slice")
         self.copy_color_btn_l.clicked.connect(lambda: self.copy_colormap('right', 'left'))
 
         self.copy_color_btn_r = QPushButton("⎘🌈")
-        self.copy_color_btn_r.setFixedSize(40, 40)
+        self.copy_color_btn_r.setFixedSize(35, 35)
         self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
         self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left', 'right'))
 
         self.erase_btn_l = QPushButton("✖")
-        self.erase_btn_l.setFixedSize(40, 40)
+        self.erase_btn_l.setFixedSize(35, 35)
         self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
 
         self.erase_btn_r = QPushButton("✖")
-        self.erase_btn_r.setFixedSize(40, 40)
+        self.erase_btn_r.setFixedSize(35, 35)
         self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
 
@@ -701,7 +717,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         # Enabled only in the "placed" state (and not for pixel selections).
         self.edit_shape_btn_l = QPushButton("✎")
         self.edit_shape_btn_l.setCheckable(True)
-        self.edit_shape_btn_l.setFixedSize(40, 40)
+        self.edit_shape_btn_l.setFixedSize(35, 35)
         self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
         self.edit_shape_btn_l.setEnabled(False)
@@ -709,7 +725,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         self.edit_shape_btn_r = QPushButton("✎")
         self.edit_shape_btn_r.setCheckable(True)
-        self.edit_shape_btn_r.setFixedSize(40, 40)
+        self.edit_shape_btn_r.setFixedSize(35, 35)
         self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
         self.edit_shape_btn_r.setEnabled(False)
@@ -1527,9 +1543,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         # Left Sidebar strictly bounded
         left_sidebar = QVBoxLayout()
         left_sidebar.addWidget(self.color_btn_left)
-        left_sidebar.addWidget(QLabel("Scale:"))
-        left_sidebar.addWidget(self.scale_combo_left)
-        for shape in ["*", "▭", "◯", "⬭", "✏"]:
+        left_sidebar.addWidget(self.scale_btn_left)
+        for shape in ["*", "▭", "○", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
         left_sidebar.addWidget(self.copy_btn_l)
         left_sidebar.addWidget(self.copy_color_btn_l)
@@ -1582,9 +1597,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         # Right Sidebar strictly bounded
         right_sidebar = QVBoxLayout()
         right_sidebar.addWidget(self.color_btn_right)
-        right_sidebar.addWidget(QLabel("Scale:"))
-        right_sidebar.addWidget(self.scale_combo_right)
-        for shape in ["*", "▭", "◯", "⬭", "✏"]:
+        right_sidebar.addWidget(self.scale_btn_right)
+        for shape in ["*", "▭", "○", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
         right_sidebar.addWidget(self.copy_btn_r)
         right_sidebar.addWidget(self.copy_color_btn_r)
@@ -2500,30 +2514,31 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         finally:
             QApplication.restoreOverrideCursor()
 
-    def _change_scale(self, panel):
+    def _change_scale(self, panel, scale_type):
         """Update the color scale (Linear, Log, Power, etc.) for the panel.
         Persists the choice into self.scale_left/right so a later
         display_image call doesn't fall back to Linear.
 
         Args:
             panel (str): Panel to rescale, 'left' or 'right'.
+            scale_type (str): Chosen scaling, e.g. 'Linear', 'Log', 'Sqrt', 'Power (γ=2)'.
 
         Returns:
             None
         """
         # Use the exact variable names from _init_plots
         if panel == 'left':
-            combo = self.scale_combo_left
+            btn = self.scale_btn_left
             canvas = self.slice1_canvas
             ax = self.slice1_plotter.ax
         else:
-            combo = self.scale_combo_right
+            btn = self.scale_btn_right
             canvas = self.slice2_canvas
             ax = self.slice2_plotter.ax
 
         # Persist the choice before any early return, so the next
         # display_image call honours it even with no image loaded yet.
-        scale_type = combo.currentText()
+        btn.setToolTip(f"Intensity scaling for {panel} slice ({scale_type})")
         if panel == 'left':
             self.scale_left = scale_type
         else:

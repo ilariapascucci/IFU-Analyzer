@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
     QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog, QDoubleSpinBox,
-    QSizePolicy
+    QSizePolicy, QMenu
 )
 from PyQt5.QtCore import Qt, QPoint, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont
@@ -1008,7 +1008,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             """
             btn = QPushButton(symbol)
             btn.setCheckable(checkable)
-            btn.setFixedSize(40, 40)
+            btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
             if callback is None:
                 btn.clicked.connect(lambda _, s=symbol: self._set_shape(s, target=target))
@@ -1017,11 +1017,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return btn
 
         # Create left and right shape buttons
-        shapes = ["*", "▭", "◯", "⬭", "✏"]
+        shapes = ["*", "▭", "○", "⬭", "✏"]
         shape_tooltips = {
             "*": "Point selection",
             "▭": "Rectangle selection",
-            "◯": "Circle selection",
+            "○": "Circle selection",
             "⬭": "Ellipse selection",
             "✏": "Freehand drawing"
         }
@@ -1036,7 +1036,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # Colormap (color scale) buttons (non-shape, open dialog)
         self.color_btn_left = QPushButton("🌈")
-        self.color_btn_left.setFixedSize(40, 40)
+        self.color_btn_left.setFixedSize(35, 35)
         self.color_btn_left.setToolTip("Change left slice color scale")
         self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
 
@@ -1047,27 +1047,38 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # Copy colormap buttons
         self.copy_color_btn_l = QPushButton("⎘🌈")
-        self.copy_color_btn_l.setFixedSize(40, 40)
+        self.copy_color_btn_l.setFixedSize(35, 35)
         self.copy_color_btn_l.setToolTip("Copy right slice colormap to left slice")
         self.copy_color_btn_l.clicked.connect(lambda: self.copy_colormap('right','left'))
 
         self.copy_color_btn_r = QPushButton("⎘🌈")
-        self.copy_color_btn_r.setFixedSize(40, 40)
+        self.copy_color_btn_r.setFixedSize(35, 35)
         self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
         self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left','right'))
 
-        # Scale selection dropdowns
-        self.scale_combo_left = QComboBox()
-        self.scale_combo_left.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
-        self.scale_combo_left.setToolTip("Intensity scaling for left slice")
-        self.scale_combo_left.currentTextChanged.connect(lambda: self._change_scale('left'))
-        self.scale_combo_left.setMaximumWidth(120)
+        # Scale selection buttons - square icon buttons that pop up a menu
+        # of the available intensity scalings, matching the other square buttons.
+        def make_scale_button(target):
+            """Build a square button that pops up the scale-choice menu.
 
-        self.scale_combo_right = QComboBox()
-        self.scale_combo_right.addItems(["Linear", "Log", "Sqrt", "Power (γ=2)"])
-        self.scale_combo_right.setToolTip("Intensity scaling for right slice")
-        self.scale_combo_right.currentTextChanged.connect(lambda: self._change_scale('right'))
-        self.scale_combo_right.setMaximumWidth(120)
+            Args:
+                target (str): Panel the button applies to ('left' or 'right').
+
+            Returns:
+                btn (QPushButton): The configured button.
+            """
+            btn = QPushButton("🎚")
+            btn.setFixedSize(35, 35)
+            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+            menu = QMenu(btn)
+            for scale_type in ["Linear", "Log", "Sqrt", "Power (γ=2)"]:
+                menu.addAction(scale_type, lambda s=scale_type: self._change_scale(target, s))
+            btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
+            btn.setToolTip(f"Intensity scaling for {target} slice (Linear)")
+            return btn
+
+        self.scale_btn_left = make_scale_button('left')
+        self.scale_btn_right = make_scale_button('right')
 
         # Add copy buttons - each pulls the OTHER side's selection onto its own
         # side, matching the colormap-copy buttons' direction (copy_color_btn_l/r).
@@ -1081,7 +1092,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Edit Shape toggle buttons (enable drag/resize on a placed shape)
         self.edit_shape_btn_l = QPushButton("✎")
         self.edit_shape_btn_l.setCheckable(True)
-        self.edit_shape_btn_l.setFixedSize(40, 40)
+        self.edit_shape_btn_l.setFixedSize(35, 35)
         self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
         self.edit_shape_btn_l.setEnabled(False)
@@ -1089,7 +1100,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self.edit_shape_btn_r = QPushButton("✎")
         self.edit_shape_btn_r.setCheckable(True)
-        self.edit_shape_btn_r.setFixedSize(40, 40)
+        self.edit_shape_btn_r.setFixedSize(35, 35)
         self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
         self.edit_shape_btn_r.setEnabled(False)
@@ -1097,13 +1108,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # Erase (clear) selection buttons
         self.erase_btn_l = QPushButton("✖")
-        self.erase_btn_l.setFixedSize(40, 40)
+        self.erase_btn_l.setFixedSize(35, 35)
         self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_l.setToolTip("Clear selection on left slice")
         self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
 
         self.erase_btn_r = QPushButton("✖")
-        self.erase_btn_r.setFixedSize(40, 40)
+        self.erase_btn_r.setFixedSize(35, 35)
         self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_r.setToolTip("Clear selection on right slice")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
@@ -1111,14 +1122,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Export the current region as a NaN-masked cube (same shape/WCS as
         # the loaded cube, just everything outside the region set to NaN).
         self.export_region_btn_l = QPushButton("💾")
-        self.export_region_btn_l.setFixedSize(40, 40)
+        self.export_region_btn_l.setFixedSize(35, 35)
         self.export_region_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.export_region_btn_l.setToolTip("Export left selection as a NaN-masked cube")
         self.export_region_btn_l.setEnabled(False)
         self.export_region_btn_l.clicked.connect(lambda: self._export_region_cube("left"))
 
         self.export_region_btn_r = QPushButton("💾")
-        self.export_region_btn_r.setFixedSize(40, 40)
+        self.export_region_btn_r.setFixedSize(35, 35)
         self.export_region_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.export_region_btn_r.setToolTip("Export right selection as a NaN-masked cube")
         self.export_region_btn_r.setEnabled(False)
@@ -1160,9 +1171,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Left sidebar (shape buttons / copy / erase)
         left_sidebar = QVBoxLayout()
         left_sidebar.addWidget(self.color_btn_left)
-        left_sidebar.addWidget(QLabel("Scale:"))
-        left_sidebar.addWidget(self.scale_combo_left)
-        for shape in ["*", "▭", "◯", "⬭", "✏"]:
+        left_sidebar.addWidget(self.scale_btn_left)
+        for shape in ["*", "▭", "○", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
         left_sidebar.addWidget(self.copy_btn_l)
         left_sidebar.addWidget(self.copy_color_btn_l)
@@ -1189,9 +1199,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         right_sidebar = QVBoxLayout()
         right_sidebar.addWidget(self.color_btn_right)
-        right_sidebar.addWidget(QLabel("Scale:"))
-        right_sidebar.addWidget(self.scale_combo_right)
-        for shape in ["*", "▭", "◯", "⬭", "✏"]:
+        right_sidebar.addWidget(self.scale_btn_right)
+        for shape in ["*", "▭", "○", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
         right_sidebar.addWidget(self.copy_btn_r)
         right_sidebar.addWidget(self.copy_color_btn_r)
@@ -2257,24 +2266,25 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.slice2_cmap = src_cmap
             self.slice2_plotter.set_cmap(src_cmap)
 
-    def _change_scale(self, target):
+    def _change_scale(self, target, scale_type):
         """Change the intensity scaling (linear, log, sqrt, power) for a slice.
 
         Args:
             target (str): Panel to rescale, 'left' or 'right'.
+            scale_type (str): Chosen scaling, e.g. 'Linear', 'Log', 'Sqrt', 'Power (γ=2)'.
 
         Returns:
             None
         """
-        scale_combo = self.scale_combo_left if target == 'left' else self.scale_combo_right
-        scale_type = scale_combo.currentText()
-        
+        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
+        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type})")
+
         # Store the scale choice
         if target == 'left':
             self.scale_left = scale_type
         else:
             self.scale_right = scale_type
-        
+
         # Redisplay the current slice with the new scale
         if hasattr(self, 'cube_data') and self.cube_data is not None:
             idx = self.last_idx_left if target == 'left' else self.last_idx_right

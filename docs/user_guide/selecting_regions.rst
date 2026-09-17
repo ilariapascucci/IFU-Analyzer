@@ -14,7 +14,7 @@ Tool                     Best For
 ======================== ==================================================================
 **\*** Point             Single pixels or precise locations
 **▭** Rectangle          Rectangular areas, embedded sources
-**◯** Circle             Circular features
+**○** Circle             Circular features
 **⬭** Ellipse            Elongated structures, galaxies
 **✏** Freehand           Precise manual outlines
 ======================== ==================================================================
@@ -92,7 +92,7 @@ Point Select
 Rectangle, Circle and Ellipse Select
 ------------------------------------
 
-1. Click **▭**, **◯**, or **⬭** in the slice toolbar
+1. Click **▭**, **○**, or **⬭** in the slice toolbar
 2. Press and hold at one corner
 3. Drag to the opposite corner
 4. Release to place the region

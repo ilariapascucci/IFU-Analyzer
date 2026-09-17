@@ -74,7 +74,7 @@ Cursor readout and statistics
 Color scale and colormap
 ------------------------
 
-- Each panel has a **Scale** dropdown with four options:
+- Each panel has a **🎚** button that opens a menu with four scaling options:
 
   - **Linear** — direct mapping
   - **Log** — ``log10`` of the data (useful for faint extended emission)
