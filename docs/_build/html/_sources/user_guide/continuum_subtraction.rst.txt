@@ -22,6 +22,19 @@ IFU Analyzer includes an automatic continuum fitting algorithm that:
 3. Choose **Continuum Line** to fit the global continuum
 4. The spectrum will update showing the continuum-subtracted result
 
+.. figure:: ../_static/automatic_continuum.png
+   :alt: Spectrum with an automatically-fitted continuum overlaid in orange
+   :width: 100%
+
+   The fitted continuum (orange) overlaid on the total spectrum (blue) before subtraction.
+
+.. figure:: ../_static/subtract_continuum.png
+   :alt: Continuum-subtracted spectrum, centered near zero flux
+   :width: 100%
+
+   The same spectrum after subtraction -- lines now sit on a flat, near-zero baseline
+   instead of the sloped/varying continuum above.
+
 **Using the Continuum API**
 
 Fit and subtract continuum programmatically:

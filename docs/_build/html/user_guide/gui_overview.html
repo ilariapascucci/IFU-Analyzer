@@ -64,7 +64,7 @@
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_1d.html">1D Spectrum Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flux_extraction.html">Flux Extraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
 <li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
@@ -119,35 +119,42 @@
              
   <section id="gui-overview">
 <h1>GUI Overview<a class="headerlink" href="#gui-overview" title="Link to this heading"></a></h1>
-<p>This section explains the major components of the IFU Analyzer interface and how to navigate them effectively.</p>
+<p>The main window is built around two mirrored slice panels, Left and Right, that drive one
+shared spectrum panel below them – setting a slice or selecting a region on either side
+updates that side’s own analysis and spectrum tab independently of the other.</p>
 <section id="main-window-layout">
 <h2>Main Window Layout<a class="headerlink" href="#main-window-layout" title="Link to this heading"></a></h2>
-<p>The IFU Analyzer window is organized into several key areas:</p>
-<img alt="GUI Layout" src="../_images/gui_overview.png" />
-<p><em>Note: Screenshot showing main interface layout</em></p>
+<img alt="The main Cube Explorer window, showing the Left/Right slice panels, tool group toolbar, and spectrum panel with display controls" src="../_images/gui_overview.png" />
+<p>The window loaded above (a MIRI cube): Left and Right intensity maps at top, each with its
+own running stats (min/max/mean/sum/std) and cursor readout; the Gaussian Fit / Continuum
+Tools / Rotational Diagram / HITRAN tool groups in the blue bar; and the spectrum panel
+with its Set Slice / tab / Normalize / Shift controls and plot at the bottom.</p>
 <p><strong>1. Menu Bar</strong> (Top)</p>
 <ul class="simple">
-<li><p><strong>Open FITS</strong>: Open FITS file</p></li>
-<li><p><strong>Header</strong>: Display header(s) of FITS file</p></li>
-<li><p><strong>🔄</strong>: Refresh program window</p></li>
-<li><p><strong>🗗</strong>: Open new program window</p></li>
-<li><p><strong>2D</strong>: Open 2D section of program</p></li>
+<li><p><strong>Open FITS</strong>: browse for and load a FITS cube or 2D image; the instrument is
+auto-detected from the header</p></li>
+<li><p><strong>Header</strong>: view the FITS header of the loaded file(s)</p></li>
+<li><p><strong>🔄</strong>: complete reset – clears every plot, region selection, normalization, and
+Gaussian fit, then reloads the spectrum from the original data</p></li>
+<li><p><strong>🗗</strong>: open a second, independent Cube Explorer window</p></li>
+<li><p><strong>2D</strong>: open the <a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Viewer</span></a></p></li>
 </ul>
 <p><strong>2. Main Viewing Area</strong> (Top Center)</p>
 <p>Displays the currently selected wavelength left and right slices:</p>
 <ul class="simple">
 <li><p><strong>Intensity Map</strong>: Color-coded flux data with statistics</p></li>
-<li><p><strong>Color &amp; Scale</strong>: Edit color scheme or scale</p></li>
+<li><p><strong>🌈🎚 Color &amp; Scale</strong>: Edit color scheme or scale</p></li>
 <li><p><strong>Region Selection</strong>: Select a region of a slice for analysis</p>
 <ul>
-<li><p>Pixel</p></li>
-<li><p>Rectangle</p></li>
-<li><p>Circle</p></li>
-<li><p>Ellipse</p></li>
-<li><p>Free-Form (polygon)</p></li>
-<li><p>Edit the placed region (drag/resize)</p></li>
-<li><p>Copy the selection from the adjacent slice</p></li>
-<li><p>Copy the colormap from the adjacent slice</p></li>
+<li><p><strong>*</strong> Pixel</p></li>
+<li><p><strong>▭</strong> Rectangle</p></li>
+<li><p><strong>○</strong> Circle</p></li>
+<li><p><strong>⬭</strong> Ellipse</p></li>
+<li><p><strong>✏</strong> Free-Form (polygon)</p></li>
+<li><p><strong>✎</strong> Edit the placed region (drag/resize)</p></li>
+<li><p><strong>⎘</strong> Copy the selection from the adjacent slice</p></li>
+<li><p><strong>⎘🌈</strong> Copy the colormap from the adjacent slice</p></li>
+<li><p><strong>💾</strong> Export the region as a NaN-masked FITS cube (<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>)</p></li>
 </ul>
 </li>
 </ul>
@@ -223,12 +230,7 @@ cancel, or revert it</p></td>
 </section>
 <section id="getting-help">
 <h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
-<p>If you forget a button’s function:</p>
-<ul class="simple">
-<li><p><strong>Hover</strong>: Mouse over buttons to see tooltip</p></li>
-<li><p><strong>Toolbar Buttons</strong>: Use buttons for common tasks</p></li>
-<li><p><strong>This Guide</strong>: Full documentation available</p></li>
-</ul>
+<p>Every button has a tooltip – hover over one if you’re not sure what it does.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
@@ -237,7 +239,7 @@ cancel, or revert it</p></td>
 <li><p><a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a> and <a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> for the Gaussian Fit group</p></li>
 <li><p><a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a> for the Continuum Tools group</p></li>
 <li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> for the Rotational Diagram group</p></li>
-<li><p><a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a> for the HITRAN group’s fetch/plot workflow</p></li>
+<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a> for the HITRAN group’s fetch/plot workflow</p></li>
 <li><p><a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a> and <a class="reference internal" href="spectrum_display.html"><span class="doc">Spectrum Display</span></a> for the display
 controls row (Set Slice, Full/Left/Right tabs, Normalize, Shift)</p></li>
 </ol>

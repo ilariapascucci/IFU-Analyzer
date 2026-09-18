@@ -63,21 +63,24 @@ Fit Spectral Lines
 
 .. code-block:: python
 
-    from cube_explorer.gaussian_fitter import fit_hitran_lines
-    
-    # Fit all HITRAN lines to the spectrum
+    from cube_explorer.api import fit_hitran_lines
+
+    # Fetches the same HITRAN lines internally and fits them all to the
+    # spectrum in one call -- the hitran_lines list from the step above is
+    # for inspection only and isn't needed here
     fit_results = fit_hitran_lines(
-        spectrum_x=wavelength,
-        spectrum_y=spectrum,
-        hitran_lines=hitran_lines,
-        header=None,
-        wave_unit=None
+        wavelength, spectrum,
+        molecule='CO',
+        wavelength_min=4.7,
+        wavelength_max=4.8,
+        isotopologue=1,
+        v_upper=1,              # Upper vibrational level
+        v_lower=0,              # Lower vibrational level
+        header=cube.header,     # Required whenever a line is found -- line width
+                                 # comes from the real instrument resolution
+        wave_unit=cube.wave_unit,
     )
-    
-    # Important: Use the HITRAN wavelengths directly (not the fitted centers)
-    for hitran_line, fit_result in zip(hitran_lines, fit_results):
-        fit_result['wavelength'] = hitran_line['wavelength']
-    
+
     # Check which lines were successfully detected
     detected = [r for r in fit_results if r['success']]
     print(f"Successfully fit {len(detected)} lines")
@@ -228,17 +231,6 @@ For specific vibrational levels, use `v_upper` and `v_lower` parameters:
     )
 
 
-**Issue: Only some lines detected**
-
-The fitting algorithm may not detect faint lines. To use HITRAN wavelengths directly:
-
-.. code-block:: python
-
-    # IMPORTANT: Override fit results with HITRAN wavelengths
-    for hitran_line, fit_result in zip(hitran_lines, fit_results):
-        fit_result['wavelength'] = hitran_line['wavelength']
-
-
 Available Functions
 -------------------
 
@@ -253,9 +245,12 @@ Core Modules
 
 * `fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, v_upper=None, v_lower=None)` - Get HITRAN lines with optional vibrational filtering
 
+**cube_explorer.api**
+
+* `fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None, isotopologue=1, v_upper=None, v_lower=None, header=None, wave_unit=None)` - Fetch HITRAN lines for a molecule and fit them all to the spectrum in one call
+
 **cube_explorer.gaussian_fitter**
 
-* `fit_hitran_lines(spectrum_x, spectrum_y, hitran_lines, header=None, wave_unit=None)` - Fit Gaussians to all lines
 * `fit_gaussian_to_line(x1, x2, spectrum_x, spectrum_y, peak_x, noise_min=None, noise_max=None, header=None, wave_unit=None)` - Fit single line between x1/x2, with an explicit peak wavelength
 
 

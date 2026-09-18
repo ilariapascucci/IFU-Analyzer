@@ -12,13 +12,17 @@ documentation does not actually claim.
 
 Documentation sources:
   - cube_explorer/api.py module docstring ("Example Usage", incl. rotational_diagram)
-  - docs/user_guide/api_examples.rst
+  - docs/user_guide/api_examples.rst ("Load a FITS Cube", "Fetch HITRAN Molecular
+    Lines", "Fit Spectral Lines")
   - docs/user_guide/loading_data.rst ("Using the API", incl. MUSE instrument detection)
   - docs/user_guide/selecting_regions.rst ("Using the API")
   - docs/user_guide/gaussian_fitting_1d.rst ("Using the API")
   - docs/user_guide/gaussian_fitting_cube.rst ("Using the API")
   - docs/user_guide/flux_extraction.rst ("Using the API", under Multi-Gaussian Fit)
   - docs/user_guide/flux_extraction.rst ("Using the Flux API")
+  - docs/user_guide/continuum_subtraction.rst ("Using the Continuum API", "Continuum Parameters")
+  - docs/user_guide/rotational_diagram.rst ("Run Map, from a script", "Run Map, multiple
+    cubes at different pixel scales")
 
 data/ is gitignored, so a fresh clone has no cubes. Sections needing a FITS file
 report [SKIP] rather than failing.
@@ -37,6 +41,8 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 CUBE = os.path.join("data", "MIRI_CITau", "Level3_ch1-long_s3d.fits")
 NIRSPEC_CUBE = os.path.join("data", "NIRSpec", "jw01621-o001_t001_nirspec_g395h-f290lp_s3d.fits")
 MUSE_CUBE = os.path.join("data", "MUSE", "ADP.2019-03-04T22_21_26.534.fits")
+MIRI_CH1_LONG = os.path.join("data", "HH30", "jw01282-c1024_t029_miri_ch1-long_s3d.fits")
+MIRI_CH2_LONG = os.path.join("data", "HH30", "jw01282-c1024_t029_miri_ch2-long_s3d.fits")
 
 results = []
 
@@ -70,6 +76,12 @@ def run(name, func):
 
     if getattr(func, "needs_muse_cube", False) and not os.path.exists(MUSE_CUBE):
         print(f"[SKIP] sample cube not found: {MUSE_CUBE}")
+        results.append((name, "SKIP"))
+        return
+
+    if getattr(func, "needs_hh30_miri", False) and not (
+            os.path.exists(MIRI_CH1_LONG) and os.path.exists(MIRI_CH2_LONG)):
+        print(f"[SKIP] sample cubes not found: {MIRI_CH1_LONG}, {MIRI_CH2_LONG}")
         results.append((name, "SKIP"))
         return
 
@@ -119,6 +131,19 @@ def needs_muse_cube(func):
         func (callable): The same function, with needs_muse_cube set.
     """
     func.needs_muse_cube = True
+    return func
+
+
+def needs_hh30_miri(func):
+    """Mark an example as needing both HH30 MIRI channel cubes; skip if absent.
+
+    Args:
+        func (callable): Example function to mark.
+
+    Returns:
+        func (callable): The same function, with needs_hh30_miri set.
+    """
+    func.needs_hh30_miri = True
     return func
 
 
@@ -307,6 +332,66 @@ def muse_instrument_detection():
         f"docs claim MUSE is auto-detected; got instrument={cube.instrument!r}"
 
 
+# --- api_examples.rst: load + fetch HITRAN lines + fit spectral lines ---
+
+@needs_nirspec_cube
+def api_examples_fit_spectral_lines():
+    """Documented example: api_examples.rst's "Load a FITS Cube" ->
+    "Fetch HITRAN Molecular Lines" -> "Fit Spectral Lines" walkthrough.
+    Replaces the old cube_explorer.gaussian_fitter.fit_hitran_lines import
+    (that function no longer exists) with cube_explorer.api.fit_hitran_lines,
+    which fetches from HITRAN and fits in one call.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    from cube_explorer.data_loader import CubeData
+    from cube_explorer.line_catalog import fetch_hitran_data
+    from cube_explorer.api import fit_hitran_lines
+
+    cube = CubeData()
+    cube.load_from_file(NIRSPEC_CUBE)
+
+    wavelength = cube.wavelength
+    spectrum = cube.spectrum
+    full_cube = cube.cube
+    print(f"Wavelength range: {wavelength.min():.4f} - {wavelength.max():.4f}")
+    print(f"Cube shape: {full_cube.shape}")
+
+    # Fetch HITRAN Molecular Lines -- line inspection only, not consumed below
+    hitran_lines, _ = fetch_hitran_data(
+        wavelength_min=4.7,
+        wavelength_max=4.8,
+        molecule='CO',
+        isotopologue=1,
+        v_upper=1,
+        v_lower=0
+    )
+    print(f"Found {len(hitran_lines)} lines")
+
+    # Fit Spectral Lines -- fetches its own HITRAN lines internally
+    fit_results = fit_hitran_lines(
+        wavelength, spectrum,
+        molecule='CO',
+        wavelength_min=4.7,
+        wavelength_max=4.8,
+        isotopologue=1,
+        v_upper=1,
+        v_lower=0,
+        header=cube.header,
+        wave_unit=cube.wave_unit,
+    )
+    detected = [r for r in fit_results if r['success']]
+    print(f"Successfully fit {len(detected)} lines")
+
+    assert len(hitran_lines) == 10, f"docs' worked example expects 10 CO v=1->0 lines in 4.7-4.8um, got {len(hitran_lines)}"
+    assert len(detected) == len(hitran_lines), \
+        f"expected every fetched line to fit successfully; got {len(detected)}/{len(hitran_lines)}"
+
+
 # --- 1D spectrum fitting: fitting one line ---
 
 @needs_cube
@@ -385,6 +470,59 @@ def result_fields():
     result.message           # Human-readable status
 
     print(f"All documented fields readable; area_unit={result.area_unit}")
+
+
+# --- Continuum subtraction ---
+
+@needs_cube
+def continuum_subtraction_api():
+    """Documented example: fit_continuum() automatic peak-detection call
+    ("Using the Continuum API") and the full tunable-parameter call
+    ("Continuum Parameters") from continuum_subtraction.rst.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    from cube_explorer.api import load_cube, fit_continuum
+
+    cube = load_cube(CUBE)
+    spectrum = cube.spectrum
+    wavelength = cube.wavelength
+
+    # Fit continuum using automatic peak detection
+    continuum = fit_continuum(
+        wavelength,
+        spectrum,
+        sigma_threshold=2.0,      # Peak detection sensitivity
+        peak_exclusion=3,         # Pixels to exclude near peaks
+        iterations=2              # Iterative refinement
+    )
+
+    # Subtract to get line-only spectrum
+    line_spectrum = spectrum - continuum
+
+    print(f"Original spectrum range: {spectrum.min():.3f} to {spectrum.max():.3f}")
+    print(f"Line-only spectrum range: {line_spectrum.min():.3f} to {line_spectrum.max():.3f}")
+
+    assert continuum.shape == wavelength.shape, \
+        "docs imply fit_continuum returns one value per input wavelength sample"
+
+    # Continuum Parameters -- the full tunable set
+    continuum2 = fit_continuum(
+        wavelength,
+        spectrum,
+        window_size=51,           # Window for median filter (must be odd)
+        sigma_threshold=2.0,      # Prominence threshold in sigma
+        peak_distance=3,          # Minimum pixels between peaks
+        peak_exclusion=3,         # Pixels excluded on each side of peak
+        iterations=2,             # Number of refinement iterations
+        smoothing_factor=5        # Spline smoothing parameter
+    )
+    assert continuum2.shape == wavelength.shape, \
+        "docs imply the full-parameter call returns the same shape as the automatic call"
 
 
 # --- Pixel-by-pixel cube fitting: fitting the cube ---
@@ -486,6 +624,50 @@ def cube_returned_keys():
     print(f"All documented keys present; wavelength_unit={maps['wavelength_unit']!r}, "
           f"fac_above_stdres={maps['fac_above_stdres']}, "
           f"global amplitude={maps['global_fit']['amplitude']:.4e} (native)")
+
+
+# --- Pixel-by-pixel cube fitting: exporting a residual cube ---
+
+@needs_cube
+def cube_export_residual_cube():
+    """Documented example: export_residual_cube() writing to disk, then the
+    return_cube=True form -- which returns the array INSTEAD of writing a
+    file, not in addition to it (out_path is ignored in that mode).
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    import numpy as np
+    from cube_explorer.api import load_cube, export_residual_cube
+
+    cube = load_cube(CUBE)
+    out_path = os.path.join(os.environ.get("TEMP", "."), "test_docs_residual_cube.fits")
+
+    try:
+        result = export_residual_cube(
+            cube,
+            out_path=out_path,
+            lam_min=7.492291,
+            lam_max=7.517421,
+        )
+        assert result is None, "docs claim export_residual_cube returns None when writing to out_path"
+        assert os.path.exists(out_path), "docs claim export_residual_cube writes out_path as a side effect"
+    finally:
+        if os.path.exists(out_path):
+            os.remove(out_path)
+
+    residuals = export_residual_cube(
+        cube, lam_min=7.492291, lam_max=7.517421, return_cube=True,
+    )
+    assert isinstance(residuals, np.ndarray), \
+        "docs claim return_cube=True returns the residual array directly, not a tuple"
+    assert not os.path.exists(out_path), \
+        "docs claim return_cube=True skips writing out_path entirely"
+
+    print(f"Residual array shape: {residuals.shape}; no file written in return_cube=True mode")
 
 
 # --- CO flux extraction: multi-Gaussian fit, using the API ---
@@ -721,6 +903,108 @@ def rotational_diagram_docstring():
     assert abs(result['2T']['T2'] - 863.4) < 0.1, f"2T T2 doesn't match docstring: {result['2T']['T2']:.1f}"
 
 
+# --- Rotational diagram map: single cube ---
+
+@needs_nirspec_cube
+def rotational_diagram_map_single_cube():
+    """Documented example: fit_region/fit_pixel/create_rotational_diagram_map,
+    the Run Fit / Run Map equivalents for one cube.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    from cube_explorer.api import (
+        load_cube, fetch_hitran_data, fit_region, fit_pixel,
+        create_rotational_diagram_map, save_rotational_diagram_map_fits, STATUS_OK,
+    )
+
+    cube = load_cube(NIRSPEC_CUBE)
+    line_table, _ = fetch_hitran_data(2.87, 5.27, "H2", isotopologue=1, v_upper=1, v_lower=0)
+    assert len(line_table) == 37, f"docs' worked example expects 37 H2 v=1->0 lines, got {len(line_table)}"
+
+    region = fit_region(cube, line_table, min_lines=3)
+    if region["status"] == STATUS_OK:
+        print(f"Whole-cube T: {region['results']['1T']['T']:.1f} K")
+
+    pixel = fit_pixel(cube, 20, 25, line_table, min_lines=3)
+
+    result = create_rotational_diagram_map(cube, line_table, min_lines=3, n_jobs=8)
+    out_path = os.path.join(os.environ.get("TEMP", "."), "test_docs_rot_diag_map.fits")
+    try:
+        save_rotational_diagram_map_fits(result, out_path)
+        assert os.path.exists(out_path), "docs claim save_rotational_diagram_map_fits writes out_path"
+    finally:
+        if os.path.exists(out_path):
+            os.remove(out_path)
+
+    n_fitted = int((result["status"] == STATUS_OK).sum())
+    print(f"Fitted {n_fitted}/{result['status'].size} pixels")
+
+    assert region["status"] == STATUS_OK, f"docs' worked example expects a converged whole-cube fit"
+    assert region["n_pixels"] == 2915, f"docs claim 2915 spaxels summed, got {region['n_pixels']}"
+    assert region["n_lines"] == 7, f"docs claim 7 lines detected in the sum, got {region['n_lines']}"
+    assert abs(region["results"]["1T"]["T"] - 3000.0) < 0.1, \
+        f"docs' worked example expects T pinned at 3000 K, got {region['results']['1T']['T']:.1f}"
+    assert pixel["status"] == STATUS_OK and pixel["n_lines"] == 8, \
+        f"docs claim pixel (20, 25) finds 8 lines, got status={pixel['status']} n_lines={pixel.get('n_lines')}"
+    assert n_fitted == 877, f"docs' worked example expects 877 fitted pixels, got {n_fitted}"
+    assert result["T"].shape == (55, 53), f"docs claim a 55x53 map, got {result['T'].shape}"
+    assert result["region_fit"]["status"] == STATUS_OK, "docs claim region_fit is the same converged fit as fit_region"
+
+
+# --- Rotational diagram map: multiple cubes at different pixel scales ---
+
+@needs_hh30_miri
+def rotational_diagram_map_multi_cube():
+    """Documented example: fit_region_multi/create_rotational_diagram_map_multi/
+    fit_pixel_multi, the Run Fit / Run Map equivalents for several cubes at
+    different pixel scales, one line per cube.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    from cube_explorer.api import (
+        load_cube, create_rotational_diagram_map_multi, fit_pixel_multi,
+        fit_region_multi, STATUS_OK, STATUS_TOO_FEW_LINES, STATUS_NO_DATA,
+    )
+
+    cubes_and_lines = [
+        (load_cube(MIRI_CH1_LONG), {"wavelength": 6.909509, "a_coeff": 4.758e-10,
+                                     "e_upper": 1015.947, "Gp": 21,
+                                     "branch": "S", "j_lower": 5}),
+        (load_cube(MIRI_CH2_LONG), {"wavelength": 10.177803, "a_coeff": 1e-8,
+                                     "e_upper": 3000.0, "Gp": 11,
+                                     "branch": "S", "j_lower": 3}),
+    ]
+
+    region = fit_region_multi(cubes_and_lines, min_lines=2)
+    print(f"Region fit status: {region['status']}, n_pixels: {region['n_pixels']}")
+
+    result = create_rotational_diagram_map_multi(cubes_and_lines, min_lines=2, n_jobs=4)
+    print(f"Common grid: {result['T'].shape}, worst pixel scale: "
+          f"{result['worst_pix_arcsec']:.3f} arcsec")
+
+    refit = fit_pixel_multi(result, 21, 18, min_lines=2)
+
+    assert region["n_pixels"] == 2434, f"docs claim 2434 spaxels summed across both cubes, got {region['n_pixels']}"
+    assert region["status"] == STATUS_TOO_FEW_LINES, \
+        f"docs' worked example expects too-few-lines (only 1 of 2 lines detected), got {region['status']}"
+    assert result["T"].shape == (37, 43), \
+        f"docs claim the common grid comes out 37x43, distinct from either input's own shape, got {result['T'].shape}"
+    assert abs(result["worst_pix_arcsec"] - 0.170) < 0.01, \
+        f"docs claim ch2-long's pixel scale (~0.170 arcsec) is the worst, got {result['worst_pix_arcsec']:.4f}"
+    assert "_flux_maps" in result and "_keys" in result, \
+        "docs imply fit_pixel_multi needs cached _flux_maps/_keys in the result"
+    assert refit["status"] in (STATUS_NO_DATA, STATUS_TOO_FEW_LINES), \
+        f"docs' worked example expects no pixel to reach STATUS_OK with this thin a line pair, got {refit['status']}"
+
+
 # ---------------------------------------------------------------------------
 
 def main():
@@ -741,14 +1025,19 @@ def main():
     run("EXTRACT SPECTRA FROM REGIONS", extract_spectra_from_regions)
     run("AVAILABLE CUBE PROPERTIES", available_cube_properties)
     run("MUSE INSTRUMENT DETECTION", muse_instrument_detection)
+    run("API EXAMPLES -- FIT SPECTRAL LINES", api_examples_fit_spectral_lines)
     run("1D FITTING -- ONE LINE", fitting_one_line)
     run("1D FITTING -- RESULT FIELDS", result_fields)
+    run("CONTINUUM SUBTRACTION API", continuum_subtraction_api)
     run("CUBE FITTING -- FULL CUBE (slow, ~1-2 min)", cube_fitting_the_cube)
     run("CUBE FITTING -- RETURNED KEYS", cube_returned_keys)
+    run("CUBE FITTING -- EXPORT RESIDUAL CUBE", cube_export_residual_cube)
     run("FLUX -- MULTI-GAUSSIAN FIT API", flux_multi_gaussian_api)
     run("FLUX -- SINGLE SPECTRUM API", flux_single_spectrum_api)
     run("FLUX -- FULL MAP API (slow, ~2-3 min)", flux_map_api)
     run("ROTATIONAL DIAGRAM API", rotational_diagram_docstring)
+    run("ROTATIONAL DIAGRAM MAP -- SINGLE CUBE", rotational_diagram_map_single_cube)
+    run("ROTATIONAL DIAGRAM MAP -- MULTIPLE CUBES", rotational_diagram_map_multi_cube)
 
     print("\n" + "=" * 70)
     print(" SUMMARY")

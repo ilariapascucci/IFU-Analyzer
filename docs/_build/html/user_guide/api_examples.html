@@ -59,7 +59,7 @@
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_1d.html">1D Spectrum Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flux_extraction.html">Flux Extraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
 <li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
@@ -182,20 +182,23 @@
 </section>
 <section id="fit-spectral-lines">
 <h3>Fit Spectral Lines<a class="headerlink" href="#fit-spectral-lines" title="Link to this heading"></a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.gaussian_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_hitran_lines</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_hitran_lines</span>
 
-<span class="c1"># Fit all HITRAN lines to the spectrum</span>
+<span class="c1"># Fetches the same HITRAN lines internally and fits them all to the</span>
+<span class="c1"># spectrum in one call -- the hitran_lines list from the step above is</span>
+<span class="c1"># for inspection only and isn&#39;t needed here</span>
 <span class="n">fit_results</span> <span class="o">=</span> <span class="n">fit_hitran_lines</span><span class="p">(</span>
-    <span class="n">spectrum_x</span><span class="o">=</span><span class="n">wavelength</span><span class="p">,</span>
-    <span class="n">spectrum_y</span><span class="o">=</span><span class="n">spectrum</span><span class="p">,</span>
-    <span class="n">hitran_lines</span><span class="o">=</span><span class="n">hitran_lines</span><span class="p">,</span>
-    <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span>
+    <span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;CO&#39;</span><span class="p">,</span>
+    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.7</span><span class="p">,</span>
+    <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.8</span><span class="p">,</span>
+    <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>              <span class="c1"># Upper vibrational level</span>
+    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>              <span class="c1"># Lower vibrational level</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>     <span class="c1"># Required whenever a line is found -- line width</span>
+                             <span class="c1"># comes from the real instrument resolution</span>
+    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
 <span class="p">)</span>
-
-<span class="c1"># Important: Use the HITRAN wavelengths directly (not the fitted centers)</span>
-<span class="k">for</span> <span class="n">hitran_line</span><span class="p">,</span> <span class="n">fit_result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">hitran_lines</span><span class="p">,</span> <span class="n">fit_results</span><span class="p">):</span>
-    <span class="n">fit_result</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">hitran_line</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span>
 
 <span class="c1"># Check which lines were successfully detected</span>
 <span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">fit_results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
@@ -326,13 +329,6 @@ python<span class="w"> </span>example_basic_api.py
 <span class="p">)</span>
 </pre></div>
 </div>
-<p><strong>Issue: Only some lines detected</strong></p>
-<p>The fitting algorithm may not detect faint lines. To use HITRAN wavelengths directly:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># IMPORTANT: Override fit results with HITRAN wavelengths</span>
-<span class="k">for</span> <span class="n">hitran_line</span><span class="p">,</span> <span class="n">fit_result</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">hitran_lines</span><span class="p">,</span> <span class="n">fit_results</span><span class="p">):</span>
-    <span class="n">fit_result</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">hitran_line</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span>
-</pre></div>
-</div>
 </section>
 <section id="available-functions">
 <h2>Available Functions<a class="headerlink" href="#available-functions" title="Link to this heading"></a></h2>
@@ -346,9 +342,12 @@ python<span class="w"> </span>example_basic_api.py
 <ul class="simple">
 <li><p><cite>fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, v_upper=None, v_lower=None)</cite> - Get HITRAN lines with optional vibrational filtering</p></li>
 </ul>
+<p><strong>cube_explorer.api</strong></p>
+<ul class="simple">
+<li><p><cite>fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None, isotopologue=1, v_upper=None, v_lower=None, header=None, wave_unit=None)</cite> - Fetch HITRAN lines for a molecule and fit them all to the spectrum in one call</p></li>
+</ul>
 <p><strong>cube_explorer.gaussian_fitter</strong></p>
 <ul class="simple">
-<li><p><cite>fit_hitran_lines(spectrum_x, spectrum_y, hitran_lines, header=None, wave_unit=None)</cite> - Fit Gaussians to all lines</p></li>
 <li><p><cite>fit_gaussian_to_line(x1, x2, spectrum_x, spectrum_y, peak_x, noise_min=None, noise_max=None, header=None, wave_unit=None)</cite> - Fit single line between x1/x2, with an explicit peak wavelength</p></li>
 </ul>
 </section>

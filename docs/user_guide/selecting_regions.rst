@@ -19,7 +19,7 @@ Tool                     Best For
 **✏** Freehand           Precise manual outlines
 ======================== ==================================================================
 
-Four more buttons sit alongside them in each slice's toolbar:
+Five more buttons sit alongside them in each slice's toolbar:
 
 ======================== ==================================================================
 Button                   Purpose
@@ -28,6 +28,7 @@ Button                   Purpose
 **✖** Clear              Remove the region and start over
 **⎘** Copy               Copy the selection to the other slice
 **⎘🌈** Copy Color        Copy this slice's colormap to the other slice
+**💾** Export             Save the region (or a Point) as a NaN-masked cube
 ======================== ==================================================================
 
 How Region Selection Works
@@ -103,6 +104,14 @@ To adjust it afterwards, toggle **✎** and drag the handles:
 - **Drag corner**: resize in two dimensions
 - **Drag interior**: move the whole region
 
+.. figure:: ../_static/circle.png
+   :alt: A circular region placed on a diamond-shaped NIRSpec field of view
+   :width: 60%
+
+   Circle select. Any pixel the shape touches at all is included, not just pixels whose
+   center falls inside it -- edges look pixelated rather than smooth, but that pixelation
+   shows exactly what's being summed into the region's stats and spectrum.
+
 Freehand Select
 ---------------
 
@@ -146,6 +155,30 @@ it also populates that side's own tab in the Spectrum Panel below.
 
 For normalizing or Doppler-shifting these spectra once you have them, see
 :doc:`spectrum_display`.
+
+Exporting a Region as a Cube
+=============================
+
+Once a region -- or a single **Point** -- is placed, **💾** saves a copy of the loaded
+cube to a new FITS file with every spaxel outside it set to NaN. A Point selection works
+too: the exported cube keeps just that one spaxel, everything else NaN. Shape and WCS are
+unchanged either way, so the file reloads normally and a plain sum over it reproduces the
+region's (or single pixel's) own spectrum exactly.
+
+.. figure:: ../_static/region_cube.png
+   :alt: A cube reloaded from an exported region file, instrument label reading region-Level3_ch1-long_s3d.fits
+   :width: 100%
+
+   Reopening an exported region cube: the instrument label reads
+   ``region-Level3_ch1-long_s3d.fits`` -- everything outside the original region is NaN,
+   everything inside is untouched.
+
+This is useful for handing just one region's data to another tool (Flux Map, Rotational
+Diagram Map) without it seeing the rest of the cube, or for sharing one source's data
+without the surrounding field.
+
+**💾** stays disabled until something -- a region or a Point -- is placed, and disables
+again after clearing it with **✖**.
 
 Using the API
 =============

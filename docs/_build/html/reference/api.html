@@ -86,10 +86,10 @@
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.measure_equivalent_width"><code class="docutils literal notranslate"><span class="pre">measure_equivalent_width()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#co-flux-analysis">CO Flux Analysis</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#flux-analysis">Flux Analysis</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.fit_hitran_lines"><code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.extract_co_flux"><code class="docutils literal notranslate"><span class="pre">extract_co_flux()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.create_co_flux_map"><code class="docutils literal notranslate"><span class="pre">create_co_flux_map()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.extract_flux"><code class="docutils literal notranslate"><span class="pre">extract_flux()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.create_flux_map"><code class="docutils literal notranslate"><span class="pre">create_flux_map()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#rotational-diagram">Rotational Diagram</a><ul>
@@ -157,7 +157,7 @@ numbers.</p>
 with automatic instrument detection.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Path to FITS file</p>
+<dd class="field-odd"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Path to FITS file</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Object containing cube data, wavelength, WCS, and metadata</p>
@@ -166,7 +166,7 @@ with automatic instrument detection.</p>
 <dd class="field-odd"><p>CubeData</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If instrument cannot be detected or file is invalid</p>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If instrument cannot be detected or file is invalid</p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -184,17 +184,15 @@ with automatic instrument detection.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.extract_pixel_spectrum">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_pixel_spectrum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_pixel_spectrum"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_pixel_spectrum" title="Link to this definition"></a></dt>
-<dd><p>Extract the 1D spectrum at a single spatial pixel.</p>
-<p>This is the same lookup the GUI uses for point selections and pixel
-clicks – prefer it over indexing <code class="docutils literal notranslate"><span class="pre">cube.cube</span></code> directly, since it
-always applies the correct (wavelength, y, x) axis order regardless of
-how a given FITS file stores its axes.</p>
+<dd><p>Extract the 1D spectrum at a single spatial pixel. This is the same
+lookup the GUI uses; prefer it over indexing cube.cube directly, since
+it always applies the correct (wavelength, y, x) axis order.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube</strong> (<em>CubeData</em>) – Loaded cube, as returned by load_cube()</p></li>
-<li><p><strong>x</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – X pixel coordinate (0-based)</p></li>
-<li><p><strong>y</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Y pixel coordinate (0-based)</p></li>
+<li><p><strong>x</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – X pixel coordinate (0-based)</p></li>
+<li><p><strong>y</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Y pixel coordinate (0-based)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -214,12 +212,9 @@ how a given FITS file stores its axes.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.extract_region_spectrum">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_region_spectrum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_region_spectrum"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_region_spectrum" title="Link to this definition"></a></dt>
-<dd><p>Extract the mean spectrum over an arbitrary spatial region.</p>
-<p>This is the same averaging the GUI uses for Rectangle/Circle/Ellipse/
-Freehand region selections – any of those tools reduce to a 2D boolean
-mask internally. Prefer it over averaging a manual slice: it excludes
-NaN pixels from each wavelength’s mean instead of letting a single NaN
-pixel turn the whole region’s value at that wavelength into NaN.</p>
+<dd><p>Extract the mean spectrum over an arbitrary spatial region, the same
+averaging the GUI uses for region selections (each reduces to a 2D
+boolean mask). Excludes NaN pixels instead of propagating NaN.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -250,35 +245,33 @@ shape (cube.cube.shape[1:]); True marks pixels inside the region</p></li>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_line">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">peak_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_line"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_line" title="Link to this definition"></a></dt>
-<dd><p>Fit a Gaussian to an emission line in a spectrum.</p>
-<p>The underlying fitter needs a starting guess for the line center. In the
-GUI that comes from the wavelength you click on; here it defaults to the
-brightest sample between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>, or you can pass <code class="docutils literal notranslate"><span class="pre">peak_x</span></code>
-explicitly.</p>
+<dd><p>Fit a Gaussian to an emission line in a spectrum. The fitter needs a
+starting guess for the line center; here it defaults to the brightest
+sample between x1 and x2, or pass peak_x explicitly.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values. Astropy
 Quantities are accepted; their units are stripped.</p></li>
 <li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values.</p></li>
-<li><p><strong>x1</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Left boundary of the fitting region.</p></li>
-<li><p><strong>x2</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Right boundary of the fitting region.</p></li>
-<li><p><strong>line_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Descriptive label for the line. Not stored
+<li><p><strong>x1</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Left boundary of the fitting region.</p></li>
+<li><p><strong>x2</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Right boundary of the fitting region.</p></li>
+<li><p><strong>line_name</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Descriptive label for the line. Not stored
 on the result; it exists for readability at the call site.</p></li>
-<li><p><strong>peak_x</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Initial guess for the line center. Defaults
+<li><p><strong>peak_x</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Initial guess for the line center. Defaults
 to the brightest wavelength between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>.</p></li>
 <li><p><strong>header</strong> (<em>optional</em>) – FITS header used for unit conversion. Pass
 <code class="docutils literal notranslate"><span class="pre">cube.header</span></code> to match what the GUI produces.</p></li>
-<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Spectral axis unit, e.g. <code class="docutils literal notranslate"><span class="pre">cube.wave_unit</span></code>.</p></li>
+<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Spectral axis unit, e.g. <code class="docutils literal notranslate"><span class="pre">cube.wave_unit</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><p>Object with <code class="docutils literal notranslate"><span class="pre">amplitude</span></code>, <code class="docutils literal notranslate"><span class="pre">center</span></code>, <code class="docutils literal notranslate"><span class="pre">sigma</span></code>,
 <code class="docutils literal notranslate"><span class="pre">fwhm</span></code>, <code class="docutils literal notranslate"><span class="pre">area</span></code>, <code class="docutils literal notranslate"><span class="pre">area_unit</span></code>, <code class="docutils literal notranslate"><span class="pre">area_native</span></code>, <code class="docutils literal notranslate"><span class="pre">baseline_slope</span></code>,
 <code class="docutils literal notranslate"><span class="pre">baseline_intercept</span></code>, <code class="docutils literal notranslate"><span class="pre">r_squared</span></code>, <code class="docutils literal notranslate"><span class="pre">success</span></code> and <code class="docutils literal notranslate"><span class="pre">message</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">area</span></code> is in erg/s/cm² when <code class="docutils literal notranslate"><span class="pre">header</span></code> is supplied and the cube is in
-MJy/sr (MIRI, NIRSpec); otherwise it stays in flux×wavelength units.
-Check <code class="docutils literal notranslate"><span class="pre">area_unit</span></code> rather than assuming — it always states which.
+<p><code class="docutils literal notranslate"><span class="pre">area</span></code> is in erg/s/cm^2 when <code class="docutils literal notranslate"><span class="pre">header</span></code> is supplied and the cube is
+in MJy/sr (MIRI, NIRSpec); otherwise it stays in flux*wavelength units.
+Check <code class="docutils literal notranslate"><span class="pre">area_unit</span></code> rather than assuming; it always states which.
 <code class="docutils literal notranslate"><span class="pre">area_native</span></code> is the unconverted value, which is what you want when
 dividing by a continuum measured in the cube’s own units.</p>
 </p>
@@ -287,7 +280,7 @@ dividing by a continuum measured in the cube’s own units.</p>
 <dd class="field-odd"><p>GaussianFitResult</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If no wavelength samples lie between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>, or
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If no wavelength samples lie between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>, or
     if every flux value in that window is NaN.</p>
 </dd>
 </dl>
@@ -319,9 +312,9 @@ dialog. RANSAC outlier rejection is always enabled.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube_data</strong> (<em>CubeData</em>) – Loaded cube from load_cube()</p></li>
-<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window (default: full range)</p></li>
-<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window (default: full range)</p></li>
-<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker threads (default: auto-detect CPUs)</p></li>
+<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window (default: full range)</p></li>
+<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window (default: full range)</p></li>
+<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker threads (default: auto-detect CPUs)</p></li>
 <li><p><strong>**kwargs</strong> – Passed through to fit_gaussians_per_pixel (e.g. fac_above_stdres,
 noise_min, noise_max, lambda_0, progress_callback)</p></li>
 </ul>
@@ -334,7 +327,7 @@ noise_min, noise_max, lambda_0, progress_callback)</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -353,18 +346,24 @@ noise_min, noise_max, lambda_0, progress_callback)</p></li>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube_data</strong> (<em>CubeData</em>) – Loaded cube from load_cube()</p></li>
-<li><p><strong>out_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Output FITS filename (default “residual_cube.fits”)</p></li>
-<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window</p></li>
-<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window</p></li>
-<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker threads (default: auto-detect CPUs)</p></li>
-<li><p><strong>return_cube</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – If True, also return the residual array in memory</p></li>
+<li><p><strong>out_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Output FITS filename (default “residual_cube.fits”)</p></li>
+<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window</p></li>
+<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window</p></li>
+<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker threads (default: auto-detect CPUs)</p></li>
+<li><p><strong>return_cube</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – If True, return the residual array instead of writing
+to out_path – the two are exclusive, not additive: out_path is
+ignored when return_cube is True.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Path to the written FITS file</p>
+<dd class="field-even"><p><dl class="simple">
+<dt>The residual cube if return_cube is True; otherwise None</dt><dd><p>(the FITS file is written to out_path as a side effect instead).</p>
+</dd>
+</dl>
+</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a>, or (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a>, array) if return_cube=True</p>
+<dd class="field-odd"><p>array or None</p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -380,16 +379,15 @@ noise_min, noise_max, lambda_0, progress_callback)</p></li>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_continuum">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_continuum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flux</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_continuum"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_continuum" title="Link to this definition"></a></dt>
-<dd><p>Fit continuum to a spectrum using automatic peak detection.</p>
-<p>This is the automated continuum subtraction method used in the GUI.
-It detects emission/absorption peaks and fits a smooth continuum
-through the remaining points.</p>
+<dd><p>Fit continuum to a spectrum using automatic peak detection: the same
+method the GUI uses, detecting emission/absorption peaks and fitting a
+smooth continuum through the remaining points.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
 <li><p><strong>flux</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>method</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Fitting method - currently only ‘auto’ is supported</p></li>
+<li><p><strong>method</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Fitting method - currently only ‘auto’ is supported</p></li>
 <li><p><strong>**kwargs</strong> – Additional arguments for fine-tuning:
 window_size (int): Size of median filter window (default 51, must be odd)
 sigma_threshold (float): Prominence threshold in sigma (default 2.0)
@@ -419,20 +417,16 @@ smoothing_factor (float): Spline smoothing parameter (default 5)</p></li>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.measure_equivalent_width">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">measure_equivalent_width</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fit_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_spectrum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#measure_equivalent_width"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.measure_equivalent_width" title="Link to this definition"></a></dt>
-<dd><p>Calculate equivalent width from a Gaussian fit result.</p>
-<p>Equivalent width is the width of an imaginary rectangular line with the
-same total area as the observed line.</p>
-<p>The underlying calculation needs a single continuum level. If you pass a
-full continuum array, it is averaged over the wavelengths that were
-actually fitted, so the level reflects the line’s own neighbourhood
-rather than the whole spectrum.</p>
+<dd><p>Calculate equivalent width (the width of an imaginary rectangular
+line with the same area) from a Gaussian fit result. A full continuum
+array is averaged over the wavelengths actually fitted.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>fit_result</strong> (<em>GaussianFitResult</em>) – Result from <a class="reference internal" href="#cube_explorer.api.fit_line" title="cube_explorer.api.fit_line"><code class="xref py py-func docutils literal notranslate"><span class="pre">fit_line()</span></code></a>.</p></li>
 <li><p><strong>wavelength</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Wavelength array matching
 <code class="docutils literal notranslate"><span class="pre">continuum_spectrum</span></code>. Required when passing a continuum array.</p></li>
-<li><p><strong>continuum_spectrum</strong> (<em>array-like</em><em> or </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Continuum-only
+<li><p><strong>continuum_spectrum</strong> (<em>array-like</em><em> or </em><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Continuum-only
 spectrum, or a single continuum level. If omitted, the fit’s own
 baseline is used.</p></li>
 </ul>
@@ -442,10 +436,10 @@ baseline is used.</p></li>
 0.0 if the fit failed or the continuum level is non-positive.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)">float</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)">float</a></p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If a continuum array is given without a wavelength array.</p>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If a continuum array is given without a wavelength array.</p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -457,32 +451,26 @@ baseline is used.</p></li>
 </dd></dl>
 
 </section>
-<section id="co-flux-analysis">
-<h2>CO Flux Analysis<a class="headerlink" href="#co-flux-analysis" title="Link to this heading"></a></h2>
+<section id="flux-analysis">
+<h2>Flux Analysis<a class="headerlink" href="#flux-analysis" title="Link to this heading"></a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_hitran_lines">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_hitran_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_upper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_lower</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contam_catalog</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_hitran_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_hitran_lines" title="Link to this definition"></a></dt>
-<dd><p>Fit HITRAN spectral lines automatically using database lookup.</p>
-<p>This is the same algorithm as the GUI’s <strong>Multi-Gaussian Fit</strong> button, not a
-separate approximation of it: every requested line, plus any contaminant sharing
-its wavelength chunk, is fit simultaneously in one nonlinear <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> per
-chunk (<code class="docutils literal notranslate"><span class="pre">fit_glines</span></code>, via <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines_collective</span></code>) – not an independent
-per-line fit, so overlapping lines don’t double-claim shared flux. Each line’s
-starting width comes from the instrument’s real spectral resolution, but its
-center and sigma are free parameters within a bound around that (catalog
-wavelength +/- the instrumental sigma), not fixed.</p>
+<dd><p>Fit HITRAN spectral lines automatically using database lookup. Same
+algorithm as the GUI’s Multi-Gaussian Fit: every requested line and any
+contaminant sharing its chunk fit simultaneously, so they don’t double-claim flux.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
 <li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Molecule name (e.g., ‘CO’, ‘H2O’, ‘CH4’, ‘[Fe II]’)</p></li>
-<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength to search. If None, uses spectrum min.</p></li>
-<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength to search. If None, uses spectrum max.</p></li>
-<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Isotopologue number (default 1 for main isotope)</p></li>
-<li><p><strong>refresh_cache</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Force refresh HITRAN cache (default False)</p></li>
-<li><p><strong>v_upper</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by upper vibrational level (e.g., 1 for v=1)</p></li>
-<li><p><strong>v_lower</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by lower vibrational level (e.g., 0 for v=0)</p></li>
+<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Molecule name (e.g., ‘CO’, ‘H2O’, ‘CH4’, ‘[Fe II]’)</p></li>
+<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength to search. If None, uses spectrum min.</p></li>
+<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength to search. If None, uses spectrum max.</p></li>
+<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Isotopologue number (default 1 for main isotope)</p></li>
+<li><p><strong>refresh_cache</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Force refresh HITRAN cache (default False)</p></li>
+<li><p><strong>v_upper</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by upper vibrational level (e.g., 1 for v=1)</p></li>
+<li><p><strong>v_lower</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by lower vibrational level (e.g., 0 for v=0)</p></li>
 <li><p><strong>header</strong> – FITS header. Required whenever any line is actually found – each
 line’s fit width comes from the instrument’s real spectral resolution at
 that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
@@ -493,10 +481,10 @@ Also used for the erg/s/cm2 conversion.</p></li>
 wavelength, subtracted before fitting each line. If None, one is fitted
 automatically via <code class="docutils literal notranslate"><span class="pre">fit_continuum()</span></code> – the same fallback the GUI uses
 when you have not run Automatic Continuum interactively first.</p></li>
-<li><p><strong>contam_catalog</strong> (<em>pd.DataFrame</em><em>, </em><em>optional</em>) – Non-CO/target lines (a ‘line_wave_um’
+<li><p><strong>contam_catalog</strong> (<em>pd.DataFrame</em><em>, </em><em>optional</em>) – Non-target lines (a ‘line_wave_um’
 column, same format as <code class="docutils literal notranslate"><span class="pre">load_contaminating_lines_catalog()</span></code>) to give their
 own component in the fit so they don’t distort a nearby requested line’s
-amplitude – the same optional catalog <code class="docutils literal notranslate"><span class="pre">extract_co_flux</span></code>/CO Flux Map
+amplitude – the same optional catalog <code class="docutils literal notranslate"><span class="pre">extract_flux</span></code>/Flux Map
 already supports. None (default) skips this.</p></li>
 </ul>
 </dd>
@@ -511,7 +499,7 @@ already supports. None (default) skips this.</p></li>
 <li><p>fwhm: Full width at half maximum</p></li>
 <li><p>area: Integrated line flux, in the units given by <code class="docutils literal notranslate"><span class="pre">area_unit</span></code></p></li>
 <li><p>area_native: Integrated line flux before any CGS conversion</p></li>
-<li><p>area_unit: Units of <code class="docutils literal notranslate"><span class="pre">area</span></code> – <code class="docutils literal notranslate"><span class="pre">'erg/s/cm²'</span></code> only when header/wave_unit
+<li><p>area_unit: Units of <code class="docutils literal notranslate"><span class="pre">area</span></code> – <code class="docutils literal notranslate"><span class="pre">'erg/s/cm^2'</span></code> only when header/wave_unit
 let it convert; always check this rather than assuming</p></li>
 <li><p>r_squared: Fit quality</p></li>
 <li><p>success: Whether fit succeeded</p></li>
@@ -522,7 +510,7 @@ let it convert; always check this rather than assuming</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)">list</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.14)">list</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -545,23 +533,20 @@ let it convert; always check this rather than assuming</p></li>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="cube_explorer.api.extract_co_flux">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_co_flux</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">co_catalog_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contamination_catalog_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">snr_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_co_flux"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_co_flux" title="Link to this definition"></a></dt>
-<dd><p>Extract total CO flux by fitting all CO lines in a spectrum.</p>
-<p>Fits multiple CO rovibrational lines simultaneously with contaminating
-lines and continuum, then integrates total flux. This is the same algorithm
-as the GUI’s CO Flux Map button, run on a single spectrum instead of every pixel.
-Always fits and subtracts a continuum before fitting lines, using the same
-method as the GUI’s Automatic Continuum.</p>
+<dt class="sig sig-object py" id="cube_explorer.api.extract_flux">
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_flux</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_catalog_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contamination_catalog_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">snr_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_flux"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_flux" title="Link to this definition"></a></dt>
+<dd><p>Extract total flux by fitting all target lines in a spectrum
+simultaneously with contaminating lines and continuum; the same
+algorithm as the GUI’s Flux Map button, run on a single spectrum.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength values in same units as catalog</p></li>
 <li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>co_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Path to CO line catalog (ECSV format)</p></li>
-<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines catalog</p></li>
-<li><p><strong>snr_threshold</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Minimum signal-to-noise for line detection (default 3.0)</p></li>
-<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
+<li><p><strong>target_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Path to target line catalog (ECSV format)</p></li>
+<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines catalog</p></li>
+<li><p><strong>snr_threshold</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Minimum signal-to-noise for line detection (default 3.0)</p></li>
+<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
 parameters (window_size, sigma_threshold, peak_width, peak_distance,
 peak_exclusion, iterations, smoothing_factor). If None, uses the defaults,
 which work well for typical spectra.</p></li>
@@ -569,19 +554,19 @@ which work well for typical spectra.</p></li>
 line’s fit width comes from the instrument’s real spectral resolution at
 that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
 raises ValueError as soon as a line is found rather than silently fitting
-with the wrong width. Also used to convert ‘co_flux’/’contam_flux’ to
+with the wrong width. Also used to convert ‘flux’/’contam_flux’ to
 erg/s/cm2 – ‘flux_unit’ in the result always tells you which you got.</p></li>
-<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Wavelength unit (e.g. ‘um’). Used alongside
+<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Wavelength unit (e.g. ‘um’). Used alongside
 header for the CGS conversion.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><dl class="simple">
 <dt>Results containing:</dt><dd><ul class="simple">
-<li><p>’co_flux’: Total CO flux, in erg/s/cm2 if header/wave_unit were given
+<li><p>’flux’: Total flux, in erg/s/cm2 if header/wave_unit were given
 and the conversion is supported for this instrument, else native units</p></li>
 <li><p>’contam_flux’: Total flux attributed to contaminating lines, same units</p></li>
-<li><p>’flux_unit’: unit of ‘co_flux’/’contam_flux’</p></li>
+<li><p>’flux_unit’: unit of ‘flux’/’contam_flux’</p></li>
 <li><p>’mean_continuum’: Mean continuum level used for the fit (native units)</p></li>
 <li><p>’detected_lines’: DataFrame of individual detected line fits</p></li>
 <li><p>’residuals’: DataFrame of fit residuals</p></li>
@@ -592,46 +577,42 @@ and the conversion is supported for this instrument, else native units</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="n">extract_co_flux</span><span class="p">(</span>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">result</span> <span class="o">=</span> <span class="n">extract_flux</span><span class="p">(</span>
 <span class="gp">... </span>    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
 <span class="gp">... </span>    <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">co_catalog_path</span><span class="o">=</span><span class="s2">&quot;CO/CO_comprehensive_linelist_with_g.ecsv&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">target_catalog_path</span><span class="o">=</span><span class="s2">&quot;CO/CO_comprehensive_linelist_with_g.ecsv&quot;</span><span class="p">,</span>
 <span class="gp">... </span>    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>
 <span class="gp">... </span>    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
 <span class="gp">... </span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total CO flux: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;co_flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total flux: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Detected </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;detected_lines&#39;</span><span class="p">])</span><span class="si">}</span><span class="s2"> lines&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
 
 <dl class="py function">
-<dt class="sig sig-object py" id="cube_explorer.api.create_co_flux_map">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">create_co_flux_map</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">co_catalog_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contamination_catalog_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_jobs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#create_co_flux_map"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.create_co_flux_map" title="Link to this definition"></a></dt>
-<dd><p>Create a 2D map of CO flux across the entire data cube.</p>
-<p>Fits CO lines in every pixel and generates output FITS maps. Can use either:
-- Automatic HITRAN fetching (default, like fit_hitran_lines)
-- Custom CO catalog file (if co_catalog_path provided)</p>
-<p>This is the same algorithm as the GUI’s CO Flux Map button: continuum subtraction
-(default parameters, or your own via continuum_params) followed by a simultaneous
-multi-Gaussian fit per pixel.</p>
+<dt class="sig sig-object py" id="cube_explorer.api.create_flux_map">
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">create_flux_map</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_catalog_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contamination_catalog_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_jobs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#create_flux_map"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.create_flux_map" title="Link to this definition"></a></dt>
+<dd><p>Create a 2D map of target-line flux across the entire data cube:
+HITRAN CO by default, or a custom target_catalog_path. Same algorithm
+as the GUI’s Flux Map button (continuum subtraction, then per-pixel fit).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube_data</strong> (<em>CubeData</em>) – Loaded cube from load_cube()</p></li>
-<li><p><strong>co_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to CO line catalog (ECSV format).
-If None, automatically fetches from HITRAN.</p></li>
-<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines</p></li>
-<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Number of parallel jobs (default 8)</p></li>
-<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Min wavelength to fit, and for the HITRAN
-search when co_catalog_path is None (auto-detect if None)</p></li>
-<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Max wavelength to fit, and for the HITRAN
-search when co_catalog_path is None (auto-detect if None)</p></li>
-<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
+<li><p><strong>target_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to target line catalog (ECSV format).
+If None, automatically fetches CO from HITRAN.</p></li>
+<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines</p></li>
+<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Number of parallel jobs (default 8)</p></li>
+<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Min wavelength to fit, and for the HITRAN
+search when target_catalog_path is None (auto-detect if None)</p></li>
+<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Max wavelength to fit, and for the HITRAN
+search when target_catalog_path is None (auto-detect if None)</p></li>
+<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
 parameters, applied identically to every pixel. If None, uses the defaults,
 which work well for typical spectra.</p></li>
 </ul>
@@ -639,11 +620,11 @@ which work well for typical spectra.</p></li>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><dl class="simple">
 <dt>Map data containing:</dt><dd><ul class="simple">
-<li><p>’flux_map’: 2D array of CO flux per pixel, in erg/s/cm2 if cube_data.header
+<li><p>’flux_map’: 2D array of flux per pixel, in erg/s/cm2 if cube_data.header
 supports the conversion (see ‘flux_unit’), else the cube’s native flux unit</p></li>
 <li><p>’contam_flux_map’: 2D array of contaminating-line flux per pixel, same units
 as ‘flux_map’</p></li>
-<li><p>’detection_map’: 2D array with number of detected CO lines per pixel</p></li>
+<li><p>’detection_map’: 2D array with number of detected target lines per pixel</p></li>
 <li><p>’contam_detection_map’: 2D array with number of detected contaminating lines
 per pixel</p></li>
 <li><p>’wavelength’: 1D wavelength array used for fitting</p></li>
@@ -656,13 +637,13 @@ per pixel</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">co_map</span> <span class="o">=</span> <span class="n">create_co_flux_map</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Map shape: </span><span class="si">{</span><span class="n">co_map</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, unit: </span><span class="si">{</span><span class="n">co_map</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">flux_map_result</span> <span class="o">=</span> <span class="n">create_flux_map</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Map shape: </span><span class="si">{</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, unit: </span><span class="si">{</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -672,50 +653,43 @@ per pixel</p></li>
 <h2>Rotational Diagram<a class="headerlink" href="#rotational-diagram" title="Link to this heading"></a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.rotational_diagram">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">rotational_diagram</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fluxes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flux_errors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecular_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">OPR</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit_opr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opr_grid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit1T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit2T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4.3204e+20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upper_limits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">progress_callback</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/rotational_diagram_fitter.html#rotational_diagram"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.rotational_diagram" title="Link to this definition"></a></dt>
-<dd><p>Perform rotational diagram analysis on H2 lines.</p>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">rotational_diagram</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fluxes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flux_errors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecular_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">OPR</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit_opr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opr_grid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit1T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit2T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4.3204e+20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upper_limits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">progress_callback</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H2'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#rotational_diagram"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.rotational_diagram" title="Link to this definition"></a></dt>
+<dd><p>Fit a rotational diagram (1T and/or 2T) to a set of line fluxes. Dispatches to the
+H2-specific fitter (hardcoded partition function, OPR support) or the general
+HITRAN-based fitter (any molecule, e.g. CO) depending on <cite>molecule</cite>.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>fluxes</strong> – Dictionary {J: flux_value} where J is the upper rotational level</p></li>
-<li><p><strong>flux_errors</strong> – Dictionary {J: flux_error}</p></li>
-<li><p><strong>molecular_data</strong> – Dictionary with ‘wavelengths’, ‘Aul’, ‘Eu’, ‘gu’ keys
-Each value is a dict {J: value}</p></li>
-<li><p><strong>progress_callback</strong> – GUI caller (e.g. a QThread worker) can drive a real
-progress bar instead of only having console prints.</p></li>
-<li><p><strong>OPR</strong> – Fixed ortho-para ratio. Used as-is when fit_opr=False (None defaults to
-3.0, see apply_OPR). Ignored (overwritten by the search result) when
-fit_opr=True.</p></li>
-<li><p><strong>fit_opr</strong> – Whether to grid-search over OPR to minimize chi-squared. The search
-always uses plain curve_fit on detections only (upper-limit points are
-excluded from the search itself, since curve_fit has no notion of a
-one-sided constraint) - the final fit below still uses the full data,
-including upper limits via the censored PyMC path when present.</p></li>
-<li><p><strong>opr_grid</strong> – OPR values to search over. Defaults to np.linspace(0.1, 5.0, 200).</p></li>
-<li><p><strong>fit1T</strong> – Whether to report a 1-temperature fit. The 1T fit is always computed the
-same way regardless of this flag (2T’s own fit needs it as its (a1, T1)
-seed either way – see censored_2T/_fit_2T_curvefit); fit1T only controls
-whether it’s added to the returned results for reporting. At least one of
-fit1T/fit2T must be True.</p></li>
-<li><p><strong>fit2T</strong> – Whether to perform 2-temperature fit</p></li>
-<li><p><strong>R</strong> – Emitting radius (AU or cm).</p></li>
-<li><p><strong>dist</strong> – Distance (pc or cm).</p></li>
-<li><p><strong>upper_limits</strong> – Optional dict {J: True} for measurements marked as upper limits.
-If present, PyMC censored regression is automatically used for
-the final 1T/2T fit.</p></li>
+<li><p><strong>fluxes</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – {J: flux_value}, J is the upper rotational level</p></li>
+<li><p><strong>flux_errors</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – {J: flux_error}</p></li>
+<li><p><strong>molecular_data</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – ‘wavelengths’, ‘Aul’, ‘Eu’, ‘gu’ keys, each {J: value}</p></li>
+<li><p><strong>OPR</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Fixed ortho-para ratio (H2 only; ignored otherwise)</p></li>
+<li><p><strong>fit_opr</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Grid-search OPR to minimize chi-squared (H2 only; ignored otherwise)</p></li>
+<li><p><strong>opr_grid</strong> (<em>array</em>) – OPR values to search (H2 only). Defaults to np.linspace(0.1, 5.0, 200)</p></li>
+<li><p><strong>fit1T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Report the 1T fit (always computed regardless, as 2T’s own seed)</p></li>
+<li><p><strong>fit2T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Perform the 2T fit</p></li>
+<li><p><strong>R</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Emitting radius (AU or cm)</p></li>
+<li><p><strong>dist</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Distance (pc or cm)</p></li>
+<li><p><strong>upper_limits</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – {J: True} for measurements marked as upper limits</p></li>
+<li><p><strong>progress_callback</strong> (<em>callable</em>) – (phase, current, total) -&gt; None, for a GUI progress bar</p></li>
+<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Species being fit, per get_available_molecules()</p></li>
+<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – HITRAN isotopologue number for <cite>molecule</cite> (ignored for H2)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Dictionary with fitting results</p>
+<dd class="field-even"><p><dl class="simple">
+<dt>Fit results. “OPR”/”OPR_err”/”OPR_err_pos”/”OPR_err_neg” keys</dt><dd><p>are present only when molecule == ‘H2’</p>
 </dd>
 </dl>
-<p class="rubric">Notes</p>
-<ul class="simple">
-<li><p>If no upper limits: uses fast curve_fit (scipy) for the final fit</p></li>
-<li><p>If upper limits present: automatically uses PyMC censored likelihood for the
-final fit, but only for whichever of 1T/2T is actually being reported</p></li>
-<li><p>fit_opr’s grid search always uses curve_fit on detections only, regardless of upper_limits</p></li>
-</ul>
+</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>results (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a>)</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – if neither fit1T nor fit2T is True</p>
+</dd>
+</dl>
 </dd></dl>
 
 </section>

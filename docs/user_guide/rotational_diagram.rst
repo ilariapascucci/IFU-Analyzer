@@ -36,6 +36,13 @@ into the table below.
 
 **Step 2: Select Lines and Enter Flux Data**
 
+.. figure:: ../_static/rotdiag_overview.png
+   :alt: The Rotational Diagram Analyzer window, showing the line table and the Run Fit / Run Map buttons side by side
+   :width: 100%
+
+   The line table -- ☑, HITRAN columns, flux/error columns, and the Calculate-Fluxes-only
+   columns described below -- with **Run Fit** and **Run Map** at the bottom right.
+
 The table shows every fetched/imported line, in three groups of columns:
 
 - **☑**, **λ (μm)**, **Transition**, **A_ul (s⁻¹)**, **E_u (K)**, **g_u** — from HITRAN, not
@@ -45,7 +52,7 @@ The table shows every fetched/imported line, in three groups of columns:
   auto-calculate from each other as you type (toggle which one drives the calculation with
   the **Error input** dropdown above the table). Check **Upper Limit?** instead of entering
   an error for a non-detection.
-- **UL Flux (3σ)**, **Calculated?**, **Source**, **Fit R²**, **Fit**, **H2O Nearby** — only
+- **UL Flux (3σ)**, **Calculated?**, **Source**, **Fit R²**, **Fit** — only
   filled in by **Calculate Fluxes**:
 
   - **UL Flux (3σ)**: the 3σ upper-limit flux for this line, computed the same way whether
@@ -65,8 +72,13 @@ The table shows every fetched/imported line, in three groups of columns:
     threshold used elsewhere in the app)
   - **Fit**: click to open a plot of this line's own fit (spectrum, baseline, fitted curve,
     flux, amplitude, R², FWHM), the same style as **Multi-Gaussian Fit**'s display
-  - **H2O Nearby**: informational only, warns if real HITRAN H2O lines fall close to this
-    line, never affects the fit itself
+
+.. figure:: ../_static/chunk_wide_rotdiag.png
+   :alt: Individual line fit plot opened from the Fit column, showing spectrum, baseline, and Gaussian fit
+   :width: 90%
+
+   Clicking **Fit** for one row opens this plot -- spectrum, fitted baseline, and the
+   Gaussian fit shaded to show the integrated area.
 
 .. important::
 
@@ -76,8 +88,11 @@ The table shows every fetched/imported line, in three groups of columns:
    just the checkbox.
 
    If *any* line is marked as an upper limit, the fit automatically switches from
-   ``curve_fit`` to a Bayesian censored regression (PyMC) that treats upper limits as
-   one-sided constraints rather than dropping them.
+   ``curve_fit`` to a Bayesian censored regression that treats upper limits as one-sided
+   constraints rather than dropping them. The model itself is built in PyMC, but sampled
+   with `nutpie <https://github.com/pymc-devs/nutpie>`_, a faster compiled NUTS sampler --
+   the results text still labels diagnostics ``[PyMC: ...]`` since PyMC is what defines the
+   model either way.
 
 **How Calculate Fluxes measures a line**
 
@@ -129,6 +144,10 @@ When any line is an upper limit, the censored (PyMC) fit also reports its own co
 diagnostics: ``divergence(s)`` (ideally 0) and ``max r_hat`` (should be at most 1.01), so a
 fit that struggled to sample doesn't look identical to one that converged cleanly.
 
+**Run Map**, next to **Run Fit**, repeats this exact fit at every pixel of the loaded cube
+instead of once on the whole-cube summed spectrum -- see *Creating a Rotational Diagram Map*
+below.
+
 Worked Examples
 ================
 
@@ -163,17 +182,119 @@ imported from ``data/H2_lines.csv``.
    :alt: 1T rotational diagram fit with two upper limits, shown as red downward arrows
    :width: 100%
 
-   1T fit with two of the seven lines marked as upper limits (red arrows): T = 410.3 ± 8.6 K.
-   The results text reports ``[PyMC: 0 divergence(s), max r_hat = 1.000]`` since marking any
-   line as an upper limit switches this to the censored PyMC fit automatically.
+   1T fit on ``data/H2_lines_noflux.csv`` (flux and flux error left blank for every line;
+   each is instead measured via **Calculate Fluxes**): 6 lines measured, 4 clearing the 3σ
+   threshold as detections and 2 falling below it, auto-marked as upper limits (red arrows).
+   T = 394.6 ± 8.4 K. The results text reports ``[PyMC: 0 divergence(s), max r_hat = 1.010]``
+   since marking any line as an upper limit switches this to the censored PyMC fit
+   automatically.
 
 .. figure:: ../_static/2TULFit.png
    :alt: 2T rotational diagram fit with upper limits, shown as red downward arrows
    :width: 100%
 
-   2T fit on the same upper-limit dataset: Warm (T = 350.7 ± 11.2 K) and Hot
-   (T = 2333.7 ± 470.1 K) components, again via the censored PyMC fit
+   2T fit on the same dataset: Warm (T = 340.4 ± 17.3 K) and Hot
+   (T = 1009.7 ± 153.8 K) components, again via the censored PyMC fit
    (``max r_hat = 1.010``).
+
+Creating a Rotational Diagram Map
+===================================
+
+**Run Map** repeats the same fit at every spaxel instead of once on the whole-cube summed
+spectrum. It uses the same line selection (☑), flux/error values or **Calculate Fluxes**
+measurements, and physical parameters (R, distance, 1T/2T, Fit OPR) as **Run Fit** -- the
+only difference is that the fit runs independently at every pixel.
+
+.. figure:: ../_static/rotdiag_overview.png
+   :alt: The Rotational Diagram Analyzer window, showing the line table and the Run Fit / Run Map buttons side by side
+   :width: 100%
+
+   **Run Fit** and **Run Map** sit side by side at the bottom right, sharing the same line
+   table, flux data, and physical parameters above them.
+
+**Per-pixel detection gating**
+
+At each pixel, only lines whose flux clears the 3σ threshold *at that specific pixel* count
+as detections; a pixel needs at least the configured minimum number of detected lines (3 by
+default) before a fit is attempted there. Every pixel ends up in exactly one status:
+
+- **Fitted** -- enough lines detected, and the fit converged
+- **No data** -- no valid spectrum at this pixel (e.g. outside the cube's footprint)
+- **Too few lines** -- some lines detected, but fewer than the minimum required
+- **Fit failed** -- enough lines were detected, but the fit itself didn't converge
+
+Worked example, the H2 S(1)-S(7) line set (``data/H2_lines_rotdiagmap.csv``) fit at every
+pixel of a 55×53 NIRSpec cube (2,915 spaxels total). The whole-cube summed-spectrum fit
+(the same number **Run Fit** would give) is T = 1721.8 ± 70.1 K, Ncol = 3.57e+18 ± 6.99e+17
+cm⁻² -- one number averaging over everything the per-pixel map below resolves spatially:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Pixel status
+     - Count
+   * - Fitted (of which pinned at the 3000 K ceiling: 104)
+     - 630 (21.6%)
+   * - Not fitted -- no data
+     - 1,479
+   * - Not fitted -- too few lines (< 3 detections)
+     - 806
+   * - Not fitted -- fit failed
+     - 0
+
+.. figure:: ../_static/rotdiagmap_temp.png
+   :alt: Per-pixel temperature map, most pixels between 1000-2500 K
+   :width: 100%
+
+   Temperature map. Median 1892.4 K across fitted pixels (std 587.1 K, range
+   629.8-3000 K) -- values that would exceed 3000 K are pinned at that ceiling rather
+   than left unbounded.
+
+.. figure:: ../_static/rotdiagmap_colden_log.png
+   :alt: Per-pixel column density map, log scale
+   :width: 100%
+
+   Column density (N\ :sub:`u`) map, log scale. Median 2.054e+15 cm⁻² (range
+   8.196e+13-3.803e+17 cm⁻²).
+
+.. figure:: ../_static/rotdiagmap_temperr_log.png
+   :alt: Per-pixel temperature uncertainty map
+   :width: 100%
+
+   Temperature uncertainty (dT), log scale.
+
+.. figure:: ../_static/rotdiagmap_coldenerr_log.png
+   :alt: Per-pixel column density uncertainty map
+   :width: 100%
+
+   Column density uncertainty (dN\ :sub:`u`), log scale.
+
+.. figure:: ../_static/rotdiagmap_lines.png
+   :alt: Per-pixel count of lines used in the fit
+   :width: 100%
+
+   Lines used per fitted pixel. Median 5.0 (range 3-6) -- the diamond-shaped footprint
+   reflects this NIRSpec cube's rotated field of view, not a bug in the fit.
+
+.. figure:: ../_static/rotdiagmap_success.png
+   :alt: Fit mask, white where a pixel was fitted, black where it wasn't
+   :width: 100%
+
+   Fit mask: white = fitted, black = not fitted (no data or too few lines).
+
+**Inspecting a single pixel**
+
+Clicking a pixel on any of the maps above re-fits just that pixel from the per-line flux
+maps already built during **Run Map** -- cheap, since it reuses that cached data instead of
+redoing any line fitting -- and opens the same style of results plot **Run Fit** shows for
+the whole cube.
+
+.. figure:: ../_static/rotdiagmap_pixel.png
+   :alt: Rotational diagram fit for a single pixel, 6 detected lines
+   :width: 100%
+
+   Pixel (21, 21): T = 1571.5 ± 53.5 K, Ncol = 1.10e+17 ± 1.99e+16 cm⁻², 6 lines used --
+   an individual pixel's fit, same style as the whole-cube **Run Fit** plot above.
 
 Using the API
 ==============
@@ -217,6 +338,74 @@ This reproduces the first worked example above exactly (273.4 K / 863.4 K).
    A 2T fit has 4 free parameters, so you need meaningfully more than 4 lines for the fit
    (and its uncertainties) to mean anything. Passing ``fit2T=True`` with too few points
    doesn't raise an error; it just returns a bad fit.
+
+**Run Map, from a script**
+
+``fit_region``, ``fit_pixel``, and ``create_rotational_diagram_map`` are the same functions
+the GUI's **Run Fit** / **Run Map** buttons call, for one cube:
+
+.. code-block:: python
+
+    from cube_explorer.api import (
+        load_cube, fetch_hitran_data, fit_region, fit_pixel,
+        create_rotational_diagram_map, save_rotational_diagram_map_fits, STATUS_OK,
+    )
+
+    cube = load_cube("data.fits")
+    line_table, _ = fetch_hitran_data(2.87, 5.27, "H2", isotopologue=1, v_upper=1, v_lower=0)
+
+    # Same fit as Run Fit -- sums the whole cube (pass mask=... to sum only some pixels)
+    region = fit_region(cube, line_table, min_lines=3)
+    if region["status"] == STATUS_OK:
+        print(f"Whole-cube T: {region['results']['1T']['T']:.1f} K")
+
+    # One pixel's own fit
+    pixel = fit_pixel(cube, 20, 25, line_table, min_lines=3)
+
+    # Same fit as Run Map -- every pixel, run in parallel
+    result = create_rotational_diagram_map(cube, line_table, min_lines=3, n_jobs=8)
+    save_rotational_diagram_map_fits(result, "rot_diag_map.fits")
+
+On a real NIRSpec cube (37 H2 v=1→0 lines, 55×53 pixels), this fits 877/2915 pixels;
+``fit_region`` sums all 2915 into T = 3000.0 ± 49.7 K (pinned at the ceiling -- this
+particular v=1→0 hot-band set doesn't constrain a clean rotational diagram the way the
+S(1)–S(7) pure-rotational set does above); ``fit_pixel`` at (20, 25) finds 8 lines
+individually, one more than the whole-cube sum found.
+
+**Run Map, multiple cubes at different pixel scales**
+
+``fit_region_multi``, ``create_rotational_diagram_map_multi``, and ``fit_pixel_multi`` are
+the multi-source equivalents, one line per cube, for cubes of different pixel scale or
+shape (see *Creating a Rotational Diagram Map* above for what happens internally):
+
+.. code-block:: python
+
+    from cube_explorer.api import (
+        load_cube, create_rotational_diagram_map_multi, fit_pixel_multi, STATUS_OK,
+    )
+
+    cubes_and_lines = [
+        (load_cube("miri_ch1_long.fits"), {"wavelength": 6.909509, "a_coeff": 4.758e-10,
+                                            "e_upper": 1015.947, "Gp": 21,
+                                            "branch": "S", "j_lower": 5}),
+        (load_cube("miri_ch2_long.fits"), {"wavelength": 10.177803, "a_coeff": 1e-8,
+                                            "e_upper": 3000.0, "Gp": 11,
+                                            "branch": "S", "j_lower": 3}),
+    ]
+
+    result = create_rotational_diagram_map_multi(cubes_and_lines, min_lines=2, n_jobs=4)
+    print(f"Common grid: {result['T'].shape}, worst pixel scale: "
+          f"{result['worst_pix_arcsec']:.3f} arcsec")
+
+    # Re-fit one pixel from the cached per-line maps instead of rerunning the whole map
+    refit = fit_pixel_multi(result, 21, 18, min_lines=2)
+
+Real HH30 MIRI ch1-long/ch2-long data, two H2 lines: the common grid comes out at
+37×43 -- different from either input cube's own shape (33×39 and 31×37) -- at the
+worst (ch2-long's) pixel scale, 0.170 arcsec. With only 2 lines total and one of them
+below the 3σ threshold across most of the field, no pixel here reaches ``STATUS_OK``;
+the example is real and runs end-to-end, but this particular line pair is too thin to
+constrain a temperature anywhere. A real map needs several well-detected lines per source.
 
 Next Steps
 ==========

@@ -22,7 +22,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Exporting Data" href="exporting_data.html" />
-    <link rel="prev" title="CO Flux Extraction" href="co_flux_extraction.html" /> 
+    <link rel="prev" title="Flux Extraction" href="flux_extraction.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -60,10 +60,11 @@
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_1d.html">1D Spectrum Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flux_extraction.html">Flux Extraction</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Rotational Diagram</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-rotational-diagram-tool">Using the Rotational Diagram Tool</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#worked-examples">Worked Examples</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#creating-a-rotational-diagram-map">Creating a Rotational Diagram Map</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
@@ -111,7 +112,7 @@
             <a href="../_sources/user_guide/rotational_diagram.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
-        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="flux_extraction.html" class="btn btn-neutral float-left" title="Flux Extraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
@@ -146,10 +147,18 @@ automatically, and its flux (and error, if present) populate the table directly.
 <p>A <strong>Calculate Fluxes</strong> button also appears once HITRAN lines are fetched, for measuring
 fluxes directly from a loaded cube instead of entering them by hand. Every line covered by
 the same FITS file is fit simultaneously via <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> (the same chunked engine as
-<a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a>’s <strong>Multi-Gaussian Fit</strong>, not a separate implementation), and the
+<a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a>’s <strong>Multi-Gaussian Fit</strong>, not a separate implementation), and the
 results, including flux error, upper-limit status, and fit quality, are written straight
 into the table below.</p>
 <p><strong>Step 2: Select Lines and Enter Flux Data</strong></p>
+<figure class="align-default" id="id1">
+<a class="reference internal image-reference" href="../_images/rotdiag_overview.png"><img alt="The Rotational Diagram Analyzer window, showing the line table and the Run Fit / Run Map buttons side by side" src="../_images/rotdiag_overview.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">The line table – ☑, HITRAN columns, flux/error columns, and the Calculate-Fluxes-only
+columns described below – with <strong>Run Fit</strong> and <strong>Run Map</strong> at the bottom right.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+</figcaption>
+</figure>
 <p>The table shows every fetched/imported line, in three groups of columns:</p>
 <ul>
 <li><p><strong>☑</strong>, <strong>λ (μm)</strong>, <strong>Transition</strong>, <strong>A_ul (s⁻¹)</strong>, <strong>E_u (K)</strong>, <strong>g_u</strong> — from HITRAN, not
@@ -159,7 +168,7 @@ editable. ☑ controls whether the line is included in the fit.</p></li>
 auto-calculate from each other as you type (toggle which one drives the calculation with
 the <strong>Error input</strong> dropdown above the table). Check <strong>Upper Limit?</strong> instead of entering
 an error for a non-detection.</p></li>
-<li><p><strong>UL Flux (3σ)</strong>, <strong>Calculated?</strong>, <strong>Source</strong>, <strong>Fit R²</strong>, <strong>Fit</strong>, <strong>H2O Nearby</strong> — only
+<li><p><strong>UL Flux (3σ)</strong>, <strong>Calculated?</strong>, <strong>Source</strong>, <strong>Fit R²</strong>, <strong>Fit</strong> — only
 filled in by <strong>Calculate Fluxes</strong>:</p>
 <ul>
 <li><p><strong>UL Flux (3σ)</strong>: the 3σ upper-limit flux for this line, computed the same way whether
@@ -177,11 +186,17 @@ manual entry</p></li>
 threshold used elsewhere in the app)</p></li>
 <li><p><strong>Fit</strong>: click to open a plot of this line’s own fit (spectrum, baseline, fitted curve,
 flux, amplitude, R², FWHM), the same style as <strong>Multi-Gaussian Fit</strong>’s display</p></li>
-<li><p><strong>H2O Nearby</strong>: informational only, warns if real HITRAN H2O lines fall close to this
-line, never affects the fit itself</p></li>
 </ul>
 </li>
 </ul>
+<figure class="align-default" id="id2">
+<a class="reference internal image-reference" href="../_images/chunk_wide_rotdiag.png"><img alt="Individual line fit plot opened from the Fit column, showing spectrum, baseline, and Gaussian fit" src="../_images/chunk_wide_rotdiag.png" style="width: 90%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Clicking <strong>Fit</strong> for one row opens this plot – spectrum, fitted baseline, and the
+Gaussian fit shaded to show the integrated area.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+</figcaption>
+</figure>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>Detections need a flux error. A detection with no error entered is silently dropped
@@ -189,8 +204,11 @@ from the fit rather than assigned a made-up default (you’ll get a popup listin
 lines were excluded, if any). Upper limits are the exception: they don’t need an error,
 just the checkbox.</p>
 <p>If <em>any</em> line is marked as an upper limit, the fit automatically switches from
-<code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> to a Bayesian censored regression (PyMC) that treats upper limits as
-one-sided constraints rather than dropping them.</p>
+<code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> to a Bayesian censored regression that treats upper limits as one-sided
+constraints rather than dropping them. The model itself is built in PyMC, but sampled
+with <a class="reference external" href="https://github.com/pymc-devs/nutpie">nutpie</a>, a faster compiled NUTS sampler –
+the results text still labels diagnostics <code class="docutils literal notranslate"><span class="pre">[PyMC:</span> <span class="pre">...]</span></code> since PyMC is what defines the
+model either way.</p>
 </div>
 <p><strong>How Calculate Fluxes measures a line</strong></p>
 <p>Flux error combines two terms in quadrature:</p>
@@ -235,61 +253,176 @@ internally working in ln space</p></li>
 <p>When any line is an upper limit, the censored (PyMC) fit also reports its own convergence
 diagnostics: <code class="docutils literal notranslate"><span class="pre">divergence(s)</span></code> (ideally 0) and <code class="docutils literal notranslate"><span class="pre">max</span> <span class="pre">r_hat</span></code> (should be at most 1.01), so a
 fit that struggled to sample doesn’t look identical to one that converged cleanly.</p>
+<p><strong>Run Map</strong>, next to <strong>Run Fit</strong>, repeats this exact fit at every pixel of the loaded cube
+instead of once on the whole-cube summed spectrum – see <em>Creating a Rotational Diagram Map</em>
+below.</p>
 </section>
 <section id="worked-examples">
 <h2>Worked Examples<a class="headerlink" href="#worked-examples" title="Link to this heading"></a></h2>
 <p>The dataset here is the standard H2 v=0→0 S(1)–S(7) pure-rotational line set (5.5–17 µm),
 imported from <code class="docutils literal notranslate"><span class="pre">data/H2_lines.csv</span></code>.</p>
-<figure class="align-default" id="id1">
+<figure class="align-default" id="id3">
 <a class="reference internal image-reference" href="../_images/1TFit.png"><img alt="1T rotational diagram fit on seven H2 lines, showing poor agreement at high E_u" src="../_images/1TFit.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">1T fit on all 7 lines: T = 536.6 ± 4.8 K. The single line can’t track the curvature,
 since the highest-E<sub>u</sub> points sit well below it, which is exactly the signature
-that motivates using 2T here instead.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+that motivates using 2T here instead.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<figure class="align-default" id="id2">
+<figure class="align-default" id="id4">
 <a class="reference internal image-reference" href="../_images/2TFit.png"><img alt="2T rotational diagram fit with OPR fixed at 3, seven H2 lines" src="../_images/2TFit.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">2T fit (OPR fixed at 3) on the <em>same</em> 7 lines: Warm (T = 273.3 ± 9.6 K) and Hot
-(T = 863.2 ± 34.1 K) components, tracking the curvature the 1T fit missed.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+(T = 863.2 ± 34.1 K) components, tracking the curvature the 1T fit missed.</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<figure class="align-default" id="id3">
+<figure class="align-default" id="id5">
 <a class="reference internal image-reference" href="../_images/2TOPRFit.png"><img alt="2T rotational diagram fit with OPR fitted, five highest lines, larger error bars" src="../_images/2TOPRFit.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">2T fit with <strong>Fit OPR</strong> enabled, on the 5 highest-E<sub>u</sub> lines only and larger
 flux errors — a messier, more realistic case. The OPR search converged to 1.859 ± 1.072;
 with only 5 points feeding a 4-parameter 2T model plus OPR, T1’s own uncertainty balloons
-(202.9 ± 937.3 K) even though the fit still runs.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
+(202.9 ± 937.3 K) even though the fit still runs.</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<figure class="align-default" id="id4">
+<figure class="align-default" id="id6">
 <a class="reference internal image-reference" href="../_images/1TULFit.png"><img alt="1T rotational diagram fit with two upper limits, shown as red downward arrows" src="../_images/1TULFit.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">1T fit with two of the seven lines marked as upper limits (red arrows): T = 410.3 ± 8.6 K.
-The results text reports <code class="docutils literal notranslate"><span class="pre">[PyMC:</span> <span class="pre">0</span> <span class="pre">divergence(s),</span> <span class="pre">max</span> <span class="pre">r_hat</span> <span class="pre">=</span> <span class="pre">1.000]</span></code> since marking any
-line as an upper limit switches this to the censored PyMC fit automatically.</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
+<p><span class="caption-text">1T fit on <code class="docutils literal notranslate"><span class="pre">data/H2_lines_noflux.csv</span></code> (flux and flux error left blank for every line;
+each is instead measured via <strong>Calculate Fluxes</strong>): 6 lines measured, 4 clearing the 3σ
+threshold as detections and 2 falling below it, auto-marked as upper limits (red arrows).
+T = 394.6 ± 8.4 K. The results text reports <code class="docutils literal notranslate"><span class="pre">[PyMC:</span> <span class="pre">0</span> <span class="pre">divergence(s),</span> <span class="pre">max</span> <span class="pre">r_hat</span> <span class="pre">=</span> <span class="pre">1.010]</span></code>
+since marking any line as an upper limit switches this to the censored PyMC fit
+automatically.</span><a class="headerlink" href="#id6" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<figure class="align-default" id="id5">
+<figure class="align-default" id="id7">
 <a class="reference internal image-reference" href="../_images/2TULFit.png"><img alt="2T rotational diagram fit with upper limits, shown as red downward arrows" src="../_images/2TULFit.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">2T fit on the same upper-limit dataset: Warm (T = 350.7 ± 11.2 K) and Hot
-(T = 2333.7 ± 470.1 K) components, again via the censored PyMC fit
-(<code class="docutils literal notranslate"><span class="pre">max</span> <span class="pre">r_hat</span> <span class="pre">=</span> <span class="pre">1.010</span></code>).</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
+<p><span class="caption-text">2T fit on the same dataset: Warm (T = 340.4 ± 17.3 K) and Hot
+(T = 1009.7 ± 153.8 K) components, again via the censored PyMC fit
+(<code class="docutils literal notranslate"><span class="pre">max</span> <span class="pre">r_hat</span> <span class="pre">=</span> <span class="pre">1.010</span></code>).</span><a class="headerlink" href="#id7" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+</section>
+<section id="creating-a-rotational-diagram-map">
+<h2>Creating a Rotational Diagram Map<a class="headerlink" href="#creating-a-rotational-diagram-map" title="Link to this heading"></a></h2>
+<p><strong>Run Map</strong> repeats the same fit at every spaxel instead of once on the whole-cube summed
+spectrum. It uses the same line selection (☑), flux/error values or <strong>Calculate Fluxes</strong>
+measurements, and physical parameters (R, distance, 1T/2T, Fit OPR) as <strong>Run Fit</strong> – the
+only difference is that the fit runs independently at every pixel.</p>
+<figure class="align-default" id="id8">
+<a class="reference internal image-reference" href="../_images/rotdiag_overview.png"><img alt="The Rotational Diagram Analyzer window, showing the line table and the Run Fit / Run Map buttons side by side" src="../_images/rotdiag_overview.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Run Fit</strong> and <strong>Run Map</strong> sit side by side at the bottom right, sharing the same line
+table, flux data, and physical parameters above them.</span><a class="headerlink" href="#id8" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p><strong>Per-pixel detection gating</strong></p>
+<p>At each pixel, only lines whose flux clears the 3σ threshold <em>at that specific pixel</em> count
+as detections; a pixel needs at least the configured minimum number of detected lines (3 by
+default) before a fit is attempted there. Every pixel ends up in exactly one status:</p>
+<ul class="simple">
+<li><p><strong>Fitted</strong> – enough lines detected, and the fit converged</p></li>
+<li><p><strong>No data</strong> – no valid spectrum at this pixel (e.g. outside the cube’s footprint)</p></li>
+<li><p><strong>Too few lines</strong> – some lines detected, but fewer than the minimum required</p></li>
+<li><p><strong>Fit failed</strong> – enough lines were detected, but the fit itself didn’t converge</p></li>
+</ul>
+<p>Worked example, the H2 S(1)-S(7) line set (<code class="docutils literal notranslate"><span class="pre">data/H2_lines_rotdiagmap.csv</span></code>) fit at every
+pixel of a 55×53 NIRSpec cube (2,915 spaxels total). The whole-cube summed-spectrum fit
+(the same number <strong>Run Fit</strong> would give) is T = 1721.8 ± 70.1 K, Ncol = 3.57e+18 ± 6.99e+17
+cm⁻² – one number averaging over everything the per-pixel map below resolves spatially:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Pixel status</p></th>
+<th class="head"><p>Count</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Fitted (of which pinned at the 3000 K ceiling: 104)</p></td>
+<td><p>630 (21.6%)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Not fitted – no data</p></td>
+<td><p>1,479</p></td>
+</tr>
+<tr class="row-even"><td><p>Not fitted – too few lines (&lt; 3 detections)</p></td>
+<td><p>806</p></td>
+</tr>
+<tr class="row-odd"><td><p>Not fitted – fit failed</p></td>
+<td><p>0</p></td>
+</tr>
+</tbody>
+</table>
+<figure class="align-default" id="id9">
+<a class="reference internal image-reference" href="../_images/rotdiagmap_temp.png"><img alt="Per-pixel temperature map, most pixels between 1000-2500 K" src="../_images/rotdiagmap_temp.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Temperature map. Median 1892.4 K across fitted pixels (std 587.1 K, range
+629.8-3000 K) – values that would exceed 3000 K are pinned at that ceiling rather
+than left unbounded.</span><a class="headerlink" href="#id9" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id10">
+<a class="reference internal image-reference" href="../_images/rotdiagmap_colden_log.png"><img alt="Per-pixel column density map, log scale" src="../_images/rotdiagmap_colden_log.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Column density (N<sub>u</sub>) map, log scale. Median 2.054e+15 cm⁻² (range
+8.196e+13-3.803e+17 cm⁻²).</span><a class="headerlink" href="#id10" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id11">
+<a class="reference internal image-reference" href="../_images/rotdiagmap_temperr_log.png"><img alt="Per-pixel temperature uncertainty map" src="../_images/rotdiagmap_temperr_log.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Temperature uncertainty (dT), log scale.</span><a class="headerlink" href="#id11" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id12">
+<a class="reference internal image-reference" href="../_images/rotdiagmap_coldenerr_log.png"><img alt="Per-pixel column density uncertainty map" src="../_images/rotdiagmap_coldenerr_log.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Column density uncertainty (dN<sub>u</sub>), log scale.</span><a class="headerlink" href="#id12" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id13">
+<a class="reference internal image-reference" href="../_images/rotdiagmap_lines.png"><img alt="Per-pixel count of lines used in the fit" src="../_images/rotdiagmap_lines.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Lines used per fitted pixel. Median 5.0 (range 3-6) – the diamond-shaped footprint
+reflects this NIRSpec cube’s rotated field of view, not a bug in the fit.</span><a class="headerlink" href="#id13" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id14">
+<a class="reference internal image-reference" href="../_images/rotdiagmap_success.png"><img alt="Fit mask, white where a pixel was fitted, black where it wasn't" src="../_images/rotdiagmap_success.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Fit mask: white = fitted, black = not fitted (no data or too few lines).</span><a class="headerlink" href="#id14" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p><strong>Inspecting a single pixel</strong></p>
+<p>Clicking a pixel on any of the maps above re-fits just that pixel from the per-line flux
+maps already built during <strong>Run Map</strong> – cheap, since it reuses that cached data instead of
+redoing any line fitting – and opens the same style of results plot <strong>Run Fit</strong> shows for
+the whole cube.</p>
+<figure class="align-default" id="id15">
+<a class="reference internal image-reference" href="../_images/rotdiagmap_pixel.png"><img alt="Rotational diagram fit for a single pixel, 6 detected lines" src="../_images/rotdiagmap_pixel.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Pixel (21, 21): T = 1571.5 ± 53.5 K, Ncol = 1.10e+17 ± 1.99e+16 cm⁻², 6 lines used –
+an individual pixel’s fit, same style as the whole-cube <strong>Run Fit</strong> plot above.</span><a class="headerlink" href="#id15" title="Link to this image"></a></p>
 </figcaption>
 </figure>
 </section>
 <section id="using-the-api">
 <h2>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">rotational_diagram()</span></code> is not a separate wrapper — it’s the exact function the GUI calls,
-imported directly. There’s no GUI/API divergence to account for here, unlike CO flux above.</p>
+imported directly. There’s no GUI/API divergence to account for here, unlike flux extraction above.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotational_diagram</span>
 
 <span class="c1"># H2 v=0-&gt;0 S(1)-S(7), matching data/H2_lines.csv, matched against HITRAN</span>
@@ -325,11 +458,71 @@ imported directly. There’s no GUI/API divergence to account for here, unlike C
 (and its uncertainties) to mean anything. Passing <code class="docutils literal notranslate"><span class="pre">fit2T=True</span></code> with too few points
 doesn’t raise an error; it just returns a bad fit.</p>
 </div>
+<p><strong>Run Map, from a script</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">fit_region</span></code>, <code class="docutils literal notranslate"><span class="pre">fit_pixel</span></code>, and <code class="docutils literal notranslate"><span class="pre">create_rotational_diagram_map</span></code> are the same functions
+the GUI’s <strong>Run Fit</strong> / <strong>Run Map</strong> buttons call, for one cube:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">load_cube</span><span class="p">,</span> <span class="n">fetch_hitran_data</span><span class="p">,</span> <span class="n">fit_region</span><span class="p">,</span> <span class="n">fit_pixel</span><span class="p">,</span>
+    <span class="n">create_rotational_diagram_map</span><span class="p">,</span> <span class="n">save_rotational_diagram_map_fits</span><span class="p">,</span> <span class="n">STATUS_OK</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+<span class="n">line_table</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span><span class="mf">2.87</span><span class="p">,</span> <span class="mf">5.27</span><span class="p">,</span> <span class="s2">&quot;H2&quot;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="c1"># Same fit as Run Fit -- sums the whole cube (pass mask=... to sum only some pixels)</span>
+<span class="n">region</span> <span class="o">=</span> <span class="n">fit_region</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">line_table</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">region</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">STATUS_OK</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Whole-cube T: </span><span class="si">{</span><span class="n">region</span><span class="p">[</span><span class="s1">&#39;results&#39;</span><span class="p">][</span><span class="s1">&#39;1T&#39;</span><span class="p">][</span><span class="s1">&#39;T&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> K&quot;</span><span class="p">)</span>
+
+<span class="c1"># One pixel&#39;s own fit</span>
+<span class="n">pixel</span> <span class="o">=</span> <span class="n">fit_pixel</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">25</span><span class="p">,</span> <span class="n">line_table</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+
+<span class="c1"># Same fit as Run Map -- every pixel, run in parallel</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">create_rotational_diagram_map</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">line_table</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">save_rotational_diagram_map_fits</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="s2">&quot;rot_diag_map.fits&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>On a real NIRSpec cube (37 H2 v=1→0 lines, 55×53 pixels), this fits 877/2915 pixels;
+<code class="docutils literal notranslate"><span class="pre">fit_region</span></code> sums all 2915 into T = 3000.0 ± 49.7 K (pinned at the ceiling – this
+particular v=1→0 hot-band set doesn’t constrain a clean rotational diagram the way the
+S(1)–S(7) pure-rotational set does above); <code class="docutils literal notranslate"><span class="pre">fit_pixel</span></code> at (20, 25) finds 8 lines
+individually, one more than the whole-cube sum found.</p>
+<p><strong>Run Map, multiple cubes at different pixel scales</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">fit_region_multi</span></code>, <code class="docutils literal notranslate"><span class="pre">create_rotational_diagram_map_multi</span></code>, and <code class="docutils literal notranslate"><span class="pre">fit_pixel_multi</span></code> are
+the multi-source equivalents, one line per cube, for cubes of different pixel scale or
+shape (see <em>Creating a Rotational Diagram Map</em> above for what happens internally):</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">load_cube</span><span class="p">,</span> <span class="n">create_rotational_diagram_map_multi</span><span class="p">,</span> <span class="n">fit_pixel_multi</span><span class="p">,</span> <span class="n">STATUS_OK</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">cubes_and_lines</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;miri_ch1_long.fits&quot;</span><span class="p">),</span> <span class="p">{</span><span class="s2">&quot;wavelength&quot;</span><span class="p">:</span> <span class="mf">6.909509</span><span class="p">,</span> <span class="s2">&quot;a_coeff&quot;</span><span class="p">:</span> <span class="mf">4.758e-10</span><span class="p">,</span>
+                                        <span class="s2">&quot;e_upper&quot;</span><span class="p">:</span> <span class="mf">1015.947</span><span class="p">,</span> <span class="s2">&quot;Gp&quot;</span><span class="p">:</span> <span class="mi">21</span><span class="p">,</span>
+                                        <span class="s2">&quot;branch&quot;</span><span class="p">:</span> <span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="s2">&quot;j_lower&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">}),</span>
+    <span class="p">(</span><span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;miri_ch2_long.fits&quot;</span><span class="p">),</span> <span class="p">{</span><span class="s2">&quot;wavelength&quot;</span><span class="p">:</span> <span class="mf">10.177803</span><span class="p">,</span> <span class="s2">&quot;a_coeff&quot;</span><span class="p">:</span> <span class="mf">1e-8</span><span class="p">,</span>
+                                        <span class="s2">&quot;e_upper&quot;</span><span class="p">:</span> <span class="mf">3000.0</span><span class="p">,</span> <span class="s2">&quot;Gp&quot;</span><span class="p">:</span> <span class="mi">11</span><span class="p">,</span>
+                                        <span class="s2">&quot;branch&quot;</span><span class="p">:</span> <span class="s2">&quot;S&quot;</span><span class="p">,</span> <span class="s2">&quot;j_lower&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">}),</span>
+<span class="p">]</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">create_rotational_diagram_map_multi</span><span class="p">(</span><span class="n">cubes_and_lines</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Common grid: </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, worst pixel scale: &quot;</span>
+      <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;worst_pix_arcsec&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2"> arcsec&quot;</span><span class="p">)</span>
+
+<span class="c1"># Re-fit one pixel from the cached per-line maps instead of rerunning the whole map</span>
+<span class="n">refit</span> <span class="o">=</span> <span class="n">fit_pixel_multi</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="mi">21</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Real HH30 MIRI ch1-long/ch2-long data, two H2 lines: the common grid comes out at
+37×43 – different from either input cube’s own shape (33×39 and 31×37) – at the
+worst (ch2-long’s) pixel scale, 0.170 arcsec. With only 2 lines total and one of them
+below the 3σ threshold across most of the field, no pixel here reaches <code class="docutils literal notranslate"><span class="pre">STATUS_OK</span></code>;
+the example is real and runs end-to-end, but this particular line pair is too thin to
+constrain a temperature anywhere. A real map needs several well-detected lines per source.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a> — a different molecule’s line fluxes, fit the same way</p></li>
+<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a> — a different molecule’s line fluxes, fit the same way</p></li>
 <li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> — the per-pixel Gaussian fitting <strong>Calculate Fluxes</strong> shares
 its algorithm with</p></li>
 <li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — other export paths</p></li>
@@ -341,7 +534,7 @@ its algorithm with</p></li>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="co_flux_extraction.html" class="btn btn-neutral float-left" title="CO Flux Extraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="flux_extraction.html" class="btn btn-neutral float-left" title="Flux Extraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="exporting_data.html" class="btn btn-neutral float-right" title="Exporting Data" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

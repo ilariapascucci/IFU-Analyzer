@@ -17,7 +17,7 @@ Comprehensive tools for spectroscopic analysis including:
 
 - Gaussian fitting for precise line parameter extraction
 - Continuum subtraction for noise reduction
-- CO flux extraction for CO rovibrational line analysis
+- Flux extraction for rovibrational line analysis, any target species
 - Rotational diagram analysis for H₂ rotational temperature determination
 
 **Interactive Visualization**

@@ -1,0 +1,504 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flux Extraction &mdash; IFU Analyzer 1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=d667c02a" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Rotational Diagram" href="rotational_diagram.html" />
+    <link rel="prev" title="Continuum Subtraction" href="continuum_subtraction.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            IFU Analyzer
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../introduction.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">User Guide</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="loading_data.html">Loading Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gui_overview.html">GUI Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="visualization.html">Visualization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="selecting_regions.html">Selecting Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="spectrum_display.html">Spectrum Display</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_1d.html">1D Spectrum Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Flux Extraction</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#starting-flux-extraction">Starting Flux Extraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load-contaminating-lines">Load Contaminating Lines</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#multi-gaussian-fit">Multi-Gaussian Fit</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#reading-the-results">Reading the results</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#how-chunking-works">How Chunking Works</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#using-the-api">Using the API</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#using-the-flux-api">Using the Flux API</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api_examples.html">Using IFU Analyzer Without the GUI</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../reference/api.html">API Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Support</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">IFU Analyzer</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">User Guide</a></li>
+      <li class="breadcrumb-item active">Flux Extraction</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/user_guide/flux_extraction.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-left" title="Continuum Subtraction" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="rotational_diagram.html" class="btn btn-neutral float-right" title="Rotational Diagram" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="flux-extraction">
+<h1>Flux Extraction<a class="headerlink" href="#flux-extraction" title="Link to this heading"></a></h1>
+<p>Extract and measure spectral line fluxes for a chosen target species (CO, H2, or any
+molecule/atom HITRAN or a custom catalog supports) from spectral data cubes. This tool
+analyzes emission or absorption across multiple rotational transitions of that species.</p>
+<section id="starting-flux-extraction">
+<h2>Starting Flux Extraction<a class="headerlink" href="#starting-flux-extraction" title="Link to this heading"></a></h2>
+<p><strong>Fetch from HITRAN</strong></p>
+<ol class="arabic simple">
+<li><p>Enter min/max wavelengths in the toolbar, then click <strong>HITRAN</strong></p></li>
+<li><p>Choose a molecule (required)</p></li>
+<li><p>Choose isotopologue number (optional)</p></li>
+<li><p>Choose transition level (optional, different molecules have different transition levels)</p></li>
+<li><p>Refresh HITRAN cache (optional)</p></li>
+</ol>
+<p>Seven common molecules are preloaded and ready offline, no fetch needed: <strong>H2O, CO2, CO,
+OH, HCN, C2H2, H2</strong>. Any other molecule is fetched live from HITRAN the first time you
+request it (via HAPI, version 1.3.0.0), then cached locally for next time.</p>
+<p>52 molecules have lines in the 1–30 µm range this app targets, and support transition-level
+filtering (step 4 above):</p>
+<p>CO, H2, OH, H2O, HCN, C2H2, CO2, CS, OCS, SO2, C2H6, C4H2, HC3N, CH4, NH3, CH3, H3⁺, HF,
+HCl, HBr, HI, N2, NO⁺, NO, ClO, O2, SO, O3, N2O, NO2, HNO3, H2CO, HOCl, H2O2, H2S, HO2,
+COF2, COCl2, CS2, PH3, SO3, GeH4, HCOOH, C2H4, CH3OH, CH3Cl, CH3Br, CH3CN, CH3F, CH3I,
+COFCl, ClNO2.</p>
+<p><strong>Import Lines</strong></p>
+<p>When HITRAN isn’t reachable, click <strong>Import Lines</strong> to load your own line list from a CSV
+instead. Both <code class="docutils literal notranslate"><span class="pre">wavelength</span></code> and <code class="docutils literal notranslate"><span class="pre">species</span></code> columns are required.</p>
+<p>Once lines are loaded (either way), the spectrum shows them. Hovering over a line shows its
+species, wavelength, transition, and Einstein coefficients. Click <strong>Lines</strong> to open a table
+of every currently loaded line: detections and contaminants together, with “Detection
+Only”/”Contaminating Only” filters. Check/uncheck rows to change what’s plotted. Click any
+column header to sort by that column.</p>
+</section>
+<section id="load-contaminating-lines">
+<h2>Load Contaminating Lines<a class="headerlink" href="#load-contaminating-lines" title="Link to this heading"></a></h2>
+<p>Additionally (and optionally), you can mark contaminating (non-target) lines so both
+<strong>Flux Map</strong> and <strong>Multi-Gaussian Fit</strong> (below) can account for them instead of letting
+their flux distort a nearby target line’s measurement. Two ways, and they merge together:</p>
+<p><strong>From a CSV</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>Contam. Lines</strong> and load a CSV file with unwanted lines</p></li>
+</ol>
+<p>Both <code class="docutils literal notranslate"><span class="pre">wavelength</span></code> and <code class="docutils literal notranslate"><span class="pre">species</span></code> columns are required.</p>
+<p><strong>By marking one on the spectrum</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>Mark Contaminant</strong>, then click the feature on the spectrum</p></li>
+<li><p>No HITRAN match is needed – it’s listed with species “N/A”</p></li>
+<li><p>The button stays toggled on so you can mark several in a row; click it again to stop</p></li>
+<li><p>To remove one, uncheck it in <strong>Lines</strong> or click its marker on the spectrum</p></li>
+</ol>
+<p>Run <strong>Flux Map</strong> / <strong>Multi-Gaussian Fit</strong> again after loading or marking one for the fit to
+pick it up.</p>
+</section>
+<section id="multi-gaussian-fit">
+<h2>Multi-Gaussian Fit<a class="headerlink" href="#multi-gaussian-fit" title="Link to this heading"></a></h2>
+<p>Fit every currently-plotted line at once via <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>, using each line’s own
+instrumental width. Lines that land in the same wavelength chunk (close or blended) are fit
+together against one shared continuum, so they no longer double-claim overlapping flux the
+way independent, uninformed per-line fits would.</p>
+<p>Each line’s starting width comes from the instrument’s own spectral resolution, but center
+and sigma are <strong>fitted, not fixed</strong> because each is constrained to a bounded range around
+that starting point (center within ±1 instrumental σ of the catalog wavelength, sigma within
+0.5–2× the instrumental value), so a real line can settle slightly off its catalog center or
+resolve a little narrower/wider than nominal.</p>
+<p>If you’ve loaded or marked a contaminating line (above) sharing a wavelength chunk with a
+requested line, it gets its own Gaussian component too, so its flux is absorbed there
+instead of leaking into that line’s amplitude. It’s drawn in <strong>grey</strong> on the plot and
+interleaved with the target lines in the results, in wavelength order. It’s never counted
+toward the target line total or “Total Integrated Flux”, but summed on its own as “Total
+Contaminant Flux” (see <em>Reading the results</em> below).</p>
+<ol class="arabic simple">
+<li><p>(Optional) Fit a continuum first via <strong>Continuum Tools → Automatic Continuum → Continuum
+Line</strong>. If you skip this, <strong>Multi-Gaussian Fit</strong> computes one automatically the first
+time you click it.</p></li>
+<li><p>Click <strong>Multi-Gaussian Fit</strong></p></li>
+</ol>
+<p>A Gaussian curve is overlaid on the spectrum for each plotted line, and a results window
+opens with one block per line, an overall summary, and a separate section listing any
+contaminating lines that got their own component. Re-running with the same lines,
+contaminants, and active tab offers the cached results instead of re-fitting.</p>
+<figure class="align-default" id="id1">
+<a class="reference internal image-reference" href="../_images/multigaussian_contam_lines.png"><img alt="56 fitted CO v=1-&gt;0 Gaussians overlaid on a NIRSpec spectrum, with six H2 contaminants shown separately in grey" src="../_images/multigaussian_contam_lines.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">56 CO v=1→0 lines (4.40–4.80 µm) fitted simultaneously via <strong>Multi-Gaussian Fit</strong> on a
+NIRSpec G395H spectrum – CO used here as the worked example; any target species works
+the same way. The grey curves are H2 lines from the loaded contaminating-lines catalog,
+each fit as its own component. The tallest, near 4.69 µm, would otherwise have distorted
+its neighboring CO lines’ amplitudes.</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<section id="reading-the-results">
+<h3>Reading the results<a class="headerlink" href="#reading-the-results" title="Link to this heading"></a></h3>
+<p>Each line’s block reports two groups of numbers:</p>
+<ul class="simple">
+<li><p><strong>Catalog identification</strong> — <code class="docutils literal notranslate"><span class="pre">Line</span> <span class="pre">λ</span></code>, <code class="docutils literal notranslate"><span class="pre">Transition</span></code>, <code class="docutils literal notranslate"><span class="pre">A</span> <span class="pre">coeff</span></code> and <code class="docutils literal notranslate"><span class="pre">E_upper</span></code>,
+copied straight from the HITRAN entry, not measured. Useful for cross-checking that the
+fit actually locked onto the line you think it did.</p></li>
+<li><p><strong>Fitted parameters</strong> — <code class="docutils literal notranslate"><span class="pre">Center</span></code>, <code class="docutils literal notranslate"><span class="pre">Amplitude</span></code>, <code class="docutils literal notranslate"><span class="pre">Sigma</span></code>, <code class="docutils literal notranslate"><span class="pre">FWHM</span></code>, <code class="docutils literal notranslate"><span class="pre">Integrated</span>
+<span class="pre">Area</span></code> and <code class="docutils literal notranslate"><span class="pre">R²</span></code>. <code class="docutils literal notranslate"><span class="pre">Center</span></code> and <code class="docutils literal notranslate"><span class="pre">Sigma</span></code> are fitted, not fixed, but each is bounded
+around the catalog wavelength and the instrument’s spectral resolution respectively (see
+above). Units follow the same rules as the 1D page (<a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a>):
+<code class="docutils literal notranslate"><span class="pre">Integrated</span> <span class="pre">Area</span></code> is erg/s/cm² wherever the header supports the conversion.</p></li>
+</ul>
+<p>An <strong>OVERALL</strong> summary follows every line block, e.g. from a real 56-line CO run:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>OVERALL:
+  Total lines fitted:    56
+  Total Integrated Flux: 2.7085e-14 erg/s/cm²
+  Mean R²:               0.9768
+  Lines with R² &gt;= 0.5:  56/56
+  Total Contaminant Flux: 2.3774e-15 erg/s/cm²
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">Total</span> <span class="pre">Contaminant</span> <span class="pre">Flux</span></code> only appears when a contaminating-lines catalog is loaded, and is
+summed separately from <code class="docutils literal notranslate"><span class="pre">Total</span> <span class="pre">Integrated</span> <span class="pre">Flux</span></code> (contaminants are never considered for the
+target total).</p>
+<p>Contaminant lines are not grouped into a trailing section. Each one appears as its own
+<code class="docutils literal notranslate"><span class="pre">Contam</span> <span class="pre">N</span></code> block, interleaved with the target <code class="docutils literal notranslate"><span class="pre">Line</span> <span class="pre">N</span></code> blocks by fitted wavelength –
+matching where it actually sits in the spectrum, not sorted apart from the detections:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>FITTED LINES (target and contaminant, by wavelength):
+======================================================================
+Line 1: CO
+  ...
+  ────────────────────────────────────────────────────────────
+Contam 1: H2 (not one of the 56 target lines; shown in grey on the plot)
+  Center (λ):            4.410011 µm
+  Amplitude:             6.3049e+03 MJy/sr
+  Integrated Area:       2.9563e-16 erg/s/cm²
+  ────────────────────────────────────────────────────────────
+Line 2: CO
+  ...
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">Contam</span> <span class="pre">N</span></code> numbers its own kind (1, 2, 3, …), separate from the <code class="docutils literal notranslate"><span class="pre">Line</span> <span class="pre">N</span></code> count above
+it – neither numbering is global across the whole listing.</p>
+</section>
+<section id="how-chunking-works">
+<h3>How Chunking Works<a class="headerlink" href="#how-chunking-works" title="Link to this heading"></a></h3>
+<p><strong>Multi-Gaussian Fit</strong> does not fit each line alone. It groups nearby lines into chunks
+first.</p>
+<p>A chunk is a group of lines close enough in wavelength to overlap. Lines in one chunk
+share one continuum. The fit solves for every line in the chunk at the same time, in one
+<code class="docutils literal notranslate"><span class="pre">curve_fit</span></code> call.</p>
+<p>This matters because two close lines share flux where they overlap. A fit that sees only
+one line assigns it all of that shared flux. An independent fit of the next line then
+claims some of the same flux again. Together, the two fits overcount the true flux.</p>
+<p>A joint fit avoids this. Each line in the chunk still gets its own Gaussian, but every
+line in the chunk fits against the same data and the same baseline at once. The fit splits
+overlapping flux between the lines that actually produced it, instead of double-counting it.</p>
+<p>Lines just outside a chunk can still affect it. The fit borrows these nearby lines into the
+joint model too, so their tails do not leak into the chunk’s own lines. A borrowed line’s
+flux does not count toward the chunk it was borrowed into – it is only there to keep that
+chunk’s own fit honest.</p>
+<p>The result: every plotted line, in every chunk, is fit at the same time as its neighbors.
+No line’s flux comes from a fit that ignored what sits next to it.</p>
+</section>
+<section id="using-the-api">
+<h3>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_hitran_lines</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_contaminating_lines_catalog</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+<span class="n">contam</span> <span class="o">=</span> <span class="n">load_contaminating_lines_catalog</span><span class="p">(</span><span class="s2">&quot;path/to/ContaminatingLines.csv&quot;</span><span class="p">)</span>  <span class="c1"># optional</span>
+
+<span class="n">results</span> <span class="o">=</span> <span class="n">fit_hitran_lines</span><span class="p">(</span>
+    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
+    <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;CO&#39;</span><span class="p">,</span>
+    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.40</span><span class="p">,</span>
+    <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.80</span><span class="p">,</span>
+    <span class="n">v_upper</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>              <span class="c1"># v=1-&gt;0, same filter as the HITRAN dialog</span>
+    <span class="n">v_lower</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>     <span class="c1"># Required for the erg/s/cm2 conversion</span>
+    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+    <span class="n">contam_catalog</span><span class="o">=</span><span class="n">contam</span><span class="p">,</span>  <span class="c1"># omit (or None) to skip contaminant handling entirely</span>
+<span class="p">)</span>
+
+<span class="n">detected</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span> <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;success&#39;</span><span class="p">]]</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Fitted </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">detected</span><span class="p">)</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="s2"> lines&quot;</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">detected</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um  area=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;area&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;area_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">  R2=</span><span class="si">{</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;r_squared&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Fitted 56/56 lines
+  4.402940 um  area=1.7523e-16 erg/s/cm²  R2=0.9522
+  4.407340 um  area=2.0514e-16 erg/s/cm²  R2=0.9760
+  4.411409 um  area=3.2444e-16 erg/s/cm²  R2=0.9919
+  ...
+  4.773897 um  area=5.4440e-16 erg/s/cm²  R2=0.9945
+  4.783681 um  area=5.0950e-16 erg/s/cm²  R2=0.9889
+  4.793562 um  area=5.5141e-16 erg/s/cm²  R2=0.9156
+</pre></div>
+</div>
+<p><strong>Run the Full-Cube Flux Map</strong></p>
+<p>Extract a flux map across every spatial pixel, for whichever lines are currently checked
+in the <strong>Lines</strong> dialog (any species – the map isn’t restricted to CO):</p>
+<ol class="arabic simple">
+<li><p>Click on <strong>Flux Map</strong>.</p></li>
+<li><p>A popup explains that continuum subtraction runs automatically per pixel, using default
+parameters that work well for typical spectra. Click <strong>No</strong> to use those defaults, or
+<strong>Yes</strong> to open the same parameter dialog as the manual Automatic Continuum tool and set
+your own values instead.</p></li>
+<li><p>A preview shows the brightest pixel within your wavelength range (a sanity check before
+committing to a full-cube run), and exactly the checked lines that will be fit. Click
+<strong>YES - Extract Map</strong> to proceed.</p></li>
+</ol>
+<p>If you’ve already run an extraction with the same wavelength range, line selection, and
+continuum choice, you’ll be offered the cached results instead of re-running.</p>
+<p><strong>Progress Monitoring</strong></p>
+<p>The progress dialog updates per pixel as the cube is processed.</p>
+<p><strong>Output Products</strong></p>
+<p>The <strong>Display</strong> dropdown in the results window switches between four maps, all from the
+same run. The flux/detection labels reflect whichever species was targeted (e.g. “CO Flux”
+for a CO run, “H2 Flux” for H2) – the example below used CO:</p>
+<figure class="align-default" id="id2">
+<a class="reference internal image-reference" href="../_images/flux_map.png"><img alt="CO rovibrational flux map, showing a bright compact source" src="../_images/flux_map.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>CO Flux</strong>: integrated flux per pixel, for a run targeting CO.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id3">
+<a class="reference internal image-reference" href="../_images/detection_map.png"><img alt="Map of the number of CO lines detected per pixel, diamond-shaped field of view" src="../_images/detection_map.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Detection Count</strong>: number of target lines detected per pixel, for the same cube.</span><a class="headerlink" href="#id3" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id4">
+<a class="reference internal image-reference" href="../_images/contam_map.png"><img alt="Contaminating-line flux map, peaking at the same location as the CO flux map but roughly an order of magnitude fainter" src="../_images/contam_map.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Contam Flux</strong>: integrated contaminating-line flux per pixel, computed as part of the
+same per-pixel fit and summed separately from the target flux (never mixed into the
+target total).</span><a class="headerlink" href="#id4" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<figure class="align-default" id="id5">
+<a class="reference internal image-reference" href="../_images/contam_detection_map.png"><img alt="Map of the number of contaminating lines detected per pixel" src="../_images/contam_detection_map.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text"><strong>Contam Detection Count</strong>: number of contaminating lines detected per pixel.</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p><strong>Export as FITS</strong> / <strong>Show Statistics</strong> buttons in the results window apply to whichever
+map is currently selected.</p>
+<p><strong>Inspecting Individual Pixels</strong></p>
+<p>With <strong>Pixel Select</strong> on (the default), clicking a pixel on any of the four maps opens that pixel’s fit:</p>
+<figure class="align-default" id="id6">
+<a class="reference internal image-reference" href="../_images/pixel_spectrum.png"><img alt="Pixel spectrum zoomed to the fitted wavelength range, with the fitted continuum and every CO line marked in red" src="../_images/pixel_spectrum.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Spectrum for an individual pixel, zoomed to the run’s fitted wavelength range (here the
+full 4.40–4.80 µm, 56-line CO band), with the real per-chunk fitted continuum trend and
+every detected target line marked in red.</span><a class="headerlink" href="#id6" title="Link to this image"></a></p>
+</figcaption>
+</figure>
+<p>Turn <strong>Pixel Select</strong> off to zoom/pan the map freely instead of reopening this dialog on every
+click.</p>
+</section>
+</section>
+<section id="using-the-flux-api">
+<h2>Using the Flux API<a class="headerlink" href="#using-the-flux-api" title="Link to this heading"></a></h2>
+<p>Extract fluxes programmatically for single spectra or full data cubes, using
+<code class="docutils literal notranslate"><span class="pre">extract_flux()</span></code> and <code class="docutils literal notranslate"><span class="pre">create_flux_map()</span></code>, the same algorithm as the GUI’s
+<strong>Flux Map</strong> button.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a <strong>different algorithm</strong> from <strong>Multi-Gaussian Fit</strong>, and the two don’t produce
+identical totals for the same spectrum. Both now fit lines simultaneously via the same
+function, so the real remaining difference isn’t the fitting method itself, it’s <em>which</em>
+lines get fit: <code class="docutils literal notranslate"><span class="pre">extract_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_flux_map</span></code> auto-detect lines per pixel and
+only count one that clears a signal-to-noise threshold first (<code class="docutils literal notranslate"><span class="pre">snr_threshold</span></code>, default
+3σ). <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines</span></code> has no SNR gate at all: it fits whatever you selected, weak
+lines included. Summed over many pixels this adds up to Flux Map running
+systematically lower. Lowering <code class="docutils literal notranslate"><span class="pre">snr_threshold</span></code> would let more noise into the flux
+instead (a trade-off, not a fix).</p>
+</div>
+<p><strong>Extract Flux from a Single Spectrum</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_flux</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+<span class="n">flux_result</span> <span class="o">=</span> <span class="n">extract_flux</span><span class="p">(</span>
+    <span class="n">wavelength</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span>
+    <span class="n">spectrum</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span>
+    <span class="n">target_catalog_path</span><span class="o">=</span><span class="s2">&quot;path/to/CO_catalog.ecsv&quot;</span><span class="p">,</span>
+    <span class="n">header</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">header</span><span class="p">,</span>      <span class="c1"># Required for the erg/s/cm2 conversion</span>
+    <span class="n">wave_unit</span><span class="o">=</span><span class="n">cube</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total flux: </span><span class="si">{</span><span class="n">flux_result</span><span class="p">[</span><span class="s1">&#39;flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">flux_result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Number of lines detected: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">flux_result</span><span class="p">[</span><span class="s1">&#39;detected_lines&#39;</span><span class="p">])</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean continuum level: </span><span class="si">{</span><span class="n">flux_result</span><span class="p">[</span><span class="s1">&#39;mean_continuum&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Create Flux Maps</strong></p>
+<p>Generate flux maps for the entire data cube:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">create_flux_map</span>
+
+<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+<span class="c1"># Uses HITRAN (CO by default) automatically, or pass target_catalog_path for a custom catalog</span>
+<span class="n">flux_map_result</span> <span class="o">=</span> <span class="n">create_flux_map</span><span class="p">(</span>
+    <span class="n">cube</span><span class="p">,</span>
+    <span class="n">wavelength_min</span><span class="o">=</span><span class="mf">4.70</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="mf">4.80</span><span class="p">,</span>
+    <span class="n">n_jobs</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Flux map shape: </span><span class="si">{</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, unit: </span><span class="si">{</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean flux: </span><span class="si">{</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">][</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;flux_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pixels with a detection: </span><span class="si">{</span><span class="p">(</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;detection_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Pixels with a contam detection: </span><span class="si">{</span><span class="p">(</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;contam_detection_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean contam flux: </span><span class="si">{</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;contam_flux_map&#39;</span><span class="p">][</span><span class="n">flux_map_result</span><span class="p">[</span><span class="s1">&#39;contam_flux_map&#39;</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Continuum subtraction works the same way as <code class="docutils literal notranslate"><span class="pre">extract_flux</span></code> above (automatic per
+pixel, with the default parameters unless you pass your own via <code class="docutils literal notranslate"><span class="pre">continuum_params</span></code>).</p>
+<p><strong>Expected Catalog Format</strong></p>
+<p>The target catalog file should be in ECSV (Enhanced Character Separated Values) format with columns:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">line_wave_um</span></code>: Wavelength in micrometers</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">species</span></code>: Molecule name (e.g., “CO”, “H2”)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">transition</span></code>: Transition description (e.g., “v=1-&gt;0, J=4-&gt;5”)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">a</span></code>: Einstein A coefficient</p></li>
+</ul>
+<p>Columns are loaded as-is, with no validation: a file missing <code class="docutils literal notranslate"><span class="pre">line_wave_um</span></code> or
+<code class="docutils literal notranslate"><span class="pre">species</span></code> won’t fail at load time, only later inside the fit, as a <code class="docutils literal notranslate"><span class="pre">KeyError</span></code>.</p>
+<p><strong>Tips for Flux Extraction</strong></p>
+<ul class="simple">
+<li><p>Ensure your wavelength calibration is accurate (errors affect line identification)</p></li>
+<li><p>The algorithm automatically measures line widths and integrates flux</p></li>
+<li><p>For more control over individual line fits, use <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines()</span></code> instead</p></li>
+</ul>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> — the general per-pixel Gaussian fitting this shares its
+algorithm with</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — other export paths</p></li>
+<li><p><a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Image Viewer</span></a> — open the exported target/contam flux maps with WCS support</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="continuum_subtraction.html" class="btn btn-neutral float-left" title="Continuum Subtraction" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="rotational_diagram.html" class="btn btn-neutral float-right" title="Rotational Diagram" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Ilaria Pascucci.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

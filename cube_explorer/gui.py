@@ -1774,13 +1774,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self._refresh_active_spectrum_tab()
 
         sel = self.last_selection_left if target == "left" else self.last_selection_right
-        has_region = bool(sel) and sel.get("shape") != "*"
         btn = self.export_region_btn_l if target == "left" else self.export_region_btn_r
-        btn.setEnabled(has_region)
+        btn.setEnabled(bool(sel))
 
     def _export_region_cube(self, target):
         """Save the cube to a new FITS file with spaxels outside the
-        selected region set to NaN.
+        selected region (or, for a Point selection, outside that single
+        pixel) set to NaN.
 
         Args:
             target (str): Panel whose selection defines the region, 'left'
@@ -1790,12 +1790,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             None
         """
         sel = self.last_selection_left if target == "left" else self.last_selection_right
-        if not sel or sel.get("shape") == "*":
+        if not sel:
             QMessageBox.warning(
                 self, "Region Selection Required",
-                f"Select a region (not a single point) on the {target.capitalize()} side first."
+                f"Select a region or pixel on the {target.capitalize()} side first."
             )
             return
+
+        if sel.get("shape") == "*":
+            # Point selections carry raw (x, y) coords, not a mask -- build
+            # a single-True-pixel mask the same shape export_region_cube expects.
+            x, y = sel["coords"]
+            cube = self.cube_data.cube
+            spatial_shape = cube.shape[1:] if self.cube_data.spec_axis == 0 else \
+                tuple(s for i, s in enumerate(cube.shape) if i != self.cube_data.spec_axis)
+            mask = np.zeros(spatial_shape, dtype=bool)
+            mask[y, x] = True
+        else:
+            mask = sel["mask"]
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Region as Cube", "", "FITS files (*.fits)")
@@ -1805,7 +1817,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             path += ".fits"
 
         try:
-            self.cube_data.export_region_cube(sel["mask"], path)
+            self.cube_data.export_region_cube(mask, path)
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Could not export region cube:\n{e}")
             return

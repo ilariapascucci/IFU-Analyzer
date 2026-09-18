@@ -515,10 +515,13 @@ def export_residual_cube(cube_data, out_path="residual_cube.fits", lam_min=None,
         lam_min (float, optional): Minimum wavelength for the fit window
         lam_max (float, optional): Maximum wavelength for the fit window
         n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)
-        return_cube (bool): If True, also return the residual array in memory
+        return_cube (bool): If True, return the residual array instead of writing
+            to out_path -- the two are exclusive, not additive: out_path is
+            ignored when return_cube is True.
 
     Returns:
-        str, or (str, array) if return_cube=True: Path to the written FITS file
+        array or None: The residual cube if return_cube is True; otherwise None
+            (the FITS file is written to out_path as a side effect instead).
 
     Example:
         >>> cube = load_cube("data.fits")
@@ -742,6 +745,260 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     )
 
 
+# --- Rotational Diagram Map API ---
+# Per-pixel maps, one cube or several at different pixel scales (rotational_diagram_map.py).
+
+from .rotational_diagram_map import (
+    fit_pixel as _rdm_fit_pixel,
+    fit_region as _rdm_fit_region,
+    create_rotational_diagram_map as _rdm_create_map,
+    fit_region_multi as _rdm_fit_region_multi,
+    create_rotational_diagram_map_multi as _rdm_create_map_multi,
+    fit_pixel_multi as _rdm_fit_pixel_multi,
+    save_rotational_diagram_map_fits as _rdm_save_fits,
+    STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
+)
+
+
+def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, opr=None,
+               fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
+               dedup_tol_um=1e-5, contam_lines=None):
+    """Fit one rotational diagram to a cube's summed spectrum over a region.
+    This is the same fit the GUI's Run Fit button runs. Pass a mask to sum
+    only some pixels, or omit it to sum the whole cube.
+
+    Args:
+        cube_data (CubeData): Loaded cube from load_cube()
+        line_table (list): Line dicts with 'wavelength', 'a_coeff', 'e_upper', 'Gp',
+            and 'branch'/'j_lower' for H2 S-branch lines -- the same rows the GUI's
+            HITRAN fetch or CSV import populate
+        mask (np.ndarray, optional): 2D boolean array, same spatial shape as the
+            cube. True pixels are summed; None sums every pixel
+        molecule (str): Species name; 'H2' uses the OPR-capable fitter
+        isotopologue (int): HITRAN isotopologue number, ignored for H2
+        opr (float, optional): Fixed ortho-para ratio, H2 only
+        fit_opr (bool): Grid-search OPR to minimize chi-squared, H2 only
+        opr_grid (array, optional): OPR values to search, H2 only
+        dist_pc (float): Source distance in parsecs
+        r_au (float, optional): Emitting region radius in AU. None reports Ncol
+            as a total molecule count instead of a column density
+        min_lines (int): Fewest detected lines needed before fitting
+        dedup_tol_um (float): Co-located-line merge tolerance in microns
+        contam_lines (pd.DataFrame, optional): Contaminating lines to give their
+            own component in the fit, same format create_flux_map accepts
+
+    Returns:
+        dict: 'status' (int, one of STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/
+            STATUS_FIT_FAILED), 'n_pixels', 'n_lines', and on STATUS_OK also
+            'results' (rotational_diagram()'s own return value); otherwise
+            'reason' explains why no fit was attempted
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> result = fit_region(cube, line_table)
+        >>> if result['status'] == STATUS_OK:
+        ...     print(result['results']['1T']['T'])
+    """
+    return _rdm_fit_region(cube_data, line_table, mask=mask, molecule=molecule,
+                           isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
+                           opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
+                           min_lines=min_lines, dedup_tol_um=dedup_tol_um,
+                           contam_lines=contam_lines)
+
+
+def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=None,
+              fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
+              dedup_tol_um=1e-5, contam_lines=None):
+    """Fit one rotational diagram to a single pixel's own spectrum.
+    This is fit_region for one pixel instead of a summed region.
+
+    Args:
+        cube_data (CubeData): Loaded cube from load_cube()
+        x (int): Spatial x pixel index
+        y (int): Spatial y pixel index
+        line_table (list): Line dicts, see fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+            dedup_tol_um, contam_lines: Same meaning as in fit_region
+
+    Returns:
+        dict: Same shape as fit_region's return, for this one pixel
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> result = fit_pixel(cube, 21, 21, line_table)
+    """
+    return _rdm_fit_pixel(cube_data, x, y, line_table, molecule=molecule,
+                          isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
+                          opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
+                          min_lines=min_lines, dedup_tol_um=dedup_tol_um,
+                          contam_lines=contam_lines)
+
+
+def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopologue=1,
+                                   opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0,
+                                   r_au=None, min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
+                                   contam_lines=None, progress_callback=None, cancel_flag=None):
+    """Fit a 1T rotational diagram at every pixel of one cube.
+    Same fit as the GUI's Run Map button, run once per pixel.
+
+    Args:
+        cube_data (CubeData): Loaded cube from load_cube()
+        line_table (list): Line dicts, see fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, dedup_tol_um,
+            contam_lines: Same meaning as in fit_region
+        min_lines (int): Fewest lines a pixel needs, checked separately at each
+            pixel -- one pixel can use different lines than its neighbor
+        n_jobs (int): Worker threads, one cube row per task
+        progress_callback (callable, optional): progress_callback(done_pixels, total_pixels)
+        cancel_flag (object, optional): Object with a `.cancelled` attribute, checked
+            between rows so a long-running map can be stopped early
+
+    Returns:
+        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2),
+            'n_lines' (2D int, lines used per pixel), 'status' (2D int, one of
+            STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),
+            'region_fit' (the whole-cube-summed anchor fit, same as fit_region's
+            return), plus 'header', 'wave_range', 'molecule', 'dist_pc', 'r_au',
+            'opr', 'kept_lines', 'dropped_lines'
+
+    Raises:
+        ValueError: if a multi-cube list is not on one spatial grid
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> result = create_rotational_diagram_map(cube, line_table, n_jobs=4)
+        >>> print(f"Fitted {(result['status'] == STATUS_OK).sum()} pixels")
+    """
+    return _rdm_create_map(cube_data, line_table, molecule=molecule,
+                           isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
+                           opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
+                           min_lines=min_lines, dedup_tol_um=dedup_tol_um, n_jobs=n_jobs,
+                           contam_lines=contam_lines, progress_callback=progress_callback,
+                           cancel_flag=cancel_flag)
+
+
+def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
+                      fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                      min_lines=3, dedup_tol_um=1e-5, contam_lines=None):
+    """Fit one rotational diagram from several cubes at once, one line per cube.
+    This is fit_region for many cubes instead of one. No convolution or
+    reprojection is needed here, since every pixel of every cube is summed.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+            dedup_tol_um, contam_lines: Same meaning as in fit_region
+
+    Returns:
+        dict: 'status' (int, one of STATUS_OK/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),
+            'n_lines', 'n_pixels' (total spaxels summed, across every cube), 'n_cubes',
+            and on STATUS_OK also 'results'; otherwise 'reason'
+
+    Example:
+        >>> cubes_and_lines = [(load_cube("h2_s1.fits"), {"wavelength": 17.034846}),
+        ...                    (load_cube("h2_s2.fits"), {"wavelength": 12.278612})]
+        >>> result = fit_region_multi(cubes_and_lines)
+    """
+    return _rdm_fit_region_multi(cubes_and_lines, molecule=molecule,
+                                 isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
+                                 opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
+                                 min_lines=min_lines, dedup_tol_um=dedup_tol_um,
+                                 contam_lines=contam_lines)
+
+
+def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopologue=1,
+                                         opr=None, fit_opr=False, opr_grid=None,
+                                         dist_pc=140.0, r_au=None, min_lines=3,
+                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
+                                         progress_callback=None, cancel_flag=None):
+    """Fit a 1T rotational diagram at every pixel of a common grid built from
+    several cubes at different pixel scales, one line per cube. Convolves
+    and reprojects each cube onto that grid first, then fits like Run Map.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube,
+            at least 2
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+            dedup_tol_um, contam_lines: Same meaning as in fit_region
+        n_jobs (int): Worker threads for each cube's native-grid extraction
+        progress_callback (callable, optional): progress_callback(done_units, total_units),
+            spanning every native-grid extraction plus the final per-pixel fit
+        cancel_flag (object, optional): Object with a `.cancelled` attribute
+
+    Returns:
+        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2),
+            'n_lines' (2D int), 'status' (2D int, see create_rotational_diagram_map),
+            'region_fit' (the whole-cube-summed anchor fit, same as fit_region_multi's
+            return), plus 'dst_wcs' (the new common-grid WCS), 'molecule', 'dist_pc',
+            'r_au', 'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
+            'dropped_lines'
+
+    Raises:
+        ValueError: if fewer than 2 pairs are given, a cube has no readable
+            celestial WCS/pixel scale, or two inputs share no sky coverage
+
+    Example:
+        >>> cubes_and_lines = [(load_cube("h2_s1.fits"), {"wavelength": 17.034846}),
+        ...                    (load_cube("h2_s2.fits"), {"wavelength": 12.278612})]
+        >>> result = create_rotational_diagram_map_multi(cubes_and_lines, n_jobs=4)
+        >>> print(f"Common grid: {result['T'].shape}, worst pixel scale: "
+        ...       f"{result['worst_pix_arcsec']:.4f} arcsec")
+    """
+    return _rdm_create_map_multi(cubes_and_lines, molecule=molecule,
+                                 isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
+                                 opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
+                                 min_lines=min_lines, dedup_tol_um=dedup_tol_um,
+                                 n_jobs=n_jobs, contam_lines=contam_lines,
+                                 progress_callback=progress_callback, cancel_flag=cancel_flag)
+
+
+def fit_pixel_multi(result, x, y, molecule='H2', isotopologue=1, opr=None, fit_opr=False,
+                     opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3):
+    """Re-fit one pixel of a create_rotational_diagram_map_multi result.
+    Uses its cached per-line maps instead of redoing the convolution.
+
+    Args:
+        result (dict): Output of create_rotational_diagram_map_multi
+        x (int): Spatial x index on the result's common grid
+        y (int): Spatial y index on the result's common grid
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines:
+            Same meaning as in fit_region
+
+    Returns:
+        dict: Same shape as fit_pixel's return, for this pixel of the common grid
+
+    Raises:
+        KeyError: if `result` has no cached per-line maps (predates this
+            function, or came from a different map type)
+
+    Example:
+        >>> result = create_rotational_diagram_map_multi(cubes_and_lines)
+        >>> refit = fit_pixel_multi(result, 10, 15, fit_opr=True)
+    """
+    return _rdm_fit_pixel_multi(result, x, y, molecule=molecule, isotopologue=isotopologue,
+                                opr=opr, fit_opr=fit_opr, opr_grid=opr_grid,
+                                dist_pc=dist_pc, r_au=r_au, min_lines=min_lines)
+
+
+def save_rotational_diagram_map_fits(result, output_path):
+    """Write a rotational-diagram-map result to a multi-extension FITS file:
+    one image HDU each for T, T_err, Ncol, Ncol_err, n_lines, and status.
+
+    Args:
+        result (dict): Output of create_rotational_diagram_map or
+            create_rotational_diagram_map_multi
+        output_path (str): Destination FITS path
+
+    Returns:
+        None
+
+    Example:
+        >>> result = create_rotational_diagram_map(cube, line_table)
+        >>> save_rotational_diagram_map_fits(result, "rot_diag_map.fits")
+    """
+    _rdm_save_fits(result, output_path)
+
+
 # --- Unit Conversion API: no wrapper functions here, use astropy.units
 # directly, e.g. (2.293*u.um).to(u.Hz, equivalencies=u.brightness_temperature(...)). ---
 __all__ = [
@@ -763,4 +1020,16 @@ __all__ = [
     'create_flux_map',
     # Rotational Diagram
     'rotational_diagram',
+    # Rotational Diagram Map
+    'fit_region',
+    'fit_pixel',
+    'create_rotational_diagram_map',
+    'fit_region_multi',
+    'create_rotational_diagram_map_multi',
+    'fit_pixel_multi',
+    'save_rotational_diagram_map_fits',
+    'STATUS_OK',
+    'STATUS_NO_DATA',
+    'STATUS_TOO_FEW_LINES',
+    'STATUS_FIT_FAILED',
 ]

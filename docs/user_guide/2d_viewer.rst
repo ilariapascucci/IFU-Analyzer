@@ -11,11 +11,7 @@ This guide walks through every feature of the viewer in the order most
 users will encounter them. For a top-level feature summary, see the
 2D FITS Dual Image Viewer section of :doc:`../features`.
 
-.. contents::
-   :local:
-   :depth: 2
-
-.. image:: ../_static/2d_viewer_main.png
+.. image:: ../_static/2d_overview.png
    :alt: The 2D FITS Dual Image Viewer with all controls visible
    :align: center
    :width: 100%
@@ -42,7 +38,7 @@ Loading images
   Gaussian-derived maps (peak, sigma, area), moment maps, RGB-channel
   exports, etc.
 
-.. image:: ../_static/2d_viewer_loaded.png
+.. image:: ../_static/2dslice_normal.png
    :alt: 2D viewer with an image loaded, WCS grid, colorbar, and stats panel
    :align: center
    :width: 70%
@@ -117,10 +113,10 @@ Performing a rotation
 3. Click **Rotate** and pick the panel (**Left** / **Right**) to apply
    the rotation to.
 
-.. image:: ../_static/2d_rotation.png
-   :alt: Rotation actions panel and before/after of a 90 degree rotation
+.. image:: ../_static/2dslice_rotateCCW90.png
+   :alt: The same slice after a 90 degree counter-clockwise rotation, WCS grid still correct
    :align: center
-   :width: 75%
+   :width: 55%
 
 What happens internally
 -----------------------
@@ -178,7 +174,7 @@ background statistics.
 
 The result is a contour overlay on the chosen panel:
 
-.. image:: ../_static/2d_contour_overlay.png
+.. image:: ../_static/2dslice_contour.png
    :alt: Image with contour overlay at multiple sigma levels
    :align: center
    :width: 55%
@@ -196,20 +192,8 @@ the two images have:
 - Different array sizes
 - Different orientations
 
-Select **Other Slice (Match WCS)** as the "Generate contour FROM"
-source:
-
-.. image:: ../_static/2d_contour_dialog_cross.png
-   :alt: Plot WCS Contour dialog set to generate contours from the other panel
-   :align: center
-   :width: 50%
-
-The contours then match across both panels via WCS:
-
-.. image:: ../_static/2d_cross_contour.png
-   :alt: Both panels showing WCS-matched contours of the same source
-   :align: center
-   :width: 100%
+Select **Other Slice (Match WCS)** as the "Generate contour FROM" source, and the contours
+match across both panels via WCS.
 
 Stacking and clearing
 ---------------------
@@ -358,6 +342,26 @@ Guards and edge cases
   full-coverage output region is empty (e.g. very thin edge-only
   overlap), the viewer warns and does not save an all-NaN result.
 
+Worked example: MIRI ch1-long (Left) and ch2-long (Right) as the pair, both in log scale:
+
+.. image:: ../_static/miri_ch1_long.png
+   :alt: MIRI ch1-long flux map on its own native pixel grid, log scale
+   :align: center
+   :width: 55%
+
+.. image:: ../_static/miri_ch2_long.png
+   :alt: MIRI ch2-long flux map on its own native pixel grid, log scale
+   :align: center
+   :width: 55%
+
+And the Slides Convolute result -- ch1-long convolved and reprojected onto ch2-long's
+(coarser) grid, still in log scale:
+
+.. image:: ../_static/miri_ch1_ch2_long.png
+   :alt: ch1-long after Slides Convolute matches it to ch2-long's resolution and grid, log scale
+   :align: center
+   :width: 55%
+
 
 Batch Convolution — multi-image resolution matching
 ===================================================
@@ -377,11 +381,6 @@ Procedure
 The dialog prevents you from launching when the inputs cover disjoint
 sky regions — a "No Sky Overlap" warning lists which file pairs don't
 share sky, so you can remove the off-field file before retrying.
-
-.. image:: ../_static/2d_batch_convolution_dialog.png
-   :alt: The Batch Match Resolution dialog with several FITS files added
-   :align: center
-   :width: 50%
 
 What happens internally
 -----------------------
@@ -417,15 +416,28 @@ Output
 Region Selection
 ================
 
-The 2D Viewer supports the same region tools as the main cube viewer:
+The 2D Viewer shares its region-selection code with the main cube viewer (the same
+``RegionSelectionMixin``), so drawing, editing, and reading stats back all work the same
+way as :doc:`selecting_regions`:
 
 - **Point** — single-pixel readout
 - **Rectangle** — axis-aligned box
 - **Circle** — fixed-aspect-ratio ellipse
 - **Ellipse** — independently adjustable major and minor axes
-- **Custom polygon** — click to add vertices, double-click to close
+- **Freehand** — click to add vertices, double-click to close
 
-Once a region is drawn on either panel, statistics appear in the image
-stats panel: min, max, mean, sum, std for the pixels enclosed by the
-region. Region handles are interactive — drag to move, drag corners to
-resize.
+Once a region is drawn on either panel, statistics appear in the image stats panel: min,
+max, mean, sum, std for the pixels enclosed by the region. **Edit Shape** toggles
+drag/resize handles and **Copy Color** copies this panel's colormap to the other panel,
+exactly as in :doc:`selecting_regions`.
+
+.. note::
+
+   **💾** Export Region (:doc:`selecting_regions`) is main-window only -- it isn't
+   available in the 2D Viewer.
+
+**Copy** is the one place behavior actually differs: the two 2D panels can hold images of
+completely different pixel scale and orientation (unlike the main viewer's two slices,
+which always share one cube's grid), so copying a selection here reprojects its corners
+through both panels' WCS -- a rectangle can come out as a rotated polygon on the other
+side if the two images don't share an orientation, rather than a plain pixel-index copy.

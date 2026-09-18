@@ -17,6 +17,18 @@ Starting Flux Extraction
 4. Choose transition level (optional, different molecules have different transition levels)
 5. Refresh HITRAN cache (optional)
 
+Seven common molecules are preloaded and ready offline, no fetch needed: **H2O, CO2, CO,
+OH, HCN, C2H2, H2**. Any other molecule is fetched live from HITRAN the first time you
+request it (via HAPI, version 1.3.0.0), then cached locally for next time.
+
+52 molecules have lines in the 1–30 µm range this app targets, and support transition-level
+filtering (step 4 above):
+
+CO, H2, OH, H2O, HCN, C2H2, CO2, CS, OCS, SO2, C2H6, C4H2, HC3N, CH4, NH3, CH3, H3⁺, HF,
+HCl, HBr, HI, N2, NO⁺, NO, ClO, O2, SO, O3, N2O, NO2, HNO3, H2CO, HOCl, H2O2, H2S, HO2,
+COF2, COCl2, CS2, PH3, SO3, GeH4, HCOOH, C2H4, CH3OH, CH3Cl, CH3Br, CH3CN, CH3F, CH3I,
+COFCl, ClNO2.
+
 **Import Lines**
 
 When HITRAN isn't reachable, click **Import Lines** to load your own line list from a CSV
@@ -25,20 +37,31 @@ instead. Both ``wavelength`` and ``species`` columns are required.
 Once lines are loaded (either way), the spectrum shows them. Hovering over a line shows its
 species, wavelength, transition, and Einstein coefficients. Click **Lines** to open a table
 of every currently loaded line: detections and contaminants together, with "Detection
-Only"/"Contaminating Only" filters. Check/uncheck rows to change what's plotted.
+Only"/"Contaminating Only" filters. Check/uncheck rows to change what's plotted. Click any
+column header to sort by that column.
 
 Load Contaminating Lines
 =========================
 
-Additionally (and optionally), you can load a catalog of contaminating (non-target) lines
-so both **Flux Map** and **Multi-Gaussian Fit** (below) can account for them instead of
-letting their flux distort a nearby target line's measurement.
+Additionally (and optionally), you can mark contaminating (non-target) lines so both
+**Flux Map** and **Multi-Gaussian Fit** (below) can account for them instead of letting
+their flux distort a nearby target line's measurement. Two ways, and they merge together:
+
+**From a CSV**
 
 1. Click **Contam. Lines** and load a CSV file with unwanted lines
 
 Both ``wavelength`` and ``species`` columns are required.
 
-Run **Flux Map** / **Multi-Gaussian Fit** again after loading it for the fit to pick it up.
+**By marking one on the spectrum**
+
+1. Click **Mark Contaminant**, then click the feature on the spectrum
+2. No HITRAN match is needed -- it's listed with species "N/A"
+3. The button stays toggled on so you can mark several in a row; click it again to stop
+4. To remove one, uncheck it in **Lines** or click its marker on the spectrum
+
+Run **Flux Map** / **Multi-Gaussian Fit** again after loading or marking one for the fit to
+pick it up.
 
 Multi-Gaussian Fit
 =====================
@@ -54,12 +77,12 @@ that starting point (center within ±1 instrumental σ of the catalog wavelength
 0.5–2× the instrumental value), so a real line can settle slightly off its catalog center or
 resolve a little narrower/wider than nominal.
 
-If you've loaded a contaminating-lines catalog (above), any contaminant sharing a
-wavelength chunk with a requested line gets its own Gaussian component too, so its flux is
-absorbed there instead of leaking into that line's amplitude. It's drawn in **grey** on the
-plot and listed separately in the results. It's never counted toward the target line total or
-"Total Integrated Flux", but summed on its own as "Total Contaminant Flux" (see *Reading
-the results* below).
+If you've loaded or marked a contaminating line (above) sharing a wavelength chunk with a
+requested line, it gets its own Gaussian component too, so its flux is absorbed there
+instead of leaking into that line's amplitude. It's drawn in **grey** on the plot and
+interleaved with the target lines in the results, in wavelength order. It's never counted
+toward the target line total or "Total Integrated Flux", but summed on its own as "Total
+Contaminant Flux" (see *Reading the results* below).
 
 1. (Optional) Fit a continuum first via **Continuum Tools → Automatic Continuum → Continuum
    Line**. If you skip this, **Multi-Gaussian Fit** computes one automatically the first
@@ -110,20 +133,53 @@ An **OVERALL** summary follows every line block, e.g. from a real 56-line CO run
 summed separately from ``Total Integrated Flux`` (contaminants are never considered for the
 target total).
 
-A **CONTAMINATING LINES** section follows whenever any contaminant got its own component:
-wavelength, species, amplitude and area for each (not part of the target line count or
-totals above). From the same run:
+Contaminant lines are not grouped into a trailing section. Each one appears as its own
+``Contam N`` block, interleaved with the target ``Line N`` blocks by fitted wavelength --
+matching where it actually sits in the spectrum, not sorted apart from the detections:
 
 .. code-block:: text
 
-    CONTAMINATING LINES (not part of the 56 lines above -- shown in grey on the plot):
+    FITTED LINES (target and contaminant, by wavelength):
     ======================================================================
-    1. H2 @ 4.410011 µm  amplitude=6.3049e+03 MJy sr⁻¹  area=2.9563e-16 erg/s/cm²
-    2. H2 @ 4.416644 µm  amplitude=4.0638e+03 MJy sr⁻¹  area=2.3147e-16 erg/s/cm²
-    3. H2 @ 4.502312 µm  amplitude=1.4162e-03 MJy sr⁻¹  area=4.3696e-23 erg/s/cm²
-    4. H2 @ 4.575760 µm  amplitude=2.8655e+03 MJy sr⁻¹  area=9.2912e-17 erg/s/cm²
-    5. H2 @ 4.655038 µm  amplitude=1.7061e+03 MJy sr⁻¹  area=2.0365e-16 erg/s/cm²
-    6. H2 @ 4.694877 µm  amplitude=3.3151e+04 MJy sr⁻¹  area=1.5537e-15 erg/s/cm²
+    Line 1: CO
+      ...
+      ────────────────────────────────────────────────────────────
+    Contam 1: H2 (not one of the 56 target lines; shown in grey on the plot)
+      Center (λ):            4.410011 µm
+      Amplitude:             6.3049e+03 MJy/sr
+      Integrated Area:       2.9563e-16 erg/s/cm²
+      ────────────────────────────────────────────────────────────
+    Line 2: CO
+      ...
+
+``Contam N`` numbers its own kind (1, 2, 3, ...), separate from the ``Line N`` count above
+it -- neither numbering is global across the whole listing.
+
+How Chunking Works
+--------------------
+
+**Multi-Gaussian Fit** does not fit each line alone. It groups nearby lines into chunks
+first.
+
+A chunk is a group of lines close enough in wavelength to overlap. Lines in one chunk
+share one continuum. The fit solves for every line in the chunk at the same time, in one
+``curve_fit`` call.
+
+This matters because two close lines share flux where they overlap. A fit that sees only
+one line assigns it all of that shared flux. An independent fit of the next line then
+claims some of the same flux again. Together, the two fits overcount the true flux.
+
+A joint fit avoids this. Each line in the chunk still gets its own Gaussian, but every
+line in the chunk fits against the same data and the same baseline at once. The fit splits
+overlapping flux between the lines that actually produced it, instead of double-counting it.
+
+Lines just outside a chunk can still affect it. The fit borrows these nearby lines into the
+joint model too, so their tails do not leak into the chunk's own lines. A borrowed line's
+flux does not count toward the chunk it was borrowed into -- it is only there to keep that
+chunk's own fit honest.
+
+The result: every plotted line, in every chunk, is fit at the same time as its neighbors.
+No line's flux comes from a fit that ignored what sits next to it.
 
 Using the API
 --------------
@@ -192,19 +248,19 @@ The **Display** dropdown in the results window switches between four maps, all f
 same run. The flux/detection labels reflect whichever species was targeted (e.g. "CO Flux"
 for a CO run, "H2 Flux" for H2) -- the example below used CO:
 
-.. figure:: ../_static/coflux_docs.png
+.. figure:: ../_static/flux_map.png
    :alt: CO rovibrational flux map, showing a bright compact source
    :width: 100%
 
    **CO Flux**: integrated flux per pixel, for a run targeting CO.
 
-.. figure:: ../_static/det_docs.png
+.. figure:: ../_static/detection_map.png
    :alt: Map of the number of CO lines detected per pixel, diamond-shaped field of view
    :width: 100%
 
    **Detection Count**: number of target lines detected per pixel, for the same cube.
 
-.. figure:: ../_static/contamflux_docs.png
+.. figure:: ../_static/contam_map.png
    :alt: Contaminating-line flux map, peaking at the same location as the CO flux map but roughly an order of magnitude fainter
    :width: 100%
 
@@ -212,7 +268,7 @@ for a CO run, "H2 Flux" for H2) -- the example below used CO:
    same per-pixel fit and summed separately from the target flux (never mixed into the
    target total).
 
-.. figure:: ../_static/detcontam_docs.png
+.. figure:: ../_static/contam_detection_map.png
    :alt: Map of the number of contaminating lines detected per pixel
    :width: 100%
 
@@ -225,7 +281,7 @@ map is currently selected.
 
 With **Pixel Select** on (the default), clicking a pixel on any of the four maps opens that pixel's fit:
 
-.. figure:: ../_static/pixelcoflux_docs.png
+.. figure:: ../_static/pixel_spectrum.png
    :alt: Pixel spectrum zoomed to the fitted wavelength range, with the fitted continuum and every CO line marked in red
    :width: 100%
 

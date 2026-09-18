@@ -74,7 +74,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="continuum_subtraction.html">Continuum Subtraction</a></li>
-<li class="toctree-l2"><a class="reference internal" href="co_flux_extraction.html">CO Flux Extraction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flux_extraction.html">Flux Extraction</a></li>
 <li class="toctree-l2"><a class="reference internal" href="rotational_diagram.html">Rotational Diagram</a></li>
 <li class="toctree-l2"><a class="reference internal" href="exporting_data.html">Exporting Data</a></li>
 <li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
@@ -303,8 +303,8 @@ guess existed, <code class="docutils literal notranslate"><span class="pre">area
 <section id="inspecting-individual-pixels">
 <h2>Inspecting Individual Pixels<a class="headerlink" href="#inspecting-individual-pixels" title="Link to this heading"></a></h2>
 <p>With <strong>Pixel Select</strong> on (the default), clicking a pixel on the map opens that pixel’s own
-fit, the same control as <a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a>’s pixel inspector, but for a single
-Gaussian instead of a multi-line CO fit. Turn <strong>Pixel Select</strong> off to zoom/pan the map
+fit, the same control as <a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a>’s pixel inspector, but for a single
+Gaussian instead of a multi-line fit. Turn <strong>Pixel Select</strong> off to zoom/pan the map
 freely instead of reopening this dialog on every click.</p>
 <figure class="align-default" id="id2">
 <a class="reference internal image-reference" href="../_images/gaussian_map_pixel.png"><img alt="Single-pixel Gaussian fit inspector, showing the spectrum, baseline, fitted curve, and stored parameters" src="../_images/gaussian_map_pixel.png" style="width: 100%;" />
@@ -397,10 +397,10 @@ file:</p>
     <span class="n">lam_max</span><span class="o">=</span><span class="mf">7.517421</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="c1"># Or keep the array in memory as well</span>
-<span class="n">path</span><span class="p">,</span> <span class="n">residuals</span> <span class="o">=</span> <span class="n">export_residual_cube</span><span class="p">(</span>
-    <span class="n">cube</span><span class="p">,</span> <span class="n">out_path</span><span class="o">=</span><span class="s2">&quot;residual.fits&quot;</span><span class="p">,</span>
-    <span class="n">lam_min</span><span class="o">=</span><span class="mf">7.492291</span><span class="p">,</span> <span class="n">lam_max</span><span class="o">=</span><span class="mf">7.517421</span><span class="p">,</span> <span class="n">return_cube</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="c1"># return_cube=True returns the array INSTEAD of writing a file --</span>
+<span class="c1"># out_path is ignored in this mode, it&#39;s not written in addition</span>
+<span class="n">residuals</span> <span class="o">=</span> <span class="n">export_residual_cube</span><span class="p">(</span>
+    <span class="n">cube</span><span class="p">,</span> <span class="n">lam_min</span><span class="o">=</span><span class="mf">7.492291</span><span class="p">,</span> <span class="n">lam_max</span><span class="o">=</span><span class="mf">7.517421</span><span class="p">,</span> <span class="n">return_cube</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 </div>
@@ -424,7 +424,7 @@ interpreting a parameter map</p></li>
 <ul class="simple">
 <li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> — turn per-pixel line fluxes into temperatures, handling the
 upper limits correctly</p></li>
-<li><p><a class="reference internal" href="co_flux_extraction.html"><span class="doc">CO Flux Extraction</span></a> — simultaneous multi-line fitting for CO rovibrational bands</p></li>
+<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a> — simultaneous multi-line fitting for rovibrational bands, any species</p></li>
 <li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — other export paths</p></li>
 <li><p><a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Image Viewer</span></a> — open the exported parameter maps with WCS support</p></li>
 </ul>

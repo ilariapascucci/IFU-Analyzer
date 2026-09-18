@@ -2,42 +2,48 @@
 GUI Overview
 ============
 
-This section explains the major components of the IFU Analyzer interface and how to navigate them effectively.
+The main window is built around two mirrored slice panels, Left and Right, that drive one
+shared spectrum panel below them -- setting a slice or selecting a region on either side
+updates that side's own analysis and spectrum tab independently of the other.
 
 Main Window Layout
 ==================
 
-The IFU Analyzer window is organized into several key areas:
-
 .. image:: /_static/gui_overview.png
-   :alt: GUI Layout
+   :alt: The main Cube Explorer window, showing the Left/Right slice panels, tool group toolbar, and spectrum panel with display controls
 
-*Note: Screenshot showing main interface layout*
+The window loaded above (a MIRI cube): Left and Right intensity maps at top, each with its
+own running stats (min/max/mean/sum/std) and cursor readout; the Gaussian Fit / Continuum
+Tools / Rotational Diagram / HITRAN tool groups in the blue bar; and the spectrum panel
+with its Set Slice / tab / Normalize / Shift controls and plot at the bottom.
 
 **1. Menu Bar** (Top)
 
-- **Open FITS**: Open FITS file
-- **Header**: Display header(s) of FITS file
-- **🔄**: Refresh program window
-- **🗗**: Open new program window
-- **2D**: Open 2D section of program
+- **Open FITS**: browse for and load a FITS cube or 2D image; the instrument is
+  auto-detected from the header
+- **Header**: view the FITS header of the loaded file(s)
+- **🔄**: complete reset -- clears every plot, region selection, normalization, and
+  Gaussian fit, then reloads the spectrum from the original data
+- **🗗**: open a second, independent Cube Explorer window
+- **2D**: open the :doc:`2D FITS Dual Viewer <2d_viewer>`
 
 **2. Main Viewing Area** (Top Center)
 
 Displays the currently selected wavelength left and right slices:
 
 - **Intensity Map**: Color-coded flux data with statistics
-- **Color & Scale**: Edit color scheme or scale
+- **🌈🎚 Color & Scale**: Edit color scheme or scale
 - **Region Selection**: Select a region of a slice for analysis
 
-  - Pixel
-  - Rectangle
-  - Circle
-  - Ellipse
-  - Free-Form (polygon)
-  - Edit the placed region (drag/resize)
-  - Copy the selection from the adjacent slice
-  - Copy the colormap from the adjacent slice
+  - **\*** Pixel
+  - **▭** Rectangle
+  - **○** Circle
+  - **⬭** Ellipse
+  - **✏** Free-Form (polygon)
+  - **✎** Edit the placed region (drag/resize)
+  - **⎘** Copy the selection from the adjacent slice
+  - **⎘🌈** Copy the colormap from the adjacent slice
+  - **💾** Export the region as a NaN-masked FITS cube (:doc:`selecting_regions`)
 
 **3. Spectrum Panel** (Bottom Center)
 
@@ -93,11 +99,7 @@ a row of display/navigation controls that are always visible.
 Getting Help
 ============
 
-If you forget a button's function:
-
-- **Hover**: Mouse over buttons to see tooltip
-- **Toolbar Buttons**: Use buttons for common tasks
-- **This Guide**: Full documentation available
+Every button has a tooltip -- hover over one if you're not sure what it does.
 
 Next Steps
 ==========
@@ -107,6 +109,6 @@ Each tool group above has its own dedicated page with the full workflow:
 1. :doc:`gaussian_fitting_1d` and :doc:`gaussian_fitting_cube` for the Gaussian Fit group
 2. :doc:`continuum_subtraction` for the Continuum Tools group
 3. :doc:`rotational_diagram` for the Rotational Diagram group
-4. :doc:`co_flux_extraction` for the HITRAN group's fetch/plot workflow
+4. :doc:`flux_extraction` for the HITRAN group's fetch/plot workflow
 5. :doc:`selecting_regions` and :doc:`spectrum_display` for the display
    controls row (Set Slice, Full/Left/Right tabs, Normalize, Shift)

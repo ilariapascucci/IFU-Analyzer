@@ -272,10 +272,10 @@ file:
         lam_max=7.517421,
     )
 
-    # Or keep the array in memory as well
-    path, residuals = export_residual_cube(
-        cube, out_path="residual.fits",
-        lam_min=7.492291, lam_max=7.517421, return_cube=True,
+    # return_cube=True returns the array INSTEAD of writing a file --
+    # out_path is ignored in this mode, it's not written in addition
+    residuals = export_residual_cube(
+        cube, lam_min=7.492291, lam_max=7.517421, return_cube=True,
     )
 
 Constraints and Tips
