@@ -587,6 +587,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.load_contam_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.load_contam_btn)
 
+        self.save_fluxes_btn = QPushButton("Save Fluxes")
+        self.save_fluxes_btn.setToolTip(
+            "Save the checked lines' species, wavelength, flux, and flux error to a CSV, "
+            "in the same format Import from CSV reads -- so re-selecting these same lines "
+            "later doesn't need Calculate Fluxes run again."
+        )
+        self.save_fluxes_btn.clicked.connect(self.save_fluxes_to_csv)
+        self.save_fluxes_btn.setVisible(False)  # Hidden until lines are loaded
+        button_layout.addWidget(self.save_fluxes_btn)
+
         self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
         self.contam_status_label.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.contam_status_label)
@@ -598,10 +608,27 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return frame
     
     def on_molecule_changed(self, molecule):
-        """Update UI when molecule selection changes.
+        """Update UI when the Molecule dropdown itself changes.
 
         Args:
             molecule (str): Newly selected molecule name.
+
+        Returns:
+            None
+        """
+        self._apply_molecule_change(molecule)
+        # A new molecule means different wavelengths/A_ul/E_u -- start clean
+        # rather than leave the old molecule's stale table around.
+        self._clear_loaded_lines()
+
+    def _apply_molecule_change(self, molecule):
+        """Sync window title, isotopologue range, and OPR availability to a
+        molecule, without touching any lines already loaded -- the part of a
+        molecule switch that's safe to reuse when the lines themselves are
+        the reason for the switch (see import_csv_file's auto-sync).
+
+        Args:
+            molecule (str): Molecule name to apply.
 
         Returns:
             None
@@ -615,10 +642,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not is_h2 and self.fit_opr_check.isChecked():
             self.fit_opr_check.setChecked(False)
         self.fit_opr_check.setEnabled(is_h2)
-
-        # A new molecule means different wavelengths/A_ul/E_u -- start clean
-        # rather than leave the old molecule's stale table around.
-        self._clear_loaded_lines()
 
     def _clear_loaded_lines(self):
         """Discard fetched/imported lines and drop the FITS cubes/contaminant
@@ -638,6 +661,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_fluxes_btn.setVisible(False)
         self.load_fits_btn.setVisible(False)
         self.load_contam_btn.setVisible(False)
+        self.save_fluxes_btn.setVisible(False)
         self.contam_status_label.setVisible(False)
 
         self.loaded_batch_fits_paths = []
@@ -1151,6 +1175,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_fluxes_btn.setVisible(True)
         self.load_fits_btn.setVisible(True)
         self.load_contam_btn.setVisible(True)
+        self.save_fluxes_btn.setVisible(True)
         self.contam_status_label.setVisible(True)
 
         self._reset_batch_cubes()
@@ -1227,6 +1252,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                         error_col = col_actual
                         break
 
+                # Check for optional upper_limit column (written by Save Fluxes)
+                upper_limit_col = available_cols.get('upper_limit')
+
                 # Map column names (case-insensitive)
                 species_col = available_cols['species']
                 wavelength_col = available_cols['wavelength']
@@ -1259,6 +1287,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                                 except ValueError:
                                     pass
 
+                        # Upper-limit flag, if the CSV has one (Save Fluxes writes 1/0)
+                        if upper_limit_col:
+                            ul_str = (row_dict.get(upper_limit_col) or '').strip().lower()
+                            row_info['upper_limit'] = ul_str in ('1', 'true', 'yes')
+
                         csv_data.append(row_info)
                     except (ValueError, TypeError):
                         # Skip rows with invalid species/wavelength
@@ -1271,7 +1304,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             # Now enrich CSV data with HITRAN values for A and E_u
             # Group CSV data by species to batch-fetch HITRAN data
             species_list = list(set(row['species'] for row in csv_data))
-            
+
+            # A CSV that's entirely one molecule -- switch the Molecule dropdown to
+            # match instead of silently fitting it as whatever molecule was already
+            # selected (H2's j_lower keying breaks on non-H2 P/R-branch data).
+            if len(species_list) == 1 and species_list[0] != self.current_molecule \
+                    and species_list[0] in MOLECULE_ISOTOPOLOGUES:
+                new_molecule = species_list[0]
+                self.mol_combo.blockSignals(True)
+                self.mol_combo.setCurrentText(new_molecule)
+                self.mol_combo.blockSignals(False)
+                self._apply_molecule_change(new_molecule)
+
             # Get wavelength ranges to fetch
             all_wavelengths = [row['wavelength'] for row in csv_data]
             wl_min = min(all_wavelengths) - 0.1  # Buffer for rounding
@@ -1360,6 +1404,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 if 'flux_error' in csv_row:
                     row_data['flux_error'] = csv_row['flux_error']
 
+                # Carry the upper-limit flag, if the CSV had one
+                if 'upper_limit' in csv_row:
+                    row_data['upper_limit'] = csv_row['upper_limit']
+
                 rows.append(row_data)
 
             self._reset_batch_cubes()
@@ -1374,6 +1422,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.calculate_fluxes_btn.setVisible(True)
             self.load_fits_btn.setVisible(True)
             self.load_contam_btn.setVisible(True)
+            self.save_fluxes_btn.setVisible(True)
             self.contam_status_label.setVisible(True)
 
             # Count successful matches
@@ -1413,7 +1462,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             QMessageBox.critical(self, "Import Error", f"Failed to import CSV:\n{str(e)}")
     
     def populate_csv_errors(self):
-        """Populate error column if flux_error was in CSV.
+        """Populate error column if flux_error was in CSV, then re-check
+        Upper Limit if the CSV had that flag -- reusing sync_flux_error_flag's
+        own stash, so a re-imported upper limit keeps its real error too.
 
         Args:
             None
@@ -1427,13 +1478,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 if 'flux_error' in line_data:
                     # Determine which column to fill based on error mode
                     is_value_mode = "Values" in self.error_mode.currentText()
-                    
+
                     if is_value_mode:
                         # Column 7: Flux Error (absolute value)
                         error_item = self.lines_table.item(row, 7)
                         if error_item:
                             error_item.setText(f"{line_data['flux_error']:.4e}")
-                        
+
                         # Calculate percentage for column 8
                         flux_text = self.lines_table.item(row, 6).text()
                         if flux_text:
@@ -1445,7 +1496,17 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                                     pct_item.setText(f"{pct:.1f}")
                             except ValueError:
                                 pass
-    
+
+                # Must run after the error/pct text above is set, so the stash
+                # below has the real value to hide, not a blank cell.
+                if line_data.get('upper_limit'):
+                    ul_item = self.lines_table.item(row, 9)
+                    if ul_item:
+                        self.lines_table.blockSignals(True)
+                        ul_item.setCheckState(Qt.Checked)
+                        self.lines_table.blockSignals(False)
+                        self.sync_flux_error_flag(row)
+
     def load_batch_fits_files(self):
         """Select and cache the FITS cube(s) Calculate Fluxes will use. Adds
         to whatever's already loaded, so reopening this dialog for another
@@ -1536,6 +1597,78 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.contam_lines = loaded
         self.contam_status_label.setText(f"{len(loaded)} contaminating line(s) loaded")
         self.contam_status_label.setToolTip(os.path.basename(file_path))
+
+    def save_fluxes_to_csv(self):
+        """Save the checked lines' species/wavelength/flux/flux error/upper-limit
+        flag to a CSV that import_csv_file() reads back, so Calculate Fluxes
+        need not rerun on them. Upper limits keep their real error too --
+        it's read from its UserRole stash, not the blanked visible cell.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        rows_to_save = []
+        for row in range(self.lines_table.rowCount()):
+            select_item = self.lines_table.item(row, 0)
+            if not (select_item and select_item.checkState() == Qt.Checked):
+                continue
+            flux_item = self.lines_table.item(row, 6)
+            flux_text = flux_item.text().strip() if flux_item else ""
+            if not flux_text:
+                continue
+            ul_item = self.lines_table.item(row, 9)
+            is_upper_limit = bool(ul_item and ul_item.checkState() == Qt.Checked)
+
+            # Upper limits stash their error in UserRole and blank the visible
+            # cell (sync_flux_error_flag) -- read the stash, not the blank text.
+            error_item = self.lines_table.item(row, 7)
+            error_text = ""
+            if error_item:
+                error_text = (error_item.data(Qt.UserRole) if is_upper_limit
+                              else error_item.text()) or ""
+                error_text = error_text.strip()
+
+            rows_to_save.append({
+                "species": self.hitran_lines[row].get("species", "Unknown"),
+                "wavelength": self.hitran_lines[row]["wavelength"],
+                "flux": flux_text,
+                "flux_error": error_text,
+                "upper_limit": "1" if is_upper_limit else "0",
+            })
+
+        if not rows_to_save:
+            QMessageBox.warning(
+                self, "Nothing to Save",
+                "No checked line has a flux value yet -- run Calculate Fluxes, "
+                "or enter fluxes by hand, first."
+            )
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Fluxes as CSV", "", "CSV Files (*.csv)")
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".csv"):
+            file_path += ".csv"
+
+        try:
+            with open(file_path, "w", newline="") as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=["species", "wavelength", "flux", "flux_error", "upper_limit"])
+                writer.writeheader()
+                writer.writerows(rows_to_save)
+        except Exception as e:
+            QMessageBox.critical(self, "Save Failed", f"Could not save fluxes:\n{e}")
+            return
+
+        QMessageBox.information(
+            self, "Fluxes Saved",
+            f"Saved {len(rows_to_save)} line(s) to:\n{file_path}\n\n"
+            f"Use Import from CSV to reload them without recalculating."
+        )
 
     def open_batch_flux_dialog(self):
         """Open dialog for batch flux calculation from multiple FITS files.

@@ -140,9 +140,12 @@ then click <strong>Fetch from HITRAN</strong>. Populates the table with every ma
 wavelength, A coefficient, E<sub>upper</sub> and statistical weight — the flux columns are
 left blank for you to fill in.</p></li>
 <li><p><strong>Import from CSV</strong> — load a file with <code class="docutils literal notranslate"><span class="pre">species</span></code>, <code class="docutils literal notranslate"><span class="pre">wavelength</span></code> and <code class="docutils literal notranslate"><span class="pre">flux</span></code> columns
-(a column with “error” in its name is optional), e.g. <code class="docutils literal notranslate"><span class="pre">data/H2_lines.csv</span></code>. Each row is
-matched to the nearest HITRAN line by wavelength to fill in A/E<sub>upper</sub>/g<sub>upper</sub>
-automatically, and its flux (and error, if present) populate the table directly.</p></li>
+(a column with “error” in its name is optional, and so is <code class="docutils literal notranslate"><span class="pre">upper_limit</span></code> – the format
+<strong>Save Fluxes</strong> writes), e.g. <code class="docutils literal notranslate"><span class="pre">data/H2_lines.csv</span></code>. Each row is matched to the nearest
+HITRAN line by wavelength to fill in A/E<sub>upper</sub>/g<sub>upper</sub> automatically, and
+its flux (and error/upper-limit, if present) populate the table directly. If every row is
+the same molecule and it isn’t the one currently selected above, the <strong>Molecule</strong> dropdown
+switches to match.</p></li>
 </ul>
 <p>A <strong>Calculate Fluxes</strong> button also appears once HITRAN lines are fetched, for measuring
 fluxes directly from a loaded cube instead of entering them by hand. Every line covered by
@@ -150,6 +153,12 @@ the same FITS file is fit simultaneously via <code class="docutils literal notra
 <a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a>’s <strong>Multi-Gaussian Fit</strong>, not a separate implementation), and the
 results, including flux error, upper-limit status, and fit quality, are written straight
 into the table below.</p>
+<p>Once fluxes are in the table, <strong>Save Fluxes</strong> writes every checked line’s species,
+wavelength, flux, flux error, and upper-limit flag to a CSV – the same format
+<strong>Import from CSV</strong> reads. Selecting the same lines again later is then an import, not a
+re-run of Calculate Fluxes. An upper limit’s real flux error is saved too, not lost just
+because the checkbox hides it from the table – and re-importing checks <strong>Upper Limit?</strong>
+again automatically instead of showing it as a plain detection.</p>
 <p><strong>Step 2: Select Lines and Enter Flux Data</strong></p>
 <figure class="align-default" id="id1">
 <a class="reference internal image-reference" href="../_images/rotdiag_overview.png"><img alt="The Rotational Diagram Analyzer window, showing the line table and the Run Fit / Run Map buttons side by side" src="../_images/rotdiag_overview.png" style="width: 100%;" />

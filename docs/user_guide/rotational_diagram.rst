@@ -23,9 +23,12 @@ Two ways to populate the line table:
   wavelength, A coefficient, E\ :sub:`upper` and statistical weight — the flux columns are
   left blank for you to fill in.
 - **Import from CSV** — load a file with ``species``, ``wavelength`` and ``flux`` columns
-  (a column with "error" in its name is optional), e.g. ``data/H2_lines.csv``. Each row is
-  matched to the nearest HITRAN line by wavelength to fill in A/E\ :sub:`upper`/g\ :sub:`upper`
-  automatically, and its flux (and error, if present) populate the table directly.
+  (a column with "error" in its name is optional, and so is ``upper_limit`` -- the format
+  **Save Fluxes** writes), e.g. ``data/H2_lines.csv``. Each row is matched to the nearest
+  HITRAN line by wavelength to fill in A/E\ :sub:`upper`/g\ :sub:`upper` automatically, and
+  its flux (and error/upper-limit, if present) populate the table directly. If every row is
+  the same molecule and it isn't the one currently selected above, the **Molecule** dropdown
+  switches to match.
 
 A **Calculate Fluxes** button also appears once HITRAN lines are fetched, for measuring
 fluxes directly from a loaded cube instead of entering them by hand. Every line covered by
@@ -33,6 +36,13 @@ the same FITS file is fit simultaneously via ``curve_fit`` (the same chunked eng
 :doc:`flux_extraction`'s **Multi-Gaussian Fit**, not a separate implementation), and the
 results, including flux error, upper-limit status, and fit quality, are written straight
 into the table below.
+
+Once fluxes are in the table, **Save Fluxes** writes every checked line's species,
+wavelength, flux, flux error, and upper-limit flag to a CSV -- the same format
+**Import from CSV** reads. Selecting the same lines again later is then an import, not a
+re-run of Calculate Fluxes. An upper limit's real flux error is saved too, not lost just
+because the checkbox hides it from the table -- and re-importing checks **Upper Limit?**
+again automatically instead of showing it as a plain detection.
 
 **Step 2: Select Lines and Enter Flux Data**
 
