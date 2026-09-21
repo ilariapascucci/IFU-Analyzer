@@ -1,7 +1,9 @@
 """
 Pixel-by-pixel rotational diagram map: runs the region-level fit at every
-spatial pixel of one cube, or several co-aligned cubes with their spectra
-stitched. Detections only -- a line below the 3-sigma floor is dropped.
+spatial pixel of one cube. Several cubes always go through the _multi
+functions' convolve+reproject path onto a common grid -- registration is
+never assumed from a tolerance check, only verified by construction.
+Detections only -- a line below the 3-sigma floor is dropped.
 """
 
 import sys
@@ -9,7 +11,6 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
-from types import SimpleNamespace
 
 import numpy as np
 
@@ -36,117 +37,33 @@ STATUS_FIT_FAILED = 3        # the rotational_diagram call raised
 
 MAP_KEYS = ("T", "T_err", "Ncol", "Ncol_err")
 
-class _StitchedCube:
-    """
-    Present several co-aligned cubes as one cube with a concatenated spectrum.
-
-    Args:
-        cubes (list): CubeData objects that pass _cubes_coaligned
-
-    Returns:
-        None
-    """
-
-    def __init__(self, cubes):
-        """Concatenate the cubes' wavelength grids into one sorted axis.
-
-        Args:
-            cubes (list): CubeData objects that pass _cubes_coaligned.
-
-        Returns:
-            None
-        """
-        self._cubes = cubes
-        waves = [np.asarray(extract_units(c.wavelength)[0], dtype=float) for c in cubes]
-        cat = np.concatenate(waves)
-        self._order = np.argsort(cat)
-        self.wavelength = cat[self._order]
-        self.header = cubes[0].header
-        _, n_y, n_x = cubes[0].cube.shape
-        # Only .shape is ever read off self.cube
-        self.cube = SimpleNamespace(shape=(self.wavelength.size, n_y, n_x))
-
-    def get_pixel_spectrum(self, x, y):
-        """
-        Concatenated flux at pixel (x, y), sorted to match self.wavelength.
-
-        Args:
-            x (int): Spatial x index
-            y (int): Spatial y index
-
-        Returns:
-            spectrum (np.ndarray) or None: Flux values, or None if every cube
-                returns None
-        """
-        parts = []
-        for cube in self._cubes:
-            s = cube.get_pixel_spectrum(x, y)
-            if s is None:
-                s = np.full(cube.cube.shape[0], np.nan)
-            parts.append(np.asarray(s, dtype=float))
-        cat = np.concatenate(parts)
-        if np.all(np.isnan(cat)):
-            return None
-        return cat[self._order]
-
-
-def _cubes_coaligned(cubes, tol_frac=0.1):
-    """
-    Check that every cube shares one spatial grid, so no reprojection is needed.
-
-    Args:
-        cubes (list): CubeData objects, each with cube.shape and header
-        tol_frac (float): Allowed corner mismatch, as a fraction of a pixel
-
-    Returns:
-        result (tuple): (ok, message). ok is True when the grids match; message
-            names the first mismatch otherwise
-    """
-    if len(cubes) < 2:
-        return True, ""
-    ref = cubes[0]
-    ref_ny, ref_nx = ref.cube.shape[1], ref.cube.shape[2]
-    ref_scale = _get_pixel_size_arcsec(ref.header)
-    ref_wcs = _make_2d_wcs(ref.header)
-    for cube in cubes[1:]:
-        ny, nx = cube.cube.shape[1], cube.cube.shape[2]
-        if (ny, nx) != (ref_ny, ref_nx):
-            return False, f"spatial shape {ny}x{nx} != {ref_ny}x{ref_nx}"
-        scale = _get_pixel_size_arcsec(cube.header)
-        if ref_scale and scale and abs(scale - ref_scale) > tol_frac * ref_scale:
-            return False, f"pixel scale {scale:.4f} != {ref_scale:.4f} arcsec"
-        wcs = _make_2d_wcs(cube.header)
-        if ref_wcs is not None and wcs is not None and ref_scale:
-            for px, py in ((0, 0), (ref_nx - 1, ref_ny - 1)):
-                sep = ref_wcs.pixel_to_world(px, py).separation(
-                    wcs.pixel_to_world(px, py)).arcsec
-                if sep > tol_frac * ref_scale:
-                    return False, f"corner offset {sep:.4f} arcsec at ({px},{py})"
-    return True, ""
-
-
 def _resolve_cube(cube_or_list):
     """
-    Accept one cube or a co-aligned list, and return one cube-like object.
+    Accept one cube, or a one-element list holding it, and return the cube.
 
     Args:
-        cube_or_list (CubeData or list): A single cube, or several co-aligned cubes
+        cube_or_list (CubeData or list): A single cube, or a one-element list
 
     Returns:
-        cube (object): The cube itself, or a _StitchedCube over the list
+        cube (CubeData): The cube itself
 
     Raises:
-        ValueError: if a multi-cube list is not on one spatial grid
+        ValueError: if more than one cube is given -- fit_pixel/fit_region/
+            create_rotational_diagram_map take exactly one; use
+            fit_pixel_multi/fit_region_multi/create_rotational_diagram_map_multi
+            for several cubes. Those always convolve and reproject onto a
+            common grid rather than assuming several cubes are already
+            aligned, so there is no "cubes share one grid" fast path here.
     """
     if not isinstance(cube_or_list, (list, tuple)):
         return cube_or_list
     if len(cube_or_list) == 1:
         return cube_or_list[0]
-    ok, msg = _cubes_coaligned(list(cube_or_list))
-    if not ok:
-        raise ValueError(f"Cubes are not on a common spatial grid ({msg}); "
-                         f"reprojection is not supported yet.")
-    return _StitchedCube(list(cube_or_list))
+    raise ValueError(
+        f"Got {len(cube_or_list)} cubes; this function takes exactly one. "
+        f"Use fit_pixel_multi/fit_region_multi/create_rotational_diagram_map_multi "
+        f"for several cubes."
+    )
 
 
 def _line_keys(lines, molecule):
@@ -373,7 +290,7 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
     Fit one pixel and return the full rotational_diagram result for display.
 
     Args:
-        cube_or_list (CubeData or list): The cube, or co-aligned cubes to stitch
+        cube_or_list (CubeData or list): One cube, or a one-element list holding it
         x (int): Spatial x index
         y (int): Spatial y index
         line_table (list): Line dicts, see create_rotational_diagram_map
@@ -409,7 +326,7 @@ def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=
     Fit one rotational diagram to the summed spectrum over `mask`.
 
     Args:
-        cube_or_list (CubeData or list): The cube, or co-aligned cubes to stitch
+        cube_or_list (CubeData or list): One cube, or a one-element list holding it
         line_table (list): Line dicts, see create_rotational_diagram_map
         mask (np.ndarray): 2D bool of pixels to sum. None sums every pixel
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
@@ -466,7 +383,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     Fit a 1T rotational diagram at every spatial pixel of the cube.
 
     Args:
-        cube_or_list (CubeData or list): The cube, or co-aligned cubes to stitch
+        cube_or_list (CubeData or list): One cube, or a one-element list holding it
         line_table (list): Line dicts with 'wavelength', 'a_coeff', 'e_upper', 'Gp'
             and 'branch'/'j_lower' for H2 S-branch lines
         molecule (str): Species name; 'H2' uses the OPR-capable fitter
@@ -489,7 +406,8 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
             'r_au', 'opr', 'kept_lines', 'dropped_lines'
 
     Raises:
-        ValueError: if a multi-cube list is not on one spatial grid
+        ValueError: if more than one cube is given -- use
+            create_rotational_diagram_map_multi instead
     """
     cube = _resolve_cube(cube_or_list)
     if cube.cube is None:

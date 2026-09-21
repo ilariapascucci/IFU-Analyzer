@@ -39,13 +39,13 @@ class RotDiagMapWorker(QThread):
     Background thread that builds the rotational diagram map.
 
     Args:
-        cube_or_list (CubeData or list): One cube, or co-aligned cubes to stitch.
+        cube_or_list (CubeData): One cube, for the single-cube path.
             None when cubes_and_lines is given instead
         line_table (list): Line dicts for the fit. None when cubes_and_lines
             is given instead
-        cubes_and_lines (list): (CubeData, line_dict) pairs, one per cube, for
-            cubes on different grids -- routes to the convolve+reproject path.
-            None for the single-cube/co-aligned path
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per line, for
+            two or more cubes -- always routes to the convolve+reproject path,
+            even if the cubes already look aligned. None for the single-cube path
         kwargs (dict): Passed through to whichever create_rotational_diagram_map*
             function is used
 
@@ -61,9 +61,9 @@ class RotDiagMapWorker(QThread):
         """Store the fit inputs for run() to consume on the worker thread.
 
         Args:
-            cube_or_list (CubeData or list): One cube, or co-aligned cubes to stitch.
+            cube_or_list (CubeData): One cube, for the single-cube path.
             line_table (list): Line dicts for the fit.
-            cubes_and_lines (list): (CubeData, line_dict) pairs for cubes on different grids.
+            cubes_and_lines (list): (CubeData, line_dict) pairs for two or more cubes.
             kwargs (dict): Passed through to whichever create_rotational_diagram_map* function is used.
 
         Returns:

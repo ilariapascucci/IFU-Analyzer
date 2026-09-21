@@ -29,7 +29,7 @@ from .rotational_diagram_h2_fitter import (
 )
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .flux_map_extractor import DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
-from .rotational_diagram_map import _cubes_coaligned, convolution_plan, _line_keys
+from .rotational_diagram_map import convolution_plan, _line_keys
 from .rotational_diagram_map_dialogs import RotDiagMapWorker, RotDiagMapResultsDialog
 
 
@@ -2691,8 +2691,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
     def run_rotational_map(self):
         """Run the same fit at every pixel of the loaded cube(s), 1T,
-        detections only. Cubes on one grid stitch per pixel; cubes on
-        different grids convolve/reproject onto a common WCS instead.
+        detections only. A single cube fits on its own native grid; two or
+        more always convolve/reproject onto a common WCS, even if they
+        already look aligned -- registration is verified by construction,
+        never assumed from a tolerance check.
 
         Args:
             None
@@ -2725,16 +2727,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         multi_mode = False
         cubes_and_lines = None
         if len(cubes) > 1:
-            ok, msg = _cubes_coaligned(cubes)
-            if not ok:
-                cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, line_table)
-                if match_err:
-                    QMessageBox.warning(
-                        self, "Cubes Not Aligned",
-                        f"The loaded cubes are not on one spatial grid ({msg}), so each "
-                        f"line needs to be matched to the cube that covers it.\n\n{match_err}")
-                    return
-                multi_mode = True
+            # Always convolve/reproject for >1 cube -- never assume two cubes
+            # are already on one grid from a tolerance check (see
+            # convolution_plan/create_rotational_diagram_map_multi).
+            cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, line_table)
+            if match_err:
+                QMessageBox.warning(self, "Cubes", match_err)
+                return
+            multi_mode = True
 
         try:
             dist_pc = float(self.distance_input.text().strip())
@@ -2803,14 +2803,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if not self._show_convolution_plan_confirm(plan):
                 return
         else:
-            # Same grid either way (stitched cubes share one), so cubes[0]'s
-            # shape stands for all of them.
+            # Only reachable with exactly one cube now -- >1 always takes the
+            # multi_mode branch above.
             n_y, n_x = cubes[0].cube.shape[1], cubes[0].cube.shape[2]
             proceed = QMessageBox.question(
                 self, "Run Map",
-                f"No convolution needed -- {len(cubes)} cube(s) already on one grid "
-                f"({n_y}x{n_x} px), {len(line_table)} line(s).\n\n"
-                "Run the fit for every pixel?",
+                f"Run the fit for every pixel of the {n_y}x{n_x} px cube, "
+                f"{len(line_table)} line(s)?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
             if proceed != QMessageBox.Yes:
                 return
