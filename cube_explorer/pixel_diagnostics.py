@@ -21,7 +21,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 from matplotlib.figure import Figure
 
 from .gaussian_fitter import (
-    gaussian, calculate_baseline, compute_noise_std, pixel_fit_status,
+    gaussian, calculate_baseline, compute_line_free_noise_std, pixel_fit_status,
     STATUS_DETECTION, STATUS_UPPER_LIMIT,
 )
 
@@ -111,7 +111,7 @@ class PixelFitDialog(QDialog):
             noise_mask = (self.wavelength >= nmin) & (self.wavelength <= nmax)
             if np.count_nonzero(noise_mask) >= 2:
                 try:
-                    self.noise_std = compute_noise_std(
+                    self.noise_std = compute_line_free_noise_std(
                         self.wavelength[noise_mask], cube[noise_mask, self.row, self.col])
                 except Exception:
                     self.noise_std = None
@@ -233,8 +233,8 @@ class PixelFitDialog(QDialog):
         ax_data.grid(True, alpha=0.3)
         ax_data.set_xlim(self.lam_min - pad, self.lam_max + pad)
 
-        # Residual panel removed 2026-08-20 -- compute_noise_std reads ~0.4x true sigma,
-        # so good fits looked like 5-sigma failures. Restore once the noise estimator is fixed.
+        # Residual panel removed 2026-08-20: the old noise estimator read ~0.4x true sigma, so good
+        # fits looked like 5-sigma failures. Fixed by compute_line_free_noise_std; the panel can return.
 
         self.fig.tight_layout()
         self.canvas.draw()

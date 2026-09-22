@@ -32,7 +32,7 @@ from scipy.interpolate import UnivariateSpline
 
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
-    compute_noise_std,
+    compute_noise_std, compute_mad_noise_std,
     GaussianFitResult, gaussian,
 )
 from .utils import get_spectral_resolution
@@ -236,14 +236,7 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
 
     # Estimate noise level for significance testing
     if noise_std is None:
-        try:
-            noise_std = compute_noise_std(xwave, yflux, pdeg=1)
-            if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
-                # Fallback: use median absolute deviation as noise estimate
-                noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
-        except Exception:
-            # Fallback: use median absolute deviation as noise estimate
-            noise_std = np.nanmedian(np.abs(yflux - np.nanmedian(yflux))) * 1.4826
+        noise_std = compute_mad_noise_std(yflux)
 
     print(f"    [FIND_LINES DEBUG] noise_std={noise_std:.6e}, SNR threshold={snr_threshold * noise_std:.6e}")
     
@@ -943,6 +936,10 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             placeholder; this function does not correct for velocity shift, since line
             centers fit freely within fit_glines' own bounds. results and contam_results
             are lists of (line_dict, GaussianFitResult) pairs. results keeps hitran_lines' order.
+
+    Raises:
+        ValueError: if the noise of the spectrum cannot be estimated for the blend check
+            (the estimate is missing, zero, negative, or not finite)
     """
     spectrum_x = extract_value_from_quantity(spectrum_x)
     spectrum_y = extract_value_from_quantity(spectrum_y)
@@ -1052,11 +1049,14 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     else:
         detcontaminating_lines = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'sigma'])
 
-    # Same fallback chain as extract_flux_from_spectrum's shared_noise_std, for the
-    # merge blend-check below (real signal between two lines, not a formula guess).
+    # Noise for the merge blend-check below. An unusable value stops the run
+    # instead of being replaced by a different estimator.
     noise_std = compute_noise_std(spectrum_x, y_corrected, degree=1)
     if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
-        noise_std = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected))) * 1.4826
+        raise ValueError(
+            "Cannot estimate this spectrum's noise for the blend check: "
+            "the estimate is missing, zero, negative, or not finite."
+        )
 
     all_centers = list(detco_lines['line']) + list(detcontaminating_lines['line'])
     all_sigmas = list(detco_lines['sigma']) + list(detcontaminating_lines['sigma'])
@@ -1299,13 +1299,8 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
 
     print(f"  [DEBUG] Target catalog size: {len(target_catalog_for_fit)} lines")
 
-    # Compute noise
-    try:
-        shared_noise_std = compute_noise_std(spectrum_wave, spectrum_flux, pdeg=1)
-        if shared_noise_std is None or not np.isfinite(shared_noise_std) or shared_noise_std <= 0:
-            shared_noise_std = np.nanmedian(np.abs(spectrum_flux - np.nanmedian(spectrum_flux))) * 1.4826
-    except Exception:
-        shared_noise_std = np.nanmedian(np.abs(spectrum_flux - np.nanmedian(spectrum_flux))) * 1.4826
+    # Whole spectrum with lines in it: MAD, since the lines would inflate a plain std.
+    shared_noise_std = compute_mad_noise_std(spectrum_flux)
 
     # Find detected lines (contam_catalog can be None if user didn't upload contaminating lines)
     detected_lines = find_lines(

@@ -12,9 +12,9 @@ from .flux_map_extractor import (
     AREA_ERROR_SANITY_RATIO, SIGMA_BOUND_LOWER_MULTIPLIER, SIGMA_BOUND_UPPER_MULTIPLIER, gaussian,
 )
 
-# Below this many samples, a fit needs a noise region to run; too narrow a
-# window is otherwise too poorly sampled to trust on its own.
-NOISE_REQUIRED_BELOW_N_POINTS = 15
+# Same floor fit_gaussians_per_pixel uses for the per-pixel map: below this many finite
+# points, a 3-parameter Gaussian fit has 0-1 degrees of freedom, too little to trust.
+MIN_FINITE_POINTS = 5
 
 
 class GuiGaussianMixin:
@@ -275,14 +275,15 @@ class GuiGaussianMixin:
 
         lam_min, lam_max = min(self.gauss_left_x, self.gauss_right_x), max(self.gauss_left_x, self.gauss_right_x)
         spectrum_x_vals = spectrum_x.value if isinstance(spectrum_x, Quantity) else spectrum_x
-        n_points_in_fit = np.count_nonzero((spectrum_x_vals >= lam_min) & (spectrum_x_vals <= lam_max))
-        
-        if n_points_in_fit < NOISE_REQUIRED_BELOW_N_POINTS and (self.gauss_noise_left_x is None or self.gauss_noise_right_x is None):
+        spectrum_y_vals = spectrum_y.value if isinstance(spectrum_y, Quantity) else spectrum_y
+        fit_mask = (spectrum_x_vals >= lam_min) & (spectrum_x_vals <= lam_max)
+        n_finite_in_fit = np.count_nonzero(fit_mask & np.isfinite(spectrum_y_vals))
+
+        if n_finite_in_fit < MIN_FINITE_POINTS:
             QMessageBox.warning(
-                self, "Noise Region Required",
-                f"Narrow range ({n_points_in_fit} points, under "
-                f"{NOISE_REQUIRED_BELOW_N_POINTS}). Define a noise region first, "
-                f"or widen the fit window."
+                self, "Not Enough Data",
+                f"Only {n_finite_in_fit} finite point(s) between Left and Right "
+                f"(need at least {MIN_FINITE_POINTS}). Widen the boundaries."
             )
             return
         
@@ -353,16 +354,15 @@ class GuiGaussianMixin:
         noise_left_x = getattr(self, 'gauss_noise_left_x', None)
         noise_right_x = getattr(self, 'gauss_noise_right_x', None)
 
-        # Noise is only required for narrow windows and never feeds the fit;
-        # say which case applies so an unset region doesn't look forgotten.
+        # Noise is always optional and never feeds the fit itself -- only the
+        # normalized-residual display below -- so just report the point count.
         n_points = len(result.x_data)
-        requirement = "required" if n_points < NOISE_REQUIRED_BELOW_N_POINTS else "not required"
         if noise_left_x is not None and noise_right_x is not None:
             noise_text = (f"{_fmt_input(min(noise_left_x, noise_right_x))} - "
                           f"{_fmt_input(max(noise_left_x, noise_right_x))} "
-                          f"({requirement} at {n_points} points)")
+                          f"({n_points} points in fit window)")
         else:
-            noise_text = f"not set ({requirement} at {n_points} points)"
+            noise_text = f"not set ({n_points} points in fit window)"
 
         user_input_text = f"""USER INPUT:
   Left boundary:         {_fmt_input(left_x)}

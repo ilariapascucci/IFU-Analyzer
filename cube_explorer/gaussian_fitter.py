@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from astropy.units import Quantity
 from typing import Optional, Tuple
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 import numpy as np
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
@@ -89,7 +90,7 @@ def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jo
             # Skip if mean or std are NaN
             if np.isnan(mean_val) or np.isnan(std_val):
                 continue
-            guess = estimate_initial_gaussian_guess(x_data, y_corrected, std_val, mean_val)
+            guess = estimate_initial_gaussian_guess(x_data, y_corrected)
             if guess is None:
                 continue
             amp_guess, center_guess, sigma_guess = guess
@@ -279,7 +280,9 @@ def calculate_baseline(x1: float, y1: float, x2: float, y2: float,
 
 def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: int = 1) -> Optional[float]:
     """
-    Compute a robust noise standard deviation from a line-free region using RANSAC polynomial fitting.
+    Compute a noise std with RANSAC polynomial fitting, from the inlier residuals only.
+    This reads about 0.37x the true noise, so only the blend check in
+    fit_hitran_lines_collective still uses it. Use compute_line_free_noise_std elsewhere.
 
     Args:
         x_data (array): Wavelength for noise region
@@ -288,6 +291,10 @@ def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: int = 1) -
 
     Returns:
         std (float): Robust noise std (std of residuals from RANSAC fit), or None if insufficient data
+
+    Raises:
+        Exception: any error from scikit-learn's RANSAC fit. It is not caught, so a failed
+            fit stops the run and reaches the user, instead of a fallback hiding it
     """
 
     if x_data is None or y_data is None:
@@ -304,33 +311,83 @@ def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: int = 1) -
     if len(x_noise) < max(4, degree + 2):
         return None
 
-    try:
-        ransac_pipeline = make_pipeline(
-            PolynomialFeatures(degree=degree),
-            RANSACRegressor(random_state=42)
-        )
-        
-        # Fit the pipeline and calculate std of residuals
-        ransac_pipeline.fit(x_noise[:, np.newaxis], y_noise)
-        y_fit = ransac_pipeline.predict(x_noise[:, np.newaxis])
-        residuals = y_noise - y_fit
-        # Inliers only
-        inlier_mask = ransac_pipeline.named_steps['ransacregressor'].inlier_mask_
-        std_residuals = np.std(residuals[inlier_mask]) if np.any(inlier_mask) else np.std(residuals)
+    ransac_pipeline = make_pipeline(
+        PolynomialFeatures(degree=degree),
+        RANSACRegressor(random_state=42)
+    )
 
-        if np.isfinite(std_residuals) and std_residuals > 0:
-            return float(std_residuals)
-    except Exception:
-        # RANSAC failed, fall back to simple linear baseline + MAD
-        # NBedit: Added y_noise to the calculate_baseline function
-        baseline = calculate_baseline(x_noise[0], y_noise[0], x_noise[-1], y_noise[-1], x_noise, y_noise)
-        y_corrected = y_noise - baseline
-        mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
-        robust_std = 1.4826 * mad
-        if np.isfinite(robust_std) and robust_std > 0:
-            return float(robust_std)
-    
+    # Fit the pipeline and calculate std of residuals
+    ransac_pipeline.fit(x_noise[:, np.newaxis], y_noise)
+    y_fit = ransac_pipeline.predict(x_noise[:, np.newaxis])
+    residuals = y_noise - y_fit
+    # Inliers only
+    inlier_mask = ransac_pipeline.named_steps['ransacregressor'].inlier_mask_
+    std_residuals = np.std(residuals[inlier_mask]) if np.any(inlier_mask) else np.std(residuals)
+
+    if np.isfinite(std_residuals) and std_residuals > 0:
+        return float(std_residuals)
     return None
+
+
+def compute_line_free_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: int = 1) -> Optional[float]:
+    """
+    Estimate the noise std of a line-free wavelength window.
+    Fits a RANSAC polynomial baseline, then takes the std of all residuals, as in
+    Pascucci's cont_fit_ransac. Use it only where no emission line is in the window.
+
+    Args:
+        x_data (array): Wavelength for the noise window
+        y_data (array): Flux for the noise window
+        degree (int): Polynomial degree (1=linear, 2=quadratic, 3=cubic)
+
+    Returns:
+        std (float): Noise std, or None if there are too few finite points or the estimate is not positive
+
+    Raises:
+        Exception: any error from scikit-learn's RANSAC fit. It is not caught, so a failed
+            fit stops the run and reaches the user, instead of a fallback hiding it
+    """
+    if x_data is None or y_data is None:
+        return None
+
+    finite_mask = np.isfinite(y_data) & np.isfinite(x_data)
+    if np.count_nonzero(finite_mask) < max(4, degree + 2):  # Need enough points for polynomial fit
+        return None
+
+    x_noise = x_data[finite_mask]
+    y_noise = y_data[finite_mask]
+
+    ransac_pipeline = make_pipeline(
+        PolynomialFeatures(degree=degree),
+        RANSACRegressor(random_state=42)
+    )
+    ransac_pipeline.fit(x_noise[:, np.newaxis], y_noise)
+    residuals = y_noise - ransac_pipeline.predict(x_noise[:, np.newaxis])
+    # All residuals, not only the inliers: RANSAC's inlier cut is about 0.67 sigma
+    # wide, so the inliers alone read about 0.37x the true noise.
+    std_residuals = np.std(residuals)
+
+    if np.isfinite(std_residuals) and std_residuals > 0:
+        return float(std_residuals)
+    return None
+
+
+MAD_TO_STD = 1.4826  # 1 / 0.6745, turns a median absolute deviation into a Gaussian sigma
+
+
+def compute_mad_noise_std(y_data: np.ndarray) -> float:
+    """
+    Estimate the noise std of a spectrum that still contains emission lines.
+    Uses 1.4826 x the median absolute deviation, which the lines barely change.
+    Use it for whole spectra with lines, not for line-free windows.
+
+    Args:
+        y_data (array): Continuum-subtracted flux. Can contain NaN
+
+    Returns:
+        std (float): Noise std in the units of y_data. NaN if y_data has no finite values
+    """
+    return float(np.nanmedian(np.abs(y_data - np.nanmedian(y_data))) * MAD_TO_STD)
 
 
 def safe_nanstd(arr: np.ndarray, fallback: float = 0.0) -> float:
@@ -508,39 +565,24 @@ def estimate_gaussian_params(x_data: np.ndarray,
     return amplitude_guess, center_guess, sigma_guess
 
 
-def estimate_initial_gaussian_guess(x_data: np.ndarray, y_corrected: np.ndarray,
-                                    std_val: float, mean_val: float) -> Optional[Tuple[float, float, float]]:
+def estimate_initial_gaussian_guess(x_data: np.ndarray,
+                                    y_corrected: np.ndarray) -> Optional[Tuple[float, float, float]]:
     """
-    Estimate an initial (amplitude, center, sigma) guess for a single pixel's spectrum: a
-    MAD-based sigma when the signal dominates the noise, a plain shape-based estimate otherwise.
-    Shared by fit_gaussians_per_pixel and export_residual_cube_fits (RANSAC vs plain curve_fit).
+    Estimate an initial (amplitude, center, sigma) guess for a single pixel's spectrum from the
+    peak and half-width of its shape. Shared by export_residual_cube_fits and by
+    fit_gaussians_per_pixel, which uses it only when its global seed fit fails.
 
     Args:
         x_data (array): Wavelength values
         y_corrected (array): Baseline-corrected flux values
-        std_val (float): Noise standard deviation for this pixel
-        mean_val (float): Mean of y_corrected, used to classify the low/high noise regime
 
     Returns:
         guess (tuple or None): (amp_guess, center_guess, sigma_guess), or None if estimation failed
     """
-    if std_val < 0.5 * abs(mean_val):
-        # Low noise case: signal dominates noise. Use robust MAD for sigma (outlier-resistant).
-        mad = np.nanmedian(np.abs(y_corrected - np.nanmedian(y_corrected)))
-        robust_std = 1.4826 * mad  # Convert MAD to sigma-equivalent
-        sigma_for_fit = robust_std if robust_std > 0 else std_val
-        try:
-            amp_guess, center_guess, _ = estimate_gaussian_params(x_data, y_corrected)
-            return amp_guess, center_guess, sigma_for_fit
-        except Exception:
-            return None
-    else:
-        # High noise case: noise comparable to signal. Shape-based estimate only (simple, stable).
-        try:
-            return estimate_gaussian_params(x_data, y_corrected)
-        except Exception:
-            return None
-
+    try:
+        return estimate_gaussian_params(x_data, y_corrected)
+    except Exception:
+        return None
 
 def _invalid_selection(x_data: np.ndarray, y_data: np.ndarray,
                        message: str) -> GaussianFitResult:
@@ -653,7 +695,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         nmin, nmax = (noise_min, noise_max) if noise_min <= noise_max else (noise_max, noise_min)
         noise_mask = (spectrum_x >= nmin) & (spectrum_x <= nmax)
         if np.count_nonzero(noise_mask) >= 2:
-            noise_std = compute_noise_std(spectrum_x[noise_mask], spectrum_y[noise_mask])
+            noise_std = compute_line_free_noise_std(spectrum_x[noise_mask], spectrum_y[noise_mask])
 
     std_val_fit = safe_nanstd(y_corrected, fallback=1.0)
     std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
@@ -871,6 +913,275 @@ def fit_status_map(results: dict) -> np.ndarray:
     return status
 
 
+def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Optional[np.ndarray],
+                    ctx: dict):
+    """
+    Fit Gaussian to all pixels in one row (y=const) of the cube.
+    Runs in a worker process, so the row's spectra and every setting come in as arguments.
+
+    Args:
+        row_idx (int): Row index in the cube's spatial y-axis
+        spectra_row (array): Flux in the fit window for this row, shape (n_wave_sel, n_x)
+        spectra_noise_row (array): Flux in the noise window for this row, shape (n_noise, n_x), or None
+        ctx (dict): Settings shared by every row: 'x_data' (fit-window wavelengths), 'noise_x'
+            (noise-window wavelengths or None), 'global_guess' (seed (amp, center, sigma) or None),
+            'fac_above_stdres', 'header', 'unit' (wavelength unit) and 'flux_unit'
+
+    Returns:
+        row (tuple): (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
+            succ_row, det_row, uplim_row, fail_row, residuals_row), each a length-n_x
+            array except row_idx and residuals_row (shape (n_wave_sel, n_x))
+    """
+    x_data = ctx['x_data']
+    noise_x = ctx['noise_x']
+    global_guess = ctx['global_guess']
+    fac_above_stdres = ctx['fac_above_stdres']
+    header = ctx['header']
+    unit = ctx['unit']
+    flux_unit = ctx['flux_unit']
+    x1 = x_data[0]
+    x2 = x_data[-1]
+    x_range = x2 - x1
+    n_wave_sel, n_x = spectra_row.shape
+    amp_row = np.full(n_x, np.nan)
+    ctr_row = np.full(n_x, np.nan)
+    sig_row = np.full(n_x, np.nan)
+    fwhm_row = np.full(n_x, np.nan)
+    area_row = np.full(n_x, np.nan)
+    qual_row = np.full(n_x, np.nan)
+    succ_row = np.zeros(n_x, dtype=bool)
+    det_row = np.zeros(n_x, dtype=bool)  # Detection flag
+    uplim_row = np.zeros(n_x, dtype=bool)  # Upper limit flag
+    fail_row = np.zeros(n_x, dtype=bool)  # Fit-could-not-be-made flag (subset of uplim_row)
+    residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
+
+    def _mark_upper_limit(ix, std, sigma_for_area, center_for_area, fit_failed=False):
+        """
+        Record a fac_above_stdres-sigma upper limit for pixel ix, NaN-ing the fitted-parameter
+        maps. Shared by every non-detection path below; only the args below (and whether the
+        fit machinery itself broke, vs. just found nothing) differ per call site.
+
+        Args:
+            ix (int): Pixel column index within this row
+            std (float): Noise standard deviation used to scale the upper-limit amplitude
+            sigma_for_area (float): Sigma used for the upper-limit area formula
+            center_for_area (float): Line center used for the CGS area conversion
+            fit_failed (bool): True if the fit machinery itself never ran/converged
+
+        Returns:
+            None
+        """
+        upper_limit_amplitude = fac_above_stdres * std
+        area_native = upper_limit_amplitude * sigma_for_area * np.sqrt(2 * np.pi)
+        if header is not None:
+            area_cgs = convert_area_to_cgs(upper_limit_amplitude, sigma_for_area, center_for_area, header, unit, flux_unit)
+            area_row[ix] = area_cgs if area_cgs is not None else area_native
+        else:
+            area_row[ix] = area_native
+        amp_row[ix] = np.nan
+        ctr_row[ix] = np.nan
+        sig_row[ix] = np.nan
+        fwhm_row[ix] = np.nan
+        qual_row[ix] = np.nan
+        succ_row[ix] = False
+        uplim_row[ix] = True
+        if fit_failed:
+            fail_row[ix] = True
+
+    for ix in range(n_x):
+        # ===== PIXEL (row_idx, ix) FITTING START =====
+        y_data = spectra_row[:, ix]
+        noise_std = None
+        if spectra_noise_row is not None and noise_x is not None:
+            # Compute robust noise estimate from line-free region (if provided)
+            noise_std = compute_line_free_noise_std(noise_x, spectra_noise_row[:, ix])
+
+        # ===== STEP 1: EXTRACT & BASELINE SUBTRACTION =====
+        # Get boundary flux values for this pixel's spectrum
+        y1 = y_data[0]
+        y2 = y_data[-1]
+        # STEP 1a: Calculate linear baseline from endpoints
+        #NBedit: Added y_data to the calculate_baseline function
+        baseline = calculate_baseline(x1, y1, x2, y2, x_data, y_data)
+        # STEP 1b: Subtract baseline to isolate the spectral line
+        y_corrected = y_data - baseline
+
+        # ===== DATA VALIDATION: Require minimum 5 finite points =====
+        # Skip pixels with too many NaNs or masked values (prevents R^2 calculation warnings)
+        finite_mask = np.isfinite(y_corrected)
+        n_finite = np.count_nonzero(finite_mask)
+
+        if n_finite == 0:
+            # Completely outside the FOV (all-NaN spectrum). Leaves every output NaN, with
+            # no upper-limit area: the only noise estimate here (safe_nanstd's 1.0 fallback) is artificial.
+            continue
+
+        if n_finite < 5:
+            # Some data, but not enough for a full fit: assigns an upper limit instead.
+            # Uses fallback=None so safe_nanstd can signal "no real estimate" rather than inventing one.
+            std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else safe_nanstd(y_data, fallback=None)
+            if std_temp is None or not np.isfinite(std_temp):
+                # Cannot compute a real noise estimate -- pixel has no usable data,
+                # leave every output NaN (treat as outside FOV).
+                continue
+            # Too few samples to fit at all, not a weak line
+            _mark_upper_limit(ix, std_temp, x_range / 4.0, (x1 + x2) / 2, fit_failed=True)
+            continue
+
+        # ===== STEP 2: ESTIMATE INITIAL PARAMETERS =====
+        # Compute the noise level of this pixel
+        std_val_fit = safe_nanstd(y_corrected, fallback=1.0)
+        std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
+
+        # STEP 2 Decision: Use METHOD A (global) or B (shape)?
+        if global_guess is not None:
+            # Use METHOD A: Global fit parameters for all pixels (fastest)
+            amp_guess, center_guess, sigma_guess = global_guess
+        else:
+            # Use METHOD B: shape-based guess from this pixel's own spectrum
+            guess = estimate_initial_gaussian_guess(x_data, y_corrected)
+            if guess is None:
+                # Could not form an initial guess. Only the area (an upper limit) means
+                # anything here; a limit amplitude and midpoint center would be invented numbers.
+                _mark_upper_limit(ix, std_val, x_range / 4.0, (x1 + x2) / 2, fit_failed=True)
+                continue
+            amp_guess, center_guess, sigma_guess = guess
+
+        # STEP 2c: Cap sigma_guess at 1-sigma so weak/upper-limit fits stay
+        # conservative rather than overestimating intensity.
+        sigma_guess = min(sigma_guess, 0.01 * x_range)
+
+        # STEP 2d: Validate that a positive peak exists
+        # Require positive peak
+        if np.nanmax(y_corrected) <= 0:
+            # Genuine non-detection, not an estimation failure
+            _mark_upper_limit(ix, std_val, x_range / 4.0, (x1 + x2) / 2)
+            continue
+
+        # ===== STEP 3: DEFINE BOUNDS ===== sigma_lower stays independent of x_range;
+        # center/sigma bounds refine below using the global fit when available.
+        sigma_lower = 0
+        sigma_upper = 2 * x_range
+        center_lower = x1
+        center_upper = x2
+        x_space = x_range / len(x_data)  # Average wavelength spacing
+        if global_guess is not None:
+            # Refine bounds based on global fit sigma estimate
+            _, center_global, sigma_global = global_guess
+            sigma_lower = max(sigma_lower, 0.25 * sigma_global)
+            sigma_upper = min(sigma_upper, 4.0 * sigma_global)
+            center_lower = max(x1, center_global - 3 * x_space)
+            center_upper = min(x2, center_global + 3 * x_space)
+
+        bounds = (
+            [0.5 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_lower, sigma_lower],
+            [2 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_upper, sigma_upper]
+        )
+
+        # STEP 3b: Clamp guesses within bounds to avoid curve_fit's
+        # "x0 is infeasible" error; refined further below using the global fit.
+        amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
+        center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
+        sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
+        if global_guess is not None:
+            # Further refine center guess to be near global fit center
+            amp_guess = np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)])  # Peak in local window
+            center_guess = center_global
+            sigma_guess = sigma_global
+
+        # ===== STEP 4: FIT GAUSSIAN WITH RANSAC OUTLIER REJECTION =====
+        try:
+            # STEP 4a: Use RANSAC to fit Gaussian and reject bad pixels (2-iteration, fast)
+            # Always use RANSAC for robust outlier rejection
+            popt, fit_success, inlier_mask = fit_gaussian_with_ransac(
+                x_data, y_corrected,
+                p0=[amp_guess, center_guess, sigma_guess],
+                bounds=bounds,
+                ransac_thresh=2.0,  # 2-sigma threshold for outliers
+                ransac_iters=2  # Very fast: 2 iterations is enough, minimal outliers in spectral data
+            )
+
+            amplitude, center, sigma = popt
+
+            # ===== STEP 5: CALCULATE FITTED PARAMETERS & DERIVED QUANTITIES =====
+            # STEP 5a: y_fit = A * exp(-(lambda - mu)^2 / (2*sigma^2))
+            y_fit = gaussian(x_data, amplitude, center, sigma)
+            residuals = y_corrected - y_fit
+
+            # STEP 5b: FWHM = 2.355 * sigma (standard Gaussian relationship)
+            fwhm = 2.355 * sigma
+
+            # STEP 5c: Area = A * sigma * sqrt(2*pi), the analytical integral of a Gaussian (total flux).
+            area_native = amplitude * sigma * np.sqrt(2 * np.pi)
+            # STEP 5d: Convert area to CGS units (erg/s/cm^2) if a FITS header was provided.
+            if header is not None:
+                area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit)
+                area = area_cgs if area_cgs is not None else area_native
+            else:
+                area = area_native
+
+            # STEP 5e: chi2_red uses the independently measured noise (not the
+            # residuals' own std, which floors near n/dof -- see gaussian_fitting_cube.rst).
+            n_points = len(y_corrected)
+            dof = max(1, n_points - 3)
+            if std_val is not None and np.isfinite(std_val) and std_val > 0:
+                chi_squared_red = np.sum(residuals**2) / (dof * std_val**2)
+            else:
+                chi_squared_red = np.inf
+
+            # ===== STEP 6: APPLY DETECTION THRESHOLD =====
+            # True detection requires: fit converged, amplitude above the SNR threshold, and improved residuals.
+            std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else safe_nanstd(y_corrected, fallback=1.0)
+            # Residual scatter after the fit. This only asks if the fit reduced scatter
+            # from the raw data, a different question from chi2 above (how big residuals are versus real noise).
+            residual_scatter = np.std(residuals, ddof=0)
+            std_with_fit = residual_scatter
+            fit_improves = fit_success and (std_with_fit < std_no_fit)
+
+            # Two amplitude-based pathways (strict + lenient, below). chi2 stays
+            # diagnostic-only -- gating on it now would silently change validated results.
+            snr_passes_threshold = amplitude >= fac_above_stdres * std_val
+            amplitude_weak = amplitude > 0.5 * std_val
+            is_detection = (snr_passes_threshold and fit_improves) or (fit_success and amplitude_weak)
+
+            if is_detection:
+                # ===== DETECTION: Store full fitted parameters =====
+                amp_row[ix] = amplitude
+                ctr_row[ix] = center
+                sig_row[ix] = sigma
+                fwhm_row[ix] = fwhm
+                area_row[ix] = area
+                qual_row[ix] = chi_squared_red
+                succ_row[ix] = True
+                det_row[ix] = True
+
+                # Cache normalized residuals (residual/std) for later analysis
+                std_val_for_norm = std_val if (std_val is not None and std_val > 0) else 1.0
+                normalized_residuals = residuals / std_val_for_norm
+                residuals_row[:, ix] = normalized_residuals.astype(np.float32)
+            else:
+                # ===== UPPER LIMIT: Amplitude below detection threshold =====
+                # Upper limit = fac_above_stdres * std * sigma_guess * sqrt(2*pi)
+                _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
+
+        except Exception:
+            # ===== EXCEPTION: Fitting algorithm failed =====
+            fail_row[ix] = True
+            if 'sigma_guess' in locals():
+                _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
+            else:
+                amp_row[ix] = np.nan
+                area_row[ix] = np.nan
+                ctr_row[ix] = np.nan
+                sig_row[ix] = np.nan
+                fwhm_row[ix] = np.nan
+                uplim_row[ix] = True
+
+    return (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
+            succ_row, det_row, uplim_row, fail_row, residuals_row)
+
+
+
 def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
                             lam_max: Optional[float] = None,
@@ -893,7 +1204,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         wavelength (array): 1D wavelength array with length n_wavelength
         lam_min (float): Minimum wavelength for the fit window. Defaults to the full range
         lam_max (float): Maximum wavelength for the fit window. Defaults to the full range
-        n_jobs (int): Number of worker threads. Defaults to auto-detect CPUs
+        n_jobs (int): Number of worker processes. Defaults to auto-detect CPUs
         fac_above_stdres (float): Detection threshold in units of noise std (3.0 = 3-sigma)
         noise_min (float): Optional left boundary of a line-free noise region
         noise_max (float): Optional right boundary of a line-free noise region
@@ -1059,257 +1370,25 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     print(f"Fitting Gaussians to {total_pixels} pixels in wavelength range [{lam_min:.4f}, {lam_max:.4f}]")
     
     # ========== MAIN PER-PIXEL FITTING LOOP ==========
-    def _fit_row(row_idx: int):
+    # Everything a row needs besides its own spectra, as one picklable dict for the workers.
+    ctx = {
+        'x_data': x_data, 'noise_x': noise_x, 'global_guess': global_guess,
+        'fac_above_stdres': fac_above_stdres, 'header': header, 'unit': unit, 'flux_unit': flux_unit,
+    }
+
+    def _row_inputs(row_idx: int):
         """
-        Fit Gaussian to all pixels in one row (y=const) of the cube.
+        Read one row's fit-window and noise-window spectra out of the cube.
 
         Args:
             row_idx (int): Row index in the cube's spatial y-axis
 
         Returns:
-            row (tuple): (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
-                succ_row, det_row, uplim_row, fail_row, residuals_row), each a length-n_x
-                array except row_idx and residuals_row (shape (n_wave_sel, n_x))
+            inputs (tuple): The arguments _fit_row_worker takes for this row
         """
         spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
         spectra_noise_row = cube[noise_wave_mask, row_idx, :] if noise_wave_mask is not None else None
-        amp_row = np.full(n_x, np.nan)
-        ctr_row = np.full(n_x, np.nan)
-        sig_row = np.full(n_x, np.nan)
-        fwhm_row = np.full(n_x, np.nan)
-        area_row = np.full(n_x, np.nan)
-        qual_row = np.full(n_x, np.nan)
-        succ_row = np.zeros(n_x, dtype=bool)
-        det_row = np.zeros(n_x, dtype=bool)  # Detection flag
-        uplim_row = np.zeros(n_x, dtype=bool)  # Upper limit flag
-        fail_row = np.zeros(n_x, dtype=bool)  # Fit-could-not-be-made flag (subset of uplim_row)
-        residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
-
-        def _mark_upper_limit(ix, std, sigma_for_area, center_for_area, fit_failed=False):
-            """
-            Record a fac_above_stdres-sigma upper limit for pixel ix, NaN-ing the fitted-parameter
-            maps. Shared by every non-detection path below; only the args below (and whether the
-            fit machinery itself broke, vs. just found nothing) differ per call site.
-
-            Args:
-                ix (int): Pixel column index within this row
-                std (float): Noise standard deviation used to scale the upper-limit amplitude
-                sigma_for_area (float): Sigma used for the upper-limit area formula
-                center_for_area (float): Line center used for the CGS area conversion
-                fit_failed (bool): True if the fit machinery itself never ran/converged
-
-            Returns:
-                None
-            """
-            upper_limit_amplitude = fac_above_stdres * std
-            area_native = upper_limit_amplitude * sigma_for_area * np.sqrt(2 * np.pi)
-            if header is not None:
-                area_cgs = convert_area_to_cgs(upper_limit_amplitude, sigma_for_area, center_for_area, header, unit, flux_unit)
-                area_row[ix] = area_cgs if area_cgs is not None else area_native
-            else:
-                area_row[ix] = area_native
-            amp_row[ix] = np.nan
-            ctr_row[ix] = np.nan
-            sig_row[ix] = np.nan
-            fwhm_row[ix] = np.nan
-            qual_row[ix] = np.nan
-            succ_row[ix] = False
-            uplim_row[ix] = True
-            if fit_failed:
-                fail_row[ix] = True
-
-        for ix in range(n_x):
-            # ===== PIXEL (row_idx, ix) FITTING START =====
-            y_data = spectra_row[:, ix]
-            noise_std = None
-            if spectra_noise_row is not None and noise_x is not None:
-                # Compute robust noise estimate from line-free region (if provided)
-                noise_std = compute_noise_std(noise_x, spectra_noise_row[:, ix])
-
-            # ===== STEP 1: EXTRACT & BASELINE SUBTRACTION =====
-            # Get boundary flux values for this pixel's spectrum
-            y1 = y_data[0]
-            y2 = y_data[-1]
-            # STEP 1a: Calculate linear baseline from endpoints
-            #NBedit: Added y_data to the calculate_baseline function
-            baseline = calculate_baseline(x1, y1, x2, y2, x_data, y_data)
-            # STEP 1b: Subtract baseline to isolate the spectral line
-            y_corrected = y_data - baseline
-
-            # ===== DATA VALIDATION: Require minimum 5 finite points =====
-            # Skip pixels with too many NaNs or masked values (prevents R^2 calculation warnings)
-            finite_mask = np.isfinite(y_corrected)
-            n_finite = np.count_nonzero(finite_mask)
-
-            if n_finite == 0:
-                # Completely outside the FOV (all-NaN spectrum). Leaves every output NaN, with
-                # no upper-limit area: the only noise estimate here (safe_nanstd's 1.0 fallback) is artificial.
-                continue
-
-            if n_finite < 5:
-                # Some data, but not enough for a full fit: assigns an upper limit instead.
-                # Uses fallback=None so safe_nanstd can signal "no real estimate" rather than inventing one.
-                std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else safe_nanstd(y_data, fallback=None)
-                if std_temp is None or not np.isfinite(std_temp):
-                    # Cannot compute a real noise estimate -- pixel has no usable data,
-                    # leave every output NaN (treat as outside FOV).
-                    continue
-                # Too few samples to fit at all, not a weak line
-                _mark_upper_limit(ix, std_temp, x_range / 4.0, (x1 + x2) / 2, fit_failed=True)
-                continue
-
-            # ===== STEP 2: ESTIMATE INITIAL PARAMETERS =====
-            # Compute noise level and peak statistics for parameter estimation strategy
-            mean_val = np.nanmean(y_corrected)
-            std_val_fit = safe_nanstd(y_corrected, fallback=1.0)
-            std_val = noise_std if (noise_std is not None and np.isfinite(noise_std)) else std_val_fit
-
-            # STEP 2 Decision: Use METHOD A (global), B (shape), or C (robust MAD)?
-            if global_guess is not None:
-                # Use METHOD A: Global fit parameters for all pixels (fastest)
-                amp_guess, center_guess, sigma_guess = global_guess
-            else:
-                # Use METHOD B/C: shape-based or MAD-based guess depending on noise regime
-                guess = estimate_initial_gaussian_guess(x_data, y_corrected, std_val, mean_val)
-                if guess is None:
-                    # Could not form an initial guess. Only the area (an upper limit) means
-                    # anything here; a limit amplitude and midpoint center would be invented numbers.
-                    _mark_upper_limit(ix, std_val, x_range / 4.0, (x1 + x2) / 2, fit_failed=True)
-                    continue
-                amp_guess, center_guess, sigma_guess = guess
-
-            # STEP 2c: Cap sigma_guess at 1-sigma so weak/upper-limit fits stay
-            # conservative rather than overestimating intensity.
-            sigma_guess = min(sigma_guess, 0.01 * x_range)
-
-            # STEP 2d: Validate that a positive peak exists
-            # Require positive peak
-            if np.nanmax(y_corrected) <= 0:
-                # Genuine non-detection, not an estimation failure
-                _mark_upper_limit(ix, std_val, x_range / 4.0, (x1 + x2) / 2)
-                continue
-
-            # ===== STEP 3: DEFINE BOUNDS ===== sigma_lower stays independent of x_range;
-            # center/sigma bounds refine below using the global fit when available.
-            sigma_lower = 0
-            sigma_upper = 2 * x_range
-            center_lower = x1
-            center_upper = x2
-            x_space = x_range / len(x_data)  # Average wavelength spacing
-            if global_guess is not None:
-                # Refine bounds based on global fit sigma estimate
-                _, center_global, sigma_global = global_guess
-                sigma_lower = max(sigma_lower, 0.25 * sigma_global)
-                sigma_upper = min(sigma_upper, 4.0 * sigma_global)
-                center_lower = max(x1, center_global - 3 * x_space)
-                center_upper = min(x2, center_global + 3 * x_space)
-
-            bounds = (
-                [0.5 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_lower, sigma_lower],
-                [2 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_upper, sigma_upper]
-            )
-
-            # STEP 3b: Clamp guesses within bounds to avoid curve_fit's
-            # "x0 is infeasible" error; refined further below using the global fit.
-            amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
-            center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
-            sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
-            if global_guess is not None:
-                # Further refine center guess to be near global fit center
-                amp_guess = np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)])  # Peak in local window
-                center_guess = center_global
-                sigma_guess = sigma_global
-
-            # ===== STEP 4: FIT GAUSSIAN WITH RANSAC OUTLIER REJECTION =====
-            try:
-                # STEP 4a: Use RANSAC to fit Gaussian and reject bad pixels (2-iteration, fast)
-                # Always use RANSAC for robust outlier rejection
-                popt, fit_success, inlier_mask = fit_gaussian_with_ransac(
-                    x_data, y_corrected,
-                    p0=[amp_guess, center_guess, sigma_guess],
-                    bounds=bounds,
-                    ransac_thresh=2.0,  # 2-sigma threshold for outliers
-                    ransac_iters=2  # Very fast: 2 iterations is enough, minimal outliers in spectral data
-                )
-
-                amplitude, center, sigma = popt
-
-                # ===== STEP 5: CALCULATE FITTED PARAMETERS & DERIVED QUANTITIES =====
-                # STEP 5a: y_fit = A * exp(-(lambda - mu)^2 / (2*sigma^2))
-                y_fit = gaussian(x_data, amplitude, center, sigma)
-                residuals = y_corrected - y_fit
-
-                # STEP 5b: FWHM = 2.355 * sigma (standard Gaussian relationship)
-                fwhm = 2.355 * sigma
-
-                # STEP 5c: Area = A * sigma * sqrt(2*pi), the analytical integral of a Gaussian (total flux).
-                area_native = amplitude * sigma * np.sqrt(2 * np.pi)
-                # STEP 5d: Convert area to CGS units (erg/s/cm^2) if a FITS header was provided.
-                if header is not None:
-                    area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit)
-                    area = area_cgs if area_cgs is not None else area_native
-                else:
-                    area = area_native
-
-                # STEP 5e: chi2_red uses the independently measured noise (not the
-                # residuals' own std, which floors near n/dof -- see gaussian_fitting_cube.rst).
-                n_points = len(y_corrected)
-                dof = max(1, n_points - 3)
-                if std_val is not None and np.isfinite(std_val) and std_val > 0:
-                    chi_squared_red = np.sum(residuals**2) / (dof * std_val**2)
-                else:
-                    chi_squared_red = np.inf
-
-                # ===== STEP 6: APPLY DETECTION THRESHOLD =====
-                # True detection requires: fit converged, amplitude above the SNR threshold, and improved residuals.
-                std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else safe_nanstd(y_corrected, fallback=1.0)
-                # Residual scatter after the fit. This only asks if the fit reduced scatter
-                # from the raw data, a different question from chi2 above (how big residuals are versus real noise).
-                residual_scatter = np.std(residuals, ddof=0)
-                std_with_fit = residual_scatter
-                fit_improves = fit_success and (std_with_fit < std_no_fit)
-
-                # Two amplitude-based pathways (strict + lenient, below). chi2 stays
-                # diagnostic-only -- gating on it now would silently change validated results.
-                snr_passes_threshold = amplitude >= fac_above_stdres * std_val
-                amplitude_weak = amplitude > 0.5 * std_val
-                is_detection = (snr_passes_threshold and fit_improves) or (fit_success and amplitude_weak)
-
-                if is_detection:
-                    # ===== DETECTION: Store full fitted parameters =====
-                    amp_row[ix] = amplitude
-                    ctr_row[ix] = center
-                    sig_row[ix] = sigma
-                    fwhm_row[ix] = fwhm
-                    area_row[ix] = area
-                    qual_row[ix] = chi_squared_red
-                    succ_row[ix] = True
-                    det_row[ix] = True
-
-                    # Cache normalized residuals (residual/std) for later analysis
-                    std_val_for_norm = std_val if (std_val is not None and std_val > 0) else 1.0
-                    normalized_residuals = residuals / std_val_for_norm
-                    residuals_row[:, ix] = normalized_residuals.astype(np.float32)
-                else:
-                    # ===== UPPER LIMIT: Amplitude below detection threshold =====
-                    # Upper limit = fac_above_stdres * std * sigma_guess * sqrt(2*pi)
-                    _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
-
-            except Exception:
-                # ===== EXCEPTION: Fitting algorithm failed =====
-                fail_row[ix] = True
-                if 'sigma_guess' in locals():
-                    _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
-                else:
-                    amp_row[ix] = np.nan
-                    area_row[ix] = np.nan
-                    ctr_row[ix] = np.nan
-                    sig_row[ix] = np.nan
-                    fwhm_row[ix] = np.nan
-                    uplim_row[ix] = True
-
-        return (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
-                succ_row, det_row, uplim_row, fail_row, residuals_row)
+        return row_idx, spectra_row, spectra_noise_row, ctx
 
     # Determine workers
     if n_jobs is None:
@@ -1328,7 +1407,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 cancelled = True
                 break
             (_, amp_row, ctr_row, sig_row, f_row, a_row, q_row,
-             s_row, d_row, u_row, fl_row, res_row) = _fit_row(iy)
+             s_row, d_row, u_row, fl_row, res_row) = _fit_row_worker(*_row_inputs(iy))
             amplitude_map[iy, :] = amp_row
             center_map[iy, :] = ctr_row
             sigma_map[iy, :] = sig_row
@@ -1349,40 +1428,48 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             if completed % (n_x * 5) == 0:
                 print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
     else:
-        # This parallel path uses ThreadPoolExecutor, since it works with nested functions
-        # (ProcessPoolExecutor does not) and gives good performance for Gaussian fitting.
-        print(f"Using {n_jobs} worker threads ({total_pixels:,} pixels)")
+        # Rows run in separate processes. The per-pixel work is mostly Python code, so
+        # threads share one GIL and measured slower than a single thread.
+        print(f"Using {n_jobs} worker processes ({total_pixels:,} pixels)")
 
-        with ThreadPoolExecutor(max_workers=n_jobs) as ex:
-            futures = [ex.submit(_fit_row, iy) for iy in range(n_y)]
-            for fut in as_completed(futures):
+        # A few rows in flight at a time, so a large cube is never copied out all at once.
+        max_in_flight = 2 * n_jobs
+        with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as ex:
+            pending = set()
+            next_row = 0
+            while (next_row < n_y or pending) and not cancelled:
+                while next_row < n_y and len(pending) < max_in_flight:
+                    pending.add(ex.submit(_fit_row_worker, *_row_inputs(next_row)))
+                    next_row += 1
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    (row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row,
+                     s_row, d_row, u_row, fl_row, res_row) = fut.result()
+                    amplitude_map[row_idx, :] = amp_row
+                    center_map[row_idx, :] = ctr_row
+                    sigma_map[row_idx, :] = sig_row
+                    fwhm_map[row_idx, :] = f_row
+                    area_map[row_idx, :] = a_row
+                    r_squared_map[row_idx, :] = q_row
+                    success_map[row_idx, :] = s_row
+                    is_detection_map[row_idx, :] = d_row
+                    is_upper_limit_map[row_idx, :] = u_row
+                    fit_failed_map[row_idx, :] = fl_row
+                    residuals_cube[:, row_idx, :] = res_row
+
+                    # See the serial path: callback every row, console every 5th row.
+                    completed += n_x
+                    if progress_callback:
+                        progress_callback(completed, total_pixels)
+                    if completed % (n_x * 5) == 0:
+                        print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
+
                 if cancel_event is not None and cancel_event.is_set():
                     cancelled = True
-                    # Drops rows that have not started yet. The executor's own __exit__ still
-                    # blocks (wait=True) until in-flight rows finish, so a few rows complete after this point.
-                    for f in futures:
+                    # Drops rows that have not started yet. The pool's own __exit__ still waits
+                    # for in-flight rows to finish, so a few rows complete after this point.
+                    for f in pending:
                         f.cancel()
-                    break
-                (row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row,
-                 s_row, d_row, u_row, fl_row, res_row) = fut.result()
-                amplitude_map[row_idx, :] = amp_row
-                center_map[row_idx, :] = ctr_row
-                sigma_map[row_idx, :] = sig_row
-                fwhm_map[row_idx, :] = f_row
-                area_map[row_idx, :] = a_row
-                r_squared_map[row_idx, :] = q_row
-                success_map[row_idx, :] = s_row
-                is_detection_map[row_idx, :] = d_row
-                is_upper_limit_map[row_idx, :] = u_row
-                fit_failed_map[row_idx, :] = fl_row
-                residuals_cube[:, row_idx, :] = res_row
-
-                # See the serial path: callback every row, console every 5th row.
-                completed += n_x
-                if progress_callback:
-                    progress_callback(completed, total_pixels)
-                if completed % (n_x * 5) == 0:
-                    print(f"  Progress: {completed}/{total_pixels} pixels ({100*completed/total_pixels:.1f}%)")
 
     if cancelled:
         print(f"Fitting cancelled: {completed}/{total_pixels} pixels completed before stopping")
