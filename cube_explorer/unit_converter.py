@@ -313,7 +313,7 @@ def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None)
             CGS units when reachable, or the cube's own units otherwise
     """
     wave_astropy_unit = _string_to_astropy_unit(wave_unit)
-    wave_label = wave_astropy_unit.to_string() if wave_astropy_unit is not None \
+    wave_label = wave_astropy_unit.to_string('unicode') if wave_astropy_unit is not None \
         else (str(wave_unit).strip() if wave_unit else '')
 
     # Probes with the real conversion. Whatever it can do, the maps already did.
@@ -324,8 +324,8 @@ def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None)
             'wave': wave_label,
             # An amplitude is a flux density, so it keeps a per-wavelength unit. An
             # area has integrated over the spectral axis, so it is a plain flux.
-            'amplitude': (CGS_FLUX / wave_astropy_unit).to_string(),
-            'area': CGS_FLUX.to_string(),
+            'amplitude': (CGS_FLUX / wave_astropy_unit).to_string('unicode'),
+            'area': CGS_FLUX.to_string('unicode'),
         }
 
     # Not convertible, for example Jy/beam, or a missing header. Reports the cube's own units.
@@ -334,8 +334,8 @@ def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None)
         native_amp = str(flux_unit).strip() if flux_unit else 'native'
         native_area = f'{native_amp}*{wave_label}' if wave_label else native_amp
     else:
-        native_amp = flux_astropy_unit.to_string()
-        native_area = (flux_astropy_unit * wave_astropy_unit).to_string() \
+        native_amp = flux_astropy_unit.to_string('unicode')
+        native_area = (flux_astropy_unit * wave_astropy_unit).to_string('unicode') \
             if wave_astropy_unit is not None else native_amp
 
     return {'wave': wave_label, 'amplitude': native_amp, 'area': native_area}

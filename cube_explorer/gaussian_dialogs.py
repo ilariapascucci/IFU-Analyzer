@@ -321,39 +321,15 @@ class GaussianMapResultsDialog(QDialog):
         """
         layout = QVBoxLayout()
         
-        # Info label with detection stats
+        # Info label: just the headline count. Detections/upper-limits/no-data,
+        # the global-fit seed, and each parameter's own values all live in the
+        # Show Statistics dialog now (_show_statistics), grouped per parameter.
         n_success = np.sum(self.results['success'])
-        n_detections = np.sum(self.results.get('is_detection', np.zeros_like(self.results['success'])))
-        n_upper_limits = np.sum(self.results.get('is_upper_limit', np.zeros_like(self.results['success'])))
-        n_failed = np.sum(self.results.get('fit_failed', np.zeros_like(self.results['success'])))
         n_total = self.results['success'].size
-        global_fit = self.results.get('global_fit') or {}
-        if global_fit:
-            center_src = global_fit.get('center_source', 'total-spectrum')
-            header = getattr(self.cube_data, 'header', None)
-            labels = gaussian_map_unit_labels(
-                self.flux_unit, self.wave_unit, header=header,
-                wavelength=global_fit.get('center'))
-            global_text = (
-                f"Global 1D fit: A={global_fit.get('amplitude', float('nan')):.4e} {self.flux_unit}, "
-                f"mu={global_fit.get('center', float('nan')):.4f} {labels['wave']}, "
-                f"sigma={global_fit.get('sigma', float('nan')):.4f} {labels['wave']} "
-                f"(center from {center_src})"
-            )
-        else:
-            global_text = "Global 1D fit: unavailable"
-
-        # The three states partition the map, so no-data is what is left over.
-        upper_text = f"Upper limits: {n_upper_limits:,}"
-        if n_failed:
-            upper_text += f" ({n_failed:,} from fits that never ran)"
         info_label = QLabel(
-            f"Successfully fit {n_success:,} / {n_total:,} pixels "
-            f"({100*n_success/n_total:.1f}%)\n"
-            f"Detections: {n_detections:,} | {upper_text} | "
-            f"No data: {n_total - n_detections - n_upper_limits:,}\n"
-            f"{global_text}"
+            f"Successfully fit {n_success:,} / {n_total:,} pixels ({100*n_success/n_total:.1f}%)"
         )
+        info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         layout.addWidget(info_label)
         
         # Parameter selector
@@ -404,7 +380,7 @@ class GaussianMapResultsDialog(QDialog):
         toolbar = NavigationToolbar2QT(self.canvas, self)
         layout.addWidget(toolbar)
         layout.addWidget(self.canvas)
-        
+
         # Connect combo boxes to update function
         self.param_combo.currentIndexChanged.connect(self._update_plot)
         self.cmap_combo.currentIndexChanged.connect(self._update_plot)
@@ -420,7 +396,13 @@ class GaussianMapResultsDialog(QDialog):
         export_btn = QPushButton("Save as FITS File")
         export_btn.clicked.connect(self._export_current_parameter)
         button_layout.addWidget(export_btn)
-        
+
+        # Detailed, copyable per-parameter statistics -- same pattern as the
+        # flux map and rotational diagram map results dialogs.
+        stats_btn = QPushButton("Show Statistics")
+        stats_btn.clicked.connect(self._show_statistics)
+        button_layout.addWidget(stats_btn)
+
         button_layout.addStretch()
         
         # Close button
@@ -542,23 +524,129 @@ class GaussianMapResultsDialog(QDialog):
         # Colorbar with units
         self.fig.colorbar(im, ax=ax, label=unit_label)
 
-        # Add statistics
-        valid_data = data[~np.isnan(data)]
-        if len(valid_data) > 0:
-            stats_text = (
-                f"Min: {np.nanmin(data):.4e}\n"
-                f"Max: {np.nanmax(data):.4e}\n"
-                f"Mean: {np.nanmean(data):.4e}\n"
-                f"Median: {np.nanmedian(data):.4e}\n"
-                f"Sum: {np.nansum(data):.4e}"
-            )
-            ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-                   verticalalignment='top', bbox=dict(boxstyle='round',
-                   facecolor='wheat', alpha=0.8), fontsize=9)
-
         self.fig.tight_layout()
         self.canvas.draw()
-    
+
+    def _resolve_param_array(self, param_name):
+        """
+        Get the 2D array for a Parameter dropdown selection, straight from self.results
+        -- not whatever _update_plot last drew, which Log scale can shift positive.
+        Keep this in sync with _update_plot's own data selection above.
+
+        Args:
+            param_name (str): One of the Parameter dropdown's exact option strings.
+
+        Returns:
+            data (numpy.ndarray or None): The array for this selection, or the
+                mid-wavelength slice of residuals_cube for "Residuals". None if
+                residuals were never computed.
+        """
+        if param_name == "Area (AUC)":
+            return self.results['area']
+        if param_name == "Amplitude":
+            return self.results['amplitude']
+        if param_name == "Center":
+            return self.results['center']
+        if param_name == "Sigma":
+            return self.results['sigma']
+        if param_name == "FWHM":
+            return self.results['fwhm']
+        if param_name == "chi2 (fit quality)":
+            return self.results['r_squared']
+        if param_name == "Fit Status":
+            return np.nan_to_num(fit_status_map(self.results), nan=float(STATUS_NO_DATA))
+        if param_name == "Success Mask":
+            return self.results['success'].astype(float)
+        if param_name == "Residuals":
+            cube = self.results.get('residuals_cube')
+            return cube[cube.shape[0] // 2] if cube is not None else None
+        return None
+
+    def _show_statistics(self):
+        """
+        Show the currently selected parameter's own values, with units, plus the
+        fit-wide pixel breakdown, in one copyable dialog -- same pattern as the
+        flux map and rotational diagram map results windows.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        param_name = self.param_combo.currentText()
+        data = self._resolve_param_array(param_name)
+
+        n_success = np.sum(self.results['success'])
+        n_detections = np.sum(self.results.get('is_detection', np.zeros_like(self.results['success'])))
+        n_upper_limits = np.sum(self.results.get('is_upper_limit', np.zeros_like(self.results['success'])))
+        n_failed = np.sum(self.results.get('fit_failed', np.zeros_like(self.results['success'])))
+        n_total = self.results['success'].size
+        upper_text = f"Upper limits: {n_upper_limits:,}"
+        if n_failed:
+            upper_text += f" ({n_failed:,} from fits that never ran)"
+
+        lines = [
+            f"{param_name.upper()} STATISTICS", "=" * 50, "",
+            "PIXEL TYPES:",
+            f"  Successfully fit: {n_success:,} / {n_total:,} ({100*n_success/n_total:.1f}%)",
+            f"  Detections:       {n_detections:,}",
+            f"  {upper_text}",
+            f"  No data:          {n_total - n_detections - n_upper_limits:,}",
+            "",
+        ]
+
+        # Same labels the colorbar uses (e.g. "Area [erg/s/cm²]"); pull out just the
+        # bracketed unit so it reads as "Units: erg/s/cm²" here. Residuals has no
+        # entry -- it isn't one of the plotted parameters, so state its units directly.
+        if param_name == "Residuals":
+            units = "normalized: (data - fit) / noise, dimensionless"
+        else:
+            unit_label, _ = self._get_parameter_units()[param_name]
+            units = unit_label[unit_label.index('[') + 1: unit_label.rindex(']')]
+        lines.append(f"{param_name.upper()} VALUES:")
+        lines.append(f"  Units:   {units}")
+        if data is None:
+            lines.append("  (not available for this fit)")
+        else:
+            valid = data[np.isfinite(data)]
+            if len(valid) == 0:
+                lines.append("  No valid (non-NaN) pixels in this map.")
+            else:
+                lines += [
+                    f"  Count:   {len(valid):,} / {data.size:,} valid ({100*len(valid)/data.size:.1f}%)",
+                    f"  Min/Max: {np.min(valid):.4e} / {np.max(valid):.4e}",
+                    f"  Mean:    {np.mean(valid):.4e}",
+                    f"  Median:  {np.median(valid):.4e}",
+                    f"  Std:     {np.std(valid):.4e}",
+                ]
+                if param_name == "Area (AUC)":
+                    # Area is the one field upper limits also populate (every other
+                    # parameter is NaN there), so this is the only map where the two
+                    # sums differ -- see the noise-estimator fix that made this visible.
+                    det_mask = self.results.get('is_detection')
+                    if det_mask is not None and det_mask.shape == data.shape:
+                        det_sum = np.nansum(np.where(det_mask, data, np.nan))
+                        lines.append(f"  Sum (detections only):           {det_sum:.4e}")
+                    lines.append(f"  Sum (detections + upper limits): {np.nansum(data):.4e}")
+                elif param_name != "Residuals":
+                    # Summing normalized residuals isn't meaningful (they cancel near zero).
+                    lines.append(f"  Sum:     {np.sum(valid):.4e}")
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Statistics")
+        dlg.resize(560, 480)
+        layout = QVBoxLayout()
+        body = QLabel("\n".join(lines))
+        body.setStyleSheet("font-family: monospace; white-space: pre;")
+        body.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        layout.addWidget(body)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+        dlg.setLayout(layout)
+        dlg.exec_()
+
     def _toggle_pixel_selection(self):
         """Toggle click-a-pixel mode so the matplotlib toolbar can be used instead.
 
@@ -707,19 +795,6 @@ class GaussianMapResultsDialog(QDialog):
             ax.set_xlabel("X Pixel")
             ax.set_ylabel("Y Pixel")
             self.fig.colorbar(im, ax=ax, label="Residuals")
-            
-            # Add statistics
-            valid_data = data[~np.isnan(data)]
-            if len(valid_data) > 0:
-                stats_text = (
-                    f"Min: {np.nanmin(data):.4e}\n"
-                    f"Max: {np.nanmax(data):.4e}\n"
-                    f"Mean: {np.nanmean(data):.4e}\n"
-                    f"Median: {np.nanmedian(data):.4e}"
-                )
-                ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
-                       verticalalignment='top', bbox=dict(boxstyle='round', 
-                       facecolor='wheat', alpha=0.8), fontsize=9)
         else:
             # Fallback if residuals not in results
             data = np.zeros((self.results['success'].shape[0], self.results['success'].shape[1]))
