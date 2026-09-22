@@ -278,57 +278,6 @@ def calculate_baseline(x1: float, y1: float, x2: float, y2: float,
     return baseline
 
 
-def compute_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: int = 1) -> Optional[float]:
-    """
-    Compute a noise std with RANSAC polynomial fitting, from the inlier residuals only.
-    This reads about 0.37x the true noise, so only the blend check in
-    fit_hitran_lines_collective still uses it. Use compute_line_free_noise_std elsewhere.
-
-    Args:
-        x_data (array): Wavelength for noise region
-        y_data (array): Flux for noise region
-        degree (int): Polynomial degree (1=linear, 2=quadratic, 3=cubic)
-
-    Returns:
-        std (float): Robust noise std (std of residuals from RANSAC fit), or None if insufficient data
-
-    Raises:
-        Exception: any error from scikit-learn's RANSAC fit. It is not caught, so a failed
-            fit stops the run and reaches the user, instead of a fallback hiding it
-    """
-
-    if x_data is None or y_data is None:
-        return None
-
-    # Remove NaN values for fitting
-    finite_mask = np.isfinite(y_data) & np.isfinite(x_data)
-    if np.count_nonzero(finite_mask) < max(4, degree + 2):  # Need enough points for polynomial fit
-        return None
-
-    x_noise = x_data[finite_mask]
-    y_noise = y_data[finite_mask]
-
-    if len(x_noise) < max(4, degree + 2):
-        return None
-
-    ransac_pipeline = make_pipeline(
-        PolynomialFeatures(degree=degree),
-        RANSACRegressor(random_state=42)
-    )
-
-    # Fit the pipeline and calculate std of residuals
-    ransac_pipeline.fit(x_noise[:, np.newaxis], y_noise)
-    y_fit = ransac_pipeline.predict(x_noise[:, np.newaxis])
-    residuals = y_noise - y_fit
-    # Inliers only
-    inlier_mask = ransac_pipeline.named_steps['ransacregressor'].inlier_mask_
-    std_residuals = np.std(residuals[inlier_mask]) if np.any(inlier_mask) else np.std(residuals)
-
-    if np.isfinite(std_residuals) and std_residuals > 0:
-        return float(std_residuals)
-    return None
-
-
 def compute_line_free_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: int = 1) -> Optional[float]:
     """
     Estimate the noise std of a line-free wavelength window.
@@ -437,7 +386,7 @@ def gaussian(x: np.ndarray, amplitude: float, center: float,
 
 def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
                                      p0: np.ndarray, bounds: Tuple,
-                                     clip_thresh: float = 2.5,
+                                     clip_thresh: float = 3.0,
                                      clip_iters: int = 2) -> Tuple[np.ndarray, bool, np.ndarray]:
     """
     Fit a Gaussian with iterative sigma clipping, not RANSAC (no random sampling):
@@ -761,7 +710,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
             x_data, y_corrected,
             p0=[amp_guess, center_guess, sigma_guess],
             bounds=bounds,
-            clip_thresh=2.0,
+            clip_thresh=3.0,
             clip_iters=3
         )
         
@@ -1107,7 +1056,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 x_data, y_corrected,
                 p0=[amp_guess, center_guess, sigma_guess],
                 bounds=bounds,
-                clip_thresh=2.0,  # 2-sigma threshold for outliers
+                clip_thresh=3.0,  # 3-sigma threshold for outliers, matches fac_above_stdres
                 clip_iters=2  # Very fast: 2 iterations is enough, minimal outliers in spectral data
             )
 
@@ -1148,11 +1097,10 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             std_with_fit = residual_scatter
             fit_improves = fit_success and (std_with_fit < std_no_fit)
 
-            # Two amplitude-based pathways (strict + lenient, below). chi2 stays
-            # diagnostic-only -- gating on it now would silently change validated results.
+            # Strict SNR threshold only. The old lenient path (converged fit + amplitude
+            # > 0.5*std) is removed: neither chi2 nor R^2 reliably tell a real weak line from noise.
             snr_passes_threshold = amplitude >= fac_above_stdres * std_val
-            amplitude_weak = amplitude > 0.5 * std_val
-            is_detection = (snr_passes_threshold and fit_improves) or (fit_success and amplitude_weak)
+            is_detection = snr_passes_threshold and fit_improves
 
             if is_detection:
                 # ===== DETECTION: Store full fitted parameters =====
@@ -1353,7 +1301,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 x_total, y_total_corrected,
                 p0=[amp_guess_tot, center_guess_tot, sigma_guess_tot],
                 bounds=bounds_tot,
-                clip_thresh=2.0,
+                clip_thresh=3.0,
                 clip_iters=2
             )
             # STEP 5 GLOBAL: Extract final global guess for seeding all pixels

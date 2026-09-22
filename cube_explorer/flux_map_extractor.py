@@ -32,7 +32,7 @@ from scipy.interpolate import UnivariateSpline
 
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
-    compute_noise_std, compute_mad_noise_std,
+    compute_line_free_noise_std, compute_mad_noise_std,
     GaussianFitResult, gaussian,
 )
 from .utils import get_spectral_resolution
@@ -1051,7 +1051,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
 
     # Noise for the merge blend-check below. An unusable value stops the run
     # instead of being replaced by a different estimator.
-    noise_std = compute_noise_std(spectrum_x, y_corrected, degree=1)
+    noise_std = compute_line_free_noise_std(spectrum_x, y_corrected, degree=1)
     if noise_std is None or not np.isfinite(noise_std) or noise_std <= 0:
         raise ValueError(
             "Cannot estimate this spectrum's noise for the blend check: "

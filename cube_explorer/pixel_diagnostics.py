@@ -154,7 +154,7 @@ class PixelFitDialog(QDialog):
         body.addWidget(plot_widget, stretch=3)
 
         self.info_label = QLabel()
-        self.info_label.setStyleSheet("font-family: Courier; font-size: 11px;")
+        self.info_label.setStyleSheet("font-family: monospace; white-space: pre;")
         self.info_label.setAlignment(Qt.AlignTop)
         self.info_label.setTextInteractionFlags(
             Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
@@ -322,25 +322,21 @@ class PixelFitDialog(QDialog):
             ss_res = np.nansum(residuals ** 2)
             ss_tot = np.nansum((y_corrected - np.nanmean(y_corrected)) ** 2)
             r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
-            lines += [
-                f" R^2        {fmt(r_squared, '.4f')}",
-                f" Resid mean {fmt(np.nanmean(residuals))}",
-                f" Resid std  {fmt(np.nanstd(residuals))}",
-            ]
+            lines.append(f" R^2        {fmt(r_squared, '.4f')}")
 
+        # fac_above_stdres is hardcoded to 3.0 at every GUI call site, so the raw
+        # 1-sigma noise is always this same number divided by 3 -- show one line.
         noise_level = (self.fac_above_stdres * self.noise_std
                        if self.noise_std is not None else np.nan)
         lines += [
             "",
             "NOISE",
             "-" * 32,
-            f" 1σ         {fmt(self.noise_std)}",
             f" {self.fac_above_stdres:g}σ level   {fmt(noise_level)}",
             "",
             "FIT WINDOW",
             "-" * 32,
-            f" {self.lam_min:.6f}",
-            f" {self.lam_max:.6f} {self.wave_unit}",
+            f" {self.lam_min:.6f} - {self.lam_max:.6f} {self.wave_unit}",
         ]
 
         self.info_label.setText("\n".join(lines))
