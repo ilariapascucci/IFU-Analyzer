@@ -435,24 +435,23 @@ def gaussian(x: np.ndarray, amplitude: float, center: float,
     return amplitude * np.exp(-(x - center)**2 / (2 * sigma**2))
 
 
-def fit_gaussian_with_ransac(x_data: np.ndarray, y_data: np.ndarray, 
-                              p0: np.ndarray, bounds: Tuple, 
-                              ransac_thresh: float = 2.5,
-                              ransac_iters: int = 2) -> Tuple[np.ndarray, bool, np.ndarray]:
+def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
+                                     p0: np.ndarray, bounds: Tuple,
+                                     clip_thresh: float = 2.5,
+                                     clip_iters: int = 2) -> Tuple[np.ndarray, bool, np.ndarray]:
     """
-    Fit Gaussian with RANSAC outlier rejection.
-    
-    Uses an iterative approach: fit Gaussian, identify outliers using residuals,
-    refit using only inliers. This provides robust fitting resistant to bad pixels.
-    
+    Fit a Gaussian with iterative sigma clipping, not RANSAC (no random sampling):
+    fit, drop points beyond clip_thresh sigma of the residuals, refit on what's
+    left. This is robust against bad pixels.
+
     Args:
         x_data (array): Wavelength array
         y_data (array): Flux array
         p0 (array): Initial parameter guess [amplitude, center, sigma]
         bounds (tuple): Parameter bounds for curve_fit
-        ransac_thresh (float): Threshold for outlier detection (in sigma of residuals)
-        ransac_iters (int): Maximum iterations for RANSAC refinement
-    
+        clip_thresh (float): Outlier threshold, in sigma of the residuals
+        clip_iters (int): Maximum fit-clip-refit iterations
+
     Returns:
         fit (tuple): Tuple of (popt, success, inlier_mask)
             popt (array): Fitted parameters [amplitude, center, sigma]
@@ -464,41 +463,41 @@ def fit_gaussian_with_ransac(x_data: np.ndarray, y_data: np.ndarray,
     inlier_mask = np.ones(len(x_data), dtype=bool)
     best_popt = p0
     best_inlier_count = 0
-    
+
     try:
         # Initial fit with all points (reduced maxfev for speed)
         popt, pcov = curve_fit(gaussian, x_data, y_data, p0=p0, bounds=bounds, maxfev=1000)
         y_fit = gaussian(x_data, *popt)
         residuals = y_data - y_fit
         residuals_std = np.std(residuals)
-        
+
         # Iterative outlier rejection (reduced iterations)
-        for iteration in range(ransac_iters):
+        for iteration in range(clip_iters):
             # Identify outliers: points > thresh * sigma from fit
             if residuals_std > 0:
-                outlier_mask = np.abs(residuals) > ransac_thresh * residuals_std
+                outlier_mask = np.abs(residuals) > clip_thresh * residuals_std
             else:
                 outlier_mask = np.zeros_like(residuals, dtype=bool)
-            
+
             inlier_mask = ~outlier_mask
             n_inliers = np.sum(inlier_mask)
-            
+
             # Track best fit (most inliers)
             if n_inliers > best_inlier_count:
                 best_inlier_count = n_inliers
                 best_popt = popt.copy()
-            
+
             # If all points are inliers, convergence reached
             if n_inliers == len(x_data):
                 break
-            
+
             # Require at least 4 inliers to refit
             if n_inliers < 4:
                 break
-            
+
             # Refit using only inliers (reduced maxfev for speed)
             try:
-                popt, pcov = curve_fit(gaussian, x_data[inlier_mask], y_data[inlier_mask], 
+                popt, pcov = curve_fit(gaussian, x_data[inlier_mask], y_data[inlier_mask],
                                       p0=popt, bounds=bounds, maxfev=1000)
                 y_fit = gaussian(x_data, *popt)
                 residuals = y_data - y_fit
@@ -507,20 +506,20 @@ def fit_gaussian_with_ransac(x_data: np.ndarray, y_data: np.ndarray,
                 # If refit fails, use best found so far
                 popt = best_popt
                 break
-        
+
         # Final inlier identification with best fit
         y_fit_final = gaussian(x_data, *best_popt)
         residuals_final = y_data - y_fit_final
         residuals_std_final = np.std(residuals_final)
         if residuals_std_final > 0:
-            inlier_mask_final = np.abs(residuals_final) <= ransac_thresh * residuals_std_final
+            inlier_mask_final = np.abs(residuals_final) <= clip_thresh * residuals_std_final
         else:
             inlier_mask_final = np.ones_like(x_data, dtype=bool)
-        
+
         return best_popt, True, inlier_mask_final
-        
+
     except Exception as e:
-        # If RANSAC fails, return initial guess with all points as inliers
+        # Clipping/fit failed: return the initial guess with all points as inliers
         return p0, False, inlier_mask
 
 
@@ -694,7 +693,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
     if noise_min is not None and noise_max is not None:
         nmin, nmax = (noise_min, noise_max) if noise_min <= noise_max else (noise_max, noise_min)
         noise_mask = (spectrum_x >= nmin) & (spectrum_x <= nmax)
-        if np.count_nonzero(noise_mask) >= 2:
+        if np.count_nonzero(noise_mask) >= 4:  # Matches compute_line_free_noise_std's own floor
             noise_std = compute_line_free_noise_std(spectrum_x[noise_mask], spectrum_y[noise_mask])
 
     std_val_fit = safe_nanstd(y_corrected, fallback=1.0)
@@ -754,16 +753,16 @@ def fit_gaussian_to_line(x1: float, x2: float,
     center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
     sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
     
-    # ========== STEP 4: FIT GAUSSIAN WITH RANSAC OUTLIER REJECTION ==========
+    # ========== STEP 4: FIT GAUSSIAN WITH ITERATIVE SIGMA CLIPPING ==========
     try:
-        # STEP 4a: Use RANSAC to iteratively fit Gaussian and reject outliers (cosmic rays, bad pixels)
+        # STEP 4a: Iteratively fit the Gaussian and reject outliers (cosmic rays, bad pixels)
         # Returns best-fit parameters [amplitude, center, sigma] and inlier mask
-        popt, ransac_success, inlier_mask = fit_gaussian_with_ransac(
+        popt, converged, inlier_mask = fit_gaussian_with_sigma_clipping(
             x_data, y_corrected,
             p0=[amp_guess, center_guess, sigma_guess],
             bounds=bounds,
-            ransac_thresh=2.0,
-            ransac_iters=3
+            clip_thresh=2.0,
+            clip_iters=3
         )
         
         amplitude, center, sigma = popt
@@ -1073,9 +1072,20 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             center_lower = max(x1, center_global - 3 * x_space)
             center_upper = min(x2, center_global + 3 * x_space)
 
+        # STEP 3a: local_max <= 0 in this (possibly narrowed) window is the same
+        # genuine non-detection STEP 2d already checks, just found later.
+        local_mask = (x_data >= center_lower) & (x_data <= center_upper)
+        local_max = np.nanmax(y_corrected[local_mask]) if np.any(local_mask) else np.nan
+        if not (local_max > 0):
+            # Match the center/sigma STEP 3b would hand _mark_upper_limit below.
+            limit_center = center_global if global_guess is not None else center_guess
+            limit_sigma = sigma_global if global_guess is not None else sigma_guess
+            _mark_upper_limit(ix, std_val, limit_sigma, limit_center)
+            continue
+
         bounds = (
-            [0.5 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_lower, sigma_lower],
-            [2 * np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)]), center_upper, sigma_upper]
+            [0.5 * local_max, center_lower, sigma_lower],
+            [2 * local_max, center_upper, sigma_upper]
         )
 
         # STEP 3b: Clamp guesses within bounds to avoid curve_fit's
@@ -1085,20 +1095,20 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
         sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
         if global_guess is not None:
             # Further refine center guess to be near global fit center
-            amp_guess = np.nanmax(y_corrected[(x_data >= center_lower) & (x_data <= center_upper)])  # Peak in local window
+            amp_guess = local_max  # Peak in local window
             center_guess = center_global
             sigma_guess = sigma_global
 
-        # ===== STEP 4: FIT GAUSSIAN WITH RANSAC OUTLIER REJECTION =====
+        # ===== STEP 4: FIT GAUSSIAN WITH ITERATIVE SIGMA CLIPPING =====
         try:
-            # STEP 4a: Use RANSAC to fit Gaussian and reject bad pixels (2-iteration, fast)
-            # Always use RANSAC for robust outlier rejection
-            popt, fit_success, inlier_mask = fit_gaussian_with_ransac(
+            # STEP 4a: Fit the Gaussian and reject bad pixels (2-iteration, fast)
+            # Always clip for robust fitting
+            popt, fit_success, inlier_mask = fit_gaussian_with_sigma_clipping(
                 x_data, y_corrected,
                 p0=[amp_guess, center_guess, sigma_guess],
                 bounds=bounds,
-                ransac_thresh=2.0,  # 2-sigma threshold for outliers
-                ransac_iters=2  # Very fast: 2 iterations is enough, minimal outliers in spectral data
+                clip_thresh=2.0,  # 2-sigma threshold for outliers
+                clip_iters=2  # Very fast: 2 iterations is enough, minimal outliers in spectral data
             )
 
             amplitude, center, sigma = popt
@@ -1160,9 +1170,10 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 normalized_residuals = residuals / std_val_for_norm
                 residuals_row[:, ix] = normalized_residuals.astype(np.float32)
             else:
-                # ===== UPPER LIMIT: Amplitude below detection threshold =====
-                # Upper limit = fac_above_stdres * std * sigma_guess * sqrt(2*pi)
-                _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
+                # UPPER LIMIT: converged but too weak, or the fit machinery never ran.
+                # Upper limit = fac_above_stdres * std * sigma_guess * sqrt(2*pi).
+                _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2,
+                                 fit_failed=not fit_success)
 
         except Exception:
             # ===== EXCEPTION: Fitting algorithm failed =====
@@ -1285,7 +1296,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     if noise_min_orig is not None and noise_max_orig is not None:
         nmin, nmax = (noise_min_orig, noise_max_orig) if noise_min_orig <= noise_max_orig else (noise_max_orig, noise_min_orig)
         noise_wave_mask = (wavelength_values >= nmin) & (wavelength_values <= nmax)
-        if np.count_nonzero(noise_wave_mask) < 2:
+        if np.count_nonzero(noise_wave_mask) < 4:  # Matches compute_line_free_noise_std's own floor
             noise_wave_mask = None
         else:
             noise_x = wavelength_values[noise_wave_mask]
@@ -1337,13 +1348,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             center_guess_tot = np.clip(center_guess_tot, bounds_tot[0][1], bounds_tot[1][1])
             sigma_guess_tot = np.clip(sigma_guess_tot, bounds_tot[0][2], bounds_tot[1][2])
 
-            # STEP 4 GLOBAL: Fit Gaussian to total spectrum with RANSAC outlier rejection
-            popt_tot, fit_success_tot, _ = fit_gaussian_with_ransac(
+            # STEP 4 GLOBAL: Fit Gaussian to total spectrum with iterative sigma clipping
+            popt_tot, fit_success_tot, _ = fit_gaussian_with_sigma_clipping(
                 x_total, y_total_corrected,
                 p0=[amp_guess_tot, center_guess_tot, sigma_guess_tot],
                 bounds=bounds_tot,
-                ransac_thresh=2.0,
-                ransac_iters=2
+                clip_thresh=2.0,
+                clip_iters=2
             )
             # STEP 5 GLOBAL: Extract final global guess for seeding all pixels
             if fit_success_tot:

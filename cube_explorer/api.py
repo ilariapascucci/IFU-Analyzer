@@ -469,13 +469,13 @@ def create_gaussian_map(cube_data, lam_min=None, lam_max=None, n_jobs=None, **kw
     Fit a Gaussian to every spatial pixel's spectrum in a wavelength window.
 
     This is the same full-cube fitting used by the GUI's Gaussian mapping
-    dialog. RANSAC outlier rejection is always enabled.
+    dialog. Iterative sigma-clipping outlier rejection is always enabled.
 
     Args:
         cube_data (CubeData): Loaded cube from load_cube()
         lam_min (float, optional): Minimum wavelength for the fit window (default: full range)
         lam_max (float, optional): Maximum wavelength for the fit window (default: full range)
-        n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)
+        n_jobs (int, optional): Number of worker processes (default: auto-detect CPUs)
         **kwargs: Passed through to fit_gaussians_per_pixel (e.g. fac_above_stdres,
             noise_min, noise_max, lambda_0, progress_callback)
 

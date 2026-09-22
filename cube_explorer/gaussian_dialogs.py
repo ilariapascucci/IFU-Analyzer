@@ -321,9 +321,8 @@ class GaussianMapResultsDialog(QDialog):
         """
         layout = QVBoxLayout()
         
-        # Info label: just the headline count. Detections/upper-limits/no-data,
-        # the global-fit seed, and each parameter's own values all live in the
-        # Show Statistics dialog now (_show_statistics), grouped per parameter.
+        # Info label: just the headline count now. Everything else moved into
+        # the Show Statistics dialog below (_show_statistics), per parameter.
         n_success = np.sum(self.results['success'])
         n_total = self.results['success'].size
         info_label = QLabel(
@@ -596,9 +595,8 @@ class GaussianMapResultsDialog(QDialog):
             "",
         ]
 
-        # Same labels the colorbar uses (e.g. "Area [erg/s/cm²]"); pull out just the
-        # bracketed unit so it reads as "Units: erg/s/cm²" here. Residuals has no
-        # entry -- it isn't one of the plotted parameters, so state its units directly.
+        # Same labels the colorbar uses; pull out the bracketed unit. Residuals
+        # has no entry (it is not a plotted parameter), so state its units directly.
         if param_name == "Residuals":
             units = "normalized: (data - fit) / noise, dimensionless"
         else:
@@ -621,9 +619,8 @@ class GaussianMapResultsDialog(QDialog):
                     f"  Std:     {np.std(valid):.4e}",
                 ]
                 if param_name == "Area (AUC)":
-                    # Area is the one field upper limits also populate (every other
-                    # parameter is NaN there), so this is the only map where the two
-                    # sums differ -- see the noise-estimator fix that made this visible.
+                    # Area is the only field upper limits also populate, so it
+                    # is the only map where the two sums can differ.
                     det_mask = self.results.get('is_detection')
                     if det_mask is not None and det_mask.shape == data.shape:
                         det_sum = np.nansum(np.where(det_mask, data, np.nan))

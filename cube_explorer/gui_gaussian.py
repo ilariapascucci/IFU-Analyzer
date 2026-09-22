@@ -16,6 +16,10 @@ from .flux_map_extractor import (
 # points, a 3-parameter Gaussian fit has 0-1 degrees of freedom, too little to trust.
 MIN_FINITE_POINTS = 5
 
+# Matches compute_line_free_noise_std's own floor (gaussian_fitter.py): below this
+# many finite points, the noise estimate silently comes back None.
+MIN_NOISE_POINTS = 4
+
 
 class GuiGaussianMixin:
     """
@@ -293,6 +297,16 @@ class GuiGaussianMixin:
         noise_min, noise_max = None, None
         if self.gauss_noise_left_x is not None and self.gauss_noise_right_x is not None:
             noise_min, noise_max = min(self.gauss_noise_left_x, self.gauss_noise_right_x), max(self.gauss_noise_left_x, self.gauss_noise_right_x)
+            n_finite_in_noise = np.count_nonzero(
+                (spectrum_x_vals >= noise_min) & (spectrum_x_vals <= noise_max) & np.isfinite(spectrum_y_vals))
+            if n_finite_in_noise < MIN_NOISE_POINTS:
+                QMessageBox.warning(
+                    self, "Noise Region Too Narrow",
+                    f"Only {n_finite_in_noise} finite point(s) in the noise region "
+                    f"(need at least {MIN_NOISE_POINTS}). Widen Noise L/Noise R, or "
+                    f"clear them to fit without a noise region."
+                )
+                return
 
         self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max) if hasattr(self, 'hitran_lines') else None
 
@@ -993,6 +1007,15 @@ STATUS: {result.message}
             return
 
         noise_min, noise_max = min(self.gauss_noise_left_x, self.gauss_noise_right_x), max(self.gauss_noise_left_x, self.gauss_noise_right_x)
+        wavelength_vals = wavelength.value if isinstance(wavelength, Quantity) else wavelength
+        n_wave_in_noise = np.count_nonzero((wavelength_vals >= noise_min) & (wavelength_vals <= noise_max))
+        if n_wave_in_noise < MIN_NOISE_POINTS:
+            QMessageBox.warning(
+                self, "Noise Region Too Narrow",
+                f"Only {n_wave_in_noise} wavelength sample(s) in the noise region "
+                f"(need at least {MIN_NOISE_POINTS}). Widen Noise L/Noise R."
+            )
+            return
 
         # gauss_cache_tab must also match: two tabs can share bounds but need
         # different (differently masked) result maps.
