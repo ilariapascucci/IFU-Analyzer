@@ -122,8 +122,9 @@ class SpectrumPlotter:
             self.global_line, = self.ax.step(x, y, where='mid', color='blue', label='Total Spectrum', zorder=1)
 
             # Axis labels
-            if self.wave_unit in ["Å", "µm"]:
-                xlabel = f"Wavelength [{self.wave_unit}]"
+            if self.wave_unit in ["Å", "um"]:
+                from .unit_converter import clean_wave_unit
+                xlabel = f"Wavelength [{clean_wave_unit(self.wave_unit)}]"
             elif self.wave_unit == "km/s":
                 xlabel = f"Velocity [{self.wave_unit}]"
             else:

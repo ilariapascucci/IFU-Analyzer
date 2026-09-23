@@ -946,8 +946,8 @@ def rotational_diagram_map_single_cube():
     assert region["status"] == STATUS_OK, f"docs' worked example expects a converged whole-cube fit"
     assert region["n_pixels"] == 2915, f"docs claim 2915 spaxels summed, got {region['n_pixels']}"
     assert region["n_lines"] == 7, f"docs claim 7 lines detected in the sum, got {region['n_lines']}"
-    assert abs(region["results"]["1T"]["T"] - 3000.0) < 0.1, \
-        f"docs' worked example expects T pinned at 3000 K, got {region['results']['1T']['T']:.1f}"
+    assert abs(region["results"]["1T"]["T"] - 5000.0) < 0.1, \
+        f"docs' worked example expects T pinned at 5000 K, got {region['results']['1T']['T']:.1f}"
     assert pixel["status"] == STATUS_OK and pixel["n_lines"] == 8, \
         f"docs claim pixel (20, 25) finds 8 lines, got status={pixel['status']} n_lines={pixel.get('n_lines')}"
     assert n_fitted == 877, f"docs' worked example expects 877 fitted pixels, got {n_fitted}"

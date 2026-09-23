@@ -40,6 +40,7 @@ from .unit_converter import (
     integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs,
     extract_units, extract_value_from_quantity,
 )
+from .fits_export import build_2d_export_header, write_fits_product
 
 # fit_glines' actual curve_fit bounds on fitted sigma, x instrumental sigma.
 SIGMA_BOUND_LOWER_MULTIPLIER = 0.5
@@ -1807,24 +1808,15 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='flux'):
         header = flux_map_data.get('header', fits.Header())
         wave_range = flux_map_data.get('wave_range', (np.nanmin(wavelength), np.nanmax(wavelength)))
         flux_unit_output = flux_map_data.get('flux_unit', None)  # Get output flux unit if available
-        
-        # Prepare header [REUSED: Original header as base]
-        if header is not None:
-            out_header = header.copy()
-        else:
-            out_header = fits.Header()
-        
-        # Extract BUNIT - use output unit if conversion was done, otherwise use header
+
+        # Extract BUNIT - use output unit if conversion was done, otherwise the ORIGINAL header's.
         try:
             if flux_unit_output and flux_unit_output != 'MJy/sr um':
                 # Conversion was applied
-                if flux_unit_output == 'erg/s/cm2':
-                    flux_unit_str = "erg/s/cm2"
-                else:
-                    flux_unit_str = flux_unit_output
+                flux_unit_str = "erg/s/cm2" if flux_unit_output == 'erg/s/cm2' else flux_unit_output
             else:
                 # Use the original header. Use 'UNKNOWN' if BUNIT is not there, not a guess.
-                bunit_str = out_header.get('BUNIT', 'UNKNOWN')
+                bunit_str = header.get('BUNIT', 'UNKNOWN') if header is not None else 'UNKNOWN'
                 # Try to parse as astropy unit
                 try:
                     base_unit = u.Unit(bunit_str)
@@ -1834,38 +1826,30 @@ def save_flux_map_fits(flux_map_data, output_path, map_type='flux'):
                     flux_unit_str = f"{bunit_str} um"
         except Exception:
             flux_unit_str = flux_unit_output if flux_unit_output else "UNKNOWN"
-        
-        # Update header with new information
-        out_header['NAXIS'] = 2
-        out_header['NAXIS1'] = flux_map.shape[1]
-        out_header['NAXIS2'] = flux_map.shape[0]
-        out_header['MAPTYPE'] = (map_type, 'Type of flux map')
-        out_header['WAVEMIN'] = (wave_range[0], 'Minimum wavelength used (um)')
-        out_header['WAVEMAX'] = (wave_range[1], 'Maximum wavelength used (um)')
-        out_header['BUNIT'] = flux_unit_str
+
+        out_header = build_2d_export_header(header, flux_map.shape, extra={
+            'MAPTYPE': (map_type, 'Type of flux map'),
+            'WAVEMIN': (wave_range[0], 'Minimum wavelength used (um)'),
+            'WAVEMAX': (wave_range[1], 'Maximum wavelength used (um)'),
+            'BUNIT': flux_unit_str,
+        })
         out_header['COMMENT'] = f'Rovibrational {map_type} Map'
         out_header['COMMENT'] = 'Flux extracted by simultaneous multi-Gaussian fitting'
         out_header['COMMENT'] = 'Values are amplitude * sigma * sqrt(2*pi) integrated from all detected target lines'
-        
-        # Create primary HDU with flux map
-        primary_hdu = fits.PrimaryHDU(flux_map.astype(np.float32), header=out_header)
-        
-        # Create detection map extension
-        detection_hdu = fits.ImageHDU(detection_map.astype(np.int32), name='DETECTION')
-        detection_hdu.header['BUNIT'] = 'count'
-        detection_hdu.header['COMMENT'] = 'Number of target lines detected and fit in each pixel'
-        
-        # Create HDU list and write
-        hdul = fits.HDUList([primary_hdu, detection_hdu])
-        hdul.writeto(output_path, overwrite=True)
-        
+
+        # Detection map extension: same WCS, so it's independently usable.
+        detection_header = build_2d_export_header(header, flux_map.shape, extra={'BUNIT': 'count'})
+        detection_header['COMMENT'] = 'Number of target lines detected and fit in each pixel'
+
+        write_fits_product(output_path, flux_map.astype(np.float32), out_header,
+                            extensions=[('DETECTION', detection_map.astype(np.int32), detection_header)])
+
         print(f"[OK] Flux map saved to {output_path}")
         print(f"  - PRIMARY HDU: {map_type} ({flux_map.shape[0]}x{flux_map.shape[1]})")
-        print(f"  - ERROR HDU: Uncertainty map")
         print(f"  - DETECTION HDU: Line counts per pixel")
-        
+
         return True
-    
+
     except Exception as e:
         print(f"[ERROR] Error saving FITS file: {e}")
         return False

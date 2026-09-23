@@ -1706,9 +1706,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             # Extract wavelength value, handling Quantity objects
             wave = _extract_wavelength_value(self.cube_data.wavelength, idx)
             if self.cube_data.wave_unit == "Å":
-                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.6f} Å"
-            elif self.cube_data.wave_unit == "µm":
-                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.6f} µm"
+                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.6f} {clean_wave_unit(self.cube_data.wave_unit)}"
+            elif self.cube_data.wave_unit == "um":
+                title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.6f} {clean_wave_unit(self.cube_data.wave_unit)}"
             elif self.cube_data.wave_unit == "km/s":
                 title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.1f} km/s"
             else:

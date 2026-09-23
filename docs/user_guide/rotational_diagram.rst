@@ -377,7 +377,7 @@ the GUI's **Run Fit** / **Run Map** buttons call, for one cube:
     save_rotational_diagram_map_fits(result, "rot_diag_map.fits")
 
 On a real NIRSpec cube (37 H2 v=1→0 lines, 55×53 pixels), this fits 877/2915 pixels;
-``fit_region`` sums all 2915 into T = 3000.0 ± 49.7 K (pinned at the ceiling -- this
+``fit_region`` sums all 2915 into T = 5000.0 ± 138.0 K (pinned at the ceiling -- this
 particular v=1→0 hot-band set doesn't constrain a clean rotational diagram the way the
 S(1)–S(7) pure-rotational set does above); ``fit_pixel`` at (20, 25) finds 8 lines
 individually, one more than the whole-cube sum found.

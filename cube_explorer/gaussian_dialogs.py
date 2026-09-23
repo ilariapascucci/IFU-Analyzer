@@ -10,6 +10,7 @@ import os
 import threading
 from .unit_converter import gaussian_map_unit_labels
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
+from .fits_export import build_2d_export_header, write_fits_product, _ascii_safe
 
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
@@ -962,28 +963,10 @@ class GaussianMapResultsDialog(QDialog):
             return
         
         try:
-            from astropy.io import fits
-                        
-            # Start with a copy of the original header (like residuals export does)
-            if self.cube_data.header is not None:
-                out_header = self.cube_data.header.copy()
-            else:
-                out_header = fits.Header()
-            
-            # Get instrument info
-            instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'
-            teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
-            
-            # Update header with detected values
-            if instr != 'UNKNOWN':
-                out_header['INSTRUME'] = instr
-            if teles != 'UNKNOWN':
-                out_header['TELESCOP'] = teles
-            
             # Add metadata about the Gaussian fit
             lam_min = min(self.gauss_left_x, self.gauss_right_x)
             lam_max = max(self.gauss_left_x, self.gauss_right_x)
-            
+
             # Use the EXACT unit label that's displayed on the colorbar
             # This ensures consistency between visualization and FITS export
             if self._current_unit_label:
@@ -992,33 +975,40 @@ class GaussianMapResultsDialog(QDialog):
                     bunit = self._current_unit_label[self._current_unit_label.index('[')+1:self._current_unit_label.index(']')]
                 else:
                     bunit = self._current_unit_label
-                out_header['COMMENT'] = f'{param_name}: {bunit}'
+                # The on-screen label can carry Unicode (superscripts, mu);
+                # a raw COMMENT line isn't run through build_2d_export_header.
+                bunit = _ascii_safe(bunit)
+                comment = f'{param_name}: {bunit}'
             else:
                 # Fallback if no unit label stored
                 bunit = param_name
-                out_header['COMMENT'] = f'Gaussian fit parameter: {param_name}'
-            
-            out_header['BUNIT'] = bunit
-            out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + f' ({param_name})')
-            out_header['PARAM'] = param_name
-            out_header['LAMMIN'] = (lam_min, "Minimum wavelength of fit")
-            out_header['LAMMAX'] = (lam_max, "Maximum wavelength of fit")
-            out_header['NSUCC'] = (int(np.sum(self.results['success'])), "Number of successful fits")
-            out_header['NTOTAL'] = (int(self.results['success'].size), "Total number of pixels")
+                comment = f'Gaussian fit parameter: {param_name}'
+
+            source_header = self.cube_data.header
+            object_label = (source_header.get('OBJECT', 'Unknown') if source_header is not None else 'Unknown') \
+                + f' ({param_name})'
+            out_header = build_2d_export_header(source_header, data.shape, extra={
+                'BUNIT': bunit,
+                'OBJECT': object_label,
+                'PARAM': param_name,
+                'LAMMIN': (lam_min, "Minimum wavelength of fit"),
+                'LAMMAX': (lam_max, "Maximum wavelength of fit"),
+                'NSUCC': (int(np.sum(self.results['success'])), "Number of successful fits"),
+                'NTOTAL': (int(self.results['success'].size), "Total number of pixels"),
+            })
+            # Get instrument info -- normalized to uppercase, falling back to
+            # cube_data.instrument, same as this dialog has always done.
+            instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'
+            teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
+            if instr != 'UNKNOWN':
+                out_header['INSTRUME'] = instr
+            if teles != 'UNKNOWN':
+                out_header['TELESCOP'] = teles
+            out_header['COMMENT'] = comment
             out_header['COMMENT'] = f'Gaussian fit parameter: {param_name}'
-            
-            out_header['NAXIS'] = 2
-            out_header['NAXIS1'] = int(data.shape[1])
-            out_header['NAXIS2'] = int(data.shape[0])
-            for key in list(out_header.keys()):
-                if any(key.startswith(prefix) for prefix in ["NAXIS3", "WCSAXES", "CRPIX3", "CRVAL3", "CDELT3", "CTYPE3", "CUNIT3", "PC1_3", "PC2_3", "PC3_3", "PC3_1", "PC3_2"]):
-                    del out_header[key]
-            
-            # Create HDU and write
-            hdu = fits.PrimaryHDU(data=data, header=out_header)
-            hdul = fits.HDUList([hdu])
-            hdul.writeto(out_path, overwrite=True)
-            
+
+            write_fits_product(out_path, data, out_header)
+
             print(f"Parameter map FITS written to {out_path}")
             QMessageBox.information(
                 self,

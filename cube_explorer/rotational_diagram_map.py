@@ -20,6 +20,7 @@ from .analyzer_2d import (
     _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap,
     build_target_wcs_for_batch, gaussian_convolve_match, reproject_exact,
 )
+from .fits_export import build_2d_export_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
     compute_line_fluxes_collective, get_gu, pc, T_CAP as T_CAP_H2,
     rotational_diagram as rotational_diagram_h2,
@@ -979,29 +980,27 @@ def save_rotational_diagram_map_fits(result, output_path):
     Returns:
         None
     """
-    from astropy.io import fits
-
     # Multi-cube has a real common WCS (dst_wcs); single-cube only has its
-    # own header. Either way it goes on every image HDU, not just the primary.
-    wcs_header = None
-    if result.get("dst_wcs") is not None:
-        wcs_header = result["dst_wcs"].to_header()
-    elif result.get("header") is not None:
-        wcs_header = result["header"]
+    # own header. Either way it's reduced to a clean 2D WCS -- the raw
+    # header's own EXTNAME can't leak through and clobber the one set below.
+    source_header = result["dst_wcs"].to_header() if result.get("dst_wcs") is not None else result.get("header")
+    shape = np.asarray(result["T"]).shape
 
-    hdus = [fits.PrimaryHDU()]
-    for key in ("T", "T_err", "Ncol", "Ncol_err", "n_lines", "status"):
-        hdu = fits.ImageHDU(np.asarray(result[key]), name=key.upper())
-        if wcs_header is not None:
-            hdu.header.update(wcs_header)
-        hdus.append(hdu)
-    hdus[1].header["BUNIT"] = "K"
-    hdus[3].header["BUNIT"] = "cm-2"
-    hdus[0].header["MOLECULE"] = result["molecule"]
-    hdus[0].header["DIST_PC"] = result["dist_pc"]
+    primary_header = build_2d_export_header(source_header, shape, extra={
+        'MOLECULE': result["molecule"],
+        'DIST_PC': result["dist_pc"],
+    })
     if result.get("r_au") is not None:
-        hdus[0].header["R_AU"] = result["r_au"]
+        primary_header["R_AU"] = result["r_au"]
     if result.get("worst_pix_arcsec") is not None:
-        hdus[0].header["PIXSCALE"] = (result["worst_pix_arcsec"], "arcsec/pixel, worst input")
-    fits.HDUList(hdus).writeto(output_path, overwrite=True)
+        primary_header["PIXSCALE"] = (result["worst_pix_arcsec"], "arcsec/pixel, worst input")
+
+    bunit_by_key = {"T": "K", "Ncol": "cm-2"}   # only these two, not their _err counterparts -- matches before
+    extensions = []
+    for key in ("T", "T_err", "Ncol", "Ncol_err", "n_lines", "status"):
+        extra = {'BUNIT': bunit_by_key[key]} if key in bunit_by_key else None
+        ext_header = build_2d_export_header(source_header, shape, extra=extra)
+        extensions.append((key.upper(), np.asarray(result[key]), ext_header))
+
+    write_fits_product(output_path, None, primary_header, extensions=extensions)
     print(f"[OK] wrote {output_path}")

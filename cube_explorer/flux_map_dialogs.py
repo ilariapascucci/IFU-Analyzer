@@ -17,6 +17,8 @@ from matplotlib.figure import Figure
 import matplotlib.cm as cm
 from astropy import units as u
 
+from .fits_export import build_2d_export_header, write_fits_product
+
 
 class FluxMapWorker(QThread):
     """Background worker for flux extraction"""
@@ -595,67 +597,46 @@ class FluxMapResultsDialog(QDialog):
         
         if path:
             try:
-                from astropy.io import fits
-                
-                # Flux HDU (Primary) - include original header if available
-                hdu = fits.PrimaryHDU(data=self.flux_map.astype(np.float32))
-                
-                # Copy instrument/origin info from original header if available
-                if self.header is not None:
-                    # Copy essential metadata from original cube header
-                    instrument_keywords = ['INSTRUME', 'TELESCOP', 'OBSERVER', 'OBJECT', 'DATE-OBS', 'EXPTIME']
-                    for kw in instrument_keywords:
-                        if kw in self.header:
-                            hdu.header[kw] = self.header[kw]
-                
-                # Ensure INSTRUME is set - get from cube_data if not in header
-                if 'INSTRUME' not in hdu.header and hasattr(self, 'cube_data') and self.cube_data is not None:
-                    if hasattr(self.cube_data, 'instrument'):
-                        hdu.header['INSTRUME'] = self.cube_data.instrument
-                
-                hdu.header['BUNIT'] = self.flux_unit_str
-                hdu.header['SPECIES'] = (self.species_label, 'Target line species')
-                hdu.header['DESC'] = f'{self.species_label} rovibrational flux: Integrated area under target line gaussians'
+                shape = self.flux_map.shape
+
+                primary_extra = {
+                    'BUNIT': self.flux_unit_str,
+                    'SPECIES': (self.species_label, 'Target line species'),
+                    'DESC': f'{self.species_label} rovibrational flux: Integrated area under target line gaussians',
+                }
                 if self.wave_range:
-                    hdu.header['WAVEMIN'] = (self.wave_range[0], 'Min wavelength used (um)')
-                    hdu.header['WAVEMAX'] = (self.wave_range[1], 'Max wavelength used (um)')
-                
-                # Remove only problematic WCS coordinate keywords (not structural FITS keywords)
-                wcs_keywords = ['CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2', 'CRPIX1', 'CRPIX2',
-                               'CRVAL1', 'CRVAL2', 'CDELT1', 'CDELT2', 'CMATRIX',
-                               'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2']
-                for kw in wcs_keywords:
-                    if kw in hdu.header:
-                        del hdu.header[kw]
-                
-                hdul = fits.HDUList([hdu])
-                
-                # Detection HDU
-                hdu = fits.ImageHDU(data=self.detection_map.astype(np.int32))
-                hdu.header['EXTNAME'] = 'DETECTION'
-                hdu.header['BUNIT'] = 'count'
-                hdu.header['DESC'] = 'Number of target lines detected per pixel'
-                hdul.append(hdu)
+                    primary_extra['WAVEMIN'] = (self.wave_range[0], 'Min wavelength used (um)')
+                    primary_extra['WAVEMAX'] = (self.wave_range[1], 'Max wavelength used (um)')
+                primary_header = build_2d_export_header(self.header, shape, extra=primary_extra)
+                if 'INSTRUME' not in primary_header and getattr(self, 'cube_data', None) is not None:
+                    if hasattr(self.cube_data, 'instrument'):
+                        primary_header['INSTRUME'] = self.cube_data.instrument
 
-                # Contaminant flux HDU (only if this map has one -- older cached results won't)
+                extensions = [(
+                    'DETECTION', self.detection_map.astype(np.int32),
+                    build_2d_export_header(self.header, shape, extra={
+                        'BUNIT': 'count', 'DESC': 'Number of target lines detected per pixel'}),
+                )]
+                # Contaminant maps only exist on results computed after this feature was added.
                 if self.contam_flux_map is not None:
-                    hdu = fits.ImageHDU(data=self.contam_flux_map.astype(np.float32))
-                    hdu.header['EXTNAME'] = 'CONTAM_FLUX'
-                    hdu.header['BUNIT'] = self.flux_unit_str
-                    hdu.header['DESC'] = 'Contaminating-line flux: integrated area under non-target line gaussians'
-                    hdul.append(hdu)
-
-                # Contaminant detection-count HDU (only if this map has one)
+                    extensions.append((
+                        'CONTAM_FLUX', self.contam_flux_map.astype(np.float32),
+                        build_2d_export_header(self.header, shape, extra={
+                            'BUNIT': self.flux_unit_str,
+                            'DESC': 'Contaminating-line flux: integrated area under non-target line gaussians'}),
+                    ))
                 if self.contam_detection_map is not None:
-                    hdu = fits.ImageHDU(data=self.contam_detection_map.astype(np.int32))
-                    hdu.header['EXTNAME'] = 'CONTAM_DETECTION'
-                    hdu.header['BUNIT'] = 'count'
-                    hdu.header['DESC'] = 'Number of contaminating lines detected per pixel'
-                    hdul.append(hdu)
+                    extensions.append((
+                        'CONTAM_DETECTION', self.contam_detection_map.astype(np.int32),
+                        build_2d_export_header(self.header, shape, extra={
+                            'BUNIT': 'count', 'DESC': 'Number of contaminating lines detected per pixel'}),
+                    ))
 
-                # Write with warnings suppressed for missing instrument keywords
-                hdul.writeto(path, overwrite=True, output_verify='warn')
-                
+                # Lenient verify: kept from before this used clean, self-consistent
+                # headers, in case a source header has its own unrelated quirks.
+                write_fits_product(path, self.flux_map.astype(np.float32), primary_header,
+                                    extensions=extensions, output_verify='warn')
+
                 QMessageBox.information(self, "Success", f"Saved to:\n{path}")
             except Exception as e:
                 import traceback

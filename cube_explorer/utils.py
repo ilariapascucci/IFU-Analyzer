@@ -239,7 +239,7 @@ def get_wavelength(header, instrument, cube_shape):
                 source_unit = "um"
             wavelengths = convert_wavelength(wavelengths, source_unit, "um")
 
-            return {'wavelength': wavelengths * u.um, 'unit': "µm", **extra}
+            return {'wavelength': wavelengths * u.um, 'unit': "um", **extra}
 
     except Exception as e:
         print(f"Error calculating wavelength array: {e}")

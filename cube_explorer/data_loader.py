@@ -9,7 +9,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from .utils import TELESCOPE_LOADERS, detect_instrument, infer_spec_axis, get_wavelength
-from .analyzer_2d import _make_2d_wcs
+from .fits_export import build_2d_export_header, write_fits_product
 
 class CubeData:
     """
@@ -355,25 +355,17 @@ class CubeData:
 
         # A plain PrimaryHDU, unlike export_region_cube's MUSE branch: this
         # file reloads through gui_2d.py's loader, which scans every HDU.
-        wcs2d = _make_2d_wcs(self.header)
-        out_header = wcs2d.to_header() if wcs2d is not None else fits.Header()
-        out_header["NAXIS"] = 2
-        out_header["NAXIS1"] = int(image.shape[1])
-        out_header["NAXIS2"] = int(image.shape[0])
-        # Copied from a clean 2D WCS instead of a hardcoded 3D-keyword
-        # deletion list, so an unlisted spectral keyword can't slip through.
-        for key in ("BUNIT", "OBJECT", "INSTRUME", "TELESCOP"):
-            if self.header is not None and key in self.header:
-                out_header[key] = self.header[key]
+        extra = {}
+        if self.header is not None and "BUNIT" in self.header:
+            extra["BUNIT"] = self.header["BUNIT"]
         if self.wavelength is not None and 0 <= idx < len(self.wavelength):
             wl_val = self.wavelength[idx]
-            # FITS comments must be plain ASCII; wave_unit can hold "μm".
-            safe_unit = (self.wave_unit or "").replace("μ", "u").encode("ascii", "replace").decode("ascii")
-            out_header["SLICEWL"] = (float(getattr(wl_val, "value", wl_val)),
-                                      f"Wavelength of this slice ({safe_unit})")
+            # build_2d_export_header ASCII-sanitizes extra values/comments,
+            # so wave_unit's "μm" doesn't need handling here too.
+            extra["SLICEWL"] = (float(getattr(wl_val, "value", wl_val)), f"Wavelength of this slice ({self.wave_unit or ''})")
 
-        hdu = fits.PrimaryHDU(data=image.astype(np.float32), header=out_header)
-        fits.HDUList([hdu]).writeto(output_path, overwrite=True)
+        out_header = build_2d_export_header(self.header, image.shape, extra=extra)
+        write_fits_product(output_path, image.astype(np.float32), out_header)
 
 
     def get_pixel_spectrum(self, x, y):
