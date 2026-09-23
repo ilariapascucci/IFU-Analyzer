@@ -40,6 +40,8 @@ from .gui_region_selection import RegionSelectionMixin
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
+from .analyzer_2d import _make_2d_wcs
+from . import region_io
 from .continuum_dialog import ContinuumParametersDialog
 from .custom_continuum import CustomContinuumSelector
 from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
@@ -551,6 +553,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.last_selection_right = None
         self.last_idx_left = 0
         self.last_idx_right = 0
+        for btn in (self.region_save_slice_btn, self.region_save_slice_masked_btn, self.region_save_cube_btn,
+                    self.region_save_wcs_btn, self.region_import_wcs_btn):
+            btn.setEnabled(False)
         self.original_spectrum = None
         print("[DEBUG] Resetting selections")
 
@@ -1119,21 +1124,35 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.erase_btn_r.setToolTip("Clear selection on right slice")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
 
-        # Export the current region as a NaN-masked cube (same shape/WCS as
-        # the loaded cube, just everything outside the region set to NaN).
-        self.export_region_btn_l = QPushButton("💾")
-        self.export_region_btn_l.setFixedSize(35, 35)
-        self.export_region_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.export_region_btn_l.setToolTip("Export left selection as a NaN-masked cube")
-        self.export_region_btn_l.setEnabled(False)
-        self.export_region_btn_l.clicked.connect(lambda: self._export_region_cube("left"))
+        # Save/import actions live in the "Region" group (_setup_main_layout),
+        # not here -- each one asks which panel (left/right) to use.
+        self.region_save_slice_btn = QPushButton("Save Slice")
+        self.region_save_slice_btn.setToolTip("Save one panel's current slice as a standalone 2D FITS")
+        self.region_save_slice_btn.clicked.connect(self._region_save_slice)
 
-        self.export_region_btn_r = QPushButton("💾")
-        self.export_region_btn_r.setFixedSize(35, 35)
-        self.export_region_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.export_region_btn_r.setToolTip("Export right selection as a NaN-masked cube")
-        self.export_region_btn_r.setEnabled(False)
-        self.export_region_btn_r.clicked.connect(lambda: self._export_region_cube("right"))
+        self.region_save_slice_masked_btn = QPushButton("Save Slice (Masked)")
+        self.region_save_slice_masked_btn.setToolTip(
+            "Save one panel's current slice as a 2D FITS, with everything outside its region set to NaN")
+        self.region_save_slice_masked_btn.clicked.connect(self._region_save_slice_masked)
+
+        self.region_save_cube_btn = QPushButton("Save Cube (Masked)")
+        self.region_save_cube_btn.setToolTip(
+            "Save the full cube, with everything outside one panel's region set to NaN")
+        self.region_save_cube_btn.clicked.connect(self._region_save_cube_masked)
+
+        self.region_save_wcs_btn = QPushButton("Save Region as Text")
+        self.region_save_wcs_btn.setToolTip(
+            "Save one panel's region as RA/Dec sky coordinates, so it can be reconstructed on a different cube")
+        self.region_save_wcs_btn.clicked.connect(self._region_save_wcs_text)
+
+        self.region_import_wcs_btn = QPushButton("Import Region")
+        self.region_import_wcs_btn.setToolTip(
+            "Load a region previously saved as WCS text onto one panel, at the same sky position")
+        self.region_import_wcs_btn.clicked.connect(self._region_import_wcs_text)
+
+        for btn in (self.region_save_slice_btn, self.region_save_slice_masked_btn, self.region_save_cube_btn,
+                    self.region_save_wcs_btn, self.region_import_wcs_btn):
+            btn.setEnabled(False)
 
     def _setup_main_layout(self):
         """Set up the main application layout.
@@ -1178,7 +1197,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         left_sidebar.addWidget(self.copy_color_btn_l)
         left_sidebar.addWidget(self.edit_shape_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
-        left_sidebar.addWidget(self.export_region_btn_l)
         left_sidebar.addStretch()
 
         left_combined.addLayout(left_slice_layout, 4)
@@ -1206,7 +1224,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         right_sidebar.addWidget(self.copy_color_btn_r)
         right_sidebar.addWidget(self.edit_shape_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
-        right_sidebar.addWidget(self.export_region_btn_r)
         right_sidebar.addStretch()
 
         right_slice_layout = QVBoxLayout()
@@ -1265,7 +1282,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
-        
+
+        # Group 6: Region (save/import for slices and regions -- each
+        # button asks which panel, left or right, to use).
+        self.region_group = CollapsibleButtonGroup("Region")
+        self.region_group.add_button(self.region_save_slice_btn)
+        self.region_group.add_button(self.region_save_slice_masked_btn)
+        self.region_group.add_button(self.region_save_cube_btn)
+        self.region_group.add_button(self.region_save_wcs_btn)
+        self.region_group.add_button(self.region_import_wcs_btn)
+        collapsible_layout.addWidget(self.region_group)
+
         collapsible_layout.addStretch()  # Push all groups to the left
         
         main_layout.addLayout(collapsible_layout)
@@ -1518,6 +1545,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                     spin.setValue(float(wl[0]))
                     spin.blockSignals(False)
                     spin.setEnabled(True)
+
+            for btn in (self.region_save_slice_btn, self.region_save_slice_masked_btn, self.region_save_cube_btn,
+                        self.region_save_wcs_btn, self.region_import_wcs_btn):
+                btn.setEnabled(True)
 
         except MemoryError:
             QMessageBox.critical(self, "Memory Error", 
@@ -1773,9 +1804,50 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if getattr(self, "active_spectrum_tab", None) == target:
             self._refresh_active_spectrum_tab()
 
-        sel = self.last_selection_left if target == "left" else self.last_selection_right
-        btn = self.export_region_btn_l if target == "left" else self.export_region_btn_r
-        btn.setEnabled(bool(sel))
+    def _ask_target_panel(self, title, question):
+        """Ask which panel, left or right, an action should use.
+
+        Args:
+            title (str): Dialog window title.
+            question (str): Prompt text shown to the user.
+
+        Returns:
+            target (str): 'left' or 'right', or None if cancelled.
+        """
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setText(question)
+        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
+        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
+        msg.addButton("Cancel", QMessageBox.RejectRole)
+        msg.exec_()
+        if msg.clickedButton() == btn_left:
+            return "left"
+        if msg.clickedButton() == btn_right:
+            return "right"
+        return None
+
+    def _selection_to_full_mask(self, target, sel):
+        """Build a full-image mask from a selection dict.
+
+        Args:
+            target (str): Panel the selection belongs to, 'left' or 'right'.
+            sel (dict): Selection dict from last_selection_left/right.
+
+        Returns:
+            mask (numpy.ndarray): Boolean mask, same spatial shape as the cube.
+        """
+        if sel.get("shape") == "*":
+            # Point selections store coords, not a mask -- build a single-pixel one.
+            x, y = sel["coords"]
+            x, y = int(round(x)), int(round(y))
+            cube = self.cube_data.cube
+            spatial_shape = cube.shape[1:] if self.cube_data.spec_axis == 0 else \
+                tuple(s for i, s in enumerate(cube.shape) if i != self.cube_data.spec_axis)
+            mask = np.zeros(spatial_shape, dtype=bool)
+            mask[y, x] = True
+            return mask
+        return sel["mask"]
 
     def _export_region_cube(self, target):
         """Save the cube to a new FITS file with spaxels outside the
@@ -1796,18 +1868,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 f"Select a region or pixel on the {target.capitalize()} side first."
             )
             return
-
-        if sel.get("shape") == "*":
-            # Point selections carry raw (x, y) coords, not a mask -- build
-            # a single-True-pixel mask the same shape export_region_cube expects.
-            x, y = sel["coords"]
-            cube = self.cube_data.cube
-            spatial_shape = cube.shape[1:] if self.cube_data.spec_axis == 0 else \
-                tuple(s for i, s in enumerate(cube.shape) if i != self.cube_data.spec_axis)
-            mask = np.zeros(spatial_shape, dtype=bool)
-            mask[y, x] = True
-        else:
-            mask = sel["mask"]
+        mask = self._selection_to_full_mask(target, sel)
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Region as Cube", "", "FITS files (*.fits)")
@@ -1822,6 +1883,206 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.critical(self, "Export Failed", f"Could not export region cube:\n{e}")
             return
         QMessageBox.information(self, "Export Complete", f"Region cube saved to:\n{path}")
+
+    def _region_save_slice(self):
+        """Save one panel's current slice as a standalone 2D FITS file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if getattr(self.cube_data, "cube", None) is None:
+            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
+            return
+        target = self._ask_target_panel("Save Slice", "Which panel's slice would you like to save?")
+        if target is None:
+            return
+        idx = self.last_idx_left if target == "left" else self.last_idx_right
+
+        path, _ = QFileDialog.getSaveFileName(self, "Save Slice as 2D FITS", "", "FITS files (*.fits)")
+        if not path:
+            return
+        if not path.lower().endswith(".fits"):
+            path += ".fits"
+        try:
+            self.cube_data.export_slice_fits(idx, path)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not export slice:\n{e}")
+            return
+        QMessageBox.information(self, "Export Complete", f"Slice saved to:\n{path}")
+
+    def _region_save_slice_masked(self):
+        """Save one panel's current slice as a 2D FITS file, with pixels
+        outside that panel's region set to NaN.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if getattr(self.cube_data, "cube", None) is None:
+            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
+            return
+        target = self._ask_target_panel("Save Slice (Masked)", "Which panel's region would you like to save?")
+        if target is None:
+            return
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        if not sel:
+            QMessageBox.warning(
+                self, "Region Selection Required",
+                f"Select a region or pixel on the {target.capitalize()} side first.")
+            return
+        mask = self._selection_to_full_mask(target, sel)
+        idx = self.last_idx_left if target == "left" else self.last_idx_right
+
+        path, _ = QFileDialog.getSaveFileName(self, "Save Slice (Masked) as 2D FITS", "", "FITS files (*.fits)")
+        if not path:
+            return
+        if not path.lower().endswith(".fits"):
+            path += ".fits"
+        try:
+            self.cube_data.export_slice_fits(idx, path, mask=mask)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not export slice:\n{e}")
+            return
+        QMessageBox.information(self, "Export Complete", f"Masked slice saved to:\n{path}")
+
+    def _region_save_cube_masked(self):
+        """Export one panel's region as a NaN-masked cube (unchanged from
+        the existing _export_region_cube behavior).
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if getattr(self.cube_data, "cube", None) is None:
+            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
+            return
+        target = self._ask_target_panel(
+            "Save Cube (Masked)", "Which panel's region would you like to export as a cube?")
+        if target is None:
+            return
+        self._export_region_cube(target)
+
+    def _region_save_wcs_text(self):
+        """Save one panel's region as RA/Dec sky coordinates in a text
+        file, so it can be placed on a different cube later.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if getattr(self.cube_data, "cube", None) is None:
+            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
+            return
+        target = self._ask_target_panel("Save Region as WCS Text", "Which panel's region would you like to save?")
+        if target is None:
+            return
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        if not sel:
+            QMessageBox.warning(
+                self, "Region Selection Required",
+                f"Select a region or pixel on the {target.capitalize()} side first.")
+            return
+
+        wcs2d = _make_2d_wcs(self.cube_data.header)
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            QMessageBox.critical(
+                self, "No WCS Available",
+                "This cube has no usable celestial WCS, so its region can't be saved as sky coordinates.")
+            return
+
+        shape = sel.get("shape")
+        lasso_verts = getattr(sel.get("patch"), "lasso_verts", None) if shape == "✏" else None
+        try:
+            result = region_io.region_shape_to_sky(shape, sel["coords"], wcs2d, lasso_verts=lasso_verts)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not convert region to sky coordinates:\n{e}")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
+        if not path:
+            return
+        if not path.lower().endswith((".txt", ".csv")):
+            path += ".txt"
+
+        source_desc = os.path.basename(self.cube_data.filename or "")
+        try:
+            region_io.write_region_wcs_txt(
+                path, shape, source_desc, result["pixel_points"], result["sky_points"],
+                result.get("sky_center"), result.get("sky_axis_x"), result.get("sky_axis_y"))
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not write region file:\n{e}")
+            return
+        QMessageBox.information(self, "Export Complete", f"Region saved to:\n{path}")
+
+    def _region_import_wcs_text(self):
+        """Load a region saved as WCS text and place it on one panel,
+        using this cube's own WCS to match the same sky position.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if getattr(self.cube_data, "cube", None) is None:
+            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
+            return
+        target = self._ask_target_panel("Import Region", "Which panel should the imported region be placed on?")
+        if target is None:
+            return
+
+        wcs2d = _make_2d_wcs(self.cube_data.header)
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            QMessageBox.critical(
+                self, "No WCS Available",
+                "This cube has no usable celestial WCS, so a saved region can't be placed on it.")
+            return
+
+        image = self._region_image(target)
+        if image is None:
+            QMessageBox.warning(self, "Import Failed", "No slice is currently displayed on that panel.")
+            return
+
+        path, _ = QFileDialog.getOpenFileName(self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
+        if not path:
+            return
+
+        try:
+            saved = region_io.read_region_wcs_txt(path)
+            placed = region_io.sky_to_region_shape(
+                saved["shape"], saved["sky_points"], saved["sky_center"],
+                saved["sky_axis_x"], saved["sky_axis_y"], wcs2d, target_shape=image.shape)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Failed", str(e))
+            return
+
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+        if selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect()
+            selector.interactive_patch = None
+
+        shape = placed["shape"]
+        if shape == "*":
+            x, y = placed["coords"]
+            self._handle_pixel_click(int(round(x)), int(round(y)), target)
+        elif shape == "✏":
+            selector.active_shape = "✏"
+            selector.on_lasso_select(placed["verts"])
+            selector.active_shape = None
+        else:
+            selector.active_shape = shape
+            coords = tuple(int(round(c)) for c in placed["coords"])
+            selector.create_region(coords)
+            selector.active_shape = None
 
     def _on_slice_click(self, event, target):
         """Handle clicks on slice display.

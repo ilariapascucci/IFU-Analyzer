@@ -43,7 +43,9 @@ Displays the currently selected wavelength left and right slices:
   - **✎** Edit the placed region (drag/resize)
   - **⎘** Copy the selection from the adjacent slice
   - **⎘🌈** Copy the colormap from the adjacent slice
-  - **💾** Export the region as a NaN-masked FITS cube (:doc:`selecting_regions`)
+
+Saving a slice or a region is done from the **Region** tool group below, not
+from a button here (:doc:`selecting_regions`).
 
 **3. Spectrum Panel** (Bottom Center)
 
@@ -68,6 +70,9 @@ a row of display/navigation controls that are always visible.
      - Fit H2 rotational temperatures from measured line fluxes
    * - **HITRAN**
      - Fetch molecular line lists with transition-level filtering
+   * - **Region**
+     - Save a slice or a region, or import a region saved on another cube
+       (:doc:`selecting_regions`)
 
 *Display Controls (bottom row)*
 

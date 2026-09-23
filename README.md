@@ -188,6 +188,8 @@ Bring any number of multi-instrument images to one common resolution and field o
 - **Residuals cube (FITS):** export of the 3D normalised residuals cube with full header metadata
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
+- **Slice or region (FITS):** a single 2D slice, or the full cube masked to a selected region, from the main window's "Region" tool group
+- **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position
 - **Contour mask (FITS):** export of the binary region mask with a WCS header
 - **Rotated image (FITS):** save of the rotated image with the updated WCS header
 - **Convolved image (FITS):** save of the resolution-matched image (the "Pair" output) with the 2-HDU layout (image and `COVERAGE`)

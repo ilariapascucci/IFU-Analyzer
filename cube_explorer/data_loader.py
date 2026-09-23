@@ -9,6 +9,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from .utils import TELESCOPE_LOADERS, detect_instrument, infer_spec_axis, get_wavelength
+from .analyzer_2d import _make_2d_wcs
 
 class CubeData:
     """
@@ -316,6 +317,63 @@ class CubeData:
             # MIRI/NIRSpec fall back to hdul[0] when there is no "SCI" HDU.
             hdul = fits.HDUList([fits.PrimaryHDU(data=masked, header=out_header)])
         hdul.writeto(output_path, overwrite=True)
+
+
+    def export_slice_fits(self, idx, output_path, mask=None):
+        """
+        Write one 2D slice to a standalone FITS file (a plain PrimaryHDU).
+        The header comes from a clean 2D WCS, plus a few descriptive
+        keywords copied over from the cube's own header.
+
+        Args:
+            idx (int): Spectral index, as used by get_slice.
+            output_path (str): Destination FITS path.
+            mask (array, optional): Boolean mask, same shape as the slice;
+                True keeps a pixel, False sets it to NaN. None exports the
+                slice unmodified.
+
+        Returns:
+            None: Writes output_path as a side effect.
+
+        Raises:
+            ValueError: no cube is loaded, the slice could not be extracted,
+                or mask's shape doesn't match the slice.
+        """
+        if self.cube is None:
+            raise ValueError("No cube loaded")
+
+        image = self.get_slice(idx)
+        if image is None:
+            raise ValueError(f"Could not extract slice {idx}")
+
+        if mask is not None:
+            mask = np.asarray(mask, dtype=bool)
+            if mask.shape != image.shape:
+                raise ValueError(f"Mask shape {mask.shape} does not match slice shape {image.shape}")
+            image = image.copy()
+            image[~mask] = np.nan
+
+        # A plain PrimaryHDU, unlike export_region_cube's MUSE branch: this
+        # file reloads through gui_2d.py's loader, which scans every HDU.
+        wcs2d = _make_2d_wcs(self.header)
+        out_header = wcs2d.to_header() if wcs2d is not None else fits.Header()
+        out_header["NAXIS"] = 2
+        out_header["NAXIS1"] = int(image.shape[1])
+        out_header["NAXIS2"] = int(image.shape[0])
+        # Copied from a clean 2D WCS instead of a hardcoded 3D-keyword
+        # deletion list, so an unlisted spectral keyword can't slip through.
+        for key in ("BUNIT", "OBJECT", "INSTRUME", "TELESCOP"):
+            if self.header is not None and key in self.header:
+                out_header[key] = self.header[key]
+        if self.wavelength is not None and 0 <= idx < len(self.wavelength):
+            wl_val = self.wavelength[idx]
+            # FITS comments must be plain ASCII; wave_unit can hold "μm".
+            safe_unit = (self.wave_unit or "").replace("μ", "u").encode("ascii", "replace").decode("ascii")
+            out_header["SLICEWL"] = (float(getattr(wl_val, "value", wl_val)),
+                                      f"Wavelength of this slice ({safe_unit})")
+
+        hdu = fits.PrimaryHDU(data=image.astype(np.float32), header=out_header)
+        fits.HDUList([hdu]).writeto(output_path, overwrite=True)
 
 
     def get_pixel_spectrum(self, x, y):

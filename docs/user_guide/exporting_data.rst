@@ -14,6 +14,8 @@ What to Export             Format                Purpose
 ========================== ==================== ================================================
 **Spectrum**               ASCII, FITS           Further analysis
 **Gaussian Fit Maps**      FITS                  Imaging analysis tools
+**Slice or Region**        FITS, Text            One slice or region, or its sky coordinates
+                                                  for reuse on another cube (:doc:`selecting_regions`)
 **Visualization**          PNG, JPEG, PDF        Slices and other 2D data
 ========================== ==================== ================================================
 

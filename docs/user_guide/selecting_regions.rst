@@ -19,7 +19,7 @@ Tool                     Best For
 **✏** Freehand           Precise manual outlines
 ======================== ==================================================================
 
-Five more buttons sit alongside them in each slice's toolbar:
+Four more buttons sit alongside them in each slice's toolbar:
 
 ======================== ==================================================================
 Button                   Purpose
@@ -28,8 +28,9 @@ Button                   Purpose
 **✖** Clear              Remove the region and start over
 **⎘** Copy               Copy the selection to the other slice
 **⎘🌈** Copy Color        Copy this slice's colormap to the other slice
-**💾** Export             Save the region (or a Point) as a NaN-masked cube
 ======================== ==================================================================
+
+Saving a slice or a region is a separate step, covered below.
 
 How Region Selection Works
 ==========================
@@ -156,14 +157,29 @@ it also populates that side's own tab in the Spectrum Panel below.
 For normalizing or Doppler-shifting these spectra once you have them, see
 :doc:`spectrum_display`.
 
-Exporting a Region as a Cube
-=============================
+Saving Slices and Regions
+==========================
 
-Once a region -- or a single **Point** -- is placed, **💾** saves a copy of the loaded
-cube to a new FITS file with every spaxel outside it set to NaN. A Point selection works
-too: the exported cube keeps just that one spaxel, everything else NaN. Shape and WCS are
-unchanged either way, so the file reloads normally and a plain sum over it reproduces the
-region's (or single pixel's) own spectrum exactly.
+The **Region** group, in the collapsible toolbar above the spectrum (next to
+**Gaussian Fit** and **HITRAN**), holds five buttons for saving and loading:
+
+======================== ==================================================================
+Button                   Purpose
+======================== ==================================================================
+Save Slice               Save the current slice as a standalone 2D FITS file
+Save Slice (Masked)      Same, with everything outside the region set to NaN
+Save Cube (Masked)       Save the whole cube, with everything outside the region set to NaN
+Save Region as Text      Save the region's shape as RA/Dec sky coordinates
+Import Region            Load a region saved as text onto the current slice
+======================== ==================================================================
+
+Every button first asks which slice, Left or Right, to use -- the two slices keep
+independent regions, so this makes sure you save or load the one you mean.
+
+**Save Cube (Masked)** is the original export: a copy of the loaded cube with every
+spaxel outside the region (or, for a **Point**, outside that one spaxel) set to NaN.
+Shape and WCS stay unchanged, so the file reloads normally and a plain sum over it
+reproduces the region's own spectrum exactly.
 
 .. figure:: ../_static/region_cube.png
    :alt: A cube reloaded from an exported region file, instrument label reading region-Level3_ch1-long_s3d.fits
@@ -175,10 +191,21 @@ region's (or single pixel's) own spectrum exactly.
 
 This is useful for handing just one region's data to another tool (Flux Map, Rotational
 Diagram Map) without it seeing the rest of the cube, or for sharing one source's data
-without the surrounding field.
+without the surrounding field. **Save Slice** and **Save Slice (Masked)** are the same
+idea for a single 2D image instead of the whole cube -- the file reopens in the
+standalone 2D Viewer.
 
-**💾** stays disabled until something -- a region or a Point -- is placed, and disables
-again after clearing it with **✖**.
+**Save Region as Text** and **Import Region** carry a region between cubes with a
+different pixel scale or orientation, at the same point on the sky, instead of you
+re-measuring it by eye each time. Saving writes the region's RA/Dec coordinates to a
+plain text file; importing reads that file and rebuilds the shape using the *currently
+open* cube's own WCS. A Rectangle, Circle, or Ellipse that would come out rotated on the
+new cube is rebuilt as a Freehand shape instead, since a rotated box can't be described
+by an axis-aligned selection tool. Both actions need a cube with usable sky coordinates:
+without one, or if the saved region falls entirely off the target cube's frame, the
+action stops and explains why, rather than placing something in the wrong spot.
+
+All five buttons stay disabled until a cube is loaded.
 
 Using the API
 =============
