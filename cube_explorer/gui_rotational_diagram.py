@@ -2916,6 +2916,25 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.on_line_selected()  # re-derive from current checkbox state (>=2), don't just force True
         QMessageBox.critical(self, "Fitting Error", f"Error during fitting:\n{message}")
 
+    def _rot_map_worker_busy(self):
+        """True if a previous Run Map/Calculate Maps/Convolve Maps worker is
+        still running or still shutting down after being cancelled. Qt hides
+        a cancelled QProgressDialog immediately (regardless of setAutoClose/
+        setAutoReset), so without this check a second click could start a
+        new worker while the first one is still alive in the background,
+        both racing on the same self.rot_map_worker/self.rot_map_progress --
+        the likely cause of a stray/duplicate "cancelled" message. Same
+        pattern as gui_gaussian.py's Gaussian Map guard.
+
+        Args:
+            None
+
+        Returns:
+            bool: True if a worker from a previous click is still running.
+        """
+        worker = getattr(self, "rot_map_worker", None)
+        return worker is not None and worker.isRunning()
+
     def run_rotational_map(self):
         """Run the same fit at every pixel of the loaded cube(s), 1T,
         detections only. A single cube fits on its own native grid; two or
@@ -2929,6 +2948,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
+        if self._rot_map_worker_busy():
+            QMessageBox.warning(
+                self, "Fit Still Stopping",
+                "The previous map operation is still shutting down after being "
+                "cancelled. Wait a few seconds and try again.")
+            return
+
         cubes = list(self.loaded_batch_cubes)
         if not cubes:
             QMessageBox.warning(self, "No Cube",
@@ -3121,6 +3147,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
+        if self._rot_map_worker_busy():
+            QMessageBox.warning(
+                self, "Fit Still Stopping",
+                "The previous map operation is still shutting down after being "
+                "cancelled. Wait a few seconds and try again.")
+            return
+
         cubes = list(self.loaded_batch_cubes)
         if not cubes:
             QMessageBox.warning(self, "No Cube",
@@ -3265,6 +3298,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
+        if self._rot_map_worker_busy():
+            QMessageBox.warning(
+                self, "Fit Still Stopping",
+                "The previous map operation is still shutting down after being "
+                "cancelled. Wait a few seconds and try again.")
+            return
+
         cubes = list(self.loaded_batch_cubes)
         if len(cubes) < 2:
             QMessageBox.warning(

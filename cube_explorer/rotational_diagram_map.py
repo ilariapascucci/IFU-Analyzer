@@ -644,7 +644,7 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
 
 
 def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
-                     progress_callback=None, cancel_flag=None):
+                     progress_callback=None, cancel_flag=None, executor=None):
     """
     Fit one line at every pixel of one cube's native grid.
 
@@ -652,9 +652,17 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
         cube (CubeData): One loaded cube
         line_wavelength (float): The line's catalog wavelength (um)
         contam_lines (pd.DataFrame): Contaminating lines, or None
-        n_jobs (int): Worker processes, one cube row per task
+        n_jobs (int): Worker processes, one cube row per task -- ignored when
+            `executor` is given (its own worker count applies instead)
         progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
+        executor (ProcessPoolExecutor): Shared pool to submit this line's row
+            tasks to, so compute_native_line_maps can fit every line through
+            one set of worker processes instead of spawning a fresh set per
+            line -- each spawn re-imports the whole module chain (including
+            pymc, which is slow and prints its own startup warnings on every
+            import). None creates and tears down a private pool for this one
+            line, for standalone/backward-compat callers.
 
     Returns:
         maps (tuple): (flux_map, flux_error_map), float32, NaN where there is
@@ -669,10 +677,13 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
 
     # Same reasoning as create_rotational_diagram_map: threads gave no
     # speedup for this per-pixel curve_fit work, so this uses processes too.
-    _pin_worker_math_threads()
+    own_executor = executor is None
+    if own_executor:
+        _pin_worker_math_threads()
+        executor = ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn"))
     max_in_flight = 2 * n_jobs
     cancelled = False
-    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as executor:
+    try:
         pending = set()
         next_row = 0
         while (next_row < n_y or pending) and not cancelled:
@@ -695,6 +706,9 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
                 cancelled = True
                 for f in pending:
                     f.cancel()
+    finally:
+        if own_executor:
+            executor.shutdown()
     print(f"    line {line_wavelength:.4f} um: native map done "
           f"({int(np.sum(np.isfinite(flux_map)))}/{total} px fit)")
     return flux_map, err_map
@@ -917,28 +931,41 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
             progress_callback(done, total_units)
 
     native_flux_maps, native_err_maps = [], []
-    for cube, line in zip(cubes, kept_lines):
-        seen = {"n": 0}
+    # One pool for every line, not one per line: each fresh ProcessPoolExecutor
+    # spawn re-imports the whole module chain (including pymc), which is slow
+    # and prints its own startup warnings every time. Sharing it here means
+    # that import cost is paid once for the whole Calculate Maps run.
+    _pin_worker_math_threads()
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as executor:
+        for cube, line in zip(cubes, kept_lines):
+            seen = {"n": 0}
 
-        def _line_progress(cur, _tot, _seen=seen):
-            """
-            Convert one cube's own (current, total) into a shared-counter delta.
+            def _line_progress(cur, _tot, _seen=seen):
+                """
+                Convert one cube's own (current, total) into a shared-counter delta.
 
-            Args:
-                cur (int): Pixels done in this cube so far
-                _tot (int): This cube's own pixel total, unused
+                Args:
+                    cur (int): Pixels done in this cube so far
+                    _tot (int): This cube's own pixel total, unused
 
-            Returns:
-                None
-            """
-            _bump(cur - _seen["n"])
-            _seen["n"] = cur
+                Returns:
+                    None
+                """
+                _bump(cur - _seen["n"])
+                _seen["n"] = cur
 
-        flux_native, err_native = _native_line_map(
-            cube, line["wavelength"], contam_lines=contam_lines, n_jobs=n_jobs,
-            progress_callback=_line_progress, cancel_flag=cancel_flag)
-        native_flux_maps.append(flux_native)
-        native_err_maps.append(err_native)
+            flux_native, err_native = _native_line_map(
+                cube, line["wavelength"], contam_lines=contam_lines, n_jobs=n_jobs,
+                progress_callback=_line_progress, cancel_flag=cancel_flag, executor=executor)
+            native_flux_maps.append(flux_native)
+            native_err_maps.append(err_native)
+            # Without this, a cancelled run kept marching through every
+            # remaining line (each one still paying its own submit/wait
+            # overhead) instead of actually stopping -- this is also why a
+            # cancelled run could stay alive in the background long enough to
+            # race a second run started right after it.
+            if cancel_flag is not None and cancel_flag.cancelled:
+                break
 
     return {
         "kept_lines": kept_lines, "dropped_lines": dropped,
