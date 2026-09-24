@@ -6,10 +6,12 @@ never assumed from a tolerance check, only verified by construction.
 Detections only -- a line below the 3-sigma floor is dropped.
 """
 
+import multiprocessing
+import os
 import sys
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from threading import Lock
 
 import numpy as np
@@ -222,7 +224,12 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
 
     Returns:
         out (dict): 'status' (int), 'n_lines' (int), and on STATUS_OK also
-            'results' (the fitter's dict with '1T'/'_plot_data'); otherwise 'reason'
+            'results' (the fitter's dict with '1T'/'_plot_data'); otherwise
+            'reason'. Also has 'per_line' (compute_line_fluxes_collective's own
+            per-line output, same order as line_wavelengths) whenever a fit was
+            attempted at all, even if it didn't reach STATUS_OK -- callers that
+            want each line's own flux (not just the combined T fit) read it
+            from there instead of re-fitting.
     """
     if spectrum is None or np.all(np.isnan(spectrum)):
         return {"status": STATUS_NO_DATA, "n_lines": 0, "reason": "no data"}
@@ -233,16 +240,16 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
     fluxes, flux_errors = _collect_detections(per_line, keys)
     if len(fluxes) < min_lines:
         return {"status": STATUS_TOO_FEW_LINES, "n_lines": len(fluxes),
-                "reason": f"{len(fluxes)} detections, need {min_lines}"}
+                "reason": f"{len(fluxes)} detections, need {min_lines}", "per_line": per_line}
 
     try:
         results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
                               isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au)
     except Exception as exc:
         traceback.print_exc()
-        return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc)}
+        return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc), "per_line": per_line}
 
-    return {"status": STATUS_OK, "n_lines": len(fluxes), "results": results}
+    return {"status": STATUS_OK, "n_lines": len(fluxes), "results": results, "per_line": per_line}
 
 
 def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
@@ -269,19 +276,102 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
         min_lines (int): Fewest detections a 1T fit needs
 
     Returns:
-        row (tuple): (T, dT, Ncol, dNcol, n_lines, status); the first four are NaN
-            unless status is STATUS_OK
+        row (tuple): (T, dT, Ncol, dNcol, n_lines, status, line_fluxes,
+            line_flux_errors). The first four are NaN unless status is
+            STATUS_OK. line_fluxes/line_flux_errors are arrays, one entry per
+            line_wavelengths entry (same order), each line's own flux at this
+            pixel -- NaN wherever that particular line's fit didn't succeed,
+            independent of whether the pixel had enough detections for a T fit.
     """
+    nan = float("nan")
+    line_fluxes = np.full(len(line_wavelengths), nan)
+    line_flux_errors = np.full(len(line_wavelengths), nan)
+
     out = _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                         contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
                         dist_pc, r_au, min_lines)
-    nan = float("nan")
+    per_line = out.get("per_line")
+    if per_line is not None:
+        for i, res in enumerate(per_line):
+            if res.get("success"):
+                line_fluxes[i] = res["flux_cgs"]
+                line_flux_errors[i] = res.get("flux_error_cgs", nan)
+
     if out["status"] != STATUS_OK:
-        return nan, nan, nan, nan, out["n_lines"], out["status"]
+        return nan, nan, nan, nan, out["n_lines"], out["status"], line_fluxes, line_flux_errors
     one_t = out["results"]["1T"]
     return (float(one_t["T"]), float(one_t["dT"]),
             float(one_t["Ncol"]), float(one_t["dNcol"]),
-            out["n_lines"], STATUS_OK)
+            out["n_lines"], STATUS_OK, line_fluxes, line_flux_errors)
+
+
+def _pin_worker_math_threads():
+    """
+    Limit every future child process's math library (OpenBLAS/OMP/MKL) to one
+    thread each, so N worker processes don't each also fan out to every CPU
+    core (measured 5-6x slower than threads when left at the default). Must
+    run before a ProcessPoolExecutor is created -- with spawn, each child is a
+    fresh interpreter that reads these at its own numpy import, and setting
+    them this late no longer affects the already-running parent process's own
+    BLAS (it was configured once, at the parent's own first numpy import).
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    for var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[var] = "1"
+
+
+def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecular_data, keys,
+                    header, contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
+                    dist_pc, r_au, min_lines, n_lines_total):
+    """
+    Fit every pixel in one cube row, in a worker process. Module-level so it
+    can be pickled for ProcessPoolExecutor; everything process_row's closure
+    used to capture is passed explicitly instead.
+
+    Args:
+        row_idx (int): Row index on the spatial y-axis
+        spectra_row (np.ndarray): This row's pixel spectra, shape (n_wave, n_x),
+            float32 -- matches CubeData.get_pixel_spectrum's own dtype exactly
+        wavelength, line_wavelengths, molecular_data, keys, header, contam_lines,
+            molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+            min_lines: Same meaning as create_rotational_diagram_map's own args
+        n_lines_total (int): len(line_wavelengths), for preallocating the
+            per-line arrays
+
+    Returns:
+        row (tuple): (row_idx, T, dT, Ncol, dNcol, n_lines, status,
+            line_fluxes, line_flux_errors) -- same layout process_row's own
+            per-row arrays used, T/dT/Ncol/dNcol/n_lines/status length n_x,
+            line_fluxes/line_flux_errors shape (n_lines_total, n_x)
+    """
+    n_x = spectra_row.shape[1]
+    t_row = np.full(n_x, np.nan, dtype=np.float32)
+    dt_row = np.full(n_x, np.nan, dtype=np.float32)
+    n_row = np.full(n_x, np.nan, dtype=np.float32)
+    dn_row = np.full(n_x, np.nan, dtype=np.float32)
+    nl_row = np.zeros(n_x, dtype=np.int16)
+    st_row = np.full(n_x, STATUS_NO_DATA, dtype=np.int16)
+    line_flux_row = np.full((n_lines_total, n_x), np.nan, dtype=np.float32)
+    line_flux_err_row = np.full((n_lines_total, n_x), np.nan, dtype=np.float32)
+
+    for x in range(n_x):
+        spectrum = spectra_row[:, x]
+        t, dt, ncol, dncol, nlines, status, line_fluxes, line_flux_errors = _fit_one_pixel(
+            spectrum, wavelength, line_wavelengths, molecular_data, keys,
+            header, contam_lines, molecule, isotopologue,
+            opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+        )
+        t_row[x], dt_row[x] = t, dt
+        n_row[x], dn_row[x] = ncol, dncol
+        nl_row[x], st_row[x] = nlines, status
+        line_flux_row[:, x] = line_fluxes
+        line_flux_err_row[:, x] = line_flux_errors
+    return row_idx, t_row, dt_row, n_row, dn_row, nl_row, st_row, line_flux_row, line_flux_err_row
 
 
 def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
@@ -396,7 +486,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         r_au (float): Emitting radius in AU, or None (total-molecules mode)
         min_lines (int): Fewest detections a pixel needs for a 1T fit
         dedup_tol_um (float): Co-located-line merge tolerance in microns
-        n_jobs (int): Worker threads, one cube row per task
+        n_jobs (int): Worker processes, one cube row per task
         contam_lines (pd.DataFrame): Contaminating lines, or None
         progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
@@ -404,7 +494,10 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
             'status' (2D int), plus 'header', 'wave_range', 'molecule', 'dist_pc',
-            'r_au', 'opr', 'kept_lines', 'dropped_lines'
+            'r_au', 'opr', 'kept_lines', 'dropped_lines', 'line_flux_maps',
+            'line_flux_error_maps' (each a list of 2D float32 arrays, one per
+            kept_lines entry, same order -- that line's own flux/error at every
+            pixel, independent of whether the pixel got a T fit)
 
     Raises:
         ValueError: if more than one cube is given -- use
@@ -424,6 +517,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         print(f"[dedupe] dropped {weak['wavelength']:.6f} um (A={weak.get('a_coeff', 0):.3e}) "
               f"-- co-located with {near['wavelength']:.6f} um (A={near.get('a_coeff', 0):.3e})")
 
+    n_lines_total = len(kept)
     print(f">>> Rotational diagram map: {n_y}x{n_x} pixels, {len(kept)} lines, "
           f"molecule={molecule}, min_lines={min_lines}, R={r_au}")
 
@@ -433,64 +527,59 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     dn_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     nlines_map = np.zeros((n_y, n_x), dtype=np.int16)
     status_map = np.full((n_y, n_x), STATUS_NO_DATA, dtype=np.int16)
+    # Per-line flux/error maps: each line's own AUC at every pixel, the same
+    # value _fit_one_pixel already fits along the way to the T map -- not
+    # recomputed, just kept instead of discarded.
+    line_flux_maps = np.full((n_lines_total, n_y, n_x), np.nan, dtype=np.float32)
+    line_flux_error_maps = np.full((n_lines_total, n_y, n_x), np.nan, dtype=np.float32)
 
-    counter = {"done": 0}
-    lock = Lock()
     total = n_y * n_x
+    completed = 0
+    done_count = 0
     start = time.time()
 
-    def process_row(y):
-        """
-        Fit every pixel in one cube row.
+    # Rows run in separate processes -- the per-pixel work (continuum fit,
+    # window auto-detection, curve_fit) is mostly Python code holding the
+    # GIL, so threads measured no speedup (same finding as the Gaussian map's
+    # own switch to processes).
+    _pin_worker_math_threads()
+    max_in_flight = 2 * n_jobs  # a large cube is never copied out all at once
+    cancelled = False
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as executor:
+        pending = set()
+        next_row = 0
+        while (next_row < n_y or pending) and not cancelled:
+            while next_row < n_y and len(pending) < max_in_flight:
+                spectra_row = cube.cube[:, next_row, :].astype(np.float32, copy=False)
+                pending.add(executor.submit(
+                    _fit_row_worker, next_row, spectra_row, wavelength, line_wavelengths,
+                    molecular_data, keys, cube.header, contam_lines, molecule, isotopologue,
+                    opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_lines_total,
+                ))
+                next_row += 1
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in done:
+                (y, t_row, dt_row, n_row, dn_row, nl_row, st_row,
+                 line_flux_row, line_flux_err_row) = fut.result()
+                t_map[y], dt_map[y] = t_row, dt_row
+                n_map[y], dn_map[y] = n_row, dn_row
+                nlines_map[y], status_map[y] = nl_row, st_row
+                line_flux_maps[:, y, :] = line_flux_row
+                line_flux_error_maps[:, y, :] = line_flux_err_row
+                done_count += 1
+                completed += n_x
+                if progress_callback is not None:
+                    progress_callback(completed, total)
+                elapsed = time.time() - start
+                print(f"    row {done_count}/{n_y}  ({completed}/{total} px, {elapsed:.1f}s)")
+                sys.stdout.flush()
 
-        Args:
-            y (int): Row index on the spatial y-axis
-
-        Returns:
-            row (tuple): (y, T, dT, Ncol, dNcol, n_lines, status), each array
-                being length n_x
-        """
-        t_row = np.full(n_x, np.nan, dtype=np.float32)
-        dt_row = np.full(n_x, np.nan, dtype=np.float32)
-        n_row = np.full(n_x, np.nan, dtype=np.float32)
-        dn_row = np.full(n_x, np.nan, dtype=np.float32)
-        nl_row = np.zeros(n_x, dtype=np.int16)
-        st_row = np.full(n_x, STATUS_NO_DATA, dtype=np.int16)
-
-        for x in range(n_x):
             if cancel_flag is not None and cancel_flag.cancelled:
-                break
-            spectrum = cube.get_pixel_spectrum(x, y)
-            t, dt, ncol, dncol, nlines, status = _fit_one_pixel(
-                spectrum, wavelength, line_wavelengths, molecular_data, keys,
-                cube.header, contam_lines, molecule, isotopologue,
-                opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            )
-            t_row[x], dt_row[x] = t, dt
-            n_row[x], dn_row[x] = ncol, dncol
-            nl_row[x], st_row[x] = nlines, status
-            with lock:
-                counter["done"] += 1
-        return y, t_row, dt_row, n_row, dn_row, nl_row, st_row
-
-    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-        futures = [executor.submit(process_row, y) for y in range(n_y)]
-        for done_count, future in enumerate(as_completed(futures), start=1):
-            if cancel_flag is not None and cancel_flag.cancelled:
-                for f in futures:
+                cancelled = True
+                # Drops rows that have not started yet; the pool's own __exit__
+                # still waits for in-flight rows to finish first.
+                for f in pending:
                     f.cancel()
-                break
-            y, t_row, dt_row, n_row, dn_row, nl_row, st_row = future.result()
-            t_map[y], dt_map[y] = t_row, dt_row
-            n_map[y], dn_map[y] = n_row, dn_row
-            nlines_map[y], status_map[y] = nl_row, st_row
-            with lock:
-                done = counter["done"]
-            if progress_callback is not None:
-                progress_callback(done, total)
-            elapsed = time.time() - start
-            print(f"    row {done_count}/{n_y}  ({done}/{total} px, {elapsed:.1f}s)")
-            sys.stdout.flush()
 
     ok = int(np.sum(status_map == STATUS_OK))
     with np.errstate(all="ignore"):
@@ -516,7 +605,42 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         "molecule": molecule, "dist_pc": dist_pc, "r_au": r_au, "opr": opr,
         "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
         "region_fit": region_fit, "kept_lines": kept, "dropped_lines": dropped,
+        "line_flux_maps": [line_flux_maps[i] for i in range(n_lines_total)],
+        "line_flux_error_maps": [line_flux_error_maps[i] for i in range(n_lines_total)],
     }
+
+
+def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, header, contam_lines):
+    """
+    Fit one line in every pixel of one cube row, in a worker process.
+    Module-level so it can be pickled for ProcessPoolExecutor.
+
+    Args:
+        row_idx (int): Row index on the spatial y-axis
+        spectra_row (np.ndarray): This row's pixel spectra, shape (n_wave, n_x),
+            float32 -- matches CubeData.get_pixel_spectrum's own dtype exactly
+        wavelength (array): Wavelength values (um) for spectra_row
+        line_wavelength (float): The line's catalog wavelength (um)
+        header (astropy.io.fits.Header): Cube header, for instrument and CGS conversion
+        contam_lines (pd.DataFrame): Contaminating lines, or None
+
+    Returns:
+        row (tuple): (row_idx, flux_row, err_row), each length n_x
+    """
+    n_x = spectra_row.shape[1]
+    flux_row = np.full(n_x, np.nan, dtype=np.float32)
+    err_row = np.full(n_x, np.nan, dtype=np.float32)
+    for x in range(n_x):
+        spectrum = spectra_row[:, x]
+        if np.all(np.isnan(spectrum)):
+            continue
+        per_line = compute_line_fluxes_collective(
+            wavelength, spectrum, [line_wavelength], header, contam_lines=contam_lines)
+        res = per_line[0]
+        if res.get("success"):
+            flux_row[x] = res["flux_cgs"]
+            err_row[x] = res.get("flux_error_cgs", np.nan)
+    return row_idx, flux_row, err_row
 
 
 def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
@@ -528,7 +652,7 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
         cube (CubeData): One loaded cube
         line_wavelength (float): The line's catalog wavelength (um)
         contam_lines (pd.DataFrame): Contaminating lines, or None
-        n_jobs (int): Worker threads, one cube row per task
+        n_jobs (int): Worker processes, one cube row per task
         progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
 
@@ -540,53 +664,37 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
     _n_wave, n_y, n_x = cube.cube.shape
     flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     err_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
-    counter = {"done": 0}
-    lock = Lock()
     total = n_y * n_x
+    completed = 0
 
-    def process_row(y):
-        """
-        Fit this line in every pixel of one row.
+    # Same reasoning as create_rotational_diagram_map: threads gave no
+    # speedup for this per-pixel curve_fit work, so this uses processes too.
+    _pin_worker_math_threads()
+    max_in_flight = 2 * n_jobs
+    cancelled = False
+    with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as executor:
+        pending = set()
+        next_row = 0
+        while (next_row < n_y or pending) and not cancelled:
+            while next_row < n_y and len(pending) < max_in_flight:
+                spectra_row = cube.cube[:, next_row, :].astype(np.float32, copy=False)
+                pending.add(executor.submit(
+                    _native_line_row_worker, next_row, spectra_row, wavelength,
+                    line_wavelength, cube.header, contam_lines,
+                ))
+                next_row += 1
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in done:
+                y, flux_row, err_row = fut.result()
+                flux_map[y], err_map[y] = flux_row, err_row
+                completed += n_x
+                if progress_callback is not None:
+                    progress_callback(completed, total)
 
-        Args:
-            y (int): Row index on the spatial y-axis
-
-        Returns:
-            row (tuple): (y, flux_row, err_row), each length n_x
-        """
-        flux_row = np.full(n_x, np.nan, dtype=np.float32)
-        err_row = np.full(n_x, np.nan, dtype=np.float32)
-        for x in range(n_x):
             if cancel_flag is not None and cancel_flag.cancelled:
-                break
-            spectrum = cube.get_pixel_spectrum(x, y)
-            if spectrum is None or np.all(np.isnan(spectrum)):
-                with lock:
-                    counter["done"] += 1
-                continue
-            per_line = compute_line_fluxes_collective(
-                wavelength, spectrum, [line_wavelength], cube.header,
-                contam_lines=contam_lines)
-            res = per_line[0]
-            if res.get("success"):
-                flux_row[x] = res["flux_cgs"]
-                err_row[x] = res.get("flux_error_cgs", np.nan)
-            with lock:
-                counter["done"] += 1
-        return y, flux_row, err_row
-
-    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-        futures = [executor.submit(process_row, y) for y in range(n_y)]
-        for future in as_completed(futures):
-            if cancel_flag is not None and cancel_flag.cancelled:
-                for f in futures:
+                cancelled = True
+                for f in pending:
                     f.cancel()
-                break
-            y, flux_row, err_row = future.result()
-            flux_map[y], err_map[y] = flux_row, err_row
-            if progress_callback is not None:
-                with lock:
-                    progress_callback(counter["done"], total)
     print(f"    line {line_wavelength:.4f} um: native map done "
           f"({int(np.sum(np.isfinite(flux_map)))}/{total} px fit)")
     return flux_map, err_map
@@ -734,40 +842,29 @@ def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
             "per_cube": per_cube, "dropped_lines": dropped}
 
 
-def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopologue=1,
-                                        opr=None, fit_opr=False, opr_grid=None,
-                                        dist_pc=140.0, r_au=None, min_lines=3,
-                                        dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
-                                        region_fit=None, progress_callback=None,
-                                        cancel_flag=None):
+def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
+                             progress_callback=None, cancel_flag=None):
     """
-    Fit a 1T rotational diagram at every pixel of a common grid built from
-    several cubes at different pixel scales, one line per cube. Convolves
-    each cube's flux map to the worst resolution, then reprojects before fitting.
+    Fit each line at its own cube's native resolution -- stage 1 of the
+    multi-cube map pipeline (see convolve_line_maps, combine_line_maps).
+    Exposed on its own so a caller (the GUI's Calculate Maps button) can run
+    and cache just this, the expensive stage, letting a later Run Map skip
+    straight to the cheap final combination.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
-        molecule (str): Species name; 'H2' uses the OPR-capable fitter
-        isotopologue (int): HITRAN isotopologue number, non-H2 only
-        opr (float): Fixed ortho-para ratio, or None for the fitter default
-        fit_opr (bool): Grid-search OPR per pixel, H2 only
-        opr_grid (array): OPR grid for the search, or None
-        dist_pc (float): Source distance in parsecs
-        r_au (float): Emitting radius in AU, or None (total-molecules mode)
-        min_lines (int): Fewest detections a pixel needs for a 1T fit
-        dedup_tol_um (float): Co-located-line merge tolerance in microns
-        n_jobs (int): Worker threads for each native-grid extraction
         contam_lines (pd.DataFrame): Contaminating lines, or None
-        region_fit (dict): Output of fit_region_multi, reused if the caller
-            already ran it (the preview does), or None to skip it
-        progress_callback (callable): progress_callback(done_units, total_units)
+        n_jobs (int): Worker processes for each native-grid extraction
+        dedup_tol_um (float): Co-located-line merge tolerance in microns
+        progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
 
     Returns:
-        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
-            'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
-            'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
-            'dropped_lines', 'region_fit'
+        result (dict): 'kept_lines', 'dropped_lines' (line dicts),
+            'native_flux_maps', 'native_flux_error_maps' (lists of 2D float32
+            arrays, one per kept_lines entry, each cube's own native shape),
+            'native_wcs', 'native_shapes', 'native_pix_arcsec' (one per
+            kept_lines entry), 'cube_filenames'
 
     Raises:
         ValueError: if fewer than 2 pairs are given, a cube has no readable
@@ -784,8 +881,6 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
 
     cubes = [c for c, _ in kept_pairs]
     kept_lines = [l for _, l in kept_pairs]
-    keys = _line_keys(kept_lines, molecule)
-    molecular_data = _build_molecular_data(kept_lines, keys, molecule)
 
     wcses = [_make_2d_wcs(c.header) for c in cubes]
     shapes = [(c.cube.shape[1], c.cube.shape[2]) for c in cubes]
@@ -799,14 +894,9 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
                     f"The cube for {kept_lines[i]['wavelength']:.4f} um and the cube "
                     f"for {kept_lines[j]['wavelength']:.4f} um share no sky coverage.")
 
-    worst_pix = max(scales)
-    dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
-    n_y, n_x = dst_shape
-    print(f">>> Multi-cube rotational diagram map: {len(cubes)} cubes, "
-          f"worst scale {worst_pix:.4f} arcsec/px, common grid {n_y}x{n_x}")
+    print(f">>> Calculate Maps: {len(cubes)} cubes, {len(kept_lines)} lines, native resolution")
 
-    # Progress spans every native-grid extraction plus the final per-pixel fit.
-    total_units = sum(c.cube.shape[1] * c.cube.shape[2] for c in cubes) + n_y * n_x
+    total_units = sum(c.cube.shape[1] * c.cube.shape[2] for c in cubes)
     progress_state = {"done": 0}
     progress_lock = Lock()
 
@@ -826,8 +916,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         if progress_callback is not None:
             progress_callback(done, total_units)
 
-    flux_maps, err_maps = [], []
-    for cube, line, wcs, scale in zip(cubes, kept_lines, wcses, scales):
+    native_flux_maps, native_err_maps = [], []
+    for cube, line in zip(cubes, kept_lines):
         seen = {"n": 0}
 
         def _line_progress(cur, _tot, _seen=seen):
@@ -847,10 +937,98 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         flux_native, err_native = _native_line_map(
             cube, line["wavelength"], contam_lines=contam_lines, n_jobs=n_jobs,
             progress_callback=_line_progress, cancel_flag=cancel_flag)
+        native_flux_maps.append(flux_native)
+        native_err_maps.append(err_native)
+
+    return {
+        "kept_lines": kept_lines, "dropped_lines": dropped,
+        "native_flux_maps": native_flux_maps, "native_flux_error_maps": native_err_maps,
+        "native_wcs": wcses, "native_shapes": shapes, "native_pix_arcsec": scales,
+        "cube_filenames": [getattr(c, "filename", None) for c in cubes],
+    }
+
+
+def convolve_line_maps(native_result, cancel_flag=None):
+    """
+    Convolve+reproject every line's native map onto a common grid at the
+    worst (coarsest) resolution among them -- stage 2 of the multi-cube map
+    pipeline (see compute_native_line_maps, combine_line_maps).
+
+    Args:
+        native_result (dict): Output of compute_native_line_maps
+        cancel_flag (object): Unused today -- convolution/reprojection is
+            vectorized numpy, not a per-pixel loop, so there is nothing
+            mid-line to cancel. Accepted for interface symmetry with the
+            other two stages.
+
+    Returns:
+        result (dict): native_result's own keys, plus 'line_flux_maps',
+            'line_flux_error_maps' (convolved/reprojected, aligned with
+            kept_lines), 'dst_wcs', 'dst_shape', 'worst_pix_arcsec'
+    """
+    wcses = native_result["native_wcs"]
+    shapes = native_result["native_shapes"]
+    scales = native_result["native_pix_arcsec"]
+    worst_pix = max(scales)
+    dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
+    n_y, n_x = dst_shape
+    print(f">>> Convolve Maps: {len(scales)} lines, worst scale {worst_pix:.4f} arcsec/px, "
+          f"common grid {n_y}x{n_x}")
+
+    flux_maps, err_maps = [], []
+    for flux_native, err_native, wcs, scale in zip(
+            native_result["native_flux_maps"], native_result["native_flux_error_maps"], wcses, scales):
         flux_common, err_common = _convolve_reproject_pair(
             flux_native, err_native, wcs, scale, dst_wcs, dst_shape, worst_pix)
         flux_maps.append(flux_common)
         err_maps.append(err_common)
+
+    return {
+        **native_result,
+        "line_flux_maps": flux_maps, "line_flux_error_maps": err_maps,
+        "dst_wcs": dst_wcs, "dst_shape": dst_shape, "worst_pix_arcsec": worst_pix,
+    }
+
+
+def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None, fit_opr=False,
+                      opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, region_fit=None,
+                      progress_callback=None, cancel_flag=None):
+    """
+    Combine already-convolved per-line flux maps into a 1T rotational
+    diagram at every pixel of their common grid -- stage 3 (final) of the
+    multi-cube map pipeline (see compute_native_line_maps, convolve_line_maps).
+
+    Args:
+        convolved_result (dict): Output of convolve_line_maps
+        molecule (str): Species name; 'H2' uses the OPR-capable fitter
+        isotopologue (int): HITRAN isotopologue number, non-H2 only
+        opr (float): Fixed ortho-para ratio, or None for the fitter default
+        fit_opr (bool): Grid-search OPR per pixel, H2 only
+        opr_grid (array): OPR grid for the search, or None
+        dist_pc (float): Source distance in parsecs
+        r_au (float): Emitting radius in AU, or None (total-molecules mode)
+        min_lines (int): Fewest detections a pixel needs for a 1T fit
+        region_fit (dict): Output of fit_region_multi. This stage has no cube
+            access to compute it itself -- the caller supplies it (see
+            create_rotational_diagram_map_multi), or leaves it None to omit
+            it from the result (e.g. a quick what-if re-combination)
+        progress_callback (callable): progress_callback(done_pixels, total_pixels)
+        cancel_flag (object): Object with a `.cancelled` attribute, or None
+
+    Returns:
+        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
+            'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
+            'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
+            'dropped_lines', 'region_fit', 'native_flux_maps', 'native_flux_error_maps',
+            'native_wcs', 'native_shapes', 'native_pix_arcsec', 'cube_filenames'
+    """
+    kept_lines = convolved_result["kept_lines"]
+    keys = _line_keys(kept_lines, molecule)
+    molecular_data = _build_molecular_data(kept_lines, keys, molecule)
+    flux_maps = convolved_result["line_flux_maps"]
+    err_maps = convolved_result["line_flux_error_maps"]
+    dst_shape = convolved_result["dst_shape"]
+    n_y, n_x = dst_shape
 
     t_map = np.full(dst_shape, np.nan, dtype=np.float32)
     dt_map = np.full(dst_shape, np.nan, dtype=np.float32)
@@ -859,6 +1037,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
     nlines_map = np.zeros(dst_shape, dtype=np.int16)
     status_map = np.full(dst_shape, STATUS_NO_DATA, dtype=np.int16)
 
+    total = n_y * n_x
+    done = 0
     for y in range(n_y):
         if cancel_flag is not None and cancel_flag.cancelled:
             break
@@ -889,33 +1069,153 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
                     traceback.print_exc()
                     status_map[y, x] = STATUS_FIT_FAILED
                 nlines_map[y, x] = len(fluxes)
-            _bump(1)
+            done += 1
+            if progress_callback is not None:
+                progress_callback(done, total)
 
     ok = int(np.sum(status_map == STATUS_OK))
     print(f">>> Done. Fitted {ok}/{n_y * n_x} pixels on the common grid.")
 
+    return {
+        "T": t_map, "T_err": dt_map, "Ncol": n_map, "Ncol_err": dn_map,
+        "n_lines": nlines_map, "status": status_map,
+        "dst_wcs": convolved_result["dst_wcs"],
+        "molecule": molecule, "dist_pc": dist_pc, "r_au": r_au, "opr": opr,
+        "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
+        "worst_pix_arcsec": convolved_result["worst_pix_arcsec"],
+        "kept_lines": kept_lines, "dropped_lines": convolved_result["dropped_lines"],
+        "region_fit": region_fit,
+        # Each line's convolved/reprojected map, kept so fit_pixel_multi can
+        # re-fit one pixel from a cheap lookup instead of redoing convolution.
+        "_flux_maps": flux_maps, "_err_maps": err_maps, "_keys": keys,
+        "_molecular_data": molecular_data,
+        # Same arrays, same order as kept_lines, under the public name the
+        # single-cube path also uses -- already convolved/reprojected here.
+        "line_flux_maps": flux_maps, "line_flux_error_maps": err_maps,
+        # Passthrough so a caller that only ever calls create_rotational_diagram_map_multi
+        # (never touching the staged functions directly) can still populate a
+        # pre-convolution view of each line's map, with its own cube's real
+        # native WCS/shape/scale (not the common dst_wcs -- wrong resolution
+        # for a native-grid map) and originating filename.
+        "native_flux_maps": convolved_result["native_flux_maps"],
+        "native_flux_error_maps": convolved_result["native_flux_error_maps"],
+        "native_wcs": convolved_result["native_wcs"],
+        "native_shapes": convolved_result["native_shapes"],
+        "native_pix_arcsec": convolved_result["native_pix_arcsec"],
+        "cube_filenames": convolved_result["cube_filenames"],
+    }
+
+
+def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopologue=1,
+                                        opr=None, fit_opr=False, opr_grid=None,
+                                        dist_pc=140.0, r_au=None, min_lines=3,
+                                        dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
+                                        region_fit=None, progress_callback=None,
+                                        cancel_flag=None):
+    """
+    Fit a 1T rotational diagram at every pixel of a common grid built from
+    several cubes at different pixel scales, one line per cube. Convolves
+    each cube's flux map to the worst resolution, then reprojects before
+    fitting. A thin wrapper chaining compute_native_line_maps ->
+    convolve_line_maps -> combine_line_maps -- call those directly instead
+    to run and cache one stage at a time (e.g. the GUI's Calculate Maps /
+    Convolve Maps buttons let Run Map skip straight to the cheap final stage).
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
+        molecule (str): Species name; 'H2' uses the OPR-capable fitter
+        isotopologue (int): HITRAN isotopologue number, non-H2 only
+        opr (float): Fixed ortho-para ratio, or None for the fitter default
+        fit_opr (bool): Grid-search OPR per pixel, H2 only
+        opr_grid (array): OPR grid for the search, or None
+        dist_pc (float): Source distance in parsecs
+        r_au (float): Emitting radius in AU, or None (total-molecules mode)
+        min_lines (int): Fewest detections a pixel needs for a 1T fit
+        dedup_tol_um (float): Co-located-line merge tolerance in microns
+        n_jobs (int): Worker processes for each native-grid extraction
+        contam_lines (pd.DataFrame): Contaminating lines, or None
+        region_fit (dict): Output of fit_region_multi, reused if the caller
+            already ran it (the preview does), or None to skip it
+        progress_callback (callable): progress_callback(done_units, total_units)
+        cancel_flag (object): Object with a `.cancelled` attribute, or None
+
+    Returns:
+        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
+            'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
+            'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
+            'dropped_lines', 'region_fit'
+
+    Raises:
+        ValueError: if fewer than 2 pairs are given, a cube has no readable
+            celestial WCS/pixel scale, or two inputs share no sky coverage
+    """
+    if len(cubes_and_lines) < 2:
+        raise ValueError("Need at least 2 (cube, line) pairs -- use "
+                         "create_rotational_diagram_map for a single cube.")
+
+    # Precompute the common grid size purely so progress_callback's total
+    # matches what it always has (native extraction + final combination) --
+    # compute_native_line_maps/convolve_line_maps redo this cheap WCS work
+    # themselves, since each stage must stand on its own when called directly.
+    kept_pairs_peek, _ = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
+    cubes_peek = [c for c, _ in kept_pairs_peek]
+    total_native = sum(c.cube.shape[1] * c.cube.shape[2] for c in cubes_peek)
+    wcses_peek = [_make_2d_wcs(c.header) for c in cubes_peek]
+    shapes_peek = [(c.cube.shape[1], c.cube.shape[2]) for c in cubes_peek]
+    scales_peek = [_get_pixel_size_arcsec(c.header) for c in cubes_peek]
+    if any(w is None for w in wcses_peek) or any(s is None for s in scales_peek):
+        raise ValueError("Could not read a celestial WCS/pixel scale from every cube's header.")
+    _dst_wcs_peek, dst_shape_peek = build_target_wcs_for_batch(
+        list(zip(wcses_peek, shapes_peek)), max(scales_peek))
+    total_units = total_native + dst_shape_peek[0] * dst_shape_peek[1]
+
+    def _native_progress(done, _total):
+        """
+        Forward compute_native_line_maps's own progress onto the combined total.
+
+        Args:
+            done (int): Native-extraction pixels done so far
+            _total (int): compute_native_line_maps's own total, unused
+
+        Returns:
+            None
+        """
+        if progress_callback is not None:
+            progress_callback(done, total_units)
+
+    def _combine_progress(done, _total):
+        """
+        Forward combine_line_maps's own progress onto the combined total.
+
+        Args:
+            done (int): Common-grid pixels done so far
+            _total (int): combine_line_maps's own total, unused
+
+        Returns:
+            None
+        """
+        if progress_callback is not None:
+            progress_callback(total_native + done, total_units)
+
+    native = compute_native_line_maps(
+        cubes_and_lines, contam_lines=contam_lines, n_jobs=n_jobs, dedup_tol_um=dedup_tol_um,
+        progress_callback=_native_progress, cancel_flag=cancel_flag)
+    convolved = convolve_line_maps(native, cancel_flag=cancel_flag)
+
     # Whole-cube-summed anchor fit, the same thing Run Fit does. Reused if
     # the caller already ran it.
     if region_fit is None:
+        kept_pairs, _ = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
         region_fit = fit_region_multi(
             kept_pairs, molecule=molecule, isotopologue=isotopologue, opr=opr,
             fit_opr=fit_opr, opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
             min_lines=min_lines, dedup_tol_um=dedup_tol_um, contam_lines=contam_lines,
         )
 
-    return {
-        "T": t_map, "T_err": dt_map, "Ncol": n_map, "Ncol_err": dn_map,
-        "n_lines": nlines_map, "status": status_map,
-        "dst_wcs": dst_wcs,
-        "molecule": molecule, "dist_pc": dist_pc, "r_au": r_au, "opr": opr,
-        "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
-        "worst_pix_arcsec": worst_pix, "kept_lines": kept_lines, "dropped_lines": dropped,
-        "region_fit": region_fit,
-        # Each line's convolved/reprojected map, kept so fit_pixel_multi can
-        # re-fit one pixel from a cheap lookup instead of redoing convolution.
-        "_flux_maps": flux_maps, "_err_maps": err_maps, "_keys": keys,
-        "_molecular_data": molecular_data,
-    }
+    return combine_line_maps(
+        convolved, molecule=molecule, isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
+        opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, region_fit=region_fit,
+        progress_callback=_combine_progress, cancel_flag=cancel_flag)
 
 
 def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,

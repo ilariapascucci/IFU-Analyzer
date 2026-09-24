@@ -19,9 +19,12 @@ from matplotlib.figure import Figure
 from .rotational_diagram_map import (
     create_rotational_diagram_map, create_rotational_diagram_map_multi,
     save_rotational_diagram_map_fits, fit_pixel, fit_pixel_multi,
+    compute_native_line_maps, combine_line_maps, fit_region_multi,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
 )
 from .rotational_diagram_h2_fitter import model_1T
+from .fits_export import build_2d_export_header, write_fits_product
+from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 
 # Display combo: label -> (result key, colour-bar label). "Fit mask" is binary.
 _PARAMS = [
@@ -134,6 +137,181 @@ class RotDiagMapWorker(QThread):
         self.cancelled = True
 
 
+class CalculateNativeMapsWorker(QThread):
+    """
+    Background thread for the multi-cube "Calculate Maps" button: computes
+    each line's own flux map at its cube's native resolution (stage 1 of the
+    multi-cube map pipeline), without convolving or fitting a temperature.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
+        kwargs (dict): contam_lines/n_jobs/dedup_tol_um, passed straight to
+            compute_native_line_maps
+
+    Returns:
+        None
+    """
+
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, cubes_and_lines, **kwargs):
+        """Store the inputs for run() to consume on the worker thread.
+
+        Args:
+            cubes_and_lines (list): (CubeData, line_dict) pairs.
+            kwargs (dict): contam_lines/n_jobs/dedup_tol_um.
+
+        Returns:
+            None
+        """
+        super().__init__()
+        self.cubes_and_lines = cubes_and_lines
+        self.kwargs = kwargs
+        self.cancelled = False
+
+    def run(self):
+        """
+        Run compute_native_line_maps and emit finished/error.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        try:
+            result = compute_native_line_maps(
+                self.cubes_and_lines, progress_callback=self._emit_progress,
+                cancel_flag=self, **self.kwargs,
+            )
+            if self.cancelled:
+                self.error.emit("Calculate Maps cancelled by user")
+            else:
+                self.finished.emit(result)
+        except Exception as exc:
+            self.error.emit(f"{exc}\n{traceback.format_exc()}")
+
+    def _emit_progress(self, current, total):
+        """
+        Forward progress to the GUI.
+
+        Args:
+            current (int): Pixels done
+            total (int): Pixels total
+
+        Returns:
+            None
+        """
+        self.progress.emit(current, total)
+
+    def request_cancel(self):
+        """
+        Ask the run to stop at the next row.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.cancelled = True
+
+
+class CombineMapsWorker(QThread):
+    """
+    Background thread for Run Map's fast path: recombines already-convolved
+    per-line flux maps (Calculate Maps + Convolve Maps already ran) into a
+    rotational diagram map, without repeating native extraction or convolution.
+
+    Args:
+        convolved_result (dict): Output of convolve_line_maps
+        cubes_and_lines (list): (CubeData, line_dict) pairs, needed only to
+            recompute region_fit (fit_region_multi needs the real cubes)
+        kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/
+            r_au/min_lines, passed to fit_region_multi and combine_line_maps
+
+    Returns:
+        None
+    """
+
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, convolved_result, cubes_and_lines, **kwargs):
+        """Store the inputs for run() to consume on the worker thread.
+
+        Args:
+            convolved_result (dict): Output of convolve_line_maps.
+            cubes_and_lines (list): (CubeData, line_dict) pairs.
+            kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/r_au/min_lines.
+
+        Returns:
+            None
+        """
+        super().__init__()
+        self.convolved_result = convolved_result
+        self.cubes_and_lines = cubes_and_lines
+        self.kwargs = kwargs
+        self.cancelled = False
+
+    def run(self):
+        """
+        Recompute region_fit, run combine_line_maps, and emit finished/error.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        try:
+            kept_pairs, _ = _dedupe_colocated(
+                list(self.cubes_and_lines), 1e-5, line_of=lambda p: p[1])
+            region_fit = fit_region_multi(
+                kept_pairs, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
+                opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
+                dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
+            )
+            result = combine_line_maps(
+                self.convolved_result, region_fit=region_fit,
+                progress_callback=self._emit_progress, cancel_flag=self, **self.kwargs,
+            )
+            if self.cancelled:
+                self.error.emit("Rotational diagram map cancelled by user")
+            else:
+                self.finished.emit(result)
+        except Exception as exc:
+            self.error.emit(f"{exc}\n{traceback.format_exc()}")
+
+    def _emit_progress(self, current, total):
+        """
+        Forward progress to the GUI.
+
+        Args:
+            current (int): Pixels done
+            total (int): Pixels total
+
+        Returns:
+            None
+        """
+        self.progress.emit(current, total)
+
+    def request_cancel(self):
+        """
+        Ask the run to stop at the next row.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.cancelled = True
+
+
 def _opr_line(results):
     """
     One text line describing the OPR the fit used, the Run Fit wording.
@@ -209,6 +387,30 @@ def pixel_result_text(x, y, out):
     if out.get("status") != STATUS_OK:
         return head + f"No fit: {out.get('reason', 'n/a')}\nLines used: {out.get('n_lines', 0)}\n{bar}\n"
     return head + _one_t_block(out["results"]) + f"\nLines used: {out['n_lines']}\n{bar}\n"
+
+
+def _apply_scale_2d(data, mode):
+    """
+    Apply a linear/log/percentile display scale to a 2D array (NaNs preserved).
+    Shared by every per-pixel map viewer in this module.
+
+    Args:
+        data (np.ndarray): The map values
+        mode (str): "Linear", "Log", or "Percentile"
+
+    Returns:
+        scaled (np.ndarray): Log10, percentile-clipped, or unchanged
+    """
+    finite = data[np.isfinite(data)]
+    if mode == "Log":
+        out = np.full_like(data, np.nan)
+        pos = np.isfinite(data) & (data > 0)
+        out[pos] = np.log10(data[pos])
+        return out
+    if mode == "Percentile" and finite.size:
+        lo, hi = np.percentile(finite, [2, 98])
+        return np.clip(data, lo, hi)
+    return data
 
 
 def plot_rot_diagram(ax, plot_data):
@@ -400,17 +602,7 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             scaled (np.ndarray): Log10, percentile-clipped, or unchanged
         """
-        mode = self.scale_combo.currentText()
-        finite = data[np.isfinite(data)]
-        if mode == "Log":
-            out = np.full_like(data, np.nan)
-            pos = np.isfinite(data) & (data > 0)
-            out[pos] = np.log10(data[pos])
-            return out
-        if mode == "Percentile" and finite.size:
-            lo, hi = np.percentile(finite, [2, 98])
-            return np.clip(data, lo, hi)
-        return data
+        return _apply_scale_2d(data, self.scale_combo.currentText())
 
     def _on_canvas_click(self, event):
         """
@@ -573,6 +765,145 @@ class RotDiagMapResultsDialog(QDialog):
             return
         try:
             save_rotational_diagram_map_fits(self.result, path)
+            QMessageBox.information(self, "Saved", f"Wrote:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export failed", str(exc))
+
+
+class LineFluxMapDialog(QDialog):
+    """
+    Single-line flux (AUC) map viewer: one image plus a colormap/scale
+    control and FITS export. The Run Map analogue of Run Fit's per-line
+    "View" dialog (show_line_fit), but for the per-pixel map that line's
+    own collective-Gaussian fit produced instead of one spectrum.
+
+    Args:
+        wavelength (float): This line's catalog wavelength (um)
+        flux_map (np.ndarray): 2D flux map, CGS (erg/s/cm^2), NaN where that
+            line's fit didn't succeed at a pixel
+        source_header (astropy.io.fits.Header): Cube header (single-cube map)
+            or dst_wcs.to_header() (multi-cube map), for the export WCS. May
+            be None if neither is available.
+        molecule (str): Species name, for the window title/export filename
+        parent (QWidget): Parent widget
+
+    Returns:
+        None
+    """
+
+    def __init__(self, wavelength, flux_map, source_header, molecule="H2", parent=None):
+        """Store the map and build the viewer UI.
+
+        Args:
+            wavelength (float): This line's catalog wavelength (um).
+            flux_map (np.ndarray): 2D flux map, CGS (erg/s/cm^2).
+            source_header (astropy.io.fits.Header): Header for the export WCS, or None.
+            molecule (str): Species name.
+            parent (QWidget): Parent widget.
+
+        Returns:
+            None
+        """
+        super().__init__(parent)
+        self.wavelength = wavelength
+        self.flux_map = flux_map
+        self.source_header = source_header
+        self.molecule = molecule
+        self.setWindowTitle(f"{molecule} Flux Map @ {wavelength:.6f} μm")
+        self.resize(750, 620)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """
+        Build the colormap/scale controls, canvas, and buttons.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        layout = QVBoxLayout(self)
+
+        ctrl = QHBoxLayout()
+        ctrl.addWidget(QLabel("Colormap:"))
+        self.cmap_combo = QComboBox()
+        self.cmap_combo.addItems(["inferno", "viridis", "plasma", "magma", "cividis", "coolwarm"])
+        self.cmap_combo.currentIndexChanged.connect(self._update_plot)
+        ctrl.addWidget(self.cmap_combo)
+
+        ctrl.addWidget(QLabel("  Scale:"))
+        self.scale_combo = QComboBox()
+        self.scale_combo.addItems(["Linear", "Log", "Percentile"])
+        self.scale_combo.currentIndexChanged.connect(self._update_plot)
+        ctrl.addWidget(self.scale_combo)
+        ctrl.addStretch()
+        layout.addLayout(ctrl)
+
+        self.fig = Figure(figsize=(7, 5.5))
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        layout.addWidget(NavigationToolbar2QT(self.canvas, self))
+        layout.addWidget(self.canvas)
+
+        btns = QHBoxLayout()
+        export_btn = QPushButton("Export as FITS")
+        export_btn.clicked.connect(self._export_fits)
+        btns.addWidget(export_btn)
+        btns.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btns.addWidget(close_btn)
+        layout.addLayout(btns)
+
+        self._update_plot()
+
+    def _update_plot(self):
+        """
+        Redraw the map with the chosen colormap and scale.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        data = _apply_scale_2d(np.asarray(self.flux_map, dtype=float), self.scale_combo.currentText())
+        self.fig.clear()
+        ax = self.fig.add_subplot(111)
+        im = ax.imshow(data, origin="lower", cmap=self.cmap_combo.currentText())
+        ax.set_title(f"Flux @ {self.wavelength:.6f} um", fontweight="bold")
+        ax.set_xlabel("x [pixel]")
+        ax.set_ylabel("y [pixel]")
+        self.fig.colorbar(im, ax=ax).set_label("Flux (erg/s/cm2)")
+        self.fig.tight_layout()
+        self.canvas.draw()
+
+    def _export_fits(self):
+        """
+        Save this line's flux map as a 2D FITS file.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Line Flux Map",
+            f"{self.molecule}_flux_{self.wavelength:.4f}um.fits",
+            "FITS files (*.fits);;All files (*.*)")
+        if not path:
+            return
+        try:
+            header = build_2d_export_header(
+                self.source_header, self.flux_map.shape,
+                extra={
+                    "BUNIT": "erg/s/cm2",
+                    "LINEWAVE": (float(self.wavelength), "Line center wavelength (um)"),
+                    "MOLECULE": self.molecule,
+                },
+            )
+            write_fits_product(path, np.asarray(self.flux_map, dtype=np.float32), header)
             QMessageBox.information(self, "Saved", f"Wrote:\n{path}")
         except Exception as exc:
             QMessageBox.critical(self, "Export failed", str(exc))
