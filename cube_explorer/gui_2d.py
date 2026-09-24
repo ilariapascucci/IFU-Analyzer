@@ -36,6 +36,8 @@ from .colormap_dialog import ColorMapDialog
 from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
+from . import region_io
+from .fits_export import build_2d_export_header, write_fits_product
 from .analyzer_2d import (
     _get_pixel_size_arcsec,
     _make_2d_wcs,
@@ -410,6 +412,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.header_left = None
         self.image_right = None
         self.header_right = None
+        # Source file basename per panel, for Save Region's descriptive text.
+        self.filename_left = None
+        self.filename_right = None
         # Optional per-pixel coverage fraction (0-1) for reprojected images,
         # saved as a "COVERAGE" HDU; flux sums value*pixel_area*coverage.
         self.coverage_left = None
@@ -730,6 +735,27 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
         self.edit_shape_btn_r.setEnabled(False)
         self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
+
+        # Region save/import actions live in the "Region" collapsible group
+        # (_setup_main_layout) -- each asks which panel (left/right) to use,
+        # same as the 3D window's own Region group.
+        self.region_save_slice_masked_btn = QPushButton("Save Slice (Masked)")
+        self.region_save_slice_masked_btn.setToolTip(
+            "Save one panel's image as a 2D FITS, with everything outside its region set to NaN")
+        self.region_save_slice_masked_btn.clicked.connect(self._region_save_slice_masked)
+        self.region_save_slice_masked_btn.setEnabled(False)
+
+        self.region_save_wcs_btn = QPushButton("Save Region")
+        self.region_save_wcs_btn.setToolTip(
+            "Save one panel's region as RA/Dec sky coordinates, so it can be reconstructed on a different image")
+        self.region_save_wcs_btn.clicked.connect(self._region_save_wcs_text)
+        self.region_save_wcs_btn.setEnabled(False)
+
+        self.region_import_wcs_btn = QPushButton("Import Region")
+        self.region_import_wcs_btn.setToolTip(
+            "Load a region previously saved as WCS text onto one panel, at the same sky position")
+        self.region_import_wcs_btn.clicked.connect(self._region_import_wcs_text)
+        self.region_import_wcs_btn.setEnabled(False)
 
         # Bottom panel controls: plain default styling, matching the 3D
         # window and the Open/Header/Save buttons above.
@@ -1136,18 +1162,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         if len(sides) == 1:
             return sides[0]
 
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Select Panel")
-        msg.setText(f"Both panels have contours. Which one would you like to {action}?")
-        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        msg.exec_()
-        if msg.clickedButton() == btn_left:
-            return "left"
-        if msg.clickedButton() == btn_right:
-            return "right"
-        return None
+        return self._ask_target_panel(
+            "Select Panel", f"Both panels have contours. Which one would you like to {action}?")
 
     def _prompt_and_clear_contours(self):
         """Ask which panel to clear contours from, then clear them.
@@ -1281,22 +1297,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         Returns:
             None
         """
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Load Saved Contour")
-        msg.setText("Which slice would you like to plot the loaded contour ON?")
-        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        
-        msg.exec_()
-        
-        if msg.clickedButton() == btn_left:
-            target = "left"
-        elif msg.clickedButton() == btn_right:
-            target = "right"
-        else:
+        target = self._ask_target_panel(
+            "Load Saved Contour", "Which slice would you like to plot the loaded contour ON?")
+        if target is None:
             return
-            
+
         fname, _ = QFileDialog.getOpenFileName(
             self, "Open Contour Text File", filter="Text files (*.txt *.csv)"
         )
@@ -1618,7 +1623,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         top_layout.addLayout(right_half, 1)
 
         # ===== BOTTOM CONTROLS: two tiers packed right under the slice panels =====
-        # Tier 1 (upstairs): the two collapsible groups, nothing else.
+        # Tier 1 (upstairs): the collapsible groups, nothing else.
+        # Region save/import for a panel's currently loaded image -- no "Save
+        # Cube (Masked)"/plain "Save Slice" here, unlike the 3D window: there
+        # is no cube, and a loaded 2D image is already a standalone file.
+        self.region_group = CollapsibleButtonGroup("Region")
+        for _b in (self.region_save_slice_masked_btn, self.region_save_wcs_btn,
+                   self.region_import_wcs_btn):
+            self.region_group.add_button(_b)
+
         self.contour_group = CollapsibleButtonGroup("Contour")
         for _b in (self.contour_btn, self.save_contour_btn,
                    self.load_contour_btn, self.clear_contour_btn):
@@ -1630,6 +1643,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         tier1 = QHBoxLayout()
         tier1.setContentsMargins(0, 0, 0, 0)
+        tier1.addWidget(self.region_group)
         tier1.addWidget(self.contour_group)
         tier1.addWidget(self.convolution_group)
         tier1.addStretch(1)
@@ -1878,6 +1892,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                         del header[k]
                 # -------------------------------------------------------
 
+                filename = os.path.basename(fname)
                 if target == "left":
                     self.base_image_left = data.copy()
                     self.base_header_left = header.copy()
@@ -1885,6 +1900,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     self.image_left = data
                     self.header_left = header
                     self.coverage_left = coverage
+                    self.filename_left = filename
                 else:
                     self.base_image_right = data.copy()
                     self.base_header_right = header.copy()
@@ -1892,10 +1908,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     self.image_right = data
                     self.header_right = header
                     self.coverage_right = coverage
+                    self.filename_right = filename
 
                 self.rebuild_axes(target, header)
-                filename = os.path.basename(fname)
                 self.display_image(target, title=filename)
+
+                for _b in (self.region_save_slice_masked_btn, self.region_save_wcs_btn,
+                           self.region_import_wcs_btn):
+                    _b.setEnabled(True)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading FITS file:\n{str(e)}")
@@ -2301,6 +2321,181 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             return float(sky.ra.deg), float(sky.dec.deg)
         except Exception:
             return None, None
+
+    def _region_selection_to_mask(self, target, sel):
+        """Build a full-image mask from a selection dict, the 2D-viewer
+        analogue of the 3D window's own _selection_to_full_mask (there is no
+        cube here, so the mask is sized to the panel's own loaded image).
+
+        Args:
+            target (str): Panel the selection belongs to, 'left' or 'right'.
+            sel (dict): Selection dict from last_selection_left/right.
+
+        Returns:
+            mask (numpy.ndarray): Boolean mask, same shape as the panel's image.
+        """
+        if sel.get("shape") == "*":
+            # Point selections store coords, not a mask -- build a single-pixel one.
+            x, y = sel["coords"]
+            x, y = int(round(x)), int(round(y))
+            image = self._region_image(target)
+            mask = np.zeros(image.shape, dtype=bool)
+            mask[y, x] = True
+            return mask
+        return sel["mask"]
+
+    def _region_save_slice_masked(self):
+        """Save one panel's currently loaded image as a standalone 2D FITS,
+        with pixels outside that panel's region set to NaN.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        target = self._ask_target_panel("Save Slice (Masked)", "Which panel's region would you like to save?")
+        if target is None:
+            return
+        image = self._region_image(target)
+        if image is None:
+            QMessageBox.warning(self, "No Image Loaded", f"Load an image into the {target.capitalize()} panel first.")
+            return
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        if not sel:
+            QMessageBox.warning(
+                self, "Region Selection Required",
+                f"Select a region or pixel on the {target.capitalize()} side first.")
+            return
+        mask = self._region_selection_to_mask(target, sel)
+        header = self.header_left if target == "left" else self.header_right
+
+        path, _ = QFileDialog.getSaveFileName(self, "Save Slice (Masked) as 2D FITS", "", "FITS files (*.fits)")
+        if not path:
+            return
+        if not path.lower().endswith(".fits"):
+            path += ".fits"
+
+        masked = np.asarray(image, dtype=np.float32).copy()
+        masked[~mask] = np.nan
+        try:
+            out_header = build_2d_export_header(header, masked.shape)
+            write_fits_product(path, masked, out_header)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not export slice:\n{e}")
+            return
+        QMessageBox.information(self, "Export Complete", f"Masked slice saved to:\n{path}")
+
+    def _region_save_wcs_text(self):
+        """Save one panel's region as RA/Dec sky coordinates in a text
+        file, so it can be placed on a different 2D image later.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        target = self._ask_target_panel("Save Region as WCS Text", "Which panel's region would you like to save?")
+        if target is None:
+            return
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        if not sel:
+            QMessageBox.warning(
+                self, "Region Selection Required",
+                f"Select a region or pixel on the {target.capitalize()} side first.")
+            return
+
+        header = self.header_left if target == "left" else self.header_right
+        wcs2d = _make_2d_wcs(header)
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            QMessageBox.critical(
+                self, "No WCS Available",
+                "This image has no usable celestial WCS, so its region can't be saved as sky coordinates.")
+            return
+
+        shape = sel.get("shape")
+        lasso_verts = getattr(sel.get("patch"), "lasso_verts", None) if shape == "✏" else None
+        try:
+            result = region_io.region_shape_to_sky(shape, sel["coords"], wcs2d, lasso_verts=lasso_verts)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not convert region to sky coordinates:\n{e}")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
+        if not path:
+            return
+        if not path.lower().endswith((".txt", ".csv")):
+            path += ".txt"
+
+        source_desc = getattr(self, f"filename_{target}", None) or ""
+        try:
+            region_io.write_region_wcs_txt(
+                path, shape, source_desc, result["pixel_points"], result["sky_points"],
+                result.get("sky_center"), result.get("sky_axis_x"), result.get("sky_axis_y"))
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not write region file:\n{e}")
+            return
+        QMessageBox.information(self, "Export Complete", f"Region saved to:\n{path}")
+
+    def _region_import_wcs_text(self):
+        """Load a region saved as WCS text and place it on one panel,
+        using that panel's own image WCS to match the same sky position.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        target = self._ask_target_panel("Import Region", "Which panel should the imported region be placed on?")
+        if target is None:
+            return
+
+        header = self.header_left if target == "left" else self.header_right
+        wcs2d = _make_2d_wcs(header)
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            QMessageBox.critical(
+                self, "No WCS Available",
+                "This image has no usable celestial WCS, so a saved region can't be placed on it.")
+            return
+
+        image = self._region_image(target)
+        if image is None:
+            QMessageBox.warning(self, "Import Failed", "No image is currently loaded on that panel.")
+            return
+
+        path, _ = QFileDialog.getOpenFileName(self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
+        if not path:
+            return
+
+        try:
+            saved = region_io.read_region_wcs_txt(path)
+            placed = region_io.sky_to_region_shape(
+                saved["shape"], saved["sky_points"], saved["sky_center"],
+                saved["sky_axis_x"], saved["sky_axis_y"], wcs2d, target_shape=image.shape)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Failed", str(e))
+            return
+
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+        if selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect()
+            selector.interactive_patch = None
+
+        shape = placed["shape"]
+        if shape == "*":
+            x, y = placed["coords"]
+            self._handle_pixel_click(int(round(x)), int(round(y)), target)
+        elif shape == "✏":
+            selector.active_shape = "✏"
+            selector.on_lasso_select(placed["verts"])
+            selector.active_shape = None
+        else:
+            selector.active_shape = shape
+            coords = tuple(int(round(c)) for c in placed["coords"])
+            selector.create_region(coords)
+            selector.active_shape = None
 
     def _on_slice_click(self, event, target):
         """Handle clicks on a slice display.

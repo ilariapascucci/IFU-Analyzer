@@ -23,6 +23,7 @@ is the only one with no usable default).
 """
 
 import numpy as np
+from PyQt5.QtWidgets import QMessageBox
 
 
 class RegionSelectionMixin:
@@ -113,6 +114,31 @@ class RegionSelectionMixin:
             None
         """
         pass
+
+    # ------------------------------------------------------------- shared utility
+    def _ask_target_panel(self, title, question):
+        """Ask which panel, left or right, an action should use. Shared by
+        both windows' region save/import actions.
+
+        Args:
+            title (str): Dialog window title.
+            question (str): Prompt text shown to the user.
+
+        Returns:
+            target (str): 'left' or 'right', or None if cancelled.
+        """
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setText(question)
+        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
+        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
+        msg.addButton("Cancel", QMessageBox.RejectRole)
+        msg.exec_()
+        if msg.clickedButton() == btn_left:
+            return "left"
+        if msg.clickedButton() == btn_right:
+            return "right"
+        return None
 
     # -------------------------------------------------------------- state machine
     def _set_region_state(self, side, new_state):

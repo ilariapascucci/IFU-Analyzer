@@ -1140,7 +1140,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "Save the full cube, with everything outside one panel's region set to NaN")
         self.region_save_cube_btn.clicked.connect(self._region_save_cube_masked)
 
-        self.region_save_wcs_btn = QPushButton("Save Region as Text")
+        self.region_save_wcs_btn = QPushButton("Save Region")
         self.region_save_wcs_btn.setToolTip(
             "Save one panel's region as RA/Dec sky coordinates, so it can be reconstructed on a different cube")
         self.region_save_wcs_btn.clicked.connect(self._region_save_wcs_text)
@@ -1248,6 +1248,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         collapsible_layout.setSpacing(0)
         collapsible_layout.setContentsMargins(0, 0, 0, 0)
         
+        # Group 1: Region (save/import for slices and regions -- each
+        # button asks which panel, left or right, to use).
+        self.region_group = CollapsibleButtonGroup("Region")
+        self.region_group.add_button(self.region_save_slice_btn)
+        self.region_group.add_button(self.region_save_slice_masked_btn)
+        self.region_group.add_button(self.region_save_cube_btn)
+        self.region_group.add_button(self.region_save_wcs_btn)
+        self.region_group.add_button(self.region_import_wcs_btn)
+        collapsible_layout.addWidget(self.region_group)
+
         # Group 2: Gaussian Fit
         self.gaussian_group = CollapsibleButtonGroup("Gaussian Fit")
         self.gaussian_group.add_button(self.gauss_left_btn)
@@ -1258,18 +1268,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gaussian_group.add_button(self.gauss_fit_btn)
         self.gaussian_group.add_button(self.gauss_map_btn)
         collapsible_layout.addWidget(self.gaussian_group)
-        
+
         # Group 3: Continuum Tools
         self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
         self.continuum_group.add_button(self.auto_continuum_toggle)
         self.continuum_group.add_button(self.custom_continuum_toggle)
         collapsible_layout.addWidget(self.continuum_group)
-        
+
         # Group 4: Rotational Diagram
         self.rotational_diagram_group = CollapsibleButtonGroup("Rotational Diagram")
         self.rotational_diagram_group.add_button(self.rot_diag_btn)
         collapsible_layout.addWidget(self.rotational_diagram_group)
-        
+
         # Group 5: HITRAN (wavelength inputs + action buttons + flux map)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
         self.hitran_group.add_button(self.min_wave_input)
@@ -1282,16 +1292,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
-
-        # Group 6: Region (save/import for slices and regions -- each
-        # button asks which panel, left or right, to use).
-        self.region_group = CollapsibleButtonGroup("Region")
-        self.region_group.add_button(self.region_save_slice_btn)
-        self.region_group.add_button(self.region_save_slice_masked_btn)
-        self.region_group.add_button(self.region_save_cube_btn)
-        self.region_group.add_button(self.region_save_wcs_btn)
-        self.region_group.add_button(self.region_import_wcs_btn)
-        collapsible_layout.addWidget(self.region_group)
 
         collapsible_layout.addStretch()  # Push all groups to the left
         
@@ -1803,29 +1803,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 pass
         if getattr(self, "active_spectrum_tab", None) == target:
             self._refresh_active_spectrum_tab()
-
-    def _ask_target_panel(self, title, question):
-        """Ask which panel, left or right, an action should use.
-
-        Args:
-            title (str): Dialog window title.
-            question (str): Prompt text shown to the user.
-
-        Returns:
-            target (str): 'left' or 'right', or None if cancelled.
-        """
-        msg = QMessageBox(self)
-        msg.setWindowTitle(title)
-        msg.setText(question)
-        btn_left = msg.addButton("Left", QMessageBox.ActionRole)
-        btn_right = msg.addButton("Right", QMessageBox.ActionRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        msg.exec_()
-        if msg.clickedButton() == btn_left:
-            return "left"
-        if msg.clickedButton() == btn_right:
-            return "right"
-        return None
 
     def _selection_to_full_mask(self, target, sel):
         """Build a full-image mask from a selection dict.
