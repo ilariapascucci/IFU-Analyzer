@@ -280,8 +280,10 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
             line_flux_errors). The first four are NaN unless status is
             STATUS_OK. line_fluxes/line_flux_errors are arrays, one entry per
             line_wavelengths entry (same order), each line's own flux at this
-            pixel -- NaN wherever that particular line's fit didn't succeed,
-            independent of whether the pixel had enough detections for a T fit.
+            pixel -- NaN wherever that particular line's fit didn't succeed
+            or came back below the 3-sigma detection floor (an upper limit,
+            not a real value for this pixel), independent of whether the
+            pixel had enough detections for a T fit.
     """
     nan = float("nan")
     line_fluxes = np.full(len(line_wavelengths), nan)
@@ -293,7 +295,9 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
     per_line = out.get("per_line")
     if per_line is not None:
         for i, res in enumerate(per_line):
-            if res.get("success"):
+            # Detections only -- a fit that merely converged on noise (an
+            # upper limit at this pixel) must not leave a value in the map.
+            if res.get("success") and not res.get("is_upper_limit"):
                 line_fluxes[i] = res["flux_cgs"]
                 line_flux_errors[i] = res.get("flux_error_cgs", nan)
 
@@ -625,7 +629,9 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
         contam_lines (pd.DataFrame): Contaminating lines, or None
 
     Returns:
-        row (tuple): (row_idx, flux_row, err_row), each length n_x
+        row (tuple): (row_idx, flux_row, err_row), each length n_x -- NaN
+            wherever the fit didn't succeed or came back below the 3-sigma
+            detection floor (an upper limit, not a real value at that pixel)
     """
     n_x = spectra_row.shape[1]
     flux_row = np.full(n_x, np.nan, dtype=np.float32)
@@ -637,7 +643,9 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
         per_line = compute_line_fluxes_collective(
             wavelength, spectrum, [line_wavelength], header, contam_lines=contam_lines)
         res = per_line[0]
-        if res.get("success"):
+        # Detections only -- a fit that merely converged on noise (an upper
+        # limit at this pixel) must not leave a value in the map.
+        if res.get("success") and not res.get("is_upper_limit"):
             flux_row[x] = res["flux_cgs"]
             err_row[x] = res.get("flux_error_cgs", np.nan)
     return row_idx, flux_row, err_row

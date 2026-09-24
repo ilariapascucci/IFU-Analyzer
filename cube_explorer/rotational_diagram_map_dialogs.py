@@ -849,6 +849,9 @@ class LineFluxMapDialog(QDialog):
         export_btn = QPushButton("Export as FITS")
         export_btn.clicked.connect(self._export_fits)
         btns.addWidget(export_btn)
+        stats_btn = QPushButton("Show Statistics")
+        stats_btn.clicked.connect(self._show_statistics)
+        btns.addWidget(stats_btn)
         btns.addStretch()
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
@@ -877,6 +880,46 @@ class LineFluxMapDialog(QDialog):
         self.fig.colorbar(im, ax=ax).set_label("Flux (erg/s/cm2)")
         self.fig.tight_layout()
         self.canvas.draw()
+
+    def _show_statistics(self):
+        """
+        Show whole-map flux statistics -- same Count/Sum/Mean/Std/Min-Max
+        convention as the main window's Flux Map "Show Statistics", with
+        Count also showing what fraction of the map has a value.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Statistics")
+        dlg.resize(420, 260)
+        layout = QVBoxLayout(dlg)
+
+        data = np.asarray(self.flux_map, dtype=float)
+        finite = data[np.isfinite(data)]
+        pct = 100 * finite.size / data.size if data.size else 0.0
+        stats = f"{self.molecule.upper()} FLUX @ {self.wavelength:.6f} um\n" + "=" * 45 + "\n\n"
+        if finite.size > 0:
+            stats += f"FLUX (erg/s/cm2):\n"
+            stats += f"  Count: {finite.size:,}/{data.size:,} ({pct:.1f}%)\n"
+            stats += f"  Sum:   {np.sum(finite):.4e}\n"
+            stats += f"  Mean:  {np.mean(finite):.4e}\n"
+            stats += f"  Std:   {np.std(finite):.4e}\n"
+            stats += f"  Min/Max: {np.min(finite):.4e} / {np.max(finite):.4e}\n"
+        else:
+            stats += "No valid pixels.\n"
+
+        label = QLabel(stats)
+        label.setStyleSheet("font-family: monospace; white-space: pre;")
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        layout.addWidget(label)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        layout.addWidget(close_btn)
+        dlg.exec_()
 
     def _export_fits(self):
         """
