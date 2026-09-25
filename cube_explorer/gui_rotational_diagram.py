@@ -23,6 +23,9 @@ from matplotlib.figure import Figure
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
 from .table_drag_select import SortableCheckboxTableMixin
+from . import region_io
+from .analyzer_2d import _make_2d_wcs
+from .region_selector import mask_from_shape_coords
 from .rotational_diagram_h2_fitter import (
     rotational_diagram as rotational_diagram_h2,
     get_gu, compute_line_fluxes_collective, model_1T, model_2T,
@@ -316,6 +319,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.loaded_batch_cubes = []
         self.loaded_batch_spectra = []
         self.contam_lines = None
+        # Sky-coordinate region imported via "Import Region", restricting
+        # Calculate Maps/Run Map's native fitting to one region -- None fits
+        # the whole cube, the previous, unrestricted behavior.
+        self._rot_map_region_sky = None
 
         # Track workflow: None=unset, 'csv'=import, 'hitran'=fetch
         self.workflow_mode = None
@@ -630,6 +637,26 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.convolve_maps_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.convolve_maps_btn)
 
+        self.import_map_region_btn = QPushButton("Import Region")
+        self.import_map_region_btn.setToolTip(
+            "Restrict Calculate Maps/Run Map to one sky region, imported from a region saved "
+            "elsewhere (Save Region, main window or 2D viewer). Applies per cube using that "
+            "cube's own WCS, so the same region works across cubes at different pixel scales. "
+            "Does not affect Calculate Fluxes' whole-cube-summed numbers."
+        )
+        self.import_map_region_btn.clicked.connect(self.import_rot_map_region)
+        self.import_map_region_btn.setVisible(False)  # Hidden until lines are loaded
+        button_layout.addWidget(self.import_map_region_btn)
+
+        self.clear_map_region_btn = QPushButton("Clear Region")
+        self.clear_map_region_btn.setToolTip(
+            "Remove the imported region and go back to fitting the whole cube."
+        )
+        self.clear_map_region_btn.clicked.connect(self.clear_rot_map_region)
+        self.clear_map_region_btn.setVisible(False)  # Hidden until a region is imported
+        self.clear_map_region_btn.setEnabled(False)
+        button_layout.addWidget(self.clear_map_region_btn)
+
         self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
         self.contam_status_label.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.contam_status_label)
@@ -697,6 +724,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_fluxes_btn.setVisible(False)
         self.calculate_maps_btn.setVisible(False)
         self.convolve_maps_btn.setVisible(False)
+        self.import_map_region_btn.setVisible(False)
+        self.clear_map_region_btn.setVisible(False)
         self.contam_status_label.setVisible(False)
 
         self.loaded_batch_fits_paths = []
@@ -704,6 +733,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.loaded_batch_spectra = []
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
         self.contam_lines = None
+        self._rot_map_region_sky = None
         self.contam_status_label.setText("")
 
     def _reset_batch_cubes(self):
@@ -1213,6 +1243,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_fluxes_btn.setVisible(True)
         self.calculate_maps_btn.setVisible(True)
         self.convolve_maps_btn.setVisible(True)
+        self.import_map_region_btn.setVisible(True)
+        self.clear_map_region_btn.setVisible(True)
         self.contam_status_label.setVisible(True)
 
         self._reset_batch_cubes()
@@ -1462,6 +1494,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.save_fluxes_btn.setVisible(True)
             self.calculate_maps_btn.setVisible(True)
             self.convolve_maps_btn.setVisible(True)
+            self.import_map_region_btn.setVisible(True)
+            self.clear_map_region_btn.setVisible(True)
             self.contam_status_label.setVisible(True)
 
             # Count successful matches
@@ -3053,6 +3087,20 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if proceed != QMessageBox.Yes:
                 return
 
+        # Same as Calculate Maps: build the imported region's mask per cube
+        # before starting, so a bad region is caught up front.
+        try:
+            if multi_mode:
+                region_mask = None
+                involved_cubes = {c for c, _ in cubes_and_lines}
+                region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
+            else:
+                region_mask = self._rot_map_region_mask_for_cube(cube_arg)
+                region_masks = None
+        except ValueError as exc:
+            QMessageBox.warning(self, "Region", str(exc))
+            return
+
         self._rot_map_multi_mode = multi_mode
         self._rot_map_cube_arg = None if multi_mode else cube_arg
         self._rot_map_line_table = None if multi_mode else line_table
@@ -3072,9 +3120,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         if multi_mode:
             self.rot_map_worker = RotDiagMapWorker(
-                cubes_and_lines=cubes_and_lines, **fit_kwargs)
+                cubes_and_lines=cubes_and_lines, region_masks=region_masks, **fit_kwargs)
         else:
-            self.rot_map_worker = RotDiagMapWorker(cube_arg, line_table, **fit_kwargs)
+            self.rot_map_worker = RotDiagMapWorker(
+                cube_arg, line_table, region_mask=region_mask, **fit_kwargs)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
         self.rot_map_worker.error.connect(self._on_rot_map_error)
@@ -3124,6 +3173,85 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
         self.rot_map_worker.error.connect(self._on_rot_map_error)
         self.rot_map_worker.start()
+
+    def import_rot_map_region(self):
+        """Import a region saved elsewhere (Save Region, main window or 2D
+        viewer) to restrict Calculate Maps/Run Map's native fitting to one
+        sky area. Stored as sky coordinates, the same portable format the
+        main window already uses, so it converts to each cube's own pixel
+        mask at fit time -- one saved region works across cubes at different
+        pixel scales, exactly like importing a region there does.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
+        if not path:
+            return
+        try:
+            saved = region_io.read_region_wcs_txt(path)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Failed", str(e))
+            return
+
+        self._rot_map_region_sky = saved
+        self.clear_map_region_btn.setEnabled(True)
+        QMessageBox.information(
+            self, "Region Imported",
+            f"Region imported ({region_io.SHAPE_NAMES.get(saved['shape'], saved['shape'])}). "
+            "Calculate Maps and Run Map will now only fit pixels inside it, on every "
+            "loaded cube. Import a different region to replace it, or use Clear Region "
+            "to go back to fitting the whole cube.")
+
+    def clear_rot_map_region(self):
+        """Drop the imported region -- Calculate Maps/Run Map go back to
+        fitting the whole cube.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._rot_map_region_sky = None
+        self.clear_map_region_btn.setEnabled(False)
+
+    def _rot_map_region_mask_for_cube(self, cube):
+        """Convert the imported sky region (if any) to this cube's own
+        pixel mask. The same sky_to_region_shape conversion the main
+        window's Import Region uses, just producing a plain boolean array
+        instead of placing an interactive selection.
+
+        Args:
+            cube (CubeData): Cube to build the mask for.
+
+        Returns:
+            mask (numpy.ndarray or None): Boolean mask, shape (ny, nx), or
+                None if no region is imported.
+
+        Raises:
+            ValueError: the cube has no usable celestial WCS, or the region
+                shares no sky overlap with this cube at all -- surfaced to
+                the caller so it can be shown as a clear warning rather than
+                silently fitting the whole cube.
+        """
+        saved = self._rot_map_region_sky
+        if saved is None:
+            return None
+        wcs2d = _make_2d_wcs(cube.header)
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            raise ValueError(
+                f"{getattr(cube, 'filename', 'This cube')} has no usable celestial WCS, "
+                "so the imported region can't be placed on it.")
+        ny, nx = cube.cube.shape[1], cube.cube.shape[2]
+        placed = region_io.sky_to_region_shape(
+            saved["shape"], saved["sky_points"], saved["sky_center"],
+            saved["sky_axis_x"], saved["sky_axis_y"], wcs2d, target_shape=(ny, nx))
+        return mask_from_shape_coords(placed["shape"], placed.get("coords"), placed.get("verts"), (ny, nx))
 
     def calculate_rotational_maps(self):
         """Compute each checked line's own flux map without combining them
@@ -3185,6 +3313,22 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if fit_kwargs is None:
                 return
 
+        # An imported region restricts fitting to that sky area on every
+        # cube involved -- built per cube now so a bad region (no WCS, or no
+        # overlap with a given cube) is caught and reported before any of
+        # the expensive fitting starts, not partway through.
+        try:
+            if len(cubes) == 1:
+                region_mask = self._rot_map_region_mask_for_cube(cubes[0])
+                region_masks = None
+            else:
+                region_mask = None
+                involved_cubes = {c for c, _ in cubes_and_lines}
+                region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
+        except ValueError as exc:
+            QMessageBox.warning(self, "Region", str(exc))
+            return
+
         self.rot_map_progress = QProgressDialog(
             "Calculating flux maps per pixel...", "Cancel", 0, 0, self)
         self.rot_map_progress.setWindowTitle("Calculate Maps")
@@ -3203,14 +3347,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self._calc_maps_cube = cubes[0]
             self._calc_maps_line_table = line_table
             self._calc_maps_fit_kwargs = fit_kwargs
-            self.rot_map_worker = RotDiagMapWorker(cubes[0], line_table, **fit_kwargs)
+            self.rot_map_worker = RotDiagMapWorker(
+                cubes[0], line_table, region_mask=region_mask, **fit_kwargs)
             self.rot_map_worker.progress.connect(self._on_rot_map_progress)
             self.rot_map_worker.finished.connect(self._on_calculate_maps_single_complete)
             self.rot_map_worker.error.connect(self._on_calculate_maps_error)
         else:
             self._calc_maps_cubes_and_lines = cubes_and_lines
             self.rot_map_worker = CalculateNativeMapsWorker(
-                cubes_and_lines, contam_lines=self.contam_lines)
+                cubes_and_lines, contam_lines=self.contam_lines, region_masks=region_masks)
             self.rot_map_worker.progress.connect(self._on_rot_map_progress)
             self.rot_map_worker.finished.connect(self._on_calculate_maps_multi_complete)
             self.rot_map_worker.error.connect(self._on_calculate_maps_error)

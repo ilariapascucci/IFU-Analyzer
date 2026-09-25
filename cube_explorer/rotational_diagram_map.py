@@ -331,7 +331,7 @@ def _pin_worker_math_threads():
 
 def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecular_data, keys,
                     header, contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                    dist_pc, r_au, min_lines, n_lines_total):
+                    dist_pc, r_au, min_lines, n_lines_total, row_mask=None):
     """
     Fit every pixel in one cube row, in a worker process. Module-level so it
     can be pickled for ProcessPoolExecutor; everything process_row's closure
@@ -346,6 +346,8 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
             min_lines: Same meaning as create_rotational_diagram_map's own args
         n_lines_total (int): len(line_wavelengths), for preallocating the
             per-line arrays
+        row_mask (np.ndarray): Boolean mask, length n_x, True where this row's
+            pixels should be fit. None fits every pixel (no region imported).
 
     Returns:
         row (tuple): (row_idx, T, dT, Ncol, dNcol, n_lines, status,
@@ -364,6 +366,8 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
     line_flux_err_row = np.full((n_lines_total, n_x), np.nan, dtype=np.float32)
 
     for x in range(n_x):
+        if row_mask is not None and not row_mask[x]:
+            continue
         spectrum = spectra_row[:, x]
         t, dt, ncol, dncol, nlines, status, line_fluxes, line_flux_errors = _fit_one_pixel(
             spectrum, wavelength, line_wavelengths, molecular_data, keys,
@@ -473,7 +477,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                                   opr_grid=None, dist_pc=140.0, r_au=None,
                                   min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                   contam_lines=None, region_fit=None,
-                                  progress_callback=None, cancel_flag=None):
+                                  progress_callback=None, cancel_flag=None, region_mask=None):
     """
     Fit a 1T rotational diagram at every spatial pixel of the cube.
 
@@ -494,6 +498,9 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         contam_lines (pd.DataFrame): Contaminating lines, or None
         progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
+        region_mask (np.ndarray): Boolean mask, same (ny, nx) shape as the
+            cube, True where a pixel should be fit. None fits the whole cube
+            (no region imported) -- the previous, unrestricted behavior.
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
@@ -555,10 +562,11 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         while (next_row < n_y or pending) and not cancelled:
             while next_row < n_y and len(pending) < max_in_flight:
                 spectra_row = cube.cube[:, next_row, :].astype(np.float32, copy=False)
+                row_mask = region_mask[next_row, :] if region_mask is not None else None
                 pending.add(executor.submit(
                     _fit_row_worker, next_row, spectra_row, wavelength, line_wavelengths,
                     molecular_data, keys, cube.header, contam_lines, molecule, isotopologue,
-                    opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_lines_total,
+                    opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_lines_total, row_mask,
                 ))
                 next_row += 1
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
@@ -614,7 +622,8 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     }
 
 
-def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, header, contam_lines):
+def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, header, contam_lines,
+                            row_mask=None):
     """
     Fit one line in every pixel of one cube row, in a worker process.
     Module-level so it can be pickled for ProcessPoolExecutor.
@@ -627,16 +636,21 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
         line_wavelength (float): The line's catalog wavelength (um)
         header (astropy.io.fits.Header): Cube header, for instrument and CGS conversion
         contam_lines (pd.DataFrame): Contaminating lines, or None
+        row_mask (np.ndarray): Boolean mask, length n_x, True where this row's
+            pixels should be fit. None fits every pixel (no region imported).
 
     Returns:
         row (tuple): (row_idx, flux_row, err_row), each length n_x -- NaN
-            wherever the fit didn't succeed or came back below the 3-sigma
-            detection floor (an upper limit, not a real value at that pixel)
+            wherever the fit didn't succeed, came back below the 3-sigma
+            detection floor (an upper limit, not a real value at that pixel),
+            or fell outside an imported region
     """
     n_x = spectra_row.shape[1]
     flux_row = np.full(n_x, np.nan, dtype=np.float32)
     err_row = np.full(n_x, np.nan, dtype=np.float32)
     for x in range(n_x):
+        if row_mask is not None and not row_mask[x]:
+            continue
         spectrum = spectra_row[:, x]
         if np.all(np.isnan(spectrum)):
             continue
@@ -652,7 +666,7 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
 
 
 def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
-                     progress_callback=None, cancel_flag=None, executor=None):
+                     progress_callback=None, cancel_flag=None, executor=None, region_mask=None):
     """
     Fit one line at every pixel of one cube's native grid.
 
@@ -671,10 +685,14 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
             pymc, which is slow and prints its own startup warnings on every
             import). None creates and tears down a private pool for this one
             line, for standalone/backward-compat callers.
+        region_mask (np.ndarray): Boolean mask, same (ny, nx) shape as this
+            cube, True where a pixel should be fit. None fits the whole cube
+            (no region imported) -- the previous, unrestricted behavior.
 
     Returns:
         maps (tuple): (flux_map, flux_error_map), float32, NaN where there is
-            no data or the fit did not succeed
+            no data, the fit did not succeed, or the pixel is outside an
+            imported region
     """
     wavelength, _unit = extract_units(cube.wavelength)
     _n_wave, n_y, n_x = cube.cube.shape
@@ -697,9 +715,10 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
         while (next_row < n_y or pending) and not cancelled:
             while next_row < n_y and len(pending) < max_in_flight:
                 spectra_row = cube.cube[:, next_row, :].astype(np.float32, copy=False)
+                row_mask = region_mask[next_row, :] if region_mask is not None else None
                 pending.add(executor.submit(
                     _native_line_row_worker, next_row, spectra_row, wavelength,
-                    line_wavelength, cube.header, contam_lines,
+                    line_wavelength, cube.header, contam_lines, row_mask,
                 ))
                 next_row += 1
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
@@ -865,7 +884,7 @@ def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
 
 
 def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
-                             progress_callback=None, cancel_flag=None):
+                             progress_callback=None, cancel_flag=None, region_masks=None):
     """
     Fit each line at its own cube's native resolution -- stage 1 of the
     multi-cube map pipeline (see convolve_line_maps, combine_line_maps).
@@ -878,6 +897,11 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
         contam_lines (pd.DataFrame): Contaminating lines, or None
         n_jobs (int): Worker processes for each native-grid extraction
         dedup_tol_um (float): Co-located-line merge tolerance in microns
+        region_masks (dict): {CubeData: boolean mask (ny, nx)}, restricting
+            which pixels get fit for that cube -- from an imported region.
+            Keyed by cube identity so it survives co-located-line dedup. A
+            cube missing from this dict, or region_masks=None, fits every
+            pixel (the previous, unrestricted behavior).
         progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
 
@@ -962,9 +986,11 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
                 _bump(cur - _seen["n"])
                 _seen["n"] = cur
 
+            region_mask = region_masks.get(cube) if region_masks else None
             flux_native, err_native = _native_line_map(
                 cube, line["wavelength"], contam_lines=contam_lines, n_jobs=n_jobs,
-                progress_callback=_line_progress, cancel_flag=cancel_flag, executor=executor)
+                progress_callback=_line_progress, cancel_flag=cancel_flag, executor=executor,
+                region_mask=region_mask)
             native_flux_maps.append(flux_native)
             native_err_maps.append(err_native)
             # Without this, a cancelled run kept marching through every
@@ -1146,7 +1172,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
                                         dist_pc=140.0, r_au=None, min_lines=3,
                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None,
-                                        cancel_flag=None):
+                                        cancel_flag=None, region_masks=None):
     """
     Fit a 1T rotational diagram at every pixel of a common grid built from
     several cubes at different pixel scales, one line per cube. Convolves
@@ -1173,6 +1199,10 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
             already ran it (the preview does), or None to skip it
         progress_callback (callable): progress_callback(done_units, total_units)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
+        region_masks (dict): {CubeData: boolean mask (ny, nx)}, restricting
+            which pixels get natively fit for that cube -- from an imported
+            region. Does not affect region_fit's own whole-cube sum. None
+            fits every pixel (the previous, unrestricted behavior).
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
@@ -1234,7 +1264,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
 
     native = compute_native_line_maps(
         cubes_and_lines, contam_lines=contam_lines, n_jobs=n_jobs, dedup_tol_um=dedup_tol_um,
-        progress_callback=_native_progress, cancel_flag=cancel_flag)
+        progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks)
     convolved = convolve_line_maps(native, cancel_flag=cancel_flag)
 
     # Whole-cube-summed anchor fit, the same thing Run Fit does. Reused if

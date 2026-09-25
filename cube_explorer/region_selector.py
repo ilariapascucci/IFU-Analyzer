@@ -9,6 +9,68 @@ from matplotlib.patches import Rectangle, PathPatch
 from matplotlib.lines import Line2D
 
 
+def mask_from_shape_coords(shape, coords, verts, target_shape):
+    """
+    Build a full-image boolean mask from a shape symbol and its coords/verts,
+    without needing a live interactive RegionSelector/canvas -- the headless
+    equivalent of what create_region/on_lasso_select's on_select_callback
+    receives (a bounding-box mask) and embeds into a full-image mask (see
+    gui_region_selection.py's _handle_region_select). Used to apply an
+    imported region to data with no on-screen selector at all, such as the
+    rotational-diagram map's per-cube native grids.
+
+    Args:
+        shape (str): Shape symbol -- "*", "▭", "○", "⬭", or "✏".
+        coords (tuple): (xmin, xmax, ymin, ymax) for "*"/"▭"/"○"/"⬭"; ignored
+            for "✏". For "*", (x, y) is also accepted.
+        verts (numpy.ndarray): (N,2) polygon vertices; required for "✏",
+            ignored otherwise.
+        target_shape (tuple): (height, width) of the full image to mask.
+
+    Returns:
+        mask (numpy.ndarray): Boolean mask, shape == target_shape.
+    """
+    h_img, w_img = target_shape
+    full_mask = np.zeros((h_img, w_img), dtype=bool)
+
+    if shape == "*":
+        x, y = coords
+        x, y = int(round(x)), int(round(y))
+        if 0 <= y < h_img and 0 <= x < w_img:
+            full_mask[y, x] = True
+        return full_mask
+
+    if shape == "✏":
+        verts = np.asarray(verts, dtype=float)
+        xmin, ymin = verts.min(axis=0)
+        xmax, ymax = verts.max(axis=0)
+        xmin, ymin, xmax, ymax = int(xmin), int(ymin), int(xmax), int(ymax)
+        width, height = xmax - xmin + 1, ymax - ymin + 1
+        box_mask = _any_touch_polygon_mask(verts, xmin, ymin, width, height)
+    else:
+        xmin, xmax, ymin, ymax = (int(c) for c in coords)
+        xmin, xmax = min(xmin, xmax), max(xmin, xmax)
+        ymin, ymax = min(ymin, ymax), max(ymin, ymax)
+        height = max(1, ymax - ymin + 1)
+        width = max(1, xmax - xmin + 1)
+        if shape == "○":
+            box_mask = _any_touch_circle_mask(width, height)
+        elif shape == "⬭":
+            box_mask = _any_touch_ellipse_mask(width, height)
+        else:  # rectangle
+            box_mask = np.ones((height, width), dtype=bool)
+
+    # Same embed as _handle_region_select: clip the box mask into the full
+    # image, since an imported region can extend past this cube's own edge.
+    y0, x0 = max(int(ymin), 0), max(int(xmin), 0)
+    y1 = min(y0 + box_mask.shape[0] - max(-int(ymin), 0), h_img)
+    x1 = min(x0 + box_mask.shape[1] - max(-int(xmin), 0), w_img)
+    by0, bx0 = max(-int(ymin), 0), max(-int(xmin), 0)
+    if y1 > y0 and x1 > x0:
+        full_mask[y0:y1, x0:x1] = box_mask[by0:by0 + (y1 - y0), bx0:bx0 + (x1 - x0)]
+    return full_mask
+
+
 def _any_touch_circle_mask(width, height):
     """Boolean mask for a circle centered in a (height, width) box: a pixel
     counts as in if its own unit square touches the circle at all, found via
