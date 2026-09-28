@@ -3,7 +3,7 @@ Pixel-by-pixel rotational diagram map: runs the region-level fit at every
 spatial pixel of one cube. Several cubes always go through the _multi
 functions' convolve+reproject path onto a common grid -- registration is
 never assumed from a tolerance check, only verified by construction.
-Detections only -- a line below the 3-sigma floor is dropped.
+Detections only -- a line below the n-sigma floor (3 by default) is dropped.
 """
 
 import multiprocessing
@@ -199,7 +199,7 @@ def _prepare_lines(line_table, molecule, dedup_tol_um):
 
 def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                   contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                  dist_pc, r_au, min_lines):
+                  dist_pc, r_au, min_lines, n_sigma=3.0):
     """
     Fit one spectrum's rotational diagram (1T, detections only). Shared by
     _fit_one_pixel (the bulk loop, flat-tuple return) and fit_pixel (one
@@ -221,6 +221,7 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None
         min_lines (int): Fewest detections a 1T fit needs
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
         out (dict): 'status' (int), 'n_lines' (int), and on STATUS_OK also
@@ -235,7 +236,8 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
         return {"status": STATUS_NO_DATA, "n_lines": 0, "reason": "no data"}
 
     per_line = compute_line_fluxes_collective(
-        wavelength, spectrum, line_wavelengths, header, contam_lines=contam_lines
+        wavelength, spectrum, line_wavelengths, header, contam_lines=contam_lines,
+        n_sigma=n_sigma,
     )
     fluxes, flux_errors = _collect_detections(per_line, keys)
     if len(fluxes) < min_lines:
@@ -254,7 +256,7 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
 
 def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                    contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                   dist_pc, r_au, min_lines):
+                   dist_pc, r_au, min_lines, n_sigma=3.0):
     """
     Fit one pixel and flatten the result for the bulk map loop's arrays.
 
@@ -274,6 +276,7 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None
         min_lines (int): Fewest detections a 1T fit needs
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
         row (tuple): (T, dT, Ncol, dNcol, n_lines, status, line_fluxes,
@@ -281,7 +284,7 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
             STATUS_OK. line_fluxes/line_flux_errors are arrays, one entry per
             line_wavelengths entry (same order), each line's own flux at this
             pixel -- NaN wherever that particular line's fit didn't succeed
-            or came back below the 3-sigma detection floor (an upper limit,
+            or came back below the n_sigma detection floor (an upper limit,
             not a real value for this pixel), independent of whether the
             pixel had enough detections for a T fit.
     """
@@ -291,7 +294,7 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
 
     out = _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                         contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                        dist_pc, r_au, min_lines)
+                        dist_pc, r_au, min_lines, n_sigma)
     per_line = out.get("per_line")
     if per_line is not None:
         for i, res in enumerate(per_line):
@@ -331,7 +334,7 @@ def _pin_worker_math_threads():
 
 def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecular_data, keys,
                     header, contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                    dist_pc, r_au, min_lines, n_lines_total, row_mask=None):
+                    dist_pc, r_au, min_lines, n_lines_total, row_mask=None, n_sigma=3.0):
     """
     Fit every pixel in one cube row, in a worker process. Module-level so it
     can be pickled for ProcessPoolExecutor; everything process_row's closure
@@ -348,6 +351,7 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
             per-line arrays
         row_mask (np.ndarray): Boolean mask, length n_x, True where this row's
             pixels should be fit. None fits every pixel (no region imported).
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
         row (tuple): (row_idx, T, dT, Ncol, dNcol, n_lines, status,
@@ -372,7 +376,7 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
         t, dt, ncol, dncol, nlines, status, line_fluxes, line_flux_errors = _fit_one_pixel(
             spectrum, wavelength, line_wavelengths, molecular_data, keys,
             header, contam_lines, molecule, isotopologue,
-            opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+            opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_sigma,
         )
         t_row[x], dt_row[x] = t, dt
         n_row[x], dn_row[x] = ncol, dncol
@@ -384,7 +388,7 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
 
 def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
               opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-              min_lines=3, dedup_tol_um=1e-5, contam_lines=None):
+              min_lines=3, dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0):
     """
     Fit one pixel and return the full rotational_diagram result for display.
 
@@ -403,6 +407,7 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
         min_lines (int): Fewest detections a 1T fit needs
         dedup_tol_um (float): Co-located-line merge tolerance in microns
         contam_lines (pd.DataFrame): Contaminating lines, or None
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
         out (dict): 'status' (int), 'n_lines' (int), and on STATUS_OK also
@@ -415,7 +420,7 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
     spectrum = cube.get_pixel_spectrum(x, y)
     return _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys,
                          cube.header, contam_lines, molecule, isotopologue,
-                         opr, fit_opr, opr_grid, dist_pc, r_au, min_lines)
+                         opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_sigma)
 
 
 def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=1,
@@ -477,7 +482,8 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                                   opr_grid=None, dist_pc=140.0, r_au=None,
                                   min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                   contam_lines=None, region_fit=None,
-                                  progress_callback=None, cancel_flag=None, region_mask=None):
+                                  progress_callback=None, cancel_flag=None, region_mask=None,
+                                  n_sigma=3.0):
     """
     Fit a 1T rotational diagram at every spatial pixel of the cube.
 
@@ -501,6 +507,9 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         region_mask (np.ndarray): Boolean mask, same (ny, nx) shape as the
             cube, True where a pixel should be fit. None fits the whole cube
             (no region imported) -- the previous, unrestricted behavior.
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default.
+            A line below it is an upper limit and stays NaN in the maps. Does
+            not affect region_fit, whose whole-cube sum keeps the 3-sigma rule.
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
@@ -530,7 +539,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
 
     n_lines_total = len(kept)
     print(f">>> Rotational diagram map: {n_y}x{n_x} pixels, {len(kept)} lines, "
-          f"molecule={molecule}, min_lines={min_lines}, R={r_au}")
+          f"molecule={molecule}, min_lines={min_lines}, R={r_au}, n_sigma={n_sigma:g}")
 
     t_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     dt_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
@@ -567,6 +576,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                     _fit_row_worker, next_row, spectra_row, wavelength, line_wavelengths,
                     molecular_data, keys, cube.header, contam_lines, molecule, isotopologue,
                     opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_lines_total, row_mask,
+                    n_sigma,
                 ))
                 next_row += 1
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
@@ -623,7 +633,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
 
 
 def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, header, contam_lines,
-                            row_mask=None):
+                            row_mask=None, n_sigma=3.0):
     """
     Fit one line in every pixel of one cube row, in a worker process.
     Module-level so it can be pickled for ProcessPoolExecutor.
@@ -638,10 +648,11 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
         contam_lines (pd.DataFrame): Contaminating lines, or None
         row_mask (np.ndarray): Boolean mask, length n_x, True where this row's
             pixels should be fit. None fits every pixel (no region imported).
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
         row (tuple): (row_idx, flux_row, err_row), each length n_x -- NaN
-            wherever the fit didn't succeed, came back below the 3-sigma
+            wherever the fit didn't succeed, came back below the n_sigma
             detection floor (an upper limit, not a real value at that pixel),
             or fell outside an imported region
     """
@@ -655,7 +666,8 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
         if np.all(np.isnan(spectrum)):
             continue
         per_line = compute_line_fluxes_collective(
-            wavelength, spectrum, [line_wavelength], header, contam_lines=contam_lines)
+            wavelength, spectrum, [line_wavelength], header, contam_lines=contam_lines,
+            n_sigma=n_sigma)
         res = per_line[0]
         # Detections only -- a fit that merely converged on noise (an upper
         # limit at this pixel) must not leave a value in the map.
@@ -666,7 +678,8 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
 
 
 def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
-                     progress_callback=None, cancel_flag=None, executor=None, region_mask=None):
+                     progress_callback=None, cancel_flag=None, executor=None, region_mask=None,
+                     n_sigma=3.0):
     """
     Fit one line at every pixel of one cube's native grid.
 
@@ -688,11 +701,12 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
         region_mask (np.ndarray): Boolean mask, same (ny, nx) shape as this
             cube, True where a pixel should be fit. None fits the whole cube
             (no region imported) -- the previous, unrestricted behavior.
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
         maps (tuple): (flux_map, flux_error_map), float32, NaN where there is
-            no data, the fit did not succeed, or the pixel is outside an
-            imported region
+            no data, the fit did not succeed, the line is below n_sigma, or
+            the pixel is outside an imported region
     """
     wavelength, _unit = extract_units(cube.wavelength)
     _n_wave, n_y, n_x = cube.cube.shape
@@ -718,7 +732,7 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
                 row_mask = region_mask[next_row, :] if region_mask is not None else None
                 pending.add(executor.submit(
                     _native_line_row_worker, next_row, spectra_row, wavelength,
-                    line_wavelength, cube.header, contam_lines, row_mask,
+                    line_wavelength, cube.header, contam_lines, row_mask, n_sigma,
                 ))
                 next_row += 1
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
@@ -884,7 +898,8 @@ def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
 
 
 def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
-                             progress_callback=None, cancel_flag=None, region_masks=None):
+                             progress_callback=None, cancel_flag=None, region_masks=None,
+                             n_sigma=3.0):
     """
     Fit each line at its own cube's native resolution -- stage 1 of the
     multi-cube map pipeline (see convolve_line_maps, combine_line_maps).
@@ -904,6 +919,8 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
             pixel (the previous, unrestricted behavior).
         progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default.
+            The only place a threshold is applied: later stages use these maps as they are
 
     Returns:
         result (dict): 'kept_lines', 'dropped_lines' (line dicts),
@@ -990,7 +1007,7 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
             flux_native, err_native = _native_line_map(
                 cube, line["wavelength"], contam_lines=contam_lines, n_jobs=n_jobs,
                 progress_callback=_line_progress, cancel_flag=cancel_flag, executor=executor,
-                region_mask=region_mask)
+                region_mask=region_mask, n_sigma=n_sigma)
             native_flux_maps.append(flux_native)
             native_err_maps.append(err_native)
             # Without this, a cancelled run kept marching through every
@@ -1058,6 +1075,8 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
     Combine already-convolved per-line flux maps into a 1T rotational
     diagram at every pixel of their common grid -- stage 3 (final) of the
     multi-cube map pipeline (see compute_native_line_maps, convolve_line_maps).
+    Applies no detection threshold of its own: which pixels count as detections
+    was decided per line in compute_native_line_maps (n_sigma).
 
     Args:
         convolved_result (dict): Output of convolve_line_maps
@@ -1107,9 +1126,9 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
             fluxes, flux_errors = {}, {}
             for i in range(len(kept_lines)):
                 f, e = flux_maps[i][y, x], err_maps[i][y, x]
-                # The same 3-sigma detection idea used everywhere else in this
-                # feature, applied to the convolved flux/error pair.
-                if np.isfinite(f) and np.isfinite(e) and e > 0 and f > 3 * e:
+                # Detections were already decided per line in Calculate Maps; the convolved
+                # pair only has to be a usable positive flux and error for the fit.
+                if np.isfinite(f) and np.isfinite(e) and e > 0 and f > 0:
                     fluxes[keys[i]] = float(f)
                     flux_errors[keys[i]] = float(e)
 
@@ -1172,7 +1191,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
                                         dist_pc=140.0, r_au=None, min_lines=3,
                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None,
-                                        cancel_flag=None, region_masks=None):
+                                        cancel_flag=None, region_masks=None, n_sigma=3.0):
     """
     Fit a 1T rotational diagram at every pixel of a common grid built from
     several cubes at different pixel scales, one line per cube. Convolves
@@ -1203,6 +1222,9 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
             which pixels get natively fit for that cube -- from an imported
             region. Does not affect region_fit's own whole-cube sum. None
             fits every pixel (the previous, unrestricted behavior).
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default.
+            Applies to the native fits only (the convolved maps get no second
+            test); like the region mask, it does not affect region_fit, which keeps 3 sigma.
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
@@ -1264,7 +1286,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
 
     native = compute_native_line_maps(
         cubes_and_lines, contam_lines=contam_lines, n_jobs=n_jobs, dedup_tol_um=dedup_tol_um,
-        progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks)
+        progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks,
+        n_sigma=n_sigma)
     convolved = convolve_line_maps(native, cancel_flag=cancel_flag)
 
     # Whole-cube-summed anchor fit, the same thing Run Fit does. Reused if
@@ -1314,9 +1337,8 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
     fluxes, flux_errors = {}, {}
     for i, key in enumerate(keys):
         f, e = flux_maps[i][y, x], err_maps[i][y, x]
-        # Same 3-sigma detection rule used everywhere else in this feature,
-        # on the same convolved flux/error pair the map loop already used.
-        if np.isfinite(f) and np.isfinite(e) and e > 0 and f > 3 * e:
+        # Same rule as combine_line_maps: no threshold here, only a usable flux/error pair.
+        if np.isfinite(f) and np.isfinite(e) and e > 0 and f > 0:
             fluxes[key] = float(f)
             flux_errors[key] = float(e)
 

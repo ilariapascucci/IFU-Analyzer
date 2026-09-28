@@ -145,8 +145,8 @@ class CalculateNativeMapsWorker(QThread):
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
-        kwargs (dict): contam_lines/n_jobs/dedup_tol_um, passed straight to
-            compute_native_line_maps
+        kwargs (dict): contam_lines/n_jobs/dedup_tol_um/region_masks/n_sigma,
+            passed straight to compute_native_line_maps
 
     Returns:
         None
@@ -161,7 +161,7 @@ class CalculateNativeMapsWorker(QThread):
 
         Args:
             cubes_and_lines (list): (CubeData, line_dict) pairs.
-            kwargs (dict): contam_lines/n_jobs/dedup_tol_um.
+            kwargs (dict): contam_lines/n_jobs/dedup_tol_um/region_masks/n_sigma.
 
         Returns:
             None
@@ -230,7 +230,8 @@ class CombineMapsWorker(QThread):
         cubes_and_lines (list): (CubeData, line_dict) pairs, needed only to
             recompute region_fit (fit_region_multi needs the real cubes)
         kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/
-            r_au/min_lines, passed to fit_region_multi and combine_line_maps
+            r_au/min_lines, passed to fit_region_multi and combine_line_maps.
+            An n_sigma entry is ignored: the convolved maps carry no threshold
 
     Returns:
         None
@@ -276,8 +277,10 @@ class CombineMapsWorker(QThread):
                 dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
             )
             result = combine_line_maps(
-                self.convolved_result, region_fit=region_fit,
-                progress_callback=self._emit_progress, cancel_flag=self, **self.kwargs,
+                self.convolved_result, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
+                opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
+                dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
+                region_fit=region_fit, progress_callback=self._emit_progress, cancel_flag=self,
             )
             if self.cancelled:
                 self.error.emit("Rotational diagram map cancelled by user")
@@ -639,7 +642,8 @@ class RotDiagMapResultsDialog(QDialog):
         elif "_flux_maps" in self.result:
             # Convolved/reprojected multi-cube map: re-fit from the already-
             # computed per-line flux maps instead of re-running convolution.
-            fit_fn = lambda: fit_pixel_multi(self.result, x, y, **self.fit_kwargs)
+            multi_kwargs = {k: v for k, v in self.fit_kwargs.items() if k != "n_sigma"}
+            fit_fn = lambda: fit_pixel_multi(self.result, x, y, **multi_kwargs)
         else:
             QMessageBox.information(
                 self, "Not available for this map",

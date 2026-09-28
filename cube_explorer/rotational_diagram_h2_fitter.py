@@ -215,7 +215,7 @@ UPPER LIMITS
 '''
 
 def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header,
-                                    contam_lines=None):
+                                    contam_lines=None, n_sigma=3.0):
     """
     Fit every line in `line_wavelengths` simultaneously in one spectrum
     (fit_hitran_lines_collective) -- usually the better fit for rotational-diagram lines.
@@ -226,11 +226,13 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         line_wavelengths (list): Target line center wavelengths (microns)
         header (astropy.io.fits.Header): FITS header (instrument read from it)
         contam_lines (pd.DataFrame): Optional contaminating lines to fit alongside
+        n_sigma (float): Detection threshold in noise sigmas: a line below n_sigma
+            is an upper limit. 3.0 by default; Calculate Fluxes always uses 3.0
 
     Returns:
         results (list): One dict per line_wavelengths entry: success (bool), message (str),
-            and on success also flux_cgs, flux_error_cgs, is_upper_limit, F_ul_cgs,
-            sigma_noise, catalog_sigma, r_squared, plus per-line plot data
+            and on success also flux_cgs, flux_error_cgs, is_upper_limit, F_ul_cgs (the
+            n_sigma ceiling), sigma_noise, catalog_sigma, r_squared, plus per-line plot data
     """
     try:
         continuum = fit_auto_continuum(wavelength_arr, spectrum_arr)
@@ -267,7 +269,7 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         # Already CGS (erg/s/cm^2) -- the real fitted flux, from curve_fit's own amplitude/sigma
         flux_integrated = fit_result.area
 
-        F_ul_native = gaussian_flux_upper_limit(fit_result.noise_std, fit_result.catalog_sigma)
+        F_ul_native = gaussian_flux_upper_limit(fit_result.noise_std, fit_result.catalog_sigma, n_sigma)
         try:
             F_ul_cgs = integrated_flux_to_cgs(F_ul_native, 'MJy/sr', wavelength=wl, header=header, wave_unit='um')
         except Exception:
@@ -276,9 +278,9 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
             results.append({"success": False, "message": "Could not convert upper-limit flux to CGS"})
             continue
 
-        # Detection if flux clears the 3-sigma floor, else upper limit -- either way keep the
-        # real error, since is_upper_limit only controls display, not whether it exists.
-        is_upper_limit = flux_integrated < F_ul_cgs
+        # Detection if flux clears the n_sigma floor (a zero flux never does, even at n_sigma=0),
+        # else upper limit -- either way keep the real error, since is_upper_limit only controls display.
+        is_upper_limit = flux_integrated < F_ul_cgs or flux_integrated <= 0
 
         # fit_result.area_error already includes the systematic floor -- computed once in
         # flux_map_extractor._to_result, same number every consumer gets, not redone here.

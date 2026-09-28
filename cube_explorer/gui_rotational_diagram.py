@@ -522,6 +522,19 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.mol_combo.setCurrentText(self.current_molecule)
         self.mol_combo.currentTextChanged.connect(self.on_molecule_changed)
         mol_layout.addWidget(self.mol_combo)
+
+        mol_layout.addSpacing(20)
+        mol_layout.addWidget(QLabel("Detection threshold (σ):"))
+        self.sigma_input = QLineEdit()
+        self.sigma_input.setText("3.0")
+        self.sigma_input.setMaximumWidth(60)
+        self.sigma_input.setToolTip(
+            "Sets which pixels count as detections when Calculate Maps (or a full Run Map) fits "
+            "each line: a line fitted below this many noise sigmas is an upper limit and stays "
+            "NaN. Convolve Maps and the temperature fit apply no threshold of their own. Any "
+            "number 0 or higher; 3 is the standard. Calculate Fluxes always uses 3."
+        )
+        mol_layout.addWidget(self.sigma_input)
         mol_layout.addStretch()
         layout.addLayout(mol_layout)
         
@@ -3030,13 +3043,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         cube_arg = cubes[0] if len(cubes) == 1 else cubes
 
         # Fast path: Calculate Maps + Convolve Maps already produced a
-        # convolved result for these same cubes/lines -- skip straight to the
-        # cheap final combination instead of the full slow worker. Only the
-        # geometry (cubes/lines) needs to match; fit settings (distance,
-        # min_lines, OPR, ...) can differ freely since this stage recomputes
-        # them from the cached, already-convolved maps.
+        # convolved result for these same cubes/lines/threshold -- skip
+        # straight to the cheap final combination instead of the full slow
+        # worker. Fit settings (distance, min_lines, OPR, ...) can differ
+        # freely since this stage recomputes them from the cached maps.
         if multi_mode:
-            geometry_key = self._rot_map_geometry_key(cubes_and_lines)
+            geometry_key = self._rot_map_geometry_key(cubes_and_lines, fit_kwargs["n_sigma"])
             convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
             if convolved_cache is not None and convolved_cache["key"] == geometry_key:
                 self._run_map_fast_combine(cubes, cubes_and_lines, convolved_cache["result"], fit_kwargs)
@@ -3308,10 +3320,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if match_err:
                 QMessageBox.warning(self, "Cubes", match_err)
                 return
+            n_sigma = self._rot_map_gather_n_sigma()
+            if n_sigma is None:
+                return
         else:
             fit_kwargs = self._rot_map_gather_settings()
             if fit_kwargs is None:
                 return
+            n_sigma = fit_kwargs["n_sigma"]
 
         # An imported region restricts fitting to that sky area on every
         # cube involved -- built per cube now so a bad region (no WCS, or no
@@ -3327,6 +3343,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
         except ValueError as exc:
             QMessageBox.warning(self, "Region", str(exc))
+            return
+
+        proceed = QMessageBox.question(
+            self, "Calculate Maps",
+            f"Detection threshold: {n_sigma:g}σ\n\n"
+            f"A line fitted below {n_sigma:g}σ is an upper limit and stays NaN in the maps.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if proceed != QMessageBox.Yes:
             return
 
         self.rot_map_progress = QProgressDialog(
@@ -3354,8 +3379,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.rot_map_worker.error.connect(self._on_calculate_maps_error)
         else:
             self._calc_maps_cubes_and_lines = cubes_and_lines
+            self._calc_maps_n_sigma = n_sigma
             self.rot_map_worker = CalculateNativeMapsWorker(
-                cubes_and_lines, contam_lines=self.contam_lines, region_masks=region_masks)
+                cubes_and_lines, contam_lines=self.contam_lines, region_masks=region_masks,
+                n_sigma=n_sigma)
             self.rot_map_worker.progress.connect(self._on_rot_map_progress)
             self.rot_map_worker.finished.connect(self._on_calculate_maps_multi_complete)
             self.rot_map_worker.error.connect(self._on_calculate_maps_error)
@@ -3403,7 +3430,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if dlg is not None:
             dlg.close()
         self.on_line_selected()
-        geometry_key = self._rot_map_geometry_key(self._calc_maps_cubes_and_lines)
+        geometry_key = self._rot_map_geometry_key(self._calc_maps_cubes_and_lines, self._calc_maps_n_sigma)
         self._rot_map_native_cache = {"key": geometry_key, "result": result}
         self._populate_map_column(result)
         QMessageBox.information(
@@ -3468,13 +3495,17 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             QMessageBox.warning(self, "Cubes", match_err)
             return
 
-        geometry_key = self._rot_map_geometry_key(cubes_and_lines)
+        n_sigma = self._rot_map_gather_n_sigma()
+        if n_sigma is None:
+            return
+
+        geometry_key = self._rot_map_geometry_key(cubes_and_lines, n_sigma)
         native_cache = getattr(self, "_rot_map_native_cache", None)
         if native_cache is None or native_cache["key"] != geometry_key:
             QMessageBox.warning(
                 self, "Convolve Maps",
-                "No matching Calculate Maps result for these cubes/lines -- "
-                "run Calculate Maps first.")
+                "No matching Calculate Maps result for these cubes/lines and the "
+                f"current detection threshold ({n_sigma:g}σ) -- run Calculate Maps first.")
             return
 
         try:
@@ -3563,19 +3594,44 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                           "Deselect them or use lines with catalog data.")
         return rows, discarded_ul, None
 
+    def _rot_map_gather_n_sigma(self):
+        """Read the Detection threshold box. Any number 0 or higher is
+        allowed -- there is no upper limit.
+
+        Args:
+            None
+
+        Returns:
+            n_sigma (float or None): The threshold in noise sigmas, or None
+                if the box is empty, not a number, or negative -- a warning
+                was already shown in that case.
+        """
+        try:
+            n_sigma = float(self.sigma_input.text().strip())
+        except ValueError:
+            n_sigma = float("nan")
+        if not np.isfinite(n_sigma) or n_sigma < 0:
+            QMessageBox.warning(self, "Detection Threshold",
+                                "Enter a detection threshold (σ) of 0 or more.")
+            return None
+        return n_sigma
+
     def _rot_map_gather_settings(self):
-        """Parse distance/radius/OPR-grid inputs into fit_kwargs, the same
-        way Run Map always has. Shared by Run Map, Calculate Maps (single
-        cube only needs this), and the fast Run Map combine path.
+        """Parse distance/radius/OPR-grid/threshold inputs into fit_kwargs,
+        the same way Run Map always has. Shared by Run Map, Calculate Maps
+        (single cube only needs this), and the fast Run Map combine path.
 
         Args:
             None
 
         Returns:
             fit_kwargs (dict or None): molecule/isotopologue/opr/fit_opr/
-                opr_grid/dist_pc/r_au/min_lines, or None if a field was
-                invalid -- a warning was already shown in that case.
+                opr_grid/dist_pc/r_au/min_lines/n_sigma, or None if a field
+                was invalid -- a warning was already shown in that case.
         """
+        n_sigma = self._rot_map_gather_n_sigma()
+        if n_sigma is None:
+            return None
         try:
             dist_pc = float(self.distance_input.text().strip())
         except ValueError:
@@ -3606,17 +3662,19 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             molecule=self.current_molecule,
             isotopologue=self.isotopologue_spin.value(),
             opr=None, fit_opr=fit_opr, opr_grid=opr_grid,
-            dist_pc=dist_pc, r_au=r_au, min_lines=3,
+            dist_pc=dist_pc, r_au=r_au, min_lines=3, n_sigma=n_sigma,
         )
 
-    def _rot_map_geometry_key(self, cubes_and_lines, dedup_tol_um=1e-5):
+    def _rot_map_geometry_key(self, cubes_and_lines, n_sigma, dedup_tol_um=1e-5):
         """Cache key for compute_native_line_maps/convolve_line_maps output:
         only what determines the native/convolved maps themselves (which
-        cube is paired with which line's wavelength), not fit settings like
-        distance or min_lines -- those two stages never see them.
+        cube is paired with which line's wavelength, and the detection
+        threshold), not fit settings like distance or min_lines -- those two
+        stages never see them.
 
         Args:
             cubes_and_lines (list): (CubeData, line_dict) pairs
+            n_sigma (float): Detection threshold the maps were (or will be) made with
             dedup_tol_um (float): Co-located-line merge tolerance in microns
 
         Returns:
@@ -3625,7 +3683,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         pairs = tuple(sorted(
             (getattr(c, "filename", None), round(l["wavelength"], 6)) for c, l in cubes_and_lines
         ))
-        return (pairs, dedup_tol_um)
+        return (pairs, dedup_tol_um, n_sigma)
 
     def _show_convolution_plan_confirm(self, plan):
         """Show the convolve/reproject plan (no fitting); return True to run the map.

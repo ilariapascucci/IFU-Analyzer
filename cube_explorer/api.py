@@ -808,7 +808,7 @@ def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, 
 
 def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=None,
               fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
-              dedup_tol_um=1e-5, contam_lines=None):
+              dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0):
     """Fit one rotational diagram to a single pixel's own spectrum.
     This is fit_region for one pixel instead of a summed region.
 
@@ -819,6 +819,8 @@ def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=No
         line_table (list): Line dicts, see fit_region
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
             dedup_tol_um, contam_lines: Same meaning as in fit_region
+        n_sigma (float): Detection threshold in noise sigmas. A line below it
+            is an upper limit and is left out of the fit. 3.0 by default
 
     Returns:
         dict: Same shape as fit_region's return, for this one pixel
@@ -831,13 +833,14 @@ def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=No
                           isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
                           opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
                           min_lines=min_lines, dedup_tol_um=dedup_tol_um,
-                          contam_lines=contam_lines)
+                          contam_lines=contam_lines, n_sigma=n_sigma)
 
 
 def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopologue=1,
                                    opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0,
                                    r_au=None, min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
-                                   contam_lines=None, progress_callback=None, cancel_flag=None):
+                                   contam_lines=None, progress_callback=None, cancel_flag=None,
+                                   n_sigma=3.0):
     """Fit a 1T rotational diagram at every pixel of one cube.
     Same fit as the GUI's Run Map button, run once per pixel.
 
@@ -852,6 +855,9 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
         progress_callback (callable, optional): progress_callback(done_pixels, total_pixels)
         cancel_flag (object, optional): Object with a `.cancelled` attribute, checked
             between rows so a long-running map can be stopped early
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default. A line
+            below it is an upper limit and stays NaN in the maps. Not applied to
+            'region_fit', whose whole-cube sum keeps the 3-sigma rule
 
     Returns:
         dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2),
@@ -874,7 +880,7 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
                            opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
                            min_lines=min_lines, dedup_tol_um=dedup_tol_um, n_jobs=n_jobs,
                            contam_lines=contam_lines, progress_callback=progress_callback,
-                           cancel_flag=cancel_flag)
+                           cancel_flag=cancel_flag, n_sigma=n_sigma)
 
 
 def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
@@ -910,7 +916,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
                                          opr=None, fit_opr=False, opr_grid=None,
                                          dist_pc=140.0, r_au=None, min_lines=3,
                                          dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
-                                         progress_callback=None, cancel_flag=None):
+                                         progress_callback=None, cancel_flag=None, n_sigma=3.0):
     """Fit a 1T rotational diagram at every pixel of a common grid built from
     several cubes at different pixel scales, one line per cube. Convolves
     and reprojects each cube onto that grid first, then fits like Run Map.
@@ -924,6 +930,9 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
         progress_callback (callable, optional): progress_callback(done_units, total_units),
             spanning every native-grid extraction plus the final per-pixel fit
         cancel_flag (object, optional): Object with a `.cancelled` attribute
+        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default. Applies
+            to the native fits only; the convolved maps get no second test. Not applied
+            to 'region_fit', whose whole-cube sum keeps the 3-sigma rule
 
     Returns:
         dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2),
@@ -949,7 +958,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
                                  opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
                                  min_lines=min_lines, dedup_tol_um=dedup_tol_um,
                                  n_jobs=n_jobs, contam_lines=contam_lines,
-                                 progress_callback=progress_callback, cancel_flag=cancel_flag)
+                                 progress_callback=progress_callback, cancel_flag=cancel_flag,
+                                 n_sigma=n_sigma)
 
 
 def fit_pixel_multi(result, x, y, molecule='H2', isotopologue=1, opr=None, fit_opr=False,

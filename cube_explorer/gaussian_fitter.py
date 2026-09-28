@@ -331,23 +331,23 @@ def compute_mad_noise_std(y_data: np.ndarray) -> float:
     return float(np.nanmedian(np.abs(y_data - np.nanmedian(y_data))) * MAD_TO_STD)
 
 
-def gaussian_flux_upper_limit(sigma_noise: float, sigma: float) -> float:
+def gaussian_flux_upper_limit(sigma_noise: float, sigma: float, n_sigma: float = 3.0) -> float:
     """
-    3-sigma upper-limit flux: the area of an artificial Gaussian with amplitude
-    3*sigma_noise and the given sigma, using the same area formula as every
-    other line fit in this app (amplitude * sigma * sqrt(2*pi)). Shared by
-    Flux Map (fit_glines' per-line noise_std) and Rotational Diagram Map
-    (compute_line_fluxes_collective), so both apply the same 3-sigma test.
+    n-sigma upper-limit flux: the area of an artificial Gaussian with amplitude
+    n_sigma*sigma_noise and the given sigma, using the same area formula as every
+    other line fit in this app (amplitude * sigma * sqrt(2*pi)). Flux Map and
+    Rotational Diagram Map use the default 3; the Rot Diag map buttons can pass their own.
 
     Args:
         sigma_noise (float): Noise standard deviation, from the chunk fit's
             own residuals (fit_glines' noise_std_chunk)
         sigma (float): Instrumental sigma the line was actually fit with
+        n_sigma (float): Number of noise sigmas for the ceiling. 3.0 by default
 
     Returns:
         F_ul (float): Upper limit flux, same units as sigma_noise * sigma
     """
-    return 3.0 * sigma_noise * sigma * np.sqrt(2 * np.pi)
+    return n_sigma * sigma_noise * sigma * np.sqrt(2 * np.pi)
 
 
 def safe_nanstd(arr: np.ndarray, fallback: float = 0.0) -> float:
