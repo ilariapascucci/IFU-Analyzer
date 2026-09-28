@@ -331,6 +331,25 @@ def compute_mad_noise_std(y_data: np.ndarray) -> float:
     return float(np.nanmedian(np.abs(y_data - np.nanmedian(y_data))) * MAD_TO_STD)
 
 
+def gaussian_flux_upper_limit(sigma_noise: float, sigma: float) -> float:
+    """
+    3-sigma upper-limit flux: the area of an artificial Gaussian with amplitude
+    3*sigma_noise and the given sigma, using the same area formula as every
+    other line fit in this app (amplitude * sigma * sqrt(2*pi)). Shared by
+    Flux Map (fit_glines' per-line noise_std) and Rotational Diagram Map
+    (compute_line_fluxes_collective), so both apply the same 3-sigma test.
+
+    Args:
+        sigma_noise (float): Noise standard deviation, from the chunk fit's
+            own residuals (fit_glines' noise_std_chunk)
+        sigma (float): Instrumental sigma the line was actually fit with
+
+    Returns:
+        F_ul (float): Upper limit flux, same units as sigma_noise * sigma
+    """
+    return 3.0 * sigma_noise * sigma * np.sqrt(2 * np.pi)
+
+
 def safe_nanstd(arr: np.ndarray, fallback: float = 0.0) -> float:
     """
     Safely compute nanstd without triggering "Degrees of freedom <= 0" warnings.
@@ -1081,19 +1100,10 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 chi_squared_red = np.inf
 
             # ===== STEP 6: APPLY DETECTION THRESHOLD =====
-            # True detection requires: fit converged, amplitude above the SNR threshold, and improved residuals.
-            std_no_fit = std_val if (std_val is not None and np.isfinite(std_val)) else safe_nanstd(y_corrected, fallback=1.0)
-            # Residual scatter after the fit. This only asks if the fit reduced scatter
-            # from the raw data, a different question from chi2 above (how big residuals are versus real noise).
-            residual_scatter = np.std(residuals, ddof=0)
-            std_with_fit = residual_scatter
-            fit_improves = fit_success and (std_with_fit < std_no_fit)
-
-            # Two amplitude-based pathways (strict + lenient, below). chi2 stays
-            # diagnostic-only -- gating on it now would silently change validated results.
+            # True detection: the fit converged and its amplitude clears the SNR threshold. Nothing
+            # else gates it (the lenient 0.5*std path and the residual-scatter check are removed).
             snr_passes_threshold = amplitude >= fac_above_stdres * std_val
-            amplitude_weak = amplitude > 0.5 * std_val
-            is_detection = (snr_passes_threshold and fit_improves) or (fit_success and amplitude_weak)
+            is_detection = fit_success and snr_passes_threshold
 
             if is_detection:
                 # ===== DETECTION: Store full fitted parameters =====

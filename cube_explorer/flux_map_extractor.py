@@ -32,7 +32,7 @@ from scipy.interpolate import UnivariateSpline
 
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
-    compute_line_free_noise_std, compute_mad_noise_std,
+    compute_line_free_noise_std, compute_mad_noise_std, gaussian_flux_upper_limit,
     GaussianFitResult, gaussian,
 )
 from .utils import get_spectral_resolution
@@ -1389,17 +1389,44 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         print(f"  [DEBUG] Fitting {len(detected_target)} target + {len(detected_contam)} contaminating lines")
         # This code has no fallback string (see fit_glines' docstring). None here means the
         # header is missing something normally present in a MIRI, NIRSpec, or MUSE header.
-        flux, contam_flux, mean_cont, residuals, continuum_curve, _, _ = fit_glines(
+        _, _, mean_cont, residuals, continuum_curve, per_line_fits, per_contam_fits = fit_glines(
             spectrum_wave, spectrum_flux, wave_boundaries,
             detected_target, detected_contam, sigma,
             flux_unit_label=resolved_flux_unit, wave_unit_label=resolved_wave_unit,
             list_wboundaries_extent=wave_boundaries_extent,
         )
+
+        # Decision 2: each line's own fit-residual noise decides detection now, not the
+        # pre-fit MAD screen -- same 3-sigma test Rotational Diagram Map uses.
+        by_wavelength = {round(f['wavelength'], 9): f for f in per_line_fits}
+        flux = 0.0
+        for idx in detected_target.index:
+            fit = by_wavelength.get(round(float(detected_target.loc[idx, 'line']), 9))
+            if fit is None or not fit['success'] or fit.get('noise_std') is None:
+                detected_lines.loc[idx, 'disposition'] = 0
+                detected_target.loc[idx, 'disposition'] = 0
+                continue
+            if fit['area'] < gaussian_flux_upper_limit(fit['noise_std'], fit['catalog_sigma']):
+                detected_lines.loc[idx, 'disposition'] = 0
+                detected_target.loc[idx, 'disposition'] = 0
+                continue
+            flux += fit['area']
+
+        by_wavelength_contam = {round(f['wavelength'], 9): f for f in per_contam_fits}
+        contam_flux = 0.0
+        for idx in detected_contam.index:
+            fit = by_wavelength_contam.get(round(float(detected_contam.loc[idx, 'line']), 9))
+            if fit is None or not fit['success'] or fit.get('noise_std') is None:
+                detected_contam.loc[idx, 'disposition'] = 0
+                continue
+            if fit['area'] < gaussian_flux_upper_limit(fit['noise_std'], fit['catalog_sigma']):
+                detected_contam.loc[idx, 'disposition'] = 0
+                continue
+            contam_flux += fit['area']
+
         _debug_area_unit = f"{resolved_flux_unit}·{resolved_wave_unit}"
-        print(f"  [DEBUG] fit_glines returned (native, pre-CGS-conversion): "
-              f"flux={flux:.6e} {_debug_area_unit}, contam_flux={contam_flux:.6e} {_debug_area_unit}, "
-              f"mean_cont={mean_cont:.6e} {resolved_flux_unit}")
-        print(f"  [DEBUG] flux type={type(flux)}, is_finite={np.isfinite(flux)}")
+        print(f"  [DEBUG] Post 3-sigma filter: flux={flux:.6e} {_debug_area_unit}, "
+              f"contam_flux={contam_flux:.6e} {_debug_area_unit}, mean_cont={mean_cont:.6e} {resolved_flux_unit}")
     else:
         flux, contam_flux, mean_cont = 0, 0, np.nanmedian(spectrum_flux)
         residuals = pd.DataFrame({'wave': spectrum_wave, 'residual': np.zeros_like(spectrum_flux)})
@@ -1415,10 +1442,12 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
             mean_detected_wavelength = np.mean(detected_co_only['line'].values)
 
     # contam_flux needs its own reference wavelength (a pixel can have a contaminant
-    # but no target lines). detected_contam is already disposition==1 only -- no extra filter needed.
+    # but no target lines). Post-fit filtering above can now zero out some rows here too.
     mean_detected_contam_wavelength = np.nan
     if len(detected_contam) > 0 and 'line' in detected_contam.columns:
-        mean_detected_contam_wavelength = np.mean(detected_contam['line'].values)
+        contam_detected_only = detected_contam[detected_contam['disposition'] == 1]
+        if len(contam_detected_only) > 0:
+            mean_detected_contam_wavelength = np.mean(contam_detected_only['line'].values)
 
     # conversion -- flux and contam_flux each convert off their own detections, not
     # gated on the other one having succeeded.

@@ -12,6 +12,7 @@ import arviz as az
 
 from .unit_converter import integrated_flux_to_cgs
 from .flux_map_extractor import fit_auto_continuum, fit_hitran_lines_collective
+from .gaussian_fitter import gaussian_flux_upper_limit
 
 '''
 CONSTANTS
@@ -212,24 +213,6 @@ def model_2T(E, a1, T1, a2, T2):
 '''
 UPPER LIMITS
 '''
-
-def gaussian_flux_upper_limit(sigma_noise, sigma):
-    """
-    3-sigma upper-limit flux: the area of an artificial Gaussian with amplitude
-    3*sigma_noise and the given sigma, using the same area formula as every
-    other line fit in this app (amplitude * sigma * sqrt(2*pi)).
-
-    Args:
-        sigma_noise (float): Noise standard deviation (MJy/sr), from the chunk
-            fit's own residuals (fit_glines' noise_std_chunk)
-        sigma (float): Instrumental sigma the line was actually fit with
-            (fit_result.catalog_sigma)
-
-    Returns:
-        F_ul (float): Upper limit flux (MJy/sr*um)
-    """
-    return 3.0 * sigma_noise * sigma * np.sqrt(2 * np.pi)
-
 
 def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header,
                                     contam_lines=None):
