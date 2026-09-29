@@ -35,7 +35,7 @@ UL_BARRIER_K = 1e3
 
 # curve_fit upper bound on T (K), from rotational_diagram_OPRimplement.ipynb.
 # Arbitrary, no theory behind the value; other modules import this rather than repeat it.
-T_CAP = 5000
+T_CAP = 10000
 
 '''
 HITRAN DATA

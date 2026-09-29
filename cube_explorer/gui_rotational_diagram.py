@@ -2311,13 +2311,29 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         item.setFont(font)
         item.setToolTip(tooltip)
 
+    def _clear_view_link(self, item):
+        """Undo _set_view_link: reset a cell back to its default "—" placeholder.
+
+        Args:
+            item (QTableWidgetItem): Cell to reset.
+
+        Returns:
+            None
+        """
+        item.setText("—")
+        item.setData(Qt.ForegroundRole, None)
+        item.setData(Qt.FontRole, None)
+        item.setToolTip("")
+
     def _populate_map_column(self, result):
         """Turn each mapped line's "Map" cell into a "View" link, using the
         native (pre-convolution) map when available -- Calculate Maps'
         native_result, or a full Run Map result, both carry it; a plain
         single-cube result only has line_flux_maps, since there is only one
-        resolution to begin with. Lines dropped by dedup, or not part of
-        this result, are left as "—".
+        resolution to begin with. Any row left over from an earlier call
+        (e.g. a line that was checked for a previous Calculate Maps run but
+        isn't part of this one) is reset to "—" first, so a stale map never
+        looks current. Lines dropped by dedup are left as "—" too.
 
         Args:
             result (dict): Output of compute_native_line_maps,
@@ -2332,6 +2348,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not kept_lines or not flux_maps:
             return
         native_wcs = result.get("native_wcs")  # multi-cube: one per kept_lines entry
+
+        kept_rows = {self._row_for_wavelength(l.get("wavelength")) for l in kept_lines}
+        for row in list(self._line_map_plot_data):
+            if row not in kept_rows:
+                del self._line_map_plot_data[row]
+                stale_item = self.lines_table.item(row, 15)
+                if stale_item:
+                    self._clear_view_link(stale_item)
 
         for i, line in enumerate(kept_lines):
             wl = line.get("wavelength")
@@ -2357,7 +2381,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """Turn each mapped line's "Convolved Map" cell into a "View" link,
         using result['kept_lines']/['line_flux_maps'] (post-convolution,
         common-grid arrays). Multi-cube only -- a single-cube result has no
-        convolution step, so this is a no-op for one.
+        convolution step, so this is a no-op for one. Any row left over from
+        an earlier call (e.g. a line convolved in a previous 7-line run that
+        isn't part of a later 5-line one) is reset to "—" first -- its old
+        convolved map is on a different grid/threshold now, so leaving the
+        "View" link up would look current when it isn't.
 
         Args:
             result (dict): Output of convolve_line_maps or
@@ -2373,6 +2401,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not kept_lines or not line_flux_maps or dst_wcs is None:
             return
         source_header = dst_wcs.to_header()
+
+        kept_rows = {self._row_for_wavelength(l.get("wavelength")) for l in kept_lines}
+        for row in list(self._line_convolved_map_plot_data):
+            if row not in kept_rows:
+                del self._line_convolved_map_plot_data[row]
+                stale_item = self.lines_table.item(row, 16)
+                if stale_item:
+                    self._clear_view_link(stale_item)
 
         for i, line in enumerate(kept_lines):
             wl = line.get("wavelength")
@@ -3126,6 +3162,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_map_progress.setAutoReset(False)
         self.rot_map_progress.canceled.connect(self._cancel_rot_map)
         self.rot_map_progress.show()
+        self._rot_map_progress_label = "Fitting rotational diagram"
 
         self.run_fit_btn.setEnabled(False)
         self.run_map_btn.setEnabled(False)
@@ -3167,6 +3204,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_map_progress.setAutoReset(False)
         self.rot_map_progress.canceled.connect(self._cancel_rot_map)
         self.rot_map_progress.show()
+        self._rot_map_progress_label = "Fitting rotational diagram"
 
         self.run_fit_btn.setEnabled(False)
         self.run_map_btn.setEnabled(False)
@@ -3355,13 +3393,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
 
         self.rot_map_progress = QProgressDialog(
-            "Calculating flux maps per pixel...", "Cancel", 0, 0, self)
+            "Generating integrated flux maps per pixel...", "Cancel", 0, 0, self)
         self.rot_map_progress.setWindowTitle("Calculate Maps")
         self.rot_map_progress.setWindowModality(Qt.WindowModal)
         self.rot_map_progress.setAutoClose(False)
         self.rot_map_progress.setAutoReset(False)
         self.rot_map_progress.canceled.connect(self._cancel_rot_map)
         self.rot_map_progress.show()
+        self._rot_map_progress_label = "Generating integrated flux maps"
 
         self.run_fit_btn.setEnabled(False)
         self.run_map_btn.setEnabled(False)
@@ -3460,7 +3499,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """Convolve/reproject every checked line's already-calculated native
         map onto a common grid at the worst (coarsest) resolution among
         them. Requires 2+ loaded cubes and a matching Calculate Maps result
-        already cached. Runs synchronously -- vectorized convolution and
+        already cached for every checked line -- lines already covered by a
+        cached result with more lines than currently checked are reused as
+        they are, only genuinely missing lines force a Calculate Maps rerun.
+        Shows the convolution plan (which line sets the resolution, how much
+        the rest get blurred) for confirmation before convolving. Runs
+        synchronously once confirmed -- vectorized convolution and
         reprojection, not a per-pixel Python loop, so no progress dialog is
         needed.
 
@@ -3499,24 +3543,44 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if n_sigma is None:
             return
 
-        geometry_key = self._rot_map_geometry_key(cubes_and_lines, n_sigma)
         native_cache = getattr(self, "_rot_map_native_cache", None)
-        if native_cache is None or native_cache["key"] != geometry_key:
+        if native_cache is None or native_cache["key"][2] != n_sigma:
             QMessageBox.warning(
                 self, "Convolve Maps",
-                "No matching Calculate Maps result for these cubes/lines and the "
-                f"current detection threshold ({n_sigma:g}σ) -- run Calculate Maps first.")
+                "No matching Calculate Maps result at the current detection "
+                f"threshold ({n_sigma:g}σ) -- run Calculate Maps first.")
+            return
+
+        subset, missing = self._rot_map_subset_native_result(native_cache["result"], cubes_and_lines)
+        if subset is None:
+            wavelengths = "\n".join(f"  {wl:.4f} um" for wl in missing)
+            QMessageBox.warning(
+                self, "Convolve Maps",
+                f"Calculate Maps hasn't been run for:\n{wavelengths}\n\n"
+                "Run Calculate Maps first (already-calculated lines don't need to be redone).")
+            return
+
+        try:
+            plan = convolution_plan(cubes_and_lines)
+        except Exception as exc:
+            QMessageBox.critical(self, "Plan Failed", str(exc))
+            return
+        if not self._show_convolution_plan_confirm(
+                plan, window_title="Convolve Maps -- convolution plan",
+                question="Convolve/reproject every line onto this common grid?",
+                accept_label="Convolve Maps"):
             return
 
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            convolved = convolve_line_maps(native_cache["result"])
+            convolved = convolve_line_maps(subset)
         except Exception as exc:
             QMessageBox.critical(self, "Convolve Maps Error", str(exc))
             return
         finally:
             QApplication.restoreOverrideCursor()
 
+        geometry_key = self._rot_map_geometry_key(cubes_and_lines, n_sigma)
         self._rot_map_convolved_cache = {"key": geometry_key, "result": convolved}
         self._populate_convolved_map_column(convolved)
         QMessageBox.information(
@@ -3685,47 +3749,170 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         ))
         return (pairs, dedup_tol_um, n_sigma)
 
-    def _show_convolution_plan_confirm(self, plan):
-        """Show the convolve/reproject plan (no fitting); return True to run the map.
+    def _rot_map_subset_native_result(self, native_result, cubes_and_lines, dedup_tol_um=1e-5):
+        """Pick out just the requested (cube, line) pairs from an already-
+        cached compute_native_line_maps result, so deselecting some checked
+        lines lets Convolve Maps reuse the native maps already computed for
+        the rest instead of forcing Calculate Maps to rerun for them --
+        native maps only change with the cubes/lines/detection threshold,
+        not with which subset happens to be checked right now.
+
+        Args:
+            native_result (dict): A cached compute_native_line_maps output.
+            cubes_and_lines (list): (CubeData, line_dict) pairs currently checked.
+            dedup_tol_um (float): Matching tolerance in microns.
+
+        Returns:
+            result (tuple): (subset, missing) -- subset is native_result
+                filtered/reordered to cubes_and_lines (same shape
+                compute_native_line_maps returns), or None if any requested
+                line isn't in the cache; missing lists the wavelengths (um)
+                not found, empty on success.
+        """
+        cached = list(zip(
+            native_result["cube_filenames"],
+            [l["wavelength"] for l in native_result["kept_lines"]],
+        ))
+        indices, missing = [], []
+        for cube, line in cubes_and_lines:
+            fname, wl = getattr(cube, "filename", None), line["wavelength"]
+            idx = next((i for i, (cf, cwl) in enumerate(cached)
+                       if cf == fname and abs(cwl - wl) <= dedup_tol_um), None)
+            if idx is None:
+                missing.append(wl)
+            else:
+                indices.append(idx)
+        if missing:
+            return None, missing
+        subset = {
+            key: [native_result[key][i] for i in indices]
+            for key in ("kept_lines", "native_flux_maps", "native_flux_error_maps",
+                       "native_wcs", "native_shapes", "native_pix_arcsec", "cube_filenames")
+        }
+        subset["dropped_lines"] = native_result["dropped_lines"]
+        return subset, []
+
+    def _show_convolution_plan_confirm(self, plan, window_title="Run Map -- convolution plan",
+                                       question="Run the fit at every pixel of the common grid?",
+                                       accept_label="Run Map"):
+        """Show the convolve/reproject plan -- which line's native resolution
+        sets the common grid, and how much every other line gets blurred to
+        match it -- as a sortable table, and let the user confirm or cancel
+        before it runs. Shared by Run Map (fitting follows) and Convolve Maps
+        (only the convolution/reprojection follows); the wording differs, the
+        plan table doesn't. Sorting is local to this table (plain closures,
+        not self._sort_* / SortableCheckboxTableMixin) so it can't collide
+        with the main window's own lines_table sort state.
 
         Args:
             plan (dict): Convolution/reprojection plan from convolution_plan().
+            window_title (str): Dialog title.
+            question (str): Final line asking the user to confirm.
+            accept_label (str): Text on the accept button.
 
         Returns:
-            proceed (bool): True if the user chose to run the map.
+            proceed (bool): True if the user chose to proceed.
         """
         ny, nx = plan["dst_shape"]
         worst = plan["worst_pix_arcsec"]
-        lines = "\n".join(
-            f"  {c['wavelength']:>9.4f} um  {c['filename'] or 'cube':<28}  "
-            f"native {c['native_pix_arcsec']:.4f}\"/px  "
-            + ("sets the resolution" if c["sigma_pix"] <= 1e-6 else
-               f"blur sigma {c['sigma_arcsec']:.4f}\" ({c['sigma_pix']:.2f} px)")
-            for c in plan["per_cube"]
-        )
-        text = (
-            f"Convolution / reprojection plan\n{'=' * 50}\n\n"
-            f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px (coarsest input)\n\n"
-            f"{lines}\n\n"
-            "Every pixel outside a cube's own reprojected footprint is NaN "
-            "for that line.\n\nRun the fit at every pixel of the common grid?"
-        )
+        rows = list(plan["per_cube"])
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Run Map -- convolution plan")
-        dlg.resize(640, 420)
+        dlg.setWindowTitle(window_title)
+        dlg.resize(760, 460)
         lay = QVBoxLayout(dlg)
-        body = QLabel(text)
-        body.setStyleSheet("font-family: monospace;")
-        body.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        lay.addWidget(body)
+
+        header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px (coarsest input)")
+        lay.addWidget(header_label)
+
+        headers = ["Line (um)", "File", "Native (\"/px)", "Blur"]
+        table = QTableWidget(len(rows), len(headers), dlg)
+        table.setHorizontalHeaderLabels(headers)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionMode(QTableWidget.NoSelection)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.horizontalHeader().setStretchLastSection(True)
+
+        def _blur_text(c):
+            """
+            Describe one line's contribution to the common grid.
+
+            Args:
+                c (dict): One convolution_plan()['per_cube'] entry.
+
+            Returns:
+                text (str): 'sets the resolution', or the blur applied to match it.
+            """
+            if c["sigma_pix"] <= 1e-6:
+                return "sets the resolution"
+            return f"{c['sigma_arcsec']:.4f}\" ({c['sigma_pix']:.2f} px)"
+
+        def _fill():
+            """
+            Redraw every row of `rows` into `table`, in its current order.
+
+            Args: None
+
+            Returns:
+                None
+            """
+            for r, c in enumerate(rows):
+                fname = os.path.basename(c["filename"]) if c["filename"] else "cube"
+                for col, text in enumerate((f"{c['wavelength']:.4f}", fname,
+                                            f"{c['native_pix_arcsec']:.4f}", _blur_text(c))):
+                    item = QTableWidgetItem(text)
+                    item.setTextAlignment(Qt.AlignCenter if col != 1 else Qt.AlignVCenter | Qt.AlignLeft)
+                    table.setItem(r, col, item)
+
+        _fill()
+
+        sort_key = {
+            0: lambda c: c["wavelength"],
+            1: lambda c: (os.path.basename(c["filename"]) if c["filename"] else "cube").lower(),
+            2: lambda c: c["native_pix_arcsec"],
+            3: lambda c: c["sigma_pix"],
+        }
+        sort_state = {"column": None, "order": Qt.AscendingOrder}
+
+        def _on_header_clicked(column):
+            """
+            Sort `rows` by the clicked column, toggling direction on a repeat click.
+
+            Args:
+                column (int): Table column index the user clicked.
+
+            Returns:
+                None
+            """
+            if sort_state["column"] == column and sort_state["order"] == Qt.AscendingOrder:
+                sort_state["order"] = Qt.DescendingOrder
+            else:
+                sort_state["order"] = Qt.AscendingOrder
+            sort_state["column"] = column
+            rows.sort(key=sort_key[column], reverse=(sort_state["order"] == Qt.DescendingOrder))
+            _fill()
+            table.horizontalHeader().setSortIndicator(column, sort_state["order"])
+
+        header = table.horizontalHeader()
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
+        header.sectionClicked.connect(_on_header_clicked)
+        lay.addWidget(table)
+
+        footer_label = QLabel(
+            "Every pixel outside a cube's own reprojected footprint is NaN "
+            f"for that line.\n\n{question}")
+        footer_label.setWordWrap(True)
+        lay.addWidget(footer_label)
+
         btns = QHBoxLayout()
-        run_btn = QPushButton("Run Map")
+        accept_btn = QPushButton(accept_label)
         cancel_btn = QPushButton("Cancel")
-        run_btn.clicked.connect(dlg.accept)
+        accept_btn.clicked.connect(dlg.accept)
         cancel_btn.clicked.connect(dlg.reject)
         btns.addStretch()
-        btns.addWidget(run_btn)
+        btns.addWidget(accept_btn)
         btns.addWidget(cancel_btn)
         lay.addLayout(btns)
         return dlg.exec_() == QDialog.Accepted
@@ -3745,7 +3932,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
         dlg.setRange(0, total)
         dlg.setValue(current)
-        dlg.setLabelText(f"Fitting rotational diagram: {current}/{total} pixels")
+        label = getattr(self, "_rot_map_progress_label", "Fitting rotational diagram")
+        dlg.setLabelText(f"{label}: {current}/{total} pixels")
 
     def _rot_map_cache_key(self, cubes, line_table, multi_mode, fit_kwargs):
         """Snapshot of everything that determines Run Map's output, so a

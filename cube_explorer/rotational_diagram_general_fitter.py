@@ -16,9 +16,8 @@ from .rotational_diagram_h2_fitter import (
     gaussian_flux_upper_limit, compute_line_fluxes_collective,
 )
 
-# curve_fit upper bound on T (K). "#4000 for co" in the notebook -- CO plausibly
-# reaches hotter rotational temperatures than H2, so it gets more headroom.
-T_CAP = 4000
+# curve_fit upper bound on T (K). Matches H2's T_CAP (rotational_diagram_h2_fitter.py).
+T_CAP = 10000
 
 # Molecular data for the line set being fit (populated per-call from molecular_data)
 wave = {}  # micron
