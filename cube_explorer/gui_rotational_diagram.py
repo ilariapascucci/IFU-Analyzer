@@ -34,12 +34,13 @@ from .rotational_diagram_h2_fitter import (
 )
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .flux_map_extractor import DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
-from .rotational_diagram_map import convolution_plan, _line_keys, convolve_line_maps
+from .rotational_diagram_map import convolution_plan, _line_keys, convolve_line_maps, combine_line_maps
 from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker,
 )
 from .fits_export import build_2d_export_header, write_fits_product
+from .naman_convolve_reproject import convolve_reproject_naman
 
 
 # Constants
@@ -664,6 +665,37 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_maps_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.save_maps_btn)
 
+        self.export_naman_maps_btn = QPushButton("Export Naman Maps")
+        self.export_naman_maps_btn.setToolTip(
+            "Convolve/reproject the already-calculated native flux maps using Naman's own "
+            "recipe (convolved_reproject.ipynb) instead of ours, and save the result to a "
+            "zip alongside the native flux maps -- for sending directly to Naman. Needs "
+            "Calculate Maps run first; does not use or affect our own Convolve Maps."
+        )
+        self.export_naman_maps_btn.clicked.connect(self.export_naman_maps)
+        self.export_naman_maps_btn.setVisible(False)  # Hidden until lines are loaded
+        button_layout.addWidget(self.export_naman_maps_btn)
+
+        self.convolve_naman_btn = QPushButton("Convolve Maps (Naman)")
+        self.convolve_naman_btn.setToolTip(
+            "Temporary comparison tool: convolve/reproject the native flux maps with Naman's "
+            "recipe and open a viewer for each line's result, without touching our own "
+            "Convolve Maps. Needs Calculate Maps run first and 2+ loaded cubes."
+        )
+        self.convolve_naman_btn.clicked.connect(self.convolve_naman_maps)
+        self.convolve_naman_btn.setVisible(False)  # Hidden until lines are loaded
+        button_layout.addWidget(self.convolve_naman_btn)
+
+        self.run_naman_map_btn = QPushButton("Run Naman Map")
+        self.run_naman_map_btn.setToolTip(
+            "Temporary comparison tool: fit the temperature map from Naman's convolved maps "
+            "(instead of ours) using the same per-pixel fitter Run Map uses, and open it in "
+            "the usual results viewer. Needs Calculate Maps run first and 2+ loaded cubes."
+        )
+        self.run_naman_map_btn.clicked.connect(self.run_naman_map)
+        self.run_naman_map_btn.setVisible(False)  # Hidden until lines are loaded
+        button_layout.addWidget(self.run_naman_map_btn)
+
         self.import_map_region_btn = QPushButton("Import Region")
         self.import_map_region_btn.setToolTip(
             "Restrict Calculate Maps/Run Map to one sky region, imported from a region saved "
@@ -752,6 +784,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_maps_btn.setVisible(False)
         self.convolve_maps_btn.setVisible(False)
         self.save_maps_btn.setVisible(False)
+        self.export_naman_maps_btn.setVisible(False)
+        self.convolve_naman_btn.setVisible(False)
+        self.run_naman_map_btn.setVisible(False)
         self.import_map_region_btn.setVisible(False)
         self.clear_map_region_btn.setVisible(False)
         self.contam_status_label.setVisible(False)
@@ -1272,6 +1307,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_maps_btn.setVisible(True)
         self.convolve_maps_btn.setVisible(True)
         self.save_maps_btn.setVisible(True)
+        self.export_naman_maps_btn.setVisible(True)
+        self.convolve_naman_btn.setVisible(True)
+        self.run_naman_map_btn.setVisible(True)
         self.import_map_region_btn.setVisible(True)
         self.clear_map_region_btn.setVisible(True)
         self.contam_status_label.setVisible(True)
@@ -1524,6 +1562,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.calculate_maps_btn.setVisible(True)
             self.convolve_maps_btn.setVisible(True)
             self.save_maps_btn.setVisible(True)
+            self.export_naman_maps_btn.setVisible(True)
+            self.convolve_naman_btn.setVisible(True)
+            self.run_naman_map_btn.setVisible(True)
             self.import_map_region_btn.setVisible(True)
             self.clear_map_region_btn.setVisible(True)
             self.contam_status_label.setVisible(True)
@@ -2559,6 +2600,197 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=150)
         return buf.getvalue()
+
+    def export_naman_maps(self):
+        """Export the native flux maps plus Naman's-method convolved maps to
+        a zip. Reads the cached Calculate Maps result only; does not run or
+        affect Calculate Maps or our own Convolve Maps.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        native_cache = getattr(self, "_rot_map_native_cache", None)
+        if native_cache is None:
+            QMessageBox.warning(self, "Export Naman Maps", "Run Calculate Maps first.")
+            return
+        try:
+            naman_result = convolve_reproject_naman(native_cache["result"])
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Naman Maps failed", str(exc))
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Naman Maps", "naman_maps.zip", "Zip files (*.zip)")
+        if not path:
+            return
+        if not path.lower().endswith(".zip"):
+            path += ".zip"
+        try:
+            self._write_naman_maps_zip(path, native_cache["result"], naman_result)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Naman Maps failed", str(exc))
+            return
+        QMessageBox.information(
+            self, "Saved",
+            f"Wrote native flux maps and Naman's-method convolved maps to:\n{path}")
+
+    def _write_naman_maps_zip(self, path, native_result, naman_result):
+        """Write native flux maps and Naman's-method convolved maps to one
+        zip, same folder shape as Save Maps: Flux Maps/{fits,png} and
+        Naman Convolved Maps/{fits,png}.
+
+        Args:
+            path (str): Destination .zip path.
+            native_result (dict): compute_native_line_maps output.
+            naman_result (dict): convolve_reproject_naman output.
+
+        Returns:
+            None
+        """
+        kept_lines = native_result["kept_lines"]
+        flux_maps = native_result["native_flux_maps"]
+        wcses = native_result["native_wcs"]
+        molecule = getattr(self, "current_molecule", "H2")
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for i, line in enumerate(kept_lines):
+                entry = {
+                    "wavelength": line["wavelength"], "flux_map": flux_maps[i],
+                    "header": wcses[i].to_header() if wcses[i] is not None else None,
+                    "molecule": molecule,
+                }
+                stem = f"{molecule}_flux_{entry['wavelength']:.4f}um"
+                zf.writestr(f"Flux Maps/fits/{stem}.fits", self._render_map_fits_bytes(entry))
+                zf.writestr(f"Flux Maps/png/{stem}.png", self._render_map_png_bytes(entry))
+            for i, line in enumerate(naman_result["kept_lines"]):
+                entry = {
+                    "wavelength": line["wavelength"], "flux_map": naman_result["line_flux_maps"][i],
+                    "header": naman_result["reference_header"], "molecule": molecule,
+                }
+                stem = f"{molecule}_naman_{entry['wavelength']:.4f}um"
+                zf.writestr(f"Naman Convolved Maps/fits/{stem}.fits", self._render_map_fits_bytes(entry))
+                zf.writestr(f"Naman Convolved Maps/png/{stem}.png", self._render_map_png_bytes(entry))
+
+    def convolve_naman_maps(self):
+        """Temporary comparison tool: convolve/reproject the cached native
+        flux maps with Naman's recipe and open a per-line viewer. Does not
+        touch our own Convolve Maps cache or table columns.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if len(self.loaded_batch_cubes) < 2:
+            QMessageBox.warning(self, "Convolve Maps (Naman)", "Needs 2+ loaded cubes.")
+            return
+        native_cache = getattr(self, "_rot_map_native_cache", None)
+        if native_cache is None:
+            QMessageBox.warning(self, "Convolve Maps (Naman)", "Run Calculate Maps first.")
+            return
+        try:
+            naman_result = convolve_reproject_naman(native_cache["result"])
+        except Exception as exc:
+            QMessageBox.critical(self, "Convolve Maps (Naman) failed", str(exc))
+            return
+        self._naman_convolved_cache = naman_result
+        self._show_naman_convolved_viewer(naman_result)
+
+    def _show_naman_convolved_viewer(self, naman_result):
+        """Small standalone dialog listing each line with a View link, opening
+        the usual LineFluxMapDialog on double-click. Deliberately separate
+        from the main table's own Convolved Map column -- a temporary
+        comparison tool, not a permanent second column.
+
+        Args:
+            naman_result (dict): Output of convolve_reproject_naman.
+
+        Returns:
+            None
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Naman's Convolved Maps (temporary comparison)")
+        dlg.resize(360, 320)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(f"Reference line: {naman_result['reference_wavelength']:.4f} um"))
+
+        kept_lines = naman_result["kept_lines"]
+        molecule = getattr(self, "current_molecule", "H2")
+        table = QTableWidget(len(kept_lines), 2, dlg)
+        table.setHorizontalHeaderLabels(["Line (um)", ""])
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.horizontalHeader().setStretchLastSection(True)
+
+        for row, line in enumerate(kept_lines):
+            wl_item = QTableWidgetItem(f"{line['wavelength']:.4f}")
+            wl_item.setTextAlignment(Qt.AlignCenter)
+            table.setItem(row, 0, wl_item)
+            view_item = QTableWidgetItem("View")
+            view_item.setTextAlignment(Qt.AlignCenter)
+            self._set_view_link(view_item, "Double-click to view this line's Naman-convolved map")
+            table.setItem(row, 1, view_item)
+
+        def _open(row, _col):
+            line = kept_lines[row]
+            LineFluxMapDialog(
+                line["wavelength"], naman_result["line_flux_maps"][row],
+                naman_result["reference_header"], molecule=molecule, parent=self,
+            ).exec_()
+
+        table.cellDoubleClicked.connect(_open)
+        lay.addWidget(table)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        lay.addWidget(close_btn)
+        dlg.exec_()
+
+    def run_naman_map(self):
+        """Temporary comparison tool: fit the temperature map from Naman's
+        convolved maps (instead of ours) with the same per-pixel fitter Run
+        Map uses, and open it in the usual results viewer. No region_fit --
+        this is a quick what-if recombination, not a full Run Map.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if len(self.loaded_batch_cubes) < 2:
+            QMessageBox.warning(self, "Run Naman Map", "Needs 2+ loaded cubes.")
+            return
+        native_cache = getattr(self, "_rot_map_native_cache", None)
+        if native_cache is None:
+            QMessageBox.warning(self, "Run Naman Map", "Run Calculate Maps first.")
+            return
+        fit_kwargs = self._rot_map_gather_settings()
+        if fit_kwargs is None:
+            return
+        naman_convolved = getattr(self, "_naman_convolved_cache", None)
+        if naman_convolved is None:
+            try:
+                naman_convolved = convolve_reproject_naman(native_cache["result"])
+            except Exception as exc:
+                QMessageBox.critical(self, "Run Naman Map failed", str(exc))
+                return
+            self._naman_convolved_cache = naman_convolved
+        try:
+            result = combine_line_maps(
+                naman_convolved, molecule=fit_kwargs["molecule"], isotopologue=fit_kwargs["isotopologue"],
+                opr=fit_kwargs["opr"], fit_opr=fit_kwargs["fit_opr"], opr_grid=fit_kwargs["opr_grid"],
+                dist_pc=fit_kwargs["dist_pc"], r_au=fit_kwargs["r_au"], min_lines=fit_kwargs["min_lines"],
+                region_fit=None,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Run Naman Map failed", str(exc))
+            return
+        dlg = RotDiagMapResultsDialog(result, None, None, fit_kwargs, parent=self)
+        dlg.setWindowTitle(dlg.windowTitle() + " (Naman's Convolution)")
+        dlg.exec_()
 
     def _make_checkable_item(self, checked=False, enabled=True, tooltip=""):
         """Build a checkbox-style cell as a real checkable item, not a QCheckBox
