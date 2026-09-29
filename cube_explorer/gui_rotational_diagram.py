@@ -2342,6 +2342,24 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         item.setData(Qt.FontRole, None)
         item.setToolTip("")
 
+    def _clear_all_convolved_maps(self):
+        """Clear every Convolved Map cell and its cache: a fresh Calculate
+        Maps run replaces the native maps Convolve Maps was built from, so
+        the old convolved result would otherwise look current when it isn't.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._rot_map_convolved_cache = None
+        for row in list(self._line_convolved_map_plot_data):
+            del self._line_convolved_map_plot_data[row]
+            stale_item = self.lines_table.item(row, 16)
+            if stale_item:
+                self._clear_view_link(stale_item)
+
     def _populate_map_column(self, result):
         """Turn each mapped line's "Map" cell into a "View" link, using the
         native (pre-convolution) map when available -- Calculate Maps'
@@ -3587,6 +3605,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.on_line_selected()
         geometry_key = self._rot_map_geometry_key(self._calc_maps_cubes_and_lines, self._calc_maps_n_sigma)
         self._rot_map_native_cache = {"key": geometry_key, "result": result}
+        self._clear_all_convolved_maps()
         self._populate_map_column(result)
         QMessageBox.information(
             self, "Calculate Maps",
