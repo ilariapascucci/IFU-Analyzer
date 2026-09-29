@@ -5,7 +5,9 @@ Single unified interface for selecting molecules, lines, and entering flux data
 
 import os
 import csv
+import io
 import time
+import zipfile
 import numpy as np
 
 from PyQt5.QtWidgets import (
@@ -37,6 +39,7 @@ from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker,
 )
+from .fits_export import build_2d_export_header, write_fits_product
 
 
 # Constants
@@ -650,6 +653,17 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.convolve_maps_btn.setVisible(False)  # Hidden until lines are loaded
         button_layout.addWidget(self.convolve_maps_btn)
 
+        self.save_maps_btn = QPushButton("Save Maps")
+        self.save_maps_btn.setToolTip(
+            "Save every line currently shown in the Map/Convolved Map columns to a "
+            "zip file: Flux Maps/{fits,png}/ and Convolved Maps/{fits,png}/, one file "
+            "per line in each. Saves whichever of the two has been computed -- run "
+            "Calculate Maps (and optionally Convolve Maps) first."
+        )
+        self.save_maps_btn.clicked.connect(self.save_all_maps)
+        self.save_maps_btn.setVisible(False)  # Hidden until lines are loaded
+        button_layout.addWidget(self.save_maps_btn)
+
         self.import_map_region_btn = QPushButton("Import Region")
         self.import_map_region_btn.setToolTip(
             "Restrict Calculate Maps/Run Map to one sky region, imported from a region saved "
@@ -737,6 +751,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_fluxes_btn.setVisible(False)
         self.calculate_maps_btn.setVisible(False)
         self.convolve_maps_btn.setVisible(False)
+        self.save_maps_btn.setVisible(False)
         self.import_map_region_btn.setVisible(False)
         self.clear_map_region_btn.setVisible(False)
         self.contam_status_label.setVisible(False)
@@ -1256,6 +1271,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_fluxes_btn.setVisible(True)
         self.calculate_maps_btn.setVisible(True)
         self.convolve_maps_btn.setVisible(True)
+        self.save_maps_btn.setVisible(True)
         self.import_map_region_btn.setVisible(True)
         self.clear_map_region_btn.setVisible(True)
         self.contam_status_label.setVisible(True)
@@ -1507,6 +1523,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.save_fluxes_btn.setVisible(True)
             self.calculate_maps_btn.setVisible(True)
             self.convolve_maps_btn.setVisible(True)
+            self.save_maps_btn.setVisible(True)
             self.import_map_region_btn.setVisible(True)
             self.clear_map_region_btn.setVisible(True)
             self.contam_status_label.setVisible(True)
@@ -2344,7 +2361,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         kept_lines = result.get("kept_lines") or []
         flux_maps = result.get("native_flux_maps") or result.get("line_flux_maps") or []
-        flux_error_maps = result.get("native_flux_error_maps") or result.get("line_flux_error_maps") or []
         if not kept_lines or not flux_maps:
             return
         native_wcs = result.get("native_wcs")  # multi-cube: one per kept_lines entry
@@ -2369,7 +2385,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self._line_map_plot_data[row] = {
                 "wavelength": wl,
                 "flux_map": flux_maps[i],
-                "flux_error_map": flux_error_maps[i] if i < len(flux_error_maps) else None,
                 "header": header,
                 "molecule": result.get("molecule", "H2"),
             }
@@ -2396,7 +2411,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         kept_lines = result.get("kept_lines") or []
         line_flux_maps = result.get("line_flux_maps") or []
-        line_flux_error_maps = result.get("line_flux_error_maps") or []
         dst_wcs = result.get("dst_wcs")
         if not kept_lines or not line_flux_maps or dst_wcs is None:
             return
@@ -2418,13 +2432,115 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self._line_convolved_map_plot_data[row] = {
                 "wavelength": wl,
                 "flux_map": line_flux_maps[i],
-                "flux_error_map": line_flux_error_maps[i] if i < len(line_flux_error_maps) else None,
                 "header": source_header,
                 "molecule": result.get("molecule", "H2"),
             }
             convolved_item = self.lines_table.item(row, 16)
             if convolved_item:
                 self._set_view_link(convolved_item, "Double-click to view this line's convolved flux map")
+
+    def save_all_maps(self):
+        """Zip every line shown in the Map/Convolved Map columns into
+        Flux Maps/{fits,png}/ and Convolved Maps/{fits,png}/. Reads
+        _line_map_plot_data/_line_convolved_map_plot_data directly, so an empty one is just skipped.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if not self._line_map_plot_data and not self._line_convolved_map_plot_data:
+            QMessageBox.warning(
+                self, "Save Maps",
+                "No maps to save yet -- run Calculate Maps (and optionally Convolve Maps) first.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Maps", "rot_diag_maps.zip", "Zip files (*.zip)")
+        if not path:
+            return
+        if not path.lower().endswith(".zip"):
+            path += ".zip"
+        try:
+            n_flux, n_conv = self._write_maps_zip(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Maps failed", str(exc))
+            return
+        parts = []
+        if n_flux:
+            parts.append(f"{n_flux} flux map(s)")
+        if n_conv:
+            parts.append(f"{n_conv} convolved map(s)")
+        QMessageBox.information(self, "Saved", f"Wrote {' and '.join(parts)} to:\n{path}")
+
+    def _write_maps_zip(self, path):
+        """Write both map dicts to one zip: <folder>/fits/<name>.fits and
+        <folder>/png/<name>.png, one line per file.
+
+        Args:
+            path (str): Destination .zip path.
+
+        Returns:
+            counts (tuple): (n_flux, n_conv) lines actually written.
+        """
+        groups = [
+            (self._line_map_plot_data, "Flux Maps", "flux"),
+            (self._line_convolved_map_plot_data, "Convolved Maps", "convolved"),
+        ]
+        counts = []
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for data_dict, folder, tag in groups:
+                entries = sorted(data_dict.values(), key=lambda d: d["wavelength"])
+                for entry in entries:
+                    stem = f"{entry.get('molecule', 'H2')}_{tag}_{entry['wavelength']:.4f}um"
+                    zf.writestr(f"{folder}/fits/{stem}.fits", self._render_map_fits_bytes(entry))
+                    zf.writestr(f"{folder}/png/{stem}.png", self._render_map_png_bytes(entry))
+                counts.append(len(entries))
+        return tuple(counts)
+
+    def _render_map_fits_bytes(self, entry):
+        """Build one line's flux-map FITS file in memory, same header
+        convention as LineFluxMapDialog._export_fits.
+
+        Args:
+            entry (dict): One _line_map_plot_data/_line_convolved_map_plot_data value.
+
+        Returns:
+            data (bytes): The FITS file's raw bytes.
+        """
+        header = build_2d_export_header(
+            entry.get("header"), entry["flux_map"].shape,
+            extra={
+                "BUNIT": "erg/s/cm2",
+                "LINEWAVE": (float(entry["wavelength"]), "Line center wavelength (um)"),
+                "MOLECULE": entry.get("molecule", "H2"),
+            },
+        )
+        buf = io.BytesIO()
+        write_fits_product(buf, np.asarray(entry["flux_map"], dtype=np.float32), header)
+        return buf.getvalue()
+
+    def _render_map_png_bytes(self, entry):
+        """Render one line's flux map as a PNG, same look (inferno colormap,
+        linear scale) as LineFluxMapDialog's default view.
+
+        Args:
+            entry (dict): One _line_map_plot_data/_line_convolved_map_plot_data value.
+
+        Returns:
+            data (bytes): The PNG file's raw bytes.
+        """
+        fig = Figure(figsize=(7, 5.5))
+        ax = fig.add_subplot(111)
+        im = ax.imshow(np.asarray(entry["flux_map"], dtype=float), origin="lower", cmap="inferno")
+        ax.set_title(f"Flux @ {entry['wavelength']:.6f} um", fontweight="bold")
+        ax.set_xlabel("x [pixel]")
+        ax.set_ylabel("y [pixel]")
+        fig.colorbar(im, ax=ax).set_label("Flux (erg/s/cm2)")
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150)
+        return buf.getvalue()
 
     def _make_checkable_item(self, checked=False, enabled=True, tooltip=""):
         """Build a checkbox-style cell as a real checkable item, not a QCheckBox
