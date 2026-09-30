@@ -229,6 +229,9 @@ class CombineMapsWorker(QThread):
         convolved_result (dict): Output of convolve_line_maps
         cubes_and_lines (list): (CubeData, line_dict) pairs, needed only to
             recompute region_fit (fit_region_multi needs the real cubes)
+        region_masks (dict): {CubeData: boolean mask}, restricting
+            region_fit's own summed spectrum the same way the imported
+            region already restricts the cached native/convolved maps.
         kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/
             r_au/min_lines, passed to fit_region_multi and combine_line_maps.
             An n_sigma entry is ignored: the convolved maps carry no threshold
@@ -241,12 +244,13 @@ class CombineMapsWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, convolved_result, cubes_and_lines, **kwargs):
+    def __init__(self, convolved_result, cubes_and_lines, region_masks=None, **kwargs):
         """Store the inputs for run() to consume on the worker thread.
 
         Args:
             convolved_result (dict): Output of convolve_line_maps.
             cubes_and_lines (list): (CubeData, line_dict) pairs.
+            region_masks (dict): {CubeData: boolean mask}, or None.
             kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/r_au/min_lines.
 
         Returns:
@@ -255,6 +259,7 @@ class CombineMapsWorker(QThread):
         super().__init__()
         self.convolved_result = convolved_result
         self.cubes_and_lines = cubes_and_lines
+        self.region_masks = region_masks
         self.kwargs = kwargs
         self.cancelled = False
 
@@ -275,6 +280,7 @@ class CombineMapsWorker(QThread):
                 kept_pairs, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
                 opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
                 dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
+                region_masks=self.region_masks,
             )
             result = combine_line_maps(
                 self.convolved_result, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],

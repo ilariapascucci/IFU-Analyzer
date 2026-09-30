@@ -11,11 +11,14 @@ Use File->Open to load a FITS data cube.
 """
 
 import sys
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
-from cube_explorer.gui import CubeExplorer
 
 if __name__ == "__main__":
+    # Spawn reruns this file per worker with __name__ != "__main__". Imports
+    # here stay out of workers, instead of loading the GUI stack 8x over.
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QApplication
+    from cube_explorer.gui import CubeExplorer
+
     # Scaling window
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)

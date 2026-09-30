@@ -388,10 +388,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         )
         main_layout.addWidget(self.lines_table)
 
-        # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux.
+        # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux/Fit R^2.
         # Also drag-checks columns 0 (select) and 9 (Upper Limit?) across rows.
         self._init_sortable_checkbox_table(
-            self.lines_table, {1, 3, 4, 5, 6, 7, 8, 10}, self._lines_table_sort_key,
+            self.lines_table, {1, 3, 4, 5, 6, 7, 8, 10, 13}, self._lines_table_sort_key,
             drag_column={0, 9},
         )
 
@@ -3474,6 +3474,22 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         cube_arg = cubes[0] if len(cubes) == 1 else cubes
 
+        # Build the imported region's mask per cube up front -- needed by
+        # both the fast-combine path below and the full worker, and region_fit
+        # (the whole-cube/region-summed anchor, "same as Run Fit") must see it
+        # too, so a bad region is caught before either path starts.
+        try:
+            if multi_mode:
+                region_mask = None
+                involved_cubes = {c for c, _ in cubes_and_lines}
+                region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
+            else:
+                region_mask = self._rot_map_region_mask_for_cube(cube_arg)
+                region_masks = None
+        except ValueError as exc:
+            QMessageBox.warning(self, "Region", str(exc))
+            return
+
         # Fast path: Calculate Maps + Convolve Maps already produced a
         # convolved result for these same cubes/lines/threshold -- skip
         # straight to the cheap final combination instead of the full slow
@@ -3483,7 +3499,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             geometry_key = self._rot_map_geometry_key(cubes_and_lines, fit_kwargs["n_sigma"])
             convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
             if convolved_cache is not None and convolved_cache["key"] == geometry_key:
-                self._run_map_fast_combine(cubes, cubes_and_lines, convolved_cache["result"], fit_kwargs)
+                self._run_map_fast_combine(cubes, cubes_and_lines, convolved_cache["result"],
+                                           fit_kwargs, region_masks)
                 return
 
         # Reuse a cached result if the same cubes/lines/settings produced one.
@@ -3531,20 +3548,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if proceed != QMessageBox.Yes:
                 return
 
-        # Same as Calculate Maps: build the imported region's mask per cube
-        # before starting, so a bad region is caught up front.
-        try:
-            if multi_mode:
-                region_mask = None
-                involved_cubes = {c for c, _ in cubes_and_lines}
-                region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
-            else:
-                region_mask = self._rot_map_region_mask_for_cube(cube_arg)
-                region_masks = None
-        except ValueError as exc:
-            QMessageBox.warning(self, "Region", str(exc))
-            return
-
         self._rot_map_multi_mode = multi_mode
         self._rot_map_cube_arg = None if multi_mode else cube_arg
         self._rot_map_line_table = None if multi_mode else line_table
@@ -3574,7 +3577,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_map_worker.error.connect(self._on_rot_map_error)
         self.rot_map_worker.start()
 
-    def _run_map_fast_combine(self, cubes, cubes_and_lines, convolved_result, fit_kwargs):
+    def _run_map_fast_combine(self, cubes, cubes_and_lines, convolved_result, fit_kwargs, region_masks=None):
         """Run Map's fast path: recombine an already-convolved result
         (Calculate Maps + Convolve Maps already ran for these cubes/lines)
         into a temperature map, skipping native extraction and convolution
@@ -3585,6 +3588,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             cubes_and_lines (list): (CubeData, line_dict) pairs matching convolved_result
             convolved_result (dict): Output of convolve_line_maps
             fit_kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/r_au/min_lines
+            region_masks (dict): {CubeData: boolean mask}, so region_fit (the
+                whole-cube/region-summed anchor) matches the imported region
+                the same way the cached native/convolved maps already do.
 
         Returns:
             None
@@ -3614,7 +3620,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Reuses _on_rot_map_complete/_on_rot_map_error as-is -- they only
         # care that the result dict matches create_rotational_diagram_map_multi's
         # shape, not how it was computed.
-        self.rot_map_worker = CombineMapsWorker(convolved_result, cubes_and_lines, **fit_kwargs)
+        self.rot_map_worker = CombineMapsWorker(convolved_result, cubes_and_lines,
+                                                region_masks=region_masks, **fit_kwargs)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
         self.rot_map_worker.error.connect(self._on_rot_map_error)

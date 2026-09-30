@@ -51,6 +51,101 @@ from .analyzer_2d import (
     _log_norm_vmin,
     _reproject_wcs_to_wcs,
 )
+from .naman_convolve_reproject import (
+    gaussian_convolve_match as _naman_convolve_match,
+    reproject_flux_maps as _naman_reproject_flux_maps,
+)
+
+
+def _get_line_wavelength_um(header, filename, parent):
+    """Read this image's line wavelength from its header; prompt the user
+    for it if neither known key is present. LINEWAVE (rotational-diagram
+    Save Maps exports) is exact. LAMMIN/LAMMAX (Gaussian Map exports) bound
+    one line's own fit window, so their midpoint is a good proxy. WAVEMIN/
+    WAVEMAX (Flux Map exports) can span several blended lines, so those are
+    never used here -- a midpoint there could silently name the wrong line.
+
+    Args:
+        header (astropy.io.fits.Header): This image's FITS header.
+        filename (str): Basename, shown in the prompt if no key is found.
+        parent (QWidget): Parent widget for the prompt dialog.
+
+    Returns:
+        wavelength_um (float or None): Wavelength in microns, or None if no
+            header key was usable and the user cancelled the prompt.
+    """
+    if header is not None and 'LINEWAVE' in header:
+        try:
+            return float(header['LINEWAVE'])
+        except (TypeError, ValueError):
+            pass
+    if header is not None and 'LAMMIN' in header and 'LAMMAX' in header:
+        try:
+            return (float(header['LAMMIN']) + float(header['LAMMAX'])) / 2.0
+        except (TypeError, ValueError):
+            pass
+    value, ok = QInputDialog.getDouble(
+        parent, "Line Wavelength Needed",
+        f"'{filename}' has no LINEWAVE header key.\n\n"
+        "Naman's algorithm needs this image's line wavelength (microns) "
+        "to compute its PSF FWHM. Enter it manually:",
+        5.0, 0.1, 30.0, 6)
+    return float(value) if ok else None
+
+
+def _run_naman_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
+                              ref_img, ref_header, ref_wl):
+    """Convolve conv_img to ref_wl's PSF (Naman's FWHM(\")=0.033*lambda+0.106
+    formula) and reproject it onto ref_header's own native grid, using the
+    same unmodified gaussian_convolve_match/reproject_flux_maps ported for
+    the rotational-diagram Naman comparison.
+
+    Args:
+        conv_img (numpy.ndarray): Image to convolve+reproject (shorter wavelength).
+        conv_header (astropy.io.fits.Header): conv_img's FITS header.
+        conv_wl (float): conv_img's line wavelength (microns).
+        conv_pix (float): conv_img's pixel scale (arcsec/pixel).
+        ref_img (numpy.ndarray): Reference image (longer wavelength).
+        ref_header (astropy.io.fits.Header): Reference image's FITS header.
+        ref_wl (float): Reference image's line wavelength (microns).
+
+    Returns:
+        result (dict): 'image' (conv_img reprojected onto ref's grid),
+            'footprint' (per-pixel coverage fraction, same grid),
+            'sigma_arcsec' (kernel sigma used).
+
+    Raises:
+        ValueError: If ref_wl's PSF is not larger than conv_wl's (Naman's
+            formula requires the reference to have the longer wavelength).
+    """
+    fwhm_in = 0.033 * conv_wl + 0.106
+    fwhm_target = 0.033 * ref_wl + 0.106
+    if fwhm_target <= fwhm_in:
+        raise ValueError(
+            f"Naman's algorithm requires the reference wavelength "
+            f"({ref_wl:.4f} um) to have a larger PSF than the convolved "
+            f"image's ({conv_wl:.4f} um) -- got FWHM {fwhm_target:.4f}\" "
+            f"<= {fwhm_in:.4f}\".")
+
+    conv_header = conv_header.copy()
+    conv_header["NAXIS"] = 2
+    conv_header["NAXIS1"] = conv_img.shape[1]
+    conv_header["NAXIS2"] = conv_img.shape[0]
+    ref_header = ref_header.copy()
+    ref_header["NAXIS"] = 2
+    ref_header["NAXIS1"] = ref_img.shape[1]
+    ref_header["NAXIS2"] = ref_img.shape[0]
+
+    convolved = _naman_convolve_match([conv_img], [conv_wl], [ref_wl], [conv_pix])
+    reprojected, footprints = _naman_reproject_flux_maps(convolved, [conv_header], ref_header)
+
+    sigma_in = fwhm_in / 2.35482
+    sigma_target = fwhm_target / 2.35482
+    sigma_kernel_arcsec = (sigma_target ** 2 - sigma_in ** 2) ** 0.5
+
+    return {"image": reprojected[0], "footprint": footprints[0],
+            "sigma_arcsec": sigma_kernel_arcsec}
+
 
 # BATCH MATCH RESOLUTION DIALOG
 # ==============================================================================
@@ -121,10 +216,19 @@ class BatchMatchResolutionDialog(QDialog):
         self.process_btn = QPushButton("Process & Download ZIP")
         self.process_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px;")
         self.process_btn.clicked.connect(self.process_and_zip)
-        
+
+        self.process_naman_btn = QPushButton("Process & Download ZIP (Naman)")
+        self.process_naman_btn.setToolTip(
+            "Same batch reprojection, but using Naman's PSF formula\n"
+            "(FWHM(\") = 0.033*wavelength_um + 0.106) instead of the pixel-scale\n"
+            "proxy, onto the longest-wavelength file's own native grid."
+        )
+        self.process_naman_btn.clicked.connect(self.process_and_zip_naman)
+
         btn_layout.addWidget(self.add_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(self.process_btn)
+        btn_layout.addWidget(self.process_naman_btn)
         
         layout.addLayout(btn_layout)
         
@@ -379,6 +483,205 @@ class BatchMatchResolutionDialog(QDialog):
                 f"  Pixel size : {worst_pix:.4f} arcsec/px\n"
                 f"  Output grid: {out_shape[1]} × {out_shape[0]} px "
                 f"(union of FOVs, aligned to largest input)\n\n"
+                f"Flux audit (output_total / input_total):\n"
+                + "\n".join(audit_lines)
+                + f"\n\nSaved to:\n{zip_path}")
+            QMessageBox.information(self, "Success", final_msg)
+            self.accept()
+
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Processing Error", f"An error occurred:\n{e}")
+            traceback.print_exc()
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def process_and_zip_naman(self):
+        """Same as process_and_zip, but using Naman's wavelength-based PSF
+        formula (FWHM(") = 0.033*wavelength_um + 0.106) instead of the
+        pixel-scale proxy, reprojected onto the longest-wavelength file's
+        own native grid instead of a padded common WCS.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if len(self.filepaths) < 2:
+            QMessageBox.warning(
+                self, "Need more files",
+                "Please select at least 2 FITS files for batch processing.")
+            return
+
+        zip_path, _ = QFileDialog.getSaveFileName(
+            self, "Save ZIP File", "Convolution_Images_Naman.zip", "ZIP Files (*.zip)")
+        if not zip_path:
+            return
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            # ---- 1. Load every input ------------------------------------
+            images_data = []
+            for fp in self.filepaths:
+                with fits.open(fp) as hdul:
+                    data, header = None, None
+                    for hdu in hdul:
+                        if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
+                            sq = np.squeeze(hdu.data)
+                            if sq.ndim == 2:
+                                data = sq.astype(float)
+                                header = hdu.header.copy()
+                                break
+                    if data is None:
+                        raise ValueError(
+                            f"No 2D image data in {os.path.basename(fp)}")
+                    pix = _get_pixel_size_arcsec(header)
+                    if pix is None:
+                        raise ValueError(
+                            f"Could not find pixel scale in "
+                            f"{os.path.basename(fp)}")
+                    wcs = _make_2d_wcs(header)
+                    if wcs is None:
+                        raise ValueError(
+                            f"Could not build WCS for {os.path.basename(fp)}")
+                    images_data.append({
+                        'filename': os.path.basename(fp),
+                        'data': data, 'header': header,
+                        'pix_scale': pix, 'wcs': wcs, 'shape': data.shape,
+                    })
+                    disjoint_pairs = []
+                    for i in range(len(images_data)):
+                        for j in range(i + 1, len(images_data)):
+                            a, b = images_data[i], images_data[j]
+                            if not _wcs_footprints_overlap(
+                                    a['wcs'], a['shape'], b['wcs'], b['shape']):
+                                disjoint_pairs.append((a['filename'], b['filename']))
+
+                    if disjoint_pairs:
+                        QApplication.restoreOverrideCursor()
+                        msg_lines = [
+                            "Some of the selected images cover completely "
+                            "different regions of the sky:\n"
+                        ]
+                        for fa, fb in disjoint_pairs[:10]:
+                            msg_lines.append(f"   • {fa}  ↔  {fb}")
+                        if len(disjoint_pairs) > 10:
+                            msg_lines.append(
+                                f"   …and {len(disjoint_pairs) - 10} more pair(s)")
+                        msg_lines.append(
+                            "\nBatch Convolution requires every input to share "
+                            "sky coverage with the others, so they can be "
+                            "matched onto a common WCS grid.\n\n"
+                            "Please remove the off-field file(s) and try again.")
+                        QMessageBox.warning(
+                            self, "No Sky Overlap",
+                            "\n".join(msg_lines))
+                        return
+
+            # ---- 2. BUNIT check: Naman's reproject_flux_maps assumes -----
+            #         flux-per-pixel input for every file.
+            for info in images_data:
+                if not _is_per_pixel_flux_unit(info['header'].get('BUNIT', '')):
+                    QApplication.restoreOverrideCursor()
+                    QMessageBox.warning(
+                        self, "Unsupported BUNIT for Naman",
+                        f"'{info['filename']}' has BUNIT "
+                        f"'{info['header'].get('BUNIT', '')}', not a "
+                        "flux-per-pixel unit.\n\n"
+                        "Naman's algorithm assumes flux-per-pixel input for "
+                        "every file -- use the regular Batch button for "
+                        "surface-brightness images.")
+                    return
+
+            # ---- 3. Wavelength per file (LINEWAVE header, else prompt) ---
+            QApplication.restoreOverrideCursor()
+            for info in images_data:
+                wl = _get_line_wavelength_um(info['header'], info['filename'], self)
+                if wl is None:
+                    return
+                info['wavelength_um'] = wl
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+
+            # ---- 4. Longest wavelength = reference (largest Naman PSF) ---
+            ref_info = max(images_data, key=lambda info: info['wavelength_um'])
+            ref_header = ref_info['header'].copy()
+            ref_header['NAXIS'] = 2
+            ref_header['NAXIS1'] = ref_info['shape'][1]
+            ref_header['NAXIS2'] = ref_info['shape'][0]
+
+            # ---- 5. Convolve + reproject every other file onto the -------
+            #         reference's own native grid.
+            flux_audit = []
+            with tempfile.TemporaryDirectory() as tmpdir:
+                for info in images_data:
+                    bunit = info['header'].get('BUNIT', '')
+                    if info is ref_info:
+                        result_img = np.asarray(info['data'], dtype=float).copy()
+                        result_img[result_img == 0.0] = np.nan
+                        coverage = np.where(np.isfinite(result_img), 1.0, 0.0)
+                        sigma_arcsec = 0.0
+                    else:
+                        naman_out = _run_naman_convolve_pair(
+                            info['data'], info['header'], info['wavelength_um'], info['pix_scale'],
+                            ref_info['data'], ref_header, ref_info['wavelength_um'])
+                        result_img = naman_out['image']
+                        coverage = naman_out['footprint']
+                        sigma_arcsec = naman_out['sigma_arcsec']
+
+                    if not np.any(np.isfinite(result_img)):
+                        QApplication.restoreOverrideCursor()
+                        QMessageBox.warning(
+                            self, "Empty Result",
+                            f"Naman Convolve produced no valid pixels for "
+                            f"{info['filename']}.")
+                        return
+
+                    out_header = ref_header.copy()
+                    if bunit:
+                        out_header['BUNIT'] = bunit
+                    out_header['HISTORY'] = (
+                        f"Naman Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
+                        f"reprojected onto {ref_info['filename']}'s native grid "
+                        f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"
+                    )
+
+                    out_name = f"matched_naman_{info['filename']}"
+                    out_filepath = os.path.join(tmpdir, out_name)
+                    cov_header = fits.Header()
+                    cov_header['EXTNAME'] = 'COVERAGE'
+                    cov_header['BUNIT'] = 'fraction'
+                    cov_header['COMMENT'] = (
+                        'Per-pixel input/output overlap fraction (0..1).')
+                    fits.HDUList([
+                        fits.PrimaryHDU(data=result_img, header=out_header),
+                        fits.ImageHDU(data=np.asarray(coverage, dtype=np.float32),
+                                      header=cov_header),
+                    ]).writeto(out_filepath, overwrite=True)
+
+                    in_total = float(np.nansum(info['data']))
+                    out_total = float(np.nansum(result_img[np.isfinite(result_img)]))
+                    flux_audit.append((info['filename'], in_total, out_total))
+
+                # ---- 6. Pack everything into the ZIP ---------------------
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for root, dirs, files in os.walk(tmpdir):
+                        for file in files:
+                            zipf.write(os.path.join(root, file), arcname=file)
+
+            QApplication.restoreOverrideCursor()
+
+            audit_lines = []
+            for name, fi, fo in flux_audit:
+                ratio = (fo / fi) if fi != 0 else float('nan')
+                audit_lines.append(f"  {name}: ratio = {ratio:.6f}")
+
+            final_msg = (
+                f"Naman Batch Convolution complete!\n\n"
+                f"All {len(images_data)} images reprojected onto "
+                f"{ref_info['filename']}'s native grid "
+                f"({ref_info['wavelength_um']:.4f} um reference, "
+                f"{ref_info['shape'][1]} × {ref_info['shape'][0]} px):\n\n"
                 f"Flux audit (output_total / input_total):\n"
                 + "\n".join(audit_lines)
                 + f"\n\nSaved to:\n{zip_path}")
@@ -815,6 +1118,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             "WCS grid covering the union footprint. Result is downloaded as a ZIP."
         )
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
+
+        self.match_res_naman_btn = QPushButton("Pair (Naman)")
+        self.match_res_naman_btn.setToolTip(
+            "Same as Pair, but using Naman's PSF formula\n"
+            "(FWHM(\") = 0.033*wavelength_um + 0.106) instead of the pixel-scale\n"
+            "proxy, reprojected onto the longer-wavelength panel's own native grid."
+        )
+        self.match_res_naman_btn.clicked.connect(self.prompt_and_match_resolution_naman)
 
     def copy_selection(self, source, target):
         """Copy a region selection onto the other panel, WCS-aware: corners
@@ -1638,7 +1949,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self.contour_group.add_button(_b)
 
         self.convolution_group = CollapsibleButtonGroup("Convolution")
-        for _b in (self.match_res_btn, self.batch_match_btn):
+        for _b in (self.match_res_btn, self.match_res_naman_btn, self.batch_match_btn):
             self.convolution_group.add_button(_b)
 
         tier1 = QHBoxLayout()
@@ -2704,6 +3015,174 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         except Exception as e:
             QMessageBox.critical(self, "Slides Convolute Error",
+                                 f"An error occurred:\n{e}")
+            traceback.print_exc()
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def prompt_and_match_resolution_naman(self):
+        """"Pair (Naman)" button: same as prompt_and_match_resolution, but
+        using Naman's PSF formula (FWHM(") = 0.033*wavelength_um + 0.106)
+        instead of the pixel-scale proxy. The longer-wavelength panel is
+        always the reference (its PSF is the larger one), and the other
+        panel is reprojected onto its own native grid -- no padded WCS.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if self.image_left is None or self.image_right is None:
+            QMessageBox.warning(self, "Missing Images",
+                                "Load images in BOTH panels first.")
+            return
+
+        pix_l = _get_pixel_size_arcsec(self.header_left)
+        pix_r = _get_pixel_size_arcsec(self.header_right)
+        if pix_l is None or pix_r is None:
+            QMessageBox.warning(
+                self, "Missing Pixel Scale",
+                "Could not determine pixel scale for one or both images.")
+            return
+
+        if not _is_per_pixel_flux_unit(self.header_left.get('BUNIT', '') if self.header_left else '') or \
+           not _is_per_pixel_flux_unit(self.header_right.get('BUNIT', '') if self.header_right else ''):
+            QMessageBox.warning(
+                self, "Unsupported BUNIT for Naman",
+                "Naman's algorithm assumes both images are flux-per-pixel.\n\n"
+                "Use the regular Pair button for surface-brightness images.")
+            return
+
+        wl_left = _get_line_wavelength_um(
+            self.header_left, self.filename_left or "left panel", self)
+        if wl_left is None:
+            return
+        wl_right = _get_line_wavelength_um(
+            self.header_right, self.filename_right or "right panel", self)
+        if wl_right is None:
+            return
+        if wl_left == wl_right:
+            QMessageBox.warning(
+                self, "Naman Algorithm",
+                "Both panels have the same wavelength -- nothing to convolve.")
+            return
+
+        # Naman's PSF grows with wavelength, so the longer-wavelength panel
+        # is always the reference, regardless of pixel scale.
+        if wl_left > wl_right:
+            ref_side, conv_side = "left", "right"
+            ref_wl, conv_wl = wl_left, wl_right
+            ref_header, ref_img = self.header_left, self.image_left
+            fine_header, fine_img, fine_pix = self.header_right, self.image_right, pix_r
+        else:
+            ref_side, conv_side = "right", "left"
+            ref_wl, conv_wl = wl_right, wl_left
+            ref_header, ref_img = self.header_right, self.image_right
+            fine_header, fine_img, fine_pix = self.header_left, self.image_left, pix_l
+
+        fine_wcs = _make_2d_wcs(fine_header)
+        if fine_wcs is None:
+            QMessageBox.warning(self, "WCS Error",
+                                "Could not build a 2D WCS for the fine image.")
+            return
+
+        ref_wcs = _make_2d_wcs(ref_header)
+        if ref_wcs is not None and ref_img is not None:
+            if not _wcs_footprints_overlap(
+                    fine_wcs, fine_img.shape, ref_wcs, ref_img.shape):
+                QMessageBox.warning(
+                    self, "No Sky Overlap",
+                    "The two images cover completely different regions of the sky.\n\n"
+                    "Pair (Naman) requires the panels to share sky coverage so "
+                    "the convolved image can be placed on a meaningful WCS grid.\n\n"
+                    "Please load a matching pair of images of the same field.")
+                return
+
+        fwhm_in = 0.033 * conv_wl + 0.106
+        fwhm_target = 0.033 * ref_wl + 0.106
+        sigma_arcsec = ((fwhm_target / 2.35482) ** 2 - (fwhm_in / 2.35482) ** 2) ** 0.5
+
+        bunit = fine_header.get('BUNIT', '') if fine_header is not None else ''
+
+        info = (
+            f"<b>Naman Convolve: {conv_side.capitalize()} ({conv_wl:.4f} &micro;m) &rarr; "
+            f"{ref_side} ({ref_wl:.4f} &micro;m) PSF</b><br>"
+            f"Naman FWHM({conv_wl:.4f} &micro;m) = {fwhm_in:.4f}\"<br>"
+            f"Naman FWHM({ref_wl:.4f} &micro;m) = {fwhm_target:.4f}\"<br>"
+            f"Smoothing &sigma; : {sigma_arcsec:.4f}\"<br>"
+            f"Output grid    : {ref_side}'s own native grid "
+            f"({ref_img.shape[1]} &times; {ref_img.shape[0]} px)<br>"
+            f"BUNIT          : {bunit} &rarr; flux mode<br><br>"
+            "Algorithm: Naman's gaussian_convolve_match/reproject_flux_maps "
+            "(FWHM(\") = 0.033*wavelength_um + 0.106). Proceed?"
+        )
+        if QMessageBox.question(self, "Naman Convolve", info) != QMessageBox.Yes:
+            return
+
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+
+            naman_out = _run_naman_convolve_pair(
+                fine_img, fine_header, conv_wl, fine_pix,
+                ref_img, ref_header, ref_wl)
+            result_img = naman_out['image']
+            coverage = naman_out['footprint']
+
+            if not np.any(np.isfinite(result_img)):
+                QApplication.restoreOverrideCursor()
+                QMessageBox.warning(
+                    self, "Empty Result",
+                    "Naman Convolve completed but the output has no valid pixels.")
+                return
+
+            out_header = ref_header.copy()
+            out_header['NAXIS'] = 2
+            out_header['NAXIS1'] = result_img.shape[1]
+            out_header['NAXIS2'] = result_img.shape[0]
+            if bunit:
+                out_header['BUNIT'] = bunit
+            out_header['HISTORY'] = (
+                f"Naman Convolve: sigma={sigma_arcsec:.4f}\"; "
+                f"reprojected onto {ref_side}'s native grid "
+                f"(ref wavelength {ref_wl:.4f} um)"
+            )
+
+            fname, _ = QFileDialog.getSaveFileName(
+                self, "Save Convolved FITS (Naman)", filter="FITS (*.fits)")
+            if fname:
+                if not fname.lower().endswith(".fits"):
+                    fname += ".fits"
+                cov_header = fits.Header()
+                cov_header['EXTNAME'] = 'COVERAGE'
+                cov_header['BUNIT'] = 'fraction'
+                cov_header['COMMENT'] = (
+                    'Per-pixel input/output overlap fraction (0..1).')
+                fits.HDUList([
+                    fits.PrimaryHDU(data=result_img, header=out_header),
+                    fits.ImageHDU(data=np.asarray(coverage, dtype=np.float32),
+                                  header=cov_header),
+                ]).writeto(fname, overwrite=True)
+
+                in_total = float(np.nansum(fine_img))
+                out_total = float(np.nansum(result_img[np.isfinite(result_img)]))
+                ratio = (out_total / in_total) if in_total != 0 else float('nan')
+                QApplication.restoreOverrideCursor()
+                QMessageBox.information(
+                    self, "Saved",
+                    f"Saved to:\n{fname}\n\n"
+                    f"Flux audit ({bunit}):\n"
+                    f"  Input  total : {in_total:.4e}\n"
+                    f"  Output total : {out_total:.4e}\n"
+                    f"  Ratio out/in : {ratio:.6f}\n"
+                    f"  (1.000000 means flux is exactly conserved.)"
+                )
+            else:
+                QApplication.restoreOverrideCursor()
+
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Naman Convolve Error",
                                  f"An error occurred:\n{e}")
             traceback.print_exc()
         finally:

@@ -18,6 +18,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 from .unit_converter import get_wave_unit, convert_area_to_cgs, extract_value_from_quantity
+from .utils import safe_worker_count
 
 
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
@@ -1358,7 +1359,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             cpu = os.cpu_count() or 1
         except Exception:
             cpu = 1
-        n_jobs = max(1, min(cpu, 8))  # cap to avoid oversubscription
+        n_jobs = safe_worker_count(max(1, min(cpu, 8)))
 
     cancelled = False
 

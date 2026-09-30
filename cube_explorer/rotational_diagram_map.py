@@ -17,6 +17,7 @@ from threading import Lock
 import numpy as np
 
 from .unit_converter import extract_units
+from .utils import safe_worker_count
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from .analyzer_2d import (
     _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap,
@@ -506,10 +507,11 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         cancel_flag (object): Object with a `.cancelled` attribute, or None
         region_mask (np.ndarray): Boolean mask, same (ny, nx) shape as the
             cube, True where a pixel should be fit. None fits the whole cube
-            (no region imported) -- the previous, unrestricted behavior.
+            (no region imported) -- the previous, unrestricted behavior. Also
+            restricts region_fit's own summed spectrum to the same pixels.
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default.
             A line below it is an upper limit and stays NaN in the maps. Does
-            not affect region_fit, whose whole-cube sum keeps the 3-sigma rule.
+            not affect region_fit, which keeps a fixed 3-sigma rule.
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
@@ -563,6 +565,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     # GIL, so threads measured no speedup (same finding as the Gaussian map's
     # own switch to processes).
     _pin_worker_math_threads()
+    n_jobs = safe_worker_count(n_jobs)
     max_in_flight = 2 * n_jobs  # a large cube is never copied out all at once
     cancelled = False
     with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as executor:
@@ -609,11 +612,13 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     print(f">>> Done ({time.time() - start:.1f}s). Fitted {ok}/{total} pixels; "
           f"T range {t_lo:.1f}-{t_hi:.1f} K")
 
-    # Whole-cube-summed anchor fit, the same thing Run Fit does. Reused if
-    # the caller already ran it.
+    # Whole-cube (or region-restricted) summed anchor fit, the same thing Run
+    # Fit does -- same mask as the per-pixel maps above, so it stays "same as
+    # Run Fit" whether or not a region is imported. Reused if the caller
+    # already ran it.
     if region_fit is None:
         region_fit = fit_region(
-            cube, line_table, mask=None, molecule=molecule,
+            cube, line_table, mask=region_mask, molecule=molecule,
             isotopologue=isotopologue, opr=opr, fit_opr=fit_opr, opr_grid=opr_grid,
             dist_pc=dist_pc, r_au=r_au, min_lines=min_lines,
             dedup_tol_um=dedup_tol_um, contam_lines=contam_lines,
@@ -720,6 +725,7 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
     own_executor = executor is None
     if own_executor:
         _pin_worker_math_threads()
+        n_jobs = safe_worker_count(n_jobs)
         executor = ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn"))
     max_in_flight = 2 * n_jobs
     cancelled = False
@@ -791,16 +797,21 @@ def _convolve_reproject_pair(flux_map, err_map, src_wcs, src_pix_arcsec,
 
 def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
                      fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-                     min_lines=3, dedup_tol_um=1e-5, contam_lines=None):
+                     min_lines=3, dedup_tol_um=1e-5, contam_lines=None, region_masks=None):
     """
-    Fit one rotational diagram from the whole-cube summed spectrum of each
-    (cube, line) pair. The multi-cube analogue of fit_region: every pixel of
-    every cube is summed anyway, so no convolution or reprojection is needed.
+    Fit one rotational diagram from the whole-cube (or region-restricted)
+    summed spectrum of each (cube, line) pair. The multi-cube analogue of
+    fit_region: every pixel of every cube (or every pixel inside its mask) is
+    summed anyway, so no convolution or reprojection is needed.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
             dedup_tol_um, contam_lines: Same meaning as in fit_pixel
+        region_masks (dict): {CubeData: boolean mask (ny, nx)}, restricting
+            which pixels get summed for that cube -- from an imported region.
+            A cube missing from this dict, or region_masks=None, sums every
+            pixel (the previous, unrestricted behavior).
 
     Returns:
         out (dict): 'status' (int), 'n_lines' (int), 'n_pixels' (total spaxels
@@ -816,8 +827,13 @@ def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
     for key, (cube, line) in zip(keys, kept_pairs):
         wavelength, _unit = extract_units(cube.wavelength)
         _n_wave, n_y, n_x = cube.cube.shape
+        mask = region_masks.get(cube) if region_masks else None
+        if mask is None:
+            coords = [(x, y) for y in range(n_y) for x in range(n_x)]
+        else:
+            coords = [(int(x), int(y)) for y, x in zip(*np.where(mask))]
         specs = [np.asarray(s, dtype=float) for s in
-                 (cube.get_pixel_spectrum(x, y) for y in range(n_y) for x in range(n_x))
+                 (cube.get_pixel_spectrum(x, y) for x, y in coords)
                  if s is not None]
         if not specs:
             continue
@@ -985,6 +1001,7 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
     # and prints its own startup warnings every time. Sharing it here means
     # that import cost is paid once for the whole Calculate Maps run.
     _pin_worker_math_threads()
+    n_jobs = safe_worker_count(n_jobs)
     with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as executor:
         for cube, line in zip(cubes, kept_lines):
             seen = {"n": 0}

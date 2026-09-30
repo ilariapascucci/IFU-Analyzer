@@ -7,6 +7,34 @@ import astropy.units as u
 from .unit_converter import convert_wavelength
 
 
+def safe_worker_count(requested_jobs, per_worker_mb=400, usable_fraction=0.6):
+    """
+    Cap a worker-process count to fit in available memory. Each spawned
+    process needs its own numpy/scipy import, independent of the parent's.
+
+    Args:
+        requested_jobs (int): Worker count requested before the memory check
+        per_worker_mb (int): Estimated startup memory per worker, in MB
+        usable_fraction (float): Fraction of current available memory this check can use
+
+    Returns:
+        n_jobs (int): requested_jobs, or fewer if available memory is tight
+    """
+    try:
+        import psutil
+        available_mb = psutil.virtual_memory().available / (1024 ** 2)
+    except Exception:
+        print("psutil not available -- skipping the memory-based worker cap.")
+        return requested_jobs
+
+    max_by_memory = max(1, int((available_mb * usable_fraction) // per_worker_mb))
+    n_jobs = max(1, min(requested_jobs, max_by_memory))
+    if n_jobs < requested_jobs:
+        print(f"Capping worker processes to {n_jobs} (requested {requested_jobs}): "
+              f"only {available_mb:.0f} MB available.")
+    return n_jobs
+
+
 def _merge_primary_into_sci(hdul, sci_key):
     """
     Return the SCI header with PRIMARY keywords added as a fallback.
