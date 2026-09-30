@@ -40,7 +40,7 @@ from .rotational_diagram_map_dialogs import (
     CalculateNativeMapsWorker, CombineMapsWorker,
 )
 from .fits_export import build_2d_export_header, write_fits_product
-from .naman_convolve_reproject import convolve_reproject_naman
+from .naman_convolve_reproject import convolve_reproject_naman, convolution_plan_naman
 
 
 # Constants
@@ -223,7 +223,8 @@ class BatchFluxWorker(QThread):
         Args:
             rows_by_cube_idx (dict): Table rows grouped by loaded-cube index.
             loaded_cubes (list): Loaded CubeData objects, one per FITS file.
-            summed_spectra (list): Per-cube summed spectrum, aligned by index.
+            summed_spectra (dict): Summed spectrum keyed by cube index, for
+                the cubes in rows_by_cube_idx (already region-restricted).
             line_wavelengths (dict): Wavelength keyed by table row.
             contam_lines (pandas.DataFrame): Contaminating lines to exclude,
                 or None.
@@ -321,11 +322,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Loaded once and reused to calculate fluxes
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
-        self.loaded_batch_spectra = []
         self.contam_lines = None
         # Sky-coordinate region imported via "Import Region", restricting
-        # Calculate Maps/Run Map's native fitting to one region -- None fits
-        # the whole cube, the previous, unrestricted behavior.
+        # Calculate Fluxes/Calculate Maps/Run Map/Run Fit to one region --
+        # None fits the whole cube, the previous, unrestricted behavior.
         self._rot_map_region_sky = None
 
         # Track workflow: None=unset, 'csv'=import, 'hitran'=fetch
@@ -698,10 +698,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self.import_map_region_btn = QPushButton("Import Region")
         self.import_map_region_btn.setToolTip(
-            "Restrict Calculate Maps/Run Map to one sky region, imported from a region saved "
-            "elsewhere (Save Region, main window or 2D viewer). Applies per cube using that "
-            "cube's own WCS, so the same region works across cubes at different pixel scales. "
-            "Does not affect Calculate Fluxes' whole-cube-summed numbers."
+            "Restrict Calculate Fluxes/Calculate Maps/Run Map/Run Fit to one sky region, "
+            "imported from a region saved elsewhere (Save Region, main window or 2D viewer). "
+            "Applies per cube using that cube's own WCS, so the same region works across "
+            "cubes at different pixel scales."
         )
         self.import_map_region_btn.clicked.connect(self.import_rot_map_region)
         self.import_map_region_btn.setVisible(False)  # Hidden until lines are loaded
@@ -793,7 +793,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
-        self.loaded_batch_spectra = []
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
         self.contam_lines = None
         self._rot_map_region_sky = None
@@ -813,7 +812,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             print(f"[rot diag] {len(self.loaded_batch_cubes)} loaded cube(s) cleared: line list changed")
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
-        self.loaded_batch_spectra = []
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
 
     def update_isotopologue_range(self):
@@ -1678,10 +1676,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             try:
                 cube = CubeData()
                 cube.load_from_file(fits_path)
-                summed = np.nansum(cube.cube, axis=(1, 2)) if cube.cube.ndim == 3 else cube.cube
                 self.loaded_batch_fits_paths.append(fits_path)
                 self.loaded_batch_cubes.append(cube)
-                self.loaded_batch_spectra.append(summed)
             except Exception as e:
                 failed.append((fits_path, str(e)))
 
@@ -1892,6 +1888,27 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
             rows_by_cube_idx.setdefault(matched_idx, []).append(row)
 
+        # Sum each involved cube's spectrum now, inside the current region (if
+        # any) -- same shared region as Calculate Maps/Run Map/Run Fit, so it
+        # has to be re-applied here rather than reused from a load-time cache.
+        summed_spectra = {}
+        try:
+            for cube_idx in rows_by_cube_idx:
+                cube = loaded_cubes[cube_idx]
+                if cube.cube.ndim != 3:
+                    # Already a flat spectrum, not a spatial cube -- no region to apply.
+                    summed_spectra[cube_idx] = cube.cube
+                    continue
+                mask = self._rot_map_region_mask_for_cube(cube)
+                if mask is None:
+                    summed_spectra[cube_idx] = np.nansum(cube.cube, axis=(1, 2))
+                else:
+                    masked = np.where(mask[np.newaxis, :, :], cube.cube, np.nan)
+                    summed_spectra[cube_idx] = np.nansum(masked, axis=(1, 2))
+        except ValueError as exc:
+            QMessageBox.warning(self, "Region", str(exc))
+            return
+
         self._batch_flux_skipped_rows = skipped_rows
 
         self.batch_flux_progress = QProgressDialog("Calculating fluxes...", None, 0, 0, self)
@@ -1905,7 +1922,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         line_wavelength_lookup = {row: self.hitran_lines[row]['wavelength'] for row in selected_rows}
         self.batch_flux_worker = BatchFluxWorker(
-            rows_by_cube_idx, loaded_cubes, self.loaded_batch_spectra,
+            rows_by_cube_idx, loaded_cubes, summed_spectra,
             line_wavelength_lookup, self.contam_lines,
         )
         self.batch_flux_worker.finished.connect(self._on_batch_flux_complete)
@@ -2690,6 +2707,19 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if native_cache is None:
             QMessageBox.warning(self, "Convolve Maps (Naman)", "Run Calculate Maps first.")
             return
+
+        try:
+            plan = convolution_plan_naman(native_cache["result"])
+        except Exception as exc:
+            QMessageBox.critical(self, "Plan Failed", str(exc))
+            return
+        if not self._show_convolution_plan_confirm(
+                plan, window_title="Convolve Maps (Naman) -- convolution plan",
+                question="Convolve/reproject every line onto Naman's reference line grid?",
+                accept_label="Convolve Maps (Naman)",
+                grid_note="(Naman's reference line -- longest wavelength)"):
+            return
+
         try:
             naman_result = convolve_reproject_naman(native_cache["result"])
         except Exception as exc:
@@ -3590,13 +3620,72 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_map_worker.error.connect(self._on_rot_map_error)
         self.rot_map_worker.start()
 
+    def _reset_region_dependent_results(self):
+        """Drop every result that depended on whichever region was active
+        before an Import Region/Clear Region change -- Calculate Fluxes'
+        computed flux columns, Calculate Maps/Convolve Maps' cached maps,
+        Run Map's cached result, and Naman's comparison cache -- so nothing
+        computed under the old region is left looking current. Manually
+        entered fluxes (Calculated? unchecked) are untouched, since they
+        never depended on any region to begin with.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._rot_map_native_cache = None
+        self._rot_map_cache = None
+        self._naman_convolved_cache = None
+        self._clear_all_convolved_maps()  # also nulls _rot_map_convolved_cache
+
+        for row in list(self._line_map_plot_data):
+            del self._line_map_plot_data[row]
+            stale_item = self.lines_table.item(row, 15)
+            if stale_item:
+                self._clear_view_link(stale_item)
+
+        self.lines_table.blockSignals(True)
+        try:
+            for row in range(self.lines_table.rowCount()):
+                calc_item = self.lines_table.item(row, 11)
+                if calc_item is None or calc_item.checkState() != Qt.Checked:
+                    continue  # manually-entered flux, not region-dependent
+                flux_item = self.lines_table.item(row, 6)
+                if flux_item:
+                    flux_item.setText("")
+                    flux_item.setBackground(QColor(255, 214, 214))
+                    flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
+                for col in (7, 8, 10, 12):
+                    cell = self.lines_table.item(row, col)
+                    if cell:
+                        cell.setText("")
+                        cell.setFlags(cell.flags() | Qt.ItemIsEditable)
+                        cell.setBackground(QBrush())
+                        cell.setToolTip("")
+                r2_item = self.lines_table.item(row, 13)
+                if r2_item:
+                    r2_item.setText("")
+                    r2_item.setBackground(QBrush())
+                ul_item = self.lines_table.item(row, 9)
+                if ul_item:
+                    ul_item.setCheckState(Qt.Unchecked)
+                calc_item.setCheckState(Qt.Unchecked)
+                fit_item = self.lines_table.item(row, 14)
+                if fit_item:
+                    self._clear_view_link(fit_item)
+                self._line_fit_plot_data.pop(row, None)
+        finally:
+            self.lines_table.blockSignals(False)
+
     def import_rot_map_region(self):
         """Import a region saved elsewhere (Save Region, main window or 2D
-        viewer) to restrict Calculate Maps/Run Map's native fitting to one
-        sky area. Stored as sky coordinates, the same portable format the
-        main window already uses, so it converts to each cube's own pixel
-        mask at fit time -- one saved region works across cubes at different
-        pixel scales, exactly like importing a region there does.
+        viewer) to restrict Calculate Fluxes/Calculate Maps/Run Map/Run Fit
+        to one sky area. Stored as sky coordinates, the same portable format
+        the main window already uses, so it converts to each cube's own
+        pixel mask at fit time -- one saved region works across cubes at
+        different pixel scales, exactly like importing a region there does.
 
         Args:
             None
@@ -3616,16 +3705,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self._rot_map_region_sky = saved
         self.clear_map_region_btn.setEnabled(True)
+        self._reset_region_dependent_results()
         QMessageBox.information(
             self, "Region Imported",
             f"Region imported ({region_io.SHAPE_NAMES.get(saved['shape'], saved['shape'])}). "
-            "Calculate Maps and Run Map will now only fit pixels inside it, on every "
-            "loaded cube. Import a different region to replace it, or use Clear Region "
-            "to go back to fitting the whole cube.")
+            "Calculate Fluxes, Calculate Maps, Run Map, and Run Fit will now only use pixels "
+            "inside it, on every loaded cube. Any previously computed fluxes/maps were cleared "
+            "since they no longer reflect this region. Import a different region to replace it, "
+            "or use Clear Region to go back to fitting the whole cube.")
 
     def clear_rot_map_region(self):
-        """Drop the imported region -- Calculate Maps/Run Map go back to
-        fitting the whole cube.
+        """Drop the imported region -- Calculate Fluxes/Calculate Maps/Run
+        Map/Run Fit go back to fitting the whole cube.
 
         Args:
             None
@@ -3635,6 +3726,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         self._rot_map_region_sky = None
         self.clear_map_region_btn.setEnabled(False)
+        self._reset_region_dependent_results()
 
     def _rot_map_region_mask_for_cube(self, cube):
         """Convert the imported sky region (if any) to this cube's own
@@ -4161,21 +4253,25 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
     def _show_convolution_plan_confirm(self, plan, window_title="Run Map -- convolution plan",
                                        question="Run the fit at every pixel of the common grid?",
-                                       accept_label="Run Map"):
+                                       accept_label="Run Map", grid_note="(coarsest input)"):
         """Show the convolve/reproject plan -- which line's native resolution
         sets the common grid, and how much every other line gets blurred to
         match it -- as a sortable table, and let the user confirm or cancel
-        before it runs. Shared by Run Map (fitting follows) and Convolve Maps
-        (only the convolution/reprojection follows); the wording differs, the
-        plan table doesn't. Sorting is local to this table (plain closures,
-        not self._sort_* / SortableCheckboxTableMixin) so it can't collide
-        with the main window's own lines_table sort state.
+        before it runs. Shared by Run Map (fitting follows), Convolve Maps
+        (only the convolution/reprojection follows), and Convolve Maps
+        (Naman); the wording differs, the plan table doesn't. Sorting is
+        local to this table (plain closures, not self._sort_* /
+        SortableCheckboxTableMixin) so it can't collide with the main
+        window's own lines_table sort state.
 
         Args:
-            plan (dict): Convolution/reprojection plan from convolution_plan().
+            plan (dict): Convolution/reprojection plan from
+                convolution_plan() or convolution_plan_naman().
             window_title (str): Dialog title.
             question (str): Final line asking the user to confirm.
             accept_label (str): Text on the accept button.
+            grid_note (str): Short parenthetical after the grid's pixel
+                scale, describing why that line's resolution was chosen.
 
         Returns:
             proceed (bool): True if the user chose to proceed.
@@ -4189,7 +4285,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         dlg.resize(760, 460)
         lay = QVBoxLayout(dlg)
 
-        header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px (coarsest input)")
+        header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px {grid_note}")
         lay.addWidget(header_label)
 
         headers = ["Line (um)", "File", "Native (\"/px)", "Blur"]

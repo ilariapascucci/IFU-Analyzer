@@ -227,6 +227,52 @@ def save_reprojected_fits(image, output_header, filename,
 from .analyzer_2d import _make_2d_wcs
 
 
+def convolution_plan_naman(native_result):
+    """Cheap, no-op preview of what convolve_reproject_naman will do to each
+    line -- the same FWHM(") = 0.033*lambda+0.106 arithmetic
+    gaussian_convolve_match uses, without running any convolution or
+    reprojection. Same shape as rotational_diagram_map.convolution_plan(),
+    so the GUI's existing plan-confirmation table works unmodified.
+
+    Args:
+        native_result (dict): Output of compute_native_line_maps.
+
+    Returns:
+        plan (dict): 'worst_pix_arcsec' (reference line's native pixel
+            scale), 'dst_shape' (reference line's native shape), 'per_cube'
+            (list of dicts: 'wavelength', 'filename', 'native_pix_arcsec',
+            'sigma_arcsec', 'sigma_pix'), 'dropped_lines'.
+    """
+    kept_lines = native_result["kept_lines"]
+    flux_maps = native_result["native_flux_maps"]
+    scales = native_result["native_pix_arcsec"]
+    filenames = native_result["cube_filenames"]
+
+    ref_idx = int(np.argmax([line["wavelength"] for line in kept_lines]))
+    ref_wl = kept_lines[ref_idx]["wavelength"]
+    fwhm_target = 0.033 * ref_wl + 0.106
+
+    per_cube = []
+    for i, line in enumerate(kept_lines):
+        wl = line["wavelength"]
+        if i == ref_idx:
+            per_cube.append({"wavelength": wl, "filename": filenames[i],
+                             "native_pix_arcsec": scales[i],
+                             "sigma_arcsec": 0.0, "sigma_pix": 0.0})
+            continue
+        fwhm_in = 0.033 * wl + 0.106
+        sigma_in = fwhm_in / 2.35482
+        sigma_target = fwhm_target / 2.35482
+        sigma_kernel_arcsec = (max(0.0, sigma_target**2 - sigma_in**2)) ** 0.5
+        sigma_kernel_pix = sigma_kernel_arcsec / scales[i] if scales[i] > 0 else 0.0
+        per_cube.append({"wavelength": wl, "filename": filenames[i],
+                         "native_pix_arcsec": scales[i],
+                         "sigma_arcsec": sigma_kernel_arcsec, "sigma_pix": sigma_kernel_pix})
+
+    return {"worst_pix_arcsec": scales[ref_idx], "dst_shape": flux_maps[ref_idx].shape,
+            "per_cube": per_cube, "dropped_lines": native_result["dropped_lines"]}
+
+
 def convolve_reproject_naman(native_result):
     """Run the notebook functions above on a compute_native_line_maps
     result: pick the longest-wavelength kept line as the reference (the
