@@ -1,15 +1,15 @@
 """
-convolved_reproject.ipynb, ported for use from the GUI. Everything between
-the BEGIN/END markers below is copy-pasted verbatim from Naman's notebook --
-same code, same comments, same docstrings, not touched. Everything after
-that is integration code we wrote to call his functions from our own
-compute_native_line_maps result; none of it modifies his logic.
+convolved_reproject.ipynb, ported for GUI use. gaussian_convolve_match/save_reprojected_fits
+are verbatim; reproject_flux_maps has one agreed fix (marked inline): convert flux to
+surface brightness before reprojecting, back to flux after -- reproject_exact preserves brightness, not flux.
 """
 
 import numpy as np
 from astropy.convolution import convolve_fft, Gaussian2DKernel
 from reproject import reproject_exact
 from astropy.io import fits
+
+from .unit_converter import pixel_solid_angle
 
 
 def gaussian_convolve_match(images,
@@ -117,14 +117,22 @@ def reproject_flux_maps(images, input_headers, output_header):
     reprojected_images = []
     footprints = []
 
+    # FIX (agreed with Naman): convert flux to surface brightness before
+    # reprojecting, back to flux after -- see module docstring.
+    omega_out = pixel_solid_angle(output_header)
+
     for image, header in zip(images, input_headers):
 
         # Valid pixels
         valid = np.isfinite(image)
         min_value = np.nanmin(image)
 
+        # FIX: flux -> surface brightness, this image's own native pixel solid angle
+        omega_in = pixel_solid_angle(header)
+        image_sb = image / omega_in.value
+
         # Replace NaNs with zero for flux conservation
-        image_filled = np.nan_to_num(image, nan=0.0)
+        image_filled = np.nan_to_num(image_sb, nan=0.0)
 
         # Reproject flux map
         image_out, footprint = reproject_exact(
@@ -144,6 +152,9 @@ def reproject_flux_maps(images, input_headers, output_header):
         #Very low-valued pixels are likely artifacts of the reprojection, so set them to NaN
         #if exclude_small:
         #    image_out[image_out < min_value] = np.nan
+
+        # FIX: surface brightness -> flux, the output grid's own pixel solid angle
+        image_out = image_out * omega_out.value
 
         reprojected_images.append(image_out)
         footprints.append(footprint)
