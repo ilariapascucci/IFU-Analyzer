@@ -207,7 +207,7 @@ class GaussianMapResultsDialog(QDialog):
     """
     
     def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None,
-                 noise_min=None, noise_max=None):
+                 noise_min=None, noise_max=None, gauss_peak_x=None):
         """Build the Gaussian map results dialog and its parameter maps.
 
         Args:
@@ -219,6 +219,7 @@ class GaussianMapResultsDialog(QDialog):
             wavelength (numpy.ndarray): Wavelength array for the single-pixel view.
             noise_min (float): Noise region lower bound the fit used, or None.
             noise_max (float): Noise region upper bound the fit used, or None.
+            gauss_peak_x (float): User-picked peak wavelength that seeded the fit.
 
         Returns:
             None
@@ -229,6 +230,7 @@ class GaussianMapResultsDialog(QDialog):
         self.cube_data = cube_data
         self.gauss_left_x = gauss_left_x
         self.gauss_right_x = gauss_right_x
+        self.gauss_peak_x = gauss_peak_x
         self.wavelength = wavelength
         # The noise region the fit used, so a single-pixel view can draw the same
         # detection threshold the map was decided with.
@@ -987,10 +989,14 @@ class GaussianMapResultsDialog(QDialog):
             source_header = self.cube_data.header
             object_label = (source_header.get('OBJECT', 'Unknown') if source_header is not None else 'Unknown') \
                 + f' ({param_name})'
+            # The picked peak, not the window midpoint: picking one is required
+            # before any fit runs, and the window need not sit symmetric around it.
+            line_wave = self.gauss_peak_x if self.gauss_peak_x is not None else (lam_min + lam_max) / 2.0
             out_header = build_2d_export_header(source_header, data.shape, extra={
                 'BUNIT': bunit,
                 'OBJECT': object_label,
                 'PARAM': param_name,
+                'LINEWAVE': (line_wave, "Line center wavelength (um)"),
                 'LAMMIN': (lam_min, "Minimum wavelength of fit"),
                 'LAMMAX': (lam_max, "Maximum wavelength of fit"),
                 'NSUCC': (int(np.sum(self.results['success'])), "Number of successful fits"),

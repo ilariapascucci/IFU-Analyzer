@@ -1178,5 +1178,6 @@ STATUS: {result.message}
             wavelength=wavelength,
             noise_min=getattr(self, 'gauss_cache_noise_min', None),
             noise_max=getattr(self, 'gauss_cache_noise_max', None),
+            gauss_peak_x=getattr(self, 'gauss_peak_x', None),
         )
         dlg.exec_()
