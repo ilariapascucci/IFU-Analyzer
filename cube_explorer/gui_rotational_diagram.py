@@ -3474,10 +3474,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         cube_arg = cubes[0] if len(cubes) == 1 else cubes
 
-        # Build the imported region's mask per cube up front -- needed by
-        # both the fast-combine path below and the full worker, and region_fit
-        # (the whole-cube/region-summed anchor, "same as Run Fit") must see it
-        # too, so a bad region is caught before either path starts.
+        # Build the region mask up front: the fast-combine path, the full worker,
+        # and region_fit ("same as Run Fit") all need it, so a bad region is caught early.
         try:
             if multi_mode:
                 region_mask = None

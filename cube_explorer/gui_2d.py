@@ -50,6 +50,7 @@ from .analyzer_2d import (
     _wcs_footprints_overlap,
     _log_norm_vmin,
     _reproject_wcs_to_wcs,
+    miri_psf_sigma_arcsec,
 )
 from .naman_convolve_reproject import (
     gaussian_convolve_match as _naman_convolve_match,
@@ -57,22 +58,20 @@ from .naman_convolve_reproject import (
 )
 
 
-def _get_line_wavelength_um(header, filename, parent):
-    """Read this image's line wavelength from its header; prompt the user
-    for it if neither known key is present. LINEWAVE (rotational-diagram
-    Save Maps exports) is exact. LAMMIN/LAMMAX (Gaussian Map exports) bound
-    one line's own fit window, so their midpoint is a good proxy. WAVEMIN/
-    WAVEMAX (Flux Map exports) can span several blended lines, so those are
-    never used here -- a midpoint there could silently name the wrong line.
+def _header_line_wavelength_um(header):
+    """Read LINEWAVE, or LAMMIN/LAMMAX's midpoint, from a header -- no
+    prompting. LINEWAVE (rotational-diagram Save Maps exports) is exact.
+    LAMMIN/LAMMAX (Gaussian Map exports) bound one line's own fit window, so
+    their midpoint is a good proxy. WAVEMIN/WAVEMAX (Flux Map exports) can
+    span several blended lines, so those are never used here -- a midpoint
+    there could silently name the wrong line.
 
     Args:
-        header (astropy.io.fits.Header): This image's FITS header.
-        filename (str): Basename, shown in the prompt if no key is found.
-        parent (QWidget): Parent widget for the prompt dialog.
+        header (astropy.io.fits.Header): This image's FITS header, or None.
 
     Returns:
-        wavelength_um (float or None): Wavelength in microns, or None if no
-            header key was usable and the user cancelled the prompt.
+        wavelength_um (float or None): Wavelength in microns, or None if
+            neither header key is present or usable.
     """
     if header is not None and 'LINEWAVE' in header:
         try:
@@ -84,6 +83,25 @@ def _get_line_wavelength_um(header, filename, parent):
             return (float(header['LAMMIN']) + float(header['LAMMAX'])) / 2.0
         except (TypeError, ValueError):
             pass
+    return None
+
+
+def _get_line_wavelength_um(header, filename, parent):
+    """Read this image's line wavelength via _header_line_wavelength_um;
+    prompt the user for it if no known header key is present.
+
+    Args:
+        header (astropy.io.fits.Header): This image's FITS header.
+        filename (str): Basename, shown in the prompt if no key is found.
+        parent (QWidget): Parent widget for the prompt dialog.
+
+    Returns:
+        wavelength_um (float or None): Wavelength in microns, or None if no
+            header key was usable and the user cancelled the prompt.
+    """
+    wl = _header_line_wavelength_um(header)
+    if wl is not None:
+        return wl
     value, ok = QInputDialog.getDouble(
         parent, "Line Wavelength Needed",
         f"'{filename}' has no LINEWAVE header key.\n\n"
@@ -353,6 +371,58 @@ class BatchMatchResolutionDialog(QDialog):
             # ---- 2. Find the worst (coarsest) scale ---------------------
             worst_pix = max(info['pix_scale'] for info in images_data)
 
+            # Physical PSF formula is enforced when every file has a wavelength
+            # and the reference's is longest; else ask once: enter it, or use the proxy.
+            ref_info = next(info for info in images_data if info['pix_scale'] == worst_pix)
+            file_wls = {id(info): _header_line_wavelength_um(info['header']) for info in images_data}
+
+            def _physical_ok():
+                """Every file has a wavelength and the reference's is longest.
+
+                Args:
+                    None
+
+                Returns:
+                    ok (bool): True if the physical formula can be used.
+                """
+                wls = file_wls.values()
+                return all(wl is not None for wl in wls) and file_wls[id(ref_info)] >= max(wls)
+
+            use_physical_batch = _physical_ok()
+
+            if not use_physical_batch:
+                choice_box = QMessageBox(self)
+                choice_box.setWindowTitle("Line Wavelength Needed")
+                choice_box.setText(
+                    "Not every file has a usable line wavelength.<br><br>"
+                    "Enter the missing one(s) to use the physical PSF formula, "
+                    "or fall back to the pixel-scale proxy?")
+                enter_btn = choice_box.addButton("Enter Wavelength(s)", QMessageBox.ActionRole)
+                proxy_btn = choice_box.addButton("Use Pixel-Scale Proxy", QMessageBox.ActionRole)
+                choice_box.addButton(QMessageBox.Cancel)
+                choice_box.exec_()
+                clicked = choice_box.clickedButton()
+                if clicked is enter_btn:
+                    for info in images_data:
+                        if file_wls[id(info)] is None:
+                            wl = _get_line_wavelength_um(info['header'], info['filename'], self)
+                            if wl is None:
+                                QApplication.restoreOverrideCursor()
+                                return
+                            file_wls[id(info)] = wl
+                    if _physical_ok():
+                        use_physical_batch = True
+                    else:
+                        QMessageBox.warning(
+                            self, "Line Wavelength Needed",
+                            f"{ref_info['filename']}'s wavelength must be the "
+                            f"longest -- falling back to the pixel-scale proxy.")
+                elif clicked is not proxy_btn:
+                    QApplication.restoreOverrideCursor()
+                    return
+
+            ref_wl_batch = file_wls[id(ref_info)]
+
             # ---- 3. Build a single common destination WCS ---------------
             dst_wcs, dst_shape = build_target_wcs_for_batch(
                 [(info['wcs'], info['shape']) for info in images_data],
@@ -375,25 +445,28 @@ class BatchMatchResolutionDialog(QDialog):
 
                     # Inputs already at the worst scale get sigma=0 (no smoothing),
                     # keeping repeated batch runs idempotent.
-                    sigma_arcsec = (
-                        max(0.0, worst_pix**2 - fine_pix**2) ** 0.5) / 2.3548
+                    if use_physical_batch:
+                        sigma_arcsec = miri_psf_sigma_arcsec(file_wls[id(info)], ref_wl_batch)
+                    else:
+                        sigma_arcsec = (
+                            max(0.0, worst_pix**2 - fine_pix**2) ** 0.5) / 2.3548
                     sigma_fine_pix = (sigma_arcsec / fine_pix
                                       if fine_pix > 0 else 0.0)
 
                     convolved = gaussian_convolve_match(
                         fine_data, sigma_pix=sigma_fine_pix)
 
-                    # Reproject onto common destination
+                    # reproject_exact already NaNs zero-coverage pixels and
+                    # weights partial-coverage ones correctly -- no extra mask needed.
                     result_img, coverage, _ = reproject_exact(
                         convolved, fine_wcs, dst_wcs, dst_shape,
                         conserve_flux=per_pix)
-                    result_img[coverage < 1.0 - 1e-6] = np.nan
                     if not np.any(np.isfinite(result_img)):
                         QMessageBox.warning(
                             self, "Empty Result",
                             "Slides Convolute completed but the output has no valid pixels.\n\n"
-                            "This usually means the two images overlap only at their edges, "
-                            "so no output pixel is fully covered by the input.\n\n"
+                            "This usually means this file does not actually share sky "
+                            "coverage with the others.\n\n"
                             "Try a closer-aligned pair of images.")
                         return
 
@@ -432,7 +505,8 @@ class BatchMatchResolutionDialog(QDialog):
                         out_header['BUNIT'] = bunit
                     out_header['HISTORY'] = (
                         f"Batch Convolution: sigma={entry['sigma_arcsec']:.4f}\" "
-                        f"({entry['sigma_fine_pix']:.3f} fine-px); reprojected to "
+                        f"({'physical PSF' if use_physical_batch else 'pixel-scale proxy'}, "
+                        f"{entry['sigma_fine_pix']:.3f} fine-px); reprojected to "
                         f"{worst_pix:.4f}\"/px "
                         f"({'flux' if per_pix else 'SB'} mode)"
                     )
@@ -2856,15 +2930,19 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             target_pix, fine_pix = pix_l, pix_r
             ref_header = self.header_left
             ref_img    = self.image_left
+            ref_filename = self.filename_left or "left panel"
             fine_header = self.header_right
             fine_img = self.image_right
+            fine_filename = self.filename_right or "right panel"
         else:
             ref_side, conv_side = "right", "left"
             target_pix, fine_pix = pix_r, pix_l
             ref_header = self.header_right
             ref_img    = self.image_right
+            ref_filename = self.filename_right or "right panel"
             fine_header = self.header_left
             fine_img = self.image_left
+            fine_filename = self.filename_left or "left panel"
 
         # Same-resolution short-circuit: refuse politely instead of
         # producing a degraded copy when the user clicks again.
@@ -2897,9 +2975,47 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     "Please load a matching pair of images of the same field.")
                 return
 
-        # Sigma for the matching kernel.  Pixel-size-limited PSF
-        # assumption: sqrt(target^2 - fine^2) is the FWHM, /2.3548 is sigma.
-        sigma_arcsec = (max(0.0, target_pix**2 - fine_pix**2) ** 0.5) / 2.3548
+        # Physical PSF formula is enforced whenever both images have a known
+        # line wavelength. If either is missing, ask once: enter it, or use the proxy.
+        wl_fine = _header_line_wavelength_um(fine_header)
+        wl_ref = _header_line_wavelength_um(ref_header)
+        sigma_proxy = (max(0.0, target_pix**2 - fine_pix**2) ** 0.5) / 2.3548
+        use_physical = wl_fine is not None and wl_ref is not None and wl_ref >= wl_fine
+
+        if not use_physical:
+            choice_box = QMessageBox(self)
+            choice_box.setWindowTitle("Line Wavelength Needed")
+            choice_box.setText(
+                "No usable line wavelength was found for one or both images.<br><br>"
+                "Enter it manually to use the physical PSF formula, or fall "
+                "back to the pixel-scale proxy?"
+            )
+            enter_btn = choice_box.addButton("Enter Wavelength", QMessageBox.ActionRole)
+            proxy_btn = choice_box.addButton("Use Pixel-Scale Proxy", QMessageBox.ActionRole)
+            choice_box.addButton(QMessageBox.Cancel)
+            choice_box.exec_()
+            clicked = choice_box.clickedButton()
+            if clicked is enter_btn:
+                if wl_fine is None:
+                    wl_fine = _get_line_wavelength_um(fine_header, fine_filename, self)
+                    if wl_fine is None:
+                        return
+                if wl_ref is None:
+                    wl_ref = _get_line_wavelength_um(ref_header, ref_filename, self)
+                    if wl_ref is None:
+                        return
+                if wl_ref >= wl_fine:
+                    use_physical = True
+                else:
+                    QMessageBox.warning(
+                        self, "Line Wavelength Needed",
+                        f"{ref_side}'s wavelength ({wl_ref:.4f} um) must be the "
+                        f"longer one -- falling back to the pixel-scale proxy.")
+            elif clicked is not proxy_btn:
+                return
+
+        sigma_physical = miri_psf_sigma_arcsec(wl_fine, wl_ref) if use_physical else None
+        sigma_arcsec = sigma_physical if use_physical else sigma_proxy
         sigma_fine_pix = sigma_arcsec / fine_pix if fine_pix > 0 else 0.0
 
         dst_wcs, dst_shape = build_target_wcs_for_pair(
@@ -2908,12 +3024,22 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         bunit = fine_header.get('BUNIT', '') if fine_header is not None else ''
         per_pixel_flux = _is_per_pixel_flux_unit(bunit)
 
+        if use_physical:
+            sigma_line = (
+                f"Smoothing &sigma; : {sigma_physical:.4f}\" physical PSF formula "
+                f"({wl_fine:.4f}&rarr;{wl_ref:.4f} &micro;m)<br>"
+            )
+        else:
+            sigma_line = (
+                f"Smoothing &sigma; : {sigma_proxy:.4f}\" pixel-scale proxy "
+                f"(no line wavelength found in header)<br>"
+            )
         info = (
             f"<b>Slides Convolute: {conv_side.capitalize()} &rarr; "
             f"{target_pix:.4f}\"/px ({ref_side} scale)</b><br>"
             f"Fine scale     : {fine_pix:.4f}\"/px ({conv_side})<br>"
             f"Target scale   : {target_pix:.4f}\"/px ({ref_side})<br>"
-            f"Smoothing &sigma; : {sigma_arcsec:.4f}\" ({sigma_fine_pix:.3f} fine-px)<br>"
+            f"{sigma_line}"
             f"Output grid    : {dst_shape[1]} × {dst_shape[0]} px "
             f"(full fine FOV, fine rotation preserved)<br>"
             f"BUNIT          : {bunit} &rarr; "
@@ -2929,21 +3055,20 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
             convolved = gaussian_convolve_match(fine_img, sigma_pix=sigma_fine_pix)
 
-            # 2. Flux-conserving reproject to the target WCS.
+            # 2. Flux-conserving reproject to the target WCS. reproject_exact
+            # already NaNs zero-coverage pixels and weights partial ones correctly.
             result_img, coverage, _ = reproject_exact(
                 convolved, fine_wcs, dst_wcs, dst_shape,
                 conserve_flux=per_pixel_flux)
 
-            result_img[coverage < 1.0 - 1e-6] = np.nan
             if not np.any(np.isfinite(result_img)):
                 QApplication.restoreOverrideCursor()
                 QMessageBox.warning(
                     self, "Empty Result",
                     "Slides Convolute completed but the output has no "
                     "valid pixels.\n\n"
-                    "This usually means the two images overlap only at "
-                    "their edges, so no output pixel is fully covered "
-                    "by the input.\n\n"
+                    "This usually means the two images do not actually "
+                    "share any sky coverage.\n\n"
                     "Try a closer-aligned pair of images.")
                 return
 
@@ -2966,7 +3091,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 out_header['BUNIT'] = bunit
             out_header['HISTORY'] = (
                 f"Slides Convolute: sigma={sigma_arcsec:.4f}\" "
-                f"({sigma_fine_pix:.3f} fine-px); reprojected to "
+                f"({'physical PSF' if use_physical else 'pixel-scale proxy'}, "
+                f"{sigma_fine_pix:.3f} fine-px); reprojected to "
                 f"{target_pix:.4f}\"/px "
                 f"({'flux' if per_pixel_flux else 'SB'} mode)"
             )

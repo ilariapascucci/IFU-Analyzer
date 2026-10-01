@@ -612,10 +612,8 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     print(f">>> Done ({time.time() - start:.1f}s). Fitted {ok}/{total} pixels; "
           f"T range {t_lo:.1f}-{t_hi:.1f} K")
 
-    # Whole-cube (or region-restricted) summed anchor fit, the same thing Run
-    # Fit does -- same mask as the per-pixel maps above, so it stays "same as
-    # Run Fit" whether or not a region is imported. Reused if the caller
-    # already ran it.
+    # Whole-cube/region anchor fit, same mask as the per-pixel maps above, so
+    # it stays "same as Run Fit" either way. Reused if the caller already ran it.
     if region_fit is None:
         region_fit = fit_region(
             cube, line_table, mask=region_mask, molecule=molecule,

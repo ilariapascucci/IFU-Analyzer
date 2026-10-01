@@ -69,6 +69,27 @@ def _make_2d_wcs(header):
     except Exception:
         return None
     
+def miri_psf_sigma_arcsec(wavelength_in_um, wavelength_target_um):
+    """Gaussian-kernel sigma (arcsec) to match wavelength_in's PSF to
+    wavelength_target's, using the MIRI FWHM(") = 0.033*lambda_um + 0.106 relation.
+
+    Args:
+        wavelength_in_um (float): Wavelength of the image being matched (um).
+        wavelength_target_um (float): Wavelength whose PSF is the target (um).
+
+    Returns:
+        sigma_arcsec (float): Kernel sigma in arcsec, or 0.0 if the target's
+            PSF is not larger than the input's (nothing to convolve).
+    """
+    fwhm_in = 0.033 * wavelength_in_um + 0.106
+    fwhm_target = 0.033 * wavelength_target_um + 0.106
+    if fwhm_target <= fwhm_in:
+        return 0.0
+    sigma_in = fwhm_in / 2.35482
+    sigma_target = fwhm_target / 2.35482
+    return (sigma_target ** 2 - sigma_in ** 2) ** 0.5
+
+
 # --- Gaussian convolution: pure astropy, NaN-aware, flux-preserving ---
 
 def gaussian_convolve_match(image, sigma_pix):
@@ -522,7 +543,9 @@ def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
     coverage = np.clip(coverage, 0.0, 1.0)
 
     out = np.full(dst_shape, np.nan)
-    has_overlap = coverage >= (1.0 - 1e-6)
+    # Any real overlap counts: flux_acc/area_acc already weight each pixel
+    # by its own overlap fraction, so partial coverage still holds its correct share.
+    has_overlap = coverage > 1e-6
 
     if conserve_flux:
         out[has_overlap] = flux_acc[has_overlap]
