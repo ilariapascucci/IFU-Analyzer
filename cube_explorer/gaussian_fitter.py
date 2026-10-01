@@ -1353,13 +1353,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         spectra_noise_row = cube[noise_wave_mask, row_idx, :] if noise_wave_mask is not None else None
         return row_idx, spectra_row, spectra_noise_row, ctx
 
-    # Determine workers
+    # Determine workers. The memory cap runs even when a caller passes its
+    # own n_jobs (e.g. the GUI's n_jobs=8), not only on the None/auto path.
     if n_jobs is None:
         try:
             cpu = os.cpu_count() or 1
         except Exception:
             cpu = 1
-        n_jobs = safe_worker_count(max(1, min(cpu, 8)))
+        n_jobs = max(1, min(cpu, 8))
+    n_jobs = safe_worker_count(n_jobs)
 
     cancelled = False
 
