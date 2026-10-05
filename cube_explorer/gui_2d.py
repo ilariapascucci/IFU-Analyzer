@@ -14,6 +14,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.stats import sigma_clipped_stats  # used by: _apply_contour
+from astropy.stats import gaussian_sigma_to_fwhm
 from astropy.coordinates import SkyCoord  # used by: _apply_loaded_contour
 import astropy.units as u  # used by: _apply_loaded_contour
 from scipy.ndimage import rotate  # used by: rotate_image
@@ -157,8 +158,8 @@ def _run_naman_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
     convolved = _naman_convolve_match([conv_img], [conv_wl], [ref_wl], [conv_pix])
     reprojected, footprints = _naman_reproject_flux_maps(convolved, [conv_header], ref_header)
 
-    sigma_in = fwhm_in / 2.35482
-    sigma_target = fwhm_target / 2.35482
+    sigma_in = fwhm_in / gaussian_sigma_to_fwhm
+    sigma_target = fwhm_target / gaussian_sigma_to_fwhm
     sigma_kernel_arcsec = (sigma_target ** 2 - sigma_in ** 2) ** 0.5
 
     return {"image": reprojected[0], "footprint": footprints[0],
@@ -443,7 +444,7 @@ class BatchMatchResolutionDialog(QDialog):
                         sigma_arcsec = miri_psf_sigma_arcsec(file_wls[id(info)], ref_wl_batch)
                     else:
                         sigma_arcsec = (
-                            max(0.0, worst_pix**2 - fine_pix**2) ** 0.5) / 2.3548
+                            max(0.0, worst_pix**2 - fine_pix**2) ** 0.5) / gaussian_sigma_to_fwhm
                     sigma_fine_pix = (sigma_arcsec / fine_pix
                                       if fine_pix > 0 else 0.0)
 
@@ -3030,7 +3031,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     "Please load a matching pair of images of the same field.")
                 return
 
-        sigma_proxy = (max(0.0, target_pix**2 - fine_pix**2) ** 0.5) / 2.3548
+        sigma_proxy = (max(0.0, target_pix**2 - fine_pix**2) ** 0.5) / gaussian_sigma_to_fwhm
         sigma_physical = miri_psf_sigma_arcsec(wl_fine, wl_ref) if use_physical else None
         sigma_arcsec = sigma_physical if use_physical else sigma_proxy
         sigma_fine_pix = sigma_arcsec / fine_pix if fine_pix > 0 else 0.0
@@ -3242,7 +3243,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         fwhm_in = 0.033 * conv_wl + 0.106
         fwhm_target = 0.033 * ref_wl + 0.106
-        sigma_arcsec = ((fwhm_target / 2.35482) ** 2 - (fwhm_in / 2.35482) ** 2) ** 0.5
+        sigma_arcsec = ((fwhm_target / gaussian_sigma_to_fwhm) ** 2 - (fwhm_in / gaussian_sigma_to_fwhm) ** 2) ** 0.5
 
         bunit = fine_header.get('BUNIT', '') if fine_header is not None else ''
 

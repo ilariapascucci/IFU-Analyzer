@@ -15,6 +15,7 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from threading import Lock
 
 import numpy as np
+from astropy.stats import gaussian_sigma_to_fwhm
 
 from .unit_converter import extract_units
 from .utils import safe_worker_count
@@ -900,7 +901,7 @@ def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
         if cube.instrument == "MIRI" and ref_wavelength_miri is not None:
             sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
         else:
-            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2)) ** 0.5 / 2.3548
+            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2)) ** 0.5 / gaussian_sigma_to_fwhm
         sigma_pix = sigma_arcsec / scale if scale > 0 else 0.0
         per_cube.append({
             "wavelength": line["wavelength"],
@@ -1087,7 +1088,7 @@ def convolve_line_maps(native_result, cancel_flag=None):
         if instrument == "MIRI" and ref_wavelength_miri is not None:
             sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
         else:
-            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2) ** 0.5) / 2.3548
+            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2) ** 0.5) / gaussian_sigma_to_fwhm
         flux_common, err_common = _convolve_reproject_pair(
             flux_native, err_native, wcs, scale, dst_wcs, dst_shape, sigma_arcsec)
         flux_maps.append(flux_common)

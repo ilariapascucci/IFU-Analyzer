@@ -17,6 +17,7 @@ from astropy.wcs import WCS
 from astropy.wcs.utils import proj_plane_pixel_scales  # used by: _get_pixel_size_arcsec
 from astropy.convolution import convolve_fft, Gaussian2DKernel  # used by: gaussian_convolve_match
 from astropy.coordinates import SkyCoord  # used by: build_target_wcs_for_batch
+from astropy.stats import gaussian_sigma_to_fwhm
 import astropy.units as u  # used by: build_target_wcs_for_batch
 
 # Suppress FITS warning messages about header formatting
@@ -85,8 +86,8 @@ def miri_psf_sigma_arcsec(wavelength_in_um, wavelength_target_um):
     fwhm_target = 0.033 * wavelength_target_um + 0.106
     if fwhm_target <= fwhm_in:
         return 0.0
-    sigma_in = fwhm_in / 2.35482
-    sigma_target = fwhm_target / 2.35482
+    sigma_in = fwhm_in / gaussian_sigma_to_fwhm
+    sigma_target = fwhm_target / gaussian_sigma_to_fwhm
     return (sigma_target ** 2 - sigma_in ** 2) ** 0.5
 
 

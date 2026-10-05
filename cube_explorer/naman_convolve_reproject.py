@@ -1,12 +1,10 @@
 """
-convolved_reproject.ipynb, ported for GUI use. gaussian_convolve_match/save_reprojected_fits
-are verbatim; reproject_flux_maps has two fixes (marked inline): convert flux to surface
-brightness before reprojecting, back to flux after (reproject_exact preserves brightness, not
-flux); and scale a partial pixel's flux by its actually-covered fraction, not its full area.
+convolved_reproject.ipynb, ported for GUI use.
 """
 
 import numpy as np
 from astropy.convolution import convolve_fft, Gaussian2DKernel
+from astropy.stats import gaussian_sigma_to_fwhm
 from reproject import reproject_exact
 from astropy.io import fits
 
@@ -64,8 +62,8 @@ def gaussian_convolve_match(images,
             continue
 
         # Convert FWHM -> sigma (arcsec)
-        sigma_in = fwhm_in / 2.35482
-        sigma_target = fwhm_target / 2.35482
+        sigma_in = fwhm_in / gaussian_sigma_to_fwhm
+        sigma_target = fwhm_target / gaussian_sigma_to_fwhm
 
         # Required convolution kernel
         sigma_kernel_arcsec = np.sqrt(sigma_target**2 - sigma_in**2)
@@ -263,8 +261,8 @@ def convolution_plan_naman(native_result):
                              "sigma_arcsec": 0.0, "sigma_pix": 0.0})
             continue
         fwhm_in = 0.033 * wl + 0.106
-        sigma_in = fwhm_in / 2.35482
-        sigma_target = fwhm_target / 2.35482
+        sigma_in = fwhm_in / gaussian_sigma_to_fwhm
+        sigma_target = fwhm_target / gaussian_sigma_to_fwhm
         sigma_kernel_arcsec = (max(0.0, sigma_target**2 - sigma_in**2)) ** 0.5
         sigma_kernel_pix = sigma_kernel_arcsec / scales[i] if scales[i] > 0 else 0.0
         per_cube.append({"wavelength": wl, "filename": filenames[i],

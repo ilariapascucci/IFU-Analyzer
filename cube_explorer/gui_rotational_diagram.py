@@ -9,6 +9,7 @@ import io
 import time
 import zipfile
 import numpy as np
+from astropy.stats import gaussian_sigma_to_fwhm
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
@@ -4293,7 +4294,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px {grid_note}")
         lay.addWidget(header_label)
 
-        headers = ["Line (um)", "File", "Native (\"/px)", "Blur"]
+        headers = ["Line (um)", "File", "Native (\"/px)", "Blur (FWHM)"]
         table = QTableWidget(len(rows), len(headers), dlg)
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -4304,17 +4305,20 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         def _blur_text(c):
             """
-            Describe one line's contribution to the common grid.
+            Describe one line's contribution to the common grid, as FWHM.
 
             Args:
                 c (dict): One convolution_plan()['per_cube'] entry.
 
             Returns:
-                text (str): 'sets the resolution', or the blur applied to match it.
+                text (str): 'sets the resolution', or the FWHM blur applied
+                    to match it, in arcsec and native pixels.
             """
             if c["sigma_pix"] <= 1e-6:
                 return "sets the resolution"
-            return f"{c['sigma_arcsec']:.4f}\" ({c['sigma_pix']:.2f} px)"
+            fwhm_arcsec = c["sigma_arcsec"] * gaussian_sigma_to_fwhm
+            fwhm_pix = c["sigma_pix"] * gaussian_sigma_to_fwhm
+            return f"{fwhm_arcsec:.4f}\" ({fwhm_pix:.2f} px)"
 
         def _fill():
             """
