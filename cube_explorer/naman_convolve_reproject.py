@@ -1,7 +1,8 @@
 """
 convolved_reproject.ipynb, ported for GUI use. gaussian_convolve_match/save_reprojected_fits
-are verbatim; reproject_flux_maps has one agreed fix (marked inline): convert flux to
-surface brightness before reprojecting, back to flux after -- reproject_exact preserves brightness, not flux.
+are verbatim; reproject_flux_maps has two fixes (marked inline): convert flux to surface
+brightness before reprojecting, back to flux after (reproject_exact preserves brightness, not
+flux); and scale a partial pixel's flux by its actually-covered fraction, not its full area.
 """
 
 import numpy as np
@@ -153,8 +154,9 @@ def reproject_flux_maps(images, input_headers, output_header):
         #if exclude_small:
         #    image_out[image_out < min_value] = np.nan
 
-        # FIX: surface brightness -> flux, the output grid's own pixel solid angle
-        image_out = image_out * omega_out.value
+        # FIX: surface brightness -> flux, scaled by the actually-covered
+        # fraction (footprint) -- not scaled up to the full pixel's own area.
+        image_out = image_out * omega_out.value * footprint
 
         reprojected_images.append(image_out)
         footprints.append(footprint)

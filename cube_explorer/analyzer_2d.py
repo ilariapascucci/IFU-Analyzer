@@ -90,12 +90,12 @@ def miri_psf_sigma_arcsec(wavelength_in_um, wavelength_target_um):
     return (sigma_target ** 2 - sigma_in ** 2) ** 0.5
 
 
-# --- Gaussian convolution: pure astropy, NaN-aware, flux-preserving ---
+# --- Gaussian convolution: pure astropy, NaN-aware ---
 
 def gaussian_convolve_match(image, sigma_pix):
-    """Smooth `image` with a Gaussian of width `sigma_pix` (pixels), NaN-aware
-    and flux-preserving. Returns a new array (image is not modified); a
-    no-op copy is returned when sigma_pix <= 0 (scales already match).
+    """Smooth `image` with a Gaussian of width `sigma_pix` (pixels), NaN-aware.
+    Not rescaled to force the output's total to match the input exactly --
+    small edge/NaN drift is left as is, same as Naman's own convolution.
 
     Args:
         image (numpy.ndarray): 2D image to smooth.
@@ -111,29 +111,23 @@ def gaussian_convolve_match(image, sigma_pix):
     kernel = Gaussian2DKernel(x_stddev=float(sigma_pix))
 
     finite_mask = np.isfinite(image)
-    sum_in = float(np.nansum(image[finite_mask]))
 
     # NaNs are interpolated from finite neighbours during convolution, then
     # restored (preserve_nan) so flux never leaks into NaN regions.
+    # Edge padding is NaN too (not zero), so it is excluded the same way
+    # instead of biasing near-edge pixels toward a fictitious zero outside the frame.
     out = convolve_fft(
         image, kernel,
         nan_treatment='interpolate',
         preserve_nan=True,
-        boundary='fill', fill_value=0.0,
+        min_wt=0.5,  # drop pixels whose kernel support was mostly missing data
+        boundary='fill', fill_value=np.nan,
         normalize_kernel=True,
         allow_huge=True,
     )
 
     out = np.array(out, dtype=float)
     out = np.where(finite_mask, out, np.nan)
-    sum_out = float(np.nansum(out[finite_mask]))
-    # Renormalize to the input's total flux: this compensates for kernel-spill
-    # across the image edge, which would otherwise silently lose some flux.
-    if sum_in != 0.0 and sum_out != 0.0:
-        scale = sum_in / sum_out
-        if 0.5 < scale < 2.0:
-            out = np.where(finite_mask, out * scale, np.nan)
-
     return out
 
 
@@ -552,6 +546,34 @@ def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
     else:
         out[has_overlap] = flux_acc[has_overlap] / area_acc[has_overlap]
     return out, coverage, area_acc
+
+
+def convolve_and_reproject(image, src_wcs, src_pix_arcsec, dst_wcs, dst_shape,
+                            sigma_arcsec, conserve_flux=True):
+    """Resolution-match one map onto a destination grid: convolve to
+    sigma_arcsec, then reproject flux-conservingly. The shared recipe behind
+    every resolution-matching feature (2D analyzer Pair/Batch, rotational
+    diagram Convolve Maps) -- fix this once, every caller gets the fix.
+
+    Args:
+        image (numpy.ndarray): Native-grid 2D map to resolution-match.
+        src_wcs (astropy.wcs.WCS): image's own celestial WCS.
+        src_pix_arcsec (float): image's native pixel scale (arcsec/pixel).
+        dst_wcs (astropy.wcs.WCS): Destination WCS.
+        dst_shape (tuple): (ny, nx) of the destination grid.
+        sigma_arcsec (float): Gaussian kernel sigma to convolve with (arcsec).
+        conserve_flux (bool): True for flux-per-pixel units, False for
+            surface-brightness units.
+
+    Returns:
+        result (tuple): (reprojected, coverage) -- reprojected image (NaN
+            where nothing overlaps) and fractional coverage per output pixel.
+    """
+    sigma_pix = sigma_arcsec / src_pix_arcsec if src_pix_arcsec > 0 else 0.0
+    blurred = gaussian_convolve_match(image, sigma_pix=sigma_pix)
+    reprojected, coverage, _ = reproject_exact(
+        blurred, src_wcs, dst_wcs, dst_shape, conserve_flux=conserve_flux)
+    return reprojected, coverage
 
 
 def _nan_border_bounds(valid_mask):

@@ -37,14 +37,14 @@ from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
 from . import region_io
+from .utils import detect_instrument_from_header
 from .fits_export import build_2d_export_header, write_fits_product
 from .analyzer_2d import (
     _get_pixel_size_arcsec,
     _make_2d_wcs,
-    gaussian_convolve_match,
+    convolve_and_reproject,
     build_target_wcs_for_pair,
     build_target_wcs_for_batch,
-    reproject_exact,
     _nan_border_bounds,
     _is_per_pixel_flux_unit,
     _wcs_footprints_overlap,
@@ -371,13 +371,14 @@ class BatchMatchResolutionDialog(QDialog):
             # ---- 2. Find the worst (coarsest) scale ---------------------
             worst_pix = max(info['pix_scale'] for info in images_data)
 
-            # Physical PSF formula is enforced when every file has a wavelength
-            # and the reference's is longest; else ask once: enter it, or use the proxy.
-            ref_info = next(info for info in images_data if info['pix_scale'] == worst_pix)
+            # Physical PSF formula needs every file to be MIRI with a known
+            # wavelength; the longest wavelength present sets the PSF reference.
+            is_miri_batch = all(
+                detect_instrument_from_header(info['header']) == "MIRI" for info in images_data)
             file_wls = {id(info): _header_line_wavelength_um(info['header']) for info in images_data}
 
             def _physical_ok():
-                """Every file has a wavelength and the reference's is longest.
+                """Every file has a known line wavelength.
 
                 Args:
                     None
@@ -385,12 +386,11 @@ class BatchMatchResolutionDialog(QDialog):
                 Returns:
                     ok (bool): True if the physical formula can be used.
                 """
-                wls = file_wls.values()
-                return all(wl is not None for wl in wls) and file_wls[id(ref_info)] >= max(wls)
+                return all(wl is not None for wl in file_wls.values())
 
-            use_physical_batch = _physical_ok()
+            use_physical_batch = is_miri_batch and _physical_ok()
 
-            if not use_physical_batch:
+            if is_miri_batch and not use_physical_batch:
                 choice_box = QMessageBox(self)
                 choice_box.setWindowTitle("Line Wavelength Needed")
                 choice_box.setText(
@@ -410,18 +410,12 @@ class BatchMatchResolutionDialog(QDialog):
                                 QApplication.restoreOverrideCursor()
                                 return
                             file_wls[id(info)] = wl
-                    if _physical_ok():
-                        use_physical_batch = True
-                    else:
-                        QMessageBox.warning(
-                            self, "Line Wavelength Needed",
-                            f"{ref_info['filename']}'s wavelength must be the "
-                            f"longest -- falling back to the pixel-scale proxy.")
+                    use_physical_batch = True
                 elif clicked is not proxy_btn:
                     QApplication.restoreOverrideCursor()
                     return
 
-            ref_wl_batch = file_wls[id(ref_info)]
+            ref_wl_batch = max(file_wls.values()) if use_physical_batch else None
 
             # ---- 3. Build a single common destination WCS ---------------
             dst_wcs, dst_shape = build_target_wcs_for_batch(
@@ -453,14 +447,11 @@ class BatchMatchResolutionDialog(QDialog):
                     sigma_fine_pix = (sigma_arcsec / fine_pix
                                       if fine_pix > 0 else 0.0)
 
-                    convolved = gaussian_convolve_match(
-                        fine_data, sigma_pix=sigma_fine_pix)
-
-                    # reproject_exact already NaNs zero-coverage pixels and
+                    # convolve_and_reproject already NaNs zero-coverage pixels and
                     # weights partial-coverage ones correctly -- no extra mask needed.
-                    result_img, coverage, _ = reproject_exact(
-                        convolved, fine_wcs, dst_wcs, dst_shape,
-                        conserve_flux=per_pix)
+                    result_img, coverage = convolve_and_reproject(
+                        fine_data, fine_wcs, fine_pix, dst_wcs, dst_shape,
+                        sigma_arcsec, conserve_flux=per_pix)
                     if not np.any(np.isfinite(result_img)):
                         QMessageBox.warning(
                             self, "Empty Result",
@@ -2924,36 +2915,100 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 "Could not determine pixel scale for one or both images.")
             return
 
-        # Pick the coarser scale as the target; the finer image gets convolved
-        if pix_l >= pix_r:
-            ref_side, conv_side = "left", "right"
-            target_pix, fine_pix = pix_l, pix_r
-            ref_header = self.header_left
-            ref_img    = self.image_left
-            ref_filename = self.filename_left or "left panel"
-            fine_header = self.header_right
-            fine_img = self.image_right
-            fine_filename = self.filename_right or "right panel"
-        else:
-            ref_side, conv_side = "right", "left"
-            target_pix, fine_pix = pix_r, pix_l
-            ref_header = self.header_right
-            ref_img    = self.image_right
-            ref_filename = self.filename_right or "right panel"
-            fine_header = self.header_left
-            fine_img = self.image_left
-            fine_filename = self.filename_left or "left panel"
+        # Physical PSF formula is MIRI-specific; any other instrument (or an
+        # unrecognized one) goes straight to the pixel-scale proxy.
+        is_miri = (detect_instrument_from_header(self.header_left) == "MIRI"
+                   and detect_instrument_from_header(self.header_right) == "MIRI")
+        use_physical = False
+        wl_left = wl_right = None
 
-        # Same-resolution short-circuit: refuse politely instead of
-        # producing a degraded copy when the user clicks again.
-        same_scale_eps = 1e-4  # arcsec
-        if abs(target_pix - fine_pix) < same_scale_eps:
-            QMessageBox.information(
-                self, "Same resolution",
-                f"Both panels already have the same pixel scale "
-                f"({target_pix:.4f} arcsec/px).\n\n"
-                "Slides Convolute would be a no-op, so nothing was changed.")
-            return
+        # If MIRI, the formula is enforced whenever both images have a known
+        # line wavelength. If either is missing, ask once: enter it, or use the proxy.
+        if is_miri:
+            wl_left = _header_line_wavelength_um(self.header_left)
+            wl_right = _header_line_wavelength_um(self.header_right)
+            use_physical = wl_left is not None and wl_right is not None and wl_left != wl_right
+
+        if is_miri and not use_physical:
+            choice_box = QMessageBox(self)
+            choice_box.setWindowTitle("Line Wavelength Needed")
+            choice_box.setText(
+                "No usable line wavelength was found for one or both images.<br><br>"
+                "Enter it manually to use the physical PSF formula, or fall "
+                "back to the pixel-scale proxy?"
+            )
+            enter_btn = choice_box.addButton("Enter Wavelength", QMessageBox.ActionRole)
+            proxy_btn = choice_box.addButton("Use Pixel-Scale Proxy", QMessageBox.ActionRole)
+            choice_box.addButton(QMessageBox.Cancel)
+            choice_box.exec_()
+            clicked = choice_box.clickedButton()
+            if clicked is enter_btn:
+                if wl_left is None:
+                    wl_left = _get_line_wavelength_um(
+                        self.header_left, self.filename_left or "left panel", self)
+                    if wl_left is None:
+                        return
+                if wl_right is None:
+                    wl_right = _get_line_wavelength_um(
+                        self.header_right, self.filename_right or "right panel", self)
+                    if wl_right is None:
+                        return
+                if wl_left != wl_right:
+                    use_physical = True
+                else:
+                    QMessageBox.warning(
+                        self, "Line Wavelength Needed",
+                        "Both panels have the same wavelength -- nothing to "
+                        "convolve. Falling back to the pixel-scale proxy.")
+            elif clicked is not proxy_btn:
+                return
+
+        # Reference/fine roles: by wavelength when the physical formula applies
+        # (longer wavelength = larger PSF) -- picking by scale instead can name the wrong line.
+        if use_physical:
+            if wl_left > wl_right:
+                ref_side, conv_side = "left", "right"
+                ref_header, ref_img = self.header_left, self.image_left
+                ref_filename = self.filename_left or "left panel"
+                fine_header, fine_img = self.header_right, self.image_right
+                fine_filename = self.filename_right or "right panel"
+                target_pix, fine_pix = pix_l, pix_r
+                wl_ref, wl_fine = wl_left, wl_right
+            else:
+                ref_side, conv_side = "right", "left"
+                ref_header, ref_img = self.header_right, self.image_right
+                ref_filename = self.filename_right or "right panel"
+                fine_header, fine_img = self.header_left, self.image_left
+                fine_filename = self.filename_left or "left panel"
+                target_pix, fine_pix = pix_r, pix_l
+                wl_ref, wl_fine = wl_right, wl_left
+        else:
+            wl_ref = wl_fine = None
+            if pix_l >= pix_r:
+                ref_side, conv_side = "left", "right"
+                target_pix, fine_pix = pix_l, pix_r
+                ref_header, ref_img = self.header_left, self.image_left
+                ref_filename = self.filename_left or "left panel"
+                fine_header, fine_img = self.header_right, self.image_right
+                fine_filename = self.filename_right or "right panel"
+            else:
+                ref_side, conv_side = "right", "left"
+                target_pix, fine_pix = pix_r, pix_l
+                ref_header, ref_img = self.header_right, self.image_right
+                ref_filename = self.filename_right or "right panel"
+                fine_header, fine_img = self.header_left, self.image_left
+                fine_filename = self.filename_left or "left panel"
+
+            # Same-resolution short-circuit: only meaningful for the proxy --
+            # the physical path can still have real blur to apply even at equal pixel scales.
+            same_scale_eps = 1e-4  # arcsec
+            if abs(target_pix - fine_pix) < same_scale_eps:
+                QMessageBox.information(
+                    self, "Same resolution",
+                    f"Both panels already have the same pixel scale "
+                    f"({target_pix:.4f} arcsec/px).\n\n"
+                    "Slides Convolute would be a no-op, so nothing was changed.")
+                return
 
         fine_wcs = _make_2d_wcs(fine_header)
         if fine_wcs is None:
@@ -2975,45 +3030,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     "Please load a matching pair of images of the same field.")
                 return
 
-        # Physical PSF formula is enforced whenever both images have a known
-        # line wavelength. If either is missing, ask once: enter it, or use the proxy.
-        wl_fine = _header_line_wavelength_um(fine_header)
-        wl_ref = _header_line_wavelength_um(ref_header)
         sigma_proxy = (max(0.0, target_pix**2 - fine_pix**2) ** 0.5) / 2.3548
-        use_physical = wl_fine is not None and wl_ref is not None and wl_ref >= wl_fine
-
-        if not use_physical:
-            choice_box = QMessageBox(self)
-            choice_box.setWindowTitle("Line Wavelength Needed")
-            choice_box.setText(
-                "No usable line wavelength was found for one or both images.<br><br>"
-                "Enter it manually to use the physical PSF formula, or fall "
-                "back to the pixel-scale proxy?"
-            )
-            enter_btn = choice_box.addButton("Enter Wavelength", QMessageBox.ActionRole)
-            proxy_btn = choice_box.addButton("Use Pixel-Scale Proxy", QMessageBox.ActionRole)
-            choice_box.addButton(QMessageBox.Cancel)
-            choice_box.exec_()
-            clicked = choice_box.clickedButton()
-            if clicked is enter_btn:
-                if wl_fine is None:
-                    wl_fine = _get_line_wavelength_um(fine_header, fine_filename, self)
-                    if wl_fine is None:
-                        return
-                if wl_ref is None:
-                    wl_ref = _get_line_wavelength_um(ref_header, ref_filename, self)
-                    if wl_ref is None:
-                        return
-                if wl_ref >= wl_fine:
-                    use_physical = True
-                else:
-                    QMessageBox.warning(
-                        self, "Line Wavelength Needed",
-                        f"{ref_side}'s wavelength ({wl_ref:.4f} um) must be the "
-                        f"longer one -- falling back to the pixel-scale proxy.")
-            elif clicked is not proxy_btn:
-                return
-
         sigma_physical = miri_psf_sigma_arcsec(wl_fine, wl_ref) if use_physical else None
         sigma_arcsec = sigma_physical if use_physical else sigma_proxy
         sigma_fine_pix = sigma_arcsec / fine_pix if fine_pix > 0 else 0.0
@@ -3053,13 +3070,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
 
-            convolved = gaussian_convolve_match(fine_img, sigma_pix=sigma_fine_pix)
-
-            # 2. Flux-conserving reproject to the target WCS. reproject_exact
-            # already NaNs zero-coverage pixels and weights partial ones correctly.
-            result_img, coverage, _ = reproject_exact(
-                convolved, fine_wcs, dst_wcs, dst_shape,
-                conserve_flux=per_pixel_flux)
+            # convolve_and_reproject already NaNs zero-coverage pixels and
+            # weights partial ones correctly -- no extra mask needed.
+            result_img, coverage = convolve_and_reproject(
+                fine_img, fine_wcs, fine_pix, dst_wcs, dst_shape,
+                sigma_arcsec, conserve_flux=per_pixel_flux)
 
             if not np.any(np.isfinite(result_img)):
                 QApplication.restoreOverrideCursor()

@@ -21,7 +21,7 @@ from .utils import safe_worker_count
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from .analyzer_2d import (
     _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap,
-    build_target_wcs_for_batch, gaussian_convolve_match, reproject_exact,
+    build_target_wcs_for_batch, convolve_and_reproject, miri_psf_sigma_arcsec,
 )
 from .fits_export import build_2d_export_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
@@ -760,10 +760,12 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
 
 
 def _convolve_reproject_pair(flux_map, err_map, src_wcs, src_pix_arcsec,
-                             dst_wcs, dst_shape, worst_pix_arcsec):
+                             dst_wcs, dst_shape, sigma_arcsec):
     """
-    Match one line's flux/error maps to the common grid: convolve to the
-    worst resolution, then reproject flux-conservingly onto dst_wcs.
+    Match one line's flux/error maps to the common grid: convolve to
+    sigma_arcsec, then reproject flux-conservingly onto dst_wcs. Shares its
+    convolve+reproject recipe with the 2D analyzer's Pair/Batch buttons via
+    analyzer_2d.convolve_and_reproject.
 
     Args:
         flux_map (np.ndarray): Native-grid flux map
@@ -772,24 +774,16 @@ def _convolve_reproject_pair(flux_map, err_map, src_wcs, src_pix_arcsec,
         src_pix_arcsec (float): This map's native pixel scale (arcsec)
         dst_wcs (astropy.wcs.WCS): The common output WCS
         dst_shape (tuple): (ny, nx) of the common grid
-        worst_pix_arcsec (float): The coarsest pixel scale among all inputs
+        sigma_arcsec (float): Gaussian kernel sigma to convolve with (arcsec)
 
     Returns:
         maps (tuple): (flux_common, err_common), NaN outside this map's own
             reprojected footprint
     """
-    # Same recipe as gui_2d.py's batch convolution -- resolution-match then
-    # flux-conserving reprojection. Both maps get identical treatment.
-    sigma_arcsec = (max(0.0, worst_pix_arcsec ** 2 - src_pix_arcsec ** 2)) ** 0.5 / 2.3548
-    sigma_pix = sigma_arcsec / src_pix_arcsec if src_pix_arcsec > 0 else 0.0
-
-    flux_blur = gaussian_convolve_match(flux_map, sigma_pix=sigma_pix)
-    err_blur = gaussian_convolve_match(err_map, sigma_pix=sigma_pix)
-
-    flux_common, cov1, _ = reproject_exact(flux_blur, src_wcs, dst_wcs, dst_shape, conserve_flux=True)
-    err_common, cov2, _ = reproject_exact(err_blur, src_wcs, dst_wcs, dst_shape, conserve_flux=True)
-    flux_common[cov1 < 1.0 - 1e-6] = np.nan
-    err_common[cov2 < 1.0 - 1e-6] = np.nan
+    flux_common, _ = convolve_and_reproject(
+        flux_map, src_wcs, src_pix_arcsec, dst_wcs, dst_shape, sigma_arcsec, conserve_flux=True)
+    err_common, _ = convolve_and_reproject(
+        err_map, src_wcs, src_pix_arcsec, dst_wcs, dst_shape, sigma_arcsec, conserve_flux=True)
     return flux_common, err_common
 
 
@@ -896,9 +890,17 @@ def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
     worst_pix = max(scales)
     dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
 
+    # Mirrors convolve_line_maps's own sigma-source choice, so this preview
+    # matches what the real run will actually do.
+    miri_wavelengths = [l["wavelength"] for l, c in zip(lines, cubes) if c.instrument == "MIRI"]
+    ref_wavelength_miri = max(miri_wavelengths) if miri_wavelengths else None
+
     per_cube = []
     for cube, line, scale in zip(cubes, lines, scales):
-        sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2)) ** 0.5 / 2.3548
+        if cube.instrument == "MIRI" and ref_wavelength_miri is not None:
+            sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
+        else:
+            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2)) ** 0.5 / 2.3548
         sigma_pix = sigma_arcsec / scale if scale > 0 else 0.0
         per_cube.append({
             "wavelength": line["wavelength"],
@@ -940,8 +942,8 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
         result (dict): 'kept_lines', 'dropped_lines' (line dicts),
             'native_flux_maps', 'native_flux_error_maps' (lists of 2D float32
             arrays, one per kept_lines entry, each cube's own native shape),
-            'native_wcs', 'native_shapes', 'native_pix_arcsec' (one per
-            kept_lines entry), 'cube_filenames'
+            'native_wcs', 'native_shapes', 'native_pix_arcsec', 'native_instrument'
+            (one per kept_lines entry), 'cube_filenames'
 
     Raises:
         ValueError: if fewer than 2 pairs are given, a cube has no readable
@@ -1038,6 +1040,7 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
         "native_flux_maps": native_flux_maps, "native_flux_error_maps": native_err_maps,
         "native_wcs": wcses, "native_shapes": shapes, "native_pix_arcsec": scales,
         "cube_filenames": [getattr(c, "filename", None) for c in cubes],
+        "native_instrument": [c.instrument for c in cubes],
     }
 
 
@@ -1062,17 +1065,31 @@ def convolve_line_maps(native_result, cancel_flag=None):
     wcses = native_result["native_wcs"]
     shapes = native_result["native_shapes"]
     scales = native_result["native_pix_arcsec"]
+    kept_lines = native_result["kept_lines"]
     worst_pix = max(scales)
     dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
     n_y, n_x = dst_shape
     print(f">>> Convolve Maps: {len(scales)} lines, worst scale {worst_pix:.4f} arcsec/px, "
           f"common grid {n_y}x{n_x}")
 
+    # The MIRI formula's own reference is the longest MIRI wavelength, not
+    # the coarsest pixel scale -- those two can disagree on real data.
+    instruments = native_result.get("native_instrument", [None] * len(kept_lines))
+    miri_wavelengths = [l["wavelength"] for l, inst in zip(kept_lines, instruments) if inst == "MIRI"]
+    ref_wavelength_miri = max(miri_wavelengths) if miri_wavelengths else None
+
     flux_maps, err_maps = [], []
-    for flux_native, err_native, wcs, scale in zip(
-            native_result["native_flux_maps"], native_result["native_flux_error_maps"], wcses, scales):
+    for flux_native, err_native, wcs, scale, line, instrument in zip(
+            native_result["native_flux_maps"], native_result["native_flux_error_maps"],
+            wcses, scales, kept_lines, instruments):
+        # The physical PSF formula is MIRI-specific; any other instrument
+        # (or an unrecognized one) falls back to the pixel-scale proxy.
+        if instrument == "MIRI" and ref_wavelength_miri is not None:
+            sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
+        else:
+            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2) ** 0.5) / 2.3548
         flux_common, err_common = _convolve_reproject_pair(
-            flux_native, err_native, wcs, scale, dst_wcs, dst_shape, worst_pix)
+            flux_native, err_native, wcs, scale, dst_wcs, dst_shape, sigma_arcsec)
         flux_maps.append(flux_common)
         err_maps.append(err_common)
 

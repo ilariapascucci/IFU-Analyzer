@@ -79,6 +79,28 @@ TELESCOPE_LOADERS = {
 }
 
 
+def detect_instrument_from_header(header):
+    """
+    Detect the instrument or telescope from one header's own keywords, with
+    no other HDUs to fall back on.
+
+    Args:
+        header (astropy.io.fits.Header): A single header.
+
+    Returns:
+        instrument (str or None): 'MUSE', 'MIRI', or 'NIRSpec', or None if not found
+    """
+    instrument = header.get("INSTRUME", "").strip().upper()
+    telescope = header.get("TELESCOP", "").strip().upper()
+    if "MUSE" in instrument or "MUSE" in telescope:
+        return "MUSE"
+    if "MIRI" in instrument or "MIRI" in telescope:
+        return "MIRI"
+    if "NIRSPEC" in instrument or "NIRSPEC" in telescope:
+        return "NIRSpec"
+    return None
+
+
 def detect_instrument(hdul):
     """
     Detect the instrument or telescope from FITS header keywords. Checks every HDU, since
@@ -90,20 +112,10 @@ def detect_instrument(hdul):
     Returns:
         instrument (str or None): 'MUSE', 'MIRI', or 'NIRSpec', or None if not found
     """
-
     for hdu in hdul:
-        hdr = hdu.header
-        instrument = hdr.get("INSTRUME", "").strip().upper()
-        telescope = hdr.get("TELESCOP", "").strip().upper()
-
-        # Match to known telescope keywords
-        if "MUSE" in instrument or "MUSE" in telescope:
-            return "MUSE"
-        if "MIRI" in instrument or "MIRI" in telescope:
-            return "MIRI"
-        if "NIRSPEC" in instrument or "NIRSPEC" in telescope:
-            return "NIRSpec"
-
+        instrument = detect_instrument_from_header(hdu.header)
+        if instrument is not None:
+            return instrument
     return None  # if no match found
 
 
