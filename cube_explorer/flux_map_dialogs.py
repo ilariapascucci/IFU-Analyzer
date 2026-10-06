@@ -318,8 +318,8 @@ class FluxMapResultsDialog(QDialog):
         self.fig = Figure(figsize=(12, 6))
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect('button_press_event', self._on_canvas_click)
-        toolbar = NavigationToolbar2QT(self.canvas, self)
-        map_layout.addWidget(toolbar)
+        self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        map_layout.addWidget(self.toolbar)
         map_layout.addWidget(self.canvas)
         map_widget.setLayout(map_layout)
         tabs.addTab(map_widget, "Flux Map")
@@ -374,10 +374,11 @@ class FluxMapResultsDialog(QDialog):
         Returns:
             None
         """
-        # Only process clicks if pixel selection is enabled
-        if not self.pixel_selection_enabled:
+        # A modal dialog opened mid-press would swallow the matching
+        # release, leaving the toolbar stuck mid-pan -- skip while active.
+        if self.toolbar.mode or not self.pixel_selection_enabled:
             return
-        
+
         if event.inaxes is None or self.cube_data is None or self.wavelength is None:
             return
         

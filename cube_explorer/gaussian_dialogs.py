@@ -379,8 +379,8 @@ class GaussianMapResultsDialog(QDialog):
         self.fig = Figure(figsize=(8, 6))
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect('button_press_event', self._on_canvas_click)
-        toolbar = NavigationToolbar2QT(self.canvas, self)
-        layout.addWidget(toolbar)
+        self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
 
         # Connect combo boxes to update function
@@ -673,7 +673,9 @@ class GaussianMapResultsDialog(QDialog):
         Returns:
             None
         """
-        if not self.pixel_selection_enabled:
+        # A modal dialog opened mid-press would swallow the matching
+        # release, leaving the toolbar stuck mid-pan -- skip while active.
+        if self.toolbar.mode or not self.pixel_selection_enabled:
             return
         if event.inaxes is None or event.xdata is None or event.ydata is None:
             return

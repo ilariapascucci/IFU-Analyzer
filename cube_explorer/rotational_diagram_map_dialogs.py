@@ -565,7 +565,8 @@ class RotDiagMapResultsDialog(QDialog):
         self.fig = Figure(figsize=(15, 5) if self.fit2t else (11, 5))
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect("button_press_event", self._on_canvas_click)
-        layout.addWidget(NavigationToolbar2QT(self.canvas, self))
+        self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
 
         btns = QHBoxLayout()
@@ -683,7 +684,9 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             None
         """
-        if not self.pixel_select_enabled or event.inaxes is None:
+        # A modal dialog opened mid-press would swallow the matching
+        # release, leaving the toolbar stuck mid-pan -- skip while active.
+        if self.toolbar.mode or not self.pixel_select_enabled or event.inaxes is None:
             return
         if event.xdata is None or event.ydata is None:
             return
