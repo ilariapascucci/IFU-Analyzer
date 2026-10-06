@@ -454,7 +454,8 @@ class SlicePlotter:
         self.ax.set_yticks([])
         self.fig.canvas.draw()
 
-    def plot_slice(self, image, title="", cmap=None, scale='Linear', flux_unit=""):
+    def plot_slice(self, image, title="", cmap=None, scale='Linear', flux_unit="",
+                   vmin=None, vmax=None):
         """Plot a 2D slice image with colorbar, creating or updating it as
         needed (origin lower-left, 'magma' colormap by default).
 
@@ -465,6 +466,10 @@ class SlicePlotter:
             scale (str): Intensity scaling: 'Linear', 'Log', 'Sqrt', or
                 'Power (gamma=2)'.
             flux_unit (str): Unit string for the flux/intensity values.
+            vmin (float): Color-scale lower bound, or None to use the
+                image's own minimum (auto).
+            vmax (float): Color-scale upper bound, or None to use the
+                image's own maximum (auto).
 
         Returns:
             None
@@ -472,28 +477,23 @@ class SlicePlotter:
         # If axes are empty (or cleared), reset self.im
         if self.im is None or not self.ax.has_data():
             self.im = None
-        
+
         # Determine normalization based on scale
-        vmin, vmax = np.nanmin(image), np.nanmax(image)
+        vmin = np.nanmin(image) if vmin is None else vmin
+        vmax = np.nanmax(image) if vmax is None else vmax
         
-        # Handle negative values for log scale
+        # Log needs v>0. Shift image, vmin, and vmax by one constant so the
+        # window width survives (the old bug recomputed vmax from scratch).
         if scale == 'Log':
             if vmin <= 0:
-                # Shift data to positive range for log scale
-                image_shifted = image - vmin + 1e-10
-                vmin_shifted = np.nanmin(image_shifted)
-                vmax_shifted = np.nanmax(image_shifted)
-                norm = LogNorm(vmin=vmin_shifted, vmax=vmax_shifted)
-                image = image_shifted
-            else:
-                norm = LogNorm(vmin=vmin, vmax=vmax)
+                shift = -vmin + 1e-10
+                image = image + shift
+                vmax = vmax + shift
+                vmin = 1e-10
+            norm = LogNorm(vmin=vmin, vmax=vmax)
         elif scale == 'Sqrt':
-            # Handle negative values for sqrt
-            if vmin < 0:
-                image_shifted = image - vmin
-                vmin = 0
-                vmax = np.nanmax(image_shifted)
-                image = image_shifted
+            # PowerNorm handles a negative vmin directly, so it needs no
+            # shift (Power gamma=2 below also never needed one).
             norm = PowerNorm(gamma=0.5, vmin=vmin, vmax=vmax)
         elif scale == 'Power (γ=2)':
             norm = PowerNorm(gamma=2.0, vmin=vmin, vmax=vmax)

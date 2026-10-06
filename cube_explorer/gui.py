@@ -39,6 +39,7 @@ from .gui_spectrum import GuiSpectrumMixin
 from .gui_region_selection import RegionSelectionMixin
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
+from .scale_dialog import ScaleDialog
 from .region_selector import RegionSelector
 from .analyzer_2d import _make_2d_wcs
 from . import region_io
@@ -1050,21 +1051,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.color_btn_right.setToolTip("Change right slice color scale")
         self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
 
-        # Copy colormap buttons
-        self.copy_color_btn_l = QPushButton("⎘🌈")
-        self.copy_color_btn_l.setFixedSize(35, 35)
-        self.copy_color_btn_l.setToolTip("Copy right slice colormap to left slice")
-        self.copy_color_btn_l.clicked.connect(lambda: self.copy_colormap('right','left'))
-
-        self.copy_color_btn_r = QPushButton("⎘🌈")
-        self.copy_color_btn_r.setFixedSize(35, 35)
-        self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
-        self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left','right'))
-
-        # Scale selection buttons - square icon buttons that pop up a menu
-        # of the available intensity scalings, matching the other square buttons.
+        # Scale selection buttons - square icon buttons that open the scale/
+        # range dialog, matching the other square buttons.
         def make_scale_button(target):
-            """Build a square button that pops up the scale-choice menu.
+            """Build a square button that opens the scale/range dialog.
 
             Args:
                 target (str): Panel the button applies to ('left' or 'right').
@@ -1075,24 +1065,40 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             btn = QPushButton("🎚")
             btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            menu = QMenu(btn)
-            for scale_type in ["Linear", "Log", "Sqrt", "Power (γ=2)"]:
-                menu.addAction(scale_type, lambda s=scale_type: self._change_scale(target, s))
-            btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
-            btn.setToolTip(f"Intensity scaling for {target} slice (Linear)")
+            btn.clicked.connect(lambda: self._open_scale_dialog(target))
+            btn.setToolTip(f"Intensity scaling for {target} slice (Linear, Auto range)")
             return btn
 
         self.scale_btn_left = make_scale_button('left')
         self.scale_btn_right = make_scale_button('right')
 
-        # Add copy buttons - each pulls the OTHER side's selection onto its own
-        # side, matching the colormap-copy buttons' direction (copy_color_btn_l/r).
-        self.copy_btn_l = make_shape_button("⎘", "left", checkable=False,
-            callback=lambda: self.copy_selection(source="right", target="left"))
-        self.copy_btn_l.setToolTip("Copy selection from right slice to left")
-        self.copy_btn_r = make_shape_button("⎘", "right", checkable=False,
-            callback=lambda: self.copy_selection(source="left", target="right"))
-        self.copy_btn_r.setToolTip("Copy selection from left slice to right")
+        # One copy button per panel. It opens a menu to copy the selection,
+        # colormap, or scale/range from the other panel.
+        def make_copy_button(target):
+            """Build a square button that opens a menu to copy selection,
+            colormap, or scale/range from the other panel.
+
+            Args:
+                target (str): Panel the button applies to ('left' or 'right').
+
+            Returns:
+                btn (QPushButton): The configured button.
+            """
+            other = "right" if target == "left" else "left"
+            btn = QPushButton("⎘")
+            btn.setFixedSize(35, 35)
+            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+            menu = QMenu(btn)
+            menu.addAction("Copy Selection",
+                           lambda: self.copy_selection(source=other, target=target))
+            menu.addAction("Copy Colormap", lambda: self.copy_colormap(other, target))
+            menu.addAction("Copy Scale/Range", lambda: self.copy_scale(other, target))
+            btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
+            btn.setToolTip(f"Copy selection, colormap, or scale/range from the {other} panel")
+            return btn
+
+        self.copy_menu_btn_l = make_copy_button('left')
+        self.copy_menu_btn_r = make_copy_button('right')
 
         # Edit Shape toggle buttons (enable drag/resize on a placed shape)
         self.edit_shape_btn_l = QPushButton("✎")
@@ -1193,8 +1199,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         left_sidebar.addWidget(self.scale_btn_left)
         for shape in ["*", "▭", "○", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
-        left_sidebar.addWidget(self.copy_btn_l)
-        left_sidebar.addWidget(self.copy_color_btn_l)
+        left_sidebar.addWidget(self.copy_menu_btn_l)
         left_sidebar.addWidget(self.edit_shape_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
         left_sidebar.addStretch()
@@ -1220,8 +1225,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         right_sidebar.addWidget(self.scale_btn_right)
         for shape in ["*", "▭", "○", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
-        right_sidebar.addWidget(self.copy_btn_r)
-        right_sidebar.addWidget(self.copy_color_btn_r)
+        right_sidebar.addWidget(self.copy_menu_btn_r)
         right_sidebar.addWidget(self.edit_shape_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
         right_sidebar.addStretch()
@@ -1393,6 +1397,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.plotted_artists = []  # Store matplotlib artist objects for plotted lines (detection + contaminant)
         self.scale_left = 'Linear'
         self.scale_right = 'Linear'
+        self.slice1_vmin = self.slice1_vmax = None  # None = auto
+        self.slice2_vmin = self.slice2_vmax = None
         
         # Gaussian fitting state
         self.gauss_left_x = None
@@ -1719,23 +1725,35 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Update plot using stored colormap preference per slice if available
         cmap = getattr(self, 'slice1_cmap' if target == 'left' else 'slice2_cmap', None)
         scale = self.scale_left if target == 'left' else self.scale_right
+        vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
+        vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
         # Get the flux unit for colorbar display
         flux_unit_raw = getattr(self.cube_data, "flux_unit", "")
         flux_unit_clean = clean_flux_unit(flux_unit_raw) if flux_unit_raw else ""
-        plotter.plot_slice(image, title, cmap=cmap, scale=scale, flux_unit=flux_unit_clean)
+        plotter.plot_slice(image, title, cmap=cmap, scale=scale, flux_unit=flux_unit_clean,
+                           vmin=vmin, vmax=vmax)
         
-        # Intensity stats with units
+        # Intensity stats with units -- always the data's own true linear
+        # values, regardless of the active display scale/range (see View below).
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
         total_sum, std = np.nansum(image), np.nanstd(image)
         unit_raw = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
         unit = clean_flux_unit(unit_raw)
+        # View: the color range the plot actually uses -- distinct from the
+        # data stats above, which never change with scale/range.
+        view_vmin = mn if vmin is None else vmin
+        view_vmax = mx if vmax is None else vmax
         stats_label.setText(
-            f"Intensity\n[{unit}]:\n"
+            f"Intensity (data)\n[{unit}]:\n"
             f"min={mn:.3e}\n"
             f"max={mx:.3e}\n"
             f"mean={mean:.3e}\n"
             f"sum={total_sum:.3e}\n"
             f"std={std:.3e}\n"
+            f"\n"
+            f"View: {scale}\n"
+            f"min={view_vmin:.3e}\n"
+            f"max={view_vmax:.3e}\n"
         )
 
         # Force redraw
@@ -2516,26 +2534,75 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.slice2_cmap = src_cmap
             self.slice2_plotter.set_cmap(src_cmap)
 
-    def _change_scale(self, target, scale_type):
-        """Change the intensity scaling (linear, log, sqrt, power) for a slice.
+    def _open_scale_dialog(self, target):
+        """Open the scale-type + vmin/vmax range dialog for a slice.
 
         Args:
-            target (str): Panel to rescale, 'left' or 'right'.
-            scale_type (str): Chosen scaling, e.g. 'Linear', 'Log', 'Sqrt', 'Power (γ=2)'.
+            target (str): Panel to configure, 'left' or 'right'.
 
         Returns:
             None
         """
-        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
-        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type})")
+        if not hasattr(self, 'cube_data') or self.cube_data is None:
+            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
+            return
 
-        # Store the scale choice
+        idx = self.last_idx_left if target == 'left' else self.last_idx_right
+        image = self.cube_data.get_slice(idx)
+        auto_vmin, auto_vmax = float(np.nanmin(image)), float(np.nanmax(image))
+
+        current_scale = self.scale_left if target == 'left' else self.scale_right
+        current_vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
+        current_vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
+
+        dialog = ScaleDialog(current_scale, auto_vmin, auto_vmax,
+                             vmin=current_vmin, vmax=current_vmax, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        scale_type = dialog.result_scale
+        vmin, vmax = dialog.result_vmin, dialog.result_vmax
+        range_desc = "Auto" if vmin is None and vmax is None else f"{vmin:.3e} to {vmax:.3e}"
+        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
+        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type}, {range_desc})")
+
         if target == 'left':
             self.scale_left = scale_type
+            self.slice1_vmin, self.slice1_vmax = vmin, vmax
         else:
             self.scale_right = scale_type
+            self.slice2_vmin, self.slice2_vmax = vmin, vmax
 
-        # Redisplay the current slice with the new scale
+        self._display_slice(idx, target)
+
+    def copy_scale(self, source, target):
+        """Copy one slice's scale type and vmin/vmax range onto the other slice.
+
+        Args:
+            source (str): Panel to copy from, 'left' or 'right'.
+            target (str): Panel to copy to, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        if source == 'left':
+            scale_type = self.scale_left
+            vmin, vmax = self.slice1_vmin, self.slice1_vmax
+        else:
+            scale_type = self.scale_right
+            vmin, vmax = self.slice2_vmin, self.slice2_vmax
+
+        range_desc = "Auto" if vmin is None and vmax is None else f"{vmin:.3e} to {vmax:.3e}"
+        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
+        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type}, {range_desc})")
+
+        if target == 'left':
+            self.scale_left = scale_type
+            self.slice1_vmin, self.slice1_vmax = vmin, vmax
+        else:
+            self.scale_right = scale_type
+            self.slice2_vmin, self.slice2_vmax = vmin, vmax
+
         if hasattr(self, 'cube_data') and self.cube_data is not None:
             idx = self.last_idx_left if target == 'left' else self.last_idx_right
             self._display_slice(idx, target)
