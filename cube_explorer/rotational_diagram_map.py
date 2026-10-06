@@ -126,9 +126,9 @@ def _build_molecular_data(lines, keys, molecule):
 
 
 def _run_fitter(fluxes, flux_errors, molecular_data, molecule, isotopologue,
-                opr, fit_opr, opr_grid, dist_pc, r_au):
+                opr, fit_opr, opr_grid, dist_pc, r_au, fit2t=False):
     """
-    Call the right rotational_diagram fitter (H2 or general), 1T only.
+    Call the right rotational_diagram fitter (H2 or general).
 
     Args:
         fluxes (dict): {index: flux_cgs} for kept detections
@@ -141,19 +141,22 @@ def _run_fitter(fluxes, flux_errors, molecular_data, molecule, isotopologue,
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None
+        fit2t (bool): Report the two-temperature fit instead of 1T, same
+            default Run Fit uses (report 1T only when 2T wasn't requested)
 
     Returns:
-        results (dict): The fitter's result dict, including '1T' and '_plot_data'
+        results (dict): The fitter's result dict, with '1T' or '2T' (whichever
+            was requested) plus '_plot_data'
     """
     if molecule == "H2":
         return rotational_diagram_h2(
             fluxes, flux_errors, molecular_data=molecular_data, OPR=opr,
-            fit_opr=fit_opr, opr_grid=opr_grid, fit1T=True, fit2T=False,
+            fit_opr=fit_opr, opr_grid=opr_grid, fit1T=not fit2t, fit2T=fit2t,
             R=r_au, dist=dist_pc, upper_limits=None,
         )
     return rotational_diagram_general(
-        fluxes, flux_errors, molecular_data=molecular_data, fit1T=True,
-        fit2T=False, R=r_au, dist=dist_pc, upper_limits=None,
+        fluxes, flux_errors, molecular_data=molecular_data, fit1T=not fit2t,
+        fit2T=fit2t, R=r_au, dist=dist_pc, upper_limits=None,
         molecule=molecule, isotopologue=isotopologue,
     )
 
@@ -201,9 +204,9 @@ def _prepare_lines(line_table, molecule, dedup_tol_um):
 
 def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                   contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                  dist_pc, r_au, min_lines, n_sigma=3.0):
+                  dist_pc, r_au, min_lines, n_sigma=3.0, fit2t=False):
     """
-    Fit one spectrum's rotational diagram (1T, detections only). Shared by
+    Fit one spectrum's rotational diagram (detections only). Shared by
     _fit_one_pixel (the bulk loop, flat-tuple return) and fit_pixel (one
     GUI-triggered pixel, dict return) -- same extract/detect/fit sequence.
 
@@ -222,14 +225,15 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
         opr_grid (array): OPR grid, or None
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None
-        min_lines (int): Fewest detections a 1T fit needs
+        min_lines (int): Fewest detections this fit needs
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
         out (dict): 'status' (int), 'n_lines' (int), and on STATUS_OK also
-            'results' (the fitter's dict with '1T'/'_plot_data'); otherwise
-            'reason'. Also has 'per_line' (compute_line_fluxes_collective's own
-            per-line output, same order as line_wavelengths) whenever a fit was
+            'results' (the fitter's dict with '1T' or '2T' plus '_plot_data');
+            otherwise 'reason'. Also has 'per_line' (compute_line_fluxes_collective's
+            own per-line output, same order as line_wavelengths) whenever a fit was
             attempted at all, even if it didn't reach STATUS_OK -- callers that
             want each line's own flux (not just the combined T fit) read it
             from there instead of re-fitting.
@@ -248,7 +252,8 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
 
     try:
         results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
-                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au)
+                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+                              fit2t=fit2t)
     except Exception as exc:
         traceback.print_exc()
         return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc), "per_line": per_line}
@@ -258,7 +263,7 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
 
 def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                    contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                   dist_pc, r_au, min_lines, n_sigma=3.0):
+                   dist_pc, r_au, min_lines, n_sigma=3.0, fit2t=False):
     """
     Fit one pixel and flatten the result for the bulk map loop's arrays.
 
@@ -277,18 +282,22 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
         opr_grid (array): OPR grid, or None
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None
-        min_lines (int): Fewest detections a 1T fit needs
+        min_lines (int): Fewest detections this pixel's fit needs
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
-        row (tuple): (T, dT, Ncol, dNcol, n_lines, status, line_fluxes,
-            line_flux_errors). The first four are NaN unless status is
-            STATUS_OK. line_fluxes/line_flux_errors are arrays, one entry per
-            line_wavelengths entry (same order), each line's own flux at this
-            pixel -- NaN wherever that particular line's fit didn't succeed
-            or came back below the n_sigma detection floor (an upper limit,
-            not a real value for this pixel), independent of whether the
-            pixel had enough detections for a T fit.
+        row (tuple): (T, dT, Ncol, dNcol, T2, dT2, Ncol2, dNcol2, n_lines,
+            status, line_fluxes, line_flux_errors). T/dT/Ncol/dNcol hold
+            component 1 (1T's only component, or 2T's "Warm" one); T2/dT2/
+            Ncol2/dNcol2 hold 2T's "Hot" component, NaN when fit2t is False.
+            All eight are NaN unless status is STATUS_OK. line_fluxes/
+            line_flux_errors are arrays, one entry per line_wavelengths entry
+            (same order), each line's own flux at this pixel -- NaN wherever
+            that particular line's fit didn't succeed or came back below the
+            n_sigma detection floor (an upper limit, not a real value for
+            this pixel), independent of whether the pixel had enough
+            detections for a T fit.
     """
     nan = float("nan")
     line_fluxes = np.full(len(line_wavelengths), nan)
@@ -296,7 +305,7 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
 
     out = _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                         contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                        dist_pc, r_au, min_lines, n_sigma)
+                        dist_pc, r_au, min_lines, n_sigma, fit2t=fit2t)
     per_line = out.get("per_line")
     if per_line is not None:
         for i, res in enumerate(per_line):
@@ -307,10 +316,19 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
                 line_flux_errors[i] = res.get("flux_error_cgs", nan)
 
     if out["status"] != STATUS_OK:
-        return nan, nan, nan, nan, out["n_lines"], out["status"], line_fluxes, line_flux_errors
+        return (nan, nan, nan, nan, nan, nan, nan, nan,
+                out["n_lines"], out["status"], line_fluxes, line_flux_errors)
+    if fit2t:
+        two_t = out["results"]["2T"]
+        return (float(two_t["T1"]), float(two_t["dT1"]),
+                float(two_t["Ncol1"]), float(two_t["dNcol1"]),
+                float(two_t["T2"]), float(two_t["dT2"]),
+                float(two_t["Ncol2"]), float(two_t["dNcol2"]),
+                out["n_lines"], STATUS_OK, line_fluxes, line_flux_errors)
     one_t = out["results"]["1T"]
     return (float(one_t["T"]), float(one_t["dT"]),
             float(one_t["Ncol"]), float(one_t["dNcol"]),
+            nan, nan, nan, nan,
             out["n_lines"], STATUS_OK, line_fluxes, line_flux_errors)
 
 
@@ -336,7 +354,8 @@ def _pin_worker_math_threads():
 
 def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecular_data, keys,
                     header, contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                    dist_pc, r_au, min_lines, n_lines_total, row_mask=None, n_sigma=3.0):
+                    dist_pc, r_au, min_lines, n_lines_total, row_mask=None, n_sigma=3.0,
+                    fit2t=False):
     """
     Fit every pixel in one cube row, in a worker process. Module-level so it
     can be pickled for ProcessPoolExecutor; everything process_row's closure
@@ -354,18 +373,24 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
         row_mask (np.ndarray): Boolean mask, length n_x, True where this row's
             pixels should be fit. None fits every pixel (no region imported).
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
-        row (tuple): (row_idx, T, dT, Ncol, dNcol, n_lines, status,
-            line_fluxes, line_flux_errors) -- same layout process_row's own
-            per-row arrays used, T/dT/Ncol/dNcol/n_lines/status length n_x,
-            line_fluxes/line_flux_errors shape (n_lines_total, n_x)
+        row (tuple): (row_idx, T, dT, Ncol, dNcol, T2, dT2, Ncol2, dNcol2,
+            n_lines, status, line_fluxes, line_flux_errors) -- T/dT/Ncol/dNcol/
+            T2/dT2/Ncol2/dNcol2/n_lines/status length n_x, line_fluxes/
+            line_flux_errors shape (n_lines_total, n_x). T2/dT2/Ncol2/dNcol2
+            stay all-NaN when fit2t is False.
     """
     n_x = spectra_row.shape[1]
     t_row = np.full(n_x, np.nan, dtype=np.float32)
     dt_row = np.full(n_x, np.nan, dtype=np.float32)
     n_row = np.full(n_x, np.nan, dtype=np.float32)
     dn_row = np.full(n_x, np.nan, dtype=np.float32)
+    t2_row = np.full(n_x, np.nan, dtype=np.float32)
+    dt2_row = np.full(n_x, np.nan, dtype=np.float32)
+    n2_row = np.full(n_x, np.nan, dtype=np.float32)
+    dn2_row = np.full(n_x, np.nan, dtype=np.float32)
     nl_row = np.zeros(n_x, dtype=np.int16)
     st_row = np.full(n_x, STATUS_NO_DATA, dtype=np.int16)
     line_flux_row = np.full((n_lines_total, n_x), np.nan, dtype=np.float32)
@@ -375,22 +400,28 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
         if row_mask is not None and not row_mask[x]:
             continue
         spectrum = spectra_row[:, x]
-        t, dt, ncol, dncol, nlines, status, line_fluxes, line_flux_errors = _fit_one_pixel(
+        (t, dt, ncol, dncol, t2, dt2, ncol2, dncol2, nlines, status,
+         line_fluxes, line_flux_errors) = _fit_one_pixel(
             spectrum, wavelength, line_wavelengths, molecular_data, keys,
             header, contam_lines, molecule, isotopologue,
             opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_sigma,
+            fit2t=fit2t,
         )
         t_row[x], dt_row[x] = t, dt
         n_row[x], dn_row[x] = ncol, dncol
+        t2_row[x], dt2_row[x] = t2, dt2
+        n2_row[x], dn2_row[x] = ncol2, dncol2
         nl_row[x], st_row[x] = nlines, status
         line_flux_row[:, x] = line_fluxes
         line_flux_err_row[:, x] = line_flux_errors
-    return row_idx, t_row, dt_row, n_row, dn_row, nl_row, st_row, line_flux_row, line_flux_err_row
+    return (row_idx, t_row, dt_row, n_row, dn_row, t2_row, dt2_row, n2_row, dn2_row,
+            nl_row, st_row, line_flux_row, line_flux_err_row)
 
 
 def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
               opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-              min_lines=3, dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0):
+              min_lines=3, dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0,
+              fit2t=False):
     """
     Fit one pixel and return the full rotational_diagram result for display.
 
@@ -406,14 +437,16 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
         opr_grid (array): OPR grid, or None
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None
-        min_lines (int): Fewest detections a 1T fit needs
+        min_lines (int): Fewest detections this fit needs
         dedup_tol_um (float): Co-located-line merge tolerance in microns
         contam_lines (pd.DataFrame): Contaminating lines, or None
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
         out (dict): 'status' (int), 'n_lines' (int), and on STATUS_OK also
-            'results' (the fitter's dict with '1T'/'_plot_data'); otherwise 'reason'
+            'results' (the fitter's dict with '1T' or '2T' plus '_plot_data');
+            otherwise 'reason'
     """
     cube = _resolve_cube(cube_or_list)
     wavelength, _unit = extract_units(cube.wavelength)
@@ -422,12 +455,13 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
     spectrum = cube.get_pixel_spectrum(x, y)
     return _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys,
                          cube.header, contam_lines, molecule, isotopologue,
-                         opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_sigma)
+                         opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_sigma,
+                         fit2t=fit2t)
 
 
 def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=1,
                opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-               min_lines=3, dedup_tol_um=1e-5, contam_lines=None):
+               min_lines=3, dedup_tol_um=1e-5, contam_lines=None, fit2t=False):
     """
     Fit one rotational diagram to the summed spectrum over `mask`.
 
@@ -437,6 +471,7 @@ def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=
         mask (np.ndarray): 2D bool of pixels to sum. None sums every pixel
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
             dedup_tol_um, contam_lines: Same meaning as in fit_pixel
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
         out (dict): 'status' (int), 'n_pixels' (int), 'n_lines' (int), and on
@@ -470,7 +505,8 @@ def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=
 
     try:
         results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
-                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au)
+                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+                              fit2t=fit2t)
     except Exception as exc:
         return {"status": STATUS_FIT_FAILED, "n_pixels": len(specs),
                 "n_lines": len(fluxes), "reason": str(exc)}
@@ -485,9 +521,9 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                                   min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                   contam_lines=None, region_fit=None,
                                   progress_callback=None, cancel_flag=None, region_mask=None,
-                                  n_sigma=3.0):
+                                  n_sigma=3.0, fit2t=False):
     """
-    Fit a 1T rotational diagram at every spatial pixel of the cube.
+    Fit a rotational diagram at every spatial pixel of the cube.
 
     Args:
         cube_or_list (CubeData or list): One cube, or a one-element list holding it
@@ -500,7 +536,8 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs, passed straight to the fitter
         r_au (float): Emitting radius in AU, or None (total-molecules mode)
-        min_lines (int): Fewest detections a pixel needs for a 1T fit
+        min_lines (int): Fewest detections a pixel needs for a fit. Callers
+            must raise this for fit2t (a 2T fit has 4 free parameters, not 2)
         dedup_tol_um (float): Co-located-line merge tolerance in microns
         n_jobs (int): Worker processes, one cube row per task
         contam_lines (pd.DataFrame): Contaminating lines, or None
@@ -513,11 +550,15 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default.
             A line below it is an upper limit and stays NaN in the maps. Does
             not affect region_fit, which keeps a fixed 3-sigma rule.
+        fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
-            'status' (2D int), plus 'header', 'wave_range', 'molecule', 'dist_pc',
-            'r_au', 'opr', 'kept_lines', 'dropped_lines', 'line_flux_maps',
+        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
+            1 -- 1T's only component, or 2T's "Warm" one), 'T2', 'T2_err',
+            'Ncol2', 'Ncol2_err' (2D float32, 2T's "Hot" component, all-NaN
+            when fit2t is False), 'fit2t', 'n_lines', 'status' (2D int), plus
+            'header', 'wave_range', 'molecule', 'dist_pc', 'r_au', 'opr',
+            'kept_lines', 'dropped_lines', 'line_flux_maps',
             'line_flux_error_maps' (each a list of 2D float32 arrays, one per
             kept_lines entry, same order -- that line's own flux/error at every
             pixel, independent of whether the pixel got a T fit)
@@ -548,6 +589,10 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     dt_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     n_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     dn_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    t2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    dt2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    n2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    dn2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     nlines_map = np.zeros((n_y, n_x), dtype=np.int16)
     status_map = np.full((n_y, n_x), STATUS_NO_DATA, dtype=np.int16)
     # Per-line flux/error maps: each line's own AUC at every pixel, the same
@@ -580,15 +625,17 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                     _fit_row_worker, next_row, spectra_row, wavelength, line_wavelengths,
                     molecular_data, keys, cube.header, contam_lines, molecule, isotopologue,
                     opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, n_lines_total, row_mask,
-                    n_sigma,
+                    n_sigma, fit2t,
                 ))
                 next_row += 1
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
             for fut in done:
-                (y, t_row, dt_row, n_row, dn_row, nl_row, st_row,
-                 line_flux_row, line_flux_err_row) = fut.result()
+                (y, t_row, dt_row, n_row, dn_row, t2_row, dt2_row, n2_row, dn2_row,
+                 nl_row, st_row, line_flux_row, line_flux_err_row) = fut.result()
                 t_map[y], dt_map[y] = t_row, dt_row
                 n_map[y], dn_map[y] = n_row, dn_row
+                t2_map[y], dt2_map[y] = t2_row, dt2_row
+                n2_map[y], dn2_map[y] = n2_row, dn2_row
                 nlines_map[y], status_map[y] = nl_row, st_row
                 line_flux_maps[:, y, :] = line_flux_row
                 line_flux_error_maps[:, y, :] = line_flux_err_row
@@ -620,12 +667,13 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
             cube, line_table, mask=region_mask, molecule=molecule,
             isotopologue=isotopologue, opr=opr, fit_opr=fit_opr, opr_grid=opr_grid,
             dist_pc=dist_pc, r_au=r_au, min_lines=min_lines,
-            dedup_tol_um=dedup_tol_um, contam_lines=contam_lines,
+            dedup_tol_um=dedup_tol_um, contam_lines=contam_lines, fit2t=fit2t,
         )
 
     return {
         "T": t_map, "T_err": dt_map, "Ncol": n_map, "Ncol_err": dn_map,
-        "n_lines": nlines_map, "status": status_map,
+        "T2": t2_map, "T2_err": dt2_map, "Ncol2": n2_map, "Ncol2_err": dn2_map,
+        "fit2t": fit2t, "n_lines": nlines_map, "status": status_map,
         "header": cube.header,
         "wave_range": (float(np.nanmin(wavelength)), float(np.nanmax(wavelength))),
         "molecule": molecule, "dist_pc": dist_pc, "r_au": r_au, "opr": opr,
@@ -790,7 +838,8 @@ def _convolve_reproject_pair(flux_map, err_map, src_wcs, src_pix_arcsec,
 
 def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
                      fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-                     min_lines=3, dedup_tol_um=1e-5, contam_lines=None, region_masks=None):
+                     min_lines=3, dedup_tol_um=1e-5, contam_lines=None, region_masks=None,
+                     fit2t=False):
     """
     Fit one rotational diagram from the whole-cube (or region-restricted)
     summed spectrum of each (cube, line) pair. The multi-cube analogue of
@@ -805,6 +854,7 @@ def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
             which pixels get summed for that cube -- from an imported region.
             A cube missing from this dict, or region_masks=None, sums every
             pixel (the previous, unrestricted behavior).
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
         out (dict): 'status' (int), 'n_lines' (int), 'n_pixels' (total spaxels
@@ -845,7 +895,7 @@ def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
                 "reason": f"{len(fluxes)} detections across the cubes, need {min_lines}"}
     try:
         results = _run_fitter(fluxes, flux_errors, molecular_data, molecule, isotopologue,
-                              opr, fit_opr, opr_grid, dist_pc, r_au)
+                              opr, fit_opr, opr_grid, dist_pc, r_au, fit2t=fit2t)
     except Exception as exc:
         return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes),
                 "n_pixels": n_pixels_total, "n_cubes": len(kept_pairs), "reason": str(exc)}
@@ -1103,13 +1153,13 @@ def convolve_line_maps(native_result, cancel_flag=None):
 
 def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None, fit_opr=False,
                       opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, region_fit=None,
-                      progress_callback=None, cancel_flag=None):
+                      progress_callback=None, cancel_flag=None, fit2t=False):
     """
-    Combine already-convolved per-line flux maps into a 1T rotational
-    diagram at every pixel of their common grid -- stage 3 (final) of the
-    multi-cube map pipeline (see compute_native_line_maps, convolve_line_maps).
-    Applies no detection threshold of its own: which pixels count as detections
-    was decided per line in compute_native_line_maps (n_sigma).
+    Combine already-convolved per-line flux maps into a rotational diagram at
+    every pixel of their common grid -- stage 3 (final) of the multi-cube map
+    pipeline (see compute_native_line_maps, convolve_line_maps). Applies no
+    detection threshold of its own: which pixels count as detections was
+    decided per line in compute_native_line_maps (n_sigma).
 
     Args:
         convolved_result (dict): Output of convolve_line_maps
@@ -1120,16 +1170,19 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None (total-molecules mode)
-        min_lines (int): Fewest detections a pixel needs for a 1T fit
+        min_lines (int): Fewest detections a pixel needs for a fit
         region_fit (dict): Output of fit_region_multi. This stage has no cube
             access to compute it itself -- the caller supplies it (see
             create_rotational_diagram_map_multi), or leaves it None to omit
             it from the result (e.g. a quick what-if re-combination)
         progress_callback (callable): progress_callback(done_pixels, total_pixels)
         cancel_flag (object): Object with a `.cancelled` attribute, or None
+        fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
+        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
+            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's "Hot"
+            component, all-NaN when fit2t is False), 'fit2t', 'n_lines',
             'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
             'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
             'dropped_lines', 'region_fit', 'native_flux_maps', 'native_flux_error_maps',
@@ -1147,6 +1200,10 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
     dt_map = np.full(dst_shape, np.nan, dtype=np.float32)
     n_map = np.full(dst_shape, np.nan, dtype=np.float32)
     dn_map = np.full(dst_shape, np.nan, dtype=np.float32)
+    t2_map = np.full(dst_shape, np.nan, dtype=np.float32)
+    dt2_map = np.full(dst_shape, np.nan, dtype=np.float32)
+    n2_map = np.full(dst_shape, np.nan, dtype=np.float32)
+    dn2_map = np.full(dst_shape, np.nan, dtype=np.float32)
     nlines_map = np.zeros(dst_shape, dtype=np.int16)
     status_map = np.full(dst_shape, STATUS_NO_DATA, dtype=np.int16)
 
@@ -1171,12 +1228,24 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
             else:
                 try:
                     result = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
-                                         isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au)
-                    one_t = result["1T"]
-                    t_map[y, x] = float(one_t["T"])
-                    dt_map[y, x] = float(one_t["dT"])
-                    n_map[y, x] = float(one_t["Ncol"])
-                    dn_map[y, x] = float(one_t["dNcol"])
+                                         isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+                                         fit2t=fit2t)
+                    if fit2t:
+                        two_t = result["2T"]
+                        t_map[y, x] = float(two_t["T1"])
+                        dt_map[y, x] = float(two_t["dT1"])
+                        n_map[y, x] = float(two_t["Ncol1"])
+                        dn_map[y, x] = float(two_t["dNcol1"])
+                        t2_map[y, x] = float(two_t["T2"])
+                        dt2_map[y, x] = float(two_t["dT2"])
+                        n2_map[y, x] = float(two_t["Ncol2"])
+                        dn2_map[y, x] = float(two_t["dNcol2"])
+                    else:
+                        one_t = result["1T"]
+                        t_map[y, x] = float(one_t["T"])
+                        dt_map[y, x] = float(one_t["dT"])
+                        n_map[y, x] = float(one_t["Ncol"])
+                        dn_map[y, x] = float(one_t["dNcol"])
                     status_map[y, x] = STATUS_OK
                 except Exception:
                     traceback.print_exc()
@@ -1191,7 +1260,8 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
 
     return {
         "T": t_map, "T_err": dt_map, "Ncol": n_map, "Ncol_err": dn_map,
-        "n_lines": nlines_map, "status": status_map,
+        "T2": t2_map, "T2_err": dt2_map, "Ncol2": n2_map, "Ncol2_err": dn2_map,
+        "fit2t": fit2t, "n_lines": nlines_map, "status": status_map,
         "dst_wcs": convolved_result["dst_wcs"],
         "molecule": molecule, "dist_pc": dist_pc, "r_au": r_au, "opr": opr,
         "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
@@ -1224,9 +1294,10 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
                                         dist_pc=140.0, r_au=None, min_lines=3,
                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None,
-                                        cancel_flag=None, region_masks=None, n_sigma=3.0):
+                                        cancel_flag=None, region_masks=None, n_sigma=3.0,
+                                        fit2t=False):
     """
-    Fit a 1T rotational diagram at every pixel of a common grid built from
+    Fit a rotational diagram at every pixel of a common grid built from
     several cubes at different pixel scales, one line per cube. Convolves
     each cube's flux map to the worst resolution, then reprojects before
     fitting. A thin wrapper chaining compute_native_line_maps ->
@@ -1243,7 +1314,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs
         r_au (float): Emitting radius in AU, or None (total-molecules mode)
-        min_lines (int): Fewest detections a pixel needs for a 1T fit
+        min_lines (int): Fewest detections a pixel needs for a fit
         dedup_tol_um (float): Co-located-line merge tolerance in microns
         n_jobs (int): Worker processes for each native-grid extraction
         contam_lines (pd.DataFrame): Contaminating lines, or None
@@ -1258,9 +1329,12 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default.
             Applies to the native fits only (the convolved maps get no second
             test); like the region mask, it does not affect region_fit, which keeps 3 sigma.
+        fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32), 'n_lines',
+        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
+            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's "Hot"
+            component, all-NaN when fit2t is False), 'fit2t', 'n_lines',
             'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
             'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
             'dropped_lines', 'region_fit'
@@ -1331,17 +1405,18 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
             kept_pairs, molecule=molecule, isotopologue=isotopologue, opr=opr,
             fit_opr=fit_opr, opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
             min_lines=min_lines, dedup_tol_um=dedup_tol_um, contam_lines=contam_lines,
+            fit2t=fit2t,
         )
 
     return combine_line_maps(
         convolved, molecule=molecule, isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
         opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, region_fit=region_fit,
-        progress_callback=_combine_progress, cancel_flag=cancel_flag)
+        progress_callback=_combine_progress, cancel_flag=cancel_flag, fit2t=fit2t)
 
 
 def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-                    min_lines=3):
+                    min_lines=3, fit2t=False):
     """
     Re-fit one pixel of a convolved/reprojected map from its cached per-line
     flux/error maps instead of redoing convolution -- a blurred pixel depends
@@ -1353,10 +1428,11 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
         y (int): Spatial y index on the common grid
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
             min_lines: Same meaning as in fit_pixel
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
         out (dict): Same shape as fit_pixel's return -- 'status', 'n_lines',
-            and on STATUS_OK also 'results' (with '1T' and '_plot_data')
+            and on STATUS_OK also 'results' (with '1T' or '2T' plus '_plot_data')
 
     Raises:
         KeyError: if result has no cached per-line maps (predates this
@@ -1382,7 +1458,8 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
 
     try:
         results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
-                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au)
+                              isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+                              fit2t=fit2t)
     except Exception as exc:
         return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc)}
 
@@ -1415,9 +1492,15 @@ def save_rotational_diagram_map_fits(result, output_path):
     if result.get("worst_pix_arcsec") is not None:
         primary_header["PIXSCALE"] = (result["worst_pix_arcsec"], "arcsec/pixel, worst input")
 
-    bunit_by_key = {"T": "K", "Ncol": "cm-2"}   # only these two, not their _err counterparts -- matches before
+    # Only the two temperature/column keys get BUNIT, not their _err counterparts -- matches before
+    bunit_by_key = {"T": "K", "Ncol": "cm-2", "T2": "K", "Ncol2": "cm-2"}
+    keys = ("T", "T_err", "Ncol", "Ncol_err")
+    if result.get("fit2t"):
+        keys += ("T2", "T2_err", "Ncol2", "Ncol2_err")
+    keys += ("n_lines", "status")
+
     extensions = []
-    for key in ("T", "T_err", "Ncol", "Ncol_err", "n_lines", "status"):
+    for key in keys:
         extra = {'BUNIT': bunit_by_key[key]} if key in bunit_by_key else None
         ext_header = build_2d_export_header(source_header, shape, extra=extra)
         extensions.append((key.upper(), np.asarray(result[key]), ext_header))

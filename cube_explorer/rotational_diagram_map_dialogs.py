@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QWidget, QFileDialog, QMessageBox, QTextEdit,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
-from matplotlib.figure import Figure
+from matplotlib.figure import Figure, SubplotParams
 
 from .rotational_diagram_map import (
     create_rotational_diagram_map, create_rotational_diagram_map_multi,
@@ -22,18 +22,19 @@ from .rotational_diagram_map import (
     compute_native_line_maps, combine_line_maps, fit_region_multi,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
 )
-from .rotational_diagram_h2_fitter import model_1T
+from .rotational_diagram_h2_fitter import model_1T, model_2T
 from .fits_export import build_2d_export_header, write_fits_product
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 
-# Display combo: label -> (result key, colour-bar label). "Fit mask" is binary.
+# Display combo: label -> (Warm/1T key, Hot key or None, colour-bar label).
+# 2T draws Warm/Hot as two side-by-side panels; a None hot_key stays single.
 _PARAMS = [
-    ("Temperature", "T", "T (K)"),
-    ("Temperature error", "T_err", "dT (K)"),
-    ("Column density", "Ncol", "N_u (cm⁻²)"),
-    ("Column density error", "Ncol_err", "dN_u (cm⁻²)"),
-    ("Lines used", "n_lines", "detections"),
-    ("Fit mask", "status", "1 = fitted"),
+    ("Temperature", "T", "T2", "T (K)"),
+    ("Temperature error", "T_err", "T2_err", "dT (K)"),
+    ("Column density", "Ncol", "Ncol2", "N_u (cm⁻²)"),
+    ("Column density error", "Ncol_err", "Ncol2_err", "dN_u (cm⁻²)"),
+    ("Lines used", "n_lines", None, "detections"),
+    ("Fit mask", "status", None, "1 = fitted"),
 ]
 
 
@@ -233,7 +234,7 @@ class CombineMapsWorker(QThread):
             region_fit's own summed spectrum the same way the imported
             region already restricts the cached native/convolved maps.
         kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/
-            r_au/min_lines, passed to fit_region_multi and combine_line_maps.
+            r_au/min_lines/fit2t, passed to fit_region_multi and combine_line_maps.
             An n_sigma entry is ignored: the convolved maps carry no threshold
 
     Returns:
@@ -280,13 +281,14 @@ class CombineMapsWorker(QThread):
                 kept_pairs, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
                 opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
                 dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
-                region_masks=self.region_masks,
+                region_masks=self.region_masks, fit2t=self.kwargs.get("fit2t", False),
             )
             result = combine_line_maps(
                 self.convolved_result, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
                 opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
                 dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
                 region_fit=region_fit, progress_callback=self._emit_progress, cancel_flag=self,
+                fit2t=self.kwargs.get("fit2t", False),
             )
             if self.cancelled:
                 self.error.emit("Rotational diagram map cancelled by user")
@@ -338,23 +340,35 @@ def _opr_line(results):
     return f"OPR = {results['OPR']:.2f} (fixed)\n"
 
 
-def _one_t_block(results):
+def _fit_block(results):
     """
-    The "--- 1T FIT ---" block, formatted like Run Fit's show_results.
+    The "--- 1T FIT ---" or "--- 2T FIT ---" block, formatted like Run Fit's
+    show_results -- whichever of '1T'/'2T' is present in `results`.
 
     Args:
-        results (dict): A rotational_diagram result dict with a '1T' entry
+        results (dict): A rotational_diagram result dict with a '1T' or '2T' entry
 
     Returns:
-        text (str): The OPR line plus the 1T temperature and column density
+        text (str): The OPR line plus the fit's temperature(s) and column density(s)
     """
-    r1 = results["1T"]
-    return (
-        _opr_line(results)
-        + "\n--- 1T FIT ---\n"
-        + f"T = {r1['T']:.1f} ± {r1['dT']:.1f} K\n"
-        + f"Ncol = {r1['Ncol']:.2e} ± {r1['dNcol']:.2e} cm⁻²\n"
-    )
+    text = _opr_line(results)
+    if "1T" in results:
+        r1 = results["1T"]
+        text += (
+            "\n--- 1T FIT ---\n"
+            + f"T = {r1['T']:.1f} ± {r1['dT']:.1f} K\n"
+            + f"Ncol = {r1['Ncol']:.2e} ± {r1['dNcol']:.2e} cm⁻²\n"
+        )
+    if "2T" in results:
+        r2 = results["2T"]
+        text += (
+            "\n--- 2T FIT ---\n"
+            + f"T1 (Warm) = {r2['T1']:.1f} ± {r2.get('dT1', float('nan')):.1f} K\n"
+            + f"T2 (Hot) = {r2['T2']:.1f} ± {r2.get('dT2', float('nan')):.1f} K\n"
+            + f"Ncol1 (Warm) = {r2['Ncol1']:.2e} ± {r2.get('dNcol1', float('nan')):.2e} cm⁻²\n"
+            + f"Ncol2 (Hot) = {r2['Ncol2']:.2e} ± {r2.get('dNcol2', float('nan')):.2e} cm⁻²\n"
+        )
+    return text
 
 
 def region_result_text(region):
@@ -376,7 +390,7 @@ def region_result_text(region):
     tail = f"\nSpaxels summed: {region.get('n_pixels', 0)}"
     if region.get("n_cubes"):
         tail += f" (across {region['n_cubes']} cubes)"
-    return head + _one_t_block(region["results"]) + tail + f"\n{bar}\n"
+    return head + _fit_block(region["results"]) + tail + f"\n{bar}\n"
 
 
 def pixel_result_text(x, y, out):
@@ -395,7 +409,7 @@ def pixel_result_text(x, y, out):
     head = f"{bar}\nROTATIONAL DIAGRAM ANALYSIS RESULTS -- PIXEL ({x}, {y})\n{bar}\n\n"
     if out.get("status") != STATUS_OK:
         return head + f"No fit: {out.get('reason', 'n/a')}\nLines used: {out.get('n_lines', 0)}\n{bar}\n"
-    return head + _one_t_block(out["results"]) + f"\nLines used: {out['n_lines']}\n{bar}\n"
+    return head + _fit_block(out["results"]) + f"\nLines used: {out['n_lines']}\n{bar}\n"
 
 
 def _apply_scale_2d(data, mode):
@@ -424,11 +438,13 @@ def _apply_scale_2d(data, mode):
 
 def plot_rot_diagram(ax, plot_data):
     """
-    Draw one rotational diagram on `ax`, the same style as show_results.
+    Draw one rotational diagram on `ax`, the same style as show_results --
+    one dashed 1T line, or both 2T components plus their combined curve.
 
     Args:
         ax (matplotlib.axes.Axes): Target axes
-        plot_data (dict): The fitter's '_plot_data' (E_arr, y_arr, y_err, popt1)
+        plot_data (dict): The fitter's '_plot_data' (E_arr, y_arr, y_err,
+            popt1, popt2)
 
     Returns:
         None
@@ -437,12 +453,24 @@ def plot_rot_diagram(ax, plot_data):
     y_arr = np.asarray(plot_data["y_arr"], dtype=float)
     y_err = np.asarray(plot_data["y_err"], dtype=float)
     popt1 = plot_data.get("popt1")
+    popt2 = plot_data.get("popt2")
 
     ax.errorbar(e_arr, y_arr / np.log(10), yerr=y_err / np.log(10), fmt="o",
                 color="black", markersize=6, capsize=4, zorder=3, label="Detection")
-    if popt1 is not None and len(e_arr) > 1:
+    if len(e_arr) > 1:
         e_fit = np.linspace(np.min(e_arr), np.max(e_arr), 200)
-        ax.plot(e_fit, model_1T(e_fit, *popt1) / np.log(10), "--", linewidth=2, label="1T")
+        if popt2 is not None:
+            a1, t1, a2, t2 = popt2
+            y_warm = a1 - e_fit / t1
+            ax.plot(e_fit, y_warm / np.log(10), ":", linewidth=2.5, color="blue",
+                    label=f"Warm: T={t1:.0f} K")
+            y_hot = a2 - e_fit / t2
+            ax.plot(e_fit, y_hot / np.log(10), ":", linewidth=2.5, color="orange",
+                    label=f"Hot: T={t2:.0f} K")
+            ax.plot(e_fit, model_2T(e_fit, *popt2) / np.log(10), "-", linewidth=3,
+                    color="red", label="2-component model")
+        elif popt1 is not None:
+            ax.plot(e_fit, model_1T(e_fit, *popt1) / np.log(10), "--", linewidth=2, label="1T")
         ax.set_xlim(np.min(e_arr) - 500, np.max(e_arr) + 500)
     ax.set_xlabel("E_u (K)", fontsize=12, fontweight="bold")
     ax.set_ylabel("log(N_u / g_u)", fontsize=12, fontweight="bold")
@@ -483,9 +511,14 @@ class RotDiagMapResultsDialog(QDialog):
         self.cube_or_list = cube_or_list
         self.line_table = line_table
         self.fit_kwargs = fit_kwargs
+        self.fit2t = result.get("fit2t", False)
         self.pixel_select_enabled = True
         self.setWindowTitle(f"{result.get('molecule', 'H2')} Rotational Diagram Map")
-        self.resize(1150, 680)
+        # Wider when 2T needs two side-by-side panels (Warm/Hot).
+        if self.fit2t:
+            self.resize(1550, 700)
+        else:
+            self.resize(1150, 680)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -529,7 +562,7 @@ class RotDiagMapResultsDialog(QDialog):
         ctrl.addStretch()
         layout.addLayout(ctrl)
 
-        self.fig = Figure(figsize=(11, 5))
+        self.fig = Figure(figsize=(15, 5) if self.fit2t else (11, 5))
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect("button_press_event", self._on_canvas_click)
         layout.addWidget(NavigationToolbar2QT(self.canvas, self))
@@ -570,7 +603,9 @@ class RotDiagMapResultsDialog(QDialog):
 
     def _update_plot(self):
         """
-        Redraw the selected map with the chosen colormap and scale.
+        Redraw the selected map(s) with the chosen colormap and scale. In 2T
+        mode, a Warm/Hot parameter draws as two side-by-side panels instead
+        of a combo entry each -- Lines used/Fit mask stay single always.
 
         Args:
             None
@@ -578,28 +613,53 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             None
         """
-        label, key, cbar_label = _PARAMS[self.param_combo.currentIndex()]
-        status = self.result["status"]
+        label, key, hot_key, cbar_label = _PARAMS[self.param_combo.currentIndex()]
+        self.fig.clear()
+        # clear() drops the axes but not tight_layout()'s last spacing fix,
+        # so repeated redraws keep tightening further -- reset it each time.
+        self.fig.subplotpars = SubplotParams()
 
+        if self.fit2t and hot_key is not None:
+            ax_left = self.fig.add_subplot(121)
+            ax_right = self.fig.add_subplot(122)
+            self._draw_panel(ax_left, key, f"{label} (Warm)", cbar_label)
+            self._draw_panel(ax_right, hot_key, f"{label} (Hot)", cbar_label)
+        else:
+            ax = self.fig.add_subplot(111)
+            self._draw_panel(ax, key, label, cbar_label)
+
+        self.fig.tight_layout()
+        self.canvas.draw()
+
+    def _draw_panel(self, ax, key, title, cbar_label):
+        """
+        Draw one map parameter on `ax`, with its own colorbar.
+
+        Args:
+            ax (matplotlib.axes.Axes): Target axes
+            key (str): Result dict key to plot ("status" draws as binary)
+            title (str): Axes title (overridden for "status")
+            cbar_label (str): Colorbar label
+
+        Returns:
+            None
+        """
+        status = self.result["status"]
         if key == "status":
             data = (status == STATUS_OK).astype(float)
             cmap, title = "gray", "Fit mask  (white = fitted, black = no fit)"
         else:
             data = np.asarray(self.result[key], dtype=float)
-            if key in ("T", "T_err", "Ncol", "Ncol_err"):
+            if key != "n_lines":
                 data = np.where(status == STATUS_OK, data, np.nan)
-            cmap, title = self.cmap_combo.currentText(), label
+            cmap = self.cmap_combo.currentText()
             data = self._apply_scale(data)
 
-        self.fig.clear()
-        ax = self.fig.add_subplot(111)
         im = ax.imshow(data, origin="lower", cmap=cmap)
         ax.set_title(title, fontweight="bold")
         ax.set_xlabel("x [pixel]")
         ax.set_ylabel("y [pixel]")
         self.fig.colorbar(im, ax=ax).set_label(cbar_label)
-        self.fig.tight_layout()
-        self.canvas.draw()
 
     def _apply_scale(self, data):
         """
@@ -732,11 +792,18 @@ class RotDiagMapResultsDialog(QDialog):
                 "",
             ]
 
-        lines += _block("TEMPERATURE (K)", self.result["T"], ".1f")
-        lines += _block("COLUMN DENSITY N_u (cm⁻²)", self.result["Ncol"], ".3e")
+        warm_label = "TEMPERATURE (Warm) (K)" if self.fit2t else "TEMPERATURE (K)"
+        ncol_label = "COLUMN DENSITY N_u (Warm) (cm⁻²)" if self.fit2t else "COLUMN DENSITY N_u (cm⁻²)"
+        lines += _block(warm_label, self.result["T"], ".1f")
+        lines += _block(ncol_label, self.result["Ncol"], ".3e")
+        if self.fit2t:
+            lines += _block("TEMPERATURE (Hot) (K)", self.result["T2"], ".1f")
+            lines += _block("COLUMN DENSITY N_u (Hot) (cm⁻²)", self.result["Ncol2"], ".3e")
         lines += _block("LINES USED PER FITTED PIXEL", self.result["n_lines"].astype(float), ".1f")
 
         n_ceiling = int(np.sum(ok & (self.result["T"] >= 0.99 * t_cap)))
+        if self.fit2t:
+            n_ceiling += int(np.sum(ok & (self.result["T2"] >= 0.99 * t_cap)))
         lines += ["PIXEL STATUS:", f"  Fitted:     {n_ok:,} ({100 * n_ok / total:.1f}%)"]
         lines.append(f"    of which T pinned at the ceiling (≥ {t_cap:.0f} K): {n_ceiling:,}")
         lines.append(f"  Not fitted: {total - n_ok:,}")

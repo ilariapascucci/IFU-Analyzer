@@ -762,7 +762,7 @@ from .rotational_diagram_map import (
 
 def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, opr=None,
                fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
-               dedup_tol_um=1e-5, contam_lines=None):
+               dedup_tol_um=1e-5, contam_lines=None, fit2t=False):
     """Fit one rotational diagram to a cube's summed spectrum over a region.
     This is the same fit the GUI's Run Fit button runs. Pass a mask to sum
     only some pixels, or omit it to sum the whole cube.
@@ -786,12 +786,14 @@ def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, 
         dedup_tol_um (float): Co-located-line merge tolerance in microns
         contam_lines (pd.DataFrame, optional): Contaminating lines to give their
             own component in the fit, same format create_flux_map accepts
+        fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
         dict: 'status' (int, one of STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/
             STATUS_FIT_FAILED), 'n_pixels', 'n_lines', and on STATUS_OK also
-            'results' (rotational_diagram()'s own return value); otherwise
-            'reason' explains why no fit was attempted
+            'results' (rotational_diagram()'s own return value, with a '1T' or
+            '2T' entry depending on fit2t); otherwise 'reason' explains why no
+            fit was attempted
 
     Example:
         >>> cube = load_cube("data.fits")
@@ -803,12 +805,12 @@ def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, 
                            isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
                            opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
                            min_lines=min_lines, dedup_tol_um=dedup_tol_um,
-                           contam_lines=contam_lines)
+                           contam_lines=contam_lines, fit2t=fit2t)
 
 
 def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=None,
               fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
-              dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0):
+              dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0, fit2t=False):
     """Fit one rotational diagram to a single pixel's own spectrum.
     This is fit_region for one pixel instead of a summed region.
 
@@ -818,7 +820,7 @@ def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=No
         y (int): Spatial y pixel index
         line_table (list): Line dicts, see fit_region
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            dedup_tol_um, contam_lines: Same meaning as in fit_region
+            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
         n_sigma (float): Detection threshold in noise sigmas. A line below it
             is an upper limit and is left out of the fit. 3.0 by default
 
@@ -833,15 +835,15 @@ def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=No
                           isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
                           opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
                           min_lines=min_lines, dedup_tol_um=dedup_tol_um,
-                          contam_lines=contam_lines, n_sigma=n_sigma)
+                          contam_lines=contam_lines, n_sigma=n_sigma, fit2t=fit2t)
 
 
 def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopologue=1,
                                    opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0,
                                    r_au=None, min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                    contam_lines=None, progress_callback=None, cancel_flag=None,
-                                   n_sigma=3.0):
-    """Fit a 1T rotational diagram at every pixel of one cube.
+                                   n_sigma=3.0, fit2t=False):
+    """Fit a rotational diagram at every pixel of one cube.
     Same fit as the GUI's Run Map button, run once per pixel.
 
     Args:
@@ -850,7 +852,8 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, dedup_tol_um,
             contam_lines: Same meaning as in fit_region
         min_lines (int): Fewest lines a pixel needs, checked separately at each
-            pixel -- one pixel can use different lines than its neighbor
+            pixel -- one pixel can use different lines than its neighbor. Raise
+            this for fit2t (a 2T fit has 4 free parameters, not 2)
         n_jobs (int): Worker threads, one cube row per task
         progress_callback (callable, optional): progress_callback(done_pixels, total_pixels)
         cancel_flag (object, optional): Object with a `.cancelled` attribute, checked
@@ -858,11 +861,14 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default. A line
             below it is an upper limit and stays NaN in the maps. Not applied to
             'region_fit', whose whole-cube sum keeps the 3-sigma rule
+        fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2),
-            'n_lines' (2D int, lines used per pixel), 'status' (2D int, one of
-            STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),
+        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2) --
+            component 1 (1T's only component, or 2T's "Warm" one); 'T2', 'T2_err',
+            'Ncol2', 'Ncol2_err' (2T's "Hot" component, all-NaN when fit2t is False);
+            'fit2t', 'n_lines' (2D int, lines used per pixel), 'status' (2D int, one
+            of STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),
             'region_fit' (the whole-cube-summed anchor fit, same as fit_region's
             return), plus 'header', 'wave_range', 'molecule', 'dist_pc', 'r_au',
             'opr', 'kept_lines', 'dropped_lines'
@@ -880,12 +886,12 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
                            opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
                            min_lines=min_lines, dedup_tol_um=dedup_tol_um, n_jobs=n_jobs,
                            contam_lines=contam_lines, progress_callback=progress_callback,
-                           cancel_flag=cancel_flag, n_sigma=n_sigma)
+                           cancel_flag=cancel_flag, n_sigma=n_sigma, fit2t=fit2t)
 
 
 def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
                       fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-                      min_lines=3, dedup_tol_um=1e-5, contam_lines=None):
+                      min_lines=3, dedup_tol_um=1e-5, contam_lines=None, fit2t=False):
     """Fit one rotational diagram from several cubes at once, one line per cube.
     This is fit_region for many cubes instead of one. No convolution or
     reprojection is needed here, since every pixel of every cube is summed.
@@ -893,7 +899,7 @@ def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            dedup_tol_um, contam_lines: Same meaning as in fit_region
+            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
 
     Returns:
         dict: 'status' (int, one of STATUS_OK/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),
@@ -909,15 +915,16 @@ def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
                                  isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
                                  opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
                                  min_lines=min_lines, dedup_tol_um=dedup_tol_um,
-                                 contam_lines=contam_lines)
+                                 contam_lines=contam_lines, fit2t=fit2t)
 
 
 def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopologue=1,
                                          opr=None, fit_opr=False, opr_grid=None,
                                          dist_pc=140.0, r_au=None, min_lines=3,
                                          dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
-                                         progress_callback=None, cancel_flag=None, n_sigma=3.0):
-    """Fit a 1T rotational diagram at every pixel of a common grid built from
+                                         progress_callback=None, cancel_flag=None, n_sigma=3.0,
+                                         fit2t=False):
+    """Fit a rotational diagram at every pixel of a common grid built from
     several cubes at different pixel scales, one line per cube. Convolves
     and reprojects each cube onto that grid first, then fits like Run Map.
 
@@ -925,7 +932,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube,
             at least 2
         molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            dedup_tol_um, contam_lines: Same meaning as in fit_region
+            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
         n_jobs (int): Worker threads for each cube's native-grid extraction
         progress_callback (callable, optional): progress_callback(done_units, total_units),
             spanning every native-grid extraction plus the final per-pixel fit
@@ -935,12 +942,13 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
             to 'region_fit', whose whole-cube sum keeps the 3-sigma rule
 
     Returns:
-        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2),
-            'n_lines' (2D int), 'status' (2D int, see create_rotational_diagram_map),
-            'region_fit' (the whole-cube-summed anchor fit, same as fit_region_multi's
-            return), plus 'dst_wcs' (the new common-grid WCS), 'molecule', 'dist_pc',
-            'r_au', 'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
-            'dropped_lines'
+        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2) --
+            component 1; 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2T's "Hot" component,
+            all-NaN when fit2t is False); 'fit2t', 'n_lines' (2D int), 'status' (2D
+            int, see create_rotational_diagram_map), 'region_fit' (the whole-cube-
+            summed anchor fit, same as fit_region_multi's return), plus 'dst_wcs'
+            (the new common-grid WCS), 'molecule', 'dist_pc', 'r_au', 'opr',
+            'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines', 'dropped_lines'
 
     Raises:
         ValueError: if fewer than 2 pairs are given, a cube has no readable
@@ -959,11 +967,11 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
                                  min_lines=min_lines, dedup_tol_um=dedup_tol_um,
                                  n_jobs=n_jobs, contam_lines=contam_lines,
                                  progress_callback=progress_callback, cancel_flag=cancel_flag,
-                                 n_sigma=n_sigma)
+                                 n_sigma=n_sigma, fit2t=fit2t)
 
 
 def fit_pixel_multi(result, x, y, molecule='H2', isotopologue=1, opr=None, fit_opr=False,
-                     opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3):
+                     opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, fit2t=False):
     """Re-fit one pixel of a create_rotational_diagram_map_multi result.
     Uses its cached per-line maps instead of redoing the convolution.
 
@@ -971,8 +979,8 @@ def fit_pixel_multi(result, x, y, molecule='H2', isotopologue=1, opr=None, fit_o
         result (dict): Output of create_rotational_diagram_map_multi
         x (int): Spatial x index on the result's common grid
         y (int): Spatial y index on the result's common grid
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines:
-            Same meaning as in fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+            fit2t: Same meaning as in fit_region
 
     Returns:
         dict: Same shape as fit_pixel's return, for this pixel of the common grid
@@ -987,12 +995,13 @@ def fit_pixel_multi(result, x, y, molecule='H2', isotopologue=1, opr=None, fit_o
     """
     return _rdm_fit_pixel_multi(result, x, y, molecule=molecule, isotopologue=isotopologue,
                                 opr=opr, fit_opr=fit_opr, opr_grid=opr_grid,
-                                dist_pc=dist_pc, r_au=r_au, min_lines=min_lines)
+                                dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, fit2t=fit2t)
 
 
 def save_rotational_diagram_map_fits(result, output_path):
     """Write a rotational-diagram-map result to a multi-extension FITS file:
-    one image HDU each for T, T_err, Ncol, Ncol_err, n_lines, and status.
+    one image HDU each for T, T_err, Ncol, Ncol_err, n_lines, and status --
+    plus T2/T2_err/Ncol2/Ncol2_err when the result is a 2T fit.
 
     Args:
         result (dict): Output of create_rotational_diagram_map or

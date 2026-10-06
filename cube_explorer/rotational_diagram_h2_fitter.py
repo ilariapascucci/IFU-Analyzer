@@ -782,8 +782,11 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             popt, pcov (tuple): curve_fit's best-fit params and covariance
         """
         sigma = y_err if np.any(y_err > 0) else None
-        p0 = [a_seed, T_seed, a_seed - 5, T_seed * 2]
         bounds = _bounds_2T(y)
+        p0 = [a_seed, T_seed, a_seed - 5, T_seed * 2]
+        # a_seed-5/T_seed*2 can exceed bounds when the 1T seed pins at t_cap;
+        # clip only the starting point, not the fitted result.
+        p0 = np.clip(p0, bounds[0], bounds[1])
 
         popt, pcov = curve_fit(
             model_2T,

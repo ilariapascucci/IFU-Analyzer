@@ -2814,7 +2814,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 naman_convolved, molecule=fit_kwargs["molecule"], isotopologue=fit_kwargs["isotopologue"],
                 opr=fit_kwargs["opr"], fit_opr=fit_kwargs["fit_opr"], opr_grid=fit_kwargs["opr_grid"],
                 dist_pc=fit_kwargs["dist_pc"], r_au=fit_kwargs["r_au"], min_lines=fit_kwargs["min_lines"],
-                region_fit=None,
+                region_fit=None, fit2t=fit_kwargs.get("fit2t", False),
             )
         except Exception as exc:
             QMessageBox.critical(self, "Run Naman Map failed", str(exc))
@@ -4155,8 +4155,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         Returns:
             fit_kwargs (dict or None): molecule/isotopologue/opr/fit_opr/
-                opr_grid/dist_pc/r_au/min_lines/n_sigma, or None if a field
-                was invalid -- a warning was already shown in that case.
+                opr_grid/dist_pc/r_au/min_lines/n_sigma/fit2t, or None if a
+                field was invalid -- a warning was already shown in that case.
         """
         n_sigma = self._rot_map_gather_n_sigma()
         if n_sigma is None:
@@ -4187,11 +4187,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 QMessageBox.warning(self, "OPR Grid", "Invalid OPR min/max/steps.")
                 return None
 
+        fit2t = self.fit_mode.currentText() == "2T"
+        # 2T has 4 free parameters vs 1T's 2, so it needs more detections per pixel.
+        min_lines = 5 if fit2t else 3
+
         return dict(
             molecule=self.current_molecule,
             isotopologue=self.isotopologue_spin.value(),
             opr=None, fit_opr=fit_opr, opr_grid=opr_grid,
-            dist_pc=dist_pc, r_au=r_au, min_lines=3, n_sigma=n_sigma,
+            dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, n_sigma=n_sigma,
+            fit2t=fit2t,
         )
 
     def _rot_map_geometry_key(self, cubes_and_lines, n_sigma, dedup_tol_um=1e-5):
