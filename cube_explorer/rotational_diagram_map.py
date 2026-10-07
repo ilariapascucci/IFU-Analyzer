@@ -15,16 +15,17 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from threading import Lock
 
 import numpy as np
+from astropy.io import fits
 from astropy.stats import gaussian_sigma_to_fwhm
 
 from .unit_converter import extract_units
-from .utils import safe_worker_count
+from .utils import safe_worker_count, detect_instrument
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from .analyzer_2d import (
     _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap,
     build_target_wcs_for_batch, convolve_and_reproject, miri_psf_sigma_arcsec,
 )
-from .fits_export import build_2d_export_header, write_fits_product
+from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
     compute_line_fluxes_collective, get_gu, pc, T_CAP as T_CAP_H2,
     rotational_diagram as rotational_diagram_h2,
@@ -675,6 +676,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         "T2": t2_map, "T2_err": dt2_map, "Ncol2": n2_map, "Ncol2_err": dn2_map,
         "fit2t": fit2t, "n_lines": nlines_map, "status": status_map,
         "header": cube.header,
+        "cube_filename": getattr(cube, "filename", None),
         "wave_range": (float(np.nanmin(wavelength)), float(np.nanmax(wavelength))),
         "molecule": molecule, "dist_pc": dist_pc, "r_au": r_au, "opr": opr,
         "min_lines": min_lines, "t_cap": T_CAP_H2 if molecule == "H2" else T_CAP_GENERAL,
@@ -903,20 +905,155 @@ def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
             "n_pixels": n_pixels_total, "n_cubes": len(kept_pairs)}
 
 
+def fit_region_mixed(cubes_and_lines, imported_lines, molecule="H2", isotopologue=1, opr=None,
+                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                     min_lines=3, dedup_tol_um=1e-5, contam_lines=None, region_masks=None,
+                     imported_region_masks=None, fit2t=False):
+    """
+    fit_region_multi's mixed-source sibling: cube-backed pairs are fit the
+    same way; each imported line's already-reduced map is summed directly
+    instead, since there's nothing left to fit.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per
+            cube-backed line. May be empty (a pure-import run).
+        imported_lines (list): Line dicts with an 'imported_map' payload.
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+            min_lines, dedup_tol_um, contam_lines: Same meaning as fit_region_multi
+        region_masks (dict): {CubeData: boolean mask}, same as fit_region_multi
+        imported_region_masks (dict): {id(line): boolean mask (ny, nx)},
+            restricting which pixels of an imported line's own map get
+            summed. A line missing from this dict, or None, sums the whole map.
+        fit2t (bool): Report the two-temperature fit instead of 1T
+
+    Returns:
+        out (dict): Same shape as fit_region_multi's own return
+    """
+    items = [(cube, line) for cube, line in cubes_and_lines] + \
+            [(None, line) for line in imported_lines]
+    kept_pairs, _dropped = _dedupe_colocated(items, dedup_tol_um, line_of=lambda p: p[1])
+    kept_lines = [l for _, l in kept_pairs]
+    keys = _line_keys(kept_lines, molecule)
+    molecular_data = _build_molecular_data(kept_lines, keys, molecule)
+
+    fluxes, flux_errors, n_pixels_total = {}, {}, 0
+    for key, (cube, line) in zip(keys, kept_pairs):
+        if cube is not None:
+            wavelength, _unit = extract_units(cube.wavelength)
+            _n_wave, n_y, n_x = cube.cube.shape
+            mask = region_masks.get(cube) if region_masks else None
+            if mask is None:
+                coords = [(x, y) for y in range(n_y) for x in range(n_x)]
+            else:
+                coords = [(int(x), int(y)) for y, x in zip(*np.where(mask))]
+            specs = [np.asarray(s, dtype=float) for s in
+                     (cube.get_pixel_spectrum(x, y) for x, y in coords)
+                     if s is not None]
+            if not specs:
+                continue
+            n_pixels_total += len(specs)
+            total = np.nansum(np.array(specs), axis=0)
+            per_line = compute_line_fluxes_collective(
+                wavelength, total, [line["wavelength"]], cube.header, contam_lines=contam_lines)
+            res = per_line[0]
+            if res.get("success") and not res.get("is_upper_limit"):
+                fluxes[key] = res["flux_cgs"]
+                flux_errors[key] = res.get("flux_error_cgs", np.nan)
+        else:
+            imp = line["imported_map"]
+            flux_map = imp["flux_map"]
+            err_map = (imp["flux_error_map"] if imp["error_pct"] is None
+                      else np.abs(flux_map) * (imp["error_pct"] / 100.0))
+            mask = imported_region_masks.get(id(line)) if imported_region_masks else None
+            if mask is None:
+                flux_sum = float(np.nansum(flux_map))
+                err_sum = float(np.sqrt(np.nansum(err_map ** 2)))
+                n_pix = int(np.sum(np.isfinite(flux_map)))
+            else:
+                flux_sum = float(np.nansum(flux_map[mask]))
+                err_sum = float(np.sqrt(np.nansum(err_map[mask] ** 2)))
+                n_pix = int(np.sum(mask & np.isfinite(flux_map)))
+            if n_pix > 0 and flux_sum > 0:
+                n_pixels_total += n_pix
+                fluxes[key] = flux_sum
+                flux_errors[key] = err_sum
+
+    if len(fluxes) < min_lines:
+        return {"status": STATUS_TOO_FEW_LINES, "n_lines": len(fluxes),
+                "n_pixels": n_pixels_total, "n_cubes": len(kept_pairs),
+                "reason": f"{len(fluxes)} detections across the cubes, need {min_lines}"}
+    try:
+        results = _run_fitter(fluxes, flux_errors, molecular_data, molecule, isotopologue,
+                              opr, fit_opr, opr_grid, dist_pc, r_au, fit2t=fit2t)
+    except Exception as exc:
+        return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes),
+                "n_pixels": n_pixels_total, "n_cubes": len(kept_pairs), "reason": str(exc)}
+    return {"status": STATUS_OK, "n_lines": len(fluxes), "results": results,
+            "n_pixels": n_pixels_total, "n_cubes": len(kept_pairs)}
+
+
+def _convolution_plan_from_lists(lines, wcses, shapes, scales, filenames, instruments):
+    """
+    Shared tail of convolution_plan/convolution_plan_native: the same
+    pixel-scale/WCS arithmetic convolve_line_maps runs for real, without any
+    per-pixel fitting.
+
+    Args:
+        lines (list): Line dicts, in the same order as the other lists
+        wcses (list): One astropy.wcs.WCS per line
+        shapes (list): One (ny, nx) per line
+        scales (list): One pixel scale (arcsec) per line
+        filenames (list): One source filename (or None) per line
+        instruments (list): One instrument tag (or None) per line
+
+    Returns:
+        plan (dict): 'worst_pix_arcsec', 'dst_shape' (ny, nx), 'per_cube'
+            (list of dicts: 'wavelength', 'filename', 'native_pix_arcsec',
+            'sigma_arcsec', 'sigma_pix')
+
+    Raises:
+        ValueError: if any two lines share no sky coverage
+    """
+    for i in range(len(wcses)):
+        for j in range(i + 1, len(wcses)):
+            if not _wcs_footprints_overlap(wcses[i], shapes[i], wcses[j], shapes[j]):
+                raise ValueError(
+                    f"The map for {lines[i]['wavelength']:.4f} um and the map "
+                    f"for {lines[j]['wavelength']:.4f} um share no sky coverage.")
+
+    worst_pix = max(scales)
+    dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
+
+    # Mirrors convolve_line_maps's own sigma-source choice, so this preview
+    # matches what the real run will actually do.
+    miri_wavelengths = [l["wavelength"] for l, inst in zip(lines, instruments) if inst == "MIRI"]
+    ref_wavelength_miri = max(miri_wavelengths) if miri_wavelengths else None
+
+    per_cube = []
+    for line, scale, filename, instrument in zip(lines, scales, filenames, instruments):
+        if instrument == "MIRI" and ref_wavelength_miri is not None:
+            sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
+        else:
+            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2)) ** 0.5 / gaussian_sigma_to_fwhm
+        sigma_pix = sigma_arcsec / scale if scale > 0 else 0.0
+        per_cube.append({
+            "wavelength": line["wavelength"], "filename": filename,
+            "native_pix_arcsec": scale, "sigma_arcsec": sigma_arcsec, "sigma_pix": sigma_pix,
+        })
+    return {"worst_pix_arcsec": worst_pix, "dst_shape": dst_shape, "per_cube": per_cube}
+
+
 def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
     """
     Cheap, fit-free preview of what create_rotational_diagram_map_multi will
-    do to each cube: the same pixel-scale/WCS arithmetic it runs up front,
-    without any per-pixel fitting.
+    do to each cube -- see _convolution_plan_from_lists.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
         dedup_tol_um (float): Co-located-line merge tolerance in microns
 
     Returns:
-        plan (dict): 'worst_pix_arcsec', 'dst_shape' (ny, nx), 'per_cube' (list
-            of dicts: 'wavelength', 'filename', 'native_pix_arcsec',
-            'sigma_arcsec', 'sigma_pix'), 'dropped_lines'
+        plan (dict): _convolution_plan_from_lists's own keys, plus 'dropped_lines'
 
     Raises:
         ValueError: if a cube has no readable celestial WCS/pixel scale, or
@@ -931,37 +1068,34 @@ def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
     scales = [_get_pixel_size_arcsec(c.header) for c in cubes]
     if any(w is None for w in wcses) or any(s is None for s in scales):
         raise ValueError("Could not read a celestial WCS/pixel scale from every cube's header.")
-    for i in range(len(cubes)):
-        for j in range(i + 1, len(cubes)):
-            if not _wcs_footprints_overlap(wcses[i], shapes[i], wcses[j], shapes[j]):
-                raise ValueError(
-                    f"The cube for {lines[i]['wavelength']:.4f} um and the cube "
-                    f"for {lines[j]['wavelength']:.4f} um share no sky coverage.")
 
-    worst_pix = max(scales)
-    dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
+    plan = _convolution_plan_from_lists(
+        lines, wcses, shapes, scales,
+        [getattr(c, "filename", None) for c in cubes], [c.instrument for c in cubes])
+    plan["dropped_lines"] = dropped
+    return plan
 
-    # Mirrors convolve_line_maps's own sigma-source choice, so this preview
-    # matches what the real run will actually do.
-    miri_wavelengths = [l["wavelength"] for l, c in zip(lines, cubes) if c.instrument == "MIRI"]
-    ref_wavelength_miri = max(miri_wavelengths) if miri_wavelengths else None
 
-    per_cube = []
-    for cube, line, scale in zip(cubes, lines, scales):
-        if cube.instrument == "MIRI" and ref_wavelength_miri is not None:
-            sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
-        else:
-            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2)) ** 0.5 / gaussian_sigma_to_fwhm
-        sigma_pix = sigma_arcsec / scale if scale > 0 else 0.0
-        per_cube.append({
-            "wavelength": line["wavelength"],
-            "filename": getattr(cube, "filename", None),
-            "native_pix_arcsec": scale,
-            "sigma_arcsec": sigma_arcsec,
-            "sigma_pix": sigma_pix,
-        })
-    return {"worst_pix_arcsec": worst_pix, "dst_shape": dst_shape,
-            "per_cube": per_cube, "dropped_lines": dropped}
+def convolution_plan_native(result):
+    """
+    Same preview as convolution_plan, reading a compute_native_line_maps/
+    merge_native_results-shaped dict directly -- needed once imported lines
+    are involved, since there's no CubeData to pair them with.
+
+    Args:
+        result (dict): Output of compute_native_line_maps or merge_native_results
+
+    Returns:
+        plan (dict): Same shape as convolution_plan's own return
+
+    Raises:
+        ValueError: if two lines share no sky coverage
+    """
+    plan = _convolution_plan_from_lists(
+        result["kept_lines"], result["native_wcs"], result["native_shapes"],
+        result["native_pix_arcsec"], result["cube_filenames"], result["native_instrument"])
+    plan["dropped_lines"] = result["dropped_lines"]
+    return plan
 
 
 def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
@@ -997,12 +1131,13 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
             (one per kept_lines entry), 'cube_filenames'
 
     Raises:
-        ValueError: if fewer than 2 pairs are given, a cube has no readable
-            celestial WCS/pixel scale, or two inputs share no sky coverage
+        ValueError: if no pairs are given, a cube has no readable celestial
+            WCS/pixel scale, or two inputs share no sky coverage
     """
-    if len(cubes_and_lines) < 2:
-        raise ValueError("Need at least 2 (cube, line) pairs -- use "
-                         "create_rotational_diagram_map for a single cube.")
+    if len(cubes_and_lines) < 1:
+        # 1 pair is now valid -- merge_native_results may add imported
+        # lines on top of it; a no-import single cube still uses create_rotational_diagram_map.
+        raise ValueError("Need at least 1 (cube, line) pair.")
 
     kept_pairs, dropped = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
     for weak_cube, weak_line in dropped:
@@ -1092,6 +1227,164 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
         "native_wcs": wcses, "native_shapes": shapes, "native_pix_arcsec": scales,
         "cube_filenames": [getattr(c, "filename", None) for c in cubes],
         "native_instrument": [c.instrument for c in cubes],
+        # The cube's own real header, not native_wcs's WCS-only one -- the
+        # Map/Convolved Map FITS export needs this for INSTRUME/TARGNAME/etc.
+        "native_headers": [c.header for c in cubes],
+    }
+
+
+def build_imported_map_payload(fits_path, error_pct):
+    """
+    Load an externally-produced 2D flux map as an Import Map payload, in
+    place of fitting one from a cube. Same 2D-HDU scan as gui_2d.py's
+    load_2d_fits, reimplemented GUI-free to avoid importing that module.
+
+    Args:
+        fits_path (str): Path to the flux-map FITS file.
+        error_pct (float): Flat percent error; the error map this returns is
+            abs(flux_map) * error_pct / 100.
+
+    Returns:
+        payload (dict): 'flux_map', 'flux_error_map' (both 2D float32),
+            'error_pct' (float, or None if 'flux_error_map' came from a real
+            ERR extension instead of a flat percent), 'wcs' (astropy.wcs.WCS,
+            2D celestial), 'pix_arcsec' (float), 'shape' (ny, nx),
+            'instrument' (str or None), 'filename' (str, basename of
+            fits_path), 'header' (cleaned 2D header, NAXIS3/CTYPE3/etc
+            stripped).
+
+    Raises:
+        ValueError: no 2D image data found, or no usable celestial WCS/pixel
+            scale -- an unprojectable map can never be reprojected onto the
+            common grid, so this is a hard reject at import time.
+    """
+    data, header, instrument, real_err = None, None, None, None
+    with fits.open(fits_path) as hdul:
+        for hdu in hdul:
+            if hdu.data is not None and getattr(hdu.data, "size", 0) > 0:
+                squeezed = np.squeeze(hdu.data)
+                if squeezed.ndim == 2:
+                    data, header = squeezed, hdu.header.copy()
+                    break
+        if data is None:
+            raise ValueError(f"No 2D image data found in {fits_path}.")
+        instrument = detect_instrument(hdul)
+        # A real per-pixel error (Save Maps/Gaussian Map's own ERR
+        # extension) takes priority over the flat percent given below.
+        for hdu in hdul:
+            if (getattr(hdu, "name", "") or "").strip().upper() == "ERR" and hdu.data is not None:
+                squeezed_err = np.squeeze(hdu.data)
+                if squeezed_err.shape == data.shape:
+                    real_err = squeezed_err
+                break
+
+    header["NAXIS"] = 2
+    if "WCSAXES" in header:
+        header["WCSAXES"] = 2
+    for kw in ("NAXIS3", "NAXIS4", "CTYPE3", "CRVAL3", "CRPIX3", "CDELT3", "CUNIT3",
+               "PC1_3", "PC2_3", "PC3_1", "PC3_2", "PC3_3",
+               "CD1_3", "CD2_3", "CD3_1", "CD3_2", "CD3_3"):
+        if kw in header:
+            del header[kw]
+
+    wcs2d = _make_2d_wcs(header)
+    if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+        raise ValueError(f"{fits_path} has no usable celestial WCS -- it can't be reprojected.")
+    pix_arcsec = _get_pixel_size_arcsec(header)
+    if pix_arcsec is None:
+        raise ValueError(f"Could not read a pixel scale from {fits_path}'s header.")
+
+    flux_map = np.asarray(data, dtype=np.float32)
+    if real_err is not None:
+        err_map, stored_pct = np.asarray(real_err, dtype=np.float32), None
+    else:
+        err_map = (np.abs(flux_map) * (error_pct / 100.0)).astype(np.float32)
+        stored_pct = float(error_pct)
+    return {
+        "flux_map": flux_map, "flux_error_map": err_map, "error_pct": stored_pct,
+        "wcs": wcs2d, "pix_arcsec": pix_arcsec, "shape": flux_map.shape,
+        "instrument": instrument, "filename": os.path.basename(fits_path), "header": header,
+    }
+
+
+def _native_entry_from_imported_map(line):
+    """
+    Repackage a line's imported_map payload into a compute_native_line_maps-
+    shaped per-line entry -- no I/O or fitting, just rebuilding the error
+    map from the CURRENT error_pct unless a real ERR extension exists.
+
+    Args:
+        line (dict): Line dict with an 'imported_map' payload (see
+            build_imported_map_payload).
+
+    Returns:
+        entry (dict): 'flux_map', 'flux_error_map', 'wcs', 'shape',
+            'pix_arcsec', 'instrument', 'filename', 'header' -- one element
+            of each of compute_native_line_maps's own list outputs.
+    """
+    imp = line["imported_map"]
+    flux_map = imp["flux_map"]
+    if imp["error_pct"] is None:
+        # A real per-pixel error (Save Maps/Gaussian Map's ERR extension) --
+        # already final, not a percent to recompute from.
+        err_map = imp["flux_error_map"]
+    else:
+        err_map = (np.abs(flux_map) * (imp["error_pct"] / 100.0)).astype(np.float32)
+    return {
+        "flux_map": flux_map, "flux_error_map": err_map, "wcs": imp["wcs"],
+        "shape": imp["shape"], "pix_arcsec": imp["pix_arcsec"],
+        "instrument": imp["instrument"], "filename": imp["filename"], "header": imp["header"],
+    }
+
+
+def merge_native_results(native_cube_result, imported_lines, dedup_tol_um=1e-5):
+    """
+    Merge compute_native_line_maps's cube-backed output with imported-map
+    lines into one native_result-shaped dict, so Convolve Maps/combine_line_maps
+    treat every checked line identically regardless of source.
+
+    Args:
+        native_cube_result (dict): Output of compute_native_line_maps, or
+            None if no cube-backed line is checked (a pure-import run).
+        imported_lines (list): Line dicts with an 'imported_map' payload.
+        dedup_tol_um (float): Co-located-line merge tolerance in microns,
+            applied across the whole combined set (cube-backed + imported).
+
+    Returns:
+        result (dict): Same shape as compute_native_line_maps's own return.
+    """
+    pairs = []
+    dropped = list(native_cube_result["dropped_lines"]) if native_cube_result is not None else []
+    if native_cube_result is not None:
+        for i, line in enumerate(native_cube_result["kept_lines"]):
+            entry = {
+                "flux_map": native_cube_result["native_flux_maps"][i],
+                "flux_error_map": native_cube_result["native_flux_error_maps"][i],
+                "wcs": native_cube_result["native_wcs"][i],
+                "shape": native_cube_result["native_shapes"][i],
+                "pix_arcsec": native_cube_result["native_pix_arcsec"][i],
+                "instrument": native_cube_result["native_instrument"][i],
+                "filename": native_cube_result["cube_filenames"][i],
+                "header": native_cube_result["native_headers"][i],
+            }
+            pairs.append((entry, line))
+    for line in imported_lines:
+        pairs.append((_native_entry_from_imported_map(line), line))
+
+    kept_pairs, newly_dropped = _dedupe_colocated(pairs, dedup_tol_um, line_of=lambda p: p[1])
+    kept_entries = [e for e, _ in kept_pairs]
+    kept_lines = [l for _, l in kept_pairs]
+
+    return {
+        "kept_lines": kept_lines, "dropped_lines": dropped + newly_dropped,
+        "native_flux_maps": [e["flux_map"] for e in kept_entries],
+        "native_flux_error_maps": [e["flux_error_map"] for e in kept_entries],
+        "native_wcs": [e["wcs"] for e in kept_entries],
+        "native_shapes": [e["shape"] for e in kept_entries],
+        "native_pix_arcsec": [e["pix_arcsec"] for e in kept_entries],
+        "cube_filenames": [e["filename"] for e in kept_entries],
+        "native_instrument": [e["instrument"] for e in kept_entries],
+        "native_headers": [e["header"] for e in kept_entries],
     }
 
 
@@ -1414,6 +1707,113 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         progress_callback=_combine_progress, cancel_flag=cancel_flag, fit2t=fit2t)
 
 
+def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecule="H2",
+                                        isotopologue=1, opr=None, fit_opr=False, opr_grid=None,
+                                        dist_pc=140.0, r_au=None, min_lines=3,
+                                        dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
+                                        region_fit=None, progress_callback=None,
+                                        cancel_flag=None, region_masks=None,
+                                        imported_region_masks=None, n_sigma=3.0, fit2t=False):
+    """
+    create_rotational_diagram_map_multi's mixed-source sibling (some lines
+    are cube-backed, others already have their map via Import Map): chains
+    compute_native_line_maps -> merge_native_results -> convolve_line_maps -> fit_region_mixed -> combine_line_maps.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per
+            cube-backed line. May be empty (a pure-import run).
+        imported_lines (list): Line dicts with an 'imported_map' payload.
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
+            min_lines, dedup_tol_um, n_jobs, contam_lines, region_fit,
+            progress_callback, cancel_flag, region_masks, n_sigma, fit2t:
+            Same meaning as create_rotational_diagram_map_multi
+        imported_region_masks (dict): {id(line): boolean mask}, restricting
+            which pixels of an imported line's own map count toward
+            region_fit. None sums the whole map.
+
+    Returns:
+        result (dict): Same shape as create_rotational_diagram_map_multi's
+            own return.
+
+    Raises:
+        ValueError: if neither a cube-backed nor an imported line is given,
+            a cube/imported map has no readable celestial WCS/pixel scale,
+            or two inputs share no sky coverage
+    """
+    if not cubes_and_lines and not imported_lines:
+        raise ValueError("Need at least one cube-backed or imported line.")
+
+    total_native = sum(c.cube.shape[1] * c.cube.shape[2] for c, _ in cubes_and_lines)
+
+    # Cheap peek at the final common-grid size (both sources), so
+    # progress_callback's total is accurate from the start.
+    wcses_peek, shapes_peek, scales_peek = [], [], []
+    for c, _line in cubes_and_lines:
+        wcses_peek.append(_make_2d_wcs(c.header))
+        shapes_peek.append((c.cube.shape[1], c.cube.shape[2]))
+        scales_peek.append(_get_pixel_size_arcsec(c.header))
+    for line in imported_lines:
+        imp = line["imported_map"]
+        wcses_peek.append(imp["wcs"])
+        shapes_peek.append(imp["shape"])
+        scales_peek.append(imp["pix_arcsec"])
+    if any(w is None for w in wcses_peek) or any(s is None for s in scales_peek):
+        raise ValueError("Could not read a celestial WCS/pixel scale from every line.")
+    _dst_wcs_peek, dst_shape_peek = build_target_wcs_for_batch(
+        list(zip(wcses_peek, shapes_peek)), max(scales_peek))
+    total_units = total_native + dst_shape_peek[0] * dst_shape_peek[1]
+
+    def _native_progress(done, _total):
+        """
+        Forward compute_native_line_maps's own progress onto the combined total.
+
+        Args:
+            done (int): Native-extraction pixels done so far
+            _total (int): compute_native_line_maps's own total, unused
+
+        Returns:
+            None
+        """
+        if progress_callback is not None:
+            progress_callback(done, total_units)
+
+    def _combine_progress(done, _total):
+        """
+        Forward combine_line_maps's own progress onto the combined total.
+
+        Args:
+            done (int): Common-grid pixels done so far
+            _total (int): combine_line_maps's own total, unused
+
+        Returns:
+            None
+        """
+        if progress_callback is not None:
+            progress_callback(total_native + done, total_units)
+
+    native = None
+    if cubes_and_lines:
+        native = compute_native_line_maps(
+            cubes_and_lines, contam_lines=contam_lines, n_jobs=n_jobs, dedup_tol_um=dedup_tol_um,
+            progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks,
+            n_sigma=n_sigma)
+    merged = merge_native_results(native, imported_lines, dedup_tol_um=dedup_tol_um)
+    convolved = convolve_line_maps(merged, cancel_flag=cancel_flag)
+
+    if region_fit is None:
+        region_fit = fit_region_mixed(
+            cubes_and_lines, imported_lines, molecule=molecule, isotopologue=isotopologue,
+            opr=opr, fit_opr=fit_opr, opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
+            min_lines=min_lines, dedup_tol_um=dedup_tol_um, contam_lines=contam_lines,
+            region_masks=region_masks, imported_region_masks=imported_region_masks, fit2t=fit2t,
+        )
+
+    return combine_line_maps(
+        convolved, molecule=molecule, isotopologue=isotopologue, opr=opr, fit_opr=fit_opr,
+        opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, region_fit=region_fit,
+        progress_callback=_combine_progress, cancel_flag=cancel_flag, fit2t=fit2t)
+
+
 def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
                     min_lines=3, fit2t=False):
@@ -1483,10 +1883,17 @@ def save_rotational_diagram_map_fits(result, output_path):
     source_header = result["dst_wcs"].to_header() if result.get("dst_wcs") is not None else result.get("header")
     shape = np.asarray(result["T"]).shape
 
-    primary_header = build_2d_export_header(source_header, shape, extra={
-        'MOLECULE': result["molecule"],
-        'DIST_PC': result["dist_pc"],
-    })
+    # Multi-cube: dst_wcs carries no INSTRUME/TARGNAME -- fold them in from
+    # the coarsest-scale cube's real header, same choice Convolve Maps uses.
+    identity_header = None
+    native_headers, native_scales = result.get("native_headers"), result.get("native_pix_arcsec")
+    if result.get("dst_wcs") is not None and native_headers and native_scales:
+        identity_header = native_headers[int(np.argmax(native_scales))]
+
+    primary_header, _ = build_line_map_header(
+        source_header, shape, molecule=result["molecule"], identity_header=identity_header,
+        extra={'DIST_PC': result["dist_pc"]},
+    )
     if result.get("r_au") is not None:
         primary_header["R_AU"] = result["r_au"]
     if result.get("worst_pix_arcsec") is not None:

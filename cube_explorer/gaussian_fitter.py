@@ -199,10 +199,12 @@ class GaussianFitResult:
     area_unit: str = ""  # Units of area, for example "erg/s/cm**2"
     area_native: float = 0.0  # Area before any CGS conversion
 
-    # Only populated by fit_hitran_lines_collective's simultaneous curve_fit
+    # Populated by both fit_gaussian_to_line and fit_hitran_lines_collective,
+    # from each one's own curve_fit covariance -- None only if that fit failed.
     amplitude_error: Optional[float] = None
     sigma_error: Optional[float] = None
-    # Pascucci's area-error formula, same one rotational_diagram_h2_fitter.py already uses.
+    # Pascucci's area-error formula (_propagate_area_error), same one
+    # rotational_diagram_h2_fitter.py/flux_map_extractor.py already use.
     area_error: Optional[float] = None
     catalog_sigma: Optional[float] = None
     noise_std: Optional[float] = None
@@ -396,10 +398,44 @@ def gaussian(x: np.ndarray, amplitude: float, center: float,
     return amplitude * np.exp(-(x - center)**2 / (2 * sigma**2))
 
 
+# Mirrors flux_map_extractor.SYSTEMATIC_FLUX_ERROR_FRACTION -- not imported
+# directly since that module already imports from this one (circular import).
+AREA_SYSTEMATIC_ERROR_FRACTION = 0.05
+
+
+def _propagate_area_error(amplitude: float, sigma: float, pcov: Optional[np.ndarray],
+                          area: float, area_native: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Pascucci's area-error formula: statistical propagation from curve_fit's
+    covariance, plus a flux-calibration systematic floor in quadrature --
+    the same formula flux_map_extractor.py uses for the multi-Gaussian engine.
+
+    Args:
+        amplitude (float): Fitted amplitude, native units
+        sigma (float): Fitted sigma, native units
+        pcov (array or None): 3x3 covariance matrix from curve_fit ([amplitude,
+            center, sigma] order), or None if the fit never produced one
+        area (float): Integrated area, in whatever units it's reported in
+        area_native (float): Integrated area in native units
+
+    Returns:
+        errors (tuple): (amplitude_error, sigma_error, area_error), each
+            None if pcov is None or area_native is 0
+    """
+    if pcov is None or not area_native:
+        return None, None, None
+    amp_err = float(np.sqrt(np.abs(pcov[0, 0])))
+    sig_err = float(np.sqrt(np.abs(pcov[2, 2])))
+    area_error_native = np.sqrt(2 * np.pi * (sigma ** 2 * amp_err ** 2 + amplitude ** 2 * sig_err ** 2))
+    area_error_statistical = area_error_native * (area / area_native)
+    area_error = float(np.sqrt(area_error_statistical ** 2 + (AREA_SYSTEMATIC_ERROR_FRACTION * area) ** 2))
+    return amp_err, sig_err, area_error
+
+
 def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
                                      p0: np.ndarray, bounds: Tuple,
                                      clip_thresh: float = 3.0,
-                                     clip_iters: int = 2) -> Tuple[np.ndarray, bool, np.ndarray]:
+                                     clip_iters: int = 2) -> Tuple[np.ndarray, Optional[np.ndarray], bool, np.ndarray]:
     """
     Fit a Gaussian with iterative sigma clipping, not RANSAC (no random sampling):
     fit, drop points beyond clip_thresh sigma of the residuals, refit on what's
@@ -414,8 +450,9 @@ def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
         clip_iters (int): Maximum fit-clip-refit iterations
 
     Returns:
-        fit (tuple): Tuple of (popt, success, inlier_mask)
+        fit (tuple): Tuple of (popt, pcov, success, inlier_mask)
             popt (array): Fitted parameters [amplitude, center, sigma]
+            pcov (array or None): Covariance matrix for popt, or None on failure
             success (bool): Whether fit converged
             inlier_mask (array): Boolean mask of inlier points
     """
@@ -423,6 +460,7 @@ def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
     # Start with all points as inliers
     inlier_mask = np.ones(len(x_data), dtype=bool)
     best_popt = p0
+    best_pcov = None
     best_inlier_count = 0
 
     try:
@@ -447,6 +485,7 @@ def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
             if n_inliers > best_inlier_count:
                 best_inlier_count = n_inliers
                 best_popt = popt.copy()
+                best_pcov = pcov.copy()
 
             # If all points are inliers, convergence reached
             if n_inliers == len(x_data):
@@ -477,11 +516,11 @@ def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
         else:
             inlier_mask_final = np.ones_like(x_data, dtype=bool)
 
-        return best_popt, True, inlier_mask_final
+        return best_popt, best_pcov, True, inlier_mask_final
 
     except Exception as e:
         # Clipping/fit failed: return the initial guess with all points as inliers
-        return p0, False, inlier_mask
+        return p0, None, False, inlier_mask
 
 
 def estimate_gaussian_params(x_data: np.ndarray, 
@@ -718,7 +757,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
     try:
         # STEP 4a: Iteratively fit the Gaussian and reject outliers (cosmic rays, bad pixels)
         # Returns best-fit parameters [amplitude, center, sigma] and inlier mask
-        popt, converged, inlier_mask = fit_gaussian_with_sigma_clipping(
+        popt, pcov, converged, inlier_mask = fit_gaussian_with_sigma_clipping(
             x_data, y_corrected,
             p0=[amp_guess, center_guess, sigma_guess],
             bounds=bounds,
@@ -767,7 +806,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
         else:
             message = f"Success: Good fit (R² = {r_squared:.3f})"
             success = True
-        
+
+        amp_err, sig_err, area_err = _propagate_area_error(amplitude, sigma, pcov, area, area_native)
         return GaussianFitResult(
             amplitude=amplitude, center=center, sigma=sigma,
             fwhm=fwhm, area=area, area_unit=area_unit, area_native=area_native,
@@ -776,7 +816,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
             baseline=baseline, y_corrected=y_corrected,
             y_fit=y_fit, residuals=residuals,
             r_squared=r_squared,
-            success=success, message=message
+            success=success, message=message,
+            amplitude_error=amp_err, sigma_error=sig_err, area_error=area_err,
         )
         
     except Exception as e:
@@ -888,9 +929,10 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             'fac_above_stdres', 'header', 'unit' (wavelength unit) and 'flux_unit'
 
     Returns:
-        row (tuple): (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
-            succ_row, det_row, uplim_row, fail_row, residuals_row), each a length-n_x
-            array except row_idx and residuals_row (shape (n_wave_sel, n_x))
+        row (tuple): (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row,
+            amp_err_row, area_err_row, qual_row, succ_row, det_row, uplim_row,
+            fail_row, residuals_row), each a length-n_x array except row_idx
+            and residuals_row (shape (n_wave_sel, n_x))
     """
     x_data = ctx['x_data']
     noise_x = ctx['noise_x']
@@ -908,6 +950,8 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
     sig_row = np.full(n_x, np.nan)
     fwhm_row = np.full(n_x, np.nan)
     area_row = np.full(n_x, np.nan)
+    amp_err_row = np.full(n_x, np.nan)
+    area_err_row = np.full(n_x, np.nan)
     qual_row = np.full(n_x, np.nan)
     succ_row = np.zeros(n_x, dtype=bool)
     det_row = np.zeros(n_x, dtype=bool)  # Detection flag
@@ -1064,7 +1108,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
         try:
             # STEP 4a: Fit the Gaussian and reject bad pixels (2-iteration, fast)
             # Always clip for robust fitting
-            popt, fit_success, inlier_mask = fit_gaussian_with_sigma_clipping(
+            popt, pcov, fit_success, inlier_mask = fit_gaussian_with_sigma_clipping(
                 x_data, y_corrected,
                 p0=[amp_guess, center_guess, sigma_guess],
                 bounds=bounds,
@@ -1113,6 +1157,10 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 sig_row[ix] = sigma
                 fwhm_row[ix] = fwhm
                 area_row[ix] = area
+                amp_err, _sig_err, area_err = _propagate_area_error(
+                    amplitude, sigma, pcov, area, area_native)
+                amp_err_row[ix] = amp_err if amp_err is not None else np.nan
+                area_err_row[ix] = area_err if area_err is not None else np.nan
                 qual_row[ix] = chi_squared_red
                 succ_row[ix] = True
                 det_row[ix] = True
@@ -1140,8 +1188,8 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 fwhm_row[ix] = np.nan
                 uplim_row[ix] = True
 
-    return (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, qual_row,
-            succ_row, det_row, uplim_row, fail_row, residuals_row)
+    return (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, amp_err_row, area_err_row,
+            qual_row, succ_row, det_row, uplim_row, fail_row, residuals_row)
 
 
 
@@ -1186,6 +1234,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'sigma': Width parameter map
             'fwhm': FWHM map (2.355 * sigma)
             'area': Integrated area map, in erg/s/cm**2 if header is given, else native units
+            'amplitude_error': Amplitude uncertainty map, from curve_fit's covariance
+            'area_error': Area uncertainty map (_propagate_area_error, NaN where undetected)
             'r_squared': Reduced chi-squared (chi2_red) fit quality map
             'success': Boolean mask of successful fits
             'is_detection': Boolean mask of true detections (amplitude > fac_above_stdres * noise)
@@ -1236,6 +1286,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     sigma_map = np.full((n_y, n_x), np.nan)
     fwhm_map = np.full((n_y, n_x), np.nan)
     area_map = np.full((n_y, n_x), np.nan)
+    amplitude_error_map = np.full((n_y, n_x), np.nan)
+    area_error_map = np.full((n_y, n_x), np.nan)
     r_squared_map = np.full((n_y, n_x), np.nan)
     success_map = np.zeros((n_y, n_x), dtype=bool)
     is_detection_map = np.zeros((n_y, n_x), dtype=bool)  # True if SNR threshold passed
@@ -1301,7 +1353,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             sigma_guess_tot = np.clip(sigma_guess_tot, bounds_tot[0][2], bounds_tot[1][2])
 
             # STEP 4 GLOBAL: Fit Gaussian to total spectrum with iterative sigma clipping
-            popt_tot, fit_success_tot, _ = fit_gaussian_with_sigma_clipping(
+            popt_tot, _, fit_success_tot, _ = fit_gaussian_with_sigma_clipping(
                 x_total, y_total_corrected,
                 p0=[amp_guess_tot, center_guess_tot, sigma_guess_tot],
                 bounds=bounds_tot,
@@ -1371,13 +1423,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
                 break
-            (_, amp_row, ctr_row, sig_row, f_row, a_row, q_row,
+            (_, amp_row, ctr_row, sig_row, f_row, a_row, ae_row, aee_row, q_row,
              s_row, d_row, u_row, fl_row, res_row) = _fit_row_worker(*_row_inputs(iy))
             amplitude_map[iy, :] = amp_row
             center_map[iy, :] = ctr_row
             sigma_map[iy, :] = sig_row
             fwhm_map[iy, :] = f_row
             area_map[iy, :] = a_row
+            amplitude_error_map[iy, :] = ae_row
+            area_error_map[iy, :] = aee_row
             r_squared_map[iy, :] = q_row
             success_map[iy, :] = s_row
             is_detection_map[iy, :] = d_row
@@ -1408,13 +1462,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     next_row += 1
                 done, pending = wait(pending, return_when=FIRST_COMPLETED)
                 for fut in done:
-                    (row_idx, amp_row, ctr_row, sig_row, f_row, a_row, q_row,
+                    (row_idx, amp_row, ctr_row, sig_row, f_row, a_row, ae_row, aee_row, q_row,
                      s_row, d_row, u_row, fl_row, res_row) = fut.result()
                     amplitude_map[row_idx, :] = amp_row
                     center_map[row_idx, :] = ctr_row
                     sigma_map[row_idx, :] = sig_row
                     fwhm_map[row_idx, :] = f_row
                     area_map[row_idx, :] = a_row
+                    amplitude_error_map[row_idx, :] = ae_row
+                    area_error_map[row_idx, :] = aee_row
                     r_squared_map[row_idx, :] = q_row
                     success_map[row_idx, :] = s_row
                     is_detection_map[row_idx, :] = d_row
@@ -1456,6 +1512,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'sigma': sigma_map,
         'fwhm': fwhm_map,
         'area': area_map,
+        'amplitude_error': amplitude_error_map,
+        'area_error': area_error_map,  # Pascucci's formula -- see _propagate_area_error
         'r_squared': r_squared_map,
         'success': success_map,
         'is_detection': is_detection_map,  # True detections (passed SNR threshold)

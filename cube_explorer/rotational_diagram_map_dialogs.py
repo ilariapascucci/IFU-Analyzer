@@ -18,12 +18,13 @@ from matplotlib.figure import Figure, SubplotParams
 
 from .rotational_diagram_map import (
     create_rotational_diagram_map, create_rotational_diagram_map_multi,
-    save_rotational_diagram_map_fits, fit_pixel, fit_pixel_multi,
-    compute_native_line_maps, combine_line_maps, fit_region_multi,
+    create_rotational_diagram_map_mixed, save_rotational_diagram_map_fits,
+    fit_pixel, fit_pixel_multi, compute_native_line_maps, combine_line_maps,
+    fit_region_multi, fit_region_mixed,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
 )
 from .rotational_diagram_h2_fitter import model_1T, model_2T
-from .fits_export import build_2d_export_header, write_fits_product
+from .fits_export import build_line_map_header, write_fits_product
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 
 # Display combo: label -> (Warm/1T key, Hot key or None, colour-bar label).
@@ -61,13 +62,17 @@ class RotDiagMapWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, cube_or_list=None, line_table=None, cubes_and_lines=None, **kwargs):
+    def __init__(self, cube_or_list=None, line_table=None, cubes_and_lines=None,
+                imported_lines=None, **kwargs):
         """Store the fit inputs for run() to consume on the worker thread.
 
         Args:
             cube_or_list (CubeData): One cube, for the single-cube path.
             line_table (list): Line dicts for the fit.
             cubes_and_lines (list): (CubeData, line_dict) pairs for two or more cubes.
+            imported_lines (list): Line dicts with an 'imported_map' payload,
+                or None/empty -- routes to create_rotational_diagram_map_mixed
+                instead of _multi when non-empty.
             kwargs (dict): Passed through to whichever create_rotational_diagram_map* function is used.
 
         Returns:
@@ -77,6 +82,7 @@ class RotDiagMapWorker(QThread):
         self.cube_or_list = cube_or_list
         self.line_table = line_table
         self.cubes_and_lines = cubes_and_lines
+        self.imported_lines = imported_lines
         self.kwargs = kwargs
         self.cancelled = False
 
@@ -91,7 +97,13 @@ class RotDiagMapWorker(QThread):
             None
         """
         try:
-            if self.cubes_and_lines is not None:
+            if self.imported_lines:
+                result = create_rotational_diagram_map_mixed(
+                    self.cubes_and_lines or [], self.imported_lines,
+                    progress_callback=self._emit_progress, cancel_flag=self,
+                    **self.kwargs,
+                )
+            elif self.cubes_and_lines is not None:
                 result = create_rotational_diagram_map_multi(
                     self.cubes_and_lines,
                     progress_callback=self._emit_progress, cancel_flag=self,
@@ -245,13 +257,17 @@ class CombineMapsWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, convolved_result, cubes_and_lines, region_masks=None, **kwargs):
+    def __init__(self, convolved_result, cubes_and_lines, region_masks=None,
+                imported_lines=None, **kwargs):
         """Store the inputs for run() to consume on the worker thread.
 
         Args:
             convolved_result (dict): Output of convolve_line_maps.
             cubes_and_lines (list): (CubeData, line_dict) pairs.
             region_masks (dict): {CubeData: boolean mask}, or None.
+            imported_lines (list): Line dicts with an 'imported_map' payload,
+                or None/empty -- routes region_fit through fit_region_mixed
+                instead of fit_region_multi when non-empty.
             kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/r_au/min_lines.
 
         Returns:
@@ -261,6 +277,7 @@ class CombineMapsWorker(QThread):
         self.convolved_result = convolved_result
         self.cubes_and_lines = cubes_and_lines
         self.region_masks = region_masks
+        self.imported_lines = imported_lines
         self.kwargs = kwargs
         self.cancelled = False
 
@@ -277,12 +294,22 @@ class CombineMapsWorker(QThread):
         try:
             kept_pairs, _ = _dedupe_colocated(
                 list(self.cubes_and_lines), 1e-5, line_of=lambda p: p[1])
-            region_fit = fit_region_multi(
-                kept_pairs, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
-                opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
-                dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
-                region_masks=self.region_masks, fit2t=self.kwargs.get("fit2t", False),
-            )
+            if self.imported_lines:
+                region_fit = fit_region_mixed(
+                    kept_pairs, self.imported_lines, molecule=self.kwargs["molecule"],
+                    isotopologue=self.kwargs["isotopologue"], opr=self.kwargs["opr"],
+                    fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
+                    dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"],
+                    min_lines=self.kwargs["min_lines"], region_masks=self.region_masks,
+                    fit2t=self.kwargs.get("fit2t", False),
+                )
+            else:
+                region_fit = fit_region_multi(
+                    kept_pairs, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
+                    opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
+                    dist_pc=self.kwargs["dist_pc"], r_au=self.kwargs["r_au"], min_lines=self.kwargs["min_lines"],
+                    region_masks=self.region_masks, fit2t=self.kwargs.get("fit2t", False),
+                )
             result = combine_line_maps(
                 self.convolved_result, molecule=self.kwargs["molecule"], isotopologue=self.kwargs["isotopologue"],
                 opr=self.kwargs["opr"], fit_opr=self.kwargs["fit_opr"], opr_grid=self.kwargs["opr_grid"],
@@ -871,7 +898,8 @@ class LineFluxMapDialog(QDialog):
         None
     """
 
-    def __init__(self, wavelength, flux_map, source_header, molecule="H2", parent=None):
+    def __init__(self, wavelength, flux_map, source_header, molecule="H2", parent=None,
+                error_map=None, identity_header=None, src_filename=None):
         """Store the map and build the viewer UI.
 
         Args:
@@ -880,6 +908,13 @@ class LineFluxMapDialog(QDialog):
             source_header (astropy.io.fits.Header): Header for the export WCS, or None.
             molecule (str): Species name.
             parent (QWidget): Parent widget.
+            error_map (np.ndarray): Per-pixel error, for export's ERR
+                extension -- None if unavailable (e.g. the Naman viewer).
+            identity_header: Real cube header, for export's INSTRUME/TARGNAME/
+                etc when source_header is a bare common-grid WCS -- None
+                trusts source_header as-is.
+            src_filename (str): Originating cube's filename, for export's
+                SRCFILE -- None omits it.
 
         Returns:
             None
@@ -889,6 +924,9 @@ class LineFluxMapDialog(QDialog):
         self.flux_map = flux_map
         self.source_header = source_header
         self.molecule = molecule
+        self.error_map = error_map
+        self.identity_header = identity_header
+        self.src_filename = src_filename
         self.setWindowTitle(f"{molecule} Flux Map @ {wavelength:.6f} μm")
         self.resize(750, 620)
         self._setup_ui()
@@ -1018,15 +1056,14 @@ class LineFluxMapDialog(QDialog):
         if not path:
             return
         try:
-            header = build_2d_export_header(
-                self.source_header, self.flux_map.shape,
-                extra={
-                    "BUNIT": "erg/s/cm2",
-                    "LINEWAVE": (float(self.wavelength), "Line center wavelength (um)"),
-                    "MOLECULE": self.molecule,
-                },
+            header, extensions = build_line_map_header(
+                self.source_header, self.flux_map.shape, wavelength=self.wavelength,
+                molecule=self.molecule, flux_map=self.flux_map, error_map=self.error_map,
+                src_filename=self.src_filename, fit_method="Multi-Gaussian fit",
+                identity_header=self.identity_header, extra={"BUNIT": "erg/s/cm2"},
             )
-            write_fits_product(path, np.asarray(self.flux_map, dtype=np.float32), header)
+            write_fits_product(path, np.asarray(self.flux_map, dtype=np.float32), header,
+                               extensions=extensions)
             QMessageBox.information(self, "Saved", f"Wrote:\n{path}")
         except Exception as exc:
             QMessageBox.critical(self, "Export failed", str(exc))

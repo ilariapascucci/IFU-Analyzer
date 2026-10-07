@@ -39,7 +39,9 @@ from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
 from . import region_io
 from .utils import detect_instrument_from_header
-from .fits_export import build_2d_export_header, write_fits_product
+from .fits_export import (
+    build_2d_export_header, build_resample_header, build_coverage_extension, write_fits_product,
+)
 from .analyzer_2d import (
     _get_pixel_size_arcsec,
     _make_2d_wcs,
@@ -489,32 +491,19 @@ class BatchMatchResolutionDialog(QDialog):
                     result_img = entry['result'][r0:r1, c0:c1]
                     coverage = entry['coverage'][r0:r1, c0:c1]
 
-                    out_header = out_wcs.to_header()
-                    out_header['NAXIS'] = 2
-                    out_header['NAXIS1'] = out_shape[1]
-                    out_header['NAXIS2'] = out_shape[0]
-                    if bunit:
-                        out_header['BUNIT'] = bunit
-                    out_header['HISTORY'] = (
-                        f"Batch Convolution: sigma={entry['sigma_arcsec']:.4f}\" "
-                        f"({'physical PSF' if use_physical_batch else 'pixel-scale proxy'}, "
-                        f"{entry['sigma_fine_pix']:.3f} fine-px); reprojected to "
-                        f"{worst_pix:.4f}\"/px "
-                        f"({'flux' if per_pix else 'SB'} mode)"
+                    out_header = build_resample_header(
+                        out_wcs, out_shape, bunit=bunit or None,
+                        history=(f"Batch Convolution: sigma={entry['sigma_arcsec']:.4f}\" "
+                                f"({'physical PSF' if use_physical_batch else 'pixel-scale proxy'}, "
+                                f"{entry['sigma_fine_pix']:.3f} fine-px); reprojected to "
+                                f"{worst_pix:.4f}\"/px ({'flux' if per_pix else 'SB'} mode)"),
+                        identity_header=info['header'],
                     )
 
                     out_name = f"matched_{info['filename']}"
                     out_filepath = os.path.join(tmpdir, out_name)
-                    cov_header = fits.Header()
-                    cov_header['EXTNAME'] = 'COVERAGE'
-                    cov_header['BUNIT'] = 'fraction'
-                    cov_header['COMMENT'] = (
-                        'Per-pixel input/output overlap fraction (0..1).')
-                    fits.HDUList([
-                        fits.PrimaryHDU(data=result_img, header=out_header),
-                        fits.ImageHDU(data=coverage.astype(np.float32),
-                                      header=cov_header),
-                    ]).writeto(out_filepath, overwrite=True)
+                    write_fits_product(out_filepath, result_img, out_header,
+                                       extensions=[build_coverage_extension(coverage)])
 
                     # Flux audit
                     if per_pix:
@@ -3099,18 +3088,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 dst_shape = result_img.shape
 
             # 4. Build a clean output header.
-            out_header = dst_wcs.to_header()
-            out_header['NAXIS'] = 2
-            out_header['NAXIS1'] = dst_shape[1]
-            out_header['NAXIS2'] = dst_shape[0]
-            if bunit:
-                out_header['BUNIT'] = bunit
-            out_header['HISTORY'] = (
-                f"Slides Convolute: sigma={sigma_arcsec:.4f}\" "
-                f"({'physical PSF' if use_physical else 'pixel-scale proxy'}, "
-                f"{sigma_fine_pix:.3f} fine-px); reprojected to "
-                f"{target_pix:.4f}\"/px "
-                f"({'flux' if per_pixel_flux else 'SB'} mode)"
+            out_header = build_resample_header(
+                dst_wcs, dst_shape, bunit=bunit or None,
+                history=(f"Slides Convolute: sigma={sigma_arcsec:.4f}\" "
+                        f"({'physical PSF' if use_physical else 'pixel-scale proxy'}, "
+                        f"{sigma_fine_pix:.3f} fine-px); reprojected to "
+                        f"{target_pix:.4f}\"/px ({'flux' if per_pixel_flux else 'SB'} mode)"),
+                identity_header=fine_header,
             )
 
             fname, _ = QFileDialog.getSaveFileName(
@@ -3118,16 +3102,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             if fname:
                 if not fname.lower().endswith(".fits"):
                     fname += ".fits"
-                cov_header = fits.Header()
-                cov_header['EXTNAME'] = 'COVERAGE'
-                cov_header['BUNIT'] = 'fraction'
-                cov_header['COMMENT'] = (
-                    'Per-pixel input/output overlap fraction (0..1).')
-                fits.HDUList([
-                    fits.PrimaryHDU(data=result_img, header=out_header),
-                    fits.ImageHDU(data=coverage.astype(np.float32),
-                                  header=cov_header),
-                ]).writeto(fname, overwrite=True)
+                write_fits_product(fname, result_img, out_header,
+                                   extensions=[build_coverage_extension(coverage)])
 
                 # Flux audit
                 if per_pixel_flux:
@@ -3278,16 +3254,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     "Naman Convolve completed but the output has no valid pixels.")
                 return
 
-            out_header = ref_header.copy()
-            out_header['NAXIS'] = 2
-            out_header['NAXIS1'] = result_img.shape[1]
-            out_header['NAXIS2'] = result_img.shape[0]
-            if bunit:
-                out_header['BUNIT'] = bunit
-            out_header['HISTORY'] = (
-                f"Naman Convolve: sigma={sigma_arcsec:.4f}\"; "
-                f"reprojected onto {ref_side}'s native grid "
-                f"(ref wavelength {ref_wl:.4f} um)"
+            out_header = build_resample_header(
+                ref_header, result_img.shape, bunit=bunit or None,
+                history=(f"Naman Convolve: sigma={sigma_arcsec:.4f}\"; "
+                        f"reprojected onto {ref_side}'s native grid "
+                        f"(ref wavelength {ref_wl:.4f} um)"),
             )
 
             fname, _ = QFileDialog.getSaveFileName(
@@ -3295,16 +3266,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             if fname:
                 if not fname.lower().endswith(".fits"):
                     fname += ".fits"
-                cov_header = fits.Header()
-                cov_header['EXTNAME'] = 'COVERAGE'
-                cov_header['BUNIT'] = 'fraction'
-                cov_header['COMMENT'] = (
-                    'Per-pixel input/output overlap fraction (0..1).')
-                fits.HDUList([
-                    fits.PrimaryHDU(data=result_img, header=out_header),
-                    fits.ImageHDU(data=np.asarray(coverage, dtype=np.float32),
-                                  header=cov_header),
-                ]).writeto(fname, overwrite=True)
+                write_fits_product(fname, result_img, out_header,
+                                   extensions=[build_coverage_extension(coverage)])
 
                 in_total = float(np.nansum(fine_img))
                 out_total = float(np.nansum(result_img[np.isfinite(result_img)]))

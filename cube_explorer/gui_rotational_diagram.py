@@ -27,7 +27,7 @@ from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
 from .table_drag_select import SortableCheckboxTableMixin
 from . import region_io
-from .analyzer_2d import _make_2d_wcs
+from .analyzer_2d import _make_2d_wcs, _get_pixel_size_arcsec
 from .region_selector import mask_from_shape_coords
 from .rotational_diagram_h2_fitter import (
     rotational_diagram as rotational_diagram_h2,
@@ -35,12 +35,16 @@ from .rotational_diagram_h2_fitter import (
 )
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .flux_map_extractor import DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
-from .rotational_diagram_map import convolution_plan, _line_keys, convolve_line_maps, combine_line_maps
+from .rotational_diagram_map import (
+    convolution_plan, convolution_plan_native, _line_keys, convolve_line_maps,
+    combine_line_maps, build_imported_map_payload, merge_native_results,
+)
+from .import_map_dialog import ImportMapDialog
 from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker,
 )
-from .fits_export import build_2d_export_header, write_fits_product
+from .fits_export import build_line_map_header, write_fits_product
 from .naman_convolve_reproject import convolve_reproject_naman, convolution_plan_naman
 
 
@@ -598,7 +602,17 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.import_csv_btn = QPushButton("Import from CSV")
         self.import_csv_btn.clicked.connect(self.import_csv_file)
         button_layout.addWidget(self.import_csv_btn)
-        
+
+        self.import_map_btn = QPushButton("Import Map")
+        self.import_map_btn.setToolTip(
+            "Attach an already-reduced flux map (line-integrated, already "
+            "convolved/resolution-matched elsewhere) to one line, alongside "
+            "lines computed normally from loaded cubes. Feeds Convolve "
+            "Maps/Run Map only -- not Run Fit or Calculate Fluxes."
+        )
+        self.import_map_btn.clicked.connect(self.import_map_line)
+        button_layout.addWidget(self.import_map_btn)
+
         self.calculate_fluxes_btn = QPushButton("Calculate Fluxes")
         self.calculate_fluxes_btn.clicked.connect(self.open_batch_flux_dialog)
         self.calculate_fluxes_btn.setVisible(False)  # Hidden until lines are loaded
@@ -815,6 +829,30 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.loaded_batch_cubes = []
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
 
+    def _reveal_line_workflow_buttons(self):
+        """Show the line-workflow buttons once the table has at least one
+        line -- shared by Fetch HITRAN, Import CSV, and Import Map.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.calculate_fluxes_btn.setVisible(True)
+        self.load_fits_btn.setVisible(True)
+        self.load_contam_btn.setVisible(True)
+        self.save_fluxes_btn.setVisible(True)
+        self.calculate_maps_btn.setVisible(True)
+        self.convolve_maps_btn.setVisible(True)
+        self.save_maps_btn.setVisible(True)
+        self.export_naman_maps_btn.setVisible(True)
+        self.convolve_naman_btn.setVisible(True)
+        self.run_naman_map_btn.setVisible(True)
+        self.import_map_region_btn.setVisible(True)
+        self.clear_map_region_btn.setVisible(True)
+        self.contam_status_label.setVisible(True)
+
     def update_isotopologue_range(self):
         """Update isotopologue spinner range based on selected molecule.
 
@@ -1014,6 +1052,17 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         if col == 10:
             self.sync_calculated_flag(row)
+
+        # An imported row has no scalar flux (col 6), so the flux-dependent
+        # cross-calc below never applies -- update the payload directly.
+        if col == 8 and row < len(self.hitran_lines):
+            imported = self.hitran_lines[row].get('imported_map')
+            if imported is not None:
+                try:
+                    imported['error_pct'] = float(item.text())
+                except ValueError:
+                    pass
+                return
 
         if self.updating_error_columns:
             return
@@ -1299,19 +1348,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         
         # Set workflow mode to HITRAN. Fetch/Import stay both enabled
         self.workflow_mode = 'hitran'
-        self.calculate_fluxes_btn.setVisible(True)
-        self.load_fits_btn.setVisible(True)
-        self.load_contam_btn.setVisible(True)
-        self.save_fluxes_btn.setVisible(True)
-        self.calculate_maps_btn.setVisible(True)
-        self.convolve_maps_btn.setVisible(True)
-        self.save_maps_btn.setVisible(True)
-        self.export_naman_maps_btn.setVisible(True)
-        self.convolve_naman_btn.setVisible(True)
-        self.run_naman_map_btn.setVisible(True)
-        self.import_map_region_btn.setVisible(True)
-        self.clear_map_region_btn.setVisible(True)
-        self.contam_status_label.setVisible(True)
+        self._reveal_line_workflow_buttons()
 
         self._reset_batch_cubes()
         self.hitran_lines = data
@@ -1554,19 +1591,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
             # Set workflow mode to CSV. Fetch/Import stay both enabled.
             self.workflow_mode = 'csv'
-            self.calculate_fluxes_btn.setVisible(True)
-            self.load_fits_btn.setVisible(True)
-            self.load_contam_btn.setVisible(True)
-            self.save_fluxes_btn.setVisible(True)
-            self.calculate_maps_btn.setVisible(True)
-            self.convolve_maps_btn.setVisible(True)
-            self.save_maps_btn.setVisible(True)
-            self.export_naman_maps_btn.setVisible(True)
-            self.convolve_naman_btn.setVisible(True)
-            self.run_naman_map_btn.setVisible(True)
-            self.import_map_region_btn.setVisible(True)
-            self.clear_map_region_btn.setVisible(True)
-            self.contam_status_label.setVisible(True)
+            self._reveal_line_workflow_buttons()
 
             # Count successful matches
             matched = sum(1 for r in rows if r.get('hitran_matched', True))
@@ -1603,7 +1628,93 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         
         except Exception as e:
             QMessageBox.critical(self, "Import Error", f"Failed to import CSV:\n{str(e)}")
-    
+
+    def import_map_line(self):
+        """Attach an already-reduced flux map to a new line-table row, using
+        the header's own A_ul/E_u/g_u when present (a Gaussian-Map export)
+        or a fresh HITRAN lookup otherwise. Appends rather than replacing.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        dlg = ImportMapDialog(self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        fits_path, species, wavelength, error_pct, header_identity = dlg.get_values()
+
+        try:
+            payload = build_imported_map_payload(fits_path, error_pct)
+        except Exception as e:
+            QMessageBox.critical(self, "Import Map Failed", str(e))
+            return
+
+        if header_identity is not None:
+            # Already resolved at export time (Gaussian Map) -- re-querying
+            # HITRAN would be redundant and could land on a different match.
+            best_match = {
+                'a_coeff': header_identity['A_UL'], 'e_upper': header_identity['E_UPPER'],
+                'Gp': header_identity['G_U'], 'transition': header_identity['TRANSITN'],
+                'j_lower': header_identity.get('JLOWER'), 'branch': header_identity.get('BRANCH'),
+            }
+            fetch_meta = {}
+        else:
+            try:
+                hitran_lines, fetch_meta = fetch_hitran_data(
+                    wavelength - 0.01, wavelength + 0.01, molecule=species, isotopologue=1)
+            except Exception as e:
+                hitran_lines, fetch_meta = [], {"error": True, "message": str(e)}
+
+            # Nearest-match within 4 decimal places, same tolerance import_csv_file uses.
+            best_match, best_diff = None, float('inf')
+            for hl in hitran_lines:
+                diff = abs(hl['wavelength'] - wavelength)
+                if diff < 0.0001 and diff < best_diff:
+                    best_match, best_diff = hl, diff
+
+        if best_match:
+            line_data = {
+                'wavelength': wavelength, 'hitran_matched': True,
+                'a_coeff': best_match.get('a_coeff', 0.0), 'e_upper': best_match.get('e_upper', 0.0),
+                'Gp': best_match.get('Gp', 1.0), 'j_lower': best_match.get('j_lower'),
+                'branch': best_match.get('branch'),
+                'transition': best_match.get('transition', 'User Data'), 'species': species,
+            }
+        else:
+            line_data = {
+                'wavelength': wavelength, 'hitran_matched': False,
+                'transition': 'NA', 'species': species,
+            }
+            if fetch_meta.get('error'):
+                print(f"Warning: Could not fetch HITRAN data for {species} at "
+                      f"{wavelength:.6f} um ({fetch_meta.get('message', 'unknown error')}) -- "
+                      f"A_ul/E_u/g_u left blank.")
+            else:
+                print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um "
+                      f"-- A_ul/E_u/g_u left blank; this line is excluded from fitting "
+                      f"until they're entered manually.")
+        line_data['imported_map'] = payload
+
+        if not self.hitran_lines and species in MOLECULE_ISOTOPOLOGUES \
+                and species != self.current_molecule:
+            self.mol_combo.blockSignals(True)
+            self.mol_combo.setCurrentText(species)
+            self.mol_combo.blockSignals(False)
+            self._apply_molecule_change(species)
+
+        self._append_line_row(line_data)
+        self._reveal_line_workflow_buttons()
+
+        match_note = ("Matched to HITRAN." if best_match else
+                      "No HITRAN match -- enter A_ul, E_u, and g_u manually "
+                      "to include it in the fit.")
+        QMessageBox.information(
+            self, "Map Imported",
+            f"Imported {os.path.basename(fits_path)} as a new line at "
+            f"{wavelength:.6f} um.\n{match_note}")
+
     def populate_csv_errors(self):
         """Populate error column if flux_error was in CSV, then re-check
         Upper Limit if the CSV had that flag -- reusing sync_flux_error_flag's
@@ -1822,24 +1933,34 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         selected_rows = []
         skipped_rows = []
+        imported_rows = []
         for row in range(self.lines_table.rowCount()):
             select_item = self.lines_table.item(row, 0)
-            if select_item and select_item.checkState() == Qt.Checked:
-                flux_item = self.lines_table.item(row, 6)
-                calc_item = self.lines_table.item(row, 11)
-                was_calculated = bool(calc_item and calc_item.checkState() == Qt.Checked)
-                if flux_item and flux_item.text().strip() and not was_calculated:
-                    skipped_rows.append(row)
-                else:
-                    selected_rows.append(row)
+            if not (select_item and select_item.checkState() == Qt.Checked):
+                continue
+            # An imported-map row has no point flux to compute -- it would
+            # otherwise hit "No FITS Match" below and abort the whole batch.
+            if self.hitran_lines[row].get('imported_map'):
+                imported_rows.append(row)
+                continue
+            flux_item = self.lines_table.item(row, 6)
+            calc_item = self.lines_table.item(row, 11)
+            was_calculated = bool(calc_item and calc_item.checkState() == Qt.Checked)
+            if flux_item and flux_item.text().strip() and not was_calculated:
+                skipped_rows.append(row)
+            else:
+                selected_rows.append(row)
 
         if not selected_rows:
-            if skipped_rows:
+            if skipped_rows or imported_rows:
+                notes = []
+                if skipped_rows:
+                    notes.append(f"{len(skipped_rows)} already have a manually-entered flux value")
+                if imported_rows:
+                    notes.append(f"{len(imported_rows)} are imported maps, not a point flux")
                 QMessageBox.information(
                     self, "Nothing To Calculate",
-                    f"All {len(skipped_rows)} selected line(s) already have a manually-entered "
-                    "flux value. Clear a row's Flux cell first if you want to recompute it."
-                )
+                    "Nothing to calculate: " + "; ".join(notes) + ".")
             else:
                 QMessageBox.warning(self, "No Lines Selected", "Please select lines to calculate fluxes for.")
             return
@@ -2335,6 +2456,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         LineFluxMapDialog(
             data['wavelength'], data['flux_map'], data.get('header'),
             molecule=data.get('molecule', 'H2'), parent=self,
+            error_map=data.get('flux_error_map'), identity_header=data.get('identity_header'),
+            src_filename=data.get('source_filename'),
         ).exec_()
 
     def show_line_convolved_map(self, row):
@@ -2353,6 +2476,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         LineFluxMapDialog(
             data['wavelength'], data['flux_map'], data.get('header'),
             molecule=data.get('molecule', 'H2'), parent=self,
+            error_map=data.get('flux_error_map'), identity_header=data.get('identity_header'),
+            src_filename=data.get('source_filename'),
         ).exec_()
 
     def _row_for_wavelength(self, wl):
@@ -2441,6 +2566,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not kept_lines or not flux_maps:
             return
         native_wcs = result.get("native_wcs")  # multi-cube: one per kept_lines entry
+        native_headers = result.get("native_headers")  # multi-cube: real cube header per entry
+        err_maps = result.get("native_flux_error_maps") or result.get("line_flux_error_maps") or []
+        cube_filenames = result.get("cube_filenames")
 
         kept_rows = {self._row_for_wavelength(l.get("wavelength")) for l in kept_lines}
         for row in list(self._line_map_plot_data):
@@ -2457,12 +2585,19 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 continue
             if native_wcs is not None:
                 header = native_wcs[i].to_header() if native_wcs[i] is not None else None
+                identity_header = native_headers[i] if native_headers else None
+                source_filename = cube_filenames[i] if cube_filenames else None
             else:
-                header = result.get("header")  # single-cube's own header
+                header = result.get("header")  # single-cube's own header, already real
+                identity_header = header
+                source_filename = result.get("cube_filename")
             self._line_map_plot_data[row] = {
                 "wavelength": wl,
                 "flux_map": flux_maps[i],
+                "flux_error_map": err_maps[i] if i < len(err_maps) else None,
                 "header": header,
+                "identity_header": identity_header,
+                "source_filename": source_filename,
                 "molecule": result.get("molecule", "H2"),
             }
             map_item = self.lines_table.item(row, 15)
@@ -2492,6 +2627,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not kept_lines or not line_flux_maps or dst_wcs is None:
             return
         source_header = dst_wcs.to_header()
+        err_maps = result.get("line_flux_error_maps") or []
+
+        # No single cube owns the common grid -- use the coarsest-scale
+        # cube's real header for INSTRUME/TARGNAME/etc, informational only.
+        identity_header, identity_filename = None, None
+        native_headers = result.get("native_headers")
+        native_scales = result.get("native_pix_arcsec")
+        cube_filenames = result.get("cube_filenames")
+        if native_headers and native_scales:
+            worst_i = int(np.argmax(native_scales))
+            identity_header = native_headers[worst_i]
+            identity_filename = cube_filenames[worst_i] if cube_filenames else None
 
         kept_rows = {self._row_for_wavelength(l.get("wavelength")) for l in kept_lines}
         for row in list(self._line_convolved_map_plot_data):
@@ -2509,7 +2656,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self._line_convolved_map_plot_data[row] = {
                 "wavelength": wl,
                 "flux_map": line_flux_maps[i],
+                "flux_error_map": err_maps[i] if i < len(err_maps) else None,
                 "header": source_header,
+                "identity_header": identity_header,
+                "source_filename": identity_filename,
                 "molecule": result.get("molecule", "H2"),
             }
             convolved_item = self.lines_table.item(row, 16)
@@ -2585,16 +2735,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             data (bytes): The FITS file's raw bytes.
         """
-        header = build_2d_export_header(
-            entry.get("header"), entry["flux_map"].shape,
-            extra={
-                "BUNIT": "erg/s/cm2",
-                "LINEWAVE": (float(entry["wavelength"]), "Line center wavelength (um)"),
-                "MOLECULE": entry.get("molecule", "H2"),
-            },
+        flux_map = entry["flux_map"]
+        err_map = entry.get("flux_error_map")
+        header, extensions = build_line_map_header(
+            entry.get("header"), flux_map.shape, wavelength=entry["wavelength"],
+            molecule=entry.get("molecule", "H2"), flux_map=flux_map, error_map=err_map,
+            src_filename=entry.get("source_filename") or "UNKNOWN", fit_method="Multi-Gaussian fit",
+            identity_header=entry.get("identity_header"), extra={"BUNIT": "erg/s/cm2"},
         )
         buf = io.BytesIO()
-        write_fits_product(buf, np.asarray(entry["flux_map"], dtype=np.float32), header)
+        write_fits_product(buf, np.asarray(flux_map, dtype=np.float32), header, extensions=extensions)
         return buf.getvalue()
 
     def _render_map_png_bytes(self, entry):
@@ -2846,7 +2996,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return item
 
     def populate_lines_table(self):
-        """Populate the unified table with all columns.
+        """Populate the unified table with all columns, rebuilding every row.
+        To add ONE row without touching the rest (Import Map), use
+        _append_line_row instead.
 
         Args:
             None
@@ -2861,133 +3013,187 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self._line_convolved_map_plot_data = {}
         self._reset_sort_state()
         self.lines_table.setRowCount(len(self.hitran_lines))
-        
+
         for row, line in enumerate(self.hitran_lines):
-            # A line with no HITRAN match has no real A_ul/E_u/g_u: we never assume a value for them.
-            matched = line.get('hitran_matched', True)
-            unmatched_bg = QColor(255, 214, 214)
-            unmatched_tip = (
-                "No HITRAN match for this line -- enter A_ul, E_u, and g_u manually "
-                "to include it in the fit."
-            )
+            self._populate_lines_table_row(row, line)
 
-            # Row-select checkbox -- checked by default (a line with no HITRAN
-            # match stays unchecked too, since it's disabled until completed).
-            select_item = self._make_checkable_item(
-                checked=matched, enabled=matched, tooltip=("" if matched else unmatched_tip)
-            )
-            self.lines_table.setItem(row, 0, select_item)
-
-            # Wavelength (read-only)
-            wl_item = QTableWidgetItem(f"{line['wavelength']:.6f}")
-            wl_item.setFlags(wl_item.flags() & ~Qt.ItemIsEditable)
-            self.lines_table.setItem(row, 1, wl_item)
-
-            # Transition (read-only)
-            trans = line.get('transition', 'N/A')
-            trans_item = QTableWidgetItem(trans)
-            trans_item.setFlags(trans_item.flags() & ~Qt.ItemIsEditable)
-            if not matched:
-                trans_item.setBackground(unmatched_bg)
-                trans_item.setToolTip(unmatched_tip)
-            self.lines_table.setItem(row, 2, trans_item)
-
-            if matched:
-                # A_ul (read-only)
-                a_ul = line.get('a_coeff', 0)
-                a_item = QTableWidgetItem(f"{a_ul:.4e}")
-                a_item.setFlags(a_item.flags() & ~Qt.ItemIsEditable)
-
-                # E_u (read-only)
-                e_u = line.get('e_upper', 0)
-                e_item = QTableWidgetItem(f"{e_u:.2f}")
-                e_item.setFlags(e_item.flags() & ~Qt.ItemIsEditable)
-
-                # g_u (read-only)
-                g_u = line.get('Gp', 1)
-                g_item = QTableWidgetItem(f"{g_u:.0f}")
-                g_item.setFlags(g_item.flags() & ~Qt.ItemIsEditable)
-            else:
-                # A_ul / E_u / g_u (editable)
-                a_item = QTableWidgetItem("")
-                e_item = QTableWidgetItem("")
-                g_item = QTableWidgetItem("")
-                for it in (a_item, e_item, g_item):
-                    it.setBackground(unmatched_bg)
-                    it.setToolTip(unmatched_tip)
-
-            self.lines_table.setItem(row, 3, a_item)
-            self.lines_table.setItem(row, 4, e_item)
-            self.lines_table.setItem(row, 5, g_item)
-            
-            # Flux (editable)
-            flux_val = line.get('flux', '')
-            flux_item = QTableWidgetItem(f"{flux_val:.4e}" if flux_val else "")
-            if not flux_val:
-                flux_item.setBackground(unmatched_bg)
-                flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
-            self.lines_table.setItem(row, 6, flux_item)
-
-            # Flux Error (editable)
-            self.lines_table.setItem(row, 7, QTableWidgetItem(""))
-
-            # Error % (editable)
-            self.lines_table.setItem(row, 8, QTableWidgetItem(""))
-
-            # Upper Limit? (auto-suggested but always user-editable)
-            ul_item = self._make_checkable_item(tooltip=(
-                "Auto-checked when a line's fit falls below the 3σ noise threshold "
-                "(via Calculate Fluxes). You can check/uncheck this yourself either way."
-            ))
-            self.lines_table.setItem(row, 9, ul_item)
-
-            # UL Flux (editable)
-            self.lines_table.setItem(row, 10, QTableWidgetItem(""))
-
-            # Calculated? (read-only)
-            calc_item = self._make_checkable_item(enabled=False, tooltip=(
-                "Checked when this line's flux was computed by Calculate Fluxes, rather "
-                "than typed in by hand or imported from CSV."
-            ))
-            self.lines_table.setItem(row, 11, calc_item)
-
-            # Source (read-only)
-            source_item = QTableWidgetItem("")
-            source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
-            self.lines_table.setItem(row, 12, source_item)
-
-            # Fit R^2 (read-only; filled in by Calculate Fluxes, blank for manually-entered flux)
-            r2_item = QTableWidgetItem("")
-            r2_item.setFlags(r2_item.flags() & ~Qt.ItemIsEditable)
-            self.lines_table.setItem(row, 13, r2_item)
-
-            # Fit (double-click to view; becomes real text once Calculate Fluxes
-            # populates plot data for this row -- see on_lines_table_item_double_clicked)
-            fit_item = QTableWidgetItem("—")
-            fit_item.setFlags(fit_item.flags() & ~Qt.ItemIsEditable)
-            fit_item.setTextAlignment(Qt.AlignCenter)
-            self.lines_table.setItem(row, 14, fit_item)
-
-            # Map (double-click to view; becomes real text once Run Map or
-            # Calculate Maps populates this line's flux map -- see _populate_map_column)
-            map_item = QTableWidgetItem("—")
-            map_item.setFlags(map_item.flags() & ~Qt.ItemIsEditable)
-            map_item.setTextAlignment(Qt.AlignCenter)
-            self.lines_table.setItem(row, 15, map_item)
-
-            # Convolved Map (double-click to view; multi-cube only -- see
-            # _populate_convolved_map_column)
-            convolved_map_item = QTableWidgetItem("—")
-            convolved_map_item.setFlags(convolved_map_item.flags() & ~Qt.ItemIsEditable)
-            convolved_map_item.setTextAlignment(Qt.AlignCenter)
-            self.lines_table.setItem(row, 16, convolved_map_item)
-
-            self.sync_flux_error_flag(row)
-        
         # Set initial edit/read-only status based on current mode
         self.update_error_columns()
         # Rows just defaulted to checked -- reflect that in the Run Fit button.
         self.on_line_selected()
+
+    def _append_line_row(self, line):
+        """Append one new line to the table without touching any other
+        row's plot-data dicts or cached results -- see populate_lines_table.
+
+        Args:
+            line (dict): Line dict to append (e.g. from Import Map).
+
+        Returns:
+            row (int): The new row's index.
+        """
+        row = len(self.hitran_lines)
+        self.hitran_lines.append(line)
+        self.lines_table.setRowCount(row + 1)
+        self._populate_lines_table_row(row, line)
+        self.update_error_columns()
+        self.on_line_selected()
+        return row
+
+    def _populate_lines_table_row(self, row, line):
+        """Build one line-table row's cells from its line dict. Shared by
+        populate_lines_table's full rebuild and _append_line_row's
+        single-row append.
+
+        Args:
+            row (int): Table row index, already sized by the caller.
+            line (dict): Line dict to render.
+
+        Returns:
+            None
+        """
+        # A line with no HITRAN match has no real A_ul/E_u/g_u: we never assume a value for them.
+        matched = line.get('hitran_matched', True)
+        unmatched_bg = QColor(255, 214, 214)
+        unmatched_tip = (
+            "No HITRAN match for this line -- enter A_ul, E_u, and g_u manually "
+            "to include it in the fit."
+        )
+
+        # Row-select checkbox -- checked by default (a line with no HITRAN
+        # match stays unchecked too, since it's disabled until completed).
+        select_item = self._make_checkable_item(
+            checked=matched, enabled=matched, tooltip=("" if matched else unmatched_tip)
+        )
+        self.lines_table.setItem(row, 0, select_item)
+
+        # Wavelength (read-only)
+        wl_item = QTableWidgetItem(f"{line['wavelength']:.6f}")
+        wl_item.setFlags(wl_item.flags() & ~Qt.ItemIsEditable)
+        self.lines_table.setItem(row, 1, wl_item)
+
+        # Transition (read-only)
+        trans = line.get('transition', 'N/A')
+        trans_item = QTableWidgetItem(trans)
+        trans_item.setFlags(trans_item.flags() & ~Qt.ItemIsEditable)
+        if not matched:
+            trans_item.setBackground(unmatched_bg)
+            trans_item.setToolTip(unmatched_tip)
+        self.lines_table.setItem(row, 2, trans_item)
+
+        if matched:
+            # A_ul (read-only)
+            a_ul = line.get('a_coeff', 0)
+            a_item = QTableWidgetItem(f"{a_ul:.4e}")
+            a_item.setFlags(a_item.flags() & ~Qt.ItemIsEditable)
+
+            # E_u (read-only)
+            e_u = line.get('e_upper', 0)
+            e_item = QTableWidgetItem(f"{e_u:.2f}")
+            e_item.setFlags(e_item.flags() & ~Qt.ItemIsEditable)
+
+            # g_u (read-only)
+            g_u = line.get('Gp', 1)
+            g_item = QTableWidgetItem(f"{g_u:.0f}")
+            g_item.setFlags(g_item.flags() & ~Qt.ItemIsEditable)
+        else:
+            # A_ul / E_u / g_u (editable)
+            a_item = QTableWidgetItem("")
+            e_item = QTableWidgetItem("")
+            g_item = QTableWidgetItem("")
+            for it in (a_item, e_item, g_item):
+                it.setBackground(unmatched_bg)
+                it.setToolTip(unmatched_tip)
+
+        self.lines_table.setItem(row, 3, a_item)
+        self.lines_table.setItem(row, 4, e_item)
+        self.lines_table.setItem(row, 5, g_item)
+
+        # Flux (editable)
+        flux_val = line.get('flux', '')
+        flux_item = QTableWidgetItem(f"{flux_val:.4e}" if flux_val else "")
+        if not flux_val:
+            flux_item.setBackground(unmatched_bg)
+            flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
+        self.lines_table.setItem(row, 6, flux_item)
+
+        # Flux Error (editable)
+        self.lines_table.setItem(row, 7, QTableWidgetItem(""))
+
+        # Error % (editable) -- blank when a real ERR extension is already
+        # in use, else pre-filled with the percent chosen on import.
+        imported = line.get('imported_map')
+        if imported and imported['error_pct'] is not None:
+            err_pct_item = QTableWidgetItem(f"{imported['error_pct']:.1f}")
+        elif imported:
+            err_pct_item = QTableWidgetItem("")
+            err_pct_item.setToolTip(
+                "Using this file's own per-pixel error (ERR extension) -- "
+                "type a value here to use a flat percent instead.")
+        else:
+            err_pct_item = QTableWidgetItem("")
+        self.lines_table.setItem(row, 8, err_pct_item)
+
+        # Upper Limit? -- a point-flux concept, meaningless for a per-pixel
+        # map, so an imported row's checkbox is disabled rather than live.
+        ul_item = self._make_checkable_item(
+            enabled=not imported,
+            tooltip=("Not applicable to an imported map." if imported else
+                     "Auto-checked when a line's fit falls below the 3σ noise threshold "
+                     "(via Calculate Fluxes). You can check/uncheck this yourself either way."))
+        self.lines_table.setItem(row, 9, ul_item)
+
+        # UL Flux (editable)
+        self.lines_table.setItem(row, 10, QTableWidgetItem(""))
+
+        # Calculated? (read-only)
+        calc_item = self._make_checkable_item(enabled=False, tooltip=(
+            "Checked when this line's flux was computed by Calculate Fluxes, rather "
+            "than typed in by hand or imported from CSV."
+        ))
+        self.lines_table.setItem(row, 11, calc_item)
+
+        # Source (read-only)
+        source_item = QTableWidgetItem("")
+        source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
+        self.lines_table.setItem(row, 12, source_item)
+
+        # Fit R^2 (read-only; filled in by Calculate Fluxes, blank for manually-entered flux)
+        r2_item = QTableWidgetItem("")
+        r2_item.setFlags(r2_item.flags() & ~Qt.ItemIsEditable)
+        self.lines_table.setItem(row, 13, r2_item)
+
+        # Fit (double-click to view; becomes real text once Calculate Fluxes
+        # populates plot data for this row -- see on_lines_table_item_double_clicked)
+        fit_item = QTableWidgetItem("—")
+        fit_item.setFlags(fit_item.flags() & ~Qt.ItemIsEditable)
+        fit_item.setTextAlignment(Qt.AlignCenter)
+        self.lines_table.setItem(row, 14, fit_item)
+
+        # Map (double-click to view). An imported row's map is already here --
+        # populate it now, tinted to show it isn't a cube-fit result.
+        map_item = QTableWidgetItem("—")
+        map_item.setFlags(map_item.flags() & ~Qt.ItemIsEditable)
+        map_item.setTextAlignment(Qt.AlignCenter)
+        self.lines_table.setItem(row, 15, map_item)
+        if imported:
+            self._line_map_plot_data[row] = {
+                "wavelength": line["wavelength"], "flux_map": imported["flux_map"],
+                "flux_error_map": None, "header": imported["header"],
+                "identity_header": imported["header"], "source_filename": imported["filename"],
+                "molecule": line.get("species", self.current_molecule),
+            }
+            self._set_view_link(map_item, f"Imported from {imported['filename']}")
+            map_item.setBackground(QColor(214, 230, 255))
+
+        # Convolved Map (double-click to view; multi-cube only -- see
+        # _populate_convolved_map_column)
+        convolved_map_item = QTableWidgetItem("—")
+        convolved_map_item.setFlags(convolved_map_item.flags() & ~Qt.ItemIsEditable)
+        convolved_map_item.setTextAlignment(Qt.AlignCenter)
+        self.lines_table.setItem(row, 16, convolved_map_item)
+
+        self.sync_flux_error_flag(row)
 
     def _on_sortable_header_clicked(self, column):
         """Override the mixin's click-to-sort: block it while a background
@@ -3416,11 +3622,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return worker is not None and worker.isRunning()
 
     def run_rotational_map(self):
-        """Run the same fit at every pixel of the loaded cube(s), 1T,
-        detections only. A single cube fits on its own native grid; two or
-        more always convolve/reproject onto a common WCS, even if they
-        already look aligned -- registration is verified by construction,
-        never assumed from a tolerance check.
+        """Run the same fit at every pixel of the loaded cube(s)/imported
+        map(s), 1T, detections only. A single cube with no imported row fits
+        natively; any other mix always convolves/reprojects onto one grid.
 
         Args:
             None
@@ -3436,14 +3640,20 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
 
         cubes = list(self.loaded_batch_cubes)
-        if not cubes:
-            QMessageBox.warning(self, "No Cube",
-                                "Load one or more FITS cubes first (Load FITS Files).")
-            return
 
         line_table, discarded_ul, err = self._rot_map_gather_lines()
         if err:
             QMessageBox.warning(self, "Lines", err)
+            return
+
+        imported_rows = [l for l in line_table if l.get('imported_map')]
+        cube_rows = [l for l in line_table if not l.get('imported_map')]
+
+        if not cubes and not imported_rows:
+            QMessageBox.warning(
+                self, "No Cube",
+                "Load one or more FITS cubes first (Load FITS Files), or add "
+                "a line via Import Map.")
             return
 
         if discarded_ul:
@@ -3457,28 +3667,26 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if proceed != QMessageBox.Yes:
                 return
 
-        multi_mode = False
-        cubes_and_lines = None
-        if len(cubes) > 1:
-            # Always convolve/reproject for >1 cube -- never assume two cubes
-            # are already on one grid from a tolerance check (see
-            # convolution_plan/create_rotational_diagram_map_multi).
-            cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, line_table)
+        # Always convolve/reproject once there are 2+ independent sources --
+        # never assume two are already on one grid from a tolerance check.
+        force_multi = bool(imported_rows) or len(cubes) > 1
+        cubes_and_lines = []
+        if force_multi and cube_rows:
+            cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, cube_rows)
             if match_err:
                 QMessageBox.warning(self, "Cubes", match_err)
                 return
-            multi_mode = True
 
         fit_kwargs = self._rot_map_gather_settings()
         if fit_kwargs is None:
             return
 
-        cube_arg = cubes[0] if len(cubes) == 1 else cubes
+        cube_arg = cubes[0] if not force_multi else cubes
 
-        # Build the region mask up front: the fast-combine path, the full worker,
-        # and region_fit ("same as Run Fit") all need it, so a bad region is caught early.
+        # The fast-combine path, the full worker, and region_fit all need
+        # this. An imported map is never region-restricted (see Import Map).
         try:
-            if multi_mode:
+            if force_multi:
                 region_mask = None
                 involved_cubes = {c for c, _ in cubes_and_lines}
                 region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
@@ -3489,23 +3697,21 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             QMessageBox.warning(self, "Region", str(exc))
             return
 
-        # Fast path: Calculate Maps + Convolve Maps already produced a
-        # convolved result for these same cubes/lines/threshold -- skip
-        # straight to the cheap final combination instead of the full slow
-        # worker. Fit settings (distance, min_lines, OPR, ...) can differ
-        # freely since this stage recomputes them from the cached maps.
-        if multi_mode:
-            geometry_key = self._rot_map_geometry_key(cubes_and_lines, fit_kwargs["n_sigma"])
+        # Fast path: skip straight to the cheap final combination if Calculate
+        # Maps/Convolve Maps already ran for this same geometry/threshold.
+        if force_multi:
+            geometry_key = self._rot_map_geometry_key(
+                cubes_and_lines, fit_kwargs["n_sigma"], imported_lines=imported_rows)
             convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
             if convolved_cache is not None and convolved_cache["key"] == geometry_key:
                 self._run_map_fast_combine(cubes, cubes_and_lines, convolved_cache["result"],
-                                           fit_kwargs, region_masks)
+                                           fit_kwargs, region_masks, imported_rows)
                 return
 
         # Reuse a cached result if the same cubes/lines/settings produced one.
         # Stashed since multi-mode nulls self._rot_map_line_table below.
         cache = getattr(self, "_rot_map_cache", None)
-        cache_key = self._rot_map_cache_key(cubes, line_table, multi_mode, fit_kwargs)
+        cache_key = self._rot_map_cache_key(cubes, line_table, force_multi, fit_kwargs)
         self._rot_map_pending_cache_key = cache_key
         if cache is not None and cache["key"] == cache_key:
             reply = QMessageBox.question(
@@ -3527,17 +3733,21 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         # Confirm before the run: a cheap, fit-free check, nothing that scales
         # with pixel count. The real region-fit cross-check runs later, in the worker.
-        if multi_mode:
+        if force_multi:
             try:
-                plan = convolution_plan(cubes_and_lines)
+                if imported_rows:
+                    peek = self._rot_map_plan_peek(cubes_and_lines, imported_rows)
+                    plan = convolution_plan_native(peek)
+                else:
+                    plan = convolution_plan(cubes_and_lines)
             except Exception as exc:
                 QMessageBox.critical(self, "Plan Failed", str(exc))
                 return
             if not self._show_convolution_plan_confirm(plan):
                 return
         else:
-            # Only reachable with exactly one cube now -- >1 always takes the
-            # multi_mode branch above.
+            # Only reachable with exactly one cube and no imported row --
+            # anything else takes the force_multi branch above.
             n_y, n_x = cubes[0].cube.shape[1], cubes[0].cube.shape[2]
             proceed = QMessageBox.question(
                 self, "Run Map",
@@ -3547,9 +3757,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if proceed != QMessageBox.Yes:
                 return
 
-        self._rot_map_multi_mode = multi_mode
-        self._rot_map_cube_arg = None if multi_mode else cube_arg
-        self._rot_map_line_table = None if multi_mode else line_table
+        self._rot_map_multi_mode = force_multi
+        self._rot_map_cube_arg = None if force_multi else cube_arg
+        self._rot_map_line_table = None if force_multi else line_table
         self._rot_map_fit_kwargs = fit_kwargs
 
         self.rot_map_progress = QProgressDialog(
@@ -3565,9 +3775,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.run_fit_btn.setEnabled(False)
         self.run_map_btn.setEnabled(False)
 
-        if multi_mode:
+        if force_multi:
             self.rot_map_worker = RotDiagMapWorker(
-                cubes_and_lines=cubes_and_lines, region_masks=region_masks, **fit_kwargs)
+                cubes_and_lines=cubes_and_lines, imported_lines=imported_rows,
+                region_masks=region_masks, **fit_kwargs)
         else:
             self.rot_map_worker = RotDiagMapWorker(
                 cube_arg, line_table, region_mask=region_mask, **fit_kwargs)
@@ -3576,7 +3787,41 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_map_worker.error.connect(self._on_rot_map_error)
         self.rot_map_worker.start()
 
-    def _run_map_fast_combine(self, cubes, cubes_and_lines, convolved_result, fit_kwargs, region_masks=None):
+    def _rot_map_plan_peek(self, cubes_and_lines, imported_lines):
+        """Cheap, fit-free native_result-shaped peek for a plan preview -- no
+        flux arrays, just the header/WCS fields convolution_plan_native needs.
+
+        Args:
+            cubes_and_lines (list): (CubeData, line_dict) pairs, cube-backed only
+            imported_lines (list): Line dicts with an 'imported_map' payload
+
+        Returns:
+            peek (dict): Just the keys convolution_plan_native reads
+        """
+        lines, wcses, shapes, scales, files, instruments = [], [], [], [], [], []
+        for cube, line in cubes_and_lines:
+            lines.append(line)
+            wcses.append(_make_2d_wcs(cube.header))
+            shapes.append((cube.cube.shape[1], cube.cube.shape[2]))
+            scales.append(_get_pixel_size_arcsec(cube.header))
+            files.append(getattr(cube, "filename", None))
+            instruments.append(cube.instrument)
+        for line in imported_lines:
+            imp = line["imported_map"]
+            lines.append(line)
+            wcses.append(imp["wcs"])
+            shapes.append(imp["shape"])
+            scales.append(imp["pix_arcsec"])
+            files.append(imp["filename"])
+            instruments.append(imp["instrument"])
+        return {
+            "kept_lines": lines, "native_wcs": wcses, "native_shapes": shapes,
+            "native_pix_arcsec": scales, "cube_filenames": files,
+            "native_instrument": instruments, "dropped_lines": [],
+        }
+
+    def _run_map_fast_combine(self, cubes, cubes_and_lines, convolved_result, fit_kwargs,
+                              region_masks=None, imported_lines=None):
         """Run Map's fast path: recombine an already-convolved result
         (Calculate Maps + Convolve Maps already ran for these cubes/lines)
         into a temperature map, skipping native extraction and convolution
@@ -3590,11 +3835,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             region_masks (dict): {CubeData: boolean mask}, so region_fit (the
                 whole-cube/region-summed anchor) matches the imported region
                 the same way the cached native/convolved maps already do.
+            imported_lines (list): Line dicts with an 'imported_map' payload,
+                or None/empty.
 
         Returns:
             None
         """
-        line_table = [line for _, line in cubes_and_lines]
+        line_table = [line for _, line in cubes_and_lines] + list(imported_lines or [])
 
         self.rot_map_progress = QProgressDialog(
             "Fitting rotational diagram per pixel (reusing calculated maps)...",
@@ -3620,7 +3867,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # care that the result dict matches create_rotational_diagram_map_multi's
         # shape, not how it was computed.
         self.rot_map_worker = CombineMapsWorker(convolved_result, cubes_and_lines,
-                                                region_masks=region_masks, **fit_kwargs)
+                                                region_masks=region_masks,
+                                                imported_lines=imported_lines, **fit_kwargs)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
         self.rot_map_worker.error.connect(self._on_rot_map_error)
@@ -3773,15 +4021,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         would actually use before running it, and caches the result so Run
         Map can reuse it instead of recomputing.
 
-        Single cube: there is no separable expensive/cheap split (the
-        T-combination is already a cheap add-on to the same per-pixel fit),
-        so this just runs create_rotational_diagram_map in full and caches
-        the whole result -- the speedup Run Map gets afterward comes purely
-        from finding a matching cache, exactly like it already does today.
+        Single cube, no imported rows: there is no separable expensive/cheap
+        split (the T-combination is already a cheap add-on to the same
+        per-pixel fit), so this just runs create_rotational_diagram_map in
+        full and caches the whole result.
 
-        2+ cubes: runs only the native-resolution extraction
-        (compute_native_line_maps), the genuinely expensive stage; Convolve
-        Maps and Run Map build on this without repeating it.
+        2+ cubes, or any imported row: runs native-resolution extraction
+        (compute_native_line_maps) for the cube-backed lines only -- an
+        imported line already has its map, so it's merged in afterward
+        (merge_native_results) rather than refit. A checked set with only
+        imported rows skips extraction entirely and finishes synchronously.
 
         Args:
             None
@@ -3797,14 +4046,20 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
 
         cubes = list(self.loaded_batch_cubes)
-        if not cubes:
-            QMessageBox.warning(self, "No Cube",
-                                "Load one or more FITS cubes first (Load FITS Files).")
-            return
 
         line_table, discarded_ul, err = self._rot_map_gather_lines(min_lines=1)
         if err:
             QMessageBox.warning(self, "Lines", err)
+            return
+
+        imported_rows = [l for l in line_table if l.get('imported_map')]
+        cube_rows = [l for l in line_table if not l.get('imported_map')]
+
+        if not cubes and not imported_rows:
+            QMessageBox.warning(
+                self, "No Cube",
+                "Load one or more FITS cubes first (Load FITS Files), or add "
+                "a line via Import Map.")
             return
 
         if discarded_ul:
@@ -3817,11 +4072,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if proceed != QMessageBox.Yes:
                 return
 
-        if len(cubes) > 1:
-            cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, line_table)
-            if match_err:
-                QMessageBox.warning(self, "Cubes", match_err)
-                return
+        force_multi = bool(imported_rows) or len(cubes) > 1
+        cubes_and_lines = []
+        if force_multi:
+            if cube_rows:
+                cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, cube_rows)
+                if match_err:
+                    QMessageBox.warning(self, "Cubes", match_err)
+                    return
             n_sigma = self._rot_map_gather_n_sigma()
             if n_sigma is None:
                 return
@@ -3831,12 +4089,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 return
             n_sigma = fit_kwargs["n_sigma"]
 
-        # An imported region restricts fitting to that sky area on every
-        # cube involved -- built per cube now so a bad region (no WCS, or no
-        # overlap with a given cube) is caught and reported before any of
-        # the expensive fitting starts, not partway through.
+        # An imported region restricts fitting on every cube involved, built
+        # per cube so a bad region is caught early; an imported map is not.
         try:
-            if len(cubes) == 1:
+            if not force_multi:
                 region_mask = self._rot_map_region_mask_for_cube(cubes[0])
                 region_masks = None
             else:
@@ -3847,11 +4103,28 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             QMessageBox.warning(self, "Region", str(exc))
             return
 
-        proceed = QMessageBox.question(
-            self, "Calculate Maps",
+        # A pure-import checked set has nothing to fit -- merging is
+        # synchronous, so finish right here instead of starting a worker.
+        if force_multi and not cube_rows:
+            merged = merge_native_results(None, imported_rows)
+            geometry_key = self._rot_map_geometry_key([], n_sigma, imported_lines=imported_rows)
+            self._rot_map_native_cache = {"key": geometry_key, "result": merged}
+            self._clear_all_convolved_maps()
+            self._populate_map_column(merged)
+            QMessageBox.information(
+                self, "Calculate Maps",
+                "Imported map(s) ready. View them in the Map column, or click "
+                "Convolve Maps to put them on a common grid.")
+            return
+
+        threshold_note = (
             f"Detection threshold: {n_sigma:g}σ\n\n"
             f"A line fitted below {n_sigma:g}σ is an upper limit and stays NaN in the maps.\n\n"
-            "Continue?",
+        )
+        if imported_rows:
+            threshold_note += "(Applies to the cube-fit lines only -- imported maps are used as-is.)\n\n"
+        proceed = QMessageBox.question(
+            self, "Calculate Maps", threshold_note + "Continue?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
         if proceed != QMessageBox.Yes:
             return
@@ -3871,7 +4144,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_maps_btn.setEnabled(False)
         self.convolve_maps_btn.setEnabled(False)
 
-        if len(cubes) == 1:
+        if not force_multi:
             self._calc_maps_cube = cubes[0]
             self._calc_maps_line_table = line_table
             self._calc_maps_fit_kwargs = fit_kwargs
@@ -3883,6 +4156,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         else:
             self._calc_maps_cubes_and_lines = cubes_and_lines
             self._calc_maps_n_sigma = n_sigma
+            self._calc_maps_imported_rows = imported_rows
             self.rot_map_worker = CalculateNativeMapsWorker(
                 cubes_and_lines, contam_lines=self.contam_lines, region_masks=region_masks,
                 n_sigma=n_sigma)
@@ -3920,8 +4194,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "to fit the temperature (instant -- reuses this result).")
 
     def _on_calculate_maps_multi_complete(self, result):
-        """Cache a multi-cube Calculate Maps (native-resolution) result and
-        populate the Map column.
+        """Merge in any imported rows, cache the combined native-resolution
+        result, and populate the Map column.
 
         Args:
             result: Computed compute_native_line_maps result.
@@ -3933,10 +4207,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if dlg is not None:
             dlg.close()
         self.on_line_selected()
-        geometry_key = self._rot_map_geometry_key(self._calc_maps_cubes_and_lines, self._calc_maps_n_sigma)
-        self._rot_map_native_cache = {"key": geometry_key, "result": result}
+        imported_rows = getattr(self, "_calc_maps_imported_rows", [])
+        merged = merge_native_results(result, imported_rows) if imported_rows else result
+        geometry_key = self._rot_map_geometry_key(
+            self._calc_maps_cubes_and_lines, self._calc_maps_n_sigma, imported_lines=imported_rows)
+        self._rot_map_native_cache = {"key": geometry_key, "result": merged}
         self._clear_all_convolved_maps()
-        self._populate_map_column(result)
+        self._populate_map_column(merged)
         QMessageBox.information(
             self, "Calculate Maps",
             "Native-resolution flux maps calculated. View them in the Map column, "
@@ -3961,17 +4238,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             QMessageBox.critical(self, "Calculate Maps Error", f"Error during Calculate Maps:\n{message}")
 
     def convolve_rotational_maps(self):
-        """Convolve/reproject every checked line's already-calculated native
-        map onto a common grid at the worst (coarsest) resolution among
-        them. Requires 2+ loaded cubes and a matching Calculate Maps result
-        already cached for every checked line -- lines already covered by a
-        cached result with more lines than currently checked are reused as
-        they are, only genuinely missing lines force a Calculate Maps rerun.
-        Shows the convolution plan (which line sets the resolution, how much
-        the rest get blurred) for confirmation before convolving. Runs
-        synchronously once confirmed -- vectorized convolution and
-        reprojection, not a per-pixel Python loop, so no progress dialog is
-        needed.
+        """Convolve/reproject every checked line's native map (cube-fit or
+        imported) onto a common grid. A cube-backed line needs a matching
+        Calculate Maps cache; an imported line needs none, its map is final.
 
         Args:
             None
@@ -3987,46 +4256,58 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
 
         cubes = list(self.loaded_batch_cubes)
-        if len(cubes) < 2:
-            QMessageBox.warning(
-                self, "Convolve Maps",
-                "Convolve Maps needs 2+ loaded cubes -- with only one, there is "
-                "only one resolution and nothing to convolve.")
-            return
 
         line_table, discarded_ul, err = self._rot_map_gather_lines(min_lines=1)
         if err:
             QMessageBox.warning(self, "Lines", err)
             return
 
-        cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, line_table)
-        if match_err:
-            QMessageBox.warning(self, "Cubes", match_err)
+        imported_rows = [l for l in line_table if l.get('imported_map')]
+        cube_rows = [l for l in line_table if not l.get('imported_map')]
+
+        force_multi = bool(imported_rows) or len(cubes) > 1
+        if not force_multi:
+            QMessageBox.warning(
+                self, "Convolve Maps",
+                "Convolve Maps needs 2+ independent map sources (cubes + "
+                "imported maps) -- with only one, there is only one "
+                "resolution and nothing to convolve.")
             return
+
+        cubes_and_lines = []
+        if cube_rows:
+            cubes_and_lines, match_err = self._rot_map_match_lines_to_cubes(cubes, cube_rows)
+            if match_err:
+                QMessageBox.warning(self, "Cubes", match_err)
+                return
 
         n_sigma = self._rot_map_gather_n_sigma()
         if n_sigma is None:
             return
 
-        native_cache = getattr(self, "_rot_map_native_cache", None)
-        if native_cache is None or native_cache["key"][2] != n_sigma:
-            QMessageBox.warning(
-                self, "Convolve Maps",
-                "No matching Calculate Maps result at the current detection "
-                f"threshold ({n_sigma:g}σ) -- run Calculate Maps first.")
-            return
+        if cubes_and_lines:
+            native_cache = getattr(self, "_rot_map_native_cache", None)
+            if native_cache is None or native_cache["key"][2] != n_sigma:
+                QMessageBox.warning(
+                    self, "Convolve Maps",
+                    "No matching Calculate Maps result at the current detection "
+                    f"threshold ({n_sigma:g}σ) -- run Calculate Maps first.")
+                return
+            subset, missing = self._rot_map_subset_native_result(native_cache["result"], cubes_and_lines)
+            if subset is None:
+                wavelengths = "\n".join(f"  {wl:.4f} um" for wl in missing)
+                QMessageBox.warning(
+                    self, "Convolve Maps",
+                    f"Calculate Maps hasn't been run for:\n{wavelengths}\n\n"
+                    "Run Calculate Maps first (already-calculated lines don't need to be redone).")
+                return
+        else:
+            subset = None
 
-        subset, missing = self._rot_map_subset_native_result(native_cache["result"], cubes_and_lines)
-        if subset is None:
-            wavelengths = "\n".join(f"  {wl:.4f} um" for wl in missing)
-            QMessageBox.warning(
-                self, "Convolve Maps",
-                f"Calculate Maps hasn't been run for:\n{wavelengths}\n\n"
-                "Run Calculate Maps first (already-calculated lines don't need to be redone).")
-            return
+        merged = merge_native_results(subset, imported_rows)
 
         try:
-            plan = convolution_plan(cubes_and_lines)
+            plan = convolution_plan_native(merged)
         except Exception as exc:
             QMessageBox.critical(self, "Plan Failed", str(exc))
             return
@@ -4038,14 +4319,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            convolved = convolve_line_maps(subset)
+            convolved = convolve_line_maps(merged)
         except Exception as exc:
             QMessageBox.critical(self, "Convolve Maps Error", str(exc))
             return
         finally:
             QApplication.restoreOverrideCursor()
 
-        geometry_key = self._rot_map_geometry_key(cubes_and_lines, n_sigma)
+        geometry_key = self._rot_map_geometry_key(cubes_and_lines, n_sigma, imported_lines=imported_rows)
         self._rot_map_convolved_cache = {"key": geometry_key, "result": convolved}
         self._populate_convolved_map_column(convolved)
         QMessageBox.information(
@@ -4199,25 +4480,24 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             fit2t=fit2t,
         )
 
-    def _rot_map_geometry_key(self, cubes_and_lines, n_sigma, dedup_tol_um=1e-5):
-        """Cache key for compute_native_line_maps/convolve_line_maps output:
-        only what determines the native/convolved maps themselves (which
-        cube is paired with which line's wavelength, and the detection
-        threshold), not fit settings like distance or min_lines -- those two
-        stages never see them.
+    def _rot_map_geometry_key(self, cubes_and_lines, n_sigma, dedup_tol_um=1e-5, imported_lines=None):
+        """Cache key for compute_native_line_maps/convolve_line_maps output --
+        only what determines the maps themselves (cube/imported-file paired
+        with wavelength, detection threshold), not fit settings they never see.
 
         Args:
             cubes_and_lines (list): (CubeData, line_dict) pairs
             n_sigma (float): Detection threshold the maps were (or will be) made with
             dedup_tol_um (float): Co-located-line merge tolerance in microns
+            imported_lines (list): Line dicts with an 'imported_map' payload, or None
 
         Returns:
             key (tuple): Hashable, comparable snapshot
         """
-        pairs = tuple(sorted(
-            (getattr(c, "filename", None), round(l["wavelength"], 6)) for c, l in cubes_and_lines
-        ))
-        return (pairs, dedup_tol_um, n_sigma)
+        pairs = [(getattr(c, "filename", None), round(l["wavelength"], 6)) for c, l in cubes_and_lines]
+        pairs += [(l["imported_map"]["filename"], round(l["wavelength"], 6))
+                  for l in (imported_lines or [])]
+        return (tuple(sorted(pairs)), dedup_tol_um, n_sigma)
 
     def _rot_map_subset_native_result(self, native_result, cubes_and_lines, dedup_tol_um=1e-5):
         """Pick out just the requested (cube, line) pairs from an already-
@@ -4257,7 +4537,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         subset = {
             key: [native_result[key][i] for i in indices]
             for key in ("kept_lines", "native_flux_maps", "native_flux_error_maps",
-                       "native_wcs", "native_shapes", "native_pix_arcsec", "cube_filenames")
+                       "native_wcs", "native_shapes", "native_pix_arcsec", "cube_filenames",
+                       "native_instrument", "native_headers")
         }
         subset["dropped_lines"] = native_result["dropped_lines"]
         return subset, []
@@ -4428,7 +4709,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             key (tuple): Hashable, comparable snapshot
         """
         filenames = tuple(getattr(c, "filename", None) for c in cubes)
-        wavelengths = tuple(sorted(round(l["wavelength"], 6) for l in line_table))
+        # (wavelength, imported-file-or-None) so re-importing a different
+        # file at the same wavelength correctly invalidates the cache.
+        wavelengths = tuple(sorted(
+            (round(l["wavelength"], 6), (l.get("imported_map") or {}).get("filename"))
+            for l in line_table
+        ))
         kwargs_items = []
         for k in sorted(fit_kwargs):
             v = fit_kwargs[k]

@@ -10,15 +10,16 @@ import os
 import threading
 from .unit_converter import gaussian_map_unit_labels
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
-from .fits_export import build_2d_export_header, write_fits_product, _ascii_safe
+from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product, _ascii_safe
+from .line_catalog import fetch_hitran_data
 
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
 STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QComboBox, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QComboBox, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, QInputDialog
 )
 from PyQt5.QtGui import QColor, QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
@@ -300,6 +301,7 @@ class GaussianMapResultsDialog(QDialog):
 
         return {
             'Area (AUC)': (f'Area [{area_unit}]', 'viridis'),
+            'Area Error': (f'Area error [{area_unit}]', 'viridis'),
             # Amplitude stays in the cube's native flux unit -- not CGS-converted, unlike Area.
             'Amplitude': (f'Amplitude [{self.flux_unit}]', 'plasma'),
             'Center': (f'Center [{wave_display}]', 'twilight'),
@@ -339,7 +341,7 @@ class GaussianMapResultsDialog(QDialog):
         param_layout.addWidget(QLabel("Parameter:"))
         self.param_combo = QComboBox()
         self.param_combo.addItems([
-            "Area (AUC)", "Amplitude", "Center", "Sigma",
+            "Area (AUC)", "Area Error", "Amplitude", "Center", "Sigma",
             "FWHM", "chi2 (fit quality)", "Fit Status", "Success Mask", "Residuals"
         ])
         param_layout.addWidget(self.param_combo)
@@ -449,6 +451,10 @@ class GaussianMapResultsDialog(QDialog):
             data = self.results['area']
             title = f"Integrated Area Under Gaussian (AUC) {wave_range}"
             unit_label, default_cmap = param_units['Area (AUC)']
+        elif param_name == "Area Error":
+            data = self.results['area_error']
+            title = f"Area Uncertainty (1-sigma) {wave_range}"
+            unit_label, default_cmap = param_units['Area Error']
         elif param_name == "Amplitude":
             data = self.results['amplitude']
             title = f"Gaussian Peak Amplitude {wave_range}"
@@ -545,6 +551,8 @@ class GaussianMapResultsDialog(QDialog):
         """
         if param_name == "Area (AUC)":
             return self.results['area']
+        if param_name == "Area Error":
+            return self.results['area_error']
         if param_name == "Amplitude":
             return self.results['amplitude']
         if param_name == "Center":
@@ -873,74 +881,19 @@ class GaussianMapResultsDialog(QDialog):
         else:
             base_name = "gaussian"
         
-        # Handle Residuals separately (3D cube, already in correct shape)
+        # Residuals already has its own correct export path -- reuse it
+        # instead of duplicating it here (the old copy had NAXIS wrong).
         if param_name == "Residuals":
             if 'residuals_cube' not in self.results or self.results['residuals_cube'] is None:
                 QMessageBox.warning(self, "No Data", "Residuals not available for export")
                 return
-            
-            default_filename = f"{base_name}_gaussian_residuals_cube.fits"
-            out_path, _ = QFileDialog.getSaveFileName(
-                self,
-                "Export Residuals Cube",
-                default_filename,
-                "FITS files (*.fits)"
-            )
-            
-            if not out_path:
-                return
-            
-            try:
-                from astropy.io import fits
-                residuals_data = self.results['residuals_cube']
-                
-                if self.cube_data.header is not None:
-                    out_header = self.cube_data.header.copy()
-                else:
-                    out_header = fits.Header()
-                
-                # Update header
-                instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'
-                teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
-                if instr != 'UNKNOWN':
-                    out_header['INSTRUME'] = instr
-                if teles != 'UNKNOWN':
-                    out_header['TELESCOP'] = teles
-                
-                out_header['BUNIT'] = 'Normalized residuals'
-                out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + ' (Residuals)')
-                out_header['COMMENT'] = 'Gaussian fit residuals: (data - fit) / noise'
-                
-                lam_min = min(self.gauss_left_x, self.gauss_right_x)
-                lam_max = max(self.gauss_left_x, self.gauss_right_x)
-                out_header['LAMMIN'] = (lam_min, "Minimum wavelength of fit")
-                out_header['LAMMAX'] = (lam_max, "Maximum wavelength of fit")
-                
-                # Update NAXIS
-                out_header['NAXIS'] = 2
-                out_header['NAXIS1'] = int(residuals_data.shape[2])
-                out_header['NAXIS2'] = int(residuals_data.shape[1])
-                
-                hdu = fits.PrimaryHDU(data=residuals_data, header=out_header)
-                hdul = fits.HDUList([hdu])
-                hdul.writeto(out_path, overwrite=True)
-                
-                QMessageBox.information(
-                    self,
-                    "Export Successful",
-                    f"Residuals cube saved to:\n{out_path}"
-                )
-            except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Export Error",
-                    f"Failed to export residuals:\n{str(e)}"
-                )
+            self._export_residuals()
             return
         
         # Map parameter names to data and default filenames (2D maps)
         param_map = {
             "Area (AUC)": (self.results['area'], f"{base_name}_gaussian_area_map.fits"),
+            "Area Error": (self.results['area_error'], f"{base_name}_gaussian_area_error_map.fits"),
             "Amplitude": (self.results['amplitude'], f"{base_name}_gaussian_amplitude_map.fits"),
             "Center": (self.results['center'], f"{base_name}_gaussian_center_map.fits"),
             "Sigma": (self.results['sigma'], f"{base_name}_gaussian_sigma_map.fits"),
@@ -965,7 +918,16 @@ class GaussianMapResultsDialog(QDialog):
         
         if not out_path:
             return
-        
+
+        # Only Area (AUC) is a flux map (what Import Map wants); blank skips
+        # the lookup, so plain feature-fitting is unchanged.
+        species_text = ""
+        if param_name == "Area (AUC)":
+            species_text, _ok = QInputDialog.getText(
+                self, "Species (optional)",
+                "Species for HITRAN lookup, e.g. H2 (blank to skip):")
+            species_text = species_text.strip().upper()
+
         try:
             # Add metadata about the Gaussian fit
             lam_min = min(self.gauss_left_x, self.gauss_right_x)
@@ -994,16 +956,48 @@ class GaussianMapResultsDialog(QDialog):
             # The picked peak, not the window midpoint: picking one is required
             # before any fit runs, and the window need not sit symmetric around it.
             line_wave = self.gauss_peak_x if self.gauss_peak_x is not None else (lam_min + lam_max) / 2.0
-            out_header = build_2d_export_header(source_header, data.shape, extra={
+            extra = {
                 'BUNIT': bunit,
                 'OBJECT': object_label,
                 'PARAM': param_name,
-                'LINEWAVE': (line_wave, "Line center wavelength (um)"),
                 'LAMMIN': (lam_min, "Minimum wavelength of fit"),
                 'LAMMAX': (lam_max, "Maximum wavelength of fit"),
                 'NSUCC': (int(np.sum(self.results['success'])), "Number of successful fits"),
                 'NTOTAL': (int(self.results['success'].size), "Total number of pixels"),
-            })
+            }
+            is_area = param_name == "Area (AUC)"
+            if is_area and species_text:
+                try:
+                    hitran_lines, _meta = fetch_hitran_data(
+                        line_wave - 0.01, line_wave + 0.01,
+                        molecule=species_text, isotopologue=1)
+                except Exception:
+                    hitran_lines = []
+                best_match, best_diff = None, float('inf')
+                for hl in hitran_lines:
+                    diff = abs(hl['wavelength'] - line_wave)
+                    if diff < 0.0001 and diff < best_diff:
+                        best_match, best_diff = hl, diff
+                if best_match:
+                    extra['A_UL'] = (best_match.get('a_coeff', 0.0), "Einstein A coefficient (1/s)")
+                    extra['E_UPPER'] = (best_match.get('e_upper', 0.0), "Upper state energy (K)")
+                    extra['G_U'] = (best_match.get('Gp', 1.0), "Upper state statistical weight")
+                    extra['TRANSITN'] = best_match.get('transition', 'User Data')
+                    # H2's own fit-index/OPR logic needs these, not just
+                    # the physical constants above (see _line_keys).
+                    if best_match.get('j_lower') is not None:
+                        extra['JLOWER'] = int(best_match['j_lower'])
+                    if best_match.get('branch'):
+                        extra['BRANCH'] = best_match['branch']
+
+            err_map = self.results.get('area_error') if is_area else None
+            out_header, extensions = build_line_map_header(
+                source_header, data.shape, wavelength=line_wave,
+                molecule=species_text if (is_area and species_text) else None,
+                flux_map=data if is_area else None, error_map=err_map,
+                src_filename=(getattr(self.cube_data, 'filename', None) or 'UNKNOWN') if is_area else None,
+                fit_method='Single-Gaussian fit' if is_area else None, extra=extra,
+            )
             # Get instrument info -- normalized to uppercase, falling back to
             # cube_data.instrument, same as this dialog has always done.
             instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'
@@ -1015,7 +1009,7 @@ class GaussianMapResultsDialog(QDialog):
             out_header['COMMENT'] = comment
             out_header['COMMENT'] = f'Gaussian fit parameter: {param_name}'
 
-            write_fits_product(out_path, data, out_header)
+            write_fits_product(out_path, data, out_header, extensions=extensions or None)
 
             print(f"Parameter map FITS written to {out_path}")
             QMessageBox.information(

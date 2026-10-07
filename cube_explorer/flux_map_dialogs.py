@@ -17,7 +17,7 @@ from matplotlib.figure import Figure
 import matplotlib.cm as cm
 from astropy import units as u
 
-from .fits_export import build_2d_export_header, write_fits_product
+from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 
 
 class FluxMapWorker(QThread):
@@ -601,14 +601,17 @@ class FluxMapResultsDialog(QDialog):
                 shape = self.flux_map.shape
 
                 primary_extra = {
-                    'BUNIT': self.flux_unit_str,
-                    'SPECIES': (self.species_label, 'Target line species'),
                     'DESC': f'{self.species_label} rovibrational flux: Integrated area under target line gaussians',
                 }
                 if self.wave_range:
                     primary_extra['WAVEMIN'] = (self.wave_range[0], 'Min wavelength used (um)')
                     primary_extra['WAVEMAX'] = (self.wave_range[1], 'Max wavelength used (um)')
-                primary_header = build_2d_export_header(self.header, shape, extra=primary_extra)
+                # MOLECULE, not SPECIES -- same keyword every other line-map
+                # export uses, so a species lookup works across all of them.
+                primary_header, _ = build_line_map_header(
+                    self.header, shape, molecule=self.species_label,
+                    extra={**primary_extra, 'BUNIT': self.flux_unit_str},
+                )
                 if 'INSTRUME' not in primary_header and getattr(self, 'cube_data', None) is not None:
                     if hasattr(self.cube_data, 'instrument'):
                         primary_header['INSTRUME'] = self.cube_data.instrument
