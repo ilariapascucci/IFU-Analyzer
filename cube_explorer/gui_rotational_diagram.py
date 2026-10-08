@@ -23,6 +23,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
+from .gui import CollapsibleButtonGroup
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog, match_nearest_hitran_line
 from .table_drag_select import SortableCheckboxTableMixin
@@ -110,6 +111,153 @@ class HitranFetchThread(QThread):
                 self.finished.emit(hitran_data)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class FetchHitranDialog(QDialog):
+    """Dialog to configure one HITRAN fetch: molecule, wavelength range,
+    isotopologue, and vibrational transition filtering."""
+
+    def __init__(self, parent=None, initial_molecule='H2', initial_isotopologue=1):
+        """Build the Fetch from HITRAN prompt.
+
+        Args:
+            parent (QWidget): Parent widget, or None for a top-level dialog.
+            initial_molecule (str): Molecule pre-selected in the dropdown.
+            initial_isotopologue (int): Isotopologue pre-selected, clamped to
+                the chosen molecule's own valid range.
+
+        Returns:
+            None
+        """
+        super().__init__(parent)
+        self.setWindowTitle("Fetch from HITRAN")
+
+        layout = QVBoxLayout()
+
+        mol_row = QHBoxLayout()
+        mol_row.addWidget(QLabel("Molecule:"))
+        self.mol_combo = QComboBox()
+        self.mol_combo.addItems(list(MOLECULE_ISOTOPOLOGUES.keys()))
+        self.mol_combo.setCurrentText(initial_molecule)
+        self.mol_combo.currentTextChanged.connect(self._update_isotopologue_range)
+        mol_row.addWidget(self.mol_combo)
+        mol_row.addStretch()
+        layout.addLayout(mol_row)
+
+        range_row = QHBoxLayout()
+        range_row.addWidget(QLabel("λ_min (μm):"))
+        self.wl_min_input = QDoubleSpinBox()
+        self.wl_min_input.setRange(0.1, 1000)
+        self.wl_min_input.setValue(5.0)
+        self.wl_min_input.setDecimals(6)
+        range_row.addWidget(self.wl_min_input)
+        range_row.addWidget(QLabel("λ_max (μm):"))
+        self.wl_max_input = QDoubleSpinBox()
+        self.wl_max_input.setRange(0.1, 1000)
+        self.wl_max_input.setValue(20.0)
+        self.wl_max_input.setDecimals(6)
+        range_row.addWidget(self.wl_max_input)
+        layout.addLayout(range_row)
+
+        iso_row = QHBoxLayout()
+        iso_row.addWidget(QLabel("Isotopologue:"))
+        self.isotopologue_spin = QSpinBox()
+        iso_row.addWidget(self.isotopologue_spin)
+        iso_row.addStretch()
+        layout.addLayout(iso_row)
+        self._update_isotopologue_range(initial_molecule)
+        self.isotopologue_spin.setValue(initial_isotopologue)
+
+        v_row = QHBoxLayout()
+        v_row.addWidget(QLabel("v_upper:"))
+        self.v_upper_spin = QSpinBox()
+        self.v_upper_spin.setRange(0, 10)
+        v_row.addWidget(self.v_upper_spin)
+        v_row.addWidget(QLabel("v_lower:"))
+        self.v_lower_spin = QSpinBox()
+        self.v_lower_spin.setRange(0, 10)
+        v_row.addWidget(self.v_lower_spin)
+        self.include_all_trans_check = QCheckBox("All transitions")
+        self.include_all_trans_check.setChecked(True)
+        self.include_all_trans_check.stateChanged.connect(self._on_all_trans_toggled)
+        v_row.addWidget(self.include_all_trans_check)
+        layout.addLayout(v_row)
+        self.v_upper_spin.setEnabled(False)
+        self.v_lower_spin.setEnabled(False)
+
+        btn_row = QHBoxLayout()
+        fetch_btn = QPushButton("Fetch")
+        cancel_btn = QPushButton("Cancel")
+        fetch_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(fetch_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+        self.setLayout(layout)
+
+    def _update_isotopologue_range(self, molecule):
+        """Reset the isotopologue spinner to the chosen molecule's own range.
+
+        Args:
+            molecule (str): Newly selected molecule name.
+
+        Returns:
+            None
+        """
+        mol_data = MOLECULE_ISOTOPOLOGUES.get(molecule)
+        if mol_data:
+            min_iso, max_iso = mol_data['range']
+            self.isotopologue_spin.setRange(min_iso, max_iso)
+            self.isotopologue_spin.setValue(min_iso)
+
+    def _on_all_trans_toggled(self):
+        """Enable v_upper/v_lower only when not fetching all transitions.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        checked = self.include_all_trans_check.isChecked()
+        self.v_upper_spin.setEnabled(not checked)
+        self.v_lower_spin.setEnabled(not checked)
+
+    def get_values(self):
+        """Read the dialog's current fields.
+
+        Args:
+            None
+
+        Returns:
+            values (tuple): (molecule, wl_min, wl_max, isotopologue, v_upper,
+                v_lower, include_all) -- v_upper/v_lower are None when
+                include_all is True.
+        """
+        include_all = self.include_all_trans_check.isChecked()
+        return (
+            self.mol_combo.currentText(), self.wl_min_input.value(), self.wl_max_input.value(),
+            self.isotopologue_spin.value(),
+            None if include_all else self.v_upper_spin.value(),
+            None if include_all else self.v_lower_spin.value(),
+            include_all,
+        )
+
+    def accept(self):
+        """Validate the wavelength range before closing.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if self.wl_min_input.value() >= self.wl_max_input.value():
+            QMessageBox.warning(self, "Fetch from HITRAN", "Min wavelength must be less than max.")
+            return
+        super().accept()
 
 
 class RotationalFitWorker(QThread):
@@ -307,6 +455,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         super().__init__()
         self.current_molecule = 'H2'  # Default molecule
+        self.current_isotopologue = 1  # Set by Fetch from HITRAN; read by Run Fit/Run Map
         self.setWindowTitle(f"{self.current_molecule} Rotational Diagram Analyzer")
         self.setGeometry(100, 100, 1500, 800)
         
@@ -522,101 +671,23 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         frame = QFrame()
         layout = QVBoxLayout()
-        
-        # Molecule selector
-        mol_layout = QHBoxLayout()
-        mol_layout.addWidget(QLabel("Molecule:"))
-        self.mol_combo = QComboBox()
-        self.mol_combo.addItems(list(MOLECULE_ISOTOPOLOGUES.keys()))
-        self.mol_combo.setCurrentText(self.current_molecule)
-        self.mol_combo.currentTextChanged.connect(self.on_molecule_changed)
-        mol_layout.addWidget(self.mol_combo)
 
-        mol_layout.addSpacing(20)
-        mol_layout.addWidget(QLabel("Detection threshold (σ):"))
-        self.sigma_input = QLineEdit()
-        self.sigma_input.setText("3.0")
-        self.sigma_input.setMaximumWidth(60)
-        self.sigma_input.setToolTip(
-            "Sets which pixels count as detections when Calculate Maps (or a full Run Map) fits "
-            "each line: a line fitted below this many noise sigmas is an upper limit and stays "
-            "NaN. Convolve Maps and the temperature fit apply no threshold of their own. Any "
-            "number 0 or higher; 3 is the standard. Calculate Fluxes always uses 3."
-        )
-        mol_layout.addWidget(self.sigma_input)
-        mol_layout.addStretch()
-        layout.addLayout(mol_layout)
-        
-        # Input parameters
-        input_layout = QHBoxLayout()
-        
-        input_layout.addWidget(QLabel("λ_min (μm):"))
-        self.wl_min_input = QDoubleSpinBox()
-        self.wl_min_input.setRange(0.1, 1000)
-        self.wl_min_input.setValue(5.0)
-        self.wl_min_input.setDecimals(6)
-        input_layout.addWidget(self.wl_min_input)
-        
-        input_layout.addWidget(QLabel("λ_max (μm):"))
-        self.wl_max_input = QDoubleSpinBox()
-        self.wl_max_input.setRange(0.1, 1000)
-        self.wl_max_input.setValue(20.0)
-        self.wl_max_input.setDecimals(6)
-        input_layout.addWidget(self.wl_max_input)
-        
-        input_layout.addWidget(QLabel("Isotopologue:"))
-        self.isotopologue_spin = QSpinBox()
-        self.update_isotopologue_range()
-        input_layout.addWidget(self.isotopologue_spin)
-        
-        input_layout.addWidget(QLabel("v_upper:"))
-        self.v_upper_spin = QSpinBox()
-        self.v_upper_spin.setRange(0, 10)
-        self.v_upper_spin.setValue(0)
-        input_layout.addWidget(self.v_upper_spin)
-        
-        input_layout.addWidget(QLabel("v_lower:"))
-        self.v_lower_spin = QSpinBox()
-        self.v_lower_spin.setRange(0, 10)
-        self.v_lower_spin.setValue(0)
-        input_layout.addWidget(self.v_lower_spin)
-        
-        self.include_all_trans_check = QCheckBox("All transitions")
-        self.include_all_trans_check.setChecked(True)
-        self.include_all_trans_check.stateChanged.connect(self.on_include_all_transitions_toggled)
-        input_layout.addWidget(self.include_all_trans_check)
-        
-        self.v_upper_spin.setEnabled(False)
-        self.v_lower_spin.setEnabled(False)
-        
-        input_layout.addStretch()
-        layout.addLayout(input_layout)
-        
-        # Fetch and Import buttons
-        button_layout = QHBoxLayout()
-        
+        # Fetch and Import buttons, grouped into collapsible sections --
+        # same CollapsibleButtonGroup the main window and 2D viewer use.
         self.fetch_btn = QPushButton("Fetch from HITRAN")
         self.fetch_btn.clicked.connect(self.fetch_hitran_lines)
-        button_layout.addWidget(self.fetch_btn)
-        
+
         self.import_csv_btn = QPushButton("Import from CSV")
         self.import_csv_btn.clicked.connect(self.import_csv_file)
-        button_layout.addWidget(self.import_csv_btn)
 
-        self.import_map_btn = QPushButton("Import Map")
+        self.import_map_btn = QPushButton("Import Maps")
         self.import_map_btn.setToolTip(
-            "Attach an already-reduced flux map (line-integrated, already "
-            "convolved/resolution-matched elsewhere) to one line, alongside "
-            "lines computed normally from loaded cubes. Feeds Convolve "
-            "Maps/Run Map only -- not Run Fit or Calculate Fluxes."
+            "Attach one or more already-reduced flux maps (line-integrated, already "
+            "convolved/resolution-matched elsewhere), alongside lines computed normally "
+            "from loaded cubes. Feeds Convolve Maps/Run Map only -- not Run Fit or "
+            "Calculate Fluxes."
         )
         self.import_map_btn.clicked.connect(self.import_map_line)
-        button_layout.addWidget(self.import_map_btn)
-
-        self.calculate_fluxes_btn = QPushButton("Calculate Fluxes")
-        self.calculate_fluxes_btn.clicked.connect(self.open_batch_flux_dialog)
-        self.calculate_fluxes_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.calculate_fluxes_btn)
 
         self.load_fits_btn = QPushButton("Load FITS Files")
         self.load_fits_btn.setToolTip(
@@ -624,8 +695,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "on every click, instead of re-prompting each time."
         )
         self.load_fits_btn.clicked.connect(self.load_batch_fits_files)
-        self.load_fits_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.load_fits_btn)
+        self.load_fits_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.load_contam_btn = QPushButton("Load Contaminating Lines")
         self.load_contam_btn.setToolTip(
@@ -634,8 +704,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "the main Gaussian-fit window's contaminating-lines loader."
         )
         self.load_contam_btn.clicked.connect(self.load_contaminating_lines_for_batch)
-        self.load_contam_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.load_contam_btn)
+        self.load_contam_btn.setEnabled(False)  # Blocked until lines are loaded
+
+        self.calculate_fluxes_btn = QPushButton("Calculate Fluxes")
+        self.calculate_fluxes_btn.clicked.connect(self.open_batch_flux_dialog)
+        self.calculate_fluxes_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.save_fluxes_btn = QPushButton("Save Fluxes")
         self.save_fluxes_btn.setToolTip(
@@ -644,19 +717,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "later doesn't need Calculate Fluxes run again."
         )
         self.save_fluxes_btn.clicked.connect(self.save_fluxes_to_csv)
-        self.save_fluxes_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.save_fluxes_btn)
+        self.save_fluxes_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.calculate_maps_btn = QPushButton("Calculate Maps")
         self.calculate_maps_btn.setToolTip(
             "Fit each checked line's own flux map (native resolution per cube) without "
             "combining them into a temperature fit yet. Populates the Map column so you "
             "can inspect each line before running the full map. Caches its result so a "
-            "later Run Map reuses it instead of recomputing."
+            "later Run Map reuses it instead of recomputing. Asks for the detection "
+            "threshold (σ) when clicked."
         )
         self.calculate_maps_btn.clicked.connect(self.calculate_rotational_maps)
-        self.calculate_maps_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.calculate_maps_btn)
+        self.calculate_maps_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.convolve_maps_btn = QPushButton("Convolve Maps")
         self.convolve_maps_btn.setToolTip(
@@ -666,8 +738,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "Maps run first."
         )
         self.convolve_maps_btn.clicked.connect(self.convolve_rotational_maps)
-        self.convolve_maps_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.convolve_maps_btn)
+        self.convolve_maps_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.save_maps_btn = QPushButton("Save Maps")
         self.save_maps_btn.setToolTip(
@@ -677,8 +748,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "Calculate Maps (and optionally Convolve Maps) first."
         )
         self.save_maps_btn.clicked.connect(self.save_all_maps)
-        self.save_maps_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.save_maps_btn)
+        self.save_maps_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.export_naman_maps_btn = QPushButton("Export Naman Maps")
         self.export_naman_maps_btn.setToolTip(
@@ -688,8 +758,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "Calculate Maps run first; does not use or affect our own Convolve Maps."
         )
         self.export_naman_maps_btn.clicked.connect(self.export_naman_maps)
-        self.export_naman_maps_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.export_naman_maps_btn)
+        self.export_naman_maps_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.convolve_naman_btn = QPushButton("Convolve Maps (Naman)")
         self.convolve_naman_btn.setToolTip(
@@ -698,8 +767,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "Convolve Maps. Needs Calculate Maps run first and 2+ loaded cubes."
         )
         self.convolve_naman_btn.clicked.connect(self.convolve_naman_maps)
-        self.convolve_naman_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.convolve_naman_btn)
+        self.convolve_naman_btn.setEnabled(False)  # Blocked until lines are loaded
 
         self.run_naman_map_btn = QPushButton("Run Naman Map")
         self.run_naman_map_btn.setToolTip(
@@ -708,10 +776,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "the usual results viewer. Needs Calculate Maps run first and 2+ loaded cubes."
         )
         self.run_naman_map_btn.clicked.connect(self.run_naman_map)
-        self.run_naman_map_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.run_naman_map_btn)
+        self.run_naman_map_btn.setEnabled(False)  # Blocked until lines are loaded
 
-        self.import_map_region_btn = QPushButton("Import Region")
+        self.import_map_region_btn = QPushButton("Import")
         self.import_map_region_btn.setToolTip(
             "Restrict Calculate Fluxes/Calculate Maps/Run Map/Run Fit to one sky region, "
             "imported from a region saved elsewhere (Save Region, main window or 2D viewer). "
@@ -719,30 +786,88 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "cubes at different pixel scales."
         )
         self.import_map_region_btn.clicked.connect(self.import_rot_map_region)
-        self.import_map_region_btn.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.import_map_region_btn)
+        self.import_map_region_btn.setEnabled(False)  # Blocked until lines are loaded
 
-        self.clear_map_region_btn = QPushButton("Clear Region")
+        self.clear_map_region_btn = QPushButton("Delete")
         self.clear_map_region_btn.setToolTip(
             "Remove the imported region and go back to fitting the whole cube."
         )
         self.clear_map_region_btn.clicked.connect(self.clear_rot_map_region)
-        self.clear_map_region_btn.setVisible(False)  # Hidden until a region is imported
-        self.clear_map_region_btn.setEnabled(False)
-        button_layout.addWidget(self.clear_map_region_btn)
+        self.clear_map_region_btn.setEnabled(False)  # Blocked until a region is imported
 
+        collapsible_layout = QHBoxLayout()
+        collapsible_layout.setSpacing(0)
+        collapsible_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.lines_group = CollapsibleButtonGroup("Lines")
+        self.lines_group.add_button(self.fetch_btn)
+        self.lines_group.add_button(self.import_csv_btn)
+        self.lines_group.add_button(self.import_map_btn)
+        collapsible_layout.addWidget(self.lines_group)
+
+        self.source_group = CollapsibleButtonGroup("Source")
+        self.source_group.add_button(self.load_fits_btn)
+        self.source_group.add_button(self.load_contam_btn)
+        collapsible_layout.addWidget(self.source_group)
+
+        self.flux_group = CollapsibleButtonGroup("Flux")
+        self.flux_group.add_button(self.calculate_fluxes_btn)
+        self.flux_group.add_button(self.save_fluxes_btn)
+        collapsible_layout.addWidget(self.flux_group)
+
+        self.maps_group = CollapsibleButtonGroup("Maps")
+        self.maps_group.add_button(self.calculate_maps_btn)
+        self.maps_group.add_button(self.convolve_maps_btn)
+        self.maps_group.add_button(self.save_maps_btn)
+        self.maps_group.add_button(self.export_naman_maps_btn)
+        self.maps_group.add_button(self.convolve_naman_btn)
+        self.maps_group.add_button(self.run_naman_map_btn)
+        collapsible_layout.addWidget(self.maps_group)
+
+        # "Select" (live, interactive region drawing) isn't built yet --
+        # today's Region group only has what Import Region/Clear Region cover.
+        self.region_group = CollapsibleButtonGroup("Region")
+        self.region_group.add_button(self.import_map_region_btn)
+        self.region_group.add_button(self.clear_map_region_btn)
+        collapsible_layout.addWidget(self.region_group)
+
+        collapsible_layout.addStretch()
+        layout.addLayout(collapsible_layout)
+
+        status_layout = QHBoxLayout()
+        self.fits_status_label = QLabel("")  # Only ever shows text once something is actually loaded
+        status_layout.addWidget(self.fits_status_label)
         self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
-        self.contam_status_label.setVisible(False)  # Hidden until lines are loaded
-        button_layout.addWidget(self.contam_status_label)
+        status_layout.addWidget(self.contam_status_label)
+        status_layout.addStretch()
+        layout.addLayout(status_layout)
 
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-        
         frame.setLayout(layout)
         return frame
+
+    def closeEvent(self, event):
+        """Drop this window's collapsible groups from the shared registry on
+        close, same as the 2D viewer, so cross-window accordion logic never
+        touches a deleted widget.
+
+        Args:
+            event (QCloseEvent): Close event Qt sends to the widget.
+
+        Returns:
+            None
+        """
+        for _g in (getattr(self, 'lines_group', None), getattr(self, 'source_group', None),
+                   getattr(self, 'flux_group', None), getattr(self, 'maps_group', None),
+                   getattr(self, 'region_group', None)):
+            try:
+                if _g in CollapsibleButtonGroup._all_groups:
+                    CollapsibleButtonGroup._all_groups.remove(_g)
+            except Exception:
+                pass
+        event.accept()
     
     def on_molecule_changed(self, molecule):
-        """Update UI when the Molecule dropdown itself changes.
+        """Update UI when the molecule changes (Fetch from HITRAN's own dialog).
 
         Args:
             molecule (str): Newly selected molecule name.
@@ -792,23 +917,23 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.workflow_mode = None
         self.populate_lines_table()
         self.on_line_selected()
-        self.calculate_fluxes_btn.setVisible(False)
-        self.load_fits_btn.setVisible(False)
-        self.load_contam_btn.setVisible(False)
-        self.save_fluxes_btn.setVisible(False)
-        self.calculate_maps_btn.setVisible(False)
-        self.convolve_maps_btn.setVisible(False)
-        self.save_maps_btn.setVisible(False)
-        self.export_naman_maps_btn.setVisible(False)
-        self.convolve_naman_btn.setVisible(False)
-        self.run_naman_map_btn.setVisible(False)
-        self.import_map_region_btn.setVisible(False)
-        self.clear_map_region_btn.setVisible(False)
-        self.contam_status_label.setVisible(False)
+        self.calculate_fluxes_btn.setEnabled(False)
+        self.load_fits_btn.setEnabled(False)
+        self.load_contam_btn.setEnabled(False)
+        self.save_fluxes_btn.setEnabled(False)
+        self.calculate_maps_btn.setEnabled(False)
+        self.convolve_maps_btn.setEnabled(False)
+        self.save_maps_btn.setEnabled(False)
+        self.export_naman_maps_btn.setEnabled(False)
+        self.convolve_naman_btn.setEnabled(False)
+        self.run_naman_map_btn.setEnabled(False)
+        self.import_map_region_btn.setEnabled(False)
+        self.clear_map_region_btn.setEnabled(False)
 
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
+        self.fits_status_label.setText("")
         self.contam_lines = None
         self._rot_map_region_sky = None
         self.contam_status_label.setText("")
@@ -828,10 +953,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
+        self.fits_status_label.setText("")
 
     def _reveal_line_workflow_buttons(self):
-        """Show the line-workflow buttons once the table has at least one
-        line -- shared by Fetch HITRAN, Import CSV, and Import Map.
+        """Enable the line-workflow buttons once the table has at least one
+        line -- shared by Fetch HITRAN, Import CSV, and Import Map. Always
+        visible; Clear/Delete Region is enabled separately, only once a
+        region is actually imported.
 
         Args:
             None
@@ -839,22 +967,20 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        self.calculate_fluxes_btn.setVisible(True)
-        self.load_fits_btn.setVisible(True)
-        self.load_contam_btn.setVisible(True)
-        self.save_fluxes_btn.setVisible(True)
-        self.calculate_maps_btn.setVisible(True)
-        self.convolve_maps_btn.setVisible(True)
-        self.save_maps_btn.setVisible(True)
-        self.export_naman_maps_btn.setVisible(True)
-        self.convolve_naman_btn.setVisible(True)
-        self.run_naman_map_btn.setVisible(True)
-        self.import_map_region_btn.setVisible(True)
-        self.clear_map_region_btn.setVisible(True)
-        self.contam_status_label.setVisible(True)
+        self.calculate_fluxes_btn.setEnabled(True)
+        self.load_fits_btn.setEnabled(True)
+        self.load_contam_btn.setEnabled(True)
+        self.save_fluxes_btn.setEnabled(True)
+        self.calculate_maps_btn.setEnabled(True)
+        self.convolve_maps_btn.setEnabled(True)
+        self.save_maps_btn.setEnabled(True)
+        self.export_naman_maps_btn.setEnabled(True)
+        self.convolve_naman_btn.setEnabled(True)
+        self.run_naman_map_btn.setEnabled(True)
+        self.import_map_region_btn.setEnabled(True)
 
     def update_isotopologue_range(self):
-        """Update isotopologue spinner range based on selected molecule.
+        """Reset the current isotopologue to the selected molecule's minimum.
 
         Args:
             None
@@ -864,23 +990,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         mol_data = MOLECULE_ISOTOPOLOGUES.get(self.current_molecule)
         if mol_data:
-            min_iso, max_iso = mol_data['range']
-            self.isotopologue_spin.setRange(min_iso, max_iso)
-            self.isotopologue_spin.setValue(min_iso)
+            min_iso, _max_iso = mol_data['range']
+            self.current_isotopologue = min_iso
     
-    def on_include_all_transitions_toggled(self):
-        """Enable/disable the v_upper/v_lower spinners with the checkbox.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        checked = self.include_all_trans_check.isChecked()
-        self.v_upper_spin.setEnabled(not checked)
-        self.v_lower_spin.setEnabled(not checked)
-
     def on_radius_unknown_toggled(self):
         """Disable the R field when R is marked unknown (R=None is passed to the fitter).
 
@@ -1299,7 +1411,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.updating_flux_error_flag = False
 
     def fetch_hitran_lines(self):
-        """Fetch molecular lines from HITRAN.
+        """Fetch molecular lines from HITRAN, prompting for molecule, range,
+        isotopologue, and transition filtering in a dedicated dialog.
 
         Args:
             None
@@ -1307,21 +1420,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        wl_min = self.wl_min_input.value()
-        wl_max = self.wl_max_input.value()
-        isotopologue = self.isotopologue_spin.value()
-        
-        if wl_min >= wl_max:
-            QMessageBox.warning(self, "Error", "Min wavelength must be less than max")
+        dlg = FetchHitranDialog(self, initial_molecule=self.current_molecule,
+                                 initial_isotopologue=self.current_isotopologue)
+        if dlg.exec_() != QDialog.Accepted:
             return
-        
-        if self.include_all_trans_check.isChecked():
-            v_upper = None
-            v_lower = None
-        else:
-            v_upper = self.v_upper_spin.value()
-            v_lower = self.v_lower_spin.value()
-        
+        molecule, wl_min, wl_max, isotopologue, v_upper, v_lower, _include_all = dlg.get_values()
+
+        if molecule != self.current_molecule:
+            self.on_molecule_changed(molecule)
+        self.current_isotopologue = isotopologue
+
         self.fetch_btn.setEnabled(False)
         progress = QProgressDialog(f"Fetching {self.current_molecule} lines from HITRAN...", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModal)
@@ -1486,9 +1594,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if len(species_list) == 1 and species_list[0] != self.current_molecule \
                     and species_list[0] in MOLECULE_ISOTOPOLOGUES:
                 new_molecule = species_list[0]
-                self.mol_combo.blockSignals(True)
-                self.mol_combo.setCurrentText(new_molecule)
-                self.mol_combo.blockSignals(False)
                 self._apply_molecule_change(new_molecule)
 
             # Get wavelength ranges to fetch
@@ -1733,9 +1838,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
             if not self.hitran_lines and species in MOLECULE_ISOTOPOLOGUES \
                     and species != self.current_molecule:
-                self.mol_combo.blockSignals(True)
-                self.mol_combo.setCurrentText(species)
-                self.mol_combo.blockSignals(False)
                 self._apply_molecule_change(species)
 
             self._append_line_row(line_data)
@@ -1834,6 +1936,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Tooltip lists everything loaded so far, not just this batch
         names = "\n".join(os.path.basename(p) for p in self.loaded_batch_fits_paths)
         self.load_fits_btn.setToolTip(names if names else "Select the source FITS cube(s) for Calculate Fluxes.")
+        if self.loaded_batch_fits_paths:
+            self.fits_status_label.setText(f"{len(self.loaded_batch_fits_paths)} FITS file(s) loaded")
+            self.fits_status_label.setToolTip(names)
 
         if failed:
             failed_msg = "\n".join(f"  {os.path.basename(p)}: {err}" for p, err in failed)
@@ -2986,7 +3091,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if native_cache is None:
             QMessageBox.warning(self, "Run Naman Map", "Run Calculate Maps first.")
             return
-        fit_kwargs = self._rot_map_gather_settings()
+        # Only recombines an already-fitted native cache -- never fits from
+        # raw data, so reuse its threshold instead of asking again.
+        fit_kwargs = self._rot_map_gather_settings(n_sigma=native_cache["key"][2])
         if fit_kwargs is None:
             return
         naman_convolved = getattr(self, "_naman_convolved_cache", None)
@@ -3583,7 +3690,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_fit_worker = RotationalFitWorker(
             fluxes, flux_errors, molecular_data, fit_opr, opr_grid,
             fit_2t, radius_au, distance_pc, upper_limits,
-            molecule=self.current_molecule, isotopologue=self.isotopologue_spin.value(),
+            molecule=self.current_molecule, isotopologue=self.current_isotopologue,
         )
         self.rot_fit_worker.finished.connect(self._on_rotational_fit_complete)
         self.rot_fit_worker.error.connect(self._on_rotational_fit_error)
@@ -4349,18 +4456,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 QMessageBox.warning(self, "Cubes", match_err)
                 return
 
-        n_sigma = self._rot_map_gather_n_sigma()
-        if n_sigma is None:
-            return
-
+        native_cache = getattr(self, "_rot_map_native_cache", None)
         if cubes_and_lines:
-            native_cache = getattr(self, "_rot_map_native_cache", None)
-            if native_cache is None or native_cache["key"][2] != n_sigma:
+            if native_cache is None:
                 QMessageBox.warning(
                     self, "Convolve Maps",
-                    "No matching Calculate Maps result at the current detection "
-                    f"threshold ({n_sigma:g}σ) -- run Calculate Maps first.")
+                    "No Calculate Maps result found -- run Calculate Maps first.")
                 return
+            n_sigma = native_cache["key"][2]
             subset, missing = self._rot_map_subset_native_result(native_cache["result"], cubes_and_lines)
             if subset is None:
                 wavelengths = "\n".join(f"  {wl:.4f} um" for wl in missing)
@@ -4371,6 +4474,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 return
         else:
             subset = None
+            # No cube-backed lines, so there's nothing to look up a cached
+            # threshold from unless an earlier Calculate Maps run left one.
+            n_sigma = native_cache["key"][2] if native_cache is not None else self._rot_map_gather_n_sigma()
+            if n_sigma is None:
+                return
 
         merged = merge_native_results(subset, imported_rows)
 
@@ -4473,7 +4581,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return rows, discarded_ul, None
 
     def _rot_map_gather_n_sigma(self):
-        """Read the Detection threshold box. Any number 0 or higher is
+        """Prompt for the detection threshold. Any number 0 or higher is
         allowed -- there is no upper limit.
 
         Args:
@@ -4481,35 +4589,35 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         Returns:
             n_sigma (float or None): The threshold in noise sigmas, or None
-                if the box is empty, not a number, or negative -- a warning
-                was already shown in that case.
+                if the dialog was cancelled.
         """
-        try:
-            n_sigma = float(self.sigma_input.text().strip())
-        except ValueError:
-            n_sigma = float("nan")
-        if not np.isfinite(n_sigma) or n_sigma < 0:
-            QMessageBox.warning(self, "Detection Threshold",
-                                "Enter a detection threshold (σ) of 0 or more.")
+        n_sigma, ok = QInputDialog.getDouble(
+            self, "Detection Threshold", "Detection threshold (σ):",
+            3.0, 0.0, 1.0e6, 1)
+        if not ok:
             return None
         return n_sigma
 
-    def _rot_map_gather_settings(self):
+    def _rot_map_gather_settings(self, n_sigma=None):
         """Parse distance/radius/OPR-grid/threshold inputs into fit_kwargs,
         the same way Run Map always has. Shared by Run Map, Calculate Maps
         (single cube only needs this), and the fast Run Map combine path.
 
         Args:
-            None
+            n_sigma (float): Threshold to use as-is, skipping the prompt --
+                for a caller (Run Naman Map) that only reuses an
+                already-fitted native cache and never fits from raw data, so
+                asking again would be pointless. None prompts as usual.
 
         Returns:
             fit_kwargs (dict or None): molecule/isotopologue/opr/fit_opr/
                 opr_grid/dist_pc/r_au/min_lines/n_sigma/fit2t, or None if a
                 field was invalid -- a warning was already shown in that case.
         """
-        n_sigma = self._rot_map_gather_n_sigma()
         if n_sigma is None:
-            return None
+            n_sigma = self._rot_map_gather_n_sigma()
+            if n_sigma is None:
+                return None
         try:
             dist_pc = float(self.distance_input.text().strip())
         except ValueError:
@@ -4542,7 +4650,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         return dict(
             molecule=self.current_molecule,
-            isotopologue=self.isotopologue_spin.value(),
+            isotopologue=self.current_isotopologue,
             opr=None, fit_opr=fit_opr, opr_grid=opr_grid,
             dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, n_sigma=n_sigma,
             fit2t=fit2t,
