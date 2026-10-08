@@ -10,8 +10,35 @@ import pandas as pd
 import time
 from astropy.units import Quantity
 from astropy.io import ascii
+from astropy import constants as const
 
 # -------------------- Helper Functions --------------------
+# Shared by CSV import, Import Map, and Gaussian Map's export identity lookup.
+# 50 km/s covers real source/systemic velocities the old flat 1e-4 um cutoff missed.
+LINE_MATCH_VELOCITY_TOL_KMS = 50.0
+_C_KM_S = const.c.to_value("km/s")
+
+
+def match_nearest_hitran_line(hitran_lines, wavelength, velocity_tol_kms=LINE_MATCH_VELOCITY_TOL_KMS):
+    """Find the HITRAN line nearest to wavelength, within a velocity window.
+
+    Args:
+        hitran_lines (list): HITRAN line dicts, each with a 'wavelength' (um).
+        wavelength (float): Wavelength to match, in micron.
+        velocity_tol_kms (float): Max accepted Doppler-equivalent offset.
+
+    Returns:
+        best (dict or None): The nearest line within tolerance, or None.
+    """
+    best, best_diff = None, float('inf')
+    for hl in hitran_lines:
+        diff = abs(hl['wavelength'] - wavelength)
+        v_kms = diff / wavelength * _C_KM_S
+        if v_kms < velocity_tol_kms and diff < best_diff:
+            best, best_diff = hl, diff
+    return best
+
+
 def _extract_wavelength_value(wavelength):
     """Extract numeric value from wavelength Quantity or return raw value.
     Allows division operations to work with both Quantity and raw arrays.

@@ -11,7 +11,7 @@ import threading
 from .unit_converter import gaussian_map_unit_labels
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product, _ascii_safe
-from .line_catalog import fetch_hitran_data
+from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
 
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
@@ -973,11 +973,7 @@ class GaussianMapResultsDialog(QDialog):
                         molecule=species_text, isotopologue=1)
                 except Exception:
                     hitran_lines = []
-                best_match, best_diff = None, float('inf')
-                for hl in hitran_lines:
-                    diff = abs(hl['wavelength'] - line_wave)
-                    if diff < 0.0001 and diff < best_diff:
-                        best_match, best_diff = hl, diff
+                best_match = match_nearest_hitran_line(hitran_lines, line_wave)
                 if best_match:
                     extra['A_UL'] = (best_match.get('a_coeff', 0.0), "Einstein A coefficient (1/s)")
                     extra['E_UPPER'] = (best_match.get('e_upper', 0.0), "Upper state energy (K)")
@@ -990,6 +986,25 @@ class GaussianMapResultsDialog(QDialog):
                     if best_match.get('branch'):
                         extra['BRANCH'] = best_match['branch']
 
+            # The global (stacked-spectrum) fit is a real point-fit result --
+            # same shape as Calculate Fluxes', so Import Map can show it.
+            global_fit = self.results.get('global_fit') if is_area else None
+            if global_fit:
+                if global_fit.get('area') is not None:
+                    extra['GFITAREA'] = (float(global_fit['area']), "Global fit area (flux)")
+                if global_fit.get('area_error') is not None:
+                    extra['GFITAERR'] = (float(global_fit['area_error']), "Global fit area error")
+                if global_fit.get('r_squared') is not None:
+                    extra['GFITR2'] = (float(global_fit['r_squared']), "Global fit R-squared")
+                # Scalar fit params too, not just the curve -- the Fit viewer's
+                # own-line-only option recomputes the Gaussian from these.
+                if global_fit.get('amplitude') is not None:
+                    extra['GFITAMP'] = (float(global_fit['amplitude']), "Global fit amplitude")
+                if global_fit.get('center') is not None:
+                    extra['GFITCTR'] = (float(global_fit['center']), "Global fit center (um)")
+                if global_fit.get('sigma') is not None:
+                    extra['GFITSIG'] = (float(global_fit['sigma']), "Global fit sigma (um)")
+
             err_map = self.results.get('area_error') if is_area else None
             out_header, extensions = build_line_map_header(
                 source_header, data.shape, wavelength=line_wave,
@@ -998,6 +1013,14 @@ class GaussianMapResultsDialog(QDialog):
                 src_filename=(getattr(self.cube_data, 'filename', None) or 'UNKNOWN') if is_area else None,
                 fit_method='Single-Gaussian fit' if is_area else None, extra=extra,
             )
+            if global_fit and global_fit.get('x_data') is not None:
+                # None header is fine -- write_fits_product fills in a blank
+                # one; these are small 1D arrays, not WCS-bearing images.
+                extensions = list(extensions) + [
+                    ("SPECX", np.asarray(global_fit['x_data'], dtype=np.float32), None),
+                    ("SPECY", np.asarray(global_fit['y_data'], dtype=np.float32), None),
+                    ("SPECBASE", np.asarray(global_fit['baseline'], dtype=np.float32), None),
+                ]
             # Get instrument info -- normalized to uppercase, falling back to
             # cube_data.instrument, same as this dialog has always done.
             instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'

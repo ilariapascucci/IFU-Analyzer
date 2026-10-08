@@ -1246,7 +1246,9 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'residuals_cube': Normalized (residual / std) residuals, cached during fitting
             'fac_above_stdres': The detection threshold that was used
             'wavelength_unit': Unit string, from the Quantity if wavelength was one, else wave_unit
-            'global_fit': dict with the global 1D fit used to seed initial guesses, or None
+            'global_fit': dict with the global 1D fit used to seed initial guesses
+                (also carries area/area_error/r_squared and the x_data/y_data/
+                baseline it was fit from, for the Area (AUC) export), or None
     """
     # ========== PER-PIXEL GAUSSIAN FITTING SETUP ==========
     # Get cube dimensions
@@ -1353,7 +1355,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             sigma_guess_tot = np.clip(sigma_guess_tot, bounds_tot[0][2], bounds_tot[1][2])
 
             # STEP 4 GLOBAL: Fit Gaussian to total spectrum with iterative sigma clipping
-            popt_tot, _, fit_success_tot, _ = fit_gaussian_with_sigma_clipping(
+            popt_tot, pcov_tot, fit_success_tot, _ = fit_gaussian_with_sigma_clipping(
                 x_total, y_total_corrected,
                 p0=[amp_guess_tot, center_guess_tot, sigma_guess_tot],
                 bounds=bounds_tot,
@@ -1366,12 +1368,28 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             else:
                 global_guess = (amp_guess_tot, center_guess_tot, sigma_guess_tot)
 
+            g_amp, g_center, g_sigma = global_guess
+            g_area_native = g_amp * g_sigma * np.sqrt(2 * np.pi)
+            g_area_cgs = convert_area_to_cgs(g_amp, g_sigma, g_center, header, unit, flux_unit) \
+                if header is not None else None
+            g_area = g_area_cgs if g_area_cgs is not None else g_area_native
+            _, _, g_area_error = _propagate_area_error(g_amp, g_sigma, pcov_tot, g_area, g_area_native)
+            g_y_fit = gaussian(x_total, g_amp, g_center, g_sigma) + baseline_total
+            g_ss_res = np.sum((y_total - g_y_fit) ** 2)
+            g_ss_tot = np.sum((y_total - np.mean(y_total)) ** 2)
+            g_r_squared = float(1 - g_ss_res / g_ss_tot) if g_ss_tot > 0 else None
+
             global_fit_info = {
-                "amplitude": float(global_guess[0]),  # Native flux unit, for example MJy/sr. Not CGS-converted
-                "center": float(global_guess[1]),
-                "sigma": float(global_guess[2]),
+                "amplitude": float(g_amp),  # Native flux unit, for example MJy/sr. Not CGS-converted
+                "center": float(g_center),
+                "sigma": float(g_sigma),
+                "fwhm": float(2.355 * g_sigma),
                 "center_source": center_source,
-                "success": bool(fit_success_tot)
+                "success": bool(fit_success_tot),
+                # The small stacked spectrum this came from, kept so an
+                # export can reconstruct a real Fit view, not just stats.
+                "x_data": x_total, "y_data": y_total, "baseline": baseline_total,
+                "area": g_area, "area_error": g_area_error, "r_squared": g_r_squared,
             }
     except Exception:
         # Global fit failed - will fall back to per-pixel METHOD B or C

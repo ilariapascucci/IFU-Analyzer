@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QSpinBox,
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit, QHeaderView
+    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit, QHeaderView, QInputDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
@@ -24,7 +24,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 from .data_loader import CubeData
-from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog
+from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog, match_nearest_hitran_line
 from .table_drag_select import SortableCheckboxTableMixin
 from . import region_io
 from .analyzer_2d import _make_2d_wcs, _get_pixel_size_arcsec
@@ -39,7 +39,7 @@ from .rotational_diagram_map import (
     convolution_plan, convolution_plan_native, _line_keys, convolve_line_maps,
     combine_line_maps, build_imported_map_payload, merge_native_results,
 )
-from .import_map_dialog import ImportMapDialog
+from .import_map_dialog import _peek_header, _has_real_error
 from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker,
@@ -1282,7 +1282,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     item.setData(Qt.UserRole, None)
                 item.setToolTip("")
 
-            if error_item.text().strip():
+            # An imported row never feeds the point-fit pipeline this flag is
+            # about -- a blank Flux Error there is normal, not a problem.
+            is_imported = row < len(self.hitran_lines) and bool(self.hitran_lines[row].get('imported_map'))
+            if error_item.text().strip() or is_imported:
                 error_item.setBackground(QBrush())
             else:
                 error_item.setBackground(QColor(255, 214, 214))
@@ -1526,16 +1529,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 species = csv_row['species']
                 wavelength = csv_row['wavelength']
                 hitran_lines = hitran_cache.get(species, [])
-                
-                # Find matching HITRAN line (within 0.0001 um = 4 decimal places)
-                best_match = None
-                best_diff = float('inf')
-                
-                for hitran_line in hitran_lines:
-                    diff = abs(hitran_line['wavelength'] - wavelength)
-                    if diff < 0.0001 and diff < best_diff:  # 4 decimal place tolerance
-                        best_match = hitran_line
-                        best_diff = diff
+                best_match = match_nearest_hitran_line(hitran_lines, wavelength)
                 
                 # Create data row with original CSV wavelength but HITRAN A and E_u
                 if best_match:
@@ -1630,9 +1624,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             QMessageBox.critical(self, "Import Error", f"Failed to import CSV:\n{str(e)}")
 
     def import_map_line(self):
-        """Attach an already-reduced flux map to a new line-table row, using
-        the header's own A_ul/E_u/g_u when present (a Gaussian-Map export)
-        or a fresh HITRAN lookup otherwise. Appends rather than replacing.
+        """Attach one or more already-reduced flux maps to new line-table
+        rows, asking for species/wavelength/error percent only when a
+        file's header doesn't already carry them. Appends rather than replacing.
 
         Args:
             None
@@ -1640,80 +1634,124 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        dlg = ImportMapDialog(self)
-        if dlg.exec_() != QDialog.Accepted:
-            return
-        fits_path, species, wavelength, error_pct, header_identity = dlg.get_values()
-
-        try:
-            payload = build_imported_map_payload(fits_path, error_pct)
-        except Exception as e:
-            QMessageBox.critical(self, "Import Map Failed", str(e))
+        fits_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Flux Map FITS", "", "FITS files (*.fits *.fz *.fit)")
+        if not fits_paths:
             return
 
-        if header_identity is not None:
-            # Already resolved at export time (Gaussian Map) -- re-querying
-            # HITRAN would be redundant and could land on a different match.
-            best_match = {
-                'a_coeff': header_identity['A_UL'], 'e_upper': header_identity['E_UPPER'],
-                'Gp': header_identity['G_U'], 'transition': header_identity['TRANSITN'],
-                'j_lower': header_identity.get('JLOWER'), 'branch': header_identity.get('BRANCH'),
-            }
-            fetch_meta = {}
-        else:
-            try:
-                hitran_lines, fetch_meta = fetch_hitran_data(
-                    wavelength - 0.01, wavelength + 0.01, molecule=species, isotopologue=1)
-            except Exception as e:
-                hitran_lines, fetch_meta = [], {"error": True, "message": str(e)}
+        imported, skipped = [], []
+        for fits_path in fits_paths:
+            basename = os.path.basename(fits_path)
+            found = _peek_header(fits_path)
 
-            # Nearest-match within 4 decimal places, same tolerance import_csv_file uses.
-            best_match, best_diff = None, float('inf')
-            for hl in hitran_lines:
-                diff = abs(hl['wavelength'] - wavelength)
-                if diff < 0.0001 and diff < best_diff:
-                    best_match, best_diff = hl, diff
+            species = str(found["MOLECULE"]).strip().upper() if found.get("MOLECULE") else None
+            if species is None:
+                text, ok = QInputDialog.getText(
+                    self, "Import Map - Species", f"Species for {basename} (e.g. H2):")
+                species = text.strip().upper() if ok else ""
+                if not species:
+                    skipped.append((basename, "no species given"))
+                    continue
 
-        if best_match:
-            line_data = {
-                'wavelength': wavelength, 'hitran_matched': True,
-                'a_coeff': best_match.get('a_coeff', 0.0), 'e_upper': best_match.get('e_upper', 0.0),
-                'Gp': best_match.get('Gp', 1.0), 'j_lower': best_match.get('j_lower'),
-                'branch': best_match.get('branch'),
-                'transition': best_match.get('transition', 'User Data'), 'species': species,
-            }
-        else:
-            line_data = {
-                'wavelength': wavelength, 'hitran_matched': False,
-                'transition': 'NA', 'species': species,
-            }
-            if fetch_meta.get('error'):
-                print(f"Warning: Could not fetch HITRAN data for {species} at "
-                      f"{wavelength:.6f} um ({fetch_meta.get('message', 'unknown error')}) -- "
-                      f"A_ul/E_u/g_u left blank.")
+            wavelength = None
+            if found.get("LINEWAVE") is not None:
+                try:
+                    wavelength = float(found["LINEWAVE"])
+                except (TypeError, ValueError):
+                    wavelength = None
+            if wavelength is None:
+                value, ok = QInputDialog.getDouble(
+                    self, "Import Map - Wavelength", f"Wavelength (um) for {basename}:",
+                    5.0, 0.1, 1000.0, 6)
+                if not ok:
+                    skipped.append((basename, "no wavelength given"))
+                    continue
+                wavelength = value
+
+            has_full_identity = all(k in found for k in ("A_UL", "E_UPPER", "G_U", "TRANSITN"))
+            header_identity = found if has_full_identity else None
+
+            if _has_real_error(fits_path):
+                error_pct = 0.0  # unused -- build_imported_map_payload prefers the real ERR extension
             else:
-                print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um "
-                      f"-- A_ul/E_u/g_u left blank; this line is excluded from fitting "
-                      f"until they're entered manually.")
-        line_data['imported_map'] = payload
+                value, ok = QInputDialog.getDouble(
+                    self, "Import Map - Error %",
+                    f"{basename} has no per-pixel error data.\n"
+                    f"Flat error percent to use instead (flux_error = |flux| x pct/100):",
+                    20.0, 0.0, 1000.0, 1)
+                if not ok:
+                    skipped.append((basename, "no error percent given"))
+                    continue
+                error_pct = value
 
-        if not self.hitran_lines and species in MOLECULE_ISOTOPOLOGUES \
-                and species != self.current_molecule:
-            self.mol_combo.blockSignals(True)
-            self.mol_combo.setCurrentText(species)
-            self.mol_combo.blockSignals(False)
-            self._apply_molecule_change(species)
+            try:
+                payload = build_imported_map_payload(fits_path, error_pct)
+            except Exception as e:
+                skipped.append((basename, str(e)))
+                continue
 
-        self._append_line_row(line_data)
-        self._reveal_line_workflow_buttons()
+            if header_identity is not None:
+                # Already resolved at export time (Gaussian Map) -- re-querying
+                # HITRAN would be redundant and could land on a different match.
+                best_match = {
+                    'a_coeff': header_identity['A_UL'], 'e_upper': header_identity['E_UPPER'],
+                    'Gp': header_identity['G_U'], 'transition': header_identity['TRANSITN'],
+                    'j_lower': header_identity.get('JLOWER'), 'branch': header_identity.get('BRANCH'),
+                }
+                fetch_meta = {}
+            else:
+                try:
+                    hitran_lines, fetch_meta = fetch_hitran_data(
+                        wavelength - 0.01, wavelength + 0.01, molecule=species, isotopologue=1)
+                except Exception as e:
+                    hitran_lines, fetch_meta = [], {"error": True, "message": str(e)}
 
-        match_note = ("Matched to HITRAN." if best_match else
-                      "No HITRAN match -- enter A_ul, E_u, and g_u manually "
-                      "to include it in the fit.")
-        QMessageBox.information(
-            self, "Map Imported",
-            f"Imported {os.path.basename(fits_path)} as a new line at "
-            f"{wavelength:.6f} um.\n{match_note}")
+                best_match = match_nearest_hitran_line(hitran_lines, wavelength)
+
+            if best_match:
+                line_data = {
+                    'wavelength': wavelength, 'hitran_matched': True,
+                    'a_coeff': best_match.get('a_coeff', 0.0), 'e_upper': best_match.get('e_upper', 0.0),
+                    'Gp': best_match.get('Gp', 1.0), 'j_lower': best_match.get('j_lower'),
+                    'branch': best_match.get('branch'),
+                    'transition': best_match.get('transition', 'User Data'), 'species': species,
+                }
+            else:
+                line_data = {
+                    'wavelength': wavelength, 'hitran_matched': False,
+                    'transition': 'NA', 'species': species,
+                }
+                if fetch_meta.get('error'):
+                    print(f"Warning: Could not fetch HITRAN data for {species} at "
+                          f"{wavelength:.6f} um ({fetch_meta.get('message', 'unknown error')}) -- "
+                          f"A_ul/E_u/g_u left blank.")
+                else:
+                    print(f"Warning: No HITRAN match for {species} at {wavelength:.6f} um "
+                          f"-- A_ul/E_u/g_u left blank; this line is excluded from fitting "
+                          f"until they're entered manually.")
+            line_data['imported_map'] = payload
+
+            if not self.hitran_lines and species in MOLECULE_ISOTOPOLOGUES \
+                    and species != self.current_molecule:
+                self.mol_combo.blockSignals(True)
+                self.mol_combo.setCurrentText(species)
+                self.mol_combo.blockSignals(False)
+                self._apply_molecule_change(species)
+
+            self._append_line_row(line_data)
+            imported.append((basename, wavelength, best_match is not None))
+
+        if imported:
+            self._reveal_line_workflow_buttons()
+
+        lines = [f"Imported {len(imported)}/{len(fits_paths)} map(s)."]
+        for basename, wavelength, matched in imported:
+            note = "matched to HITRAN" if matched else "no HITRAN match -- enter A_ul/E_u/g_u manually"
+            lines.append(f"  {basename} @ {wavelength:.6f} um ({note})")
+        for basename, reason in skipped:
+            lines.append(f"  {basename}: skipped ({reason})")
+        box = QMessageBox.information if imported else QMessageBox.warning
+        box(self, "Import Map", "\n".join(lines))
 
     def populate_csv_errors(self):
         """Populate error column if flux_error was in CSV, then re-check
@@ -3109,20 +3147,27 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.lines_table.setItem(row, 4, e_item)
         self.lines_table.setItem(row, 5, g_item)
 
-        # Flux (editable)
-        flux_val = line.get('flux', '')
+        imported = line.get('imported_map')
+        global_fit = imported.get('global_fit') if imported else None
+
+        # Flux (editable) -- an imported row with a Gaussian Map global-fit
+        # area (see build_imported_map_payload) shows that real point flux.
+        if imported:
+            flux_val = global_fit.get('area') if global_fit else None
+        else:
+            flux_val = line.get('flux', '')
         flux_item = QTableWidgetItem(f"{flux_val:.4e}" if flux_val else "")
-        if not flux_val:
+        if not flux_val and not imported:
             flux_item.setBackground(unmatched_bg)
             flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
         self.lines_table.setItem(row, 6, flux_item)
 
-        # Flux Error (editable)
-        self.lines_table.setItem(row, 7, QTableWidgetItem(""))
+        # Flux Error (editable) -- same source as Flux above.
+        ferr_val = global_fit.get('area_error') if global_fit else None
+        self.lines_table.setItem(row, 7, QTableWidgetItem(f"{ferr_val:.4e}" if ferr_val else ""))
 
         # Error % (editable) -- blank when a real ERR extension is already
         # in use, else pre-filled with the percent chosen on import.
-        imported = line.get('imported_map')
         if imported and imported['error_pct'] is not None:
             err_pct_item = QTableWidgetItem(f"{imported['error_pct']:.1f}")
         elif imported:
@@ -3153,22 +3198,45 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         ))
         self.lines_table.setItem(row, 11, calc_item)
 
-        # Source (read-only)
-        source_item = QTableWidgetItem("")
+        # Source (read-only) -- same "{instrument} [{filename}]" convention
+        # Calculate Fluxes already uses, sourced from the import instead.
+        source_item = QTableWidgetItem(
+            f"{imported['instrument'] or 'UNKNOWN'} [{imported['filename']}]"
+            if (imported and global_fit) else "")
         source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
         self.lines_table.setItem(row, 12, source_item)
 
-        # Fit R^2 (read-only; filled in by Calculate Fluxes, blank for manually-entered flux)
-        r2_item = QTableWidgetItem("")
+        # Fit R^2 (read-only; filled in by Calculate Fluxes, or an imported
+        # row's own Gaussian Map global fit, blank for manually-entered flux)
+        r2_val = global_fit.get('r_squared') if global_fit else None
+        r2_item = QTableWidgetItem(f"{r2_val:.3f}" if r2_val is not None else "")
         r2_item.setFlags(r2_item.flags() & ~Qt.ItemIsEditable)
         self.lines_table.setItem(row, 13, r2_item)
 
-        # Fit (double-click to view; becomes real text once Calculate Fluxes
-        # populates plot data for this row -- see on_lines_table_item_double_clicked)
+        # Fit (double-click to view; becomes real text once Calculate Fluxes,
+        # or an imported row's own Gaussian Map global fit, has real data to show)
         fit_item = QTableWidgetItem("—")
         fit_item.setFlags(fit_item.flags() & ~Qt.ItemIsEditable)
         fit_item.setTextAlignment(Qt.AlignCenter)
         self.lines_table.setItem(row, 14, fit_item)
+        has_full_curve = global_fit and global_fit.get('x_data') is not None and all(
+            global_fit.get(k) is not None for k in ("amplitude", "center", "sigma", "baseline", "y_data"))
+        if has_full_curve:
+            g_amp, g_center, g_sigma = (
+                global_fit["amplitude"], global_fit["center"], global_fit["sigma"])
+            g_x, g_baseline = np.asarray(global_fit["x_data"]), np.asarray(global_fit["baseline"])
+            g_y_fit = gaussian(g_x, g_amp, g_center, g_sigma) + g_baseline
+            self._line_fit_plot_data[row] = {
+                "wavelength": line["wavelength"], "x_data": g_x,
+                "y_data": global_fit["y_data"], "baseline": g_baseline, "y_fit": g_y_fit,
+                "y_fit_own": None, "center": g_center, "sigma": g_sigma,
+                "fwhm": 2.355 * g_sigma if g_sigma is not None else None,
+                "r_squared": global_fit.get("r_squared"),
+                "amplitude": g_amp, "flux_cgs": global_fit.get("area"),
+                "flux_error_cgs": global_fit.get("area_error"), "is_upper_limit": False,
+                "full_wavelength": None, "full_spectrum": None, "bunit": None,
+            }
+            self._set_view_link(fit_item, "Double-click to view this imported line's fit")
 
         # Map (double-click to view). An imported row's map is already here --
         # populate it now, tinted to show it isn't a cube-fit result.
@@ -3179,7 +3247,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if imported:
             self._line_map_plot_data[row] = {
                 "wavelength": line["wavelength"], "flux_map": imported["flux_map"],
-                "flux_error_map": None, "header": imported["header"],
+                "flux_error_map": imported.get("flux_error_map"), "header": imported["header"],
                 "identity_header": imported["header"], "source_filename": imported["filename"],
                 "molecule": line.get("species", self.current_molecule),
             }

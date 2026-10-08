@@ -1251,7 +1251,9 @@ def build_imported_map_payload(fits_path, error_pct):
             2D celestial), 'pix_arcsec' (float), 'shape' (ny, nx),
             'instrument' (str or None), 'filename' (str, basename of
             fits_path), 'header' (cleaned 2D header, NAXIS3/CTYPE3/etc
-            stripped).
+            stripped), 'global_fit' (dict with 'area'/'area_error'/
+            'r_squared'/'x_data'/'y_data'/'baseline' from a Gaussian Map
+            export's own point fit, or None if absent).
 
     Raises:
         ValueError: no 2D image data found, or no usable celestial WCS/pixel
@@ -1259,6 +1261,7 @@ def build_imported_map_payload(fits_path, error_pct):
             common grid, so this is a hard reject at import time.
     """
     data, header, instrument, real_err = None, None, None, None
+    spec_x, spec_y, spec_base = None, None, None
     with fits.open(fits_path) as hdul:
         for hdu in hdul:
             if hdu.data is not None and getattr(hdu.data, "size", 0) > 0:
@@ -1277,6 +1280,27 @@ def build_imported_map_payload(fits_path, error_pct):
                 if squeezed_err.shape == data.shape:
                     real_err = squeezed_err
                 break
+        # A Gaussian Map export's global (stacked-spectrum) fit -- the
+        # spectrum behind GFITAREA/GFITAERR/GFITR2, for a real Fit view.
+        for hdu in hdul:
+            name = (getattr(hdu, "name", "") or "").strip().upper()
+            if name == "SPECX" and hdu.data is not None:
+                spec_x = np.asarray(hdu.data, dtype=float)
+            elif name == "SPECY" and hdu.data is not None:
+                spec_y = np.asarray(hdu.data, dtype=float)
+            elif name == "SPECBASE" and hdu.data is not None:
+                spec_base = np.asarray(hdu.data, dtype=float)
+        global_fit = None
+        if "GFITAREA" in header:
+            global_fit = {
+                "area": float(header["GFITAREA"]),
+                "area_error": float(header["GFITAERR"]) if "GFITAERR" in header else None,
+                "r_squared": float(header["GFITR2"]) if "GFITR2" in header else None,
+                "amplitude": float(header["GFITAMP"]) if "GFITAMP" in header else None,
+                "center": float(header["GFITCTR"]) if "GFITCTR" in header else None,
+                "sigma": float(header["GFITSIG"]) if "GFITSIG" in header else None,
+                "x_data": spec_x, "y_data": spec_y, "baseline": spec_base,
+            }
 
     header["NAXIS"] = 2
     if "WCSAXES" in header:
@@ -1304,6 +1328,7 @@ def build_imported_map_payload(fits_path, error_pct):
         "flux_map": flux_map, "flux_error_map": err_map, "error_pct": stored_pct,
         "wcs": wcs2d, "pix_arcsec": pix_arcsec, "shape": flux_map.shape,
         "instrument": instrument, "filename": os.path.basename(fits_path), "header": header,
+        "global_fit": global_fit,
     }
 
 
