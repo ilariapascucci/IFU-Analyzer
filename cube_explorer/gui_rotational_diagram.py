@@ -3696,7 +3696,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 QMessageBox.warning(self, "Cubes", match_err)
                 return
 
-        fit_kwargs = self._rot_map_gather_settings()
+        # Run Map is only enabled once a convolved cache exists (on_line_selected),
+        # so its threshold is already fixed -- asking again here would let a
+        # different answer silently invalidate it and trigger a full native
+        # refit, with no indication that's what just happened.
+        convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
+        cached_n_sigma = convolved_cache["key"][2] if convolved_cache is not None else None
+        fit_kwargs = self._rot_map_gather_settings(n_sigma=cached_n_sigma)
         if fit_kwargs is None:
             return
 
@@ -3704,7 +3710,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Maps/Convolve Maps already ran for this same geometry/threshold.
         geometry_key = self._rot_map_geometry_key(
             cubes_and_lines, fit_kwargs["n_sigma"], imported_lines=imported_rows)
-        convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
         if convolved_cache is not None and convolved_cache["key"] == geometry_key:
             self._run_map_fast_combine(cubes, cubes_and_lines, convolved_cache["result"],
                                        fit_kwargs, imported_lines=imported_rows)
@@ -4364,9 +4369,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         Args:
             n_sigma (float): Threshold to use as-is, skipping the prompt --
-                for a caller (Run Naman Map) that only reuses an
-                already-fitted native cache and never fits from raw data, so
-                asking again would be pointless. None prompts as usual.
+                Run Map passes its already-cached convolved result's own
+                threshold here, since asking again could silently pick a
+                different one and trigger a full native refit. None prompts
+                as usual (Calculate Maps, which sets that threshold first).
 
         Returns:
             fit_kwargs (dict or None): molecule/isotopologue/opr/fit_opr/
@@ -4504,7 +4510,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(window_title)
-        dlg.resize(760, 460)
+        dlg.resize(980, 480)
         lay = QVBoxLayout(dlg)
 
         header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px {grid_note}")
@@ -4518,6 +4524,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         table.setSelectionMode(QTableWidget.NoSelection)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        # File names (JWST ones especially) can run long enough to blow the
+        # dialog out to an unreasonable width -- cap this one column and
+        # show the full name as a tooltip instead of forcing it to fit.
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        table.setColumnWidth(1, 260)
         table.horizontalHeader().setStretchLastSection(True)
 
         def _native_psf_arcsec(c):
@@ -4561,6 +4572,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 for col, text in enumerate(texts):
                     item = QTableWidgetItem(text)
                     item.setTextAlignment(Qt.AlignCenter if col != 1 else Qt.AlignVCenter | Qt.AlignLeft)
+                    if col == 1:
+                        item.setToolTip(fname)
                     table.setItem(r, col, item)
 
         _fill()
@@ -4598,6 +4611,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         header.setSortIndicatorShown(True)
         header.sectionClicked.connect(_on_header_clicked)
         lay.addWidget(table)
+
+        # Size the dialog to fit every column's actual content. Measured with
+        # stretch-last-section off so it reflects true natural widths, not
+        # whatever the last column happens to be stretched to at its old size.
+        table.horizontalHeader().setStretchLastSection(False)
+        natural_width = table.horizontalHeader().length()
+        table.horizontalHeader().setStretchLastSection(True)
+        frame_overhead = (table.verticalHeader().width() + 2 * table.frameWidth()
+                         + table.style().pixelMetric(table.style().PM_ScrollBarExtent) + 40)
+        dlg.resize(min(max(dlg.width(), natural_width + frame_overhead), 1600), dlg.height())
 
         footer_label = QLabel(
             "Every pixel outside a cube's own reprojected footprint is NaN "
