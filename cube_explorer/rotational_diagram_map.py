@@ -288,8 +288,8 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
     Returns:
         row (tuple): (T, dT, Ncol, dNcol, T2, dT2, Ncol2, dNcol2, n_lines,
             status, line_fluxes, line_flux_errors). T/dT/Ncol/dNcol hold
-            component 1 (1T's only component, or 2T's "Warm" one); T2/dT2/
-            Ncol2/dNcol2 hold 2T's "Hot" component, NaN when fit2t is False.
+            component 1 (1T's only component, or 2T's T1); T2/dT2/
+            Ncol2/dNcol2 hold 2T's T2 component, NaN when fit2t is False.
             All eight are NaN unless status is STATUS_OK. line_fluxes/
             line_flux_errors are arrays, one entry per line_wavelengths entry
             (same order), each line's own flux at this pixel -- NaN wherever
@@ -553,8 +553,8 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
-            1 -- 1T's only component, or 2T's "Warm" one), 'T2', 'T2_err',
-            'Ncol2', 'Ncol2_err' (2D float32, 2T's "Hot" component, all-NaN
+            1 -- 1T's only component, or 2T's T1), 'T2', 'T2_err',
+            'Ncol2', 'Ncol2_err' (2D float32, 2T's T2 component, all-NaN
             when fit2t is False), 'fit2t', 'n_lines', 'status' (2D int), plus
             'header', 'wave_range', 'molecule', 'dist_pc', 'r_au', 'opr',
             'kept_lines', 'dropped_lines', 'line_flux_maps',
@@ -1303,7 +1303,7 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
-            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's "Hot"
+            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's T2
             component, all-NaN when fit2t is False), 'fit2t', 'n_lines',
             'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
             'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
@@ -1451,7 +1451,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
 
     Returns:
         result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
-            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's "Hot"
+            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's T2
             component, all-NaN when fit2t is False), 'fit2t', 'n_lines',
             'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
             'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',

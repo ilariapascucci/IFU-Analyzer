@@ -45,15 +45,10 @@ from .fits_export import (
 from .analyzer_2d import (
     _get_pixel_size_arcsec,
     _make_2d_wcs,
-    convolve_and_reproject,
-    build_target_wcs_for_pair,
-    build_target_wcs_for_batch,
-    _nan_border_bounds,
     _is_per_pixel_flux_unit,
     _wcs_footprints_overlap,
     _log_norm_vmin,
     _reproject_wcs_to_wcs,
-    miri_psf_sigma_arcsec,
 )
 from .naman_convolve_reproject import (
     gaussian_convolve_match as _naman_convolve_match,
@@ -112,6 +107,24 @@ def _get_line_wavelength_um(header, filename, parent):
         "to compute its PSF FWHM. Enter it manually:",
         5.0, 0.1, 30.0, 6)
     return float(value) if ok else None
+
+
+def _non_miri_files(infos):
+    """Return (filename, instrument) for every input that isn't MIRI --
+    Naman's PSF formula has no confirmed fit for any other instrument yet.
+
+    Args:
+        infos (list): (filename, header) pairs to check.
+
+    Returns:
+        bad (list): (filename, detected instrument or 'unknown') pairs.
+    """
+    bad = []
+    for filename, header in infos:
+        inst = detect_instrument_from_header(header) if header is not None else None
+        if inst != "MIRI":
+            bad.append((filename, inst or "unknown"))
+    return bad
 
 
 def _run_naman_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
@@ -234,21 +247,17 @@ class BatchMatchResolutionDialog(QDialog):
         self.add_btn = QPushButton("+ Add FITS Files")
         self.add_btn.clicked.connect(self.add_files)
         
-        self.process_btn = QPushButton("Process & Download ZIP")
-        self.process_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px;")
-        self.process_btn.clicked.connect(self.process_and_zip)
-
-        self.process_naman_btn = QPushButton("Process & Download ZIP (Naman)")
+        self.process_naman_btn = QPushButton("Process & Download ZIP")
+        self.process_naman_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px;")
         self.process_naman_btn.setToolTip(
-            "Same batch reprojection, but using Naman's PSF formula\n"
-            "(FWHM(\") = 0.033*wavelength_um + 0.106) instead of the pixel-scale\n"
-            "proxy, onto the longest-wavelength file's own native grid."
+            "Convolve every file to the longest-wavelength file's PSF\n"
+            "(Naman's FWHM(\") = 0.033*wavelength_um + 0.106), reprojected\n"
+            "onto that file's own native grid. MIRI only."
         )
         self.process_naman_btn.clicked.connect(self.process_and_zip_naman)
 
         btn_layout.addWidget(self.add_btn)
         btn_layout.addStretch()
-        btn_layout.addWidget(self.process_btn)
         btn_layout.addWidget(self.process_naman_btn)
         
         layout.addLayout(btn_layout)
@@ -289,273 +298,10 @@ class BatchMatchResolutionDialog(QDialog):
                 self.list_widget.takeItem(i)
                 break
                 
-    def process_and_zip(self):
-        """Take N >= 2 input FITS files and convolve+reproject every one onto
-        a single common destination WCS at the worst (coarsest) pixel scale
-        among them, sized to the union footprint.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        if len(self.filepaths) < 2:
-            QMessageBox.warning(
-                self, "Need more files",
-                "Please select at least 2 FITS files for batch processing.")
-            return
-
-        zip_path, _ = QFileDialog.getSaveFileName(
-            self, "Save ZIP File", "Convolution_Images.zip", "ZIP Files (*.zip)")
-        if not zip_path:
-            return
-
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            # ---- 1. Load every input ------------------------------------
-            images_data = []
-            for fp in self.filepaths:
-                with fits.open(fp) as hdul:
-                    data, header = None, None
-                    for hdu in hdul:
-                        if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
-                            sq = np.squeeze(hdu.data)
-                            if sq.ndim == 2:
-                                data = sq.astype(float)
-                                header = hdu.header.copy()
-                                break
-                    if data is None:
-                        raise ValueError(
-                            f"No 2D image data in {os.path.basename(fp)}")
-                    pix = _get_pixel_size_arcsec(header)
-                    if pix is None:
-                        raise ValueError(
-                            f"Could not find pixel scale in "
-                            f"{os.path.basename(fp)}")
-                    wcs = _make_2d_wcs(header)
-                    if wcs is None:
-                        raise ValueError(
-                            f"Could not build WCS for {os.path.basename(fp)}")
-                    images_data.append({
-                        'filename': os.path.basename(fp),
-                        'data': data, 'header': header,
-                        'pix_scale': pix, 'wcs': wcs, 'shape': data.shape,
-                    })
-                    disjoint_pairs = []
-                    for i in range(len(images_data)):
-                        for j in range(i + 1, len(images_data)):
-                            a, b = images_data[i], images_data[j]
-                            if not _wcs_footprints_overlap(
-                                    a['wcs'], a['shape'], b['wcs'], b['shape']):
-                                disjoint_pairs.append((a['filename'], b['filename']))
-
-                    if disjoint_pairs:
-                        QApplication.restoreOverrideCursor()
-                        msg_lines = [
-                            "Some of the selected images cover completely "
-                            "different regions of the sky:\n"
-                        ]
-                        for fa, fb in disjoint_pairs[:10]:
-                            msg_lines.append(f"   • {fa}  ↔  {fb}")
-                        if len(disjoint_pairs) > 10:
-                            msg_lines.append(
-                                f"   …and {len(disjoint_pairs) - 10} more pair(s)")
-                        msg_lines.append(
-                            "\nBatch Convolution requires every input to share "
-                            "sky coverage with the others, so they can be "
-                            "matched onto a common WCS grid.\n\n"
-                            "Please remove the off-field file(s) and try again.")
-                        QMessageBox.warning(
-                            self, "No Sky Overlap",
-                            "\n".join(msg_lines))
-                        return
-
-            # ---- 2. Find the worst (coarsest) scale ---------------------
-            worst_pix = max(info['pix_scale'] for info in images_data)
-
-            # Physical PSF formula needs every file to be MIRI with a known
-            # wavelength; the longest wavelength present sets the PSF reference.
-            is_miri_batch = all(
-                detect_instrument_from_header(info['header']) == "MIRI" for info in images_data)
-            file_wls = {id(info): _header_line_wavelength_um(info['header']) for info in images_data}
-
-            def _physical_ok():
-                """Every file has a known line wavelength.
-
-                Args:
-                    None
-
-                Returns:
-                    ok (bool): True if the physical formula can be used.
-                """
-                return all(wl is not None for wl in file_wls.values())
-
-            use_physical_batch = is_miri_batch and _physical_ok()
-
-            if is_miri_batch and not use_physical_batch:
-                choice_box = QMessageBox(self)
-                choice_box.setWindowTitle("Line Wavelength Needed")
-                choice_box.setText(
-                    "Not every file has a usable line wavelength.<br><br>"
-                    "Enter the missing one(s) to use the physical PSF formula, "
-                    "or fall back to the pixel-scale proxy?")
-                enter_btn = choice_box.addButton("Enter Wavelength(s)", QMessageBox.ActionRole)
-                proxy_btn = choice_box.addButton("Use Pixel-Scale Proxy", QMessageBox.ActionRole)
-                choice_box.addButton(QMessageBox.Cancel)
-                choice_box.exec_()
-                clicked = choice_box.clickedButton()
-                if clicked is enter_btn:
-                    for info in images_data:
-                        if file_wls[id(info)] is None:
-                            wl = _get_line_wavelength_um(info['header'], info['filename'], self)
-                            if wl is None:
-                                QApplication.restoreOverrideCursor()
-                                return
-                            file_wls[id(info)] = wl
-                    use_physical_batch = True
-                elif clicked is not proxy_btn:
-                    QApplication.restoreOverrideCursor()
-                    return
-
-            ref_wl_batch = max(file_wls.values()) if use_physical_batch else None
-
-            # ---- 3. Build a single common destination WCS ---------------
-            dst_wcs, dst_shape = build_target_wcs_for_batch(
-                [(info['wcs'], info['shape']) for info in images_data],
-                worst_pix,
-            )
-
-            # ---- 4. For each input, convolve + reproject ---------------
-            SR_PER_ARC2 = (np.pi / (180.0 * 3600.0)) ** 2
-            with tempfile.TemporaryDirectory() as tmpdir:
-                # Pass 1: reproject every input; OR their valid masks so a
-                # border row/col is trimmed only where ALL files are empty.
-                per_file = []
-                combined_valid = np.zeros(dst_shape, dtype=bool)
-                for info in images_data:
-                    fine_pix = info['pix_scale']
-                    fine_data = info['data']
-                    fine_wcs = info['wcs']
-                    bunit = info['header'].get('BUNIT', '')
-                    per_pix = _is_per_pixel_flux_unit(bunit)
-
-                    # Inputs already at the worst scale get sigma=0 (no smoothing),
-                    # keeping repeated batch runs idempotent.
-                    if use_physical_batch:
-                        sigma_arcsec = miri_psf_sigma_arcsec(file_wls[id(info)], ref_wl_batch)
-                    else:
-                        sigma_arcsec = (
-                            max(0.0, worst_pix**2 - fine_pix**2) ** 0.5) / gaussian_sigma_to_fwhm
-                    sigma_fine_pix = (sigma_arcsec / fine_pix
-                                      if fine_pix > 0 else 0.0)
-
-                    # convolve_and_reproject already NaNs zero-coverage pixels and
-                    # weights partial-coverage ones correctly -- no extra mask needed.
-                    result_img, coverage = convolve_and_reproject(
-                        fine_data, fine_wcs, fine_pix, dst_wcs, dst_shape,
-                        sigma_arcsec, conserve_flux=per_pix)
-                    if not np.any(np.isfinite(result_img)):
-                        QMessageBox.warning(
-                            self, "Empty Result",
-                            "Slides Convolute completed but the output has no valid pixels.\n\n"
-                            "This usually means this file does not actually share sky "
-                            "coverage with the others.\n\n"
-                            "Try a closer-aligned pair of images.")
-                        return
-
-                    combined_valid |= np.isfinite(result_img)
-                    per_file.append({
-                        'info': info, 'result': result_img, 'coverage': coverage,
-                        'bunit': bunit, 'per_pix': per_pix,
-                        'sigma_arcsec': sigma_arcsec,
-                        'sigma_fine_pix': sigma_fine_pix,
-                    })
-
-                # Trim only the safety-pad border every file left empty.
-                r0, r1, c0, c1 = _nan_border_bounds(combined_valid)
-                out_wcs, out_shape = dst_wcs, dst_shape
-                if (r0, r1, c0, c1) != (0, dst_shape[0], 0, dst_shape[1]):
-                    out_wcs = dst_wcs.deepcopy()
-                    out_wcs.wcs.crpix = [dst_wcs.wcs.crpix[0] - c0,
-                                         dst_wcs.wcs.crpix[1] - r0]
-                    out_shape = (r1 - r0, c1 - c0)
-
-                # Pass 2: crop each file to the shared bounds, write, audit.
-                flux_audit = []
-                for entry in per_file:
-                    info = entry['info']
-                    fine_pix = info['pix_scale']
-                    fine_data = info['data']
-                    bunit, per_pix = entry['bunit'], entry['per_pix']
-                    result_img = entry['result'][r0:r1, c0:c1]
-                    coverage = entry['coverage'][r0:r1, c0:c1]
-
-                    out_header = build_resample_header(
-                        out_wcs, out_shape, bunit=bunit or None,
-                        history=(f"Batch Convolution: sigma={entry['sigma_arcsec']:.4f}\" "
-                                f"({'physical PSF' if use_physical_batch else 'pixel-scale proxy'}, "
-                                f"{entry['sigma_fine_pix']:.3f} fine-px); reprojected to "
-                                f"{worst_pix:.4f}\"/px ({'flux' if per_pix else 'SB'} mode)"),
-                        identity_header=info['header'],
-                    )
-
-                    out_name = f"matched_{info['filename']}"
-                    out_filepath = os.path.join(tmpdir, out_name)
-                    write_fits_product(out_filepath, result_img, out_header,
-                                       extensions=[build_coverage_extension(coverage)])
-
-                    # Flux audit
-                    if per_pix:
-                        in_total = float(np.nansum(fine_data))
-                        out_total = float(np.nansum(
-                            result_img[np.isfinite(result_img)]))
-                    else:
-                        pix_sr = (fine_pix ** 2) * SR_PER_ARC2
-                        out_pix_sr = (worst_pix ** 2) * SR_PER_ARC2
-                        in_total = float(np.nansum(fine_data)) * pix_sr
-                        good = np.isfinite(result_img) & np.isfinite(coverage)
-                        out_total = float(np.nansum(
-                            result_img[good] * coverage[good])) * out_pix_sr
-                    flux_audit.append((info['filename'], in_total, out_total))
-
-                # ---- 5. Pack everything into the ZIP -------------------
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for root, dirs, files in os.walk(tmpdir):
-                        for file in files:
-                            zipf.write(os.path.join(root, file), arcname=file)
-
-            QApplication.restoreOverrideCursor()
-
-            audit_lines = []
-            for name, fi, fo in flux_audit:
-                ratio = (fo / fi) if fi != 0 else float('nan')
-                audit_lines.append(f"  {name}: ratio = {ratio:.6f}")
-
-            final_msg = (
-                f"Batch Convolution complete!\n\n"
-                f"All {len(images_data)} images standardized to:\n"
-                f"  Pixel size : {worst_pix:.4f} arcsec/px\n"
-                f"  Output grid: {out_shape[1]} × {out_shape[0]} px "
-                f"(union of FOVs, aligned to largest input)\n\n"
-                f"Flux audit (output_total / input_total):\n"
-                + "\n".join(audit_lines)
-                + f"\n\nSaved to:\n{zip_path}")
-            QMessageBox.information(self, "Success", final_msg)
-            self.accept()
-
-        except Exception as e:
-            QApplication.restoreOverrideCursor()
-            QMessageBox.critical(self, "Processing Error", f"An error occurred:\n{e}")
-            traceback.print_exc()
-        finally:
-            QApplication.restoreOverrideCursor()
-
     def process_and_zip_naman(self):
-        """Same as process_and_zip, but using Naman's wavelength-based PSF
-        formula (FWHM(") = 0.033*wavelength_um + 0.106) instead of the
-        pixel-scale proxy, reprojected onto the longest-wavelength file's
-        own native grid instead of a padded common WCS.
+        """"Process & Download ZIP" button: convolve every file to the
+        longest-wavelength file's PSF (FWHM(") = 0.033*wavelength_um + 0.106,
+        MIRI only), reprojected onto that file's own native grid.
 
         Args:
             None
@@ -634,7 +380,18 @@ class BatchMatchResolutionDialog(QDialog):
                             "\n".join(msg_lines))
                         return
 
-            # ---- 2. BUNIT check: Naman's reproject_flux_maps assumes -----
+            # ---- 2. MIRI-only check: no confirmed PSF formula otherwise ---
+            bad = _non_miri_files([(info['filename'], info['header']) for info in images_data])
+            if bad:
+                QApplication.restoreOverrideCursor()
+                detail = "\n".join(f"  - {fn}: {inst}" for fn, inst in bad)
+                QMessageBox.warning(
+                    self, "Unsupported Instrument",
+                    "Batch currently supports MIRI only (no confirmed PSF "
+                    f"formula for other instruments yet):\n{detail}")
+                return
+
+            # ---- 3. BUNIT check: Naman's reproject_flux_maps assumes -----
             #         flux-per-pixel input for every file.
             for info in images_data:
                 if not _is_per_pixel_flux_unit(info['header'].get('BUNIT', '')):
@@ -649,7 +406,7 @@ class BatchMatchResolutionDialog(QDialog):
                         "surface-brightness images.")
                     return
 
-            # ---- 3. Wavelength per file (LINEWAVE header, else prompt) ---
+            # ---- 4. Wavelength per file (LINEWAVE header, else prompt) ---
             QApplication.restoreOverrideCursor()
             for info in images_data:
                 wl = _get_line_wavelength_um(info['header'], info['filename'], self)
@@ -658,14 +415,14 @@ class BatchMatchResolutionDialog(QDialog):
                 info['wavelength_um'] = wl
             QApplication.setOverrideCursor(Qt.WaitCursor)
 
-            # ---- 4. Longest wavelength = reference (largest Naman PSF) ---
+            # ---- 5. Longest wavelength = reference (largest Naman PSF) ---
             ref_info = max(images_data, key=lambda info: info['wavelength_um'])
             ref_header = ref_info['header'].copy()
             ref_header['NAXIS'] = 2
             ref_header['NAXIS1'] = ref_info['shape'][1]
             ref_header['NAXIS2'] = ref_info['shape'][0]
 
-            # ---- 5. Convolve + reproject every other file onto the -------
+            # ---- 6. Convolve + reproject every other file onto the -------
             #         reference's own native grid.
             flux_audit = []
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -718,7 +475,7 @@ class BatchMatchResolutionDialog(QDialog):
                     out_total = float(np.nansum(result_img[np.isfinite(result_img)]))
                     flux_audit.append((info['filename'], in_total, out_total))
 
-                # ---- 6. Pack everything into the ZIP ---------------------
+                # ---- 7. Pack everything into the ZIP ---------------------
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for root, dirs, files in os.walk(tmpdir):
                         for file in files:
@@ -1158,27 +915,19 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.clear_contour_btn.clicked.connect(self._prompt_and_clear_contours)
 
         # ----- CONVOLUTION CONTROLS (grouped under the "Convolution" collapsible) -----
-        self.match_res_btn = QPushButton("Pair")
-        self.match_res_btn.setToolTip(
-            "Convolve the higher-resolution panel (left/right) to match the\n"
-            "coarser pixel size of the other, then reproject onto a common\n"
-            "WCS grid. Flux is conserved via spherical-polygon intersection."
-        )
-        self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
-
         self.batch_match_btn = QPushButton("Batch")
         self.batch_match_btn.setToolTip(
-            "Select multiple 2D FITS files. All are convolved to the worst\n"
-            "(largest) pixel scale among them and reprojected onto a common\n"
-            "WCS grid covering the union footprint. Result is downloaded as a ZIP."
+            "Select multiple 2D FITS files. All are convolved to the\n"
+            "longest-wavelength file's PSF and reprojected onto its native\n"
+            "grid. Result is downloaded as a ZIP. MIRI only."
         )
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
 
-        self.match_res_naman_btn = QPushButton("Pair (Naman)")
+        self.match_res_naman_btn = QPushButton("Pair")
         self.match_res_naman_btn.setToolTip(
-            "Same as Pair, but using Naman's PSF formula\n"
-            "(FWHM(\") = 0.033*wavelength_um + 0.106) instead of the pixel-scale\n"
-            "proxy, reprojected onto the longer-wavelength panel's own native grid."
+            "Convolve the shorter-wavelength panel to match the longer-\n"
+            "wavelength panel's PSF (FWHM(\") = 0.033*wavelength_um + 0.106),\n"
+            "reprojected onto its own native grid. MIRI only."
         )
         self.match_res_naman_btn.clicked.connect(self.prompt_and_match_resolution_naman)
 
@@ -2004,7 +1753,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self.contour_group.add_button(_b)
 
         self.convolution_group = CollapsibleButtonGroup("Convolution")
-        for _b in (self.match_res_btn, self.match_res_naman_btn, self.batch_match_btn):
+        for _b in (self.match_res_naman_btn, self.batch_match_btn):
             self.convolution_group.add_button(_b)
 
         tier1 = QHBoxLayout()
@@ -2881,269 +2630,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         x, y = int(round(event.xdata)), int(round(event.ydata))
         self._handle_pixel_click(x, y, target)
 
-    def prompt_and_match_resolution(self):
-        """"Slides Convolute" button: convolve the higher-resolution panel
-        to the worse pixel scale, then reproject onto a grid sized to the
-        fine image's full FOV (see inline comments for the sigma/WCS math).
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        if self.image_left is None or self.image_right is None:
-            QMessageBox.warning(self, "Missing Images",
-                                "Load images in BOTH panels first.")
-            return
-
-        pix_l = _get_pixel_size_arcsec(self.header_left)
-        pix_r = _get_pixel_size_arcsec(self.header_right)
-        if pix_l is None or pix_r is None:
-            QMessageBox.warning(
-                self, "Missing Pixel Scale",
-                "Could not determine pixel scale for one or both images.")
-            return
-
-        # Physical PSF formula is MIRI-specific; any other instrument (or an
-        # unrecognized one) goes straight to the pixel-scale proxy.
-        is_miri = (detect_instrument_from_header(self.header_left) == "MIRI"
-                   and detect_instrument_from_header(self.header_right) == "MIRI")
-        use_physical = False
-        wl_left = wl_right = None
-
-        # If MIRI, the formula is enforced whenever both images have a known
-        # line wavelength. If either is missing, ask once: enter it, or use the proxy.
-        if is_miri:
-            wl_left = _header_line_wavelength_um(self.header_left)
-            wl_right = _header_line_wavelength_um(self.header_right)
-            use_physical = wl_left is not None and wl_right is not None and wl_left != wl_right
-
-        if is_miri and not use_physical:
-            choice_box = QMessageBox(self)
-            choice_box.setWindowTitle("Line Wavelength Needed")
-            choice_box.setText(
-                "No usable line wavelength was found for one or both images.<br><br>"
-                "Enter it manually to use the physical PSF formula, or fall "
-                "back to the pixel-scale proxy?"
-            )
-            enter_btn = choice_box.addButton("Enter Wavelength", QMessageBox.ActionRole)
-            proxy_btn = choice_box.addButton("Use Pixel-Scale Proxy", QMessageBox.ActionRole)
-            choice_box.addButton(QMessageBox.Cancel)
-            choice_box.exec_()
-            clicked = choice_box.clickedButton()
-            if clicked is enter_btn:
-                if wl_left is None:
-                    wl_left = _get_line_wavelength_um(
-                        self.header_left, self.filename_left or "left panel", self)
-                    if wl_left is None:
-                        return
-                if wl_right is None:
-                    wl_right = _get_line_wavelength_um(
-                        self.header_right, self.filename_right or "right panel", self)
-                    if wl_right is None:
-                        return
-                if wl_left != wl_right:
-                    use_physical = True
-                else:
-                    QMessageBox.warning(
-                        self, "Line Wavelength Needed",
-                        "Both panels have the same wavelength -- nothing to "
-                        "convolve. Falling back to the pixel-scale proxy.")
-            elif clicked is not proxy_btn:
-                return
-
-        # Reference/fine roles: by wavelength when the physical formula applies
-        # (longer wavelength = larger PSF) -- picking by scale instead can name the wrong line.
-        if use_physical:
-            if wl_left > wl_right:
-                ref_side, conv_side = "left", "right"
-                ref_header, ref_img = self.header_left, self.image_left
-                ref_filename = self.filename_left or "left panel"
-                fine_header, fine_img = self.header_right, self.image_right
-                fine_filename = self.filename_right or "right panel"
-                target_pix, fine_pix = pix_l, pix_r
-                wl_ref, wl_fine = wl_left, wl_right
-            else:
-                ref_side, conv_side = "right", "left"
-                ref_header, ref_img = self.header_right, self.image_right
-                ref_filename = self.filename_right or "right panel"
-                fine_header, fine_img = self.header_left, self.image_left
-                fine_filename = self.filename_left or "left panel"
-                target_pix, fine_pix = pix_r, pix_l
-                wl_ref, wl_fine = wl_right, wl_left
-        else:
-            wl_ref = wl_fine = None
-            if pix_l >= pix_r:
-                ref_side, conv_side = "left", "right"
-                target_pix, fine_pix = pix_l, pix_r
-                ref_header, ref_img = self.header_left, self.image_left
-                ref_filename = self.filename_left or "left panel"
-                fine_header, fine_img = self.header_right, self.image_right
-                fine_filename = self.filename_right or "right panel"
-            else:
-                ref_side, conv_side = "right", "left"
-                target_pix, fine_pix = pix_r, pix_l
-                ref_header, ref_img = self.header_right, self.image_right
-                ref_filename = self.filename_right or "right panel"
-                fine_header, fine_img = self.header_left, self.image_left
-                fine_filename = self.filename_left or "left panel"
-
-            # Same-resolution short-circuit: only meaningful for the proxy --
-            # the physical path can still have real blur to apply even at equal pixel scales.
-            same_scale_eps = 1e-4  # arcsec
-            if abs(target_pix - fine_pix) < same_scale_eps:
-                QMessageBox.information(
-                    self, "Same resolution",
-                    f"Both panels already have the same pixel scale "
-                    f"({target_pix:.4f} arcsec/px).\n\n"
-                    "Slides Convolute would be a no-op, so nothing was changed.")
-                return
-
-        fine_wcs = _make_2d_wcs(fine_header)
-        if fine_wcs is None:
-            QMessageBox.warning(self, "WCS Error",
-                                "Could not build a 2D WCS for the fine image.")
-            return
-
-        # Guard: with no shared sky coverage, reprojection silently
-        # produces an all-NaN result and no useful output.
-        ref_wcs = _make_2d_wcs(ref_header)
-        if ref_wcs is not None and ref_img is not None:
-            if not _wcs_footprints_overlap(
-                    fine_wcs, fine_img.shape, ref_wcs, ref_img.shape):
-                QMessageBox.warning(
-                    self, "No Sky Overlap",
-                    "The two images cover completely different regions of the sky.\n\n"
-                    "Slides Convolute requires the panels to share sky coverage so "
-                    "the convolved image can be placed on a meaningful WCS grid.\n\n"
-                    "Please load a matching pair of images of the same field.")
-                return
-
-        sigma_proxy = (max(0.0, target_pix**2 - fine_pix**2) ** 0.5) / gaussian_sigma_to_fwhm
-        sigma_physical = miri_psf_sigma_arcsec(wl_fine, wl_ref) if use_physical else None
-        sigma_arcsec = sigma_physical if use_physical else sigma_proxy
-        sigma_fine_pix = sigma_arcsec / fine_pix if fine_pix > 0 else 0.0
-
-        dst_wcs, dst_shape = build_target_wcs_for_pair(
-            fine_wcs, fine_img.shape, target_pix)
-
-        bunit = fine_header.get('BUNIT', '') if fine_header is not None else ''
-        per_pixel_flux = _is_per_pixel_flux_unit(bunit)
-
-        if use_physical:
-            sigma_line = (
-                f"Smoothing &sigma; : {sigma_physical:.4f}\" physical PSF formula "
-                f"({wl_fine:.4f}&rarr;{wl_ref:.4f} &micro;m)<br>"
-            )
-        else:
-            sigma_line = (
-                f"Smoothing &sigma; : {sigma_proxy:.4f}\" pixel-scale proxy "
-                f"(no line wavelength found in header)<br>"
-            )
-        info = (
-            f"<b>Slides Convolute: {conv_side.capitalize()} &rarr; "
-            f"{target_pix:.4f}\"/px ({ref_side} scale)</b><br>"
-            f"Fine scale     : {fine_pix:.4f}\"/px ({conv_side})<br>"
-            f"Target scale   : {target_pix:.4f}\"/px ({ref_side})<br>"
-            f"{sigma_line}"
-            f"Output grid    : {dst_shape[1]} × {dst_shape[0]} px "
-            f"(full fine FOV, fine rotation preserved)<br>"
-            f"BUNIT          : {bunit} &rarr; "
-            f"{'flux' if per_pixel_flux else 'surface-brightness'} mode<br><br>"
-            "Algorithm: astropy.convolution.convolve_fft (NaN-aware Gaussian) "
-            "&rarr; flux-conserving exact spherical-polygon reprojection. Proceed?"
-        )
-        if QMessageBox.question(self, "Slides Convolute", info) != QMessageBox.Yes:
-            return
-
-        try:
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-
-            # convolve_and_reproject already NaNs zero-coverage pixels and
-            # weights partial ones correctly -- no extra mask needed.
-            result_img, coverage = convolve_and_reproject(
-                fine_img, fine_wcs, fine_pix, dst_wcs, dst_shape,
-                sigma_arcsec, conserve_flux=per_pixel_flux)
-
-            if not np.any(np.isfinite(result_img)):
-                QApplication.restoreOverrideCursor()
-                QMessageBox.warning(
-                    self, "Empty Result",
-                    "Slides Convolute completed but the output has no "
-                    "valid pixels.\n\n"
-                    "This usually means the two images do not actually "
-                    "share any sky coverage.\n\n"
-                    "Try a closer-aligned pair of images.")
-                return
-
-            # 3. Trim the empty safety-pad border; only fully-empty
-            # rows/columns are dropped, so no measured pixel is lost.
-            r0, r1, c0, c1 = _nan_border_bounds(np.isfinite(result_img))
-            if (r0, r1, c0, c1) != (0, dst_shape[0], 0, dst_shape[1]):
-                result_img = result_img[r0:r1, c0:c1]
-                coverage = coverage[r0:r1, c0:c1]
-                dst_wcs.wcs.crpix = [dst_wcs.wcs.crpix[0] - c0,
-                                     dst_wcs.wcs.crpix[1] - r0]
-                dst_shape = result_img.shape
-
-            # 4. Build a clean output header.
-            out_header = build_resample_header(
-                dst_wcs, dst_shape, bunit=bunit or None,
-                history=(f"Slides Convolute: sigma={sigma_arcsec:.4f}\" "
-                        f"({'physical PSF' if use_physical else 'pixel-scale proxy'}, "
-                        f"{sigma_fine_pix:.3f} fine-px); reprojected to "
-                        f"{target_pix:.4f}\"/px ({'flux' if per_pixel_flux else 'SB'} mode)"),
-                identity_header=fine_header,
-            )
-
-            fname, _ = QFileDialog.getSaveFileName(
-                self, "Save Convolved FITS", filter="FITS (*.fits)")
-            if fname:
-                if not fname.lower().endswith(".fits"):
-                    fname += ".fits"
-                write_fits_product(fname, result_img, out_header,
-                                   extensions=[build_coverage_extension(coverage)])
-
-                # Flux audit
-                if per_pixel_flux:
-                    in_total = float(np.nansum(fine_img))
-                    out_total = float(
-                        np.nansum(result_img[np.isfinite(result_img)]))
-                    audit_unit = bunit
-                else:
-                    SR_PER_ARC2 = (np.pi / (180.0 * 3600.0)) ** 2
-                    pix_sr = (fine_pix ** 2) * SR_PER_ARC2
-                    out_pix_sr = (target_pix ** 2) * SR_PER_ARC2
-                    in_total = float(np.nansum(fine_img)) * pix_sr
-                    good = np.isfinite(result_img) & np.isfinite(coverage)
-                    out_total = float(np.nansum(
-                        result_img[good] * coverage[good])) * out_pix_sr
-                    audit_unit = f"{bunit} × sr"
-                ratio = (out_total / in_total) if in_total != 0 else float('nan')
-                QMessageBox.information(
-                    self, "Saved",
-                    f"Saved to:\n{fname}\n\n"
-                    f"Flux audit ({audit_unit}):\n"
-                    f"  Input  total : {in_total:.4e}\n"
-                    f"  Output total : {out_total:.4e}\n"
-                    f"  Ratio out/in : {ratio:.6f}\n"
-                    f"  (1.000000 means flux is exactly conserved.)"
-                )
-
-        except Exception as e:
-            QMessageBox.critical(self, "Slides Convolute Error",
-                                 f"An error occurred:\n{e}")
-            traceback.print_exc()
-        finally:
-            QApplication.restoreOverrideCursor()
-
     def prompt_and_match_resolution_naman(self):
-        """"Pair (Naman)" button: same as prompt_and_match_resolution, but
-        using Naman's PSF formula (FWHM(") = 0.033*wavelength_um + 0.106)
-        instead of the pixel-scale proxy. The longer-wavelength panel is
-        always the reference (its PSF is the larger one), and the other
-        panel is reprojected onto its own native grid -- no padded WCS.
+        """"Pair" button: convolve the shorter-wavelength panel to the
+        longer-wavelength panel's PSF (FWHM(") = 0.033*wavelength_um + 0.106,
+        MIRI only), reprojecting onto its own native grid -- no padded WCS.
 
         Args:
             None
@@ -3162,6 +2652,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QMessageBox.warning(
                 self, "Missing Pixel Scale",
                 "Could not determine pixel scale for one or both images.")
+            return
+
+        bad = _non_miri_files([(self.filename_left or "left panel", self.header_left),
+                               (self.filename_right or "right panel", self.header_right)])
+        if bad:
+            detail = "\n".join(f"  - {fn}: {inst}" for fn, inst in bad)
+            QMessageBox.warning(
+                self, "Unsupported Instrument",
+                "Pair currently supports MIRI only (no confirmed PSF formula "
+                f"for other instruments yet):\n{detail}")
             return
 
         if not _is_per_pixel_flux_unit(self.header_left.get('BUNIT', '') if self.header_left else '') or \
@@ -3212,7 +2712,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 QMessageBox.warning(
                     self, "No Sky Overlap",
                     "The two images cover completely different regions of the sky.\n\n"
-                    "Pair (Naman) requires the panels to share sky coverage so "
+                    "Pair requires the panels to share sky coverage so "
                     "the convolved image can be placed on a meaningful WCS grid.\n\n"
                     "Please load a matching pair of images of the same field.")
                 return
@@ -3262,7 +2762,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             )
 
             fname, _ = QFileDialog.getSaveFileName(
-                self, "Save Convolved FITS (Naman)", filter="FITS (*.fits)")
+                self, "Save Convolved FITS", filter="FITS (*.fits)")
             if fname:
                 if not fname.lower().endswith(".fits"):
                     fname += ".fits"

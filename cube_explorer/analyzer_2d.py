@@ -5,9 +5,8 @@ equivalent of ``reproject.reproject_exact`` with no ``reproject`` dependency).
 
 GUI-free - imported by ``gui_2d.py`` (the dual 2D viewer) and safe to use
 from scripts/notebooks. Public helpers: ``gaussian_convolve_match``,
-``reproject_exact``, ``build_target_wcs_for_pair`` / ``build_target_wcs_for_batch``,
-``_get_pixel_size_arcsec``, ``_make_2d_wcs``, ``_wcs_footprints_overlap``,
-``_is_per_pixel_flux_unit``, ``_log_norm_vmin``.
+``reproject_exact``, ``_get_pixel_size_arcsec``, ``_make_2d_wcs``,
+``_wcs_footprints_overlap``, ``_is_per_pixel_flux_unit``, ``_log_norm_vmin``.
 """
 
 import warnings
@@ -16,9 +15,6 @@ import numpy as np
 from astropy.wcs import WCS
 from astropy.wcs.utils import proj_plane_pixel_scales  # used by: _get_pixel_size_arcsec
 from astropy.convolution import convolve_fft, Gaussian2DKernel  # used by: gaussian_convolve_match
-from astropy.coordinates import SkyCoord  # used by: build_target_wcs_for_batch
-from astropy.stats import gaussian_sigma_to_fwhm
-import astropy.units as u  # used by: build_target_wcs_for_batch
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
@@ -69,26 +65,6 @@ def _make_2d_wcs(header):
         return w
     except Exception:
         return None
-    
-def miri_psf_sigma_arcsec(wavelength_in_um, wavelength_target_um):
-    """Gaussian-kernel sigma (arcsec) to match wavelength_in's PSF to
-    wavelength_target's, using the MIRI FWHM(") = 0.033*lambda_um + 0.106 relation.
-
-    Args:
-        wavelength_in_um (float): Wavelength of the image being matched (um).
-        wavelength_target_um (float): Wavelength whose PSF is the target (um).
-
-    Returns:
-        sigma_arcsec (float): Kernel sigma in arcsec, or 0.0 if the target's
-            PSF is not larger than the input's (nothing to convolve).
-    """
-    fwhm_in = 0.033 * wavelength_in_um + 0.106
-    fwhm_target = 0.033 * wavelength_target_um + 0.106
-    if fwhm_target <= fwhm_in:
-        return 0.0
-    sigma_in = fwhm_in / gaussian_sigma_to_fwhm
-    sigma_target = fwhm_target / gaussian_sigma_to_fwhm
-    return (sigma_target ** 2 - sigma_in ** 2) ** 0.5
 
 
 # --- Gaussian convolution: pure astropy, NaN-aware ---
@@ -158,121 +134,6 @@ def _decompose_cd(wcs):
     uy = cd[:, 1] / sy if sy > 0 else np.array([0.0, 1.0])
     return ux, uy, sx, sy
 
-
-def build_target_wcs_for_pair(fine_wcs, fine_shape, target_pix_arcsec):
-    """Output WCS for a single fine image matched to a coarser scale: same
-    celestial centre and rotation as the fine image, at target_pix_arcsec,
-    sized to fully contain the fine image.
-
-    Args:
-        fine_wcs (astropy.wcs.WCS): WCS of the higher-resolution image.
-        fine_shape (tuple): (ny, nx) shape of the higher-resolution image.
-        target_pix_arcsec (float): Output pixel scale in arcsec/pixel.
-
-    Returns:
-        result (tuple): (out_wcs, (ny, nx)) -- the output WCS and shape.
-    """
-    ny_in, nx_in = fine_shape
-    cx_in = (nx_in - 1) / 2.0
-    cy_in = (ny_in - 1) / 2.0
-    sky_centre = fine_wcs.pixel_to_world(cx_in, cy_in)
-
-    ux, uy, sx_deg, sy_deg = _decompose_cd(fine_wcs)
-    pix_deg = target_pix_arcsec / 3600.0
-
-    out = WCS(naxis=2)
-    out.wcs.ctype = ['RA---TAN', 'DEC--TAN']
-    out.wcs.crval = [float(sky_centre.ra.deg), float(sky_centre.dec.deg)]
-    out.wcs.cunit = ['deg', 'deg']
-    out.wcs.cd = np.column_stack([ux * pix_deg, uy * pix_deg])
-
-    # Output shape: scale up the fine FOV by (fine_pix / target_pix), pad +2
-    fine_pix_x_arcsec = sx_deg * 3600.0
-    fine_pix_y_arcsec = sy_deg * 3600.0
-    nx_out = int(np.ceil(nx_in * fine_pix_x_arcsec / target_pix_arcsec)) + 2
-    ny_out = int(np.ceil(ny_in * fine_pix_y_arcsec / target_pix_arcsec)) + 2
-    if nx_out % 2 == 0:
-        nx_out += 1
-    if ny_out % 2 == 0:
-        ny_out += 1
-    out.wcs.crpix = [(nx_out + 1) / 2.0, (ny_out + 1) / 2.0]
-    return out, (ny_out, nx_out)
-
-
-def build_target_wcs_for_batch(input_wcss_and_shapes, target_pix_arcsec):
-    """Output WCS covering the union of every input image's footprint at
-    the coarse target scale, oriented to match the largest-area input.
-
-    Args:
-        input_wcss_and_shapes (list): (wcs, shape) pairs for every input.
-        target_pix_arcsec (float): Output pixel scale in arcsec/pixel.
-
-    Returns:
-        result (tuple): (out_wcs, (ny, nx)) -- the output WCS and shape.
-    """
-    inputs = list(input_wcss_and_shapes)
-
-    # Find the largest-area image (proxy: just shape * pix^2 in arcsec^2).
-    # This is the "reference" for orientation and centre.
-    best_idx = 0
-    best_area = -1.0
-    all_corners_ra = []
-    all_corners_dec = []
-    for idx, (w, shape) in enumerate(inputs):
-        ny, nx = shape
-        xs = np.array([-0.5, nx - 0.5, nx - 0.5, -0.5])
-        ys = np.array([-0.5, -0.5, ny - 0.5, ny - 0.5])
-        sky = w.pixel_to_world(xs, ys)
-        all_corners_ra.append(np.asarray(sky.ra.deg))
-        all_corners_dec.append(np.asarray(sky.dec.deg))
-        # Approx tangent-plane area using small-angle on cos(dec)
-        ra = np.asarray(sky.ra.deg); dec = np.asarray(sky.dec.deg)
-        dec0 = float(np.mean(dec))
-        x = (ra - np.mean(ra)) * np.cos(np.deg2rad(dec0))
-        y = (dec - np.mean(dec))
-        a = 0.5 * abs((x[0]*y[1] - x[1]*y[0]) + (x[1]*y[2] - x[2]*y[1])
-                      + (x[2]*y[3] - x[3]*y[2]) + (x[3]*y[0] - x[0]*y[3]))
-        if a > best_area:
-            best_area = a
-            best_idx = idx
-
-    ref_wcs, ref_shape = inputs[best_idx]
-    ref_cx = (ref_shape[1] - 1) / 2.0
-    ref_cy = (ref_shape[0] - 1) / 2.0
-    sky_centre = ref_wcs.pixel_to_world(ref_cx, ref_cy)
-    ux, uy, _, _ = _decompose_cd(ref_wcs)
-    pix_deg = target_pix_arcsec / 3600.0
-
-    out = WCS(naxis=2)
-    out.wcs.ctype = ['RA---TAN', 'DEC--TAN']
-    out.wcs.crval = [float(sky_centre.ra.deg), float(sky_centre.dec.deg)]
-    out.wcs.cunit = ['deg', 'deg']
-    out.wcs.cd = np.column_stack([ux * pix_deg, uy * pix_deg])
-    # Provisional CRPIX at (1,1); we'll re-centre below
-    out.wcs.crpix = [1.0, 1.0]
-
-    # Project every input corner into the (provisional) target pixel grid
-    ra = np.concatenate(all_corners_ra)
-    dec = np.concatenate(all_corners_dec)
-    sky = SkyCoord(ra=ra * u.deg, dec=dec * u.deg, frame='icrs')
-    px, py = out.world_to_pixel(sky)
-    px = np.asarray(px); py = np.asarray(py)
-
-    pad = 2
-    nx_out = int(np.ceil(np.nanmax(px) - np.nanmin(px))) + 2 * pad + 1
-    ny_out = int(np.ceil(np.nanmax(py) - np.nanmin(py))) + 2 * pad + 1
-    if nx_out % 2 == 0:
-        nx_out += 1
-    if ny_out % 2 == 0:
-        ny_out += 1
-
-    # Re-centre: place ref centre at the middle of the new grid
-    px0, py0 = out.world_to_pixel(sky_centre)
-    out.wcs.crpix = [
-        float(out.wcs.crpix[0] + ((nx_out + 1) / 2.0 - float(px0))),
-        float(out.wcs.crpix[1] + ((ny_out + 1) / 2.0 - float(py0))),
-    ]
-    return out, (ny_out, nx_out)
 
 
 # --- Flux-conserving exact reprojection (reproject_exact equivalent) ---
@@ -549,55 +410,6 @@ def reproject_exact(image, src_wcs, dst_wcs, dst_shape, conserve_flux=False):
     return out, coverage, area_acc
 
 
-def convolve_and_reproject(image, src_wcs, src_pix_arcsec, dst_wcs, dst_shape,
-                            sigma_arcsec, conserve_flux=True):
-    """Resolution-match one map onto a destination grid: convolve to
-    sigma_arcsec, then reproject flux-conservingly. The shared recipe behind
-    every resolution-matching feature (2D analyzer Pair/Batch, rotational
-    diagram Convolve Maps) -- fix this once, every caller gets the fix.
-
-    Args:
-        image (numpy.ndarray): Native-grid 2D map to resolution-match.
-        src_wcs (astropy.wcs.WCS): image's own celestial WCS.
-        src_pix_arcsec (float): image's native pixel scale (arcsec/pixel).
-        dst_wcs (astropy.wcs.WCS): Destination WCS.
-        dst_shape (tuple): (ny, nx) of the destination grid.
-        sigma_arcsec (float): Gaussian kernel sigma to convolve with (arcsec).
-        conserve_flux (bool): True for flux-per-pixel units, False for
-            surface-brightness units.
-
-    Returns:
-        result (tuple): (reprojected, coverage) -- reprojected image (NaN
-            where nothing overlaps) and fractional coverage per output pixel.
-    """
-    sigma_pix = sigma_arcsec / src_pix_arcsec if src_pix_arcsec > 0 else 0.0
-    blurred = gaussian_convolve_match(image, sigma_pix=sigma_pix)
-    reprojected, coverage, _ = reproject_exact(
-        blurred, src_wcs, dst_wcs, dst_shape, conserve_flux=conserve_flux)
-    return reprojected, coverage
-
-
-def _nan_border_bounds(valid_mask):
-    """Crop bounds that drop only border rows/columns with zero valid pixels.
-
-    Args:
-        valid_mask (np.ndarray): 2D boolean array, True where real data exist.
-
-    Returns:
-        tuple (tuple): (r0, r1, c0, c1) so ``valid_mask[r0:r1, c0:c1]`` is
-            the smallest box containing every True pixel. Equals the full
-            array shape if every row and column already has one.
-    """
-    rows = np.any(valid_mask, axis=1)
-    cols = np.any(valid_mask, axis=0)
-    if not np.any(rows) or not np.any(cols):
-        return 0, valid_mask.shape[0], 0, valid_mask.shape[1]
-    r0 = int(np.argmax(rows))
-    r1 = len(rows) - int(np.argmax(rows[::-1]))
-    c0 = int(np.argmax(cols))
-    c1 = len(cols) - int(np.argmax(cols[::-1]))
-    return r0, r1, c0, c1
-
 
 # --- BUNIT helpers (unit-aware flux audit and per-pixel-flux detection) ---
 
@@ -725,8 +537,6 @@ def _nan_safe_gaussian_filter(image, sigma=None, sigma_pix=None):
     return gaussian_convolve_match(image, sigma_pix=sigma_pix)
 
 
-_build_matched_output_wcs = build_target_wcs_for_pair
-_build_common_output_wcs = build_target_wcs_for_batch
 _reproject_exact_polygon = reproject_exact
 
 

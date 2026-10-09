@@ -36,8 +36,8 @@ from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog
 
-# Display combo: label -> (Warm/1T key, Hot key or None, colour-bar label).
-# 2T draws Warm/Hot as two side-by-side panels; a None hot_key stays single.
+# Display combo: label -> (1T/T1 key, T2 key or None, colour-bar label).
+# 2T draws T1/T2 as two side-by-side panels; a None hot_key stays single.
 _PARAMS = [
     ("Temperature", "T", "T2", "T (K)"),
     ("Temperature error", "T_err", "T2_err", "dT (K)"),
@@ -399,10 +399,10 @@ def _fit_block(results):
         r2 = results["2T"]
         text += (
             "\n--- 2T FIT ---\n"
-            + f"T1 (Warm) = {r2['T1']:.1f} ± {r2.get('dT1', float('nan')):.1f} K\n"
-            + f"T2 (Hot) = {r2['T2']:.1f} ± {r2.get('dT2', float('nan')):.1f} K\n"
-            + f"Ncol1 (Warm) = {r2['Ncol1']:.2e} ± {r2.get('dNcol1', float('nan')):.2e} cm⁻²\n"
-            + f"Ncol2 (Hot) = {r2['Ncol2']:.2e} ± {r2.get('dNcol2', float('nan')):.2e} cm⁻²\n"
+            + f"T1 = {r2['T1']:.1f} ± {r2.get('dT1', float('nan')):.1f} K\n"
+            + f"T2 = {r2['T2']:.1f} ± {r2.get('dT2', float('nan')):.1f} K\n"
+            + f"Ncol1 = {r2['Ncol1']:.2e} ± {r2.get('dNcol1', float('nan')):.2e} cm⁻²\n"
+            + f"Ncol2 = {r2['Ncol2']:.2e} ± {r2.get('dNcol2', float('nan')):.2e} cm⁻²\n"
         )
     return text
 
@@ -499,10 +499,10 @@ def plot_rot_diagram(ax, plot_data):
             a1, t1, a2, t2 = popt2
             y_warm = a1 - e_fit / t1
             ax.plot(e_fit, y_warm / np.log(10), ":", linewidth=2.5, color="blue",
-                    label=f"Warm: T={t1:.0f} K")
+                    label=f"T1: {t1:.0f} K")
             y_hot = a2 - e_fit / t2
             ax.plot(e_fit, y_hot / np.log(10), ":", linewidth=2.5, color="orange",
-                    label=f"Hot: T={t2:.0f} K")
+                    label=f"T2: {t2:.0f} K")
             ax.plot(e_fit, model_2T(e_fit, *popt2) / np.log(10), "-", linewidth=3,
                     color="red", label="2-component model")
         elif popt1 is not None:
@@ -550,7 +550,7 @@ class RotDiagMapResultsDialog(QDialog):
         self.fit2t = result.get("fit2t", False)
         self.pixel_select_enabled = True
         self.setWindowTitle(f"{result.get('molecule', 'H2')} Rotational Diagram Map")
-        # Wider when 2T needs two side-by-side panels (Warm/Hot).
+        # Wider when 2T needs two side-by-side panels (T1/T2).
         if self.fit2t:
             self.resize(1550, 700)
         else:
@@ -641,7 +641,7 @@ class RotDiagMapResultsDialog(QDialog):
     def _update_plot(self):
         """
         Redraw the selected map(s) with the chosen colormap and scale. In 2T
-        mode, a Warm/Hot parameter draws as two side-by-side panels instead
+        mode, a T1/T2 parameter draws as two side-by-side panels instead
         of a combo entry each -- Lines used/Fit mask stay single always.
 
         Args:
@@ -659,8 +659,8 @@ class RotDiagMapResultsDialog(QDialog):
         if self.fit2t and hot_key is not None:
             ax_left = self.fig.add_subplot(121)
             ax_right = self.fig.add_subplot(122)
-            self._draw_panel(ax_left, key, f"{label} (Warm)", cbar_label)
-            self._draw_panel(ax_right, hot_key, f"{label} (Hot)", cbar_label)
+            self._draw_panel(ax_left, key, f"{label} (T1)", cbar_label)
+            self._draw_panel(ax_right, hot_key, f"{label} (T2)", cbar_label)
         else:
             ax = self.fig.add_subplot(111)
             self._draw_panel(ax, key, label, cbar_label)
@@ -831,13 +831,13 @@ class RotDiagMapResultsDialog(QDialog):
                 "",
             ]
 
-        warm_label = "TEMPERATURE (Warm) (K)" if self.fit2t else "TEMPERATURE (K)"
-        ncol_label = "COLUMN DENSITY N_u (Warm) (cm⁻²)" if self.fit2t else "COLUMN DENSITY N_u (cm⁻²)"
-        lines += _block(warm_label, self.result["T"], ".1f")
-        lines += _block(ncol_label, self.result["Ncol"], ".3e")
+        t1_label = "TEMPERATURE T1 (K)" if self.fit2t else "TEMPERATURE (K)"
+        ncol1_label = "COLUMN DENSITY N_u T1 (cm⁻²)" if self.fit2t else "COLUMN DENSITY N_u (cm⁻²)"
+        lines += _block(t1_label, self.result["T"], ".1f")
+        lines += _block(ncol1_label, self.result["Ncol"], ".3e")
         if self.fit2t:
-            lines += _block("TEMPERATURE (Hot) (K)", self.result["T2"], ".1f")
-            lines += _block("COLUMN DENSITY N_u (Hot) (cm⁻²)", self.result["Ncol2"], ".3e")
+            lines += _block("TEMPERATURE T2 (K)", self.result["T2"], ".1f")
+            lines += _block("COLUMN DENSITY N_u T2 (cm⁻²)", self.result["Ncol2"], ".3e")
         lines += _block("LINES USED PER FITTED PIXEL", self.result["n_lines"].astype(float), ".1f")
 
         n_ceiling = int(np.sum(ok & (self.result["T"] >= 0.99 * t_cap)))

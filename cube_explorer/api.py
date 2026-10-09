@@ -865,8 +865,8 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
 
     Returns:
         dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2) --
-            component 1 (1T's only component, or 2T's "Warm" one); 'T2', 'T2_err',
-            'Ncol2', 'Ncol2_err' (2T's "Hot" component, all-NaN when fit2t is False);
+            component 1 (1T's only component, or 2T's T1); 'T2', 'T2_err',
+            'Ncol2', 'Ncol2_err' (2T's T2 component, all-NaN when fit2t is False);
             'fit2t', 'n_lines' (2D int, lines used per pixel), 'status' (2D int, one
             of STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),
             'region_fit' (the whole-cube-summed anchor fit, same as fit_region's
@@ -943,7 +943,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
 
     Returns:
         dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2) --
-            component 1; 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2T's "Hot" component,
+            component 1; 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2T's T2 component,
             all-NaN when fit2t is False); 'fit2t', 'n_lines' (2D int), 'status' (2D
             int, see create_rotational_diagram_map), 'region_fit' (the whole-cube-
             summed anchor fit, same as fit_region_multi's return), plus 'dst_wcs'

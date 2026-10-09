@@ -4510,7 +4510,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px {grid_note}")
         lay.addWidget(header_label)
 
-        headers = ["Line (um)", "File", "Native (\"/px)", "Blur (FWHM)"]
+        headers = ["Line (um)", "File", "Pixel Scale (\"/px)",
+                   "Native PSF (FWHM, \")", "Blur Applied (FWHM, \")"]
         table = QTableWidget(len(rows), len(headers), dlg)
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -4519,19 +4520,24 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
 
+        def _native_psf_arcsec(c):
+            """This line's own native angular resolution (MIRI PSF formula),
+            before any convolution -- the reference row's value is the
+            common resolution every other row is being blurred to match."""
+            return 0.033 * c["wavelength"] + 0.106
+
         def _blur_text(c):
             """
-            Describe one line's contribution to the common grid, as FWHM.
+            FWHM of the Gaussian kernel applied to raise this line's own
+            native PSF up to the reference line's native PSF (0 for the
+            reference line itself -- it needs no blurring).
 
             Args:
                 c (dict): One convolution_plan_naman()['per_cube'] entry.
 
             Returns:
-                text (str): 'sets the resolution', or the FWHM blur applied
-                    to match it, in arcsec and native pixels.
+                text (str): FWHM blur applied, in arcsec and native pixels.
             """
-            if c["sigma_pix"] <= 1e-6:
-                return "sets the resolution"
             fwhm_arcsec = c["sigma_arcsec"] * gaussian_sigma_to_fwhm
             fwhm_pix = c["sigma_pix"] * gaussian_sigma_to_fwhm
             return f"{fwhm_arcsec:.4f}\" ({fwhm_pix:.2f} px)"
@@ -4547,8 +4553,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             """
             for r, c in enumerate(rows):
                 fname = os.path.basename(c["filename"]) if c["filename"] else "cube"
-                for col, text in enumerate((f"{c['wavelength']:.4f}", fname,
-                                            f"{c['native_pix_arcsec']:.4f}", _blur_text(c))):
+                if c["sigma_pix"] <= 1e-6:
+                    fname += "  (reference)"
+                texts = (f"{c['wavelength']:.4f}", fname,
+                        f"{c['native_pix_arcsec']:.4f}",
+                        f"{_native_psf_arcsec(c):.4f}\"", _blur_text(c))
+                for col, text in enumerate(texts):
                     item = QTableWidgetItem(text)
                     item.setTextAlignment(Qt.AlignCenter if col != 1 else Qt.AlignVCenter | Qt.AlignLeft)
                     table.setItem(r, col, item)
@@ -4559,7 +4569,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             0: lambda c: c["wavelength"],
             1: lambda c: (os.path.basename(c["filename"]) if c["filename"] else "cube").lower(),
             2: lambda c: c["native_pix_arcsec"],
-            3: lambda c: c["sigma_pix"],
+            3: lambda c: _native_psf_arcsec(c),
+            4: lambda c: c["sigma_pix"],
         }
         sort_state = {"column": None, "order": Qt.AscendingOrder}
 
@@ -4858,11 +4869,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
                 y_comp1 = a1_2 - E_fit / T1_2
                 ax.plot(E_fit, y_comp1 / np.log(10), ':', linewidth=2.5,
-                        color='blue', label=f'Warm: T={T1_2:.0f} K')
+                        color='blue', label=f'T1: {T1_2:.0f} K')
 
                 y_comp2 = a2_2 - E_fit / T2_2
                 ax.plot(E_fit, y_comp2 / np.log(10), ':', linewidth=2.5,
-                        color='orange', label=f'Hot: T={T2_2:.0f} K')
+                        color='orange', label=f'T2: {T2_2:.0f} K')
 
                 y2T = model_2T(E_fit, *popt2)
                 ax.plot(E_fit, y2T / np.log(10), '-', linewidth=3,
