@@ -6,6 +6,7 @@ RotDiagMapResultsDialog shows the maps and re-fits a pixel's diagram on click.
 """
 
 import traceback
+from types import SimpleNamespace
 
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
@@ -26,6 +27,14 @@ from .rotational_diagram_map import (
 from .rotational_diagram_h2_fitter import model_1T, model_2T
 from .fits_export import build_line_map_header, write_fits_product
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
+from . import region_io
+from .region_selector import RegionSelector, mask_from_shape_coords
+from .analyzer_2d import _make_2d_wcs
+from .unit_converter import extract_units
+from .gui_region_selection import RegionSelectionMixin
+from .visualization import SlicePlotter
+from .colormap_dialog import ColorMapDialog
+from .scale_dialog import ScaleDialog
 
 # Display combo: label -> (Warm/1T key, Hot key or None, colour-bar label).
 # 2T draws Warm/Hot as two side-by-side panels; a None hot_key stays single.
@@ -875,6 +884,477 @@ class RotDiagMapResultsDialog(QDialog):
             QMessageBox.information(self, "Saved", f"Wrote:\n{path}")
         except Exception as exc:
             QMessageBox.critical(self, "Export failed", str(exc))
+
+
+class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
+    """
+    Draw a region on a raw cube slice at a checked line's peak wavelength,
+    reusing RegionSelectionMixin/SlicePlotter -- the same engine the main
+    window's own panels run on -- instead of a bespoke approximation.
+
+    Args:
+        cube_lines (list): (CubeData, [wavelengths]) pairs, one per distinct
+            loaded cube with at least one matching checked line.
+        parent (QWidget): Parent widget.
+
+    Returns:
+        None
+    """
+
+    _SHAPES = ["*", "▭", "○", "⬭", "✏"]
+    _SHAPE_TOOLTIPS = {
+        "*": "Point selection", "▭": "Rectangle selection", "○": "Circle selection",
+        "⬭": "Ellipse selection", "✏": "Freehand drawing",
+    }
+
+    def __init__(self, cube_lines, parent=None):
+        """Store the cube/line pairs and build the drawing UI.
+
+        Args:
+            cube_lines (list): (CubeData, [wavelengths]) pairs.
+            parent (QWidget): Parent widget.
+
+        Returns:
+            None
+        """
+        super().__init__(parent)
+        self.cube_lines = cube_lines
+        self.result_region = None
+        self._region_sky = None
+        self.current_cube = None
+        self.current_wave_idx = None
+
+        # RegionSelectionMixin's required state.
+        self.region_state = {"left": "idle", "right": "idle"}
+        self.active_shape = None
+        self.active_target = None
+        self.last_selection_left = None
+        self.last_selection_right = None
+        self.scale_left = "Linear"
+        self.slice1_vmin = None
+        self.slice1_vmax = None
+
+        self.setWindowTitle("Select Region")
+        self.resize(900, 650)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """Build the cube picker, the mixin-driven slice panel (stats, hover,
+        shape tools, Edit Shape, Colormap, Scale), and Accept/Cancel.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        layout = QVBoxLayout(self)
+
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Cube:"))
+        self.cube_combo = QComboBox()
+        for cube, wavelengths in self.cube_lines:
+            name = getattr(cube, "filename", None) or "cube"
+            wl_text = ", ".join(f"{w:.4f}" for w in sorted(wavelengths))
+            self.cube_combo.addItem(f"{name} ({wl_text} um)")
+        top.addWidget(self.cube_combo)
+        top.addStretch()
+        layout.addLayout(top)
+
+        body = QHBoxLayout()
+
+        stats_col = QVBoxLayout()
+        self.stats1_label = QLabel(self._region_stats_placeholder("left"))
+        self.stats1_label.setWordWrap(True)
+        self.hover1_label = QLabel("Cursor Info:\n-")
+        self.hover1_label.setWordWrap(True)
+        stats_col.addWidget(self.stats1_label)
+        stats_col.addSpacing(12)
+        stats_col.addWidget(self.hover1_label)
+        stats_col.addStretch()
+        body.addLayout(stats_col, 1)
+
+        slice_col = QVBoxLayout()
+        self.fig1 = Figure(figsize=(6, 5.5))
+        self.slice1_canvas = FigureCanvasQTAgg(self.fig1)
+        self.slice1_plotter = SlicePlotter(self.fig1)
+        slice_col.addWidget(self.slice1_canvas)
+        slice_col.addWidget(NavigationToolbar2QT(self.slice1_canvas, self))
+        self.slice1_canvas.mpl_connect("button_press_event", self._on_canvas_click)
+        self.slice1_canvas.mpl_connect("motion_notify_event", self._on_canvas_hover)
+        self.region_selector_left = RegionSelector(
+            self.slice1_plotter.ax, self.slice1_canvas,
+            lambda mask, patch, coords: self._handle_region_select(mask, patch, coords, "left"))
+        body.addLayout(slice_col, 4)
+
+        sidebar = self._build_sidebar()
+        body.addLayout(sidebar, 0)
+
+        layout.addLayout(body)
+
+        btns = QHBoxLayout()
+        btns.addStretch()
+        self.accept_btn = QPushButton("Accept")
+        self.accept_btn.setEnabled(False)
+        self.accept_btn.clicked.connect(self._accept_region)
+        btns.addWidget(self.accept_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btns.addWidget(cancel_btn)
+        layout.addLayout(btns)
+
+        self._build_right_stand_in()
+        self.cube_combo.currentIndexChanged.connect(self._on_cube_changed)
+        self._on_cube_changed()
+
+    def _build_sidebar(self):
+        """Build the left sidebar exactly like gui.py's own
+        _init_shape_controls left column: Colormap, Scale, the 5 shape
+        tools, Copy (disabled), Edit Shape, Erase.
+
+        Args:
+            None
+
+        Returns:
+            sidebar (QVBoxLayout): The populated sidebar layout.
+        """
+        sidebar = QVBoxLayout()
+
+        self.color_btn_left = QPushButton("🌈")
+        self.color_btn_left.setFixedSize(35, 35)
+        self.color_btn_left.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.color_btn_left.setToolTip("Change color scale")
+        self.color_btn_left.clicked.connect(self._open_colormap_dialog)
+        sidebar.addWidget(self.color_btn_left)
+
+        self.scale_btn_left = QPushButton("🎚")
+        self.scale_btn_left.setFixedSize(35, 35)
+        self.scale_btn_left.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.scale_btn_left.setToolTip("Intensity scaling (Linear, Auto range)")
+        self.scale_btn_left.clicked.connect(self._open_scale_dialog)
+        sidebar.addWidget(self.scale_btn_left)
+
+        self.shape_buttons = {"left": {}, "right": {}}
+        for shape in self._SHAPES:
+            btn = QPushButton(shape)
+            btn.setCheckable(True)
+            btn.setFixedSize(35, 35)
+            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+            btn.setToolTip(self._SHAPE_TOOLTIPS[shape])
+            btn.clicked.connect(lambda _checked, s=shape: self._set_shape(s, "left"))
+            self.shape_buttons["left"][shape] = btn
+            sidebar.addWidget(btn)
+            self.shape_buttons["right"][shape] = QPushButton(shape)  # never shown
+
+        self.copy_menu_btn_l = QPushButton("⎘")
+        self.copy_menu_btn_l.setFixedSize(35, 35)
+        self.copy_menu_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.copy_menu_btn_l.setToolTip("Copy -- not applicable with a single panel")
+        self.copy_menu_btn_l.setEnabled(False)
+        sidebar.addWidget(self.copy_menu_btn_l)
+
+        self.edit_shape_btn_l = QPushButton("✎")
+        self.edit_shape_btn_l.setCheckable(True)
+        self.edit_shape_btn_l.setFixedSize(35, 35)
+        self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_l.setEnabled(False)
+        self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
+        sidebar.addWidget(self.edit_shape_btn_l)
+        self.edit_shape_btn_r = QPushButton("✎")  # never shown
+
+        self.erase_btn_l = QPushButton("✖")
+        self.erase_btn_l.setFixedSize(35, 35)
+        self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.erase_btn_l.setToolTip("Clear selection")
+        self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
+        sidebar.addWidget(self.erase_btn_l)
+
+        sidebar.addStretch()
+        return sidebar
+
+    def _build_right_stand_in(self):
+        """Build the inert "right" panel RegionSelectionMixin's dual-panel
+        contract requires -- never added to a layout, never shown, never
+        wired to a click/hover handler, so it's never a real `target`.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.fig2 = Figure()
+        self.slice2_canvas = FigureCanvasQTAgg(self.fig2)
+        self.slice2_plotter = SlicePlotter(self.fig2)
+        self.stats2_label = QLabel()
+        self.region_selector_right = RegionSelector(
+            self.slice2_plotter.ax, self.slice2_canvas, lambda *args: None)
+
+    # ------------------------------------------------------- mixin hooks
+    def _region_image(self, target):
+        """2D array shown in `target` -- the current cube's peak-wavelength
+        slice for "left"; always None for "right" (never shown).
+
+        Args:
+            target (str): 'left' or 'right'.
+
+        Returns:
+            image (numpy.ndarray or None)
+        """
+        if target != "left" or self.current_cube is None:
+            return None
+        return np.asarray(self.current_cube.cube[self.current_wave_idx, :, :], dtype=float)
+
+    def _region_flux_unit(self, target):
+        """BUNIT from the current cube's header, cleaned to a plain string.
+
+        Args:
+            target (str): 'left' or 'right'.
+
+        Returns:
+            unit (str)
+        """
+        if target != "left" or self.current_cube is None:
+            return ""
+        return str(self.current_cube.header.get("BUNIT", "") or "")
+
+    def _region_pixel_coords(self, target, x, y):
+        """(ra_deg, dec_deg) for pixel (x, y) via the current cube's own WCS.
+
+        Args:
+            target (str): 'left' or 'right'.
+            x (float): Pixel x coordinate.
+            y (float): Pixel y coordinate.
+
+        Returns:
+            coords (tuple): (ra_deg, dec_deg), or (None, None).
+        """
+        if target != "left" or self.current_cube is None:
+            return None, None
+        wcs2d = _make_2d_wcs(self.current_cube.header)
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            return None, None
+        try:
+            sky = wcs2d.pixel_to_world(x, y)
+            return float(sky.ra.deg), float(sky.dec.deg)
+        except Exception:
+            return None, None
+
+    def _region_pixel_extra_lines(self, target, x, y):
+        """One line naming the shown wavelength -- the 3D analogue of the
+        main window's own wavelength/velocity extra line.
+
+        Args:
+            target (str): 'left' or 'right'.
+            x (float): Unused -- the wavelength is the same for every pixel.
+            y (float): Unused.
+
+        Returns:
+            lines (list)
+        """
+        if target != "left" or self.current_cube is None:
+            return []
+        wavelength, _unit = extract_units(self.current_cube.wavelength)
+        return [f"Wavelength: {wavelength[self.current_wave_idx]:.4f} um"]
+
+    def _region_on_change(self, target, kind):
+        """Keep self._region_sky (the sky-coordinate source of truth handed
+        back on Accept) in sync with the mixin's own last_selection_left.
+
+        Args:
+            target (str): 'left' or 'right'.
+            kind (str): 'select', 'pixel', or 'clear'.
+
+        Returns:
+            None
+        """
+        if target != "left":
+            return
+        if kind == "clear":
+            self._region_sky = None
+            self.accept_btn.setEnabled(False)
+            return
+        sel = self.last_selection_left
+        if not sel or self.current_cube is None:
+            return
+        wcs2d = _make_2d_wcs(self.current_cube.header)
+        verts = None
+        if sel["shape"] == "✏":
+            verts = getattr(sel.get("patch"), "lasso_verts", None)
+        try:
+            self._region_sky = region_io.region_shape_to_sky(
+                sel["shape"], sel["coords"], wcs2d, lasso_verts=verts)
+            self.accept_btn.setEnabled(True)
+        except Exception as exc:
+            QMessageBox.warning(self, "Select Region", str(exc))
+
+    # ------------------------------------------------------- colormap/scale
+    def _open_colormap_dialog(self):
+        """Open the shared colormap picker and apply the choice.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        dialog = ColorMapDialog(self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_cmap:
+            self.slice1_plotter.set_cmap(dialog.selected_cmap)
+
+    def _open_scale_dialog(self):
+        """Open the shared scale/range picker and redraw with the choice.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        image = self._region_image("left")
+        if image is None:
+            return
+        auto_vmin, auto_vmax = float(np.nanmin(image)), float(np.nanmax(image))
+        dialog = ScaleDialog(self.scale_left, auto_vmin, auto_vmax,
+                             vmin=self.slice1_vmin, vmax=self.slice1_vmax, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        self.scale_left = dialog.result_scale
+        self.slice1_vmin, self.slice1_vmax = dialog.result_vmin, dialog.result_vmax
+        self.slice1_plotter.plot_slice(
+            image, title=self.slice1_plotter.ax.get_title(),
+            flux_unit=self._region_flux_unit("left"), scale=self.scale_left,
+            vmin=self.slice1_vmin, vmax=self.slice1_vmax)
+
+    # ------------------------------------------------------- click/hover
+    def _on_canvas_click(self, event):
+        """Point ('*') selection: RegionSelector treats this as a no-op, so
+        a plain click handler routes it to the mixin's own
+        _handle_pixel_click, same division of labor as _on_slice_click.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+
+        Returns:
+            None
+        """
+        if (event.inaxes is None or self.active_shape != "*"
+                or event.inaxes is not self.slice1_plotter.ax):
+            return
+        x, y = int(round(event.xdata)), int(round(event.ydata))
+        self._handle_pixel_click(x, y, "left")
+
+    def _on_canvas_hover(self, event):
+        """Live cursor readout, mirroring gui.py's own _on_slice_hover.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Motion event.
+
+        Returns:
+            None
+        """
+        if (event.inaxes is not self.slice1_plotter.ax or event.xdata is None
+                or event.ydata is None or self.current_cube is None):
+            self.hover1_label.setText("Cursor Info:\n-")
+            return
+        ix, iy = int(round(event.xdata)), int(round(event.ydata))
+        image = self._region_image("left")
+        if image is None or not (0 <= iy < image.shape[0] and 0 <= ix < image.shape[1]):
+            self.hover1_label.setText("Cursor Info:\n-")
+            return
+        text = [f"Pixel: (x={ix}, y={iy})", f"Intensity={image[iy, ix]:.3e}"]
+        unit = self._region_flux_unit("left")
+        if unit:
+            text.append(f"[{unit}]")
+        self.hover1_label.setText("\n".join(text))
+
+    # ------------------------------------------------------- cube switch
+    def _on_cube_changed(self):
+        """Swap to the combo's current cube's peak-wavelength slice, and
+        re-place any active selection there via the mixin's own
+        _recreate_region/_handle_pixel_click -- not a bespoke preview.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        idx = self.cube_combo.currentIndex()
+        if idx < 0:
+            return
+        cube, line_wavelengths = self.cube_lines[idx]
+        wavelength, _unit = extract_units(cube.wavelength)
+        wave_idx = int(np.abs(wavelength - line_wavelengths[0]).argmin())
+        old_region_sky = self._region_sky
+
+        if self.region_selector_left.interactive_patch is not None:
+            self.region_selector_left.interactive_patch.disconnect()
+            self.region_selector_left.interactive_patch = None
+        self.region_selector_left.activate_selector(None)
+        for btn in self.shape_buttons["left"].values():
+            btn.setChecked(False)
+        self.active_shape = None
+        self.active_target = None
+
+        self.current_cube = cube
+        self.current_wave_idx = wave_idx
+        image = self._region_image("left")
+        self.slice1_plotter.plot_slice(
+            image, title=f"{getattr(cube, 'filename', 'cube')} @ {wavelength[wave_idx]:.4f} um",
+            flux_unit=self._region_flux_unit("left"), scale=self.scale_left,
+            vmin=self.slice1_vmin, vmax=self.slice1_vmax)
+
+        self.last_selection_left = None
+        self.stats1_label.setText(self._region_stats_placeholder("left"))
+        self._set_region_state("left", "idle")
+
+        if old_region_sky is None:
+            self.accept_btn.setEnabled(False)
+            return
+        try:
+            ny, nx = image.shape
+            wcs2d = _make_2d_wcs(cube.header)
+            placed = region_io.sky_to_region_shape(
+                old_region_sky["shape"], old_region_sky["sky_points"],
+                old_region_sky["sky_center"], old_region_sky["sky_axis_x"],
+                old_region_sky["sky_axis_y"], wcs2d, target_shape=(ny, nx))
+            shape = placed["shape"]
+            if shape == "*":
+                x, y = placed["coords"]
+                self._handle_pixel_click(int(round(x)), int(round(y)), "left")
+                return
+            if shape == "✏":
+                verts = placed["verts"]
+                xmin, ymin = verts.min(axis=0)
+                xmax, ymax = verts.max(axis=0)
+                patch_stub = SimpleNamespace(lasso_verts=verts)
+            else:
+                xmin, xmax, ymin, ymax = placed["coords"]
+                patch_stub = None
+            mask = mask_from_shape_coords(shape, placed.get("coords"), placed.get("verts"), (ny, nx))
+            self.last_selection_left = {
+                "shape": shape, "coords": (xmin, xmax, ymin, ymax),
+                "mask": mask, "label": "Left Selection", "patch": patch_stub}
+            self._recreate_region(int(xmin), int(xmax), int(ymin), int(ymax), mask, "left")
+        except Exception:
+            # No real sky overlap with this cube -- leave no stale patch.
+            # The authoritative error still surfaces from
+            # _rot_map_region_mask_for_cube at Calculate Fluxes time.
+            pass
+
+    def _accept_region(self):
+        """Hand back the active sky region and close.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.result_region = self._region_sky
+        self.accept()
 
 
 class LineFluxMapDialog(QDialog):

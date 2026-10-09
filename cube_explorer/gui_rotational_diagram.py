@@ -37,13 +37,12 @@ from .rotational_diagram_h2_fitter import (
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .flux_map_extractor import DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
 from .rotational_diagram_map import (
-    convolution_plan, convolution_plan_native, _line_keys, convolve_line_maps,
-    combine_line_maps, build_imported_map_payload, merge_native_results,
+    _line_keys, combine_line_maps, build_imported_map_payload, merge_native_results,
 )
 from .import_map_dialog import _peek_header, _has_real_error
 from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
-    CalculateNativeMapsWorker, CombineMapsWorker,
+    CalculateNativeMapsWorker, CombineMapsWorker, SelectCubeRegionDialog,
 )
 from .fits_export import build_line_map_header, write_fits_product
 from .naman_convolve_reproject import convolve_reproject_naman, convolution_plan_naman
@@ -524,6 +523,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
              "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source", "Fit R²", "Fit",
              "Map", "Convolved Map"]
         )
+        # Flux/Flux Error's own tooltip is set after _init_sortable_checkbox_table instead,
+        # which would otherwise overwrite it (see below).
+        self.lines_table.horizontalHeaderItem(15).setToolTip(
+            "Always computed on the full cube, regardless of any active region.")
+        self.lines_table.horizontalHeaderItem(16).setToolTip(
+            "Always computed on the full cube, regardless of any active region.")
         # row -> plot data dict (x_data, y_data, baseline, y_fit, center, fwhm, r_squared,
         # wavelength) for the "Fit" column's link, populated by calculate_fluxes_batch.
         self._line_fit_plot_data = {}
@@ -548,6 +553,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.lines_table, {1, 3, 4, 5, 6, 7, 8, 10, 13}, self._lines_table_sort_key,
             drag_column={0, 9},
         )
+        # Set after _init_sortable_checkbox_table, which overwrites every
+        # sortable column's header tooltip with "Click to sort".
+        for col in (6, 7):
+            self.lines_table.horizontalHeaderItem(col).setToolTip(
+                "Click to sort. Reflects the active region, if any -- see the Region group.")
 
         # Connect table changes for auto-calculation
         self.lines_table.itemChanged.connect(self.on_table_item_changed)
@@ -751,40 +761,19 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_maps_btn.clicked.connect(self.save_all_maps)
         self.save_maps_btn.setEnabled(False)  # Blocked until lines are loaded
 
-        self.export_naman_maps_btn = QPushButton("Export Naman Maps")
-        self.export_naman_maps_btn.setToolTip(
-            "Convolve/reproject the already-calculated native flux maps using Naman's own "
-            "recipe (convolved_reproject.ipynb) instead of ours, and save the result to a "
-            "zip alongside the native flux maps -- for sending directly to Naman. Needs "
-            "Calculate Maps run first; does not use or affect our own Convolve Maps."
+        self.select_map_region_btn = QPushButton("Select")
+        self.select_map_region_btn.setToolTip(
+            "Check at least one line with a matching loaded cube."
         )
-        self.export_naman_maps_btn.clicked.connect(self.export_naman_maps)
-        self.export_naman_maps_btn.setEnabled(False)  # Blocked until lines are loaded
-
-        self.convolve_naman_btn = QPushButton("Convolve Maps (Naman)")
-        self.convolve_naman_btn.setToolTip(
-            "Temporary comparison tool: convolve/reproject the native flux maps with Naman's "
-            "recipe and open a viewer for each line's result, without touching our own "
-            "Convolve Maps. Needs Calculate Maps run first and 2+ loaded cubes."
-        )
-        self.convolve_naman_btn.clicked.connect(self.convolve_naman_maps)
-        self.convolve_naman_btn.setEnabled(False)  # Blocked until lines are loaded
-
-        self.run_naman_map_btn = QPushButton("Run Naman Map")
-        self.run_naman_map_btn.setToolTip(
-            "Temporary comparison tool: fit the temperature map from Naman's convolved maps "
-            "(instead of ours) using the same per-pixel fitter Run Map uses, and open it in "
-            "the usual results viewer. Needs Calculate Maps run first and 2+ loaded cubes."
-        )
-        self.run_naman_map_btn.clicked.connect(self.run_naman_map)
-        self.run_naman_map_btn.setEnabled(False)  # Blocked until lines are loaded
+        self.select_map_region_btn.clicked.connect(self.select_rot_map_region)
+        self.select_map_region_btn.setEnabled(False)  # Blocked until a line/cube match exists
 
         self.import_map_region_btn = QPushButton("Import")
         self.import_map_region_btn.setToolTip(
-            "Restrict Calculate Fluxes/Calculate Maps/Run Map/Run Fit to one sky region, "
-            "imported from a region saved elsewhere (Save Region, main window or 2D viewer). "
-            "Applies per cube using that cube's own WCS, so the same region works across "
-            "cubes at different pixel scales."
+            "Restrict Calculate Fluxes/Run Fit to one sky region, imported from a region "
+            "saved elsewhere (Save Region, main window or 2D viewer). Applies per cube using "
+            "that cube's own WCS, so the same region works across cubes at different pixel "
+            "scales. Calculate Maps/Convolve Maps/Run Map always use the whole cube."
         )
         self.import_map_region_btn.clicked.connect(self.import_rot_map_region)
         self.import_map_region_btn.setEnabled(False)  # Blocked until lines are loaded
@@ -820,14 +809,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.maps_group.add_button(self.calculate_maps_btn)
         self.maps_group.add_button(self.convolve_maps_btn)
         self.maps_group.add_button(self.save_maps_btn)
-        self.maps_group.add_button(self.export_naman_maps_btn)
-        self.maps_group.add_button(self.convolve_naman_btn)
-        self.maps_group.add_button(self.run_naman_map_btn)
         collapsible_layout.addWidget(self.maps_group)
 
-        # "Select" (live, interactive region drawing) isn't built yet --
-        # today's Region group only has what Import Region/Clear Region cover.
         self.region_group = CollapsibleButtonGroup("Region")
+        self.region_group.add_button(self.select_map_region_btn)
         self.region_group.add_button(self.import_map_region_btn)
         self.region_group.add_button(self.clear_map_region_btn)
         collapsible_layout.addWidget(self.region_group)
@@ -925,9 +910,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_maps_btn.setEnabled(False)
         self.convolve_maps_btn.setEnabled(False)
         self.save_maps_btn.setEnabled(False)
-        self.export_naman_maps_btn.setEnabled(False)
-        self.convolve_naman_btn.setEnabled(False)
-        self.run_naman_map_btn.setEnabled(False)
+        self.select_map_region_btn.setEnabled(False)
         self.import_map_region_btn.setEnabled(False)
         self.clear_map_region_btn.setEnabled(False)
 
@@ -958,9 +941,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
     def _reveal_line_workflow_buttons(self):
         """Enable the line-workflow buttons once the table has at least one
-        line -- shared by Fetch HITRAN, Import CSV, and Import Map. Always
-        visible; Clear/Delete Region is enabled separately, only once a
-        region is actually imported.
+        line -- shared by Fetch HITRAN, Import CSV, and Import Map. Select/
+        Delete Region are gated separately (on_line_selected/a region
+        actually being active), not by this.
 
         Args:
             None
@@ -975,9 +958,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_maps_btn.setEnabled(True)
         self.convolve_maps_btn.setEnabled(True)
         self.save_maps_btn.setEnabled(True)
-        self.export_naman_maps_btn.setEnabled(True)
-        self.convolve_naman_btn.setEnabled(True)
-        self.run_naman_map_btn.setEnabled(True)
         self.import_map_region_btn.setEnabled(True)
 
     def update_isotopologue_range(self):
@@ -2764,7 +2744,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         "View" link up would look current when it isn't.
 
         Args:
-            result (dict): Output of convolve_line_maps or
+            result (dict): Output of convolve_reproject_naman or
                 create_rotational_diagram_map_multi.
 
         Returns:
@@ -2917,212 +2897,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=150)
         return buf.getvalue()
-
-    def export_naman_maps(self):
-        """Export the native flux maps plus Naman's-method convolved maps to
-        a zip. Reads the cached Calculate Maps result only; does not run or
-        affect Calculate Maps or our own Convolve Maps.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        native_cache = getattr(self, "_rot_map_native_cache", None)
-        if native_cache is None:
-            QMessageBox.warning(self, "Export Naman Maps", "Run Calculate Maps first.")
-            return
-        try:
-            naman_result = convolve_reproject_naman(native_cache["result"])
-        except Exception as exc:
-            QMessageBox.critical(self, "Export Naman Maps failed", str(exc))
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Naman Maps", "naman_maps.zip", "Zip files (*.zip)")
-        if not path:
-            return
-        if not path.lower().endswith(".zip"):
-            path += ".zip"
-        try:
-            self._write_naman_maps_zip(path, native_cache["result"], naman_result)
-        except Exception as exc:
-            QMessageBox.critical(self, "Export Naman Maps failed", str(exc))
-            return
-        QMessageBox.information(
-            self, "Saved",
-            f"Wrote native flux maps and Naman's-method convolved maps to:\n{path}")
-
-    def _write_naman_maps_zip(self, path, native_result, naman_result):
-        """Write native flux maps and Naman's-method convolved maps to one
-        zip, same folder shape as Save Maps: Flux Maps/{fits,png} and
-        Naman Convolved Maps/{fits,png}.
-
-        Args:
-            path (str): Destination .zip path.
-            native_result (dict): compute_native_line_maps output.
-            naman_result (dict): convolve_reproject_naman output.
-
-        Returns:
-            None
-        """
-        kept_lines = native_result["kept_lines"]
-        flux_maps = native_result["native_flux_maps"]
-        wcses = native_result["native_wcs"]
-        molecule = getattr(self, "current_molecule", "H2")
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for i, line in enumerate(kept_lines):
-                entry = {
-                    "wavelength": line["wavelength"], "flux_map": flux_maps[i],
-                    "header": wcses[i].to_header() if wcses[i] is not None else None,
-                    "molecule": molecule,
-                }
-                stem = f"{molecule}_flux_{entry['wavelength']:.4f}um"
-                zf.writestr(f"Flux Maps/fits/{stem}.fits", self._render_map_fits_bytes(entry))
-                zf.writestr(f"Flux Maps/png/{stem}.png", self._render_map_png_bytes(entry))
-            for i, line in enumerate(naman_result["kept_lines"]):
-                entry = {
-                    "wavelength": line["wavelength"], "flux_map": naman_result["line_flux_maps"][i],
-                    "header": naman_result["reference_header"], "molecule": molecule,
-                }
-                stem = f"{molecule}_naman_{entry['wavelength']:.4f}um"
-                zf.writestr(f"Naman Convolved Maps/fits/{stem}.fits", self._render_map_fits_bytes(entry))
-                zf.writestr(f"Naman Convolved Maps/png/{stem}.png", self._render_map_png_bytes(entry))
-
-    def convolve_naman_maps(self):
-        """Temporary comparison tool: convolve/reproject the cached native
-        flux maps with Naman's recipe and open a per-line viewer. Does not
-        touch our own Convolve Maps cache or table columns.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        if len(self.loaded_batch_cubes) < 2:
-            QMessageBox.warning(self, "Convolve Maps (Naman)", "Needs 2+ loaded cubes.")
-            return
-        native_cache = getattr(self, "_rot_map_native_cache", None)
-        if native_cache is None:
-            QMessageBox.warning(self, "Convolve Maps (Naman)", "Run Calculate Maps first.")
-            return
-
-        try:
-            plan = convolution_plan_naman(native_cache["result"])
-        except Exception as exc:
-            QMessageBox.critical(self, "Plan Failed", str(exc))
-            return
-        if not self._show_convolution_plan_confirm(
-                plan, window_title="Convolve Maps (Naman) -- convolution plan",
-                question="Convolve/reproject every line onto Naman's reference line grid?",
-                accept_label="Convolve Maps (Naman)",
-                grid_note="(Naman's reference line -- longest wavelength)"):
-            return
-
-        try:
-            naman_result = convolve_reproject_naman(native_cache["result"])
-        except Exception as exc:
-            QMessageBox.critical(self, "Convolve Maps (Naman) failed", str(exc))
-            return
-        self._naman_convolved_cache = naman_result
-        self._show_naman_convolved_viewer(naman_result)
-
-    def _show_naman_convolved_viewer(self, naman_result):
-        """Small standalone dialog listing each line with a View link, opening
-        the usual LineFluxMapDialog on double-click. Deliberately separate
-        from the main table's own Convolved Map column -- a temporary
-        comparison tool, not a permanent second column.
-
-        Args:
-            naman_result (dict): Output of convolve_reproject_naman.
-
-        Returns:
-            None
-        """
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Naman's Convolved Maps (temporary comparison)")
-        dlg.resize(360, 320)
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel(f"Reference line: {naman_result['reference_wavelength']:.4f} um"))
-
-        kept_lines = naman_result["kept_lines"]
-        molecule = getattr(self, "current_molecule", "H2")
-        table = QTableWidget(len(kept_lines), 2, dlg)
-        table.setHorizontalHeaderLabels(["Line (um)", ""])
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        table.horizontalHeader().setStretchLastSection(True)
-
-        for row, line in enumerate(kept_lines):
-            wl_item = QTableWidgetItem(f"{line['wavelength']:.4f}")
-            wl_item.setTextAlignment(Qt.AlignCenter)
-            table.setItem(row, 0, wl_item)
-            view_item = QTableWidgetItem("View")
-            view_item.setTextAlignment(Qt.AlignCenter)
-            self._set_view_link(view_item, "Double-click to view this line's Naman-convolved map")
-            table.setItem(row, 1, view_item)
-
-        def _open(row, _col):
-            line = kept_lines[row]
-            LineFluxMapDialog(
-                line["wavelength"], naman_result["line_flux_maps"][row],
-                naman_result["reference_header"], molecule=molecule, parent=self,
-            ).exec_()
-
-        table.cellDoubleClicked.connect(_open)
-        lay.addWidget(table)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(dlg.accept)
-        lay.addWidget(close_btn)
-        dlg.exec_()
-
-    def run_naman_map(self):
-        """Temporary comparison tool: fit the temperature map from Naman's
-        convolved maps (instead of ours) with the same per-pixel fitter Run
-        Map uses, and open it in the usual results viewer. No region_fit --
-        this is a quick what-if recombination, not a full Run Map.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        if len(self.loaded_batch_cubes) < 2:
-            QMessageBox.warning(self, "Run Naman Map", "Needs 2+ loaded cubes.")
-            return
-        native_cache = getattr(self, "_rot_map_native_cache", None)
-        if native_cache is None:
-            QMessageBox.warning(self, "Run Naman Map", "Run Calculate Maps first.")
-            return
-        # Only recombines an already-fitted native cache -- never fits from
-        # raw data, so reuse its threshold instead of asking again.
-        fit_kwargs = self._rot_map_gather_settings(n_sigma=native_cache["key"][2])
-        if fit_kwargs is None:
-            return
-        naman_convolved = getattr(self, "_naman_convolved_cache", None)
-        if naman_convolved is None:
-            try:
-                naman_convolved = convolve_reproject_naman(native_cache["result"])
-            except Exception as exc:
-                QMessageBox.critical(self, "Run Naman Map failed", str(exc))
-                return
-            self._naman_convolved_cache = naman_convolved
-        try:
-            result = combine_line_maps(
-                naman_convolved, molecule=fit_kwargs["molecule"], isotopologue=fit_kwargs["isotopologue"],
-                opr=fit_kwargs["opr"], fit_opr=fit_kwargs["fit_opr"], opr_grid=fit_kwargs["opr_grid"],
-                dist_pc=fit_kwargs["dist_pc"], r_au=fit_kwargs["r_au"], min_lines=fit_kwargs["min_lines"],
-                region_fit=None, fit2t=fit_kwargs.get("fit2t", False),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Run Naman Map failed", str(exc))
-            return
-        dlg = RotDiagMapResultsDialog(result, None, None, fit_kwargs, parent=self)
-        dlg.setWindowTitle(dlg.windowTitle() + " (Naman's Convolution)")
-        dlg.exec_()
 
     def _make_checkable_item(self, checked=False, enabled=True, tooltip=""):
         """Build a checkbox-style cell as a real checkable item, not a QCheckBox
@@ -3542,6 +3316,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.convolve_maps_btn.setToolTip("Run Calculate Maps first.")
         else:
             self.convolve_maps_btn.setToolTip("")
+        # Draws on a raw cube slice -- cheap proxy here, the real "does a
+        # line actually match a loaded cube" check runs at click time.
+        can_select_region = checked_count >= 1 and bool(self.loaded_batch_cubes)
+        self.select_map_region_btn.setEnabled(can_select_region)
+        self.select_map_region_btn.setToolTip(
+            "" if can_select_region else "Check at least one line with a matching loaded cube.")
 
     def select_all_lines(self):
         """Select all lines in the table (skips rows disabled for missing HITRAN data).
@@ -3920,15 +3700,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if fit_kwargs is None:
             return
 
-        # The fast-combine path, the full worker, and region_fit all need
-        # this. An imported map is never region-restricted (see Import Map).
-        try:
-            involved_cubes = {c for c, _ in cubes_and_lines}
-            region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
-        except ValueError as exc:
-            QMessageBox.warning(self, "Region", str(exc))
-            return
-
         # Fast path: skip straight to the cheap final combination if Calculate
         # Maps/Convolve Maps already ran for this same geometry/threshold.
         geometry_key = self._rot_map_geometry_key(
@@ -3936,7 +3707,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
         if convolved_cache is not None and convolved_cache["key"] == geometry_key:
             self._run_map_fast_combine(cubes, cubes_and_lines, convolved_cache["result"],
-                                       fit_kwargs, region_masks, imported_rows)
+                                       fit_kwargs, imported_lines=imported_rows)
             return
 
         # Reuse a cached result if the same cubes/lines/settings produced one.
@@ -3964,11 +3735,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Confirm before the run: cheap, fit-free, and always the real plan
         # even for one line -- the real region-fit cross-check runs in the worker.
         try:
-            if imported_rows:
-                peek = self._rot_map_plan_peek(cubes_and_lines, imported_rows)
-                plan = convolution_plan_native(peek)
-            else:
-                plan = convolution_plan(cubes_and_lines)
+            peek = self._rot_map_plan_peek(cubes_and_lines, imported_rows)
+            plan = convolution_plan_naman(peek)
         except Exception as exc:
             QMessageBox.critical(self, "Plan Failed", str(exc))
             return
@@ -3994,8 +3762,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.run_map_btn.setEnabled(False)
 
         self.rot_map_worker = RotDiagMapWorker(
-            cubes_and_lines=cubes_and_lines, imported_lines=imported_rows,
-            region_masks=region_masks, **fit_kwargs)
+            cubes_and_lines=cubes_and_lines, imported_lines=imported_rows, **fit_kwargs)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
         self.rot_map_worker.error.connect(self._on_rot_map_error)
@@ -4003,14 +3770,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
     def _rot_map_plan_peek(self, cubes_and_lines, imported_lines):
         """Cheap, fit-free native_result-shaped peek for a plan preview -- no
-        flux arrays, just the header/WCS fields convolution_plan_native needs.
+        flux arrays, just the header/WCS fields convolution_plan_naman needs.
 
         Args:
             cubes_and_lines (list): (CubeData, line_dict) pairs, cube-backed only
             imported_lines (list): Line dicts with an 'imported_map' payload
 
         Returns:
-            peek (dict): Just the keys convolution_plan_native reads
+            peek (dict): Just the keys convolution_plan_naman reads
         """
         lines, wcses, shapes, scales, files, instruments = [], [], [], [], [], []
         for cube, line in cubes_and_lines:
@@ -4035,20 +3802,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         }
 
     def _run_map_fast_combine(self, cubes, cubes_and_lines, convolved_result, fit_kwargs,
-                              region_masks=None, imported_lines=None):
-        """Run Map's fast path: recombine an already-convolved result
-        (Calculate Maps + Convolve Maps already ran for these cubes/lines)
-        into a temperature map, skipping native extraction and convolution
-        entirely -- just the cheap final per-pixel combination.
+                              imported_lines=None):
+        """Run Map's fast path: recombine an already-convolved result into a
+        temperature map, skipping native extraction and convolution entirely
+        -- just the cheap final per-pixel combination.
 
         Args:
             cubes (list): Currently loaded CubeData objects, for the final cache key
             cubes_and_lines (list): (CubeData, line_dict) pairs matching convolved_result
-            convolved_result (dict): Output of convolve_line_maps
+            convolved_result (dict): Output of convolve_reproject_naman
             fit_kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/r_au/min_lines
-            region_masks (dict): {CubeData: boolean mask}, so region_fit (the
-                whole-cube/region-summed anchor) matches the imported region
-                the same way the cached native/convolved maps already do.
             imported_lines (list): Line dicts with an 'imported_map' payload,
                 or None/empty.
 
@@ -4081,7 +3844,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # care that the result dict matches create_rotational_diagram_map_multi's
         # shape, not how it was computed.
         self.rot_map_worker = CombineMapsWorker(convolved_result, cubes_and_lines,
-                                                region_masks=region_masks,
+                                                region_masks=None,  # Run Map always uses the whole cube.
                                                 imported_lines=imported_lines, **fit_kwargs)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_rot_map_complete)
@@ -4089,13 +3852,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.rot_map_worker.start()
 
     def _reset_region_dependent_results(self):
-        """Drop every result that depended on whichever region was active
-        before an Import Region/Clear Region change -- Calculate Fluxes'
-        computed flux columns, Calculate Maps/Convolve Maps' cached maps,
-        Run Map's cached result, and Naman's comparison cache -- so nothing
-        computed under the old region is left looking current. Manually
-        entered fluxes (Calculated? unchecked) are untouched, since they
-        never depended on any region to begin with.
+        """Drop Calculate Fluxes' computed flux columns (and the Run Fit view
+        they feed) after a region change -- manually entered fluxes are kept.
+        Calculate Maps/Convolve Maps/Run Map never depend on a region.
 
         Args:
             None
@@ -4103,17 +3862,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        self._rot_map_native_cache = None
-        self._rot_map_cache = None
-        self._naman_convolved_cache = None
-        self._clear_all_convolved_maps()  # also nulls _rot_map_convolved_cache
-
-        for row in list(self._line_map_plot_data):
-            del self._line_map_plot_data[row]
-            stale_item = self.lines_table.item(row, 15)
-            if stale_item:
-                self._clear_view_link(stale_item)
-
         self.lines_table.blockSignals(True)
         try:
             for row in range(self.lines_table.rowCount()):
@@ -4147,13 +3895,57 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         finally:
             self.lines_table.blockSignals(False)
 
+    def select_rot_map_region(self):
+        """Draw a region on a raw cube slice at a checked line's peak
+        wavelength, instead of importing one saved elsewhere -- a second way
+        to set the same active region (see import_rot_map_region).
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        line_table, _discarded_ul, err = self._rot_map_gather_lines(min_lines=1)
+        if err:
+            QMessageBox.warning(self, "Select Region", err)
+            return
+        cube_rows = [l for l in line_table if not l.get('imported_map')]
+        if not cube_rows:
+            QMessageBox.warning(
+                self, "Select Region",
+                "Check at least one cube-backed line (not an imported map).")
+            return
+        pairs, match_err = self._rot_map_match_lines_to_cubes(self.loaded_batch_cubes, cube_rows)
+        if match_err:
+            QMessageBox.warning(self, "Select Region", match_err)
+            return
+
+        # One combo entry per distinct cube, not per line -- two lines
+        # sharing a cube would otherwise list it twice for no benefit.
+        cube_lines = {}
+        for cube, line in pairs:
+            cube_lines.setdefault(id(cube), (cube, []))[1].append(line["wavelength"])
+
+        dlg = SelectCubeRegionDialog(list(cube_lines.values()), parent=self)
+        if dlg.exec_() != QDialog.Accepted or dlg.result_region is None:
+            return
+
+        self._rot_map_region_sky = dlg.result_region
+        self.clear_map_region_btn.setEnabled(True)
+        self._reset_region_dependent_results()
+        shape_name = region_io.SHAPE_NAMES.get(dlg.result_region["shape"], dlg.result_region["shape"])
+        QMessageBox.information(
+            self, "Region Selected",
+            f"Region selected ({shape_name}). Calculate Fluxes and Run Fit will now only use "
+            "pixels inside it, on every loaded cube. Any previously computed fluxes were "
+            "cleared since they no longer reflect this region. Calculate Maps/Convolve Maps/"
+            "Run Map are unaffected -- they always use the whole cube.")
+
     def import_rot_map_region(self):
         """Import a region saved elsewhere (Save Region, main window or 2D
-        viewer) to restrict Calculate Fluxes/Calculate Maps/Run Map/Run Fit
-        to one sky area. Stored as sky coordinates, the same portable format
-        the main window already uses, so it converts to each cube's own
-        pixel mask at fit time -- one saved region works across cubes at
-        different pixel scales, exactly like importing a region there does.
+        viewer) to restrict Calculate Fluxes/Run Fit to one sky area --
+        converts to each cube's own pixel mask at fit time via its own WCS.
 
         Args:
             None
@@ -4177,14 +3969,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         QMessageBox.information(
             self, "Region Imported",
             f"Region imported ({region_io.SHAPE_NAMES.get(saved['shape'], saved['shape'])}). "
-            "Calculate Fluxes, Calculate Maps, Run Map, and Run Fit will now only use pixels "
-            "inside it, on every loaded cube. Any previously computed fluxes/maps were cleared "
-            "since they no longer reflect this region. Import a different region to replace it, "
-            "or use Clear Region to go back to fitting the whole cube.")
+            "Calculate Fluxes and Run Fit will now only use pixels inside it, on every loaded "
+            "cube. Any previously computed fluxes were cleared since they no longer reflect "
+            "this region. Calculate Maps/Convolve Maps/Run Map are unaffected -- they always "
+            "use the whole cube. Import a different region to replace it, or use Clear Region "
+            "to go back to fitting the whole cube.")
 
     def clear_rot_map_region(self):
-        """Drop the imported region -- Calculate Fluxes/Calculate Maps/Run
-        Map/Run Fit go back to fitting the whole cube.
+        """Drop the active region -- Calculate Fluxes/Run Fit go back to
+        fitting the whole cube.
 
         Args:
             None
@@ -4197,17 +3990,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self._reset_region_dependent_results()
 
     def _rot_map_region_mask_for_cube(self, cube):
-        """Convert the imported sky region (if any) to this cube's own
-        pixel mask. The same sky_to_region_shape conversion the main
-        window's Import Region uses, just producing a plain boolean array
-        instead of placing an interactive selection.
+        """Convert the active sky region (if any -- from Select or Import) to
+        this cube's own pixel mask, via the same sky_to_region_shape
+        conversion the main window's Import Region uses.
 
         Args:
             cube (CubeData): Cube to build the mask for.
 
         Returns:
             mask (numpy.ndarray or None): Boolean mask, shape (ny, nx), or
-                None if no region is imported.
+                None if no region is active.
 
         Raises:
             ValueError: the cube has no usable celestial WCS, or the region
@@ -4284,15 +4076,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if n_sigma is None:
             return
 
-        # An imported region restricts fitting on every cube involved, built
-        # per cube so a bad region is caught early; an imported map is not.
-        try:
-            involved_cubes = {c for c, _ in cubes_and_lines}
-            region_masks = {c: self._rot_map_region_mask_for_cube(c) for c in involved_cubes}
-        except ValueError as exc:
-            QMessageBox.warning(self, "Region", str(exc))
-            return
-
         # A pure-import checked set has nothing to fit -- merging is
         # synchronous, so finish right here instead of starting a worker.
         if not cube_rows:
@@ -4338,8 +4121,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self._calc_maps_n_sigma = n_sigma
         self._calc_maps_imported_rows = imported_rows
         self.rot_map_worker = CalculateNativeMapsWorker(
-            cubes_and_lines, contam_lines=self.contam_lines, region_masks=region_masks,
-            n_sigma=n_sigma)
+            cubes_and_lines, contam_lines=self.contam_lines, n_sigma=n_sigma)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_calculate_maps_multi_complete)
         self.rot_map_worker.error.connect(self._on_calculate_maps_error)
@@ -4459,7 +4241,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         merged = merge_native_results(subset, imported_rows)
 
         try:
-            plan = convolution_plan_native(merged)
+            plan = convolution_plan_naman(merged)
         except Exception as exc:
             QMessageBox.critical(self, "Plan Failed", str(exc))
             return
@@ -4471,7 +4253,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            convolved = convolve_line_maps(merged)
+            convolved = convolve_reproject_naman(merged)
         except Exception as exc:
             QMessageBox.critical(self, "Convolve Maps Error", str(exc))
             return
@@ -4634,8 +4416,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         )
 
     def _rot_map_geometry_key(self, cubes_and_lines, n_sigma, dedup_tol_um=1e-5, imported_lines=None):
-        """Cache key for compute_native_line_maps/convolve_line_maps output --
-        only what determines the maps themselves (cube/imported-file paired
+        """Cache key for compute_native_line_maps/convolve_reproject_naman output
+        -- only what determines the maps themselves (cube/imported-file paired
         with wavelength, detection threshold), not fit settings they never see.
 
         Args:
@@ -4698,20 +4480,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
     def _show_convolution_plan_confirm(self, plan, window_title="Run Map -- convolution plan",
                                        question="Run the fit at every pixel of the common grid?",
-                                       accept_label="Run Map", grid_note="(coarsest input)"):
-        """Show the convolve/reproject plan -- which line's native resolution
-        sets the common grid, and how much every other line gets blurred to
-        match it -- as a sortable table, and let the user confirm or cancel
-        before it runs. Shared by Run Map (fitting follows), Convolve Maps
-        (only the convolution/reprojection follows), and Convolve Maps
-        (Naman); the wording differs, the plan table doesn't. Sorting is
-        local to this table (plain closures, not self._sort_* /
-        SortableCheckboxTableMixin) so it can't collide with the main
-        window's own lines_table sort state.
+                                       accept_label="Run Map",
+                                       grid_note="(reference line -- longest wavelength)"):
+        """Show the convolve/reproject plan as a sortable table and let the
+        user confirm or cancel before it runs. Shared by Run Map and Convolve
+        Maps (wording differs, the plan table doesn't); sorts via its own
+        plain closures so it can't collide with lines_table's sort state.
 
         Args:
-            plan (dict): Convolution/reprojection plan from
-                convolution_plan() or convolution_plan_naman().
+            plan (dict): Convolution/reprojection plan from convolution_plan_naman().
             window_title (str): Dialog title.
             question (str): Final line asking the user to confirm.
             accept_label (str): Text on the accept button.
@@ -4747,7 +4524,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             Describe one line's contribution to the common grid, as FWHM.
 
             Args:
-                c (dict): One convolution_plan()['per_cube'] entry.
+                c (dict): One convolution_plan_naman()['per_cube'] entry.
 
             Returns:
                 text (str): 'sets the resolution', or the FWHM blur applied

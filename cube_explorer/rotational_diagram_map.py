@@ -21,10 +21,8 @@ from astropy.stats import gaussian_sigma_to_fwhm
 from .unit_converter import extract_units
 from .utils import safe_worker_count, detect_instrument
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
-from .analyzer_2d import (
-    _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap,
-    build_target_wcs_for_batch, convolve_and_reproject, miri_psf_sigma_arcsec,
-)
+from .analyzer_2d import _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap
+from .naman_convolve_reproject import convolve_reproject_naman, convolution_plan_naman
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
     compute_line_fluxes_collective, get_gu, pc, T_CAP as T_CAP_H2,
@@ -810,34 +808,6 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
     return flux_map, err_map
 
 
-def _convolve_reproject_pair(flux_map, err_map, src_wcs, src_pix_arcsec,
-                             dst_wcs, dst_shape, sigma_arcsec):
-    """
-    Match one line's flux/error maps to the common grid: convolve to
-    sigma_arcsec, then reproject flux-conservingly onto dst_wcs. Shares its
-    convolve+reproject recipe with the 2D analyzer's Pair/Batch buttons via
-    analyzer_2d.convolve_and_reproject.
-
-    Args:
-        flux_map (np.ndarray): Native-grid flux map
-        err_map (np.ndarray): Native-grid flux-error map
-        src_wcs (astropy.wcs.WCS): This map's own celestial WCS
-        src_pix_arcsec (float): This map's native pixel scale (arcsec)
-        dst_wcs (astropy.wcs.WCS): The common output WCS
-        dst_shape (tuple): (ny, nx) of the common grid
-        sigma_arcsec (float): Gaussian kernel sigma to convolve with (arcsec)
-
-    Returns:
-        maps (tuple): (flux_common, err_common), NaN outside this map's own
-            reprojected footprint
-    """
-    flux_common, _ = convolve_and_reproject(
-        flux_map, src_wcs, src_pix_arcsec, dst_wcs, dst_shape, sigma_arcsec, conserve_flux=True)
-    err_common, _ = convolve_and_reproject(
-        err_map, src_wcs, src_pix_arcsec, dst_wcs, dst_shape, sigma_arcsec, conserve_flux=True)
-    return flux_common, err_common
-
-
 def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
                      fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
                      min_lines=3, dedup_tol_um=1e-5, contam_lines=None, region_masks=None,
@@ -992,121 +962,13 @@ def fit_region_mixed(cubes_and_lines, imported_lines, molecule="H2", isotopologu
             "n_pixels": n_pixels_total, "n_cubes": len(kept_pairs)}
 
 
-def _convolution_plan_from_lists(lines, wcses, shapes, scales, filenames, instruments):
-    """
-    Shared tail of convolution_plan/convolution_plan_native: the same
-    pixel-scale/WCS arithmetic convolve_line_maps runs for real, without any
-    per-pixel fitting.
-
-    Args:
-        lines (list): Line dicts, in the same order as the other lists
-        wcses (list): One astropy.wcs.WCS per line
-        shapes (list): One (ny, nx) per line
-        scales (list): One pixel scale (arcsec) per line
-        filenames (list): One source filename (or None) per line
-        instruments (list): One instrument tag (or None) per line
-
-    Returns:
-        plan (dict): 'worst_pix_arcsec', 'dst_shape' (ny, nx), 'per_cube'
-            (list of dicts: 'wavelength', 'filename', 'native_pix_arcsec',
-            'sigma_arcsec', 'sigma_pix')
-
-    Raises:
-        ValueError: if any two lines share no sky coverage
-    """
-    for i in range(len(wcses)):
-        for j in range(i + 1, len(wcses)):
-            if not _wcs_footprints_overlap(wcses[i], shapes[i], wcses[j], shapes[j]):
-                raise ValueError(
-                    f"The map for {lines[i]['wavelength']:.4f} um and the map "
-                    f"for {lines[j]['wavelength']:.4f} um share no sky coverage.")
-
-    worst_pix = max(scales)
-    dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
-
-    # Mirrors convolve_line_maps's own sigma-source choice, so this preview
-    # matches what the real run will actually do.
-    miri_wavelengths = [l["wavelength"] for l, inst in zip(lines, instruments) if inst == "MIRI"]
-    ref_wavelength_miri = max(miri_wavelengths) if miri_wavelengths else None
-
-    per_cube = []
-    for line, scale, filename, instrument in zip(lines, scales, filenames, instruments):
-        if instrument == "MIRI" and ref_wavelength_miri is not None:
-            sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
-        else:
-            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2)) ** 0.5 / gaussian_sigma_to_fwhm
-        sigma_pix = sigma_arcsec / scale if scale > 0 else 0.0
-        per_cube.append({
-            "wavelength": line["wavelength"], "filename": filename,
-            "native_pix_arcsec": scale, "sigma_arcsec": sigma_arcsec, "sigma_pix": sigma_pix,
-        })
-    return {"worst_pix_arcsec": worst_pix, "dst_shape": dst_shape, "per_cube": per_cube}
-
-
-def convolution_plan(cubes_and_lines, dedup_tol_um=1e-5):
-    """
-    Cheap, fit-free preview of what create_rotational_diagram_map_multi will
-    do to each cube -- see _convolution_plan_from_lists.
-
-    Args:
-        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
-        dedup_tol_um (float): Co-located-line merge tolerance in microns
-
-    Returns:
-        plan (dict): _convolution_plan_from_lists's own keys, plus 'dropped_lines'
-
-    Raises:
-        ValueError: if a cube has no readable celestial WCS/pixel scale, or
-            two cubes share no sky coverage
-    """
-    kept_pairs, dropped = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
-    cubes = [c for c, _ in kept_pairs]
-    lines = [l for _, l in kept_pairs]
-
-    wcses = [_make_2d_wcs(c.header) for c in cubes]
-    shapes = [(c.cube.shape[1], c.cube.shape[2]) for c in cubes]
-    scales = [_get_pixel_size_arcsec(c.header) for c in cubes]
-    if any(w is None for w in wcses) or any(s is None for s in scales):
-        raise ValueError("Could not read a celestial WCS/pixel scale from every cube's header.")
-
-    plan = _convolution_plan_from_lists(
-        lines, wcses, shapes, scales,
-        [getattr(c, "filename", None) for c in cubes], [c.instrument for c in cubes])
-    plan["dropped_lines"] = dropped
-    return plan
-
-
-def convolution_plan_native(result):
-    """
-    Same preview as convolution_plan, reading a compute_native_line_maps/
-    merge_native_results-shaped dict directly -- needed once imported lines
-    are involved, since there's no CubeData to pair them with.
-
-    Args:
-        result (dict): Output of compute_native_line_maps or merge_native_results
-
-    Returns:
-        plan (dict): Same shape as convolution_plan's own return
-
-    Raises:
-        ValueError: if two lines share no sky coverage
-    """
-    plan = _convolution_plan_from_lists(
-        result["kept_lines"], result["native_wcs"], result["native_shapes"],
-        result["native_pix_arcsec"], result["cube_filenames"], result["native_instrument"])
-    plan["dropped_lines"] = result["dropped_lines"]
-    return plan
-
-
 def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
                              progress_callback=None, cancel_flag=None, region_masks=None,
                              n_sigma=3.0):
     """
     Fit each line at its own cube's native resolution -- stage 1 of the
-    multi-cube map pipeline (see convolve_line_maps, combine_line_maps).
-    Exposed on its own so a caller (the GUI's Calculate Maps button) can run
-    and cache just this, the expensive stage, letting a later Run Map skip
-    straight to the cheap final combination.
+    multi-cube map pipeline (see convolve_reproject_naman, combine_line_maps).
+    Exposed separately so Calculate Maps can cache this expensive stage alone.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
@@ -1413,74 +1275,16 @@ def merge_native_results(native_cube_result, imported_lines, dedup_tol_um=1e-5):
     }
 
 
-def convolve_line_maps(native_result, cancel_flag=None):
-    """
-    Convolve+reproject every line's native map onto a common grid at the
-    worst (coarsest) resolution among them -- stage 2 of the multi-cube map
-    pipeline (see compute_native_line_maps, combine_line_maps).
-
-    Args:
-        native_result (dict): Output of compute_native_line_maps
-        cancel_flag (object): Unused today -- convolution/reprojection is
-            vectorized numpy, not a per-pixel loop, so there is nothing
-            mid-line to cancel. Accepted for interface symmetry with the
-            other two stages.
-
-    Returns:
-        result (dict): native_result's own keys, plus 'line_flux_maps',
-            'line_flux_error_maps' (convolved/reprojected, aligned with
-            kept_lines), 'dst_wcs', 'dst_shape', 'worst_pix_arcsec'
-    """
-    wcses = native_result["native_wcs"]
-    shapes = native_result["native_shapes"]
-    scales = native_result["native_pix_arcsec"]
-    kept_lines = native_result["kept_lines"]
-    worst_pix = max(scales)
-    dst_wcs, dst_shape = build_target_wcs_for_batch(list(zip(wcses, shapes)), worst_pix)
-    n_y, n_x = dst_shape
-    print(f">>> Convolve Maps: {len(scales)} lines, worst scale {worst_pix:.4f} arcsec/px, "
-          f"common grid {n_y}x{n_x}")
-
-    # The MIRI formula's own reference is the longest MIRI wavelength, not
-    # the coarsest pixel scale -- those two can disagree on real data.
-    instruments = native_result.get("native_instrument", [None] * len(kept_lines))
-    miri_wavelengths = [l["wavelength"] for l, inst in zip(kept_lines, instruments) if inst == "MIRI"]
-    ref_wavelength_miri = max(miri_wavelengths) if miri_wavelengths else None
-
-    flux_maps, err_maps = [], []
-    for flux_native, err_native, wcs, scale, line, instrument in zip(
-            native_result["native_flux_maps"], native_result["native_flux_error_maps"],
-            wcses, scales, kept_lines, instruments):
-        # The physical PSF formula is MIRI-specific; any other instrument
-        # (or an unrecognized one) falls back to the pixel-scale proxy.
-        if instrument == "MIRI" and ref_wavelength_miri is not None:
-            sigma_arcsec = miri_psf_sigma_arcsec(line["wavelength"], ref_wavelength_miri)
-        else:
-            sigma_arcsec = (max(0.0, worst_pix ** 2 - scale ** 2) ** 0.5) / gaussian_sigma_to_fwhm
-        flux_common, err_common = _convolve_reproject_pair(
-            flux_native, err_native, wcs, scale, dst_wcs, dst_shape, sigma_arcsec)
-        flux_maps.append(flux_common)
-        err_maps.append(err_common)
-
-    return {
-        **native_result,
-        "line_flux_maps": flux_maps, "line_flux_error_maps": err_maps,
-        "dst_wcs": dst_wcs, "dst_shape": dst_shape, "worst_pix_arcsec": worst_pix,
-    }
-
-
 def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None, fit_opr=False,
                       opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, region_fit=None,
                       progress_callback=None, cancel_flag=None, fit2t=False):
     """
     Combine already-convolved per-line flux maps into a rotational diagram at
-    every pixel of their common grid -- stage 3 (final) of the multi-cube map
-    pipeline (see compute_native_line_maps, convolve_line_maps). Applies no
-    detection threshold of its own: which pixels count as detections was
-    decided per line in compute_native_line_maps (n_sigma).
+    every pixel of their common grid -- stage 3 (final) of the multi-cube
+    pipeline. No detection threshold of its own (that's compute_native_line_maps's n_sigma).
 
     Args:
-        convolved_result (dict): Output of convolve_line_maps
+        convolved_result (dict): Output of convolve_reproject_naman
         molecule (str): Species name; 'H2' uses the OPR-capable fitter
         isotopologue (int): HITRAN isotopologue number, non-H2 only
         opr (float): Fixed ortho-para ratio, or None for the fitter default
@@ -1615,13 +1419,9 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
                                         cancel_flag=None, region_masks=None, n_sigma=3.0,
                                         fit2t=False):
     """
-    Fit a rotational diagram at every pixel of a common grid built from
-    several cubes at different pixel scales, one line per cube. Convolves
-    each cube's flux map to the worst resolution, then reprojects before
-    fitting. A thin wrapper chaining compute_native_line_maps ->
-    convolve_line_maps -> combine_line_maps -- call those directly instead
-    to run and cache one stage at a time (e.g. the GUI's Calculate Maps /
-    Convolve Maps buttons let Run Map skip straight to the cheap final stage).
+    Fit a rotational diagram at every pixel of a common grid, one line per
+    cube, convolved onto the longest-wavelength line's own native grid -- a
+    thin wrapper chaining compute_native_line_maps -> convolve_reproject_naman -> combine_line_maps.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
@@ -1667,8 +1467,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
 
     # Precompute the common grid size purely so progress_callback's total
     # matches what it always has (native extraction + final combination) --
-    # compute_native_line_maps/convolve_line_maps redo this cheap WCS work
-    # themselves, since each stage must stand on its own when called directly.
+    # compute_native_line_maps/convolve_reproject_naman redo this cheap WCS
+    # work themselves, since each stage must stand on its own when called directly.
     kept_pairs_peek, _ = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
     cubes_peek = [c for c, _ in kept_pairs_peek]
     total_native = sum(c.cube.shape[1] * c.cube.shape[2] for c in cubes_peek)
@@ -1677,8 +1477,10 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
     scales_peek = [_get_pixel_size_arcsec(c.header) for c in cubes_peek]
     if any(w is None for w in wcses_peek) or any(s is None for s in scales_peek):
         raise ValueError("Could not read a celestial WCS/pixel scale from every cube's header.")
-    _dst_wcs_peek, dst_shape_peek = build_target_wcs_for_batch(
-        list(zip(wcses_peek, shapes_peek)), max(scales_peek))
+    # Reference grid = longest-wavelength line's own native shape (Naman's
+    # own convention, matching convolve_reproject_naman's choice for real).
+    ref_idx_peek = int(np.argmax([l["wavelength"] for _, l in kept_pairs_peek]))
+    dst_shape_peek = shapes_peek[ref_idx_peek]
     total_units = total_native + dst_shape_peek[0] * dst_shape_peek[1]
 
     def _native_progress(done, _total):
@@ -1713,7 +1515,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         cubes_and_lines, contam_lines=contam_lines, n_jobs=n_jobs, dedup_tol_um=dedup_tol_um,
         progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks,
         n_sigma=n_sigma)
-    convolved = convolve_line_maps(native, cancel_flag=cancel_flag)
+    convolved = convolve_reproject_naman(native)
 
     # Whole-cube-summed anchor fit, the same thing Run Fit does. Reused if
     # the caller already ran it.
@@ -1742,7 +1544,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
     """
     create_rotational_diagram_map_multi's mixed-source sibling (some lines
     are cube-backed, others already have their map via Import Map): chains
-    compute_native_line_maps -> merge_native_results -> convolve_line_maps -> fit_region_mixed -> combine_line_maps.
+    compute_native_line_maps -> merge_native_results -> convolve_reproject_naman -> combine_line_maps.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per
@@ -1772,20 +1574,24 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
 
     # Cheap peek at the final common-grid size (both sources), so
     # progress_callback's total is accurate from the start.
-    wcses_peek, shapes_peek, scales_peek = [], [], []
-    for c, _line in cubes_and_lines:
+    wcses_peek, shapes_peek, scales_peek, wavelengths_peek = [], [], [], []
+    for c, line in cubes_and_lines:
         wcses_peek.append(_make_2d_wcs(c.header))
         shapes_peek.append((c.cube.shape[1], c.cube.shape[2]))
         scales_peek.append(_get_pixel_size_arcsec(c.header))
+        wavelengths_peek.append(line["wavelength"])
     for line in imported_lines:
         imp = line["imported_map"]
         wcses_peek.append(imp["wcs"])
         shapes_peek.append(imp["shape"])
         scales_peek.append(imp["pix_arcsec"])
+        wavelengths_peek.append(line["wavelength"])
     if any(w is None for w in wcses_peek) or any(s is None for s in scales_peek):
         raise ValueError("Could not read a celestial WCS/pixel scale from every line.")
-    _dst_wcs_peek, dst_shape_peek = build_target_wcs_for_batch(
-        list(zip(wcses_peek, shapes_peek)), max(scales_peek))
+    # Reference grid = longest-wavelength line's own native shape (Naman's
+    # own convention, matching convolve_reproject_naman's choice for real).
+    ref_idx_peek = int(np.argmax(wavelengths_peek))
+    dst_shape_peek = shapes_peek[ref_idx_peek]
     total_units = total_native + dst_shape_peek[0] * dst_shape_peek[1]
 
     def _native_progress(done, _total):
@@ -1823,7 +1629,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
             progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks,
             n_sigma=n_sigma)
     merged = merge_native_results(native, imported_lines, dedup_tol_um=dedup_tol_um)
-    convolved = convolve_line_maps(merged, cancel_flag=cancel_flag)
+    convolved = convolve_reproject_naman(merged)
 
     if region_fit is None:
         region_fit = fit_region_mixed(

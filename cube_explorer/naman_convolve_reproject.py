@@ -227,12 +227,33 @@ def save_reprojected_fits(image, output_header, filename,
 from .analyzer_2d import _make_2d_wcs
 
 
+def _require_all_miri(kept_lines, instruments):
+    """Raise if any line isn't MIRI -- Convolve Maps/Run Map have no
+    confirmed PSF formula for any other instrument yet (NIRSpec in
+    particular), so a silent wrong answer is worse than refusing.
+
+    Args:
+        kept_lines (list): Line dicts, each with a 'wavelength' key.
+        instruments (list): Instrument name per kept_lines entry.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: naming every non-MIRI line's wavelength and instrument.
+    """
+    bad = [(l["wavelength"], inst) for l, inst in zip(kept_lines, instruments) if inst != "MIRI"]
+    if bad:
+        detail = ", ".join(f"{wl:.4f} um ({inst or 'unknown'})" for wl, inst in bad)
+        raise ValueError(
+            "Convolve Maps/Run Map currently support MIRI only (no confirmed "
+            f"PSF formula for other instruments yet): {detail}")
+
+
 def convolution_plan_naman(native_result):
     """Cheap, no-op preview of what convolve_reproject_naman will do to each
-    line -- the same FWHM(") = 0.033*lambda+0.106 arithmetic
-    gaussian_convolve_match uses, without running any convolution or
-    reprojection. Same shape as rotational_diagram_map.convolution_plan(),
-    so the GUI's existing plan-confirmation table works unmodified.
+    line -- the same FWHM(")=0.033*lambda+0.106 arithmetic, without running
+    any convolution or reprojection. Shaped for the GUI's plan-confirmation table.
 
     Args:
         native_result (dict): Output of compute_native_line_maps.
@@ -244,9 +265,10 @@ def convolution_plan_naman(native_result):
             'sigma_arcsec', 'sigma_pix'), 'dropped_lines'.
     """
     kept_lines = native_result["kept_lines"]
-    flux_maps = native_result["native_flux_maps"]
+    shapes = native_result["native_shapes"]
     scales = native_result["native_pix_arcsec"]
     filenames = native_result["cube_filenames"]
+    _require_all_miri(kept_lines, native_result["native_instrument"])
 
     ref_idx = int(np.argmax([line["wavelength"] for line in kept_lines]))
     ref_wl = kept_lines[ref_idx]["wavelength"]
@@ -269,7 +291,7 @@ def convolution_plan_naman(native_result):
                          "native_pix_arcsec": scales[i],
                          "sigma_arcsec": sigma_kernel_arcsec, "sigma_pix": sigma_kernel_pix})
 
-    return {"worst_pix_arcsec": scales[ref_idx], "dst_shape": flux_maps[ref_idx].shape,
+    return {"worst_pix_arcsec": scales[ref_idx], "dst_shape": shapes[ref_idx],
             "per_cube": per_cube, "dropped_lines": native_result["dropped_lines"]}
 
 
@@ -302,6 +324,7 @@ def convolve_reproject_naman(native_result):
     err_maps = native_result["native_flux_error_maps"]
     wcses = native_result["native_wcs"]
     scales = native_result["native_pix_arcsec"]
+    _require_all_miri(kept_lines, native_result["native_instrument"])
 
     ref_idx = int(np.argmax([line["wavelength"] for line in kept_lines]))
     ref_shape = flux_maps[ref_idx].shape
