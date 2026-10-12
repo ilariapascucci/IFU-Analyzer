@@ -286,8 +286,8 @@ class ScaleDialog(QDialog):
 
         layout = QVBoxLayout()
         info = QLabel("Choose the intensity scaling and, optionally, a fixed "
-                      "color-range (drag the slider or type Min/Max). Leave "
-                      "Min/Max blank for Auto.")
+                      "color-range (drag the slider or type vmin/vmax). Leave "
+                      "vmin/vmax blank for Auto.")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -297,7 +297,7 @@ class ScaleDialog(QDialog):
         if current_scale in self.SCALE_TYPES:
             self.scale_combo.setCurrentText(current_scale)
         self.scale_combo.currentTextChanged.connect(self._on_scale_changed)
-        form.addRow("Scale:", self.scale_combo)
+        form.addRow("Scaling:", self.scale_combo)
         layout.addLayout(form)
 
         slider_vmin = vmin if vmin is not None else auto_vmin
@@ -317,7 +317,7 @@ class ScaleDialog(QDialog):
         if vmin is not None:
             self.min_edit.setText(f"{vmin:.6e}")
         self.min_edit.editingFinished.connect(self._sync_slider_from_fields)
-        form2.addRow("Min:", self.min_edit)
+        form2.addRow("vmin:", self.min_edit)
 
         self.max_edit = QLineEdit()
         self.max_edit.setValidator(validator)
@@ -325,7 +325,7 @@ class ScaleDialog(QDialog):
         if vmax is not None:
             self.max_edit.setText(f"{vmax:.6e}")
         self.max_edit.editingFinished.connect(self._sync_slider_from_fields)
-        form2.addRow("Max:", self.max_edit)
+        form2.addRow("vmax:", self.max_edit)
 
         layout.addLayout(form2)
 
@@ -426,12 +426,12 @@ class ScaleDialog(QDialog):
             self.result_vmax = float(max_text) if max_text else None
         except ValueError:
             QMessageBox.warning(self, "Invalid Value",
-                                "Min/Max must be numbers (e.g. 1.5e-16), or left blank for Auto.")
+                                "vmin/vmax must be numbers (e.g. 1.5e-16), or left blank for Auto.")
             return
 
         if (self.result_vmin is not None and self.result_vmax is not None
                 and self.result_vmin >= self.result_vmax):
-            QMessageBox.warning(self, "Invalid Range", "Min must be less than Max.")
+            QMessageBox.warning(self, "Invalid Range", "vmin must be less than vmax.")
             return
 
         super().accept()
