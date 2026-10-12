@@ -4517,7 +4517,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         lay.addWidget(header_label)
 
         headers = ["Line (um)", "File", "Pixel Scale (\"/px)",
-                   "Native PSF (FWHM, \")", "Blur Applied (FWHM, \")"]
+                   "Native PSF (FWHM, \")", "PSF Matching Kernel (FWHM, \")"]
         table = QTableWidget(len(rows), len(headers), dlg)
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -4534,20 +4534,21 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         def _native_psf_arcsec(c):
             """This line's own native angular resolution (MIRI PSF formula),
             before any convolution -- the reference row's value is the
-            common resolution every other row is being blurred to match."""
+            common resolution every other row is being PSF-matched to."""
             return 0.033 * c["wavelength"] + 0.106
 
         def _blur_text(c):
             """
             FWHM of the Gaussian kernel applied to raise this line's own
             native PSF up to the reference line's native PSF (0 for the
-            reference line itself -- it needs no blurring).
+            reference line itself -- it needs no PSF matching).
 
             Args:
                 c (dict): One convolution_plan_naman()['per_cube'] entry.
 
             Returns:
-                text (str): FWHM blur applied, in arcsec and native pixels.
+                text (str): FWHM of the PSF-matching kernel, in arcsec and
+                    native pixels.
             """
             fwhm_arcsec = c["sigma_arcsec"] * gaussian_sigma_to_fwhm
             fwhm_pix = c["sigma_pix"] * gaussian_sigma_to_fwhm

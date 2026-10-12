@@ -484,12 +484,17 @@ class SlicePlotter:
         
         # Log needs v>0. Shift image, vmin, and vmax by one constant so the
         # window width survives (the old bug recomputed vmax from scratch).
+        # The shift is sized off the image's own true minimum, not vmin --
+        # a vmin narrowed above the true floor must still lift every pixel
+        # above zero, or anything left below zero gets masked by LogNorm
+        # instead of clamped to the floor color like every other scale.
         if scale == 'Log':
-            if vmin <= 0:
-                shift = -vmin + 1e-10
+            img_min = float(np.nanmin(image))
+            if img_min <= 0:
+                shift = -img_min + 1e-10
                 image = image + shift
+                vmin = vmin + shift
                 vmax = vmax + shift
-                vmin = 1e-10
             norm = LogNorm(vmin=vmin, vmax=vmax)
         elif scale == 'Sqrt':
             # PowerNorm handles a negative vmin directly, so it needs no
