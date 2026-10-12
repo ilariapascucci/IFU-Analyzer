@@ -472,7 +472,7 @@ def _apply_scale_2d(data, mode):
     return data
 
 
-def plot_rot_diagram(ax, plot_data):
+def plot_rot_diagram(ax, plot_data, highlight=None):
     """
     Draw one rotational diagram on `ax`, the same style as show_results --
     one dashed 1T line, or both 2T components plus their combined curve.
@@ -481,6 +481,9 @@ def plot_rot_diagram(ax, plot_data):
         ax (matplotlib.axes.Axes): Target axes
         plot_data (dict): The fitter's '_plot_data' (E_arr, y_arr, y_err,
             popt1, popt2)
+        highlight (str): "T1" or "T2" to bold that component's line and
+            legend entry -- which map panel a click came from, so it's
+            unambiguous which temperature that panel was showing.
 
     Returns:
         None
@@ -498,10 +501,12 @@ def plot_rot_diagram(ax, plot_data):
         if popt2 is not None:
             a1, t1, a2, t2 = popt2
             y_warm = a1 - e_fit / t1
-            ax.plot(e_fit, y_warm / np.log(10), ":", linewidth=2.5, color="blue",
+            lw1 = 4.0 if highlight == "T1" else 2.5
+            ax.plot(e_fit, y_warm / np.log(10), ":", linewidth=lw1, color="blue",
                     label=f"T1: {t1:.0f} K")
             y_hot = a2 - e_fit / t2
-            ax.plot(e_fit, y_hot / np.log(10), ":", linewidth=2.5, color="orange",
+            lw2 = 4.0 if highlight == "T2" else 2.5
+            ax.plot(e_fit, y_hot / np.log(10), ":", linewidth=lw2, color="orange",
                     label=f"T2: {t2:.0f} K")
             ax.plot(e_fit, model_2T(e_fit, *popt2) / np.log(10), "-", linewidth=3,
                     color="red", label="2-component model")
@@ -511,7 +516,11 @@ def plot_rot_diagram(ax, plot_data):
     ax.set_xlabel("E_u (K)", fontsize=12, fontweight="bold")
     ax.set_ylabel("log(N_u / g_u)", fontsize=12, fontweight="bold")
     ax.grid(True, alpha=0.3, linestyle="--")
-    ax.legend(fontsize=10, loc="upper right")
+    legend = ax.legend(fontsize=10, loc="upper right")
+    if highlight in ("T1", "T2"):
+        for text in legend.get_texts():
+            if text.get_text().startswith(highlight + ":"):
+                text.set_fontweight("bold")
 
 
 class RotDiagMapResultsDialog(QDialog):
@@ -582,11 +591,26 @@ class RotDiagMapResultsDialog(QDialog):
         self.cmap_combo.currentIndexChanged.connect(self._update_plot)
         ctrl.addWidget(self.cmap_combo)
 
-        ctrl.addWidget(QLabel("  Scale:"))
-        self.scale_combo = QComboBox()
-        self.scale_combo.addItems(["Linear", "Log", "Percentile"])
-        self.scale_combo.currentIndexChanged.connect(self._update_plot)
-        ctrl.addWidget(self.scale_combo)
+        # In 2T mode, T1 and T2 get their own independent scale -- e.g. a
+        # faint T2 map in Log next to a well-behaved T1 map in Linear.
+        if self.fit2t:
+            ctrl.addWidget(QLabel("  Scale (T1):"))
+            self.scale_combo_t1 = QComboBox()
+            self.scale_combo_t1.addItems(["Linear", "Log", "Percentile"])
+            self.scale_combo_t1.currentIndexChanged.connect(self._update_plot)
+            ctrl.addWidget(self.scale_combo_t1)
+
+            ctrl.addWidget(QLabel("  Scale (T2):"))
+            self.scale_combo_t2 = QComboBox()
+            self.scale_combo_t2.addItems(["Linear", "Log", "Percentile"])
+            self.scale_combo_t2.currentIndexChanged.connect(self._update_plot)
+            ctrl.addWidget(self.scale_combo_t2)
+        else:
+            ctrl.addWidget(QLabel("  Scale:"))
+            self.scale_combo = QComboBox()
+            self.scale_combo.addItems(["Linear", "Log", "Percentile"])
+            self.scale_combo.currentIndexChanged.connect(self._update_plot)
+            ctrl.addWidget(self.scale_combo)
 
         self.pixel_btn = QPushButton("✓ Pixel Select ON")
         self.pixel_btn.setCheckable(True)
@@ -659,16 +683,23 @@ class RotDiagMapResultsDialog(QDialog):
         if self.fit2t and hot_key is not None:
             ax_left = self.fig.add_subplot(121)
             ax_right = self.fig.add_subplot(122)
-            self._draw_panel(ax_left, key, f"{label} (T1)", cbar_label)
-            self._draw_panel(ax_right, hot_key, f"{label} (T2)", cbar_label)
+            self._draw_panel(ax_left, key, f"{label} (T1)", cbar_label, self.scale_combo_t1.currentText())
+            self._draw_panel(ax_right, hot_key, f"{label} (T2)", cbar_label, self.scale_combo_t2.currentText())
+            # Remembered so a click can tell which component's map it landed
+            # on (see _on_canvas_click) -- only meaningful with two panels.
+            self._ax_left, self._ax_right = ax_left, ax_right
         else:
             ax = self.fig.add_subplot(111)
-            self._draw_panel(ax, key, label, cbar_label)
+            # Lines used/Fit mask stay single-panel even in 2T mode (no
+            # hot_key) -- T1's own scale combo covers that one panel.
+            scale_type = self.scale_combo_t1.currentText() if self.fit2t else self.scale_combo.currentText()
+            self._draw_panel(ax, key, label, cbar_label, scale_type)
+            self._ax_left, self._ax_right = None, None
 
         self.fig.tight_layout()
         self.canvas.draw()
 
-    def _draw_panel(self, ax, key, title, cbar_label):
+    def _draw_panel(self, ax, key, title, cbar_label, scale_type):
         """
         Draw one map parameter on `ax`, with its own colorbar.
 
@@ -677,6 +708,7 @@ class RotDiagMapResultsDialog(QDialog):
             key (str): Result dict key to plot ("status" draws as binary)
             title (str): Axes title (overridden for "status")
             cbar_label (str): Colorbar label
+            scale_type (str): This panel's own "Linear"/"Log"/"Percentile"
 
         Returns:
             None
@@ -690,7 +722,7 @@ class RotDiagMapResultsDialog(QDialog):
             if key != "n_lines":
                 data = np.where(status == STATUS_OK, data, np.nan)
             cmap = self.cmap_combo.currentText()
-            data = self._apply_scale(data)
+            data = self._apply_scale(data, scale_type)
 
         im = ax.imshow(data, origin="lower", cmap=cmap)
         ax.set_title(title, fontweight="bold")
@@ -698,17 +730,18 @@ class RotDiagMapResultsDialog(QDialog):
         ax.set_ylabel("y [pixel]")
         self.fig.colorbar(im, ax=ax).set_label(cbar_label)
 
-    def _apply_scale(self, data):
+    def _apply_scale(self, data, scale_type):
         """
-        Apply the Scale combo to a 2D array (NaNs preserved).
+        Apply a scale type to a 2D array (NaNs preserved).
 
         Args:
             data (np.ndarray): The map values
+            scale_type (str): "Linear", "Log", or "Percentile"
 
         Returns:
             scaled (np.ndarray): Log10, percentile-clipped, or unchanged
         """
-        return _apply_scale_2d(data, self.scale_combo.currentText())
+        return _apply_scale_2d(data, scale_type)
 
     def _on_canvas_click(self, event):
         """
@@ -729,15 +762,23 @@ class RotDiagMapResultsDialog(QDialog):
         x, y = int(round(event.xdata)), int(round(event.ydata))
         ny, nx = self.result["status"].shape
         if 0 <= x < nx and 0 <= y < ny:
-            self._show_pixel_diagram(x, y)
+            if event.inaxes is self._ax_left:
+                highlight = "T1"
+            elif event.inaxes is self._ax_right:
+                highlight = "T2"
+            else:
+                highlight = None
+            self._show_pixel_diagram(x, y, highlight)
 
-    def _show_pixel_diagram(self, x, y):
+    def _show_pixel_diagram(self, x, y, highlight=None):
         """
         Pop a dialog with pixel (x, y)'s diagram and 1T result.
 
         Args:
             x (int): Spatial x index
             y (int): Spatial y index
+            highlight (str): "T1"/"T2" to bold that component in the plot's
+                legend (which map panel the click landed on), or None.
 
         Returns:
             None
@@ -774,7 +815,7 @@ class RotDiagMapResultsDialog(QDialog):
 
         if out["status"] == STATUS_OK and "_plot_data" in out["results"]:
             fig = Figure(figsize=(6.5, 5), dpi=100)
-            plot_rot_diagram(fig.add_subplot(111), out["results"]["_plot_data"])
+            plot_rot_diagram(fig.add_subplot(111), out["results"]["_plot_data"], highlight=highlight)
             fig.tight_layout()
             canvas = FigureCanvasQTAgg(fig)
             box = QWidget()

@@ -1002,6 +1002,18 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             errs = result["errs"]
             pymc_diag_2T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
 
+        # Canonicalize component order: T1 is always the cooler component.
+        # curve_fit's own bounds (_bounds_2T) don't enforce T1<=T2 -- only
+        # the PyMC path's prior (T2 ~ Uniform(T1, t_cap)) does -- so swap
+        # both the value and error pairs together whenever curve_fit
+        # converged the other way. This makes "T1=cooler" consistently
+        # true everywhere downstream (map, Run Fit, Show Statistics, FITS
+        # export, and the plot below), not just on average.
+        if T1_2 > T2_2:
+            a1_2, T1_2, a2_2, T2_2 = a2_2, T2_2, a1_2, T1_2
+            errs = [errs[2], errs[3], errs[0], errs[1]]
+        popt2 = [a1_2, T1_2, a2_2, T2_2]
+
         da1_2, dT1_2, da2_2, dT2_2 = errs
 
         N1_tot, dN1_tot = _derive_column(a1_2, da1_2, T1_2, dT1_2)
@@ -1034,7 +1046,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "y_err": y_err,
             "is_ul_mask": is_ul_mask,
             "popt1": list(popt1) if not use_pymc else [a1, T1],
-            "popt2": list(popt2) if not use_pymc else list(result["popt"]),
+            "popt2": list(popt2),
         }
     else:
         results["_plot_data"] = {
