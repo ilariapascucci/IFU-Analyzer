@@ -661,7 +661,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.run_map_btn = QPushButton("Run Map")
         self.run_map_btn.setToolTip(
             "Run the same fit at every pixel of the loaded cube(s). Detections "
-            "only, 1T. Load cube(s) with the Load FITS Files button.")
+            "only, 1T. Load cube(s) with the Load Cubes button.")
         self.run_map_btn.clicked.connect(self.run_rotational_map)
         self.run_map_btn.setEnabled(False)
         bottom_layout.addWidget(self.run_map_btn)
@@ -691,7 +691,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.import_csv_btn = QPushButton("Import from CSV")
         self.import_csv_btn.clicked.connect(self.import_csv_file)
 
-        self.import_map_btn = QPushButton("Import Maps")
+        self.import_map_btn = QPushButton("Load Maps")
         self.import_map_btn.setToolTip(
             "Attach one or more already-reduced flux maps (line-integrated, already "
             "convolved/resolution-matched elsewhere), alongside lines computed normally "
@@ -700,7 +700,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         )
         self.import_map_btn.clicked.connect(self.import_map_line)
 
-        self.load_fits_btn = QPushButton("Load FITS Files")
+        self.load_fits_btn = QPushButton("Load Cubes")
         self.load_fits_btn.setToolTip(
             "Select the source FITS cube(s) for Calculate Fluxes. Loaded once and reused "
             "on every click, instead of re-prompting each time."
@@ -792,11 +792,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.lines_group = CollapsibleButtonGroup("Lines")
         self.lines_group.add_button(self.fetch_btn)
         self.lines_group.add_button(self.import_csv_btn)
-        self.lines_group.add_button(self.import_map_btn)
         collapsible_layout.addWidget(self.lines_group)
 
         self.source_group = CollapsibleButtonGroup("Source")
         self.source_group.add_button(self.load_fits_btn)
+        self.source_group.add_button(self.import_map_btn)
         self.source_group.add_button(self.load_contam_btn)
         collapsible_layout.addWidget(self.source_group)
 
@@ -2096,7 +2096,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not self.loaded_batch_cubes:
             QMessageBox.warning(
                 self, "No FITS Files Loaded",
-                "Click 'Load FITS Files' first to select the source spectra for these lines."
+                "Click 'Load Cubes' first to select the source spectra for these lines."
             )
             return
 
@@ -3674,8 +3674,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not cubes and not imported_rows:
             QMessageBox.warning(
                 self, "No Cube",
-                "Load one or more FITS cubes first (Load FITS Files), or add "
-                "a line via Import Map.")
+                "Load one or more FITS cubes first (Load Cubes), or add "
+                "a line via Load Maps.")
             return
 
         if discarded_ul:
@@ -4057,8 +4057,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not cubes and not imported_rows:
             QMessageBox.warning(
                 self, "No Cube",
-                "Load one or more FITS cubes first (Load FITS Files), or add "
-                "a line via Import Map.")
+                "Load one or more FITS cubes first (Load Cubes), or add "
+                "a line via Load Maps.")
             return
 
         if discarded_ul:
