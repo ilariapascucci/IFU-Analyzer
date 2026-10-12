@@ -5,6 +5,7 @@ RotDiagMapWorker runs create_rotational_diagram_map off the GUI thread.
 RotDiagMapResultsDialog shows the maps and re-fits a pixel's diagram on click.
 """
 
+import html
 import traceback
 from types import SimpleNamespace
 
@@ -448,6 +449,28 @@ def pixel_result_text(x, y, out):
     return head + _fit_block(out["results"]) + f"\nLines used: {out['n_lines']}\n{bar}\n"
 
 
+def pixel_result_html(text, highlight=None):
+    """
+    Turn a pixel result text into HTML that bolds one 2T component's lines.
+    The bold lines are the T and Ncol lines of the clicked map panel.
+
+    Args:
+        text (str): The text from pixel_result_text
+        highlight (str): "T1" or "T2" to bold that component, or None for no bold
+
+    Returns:
+        html_text (str): HTML for a QTextEdit, with line breaks and spaces kept
+    """
+    bold_prefixes = ()
+    if highlight in ("T1", "T2"):
+        bold_prefixes = (f"{highlight} = ", f"Ncol{highlight[1]} = ")
+    lines = []
+    for line in text.splitlines():
+        escaped = html.escape(line)
+        lines.append(f"<b>{escaped}</b>" if line.startswith(bold_prefixes) else escaped)
+    return '<div style="white-space: pre-wrap;">' + "\n".join(lines) + "</div>"
+
+
 def _apply_scale_2d(data, mode):
     """
     Apply a linear/log/percentile display scale to a 2D array (NaNs preserved).
@@ -810,7 +833,7 @@ class RotDiagMapResultsDialog(QDialog):
 
         text = QTextEdit()
         text.setReadOnly(True)
-        text.setText(pixel_result_text(x, y, out))
+        text.setHtml(pixel_result_html(pixel_result_text(x, y, out), highlight))
         lay.addWidget(text, 1)
 
         if out["status"] == STATUS_OK and "_plot_data" in out["results"]:
