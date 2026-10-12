@@ -17,8 +17,8 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 import numpy as np
 from scipy.optimize import curve_fit
 
-from .unit_converter import get_wave_unit, convert_area_to_cgs, extract_value_from_quantity
-from .utils import safe_worker_count
+from .unit_converter import get_wave_unit, convert_area_to_cgs, extract_value_from_quantity, convert_wavelength
+from .utils import safe_worker_count, detect_instrument_from_header, get_spectral_resolution
 
 
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
@@ -914,6 +914,52 @@ def fit_status_map(results: dict) -> np.ndarray:
     return status
 
 
+def _upper_limit_sigma(header, unit, global_guess, lambda_0, x1, x2):
+    """
+    Pick the Gaussian width that every upper limit in a Gaussian map uses.
+    MIRI and NIRSpec use the width from their spectral resolution R(lambda), at the line center.
+    Other instruments have no R(lambda) here, so they use the sigma of the global fit.
+
+    Args:
+        header (astropy.io.fits.Header): FITS header that names the instrument, or None
+        unit (str): Wavelength unit of the cube, for example 'um'
+        global_guess (tuple): (amplitude, center, sigma) of the global fit, or None
+        lambda_0 (float): Line wavelength given by the user, or None
+        x1 (float): Left edge of the fit window
+        x2 (float): Right edge of the fit window
+
+    Returns:
+        ul_sigma (float): Gaussian sigma for the upper-limit area, in the wavelength unit of the cube
+
+    Raises:
+        ValueError: if the wavelength unit of a MIRI or NIRSpec cube is not valid, if the NIRSpec
+            grating is not known, or if an instrument without R(lambda) has no global fit
+    """
+    instrument = detect_instrument_from_header(header) if header is not None else None
+    if instrument in ('MIRI', 'NIRSpec'):
+        to_um = float(convert_wavelength(1.0, unit, 'um'))
+        if global_guess is not None:
+            center = float(global_guess[1])
+        elif lambda_0 is not None:
+            center = float(lambda_0)
+        else:
+            center = (x1 + x2) / 2
+        resolution = get_spectral_resolution(center * to_um, instrument, header)
+        sigma = (center / resolution) / 2.355
+        print(f"Upper-limit width: R-based sigma = {sigma:.5f} {unit} "
+              f"(R = {resolution:.0f} at {center:.4f} {unit}, {instrument}).")
+        return sigma
+
+    if global_guess is None:
+        raise ValueError(
+            "Cannot choose a width for the upper limits: this cube has no spectral resolution "
+            "R(lambda) here and the global fit to the summed spectrum failed.")
+    sigma = float(global_guess[2])
+    print(f"Upper-limit width: global-fit sigma = {sigma:.5f} {unit} "
+          f"(no R(lambda) for {instrument or 'an unknown instrument'}).")
+    return sigma
+
+
 def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Optional[np.ndarray],
                     ctx: dict):
     """
@@ -926,7 +972,8 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
         spectra_noise_row (array): Flux in the noise window for this row, shape (n_noise, n_x), or None
         ctx (dict): Settings shared by every row: 'x_data' (fit-window wavelengths), 'noise_x'
             (noise-window wavelengths or None), 'global_guess' (seed (amp, center, sigma) or None),
-            'fac_above_stdres', 'header', 'unit' (wavelength unit) and 'flux_unit'
+            'ul_sigma' (width for every upper limit), 'fac_above_stdres', 'header',
+            'unit' (wavelength unit) and 'flux_unit'
 
     Returns:
         row (tuple): (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row,
@@ -937,6 +984,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
     x_data = ctx['x_data']
     noise_x = ctx['noise_x']
     global_guess = ctx['global_guess']
+    ul_sigma = ctx['ul_sigma']
     fac_above_stdres = ctx['fac_above_stdres']
     header = ctx['header']
     unit = ctx['unit']
@@ -959,16 +1007,15 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
     fail_row = np.zeros(n_x, dtype=bool)  # Fit-could-not-be-made flag (subset of uplim_row)
     residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
 
-    def _mark_upper_limit(ix, std, sigma_for_area, center_for_area, fit_failed=False):
+    def _mark_upper_limit(ix, std, center_for_area, fit_failed=False):
         """
         Record a fac_above_stdres-sigma upper limit for pixel ix, NaN-ing the fitted-parameter
-        maps. Shared by every non-detection path below; only the args below (and whether the
-        fit machinery itself broke, vs. just found nothing) differ per call site.
+        maps. Every non-detection path below uses it, and all of them use the same width (ul_sigma).
+        Only the noise, the line center, and whether the fit itself broke differ per call site.
 
         Args:
             ix (int): Pixel column index within this row
             std (float): Noise standard deviation used to scale the upper-limit amplitude
-            sigma_for_area (float): Sigma used for the upper-limit area formula
             center_for_area (float): Line center used for the CGS area conversion
             fit_failed (bool): True if the fit machinery itself never ran/converged
 
@@ -976,9 +1023,9 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             None
         """
         upper_limit_amplitude = fac_above_stdres * std
-        area_native = upper_limit_amplitude * sigma_for_area * np.sqrt(2 * np.pi)
+        area_native = upper_limit_amplitude * ul_sigma * np.sqrt(2 * np.pi)
         if header is not None:
-            area_cgs = convert_area_to_cgs(upper_limit_amplitude, sigma_for_area, center_for_area, header, unit, flux_unit)
+            area_cgs = convert_area_to_cgs(upper_limit_amplitude, ul_sigma, center_for_area, header, unit, flux_unit)
             area_row[ix] = area_cgs if area_cgs is not None else area_native
         else:
             area_row[ix] = area_native
@@ -1029,7 +1076,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 # leave every output NaN (treat as outside FOV).
                 continue
             # Too few samples to fit at all, not a weak line
-            _mark_upper_limit(ix, std_temp, x_range / 4.0, (x1 + x2) / 2, fit_failed=True)
+            _mark_upper_limit(ix, std_temp, (x1 + x2) / 2, fit_failed=True)
             continue
 
         # ===== STEP 2: ESTIMATE INITIAL PARAMETERS =====
@@ -1047,19 +1094,18 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             if guess is None:
                 # Could not form an initial guess. Only the area (an upper limit) means
                 # anything here; a limit amplitude and midpoint center would be invented numbers.
-                _mark_upper_limit(ix, std_val, x_range / 4.0, (x1 + x2) / 2, fit_failed=True)
+                _mark_upper_limit(ix, std_val, (x1 + x2) / 2, fit_failed=True)
                 continue
             amp_guess, center_guess, sigma_guess = guess
 
-        # STEP 2c: Cap sigma_guess at 1-sigma so weak/upper-limit fits stay
-        # conservative rather than overestimating intensity.
+        # STEP 2c: Cap the starting sigma at 1% of the window, so weak fits start narrow.
         sigma_guess = min(sigma_guess, 0.01 * x_range)
 
         # STEP 2d: Validate that a positive peak exists
         # Require positive peak
         if np.nanmax(y_corrected) <= 0:
             # Genuine non-detection, not an estimation failure
-            _mark_upper_limit(ix, std_val, x_range / 4.0, (x1 + x2) / 2)
+            _mark_upper_limit(ix, std_val, (x1 + x2) / 2)
             continue
 
         # ===== STEP 3: DEFINE BOUNDS ===== sigma_lower stays independent of x_range;
@@ -1082,10 +1128,9 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
         local_mask = (x_data >= center_lower) & (x_data <= center_upper)
         local_max = np.nanmax(y_corrected[local_mask]) if np.any(local_mask) else np.nan
         if not (local_max > 0):
-            # Match the center/sigma STEP 3b would hand _mark_upper_limit below.
+            # Match the center STEP 3b would hand _mark_upper_limit below.
             limit_center = center_global if global_guess is not None else center_guess
-            limit_sigma = sigma_global if global_guess is not None else sigma_guess
-            _mark_upper_limit(ix, std_val, limit_sigma, limit_center)
+            _mark_upper_limit(ix, std_val, limit_center)
             continue
 
         bounds = (
@@ -1171,22 +1216,14 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 residuals_row[:, ix] = normalized_residuals.astype(np.float32)
             else:
                 # UPPER LIMIT: converged but too weak, or the fit machinery never ran.
-                # Upper limit = fac_above_stdres * std * sigma_guess * sqrt(2*pi).
-                _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2,
+                # Upper limit = fac_above_stdres * std * ul_sigma * sqrt(2*pi).
+                _mark_upper_limit(ix, std_val, center_guess if 'center_guess' in locals() else (x1 + x2) / 2,
                                  fit_failed=not fit_success)
 
         except Exception:
             # ===== EXCEPTION: Fitting algorithm failed =====
             fail_row[ix] = True
-            if 'sigma_guess' in locals():
-                _mark_upper_limit(ix, std_val, sigma_guess, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
-            else:
-                amp_row[ix] = np.nan
-                area_row[ix] = np.nan
-                ctr_row[ix] = np.nan
-                sig_row[ix] = np.nan
-                fwhm_row[ix] = np.nan
-                uplim_row[ix] = True
+            _mark_upper_limit(ix, std_val, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
 
     return (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, amp_err_row, area_err_row,
             qual_row, succ_row, det_row, uplim_row, fail_row, residuals_row)
@@ -1402,10 +1439,13 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     
     print(f"Fitting Gaussians to {total_pixels} pixels in wavelength range [{lam_min:.4f}, {lam_max:.4f}]")
     
+    # One width for every upper limit, chosen once here so no pixel has its own guess.
+    ul_sigma = _upper_limit_sigma(header, unit, global_guess, lambda_0_orig, x1, x2)
+
     # ========== MAIN PER-PIXEL FITTING LOOP ==========
     # Everything a row needs besides its own spectra, as one picklable dict for the workers.
     ctx = {
-        'x_data': x_data, 'noise_x': noise_x, 'global_guess': global_guess,
+        'x_data': x_data, 'noise_x': noise_x, 'global_guess': global_guess, 'ul_sigma': ul_sigma,
         'fac_above_stdres': fac_above_stdres, 'header': header, 'unit': unit, 'flux_unit': flux_unit,
     }
 
