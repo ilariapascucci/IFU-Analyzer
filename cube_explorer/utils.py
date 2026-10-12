@@ -2,9 +2,17 @@
 Utility functions and constants for the Cube Explorer
 """
 
+from functools import lru_cache
+from pathlib import Path
+
 import numpy as np
 import astropy.units as u
+from astropy.io import fits
 from .unit_converter import convert_wavelength
+
+# Resolving-power tables from the JWST docs (Jakobsen et al. 2022), one file per disperser.
+NIRSPEC_DISP_DIR = Path(__file__).resolve().parent.parent / 'nirspec_disp'
+NIRSPEC_GRATINGS = ('G140H', 'G140M', 'G235H', 'G235M', 'G395H', 'G395M', 'PRISM')
 
 
 def safe_worker_count(requested_jobs, per_worker_mb=400, usable_fraction=0.6):
@@ -119,9 +127,46 @@ def detect_instrument(hdul):
     return None  # if no match found
 
 
+@lru_cache(maxsize=None)
+def _load_nirspec_curve(grating):
+    """
+    Read the resolving-power table of one NIRSpec disperser from its FITS file.
+    The result is cached, so each file is read one time only.
+    The table has wavelength in microns and R = lambda/delta_lambda (no unit).
+
+    Args:
+        grating (str): Disperser name in upper case, one of NIRSPEC_GRATINGS
+
+    Returns:
+        curve (tuple): Two numpy arrays, (wavelength in microns, resolving power).
+            The wavelength array is strictly increasing.
+
+    Raises:
+        FileNotFoundError: if the FITS file for this grating is not in NIRSPEC_DISP_DIR
+        ValueError: if the table has NaN values or the wavelength does not increase
+    """
+    path = NIRSPEC_DISP_DIR / f'jwst_nirspec_{grating.lower()}_disp.fits'
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Resolving-power table for NIRSpec {grating} not found: {path}")
+
+    with fits.open(path) as hdul:
+        table = hdul['TABLE'].data
+        wavelength = np.array(table['WAVELENGTH'], dtype=float)
+        resolution = np.array(table['R'], dtype=float)
+
+    if not (np.all(np.isfinite(wavelength)) and np.all(np.isfinite(resolution))):
+        raise ValueError(f"Resolving-power table {path.name} has NaN or infinite values.")
+    if np.any(np.diff(wavelength) <= 0):
+        raise ValueError(f"Wavelength in {path.name} does not increase. Interpolation needs it to.")
+    return wavelength, resolution
+
+
 def get_spectral_resolution(wavelength, instrument, header=None):
     """
     Calculate spectral resolution R(lambda) = lambda/delta_lambda for different instruments.
+    MIRI uses a formula. NIRSpec uses the JWST table of its disperser, read from FITS files.
+    For NIRSpec, R at a wavelength between two table rows is a straight line between them.
 
     Args:
         wavelength (float): Wavelength, in microns
@@ -129,19 +174,19 @@ def get_spectral_resolution(wavelength, instrument, header=None):
         header (astropy.io.fits.Header): FITS header. Required for NIRSpec, to read the grating
 
     Returns:
-        resolution (float): Spectral resolution R(lambda) at this wavelength
+        resolution (float): Spectral resolution R(lambda) at this wavelength. For a NIRSpec
+            wavelength outside the table, this is R at the nearest end of the table.
 
     Raises:
-        ValueError: If instrument cannot be detected or grating is invalid
+        ValueError: If instrument cannot be detected, grating is invalid, or the NIRSpec
+            wavelength is NaN or infinite
+        FileNotFoundError: If the table file of the NIRSpec grating is missing
 
     Formulas:
         MIRI: R(lambda) = 4603 - 128 * lambda
-        NIRSpec (from grating):
-            - G140H, G235H, G395H: R ~ 2700
-            - G140M, G235M, G395M: R ~ 1000
-            - PRISM: R ~ 100
+        NIRSpec: R from the table of the GRATING header value (nirspec_disp/ folder)
     """
-    
+
     instrument = instrument.upper()
 
     if instrument == 'MIRI':
@@ -153,21 +198,19 @@ def get_spectral_resolution(wavelength, instrument, header=None):
             raise ValueError("NIRSpec requires FITS header for grating information")
 
         grating = header.get('GRATING', '').upper()
-
-        # High resolution gratings: R ~ 2700
-        if grating in ['G140H', 'G235H', 'G395H']:
-            return 2700
-
-        # Medium resolution gratings: R ~ 1000
-        elif grating in ['G140M', 'G235M', 'G395M']:
-            return 1000
-
-        # Low resolution prism: R ~ 100
-        elif grating == 'PRISM':
-            return 100
-
-        else:
+        if grating not in NIRSPEC_GRATINGS:
             raise ValueError(f"Unknown NIRSpec grating: {grating}")
+        if not np.isfinite(wavelength):
+            raise ValueError(f"NIRSpec wavelength must be finite, got {wavelength}.")
+
+        table_wavelength, table_resolution = _load_nirspec_curve(grating)
+        low, high = table_wavelength[0], table_wavelength[-1]
+        if not low <= wavelength <= high:
+            # The table does not reach this wavelength. Use R at the nearest end and say so.
+            end = low if wavelength < low else high
+            print(f"[WARNING] NIRSpec {grating}: {wavelength:.4f} um is outside the resolving-power "
+                  f"table ({low:.3f}-{high:.3f} um). Using R at {end:.3f} um instead.")
+        return float(np.interp(wavelength, table_wavelength, table_resolution))
 
     else:
         raise ValueError(f"Instrument {instrument} not yet supported for spectral resolution")
