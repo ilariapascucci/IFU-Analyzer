@@ -2308,6 +2308,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         vmax = auto_vmax if stored_vmax is None else stored_vmax
         if vmin == vmax:
             vmax = vmin + 1.0
+        view_vmin, view_vmax = vmin, vmax  # as the user sees them, before any Log shift
 
         image_to_show = image
         if scale == 'Log':
@@ -2428,7 +2429,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             f"max={mx:.3e}\n"
             f"mean={mean:.3e}\n"
             f"sum={total_sum:.3e}\n"
-            f"std={std:.3e}"
+            f"std={std:.3e}\n"
+            f"\n"
+            f"Scaling: {scale}\n"
+            f"vmin={view_vmin:.3e}\n"
+            f"vmax={view_vmax:.3e}"
         )
 
         # 6. Refresh Canvas

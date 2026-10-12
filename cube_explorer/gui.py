@@ -1734,12 +1734,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                            vmin=vmin, vmax=vmax)
         
         # Intensity stats with units -- always the data's own true linear
-        # values, regardless of the active display scale/range (see View below).
+        # values, regardless of the active display scale/range (see Scaling below).
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
         total_sum, std = np.nansum(image), np.nanstd(image)
         unit_raw = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
         unit = clean_flux_unit(unit_raw)
-        # View: the color range the plot actually uses -- distinct from the
+        # Scaling: the color range the plot actually uses -- distinct from the
         # data stats above, which never change with scale/range.
         view_vmin = mn if vmin is None else vmin
         view_vmax = mx if vmax is None else vmax
@@ -1751,9 +1751,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             f"sum={total_sum:.3e}\n"
             f"std={std:.3e}\n"
             f"\n"
-            f"View: {scale}\n"
-            f"min={view_vmin:.3e}\n"
-            f"max={view_vmax:.3e}\n"
+            f"Scaling: {scale}\n"
+            f"vmin={view_vmin:.3e}\n"
+            f"vmax={view_vmax:.3e}\n"
         )
 
         # Force redraw
