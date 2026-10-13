@@ -171,8 +171,8 @@ def build_line_map_header(source_header, shape, wavelength=None, molecule=None, 
 def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, identity_header=None):
     """
     Shared header for a resolution-matched (convolved + reprojected) 2D
-    output -- the 2D viewer's Pair/Batch/Naman convolve exports all route
-    through this instead of three near-identical copies.
+    output -- the 2D viewer's Pair/Batch convolve exports all route
+    through this instead of near-identical copies.
 
     Args:
         dst_wcs_or_header: The output grid's astropy.wcs.WCS, or an

@@ -1453,7 +1453,7 @@ class LineFluxMapDialog(QDialog):
             molecule (str): Species name.
             parent (QWidget): Parent widget.
             error_map (np.ndarray): Per-pixel error, for export's ERR
-                extension -- None if unavailable (e.g. the Naman viewer).
+                extension -- None if unavailable (e.g. the 2D viewer).
             identity_header: Real cube header, for export's INSTRUME/TARGNAME/
                 etc when source_header is a bare common-grid WCS -- None
                 trusts source_header as-is.

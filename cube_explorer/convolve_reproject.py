@@ -1,5 +1,5 @@
 """
-convolved_reproject.ipynb, ported for GUI use.
+convolved_reproject.ipynb, ported for GUI use. Naman's version.
 """
 
 import numpy as np
@@ -116,7 +116,7 @@ def reproject_flux_maps(images, input_headers, output_header):
     reprojected_images = []
     footprints = []
 
-    # FIX (agreed with Naman): convert flux to surface brightness before
+    # FIX (agreed with the algorithm's author): convert flux to surface brightness before
     # reprojecting, back to flux after -- see module docstring.
     omega_out = pixel_solid_angle(output_header)
 
@@ -250,8 +250,8 @@ def _require_all_miri(kept_lines, instruments):
             f"PSF formula for other instruments yet): {detail}")
 
 
-def convolution_plan_naman(native_result):
-    """Cheap, no-op preview of what convolve_reproject_naman will do to each
+def convolution_plan(native_result):
+    """Cheap, no-op preview of what convolve_reproject_maps will do to each
     line -- the same FWHM(")=0.033*lambda+0.106 arithmetic, without running
     any convolution or reprojection. Shaped for the GUI's plan-confirmation table.
 
@@ -295,7 +295,7 @@ def convolution_plan_naman(native_result):
             "per_cube": per_cube, "dropped_lines": native_result["dropped_lines"]}
 
 
-def convolve_reproject_naman(native_result):
+def convolve_reproject_maps(native_result):
     """Run the notebook functions above on a compute_native_line_maps
     result: pick the longest-wavelength kept line as the reference (the
     notebook's own H2_S1 choice, generalized), convolve every other line to

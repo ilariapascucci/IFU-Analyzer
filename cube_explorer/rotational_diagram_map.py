@@ -22,7 +22,7 @@ from .unit_converter import extract_units
 from .utils import safe_worker_count, detect_instrument
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from .analyzer_2d import _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap
-from .naman_convolve_reproject import convolve_reproject_naman, convolution_plan_naman
+from .convolve_reproject import convolve_reproject_maps, convolution_plan
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
     compute_line_fluxes_collective, get_gu, pc, T_CAP as T_CAP_H2,
@@ -967,7 +967,7 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
                              n_sigma=3.0):
     """
     Fit each line at its own cube's native resolution -- stage 1 of the
-    multi-cube map pipeline (see convolve_reproject_naman, combine_line_maps).
+    multi-cube map pipeline (see convolve_reproject_maps, combine_line_maps).
     Exposed separately so Calculate Maps can cache this expensive stage alone.
 
     Args:
@@ -1284,7 +1284,7 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
     pipeline. No detection threshold of its own (that's compute_native_line_maps's n_sigma).
 
     Args:
-        convolved_result (dict): Output of convolve_reproject_naman
+        convolved_result (dict): Output of convolve_reproject_maps
         molecule (str): Species name; 'H2' uses the OPR-capable fitter
         isotopologue (int): HITRAN isotopologue number, non-H2 only
         opr (float): Fixed ortho-para ratio, or None for the fitter default
@@ -1421,7 +1421,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
     """
     Fit a rotational diagram at every pixel of a common grid, one line per
     cube, convolved onto the longest-wavelength line's own native grid -- a
-    thin wrapper chaining compute_native_line_maps -> convolve_reproject_naman -> combine_line_maps.
+    thin wrapper chaining compute_native_line_maps -> convolve_reproject_maps -> combine_line_maps.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
@@ -1467,7 +1467,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
 
     # Precompute the common grid size purely so progress_callback's total
     # matches what it always has (native extraction + final combination) --
-    # compute_native_line_maps/convolve_reproject_naman redo this cheap WCS
+    # compute_native_line_maps/convolve_reproject_maps redo this cheap WCS
     # work themselves, since each stage must stand on its own when called directly.
     kept_pairs_peek, _ = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
     cubes_peek = [c for c, _ in kept_pairs_peek]
@@ -1477,8 +1477,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
     scales_peek = [_get_pixel_size_arcsec(c.header) for c in cubes_peek]
     if any(w is None for w in wcses_peek) or any(s is None for s in scales_peek):
         raise ValueError("Could not read a celestial WCS/pixel scale from every cube's header.")
-    # Reference grid = longest-wavelength line's own native shape (Naman's
-    # own convention, matching convolve_reproject_naman's choice for real).
+    # Reference grid = longest-wavelength line's own native shape (the
+    # convention convolve_reproject_maps uses for real).
     ref_idx_peek = int(np.argmax([l["wavelength"] for _, l in kept_pairs_peek]))
     dst_shape_peek = shapes_peek[ref_idx_peek]
     total_units = total_native + dst_shape_peek[0] * dst_shape_peek[1]
@@ -1515,7 +1515,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         cubes_and_lines, contam_lines=contam_lines, n_jobs=n_jobs, dedup_tol_um=dedup_tol_um,
         progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks,
         n_sigma=n_sigma)
-    convolved = convolve_reproject_naman(native)
+    convolved = convolve_reproject_maps(native)
 
     # Whole-cube-summed anchor fit, the same thing Run Fit does. Reused if
     # the caller already ran it.
@@ -1544,7 +1544,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
     """
     create_rotational_diagram_map_multi's mixed-source sibling (some lines
     are cube-backed, others already have their map via Import Map): chains
-    compute_native_line_maps -> merge_native_results -> convolve_reproject_naman -> combine_line_maps.
+    compute_native_line_maps -> merge_native_results -> convolve_reproject_maps -> combine_line_maps.
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per
@@ -1588,8 +1588,8 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
         wavelengths_peek.append(line["wavelength"])
     if any(w is None for w in wcses_peek) or any(s is None for s in scales_peek):
         raise ValueError("Could not read a celestial WCS/pixel scale from every line.")
-    # Reference grid = longest-wavelength line's own native shape (Naman's
-    # own convention, matching convolve_reproject_naman's choice for real).
+    # Reference grid = longest-wavelength line's own native shape (the
+    # convention convolve_reproject_maps uses for real).
     ref_idx_peek = int(np.argmax(wavelengths_peek))
     dst_shape_peek = shapes_peek[ref_idx_peek]
     total_units = total_native + dst_shape_peek[0] * dst_shape_peek[1]
@@ -1629,7 +1629,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
             progress_callback=_native_progress, cancel_flag=cancel_flag, region_masks=region_masks,
             n_sigma=n_sigma)
     merged = merge_native_results(native, imported_lines, dedup_tol_um=dedup_tol_um)
-    convolved = convolve_reproject_naman(merged)
+    convolved = convolve_reproject_maps(merged)
 
     if region_fit is None:
         region_fit = fit_region_mixed(

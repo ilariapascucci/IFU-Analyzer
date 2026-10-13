@@ -49,9 +49,9 @@ from .analyzer_2d import (
     _wcs_footprints_overlap,
     _reproject_wcs_to_wcs,
 )
-from .naman_convolve_reproject import (
-    gaussian_convolve_match as _naman_convolve_match,
-    reproject_flux_maps as _naman_reproject_flux_maps,
+from .convolve_reproject import (
+    gaussian_convolve_match as _convolve_match,
+    reproject_flux_maps as _reproject_flux_maps,
 )
 
 
@@ -102,7 +102,7 @@ def _get_line_wavelength_um(header, filename, parent):
     value, ok = QInputDialog.getDouble(
         parent, "Line Wavelength Needed",
         f"'{filename}' has no LINEWAVE header key.\n\n"
-        "Naman's algorithm needs this image's line wavelength (microns) "
+        "The convolution needs this image's line wavelength (microns) "
         "to compute its PSF FWHM. Enter it manually:",
         5.0, 0.1, 30.0, 6)
     return float(value) if ok else None
@@ -110,7 +110,7 @@ def _get_line_wavelength_um(header, filename, parent):
 
 def _non_miri_files(infos):
     """Return (filename, instrument) for every input that isn't MIRI --
-    Naman's PSF formula has no confirmed fit for any other instrument yet.
+    the PSF formula has no confirmed fit for any other instrument yet.
 
     Args:
         infos (list): (filename, header) pairs to check.
@@ -126,12 +126,12 @@ def _non_miri_files(infos):
     return bad
 
 
-def _run_naman_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
-                              ref_img, ref_header, ref_wl):
-    """Convolve conv_img to ref_wl's PSF (Naman's FWHM(\")=0.033*lambda+0.106
+def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
+                       ref_img, ref_header, ref_wl):
+    """Convolve conv_img to ref_wl's PSF (FWHM(\")=0.033*lambda+0.106
     formula) and reproject it onto ref_header's own native grid, using the
     same unmodified gaussian_convolve_match/reproject_flux_maps ported for
-    the rotational-diagram Naman comparison.
+    the rotational-diagram convolution.
 
     Args:
         conv_img (numpy.ndarray): Image to convolve+reproject (shorter wavelength).
@@ -148,14 +148,14 @@ def _run_naman_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
             'sigma_arcsec' (kernel sigma used).
 
     Raises:
-        ValueError: If ref_wl's PSF is not larger than conv_wl's (Naman's
+        ValueError: If ref_wl's PSF is not larger than conv_wl's (the
             formula requires the reference to have the longer wavelength).
     """
     fwhm_in = 0.033 * conv_wl + 0.106
     fwhm_target = 0.033 * ref_wl + 0.106
     if fwhm_target <= fwhm_in:
         raise ValueError(
-            f"Naman's algorithm requires the reference wavelength "
+            f"The convolution requires the reference wavelength "
             f"({ref_wl:.4f} um) to have a larger PSF than the convolved "
             f"image's ({conv_wl:.4f} um) -- got FWHM {fwhm_target:.4f}\" "
             f"<= {fwhm_in:.4f}\".")
@@ -169,8 +169,8 @@ def _run_naman_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
     ref_header["NAXIS1"] = ref_img.shape[1]
     ref_header["NAXIS2"] = ref_img.shape[0]
 
-    convolved = _naman_convolve_match([conv_img], [conv_wl], [ref_wl], [conv_pix])
-    reprojected, footprints = _naman_reproject_flux_maps(convolved, [conv_header], ref_header)
+    convolved = _convolve_match([conv_img], [conv_wl], [ref_wl], [conv_pix])
+    reprojected, footprints = _reproject_flux_maps(convolved, [conv_header], ref_header)
 
     sigma_in = fwhm_in / gaussian_sigma_to_fwhm
     sigma_target = fwhm_target / gaussian_sigma_to_fwhm
@@ -246,18 +246,18 @@ class BatchMatchResolutionDialog(QDialog):
         self.add_btn = QPushButton("+ Add FITS Files")
         self.add_btn.clicked.connect(self.add_files)
         
-        self.process_naman_btn = QPushButton("Process & Download ZIP")
-        self.process_naman_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px;")
-        self.process_naman_btn.setToolTip(
+        self.process_btn = QPushButton("Process & Download ZIP")
+        self.process_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px;")
+        self.process_btn.setToolTip(
             "Convolve every file to the longest-wavelength file's PSF\n"
-            "(Naman's FWHM(\") = 0.033*wavelength_um + 0.106), reprojected\n"
+            "(FWHM(\") = 0.033*wavelength_um + 0.106), reprojected\n"
             "onto that file's own native grid. MIRI only."
         )
-        self.process_naman_btn.clicked.connect(self.process_and_zip_naman)
+        self.process_btn.clicked.connect(self.process_and_zip)
 
         btn_layout.addWidget(self.add_btn)
         btn_layout.addStretch()
-        btn_layout.addWidget(self.process_naman_btn)
+        btn_layout.addWidget(self.process_btn)
         
         layout.addLayout(btn_layout)
         
@@ -297,7 +297,7 @@ class BatchMatchResolutionDialog(QDialog):
                 self.list_widget.takeItem(i)
                 break
                 
-    def process_and_zip_naman(self):
+    def process_and_zip(self):
         """"Process & Download ZIP" button: convolve every file to the
         longest-wavelength file's PSF (FWHM(") = 0.033*wavelength_um + 0.106,
         MIRI only), reprojected onto that file's own native grid.
@@ -315,7 +315,7 @@ class BatchMatchResolutionDialog(QDialog):
             return
 
         zip_path, _ = QFileDialog.getSaveFileName(
-            self, "Save ZIP File", "Convolution_Images_Naman.zip", "ZIP Files (*.zip)")
+            self, "Save ZIP File", "Convolution_Images.zip", "ZIP Files (*.zip)")
         if not zip_path:
             return
 
@@ -390,17 +390,17 @@ class BatchMatchResolutionDialog(QDialog):
                     f"formula for other instruments yet):\n{detail}")
                 return
 
-            # ---- 3. BUNIT check: Naman's reproject_flux_maps assumes -----
+            # ---- 3. BUNIT check: reproject_flux_maps assumes -------------
             #         flux-per-pixel input for every file.
             for info in images_data:
                 if not _is_per_pixel_flux_unit(info['header'].get('BUNIT', '')):
                     QApplication.restoreOverrideCursor()
                     QMessageBox.warning(
-                        self, "Unsupported BUNIT for Naman",
+                        self, "Unsupported BUNIT",
                         f"'{info['filename']}' has BUNIT "
                         f"'{info['header'].get('BUNIT', '')}', not a "
                         "flux-per-pixel unit.\n\n"
-                        "Naman's algorithm assumes flux-per-pixel input for "
+                        "The convolution assumes flux-per-pixel input for "
                         "every file -- use the regular Batch button for "
                         "surface-brightness images.")
                     return
@@ -414,7 +414,7 @@ class BatchMatchResolutionDialog(QDialog):
                 info['wavelength_um'] = wl
             QApplication.setOverrideCursor(Qt.WaitCursor)
 
-            # ---- 5. Longest wavelength = reference (largest Naman PSF) ---
+            # ---- 5. Longest wavelength = reference (largest PSF) ---
             ref_info = max(images_data, key=lambda info: info['wavelength_um'])
             ref_header = ref_info['header'].copy()
             ref_header['NAXIS'] = 2
@@ -433,18 +433,18 @@ class BatchMatchResolutionDialog(QDialog):
                         coverage = np.where(np.isfinite(result_img), 1.0, 0.0)
                         sigma_arcsec = 0.0
                     else:
-                        naman_out = _run_naman_convolve_pair(
+                        convolve_out = _run_convolve_pair(
                             info['data'], info['header'], info['wavelength_um'], info['pix_scale'],
                             ref_info['data'], ref_header, ref_info['wavelength_um'])
-                        result_img = naman_out['image']
-                        coverage = naman_out['footprint']
-                        sigma_arcsec = naman_out['sigma_arcsec']
+                        result_img = convolve_out['image']
+                        coverage = convolve_out['footprint']
+                        sigma_arcsec = convolve_out['sigma_arcsec']
 
                     if not np.any(np.isfinite(result_img)):
                         QApplication.restoreOverrideCursor()
                         QMessageBox.warning(
                             self, "Empty Result",
-                            f"Naman Convolve produced no valid pixels for "
+                            f"Convolve produced no valid pixels for "
                             f"{info['filename']}.")
                         return
 
@@ -452,12 +452,12 @@ class BatchMatchResolutionDialog(QDialog):
                     if bunit:
                         out_header['BUNIT'] = bunit
                     out_header['HISTORY'] = (
-                        f"Naman Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
+                        f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
                         f"reprojected onto {ref_info['filename']}'s native grid "
                         f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"
                     )
 
-                    out_name = f"matched_naman_{info['filename']}"
+                    out_name = f"matched_{info['filename']}"
                     out_filepath = os.path.join(tmpdir, out_name)
                     cov_header = fits.Header()
                     cov_header['EXTNAME'] = 'COVERAGE'
@@ -488,7 +488,7 @@ class BatchMatchResolutionDialog(QDialog):
                 audit_lines.append(f"  {name}: ratio = {ratio:.6f}")
 
             final_msg = (
-                f"Naman Batch Convolution complete!\n\n"
+                f"Batch Convolution complete!\n\n"
                 f"All {len(images_data)} images reprojected onto "
                 f"{ref_info['filename']}'s native grid "
                 f"({ref_info['wavelength_um']:.4f} um reference, "
@@ -1007,13 +1007,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         )
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
 
-        self.match_res_naman_btn = QPushButton("Pair")
-        self.match_res_naman_btn.setToolTip(
+        self.match_res_btn = QPushButton("Pair")
+        self.match_res_btn.setToolTip(
             "Convolve the shorter-wavelength panel to match the longer-\n"
             "wavelength panel's PSF (FWHM(\") = 0.033*wavelength_um + 0.106),\n"
             "reprojected onto its own native grid. MIRI only."
         )
-        self.match_res_naman_btn.clicked.connect(self.prompt_and_match_resolution_naman)
+        self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
 
     def copy_selection(self, source, target):
         """Copy a region selection onto the other panel, WCS-aware: corners
@@ -1839,7 +1839,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             self.contour_group.add_button(_b)
 
         self.convolution_group = CollapsibleButtonGroup("Convolution")
-        for _b in (self.match_res_naman_btn, self.batch_match_btn):
+        for _b in (self.match_res_btn, self.batch_match_btn):
             self.convolution_group.add_button(_b)
 
         tier1 = QHBoxLayout()
@@ -2744,7 +2744,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         x, y = int(round(event.xdata)), int(round(event.ydata))
         self._handle_pixel_click(x, y, target)
 
-    def prompt_and_match_resolution_naman(self):
+    def prompt_and_match_resolution(self):
         """"Pair" button: convolve the shorter-wavelength panel to the
         longer-wavelength panel's PSF (FWHM(") = 0.033*wavelength_um + 0.106,
         MIRI only), reprojecting onto its own native grid -- no padded WCS.
@@ -2781,8 +2781,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         if not _is_per_pixel_flux_unit(self.header_left.get('BUNIT', '') if self.header_left else '') or \
            not _is_per_pixel_flux_unit(self.header_right.get('BUNIT', '') if self.header_right else ''):
             QMessageBox.warning(
-                self, "Unsupported BUNIT for Naman",
-                "Naman's algorithm assumes both images are flux-per-pixel.\n\n"
+                self, "Unsupported BUNIT",
+                "The convolution assumes both images are flux-per-pixel.\n\n"
                 "Use the regular Pair button for surface-brightness images.")
             return
 
@@ -2796,11 +2796,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             return
         if wl_left == wl_right:
             QMessageBox.warning(
-                self, "Naman Algorithm",
+                self, "Convolution",
                 "Both panels have the same wavelength -- nothing to convolve.")
             return
 
-        # Naman's PSF grows with wavelength, so the longer-wavelength panel
+        # The PSF grows with wavelength, so the longer-wavelength panel
         # is always the reference, regardless of pixel scale.
         if wl_left > wl_right:
             ref_side, conv_side = "left", "right"
@@ -2838,39 +2838,39 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         bunit = fine_header.get('BUNIT', '') if fine_header is not None else ''
 
         info = (
-            f"<b>Naman Convolve: {conv_side.capitalize()} ({conv_wl:.4f} &micro;m) &rarr; "
+            f"<b>Convolve: {conv_side.capitalize()} ({conv_wl:.4f} &micro;m) &rarr; "
             f"{ref_side} ({ref_wl:.4f} &micro;m) PSF</b><br>"
-            f"Naman FWHM({conv_wl:.4f} &micro;m) = {fwhm_in:.4f}\"<br>"
-            f"Naman FWHM({ref_wl:.4f} &micro;m) = {fwhm_target:.4f}\"<br>"
+            f"FWHM({conv_wl:.4f} &micro;m) = {fwhm_in:.4f}\"<br>"
+            f"FWHM({ref_wl:.4f} &micro;m) = {fwhm_target:.4f}\"<br>"
             f"Smoothing &sigma; : {sigma_arcsec:.4f}\"<br>"
             f"Output grid    : {ref_side}'s own native grid "
             f"({ref_img.shape[1]} &times; {ref_img.shape[0]} px)<br>"
             f"BUNIT          : {bunit} &rarr; flux mode<br><br>"
-            "Algorithm: Naman's gaussian_convolve_match/reproject_flux_maps "
+            "Algorithm: gaussian_convolve_match/reproject_flux_maps "
             "(FWHM(\") = 0.033*wavelength_um + 0.106). Proceed?"
         )
-        if QMessageBox.question(self, "Naman Convolve", info) != QMessageBox.Yes:
+        if QMessageBox.question(self, "Convolve", info) != QMessageBox.Yes:
             return
 
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
 
-            naman_out = _run_naman_convolve_pair(
+            convolve_out = _run_convolve_pair(
                 fine_img, fine_header, conv_wl, fine_pix,
                 ref_img, ref_header, ref_wl)
-            result_img = naman_out['image']
-            coverage = naman_out['footprint']
+            result_img = convolve_out['image']
+            coverage = convolve_out['footprint']
 
             if not np.any(np.isfinite(result_img)):
                 QApplication.restoreOverrideCursor()
                 QMessageBox.warning(
                     self, "Empty Result",
-                    "Naman Convolve completed but the output has no valid pixels.")
+                    "Convolve completed but the output has no valid pixels.")
                 return
 
             out_header = build_resample_header(
                 ref_header, result_img.shape, bunit=bunit or None,
-                history=(f"Naman Convolve: sigma={sigma_arcsec:.4f}\"; "
+                history=(f"Convolve: sigma={sigma_arcsec:.4f}\"; "
                         f"reprojected onto {ref_side}'s native grid "
                         f"(ref wavelength {ref_wl:.4f} um)"),
             )
@@ -2901,7 +2901,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         except Exception as e:
             QApplication.restoreOverrideCursor()
-            QMessageBox.critical(self, "Naman Convolve Error",
+            QMessageBox.critical(self, "Convolve Error",
                                  f"An error occurred:\n{e}")
             traceback.print_exc()
         finally:

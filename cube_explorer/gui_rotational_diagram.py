@@ -45,7 +45,7 @@ from .rotational_diagram_map_dialogs import (
     CalculateNativeMapsWorker, CombineMapsWorker, SelectCubeRegionDialog,
 )
 from .fits_export import build_line_map_header, write_fits_product
-from .naman_convolve_reproject import convolve_reproject_naman, convolution_plan_naman
+from .convolve_reproject import convolve_reproject_maps, convolution_plan
 
 
 # Constants
@@ -2744,7 +2744,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         "View" link up would look current when it isn't.
 
         Args:
-            result (dict): Output of convolve_reproject_naman or
+            result (dict): Output of convolve_reproject_maps or
                 create_rotational_diagram_map_multi.
 
         Returns:
@@ -3741,7 +3741,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # even for one line -- the real region-fit cross-check runs in the worker.
         try:
             peek = self._rot_map_plan_peek(cubes_and_lines, imported_rows)
-            plan = convolution_plan_naman(peek)
+            plan = convolution_plan(peek)
         except Exception as exc:
             QMessageBox.critical(self, "Plan Failed", str(exc))
             return
@@ -3775,14 +3775,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
     def _rot_map_plan_peek(self, cubes_and_lines, imported_lines):
         """Cheap, fit-free native_result-shaped peek for a plan preview -- no
-        flux arrays, just the header/WCS fields convolution_plan_naman needs.
+        flux arrays, just the header/WCS fields convolution_plan needs.
 
         Args:
             cubes_and_lines (list): (CubeData, line_dict) pairs, cube-backed only
             imported_lines (list): Line dicts with an 'imported_map' payload
 
         Returns:
-            peek (dict): Just the keys convolution_plan_naman reads
+            peek (dict): Just the keys convolution_plan reads
         """
         lines, wcses, shapes, scales, files, instruments = [], [], [], [], [], []
         for cube, line in cubes_and_lines:
@@ -3815,7 +3815,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Args:
             cubes (list): Currently loaded CubeData objects, for the final cache key
             cubes_and_lines (list): (CubeData, line_dict) pairs matching convolved_result
-            convolved_result (dict): Output of convolve_reproject_naman
+            convolved_result (dict): Output of convolve_reproject_maps
             fit_kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/r_au/min_lines
             imported_lines (list): Line dicts with an 'imported_map' payload,
                 or None/empty.
@@ -4246,7 +4246,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         merged = merge_native_results(subset, imported_rows)
 
         try:
-            plan = convolution_plan_naman(merged)
+            plan = convolution_plan(merged)
         except Exception as exc:
             QMessageBox.critical(self, "Plan Failed", str(exc))
             return
@@ -4258,7 +4258,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            convolved = convolve_reproject_naman(merged)
+            convolved = convolve_reproject_maps(merged)
         except Exception as exc:
             QMessageBox.critical(self, "Convolve Maps Error", str(exc))
             return
@@ -4422,7 +4422,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         )
 
     def _rot_map_geometry_key(self, cubes_and_lines, n_sigma, dedup_tol_um=1e-5, imported_lines=None):
-        """Cache key for compute_native_line_maps/convolve_reproject_naman output
+        """Cache key for compute_native_line_maps/convolve_reproject_maps output
         -- only what determines the maps themselves (cube/imported-file paired
         with wavelength, detection threshold), not fit settings they never see.
 
@@ -4494,7 +4494,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         plain closures so it can't collide with lines_table's sort state.
 
         Args:
-            plan (dict): Convolution/reprojection plan from convolution_plan_naman().
+            plan (dict): Convolution/reprojection plan from convolution_plan().
             window_title (str): Dialog title.
             question (str): Final line asking the user to confirm.
             accept_label (str): Text on the accept button.
@@ -4544,7 +4544,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             reference line itself -- it needs no PSF matching).
 
             Args:
-                c (dict): One convolution_plan_naman()['per_cube'] entry.
+                c (dict): One convolution_plan()['per_cube'] entry.
 
             Returns:
                 text (str): FWHM of the PSF-matching kernel, in arcsec and

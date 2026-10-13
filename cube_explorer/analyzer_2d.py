@@ -72,7 +72,7 @@ def _make_2d_wcs(header):
 def gaussian_convolve_match(image, sigma_pix):
     """Smooth `image` with a Gaussian of width `sigma_pix` (pixels), NaN-aware.
     Not rescaled to force the output's total to match the input exactly --
-    small edge/NaN drift is left as is, same as Naman's own convolution.
+    small edge/NaN drift is left as is, same as the original convolution.
 
     Args:
         image (numpy.ndarray): 2D image to smooth.
