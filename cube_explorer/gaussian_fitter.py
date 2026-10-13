@@ -917,7 +917,7 @@ def fit_status_map(results: dict) -> np.ndarray:
 def _upper_limit_sigma(header, unit, global_guess, lambda_0, x1, x2):
     """
     Pick the Gaussian width that every upper limit in a Gaussian map uses.
-    MIRI and NIRSpec use the width from their spectral resolution R(lambda), at the line center.
+    MIRI, NIRSpec and MUSE use the width from their spectral resolution R(lambda), at the line center.
     Other instruments have no R(lambda) here, so they use the sigma of the global fit.
 
     Args:
@@ -932,11 +932,11 @@ def _upper_limit_sigma(header, unit, global_guess, lambda_0, x1, x2):
         ul_sigma (float): Gaussian sigma for the upper-limit area, in the wavelength unit of the cube
 
     Raises:
-        ValueError: if the wavelength unit of a MIRI or NIRSpec cube is not valid, if the NIRSpec
-            grating is not known, or if an instrument without R(lambda) has no global fit
+        ValueError: if the wavelength unit of a MIRI, NIRSpec or MUSE cube is not valid, if the
+            NIRSpec grating is not known, or if an instrument without R(lambda) has no global fit
     """
     instrument = detect_instrument_from_header(header) if header is not None else None
-    if instrument in ('MIRI', 'NIRSpec'):
+    if instrument in ('MIRI', 'NIRSpec', 'MUSE'):
         to_um = float(convert_wavelength(1.0, unit, 'um'))
         if global_guess is not None:
             center = float(global_guess[1])

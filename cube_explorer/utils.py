@@ -14,6 +14,12 @@ from .unit_converter import convert_wavelength
 NIRSPEC_DISP_DIR = Path(__file__).resolve().parent.parent / 'nirspec_disp'
 NIRSPEC_GRATINGS = ('G140H', 'G140M', 'G235H', 'G235M', 'G395H', 'G395M', 'PRISM')
 
+# MUSE line spread function FWHM in Angstrom, a polynomial in wavelength in Angstrom, from sky
+# lines in the udf-10 datacube (Bacon et al. 2017, Eq. 8). Highest power first. Measured from
+# 4750 to 9350 Angstrom.
+MUSE_LSF_FWHM_COEFFS = (5.866e-8, -9.187e-4, 6.040)
+MUSE_LSF_RANGE_ANGSTROM = (4750.0, 9350.0)
+
 
 def safe_worker_count(requested_jobs, per_worker_mb=400, usable_fraction=0.6):
     """
@@ -165,26 +171,31 @@ def _load_nirspec_curve(grating):
 def get_spectral_resolution(wavelength, instrument, header=None):
     """
     Calculate spectral resolution R(lambda) = lambda/delta_lambda for different instruments.
-    MIRI uses a formula. NIRSpec uses the JWST table of its disperser, read from FITS files.
+    MIRI and MUSE use formulas. NIRSpec uses the JWST table of its disperser, read from FITS files.
     For NIRSpec, R at a wavelength between two table rows is a straight line between them.
 
     Args:
         wavelength (float): Wavelength, in microns
-        instrument (str): Instrument name ('NIRSPEC' or 'MIRI')
-        header (astropy.io.fits.Header): FITS header. Required for NIRSpec, to read the grating
+        instrument (str): Instrument name ('NIRSPEC', 'MIRI' or 'MUSE')
+        header (astropy.io.fits.Header): FITS header. Required for NIRSpec, to read the grating.
+            For MUSE, it gives the observing mode for a warning. It can be None.
 
     Returns:
-        resolution (float): Spectral resolution R(lambda) at this wavelength. For a NIRSpec
-            wavelength outside the table, this is R at the nearest end of the table.
+        resolution (float): Spectral resolution R(lambda) at this wavelength. For a NIRSpec or
+            MUSE wavelength outside the table or the measured range, this is R at the nearest end.
 
     Raises:
-        ValueError: If instrument cannot be detected, grating is invalid, or the NIRSpec
-            wavelength is NaN or infinite
+        ValueError: If instrument cannot be detected, grating is invalid, or the NIRSpec or
+            MUSE wavelength is NaN or infinite
         FileNotFoundError: If the table file of the NIRSpec grating is missing
 
     Formulas:
         MIRI: R(lambda) = 4603 - 128 * lambda
         NIRSpec: R from the table of the GRATING header value (nirspec_disp/ folder)
+        MUSE: R(lambda) = lambda / FWHM(lambda), with FWHM = 5.866e-8 * lambda^2 - 9.187e-4 * lambda
+            + 6.040, lambda and FWHM in Angstrom (Bacon et al. 2017, Eq. 8, udf-10 datacube).
+            The paper measured this on two wide-field datacubes, and it does not name the observing
+            mode. The formula is the same for every MUSE cube and does not use the header.
     """
 
     instrument = instrument.upper()
@@ -192,6 +203,27 @@ def get_spectral_resolution(wavelength, instrument, header=None):
     if instrument == 'MIRI':
         # MIRI spectral resolution formula
         return 4603 - 128 * wavelength
+
+    elif instrument == 'MUSE':
+        if not np.isfinite(wavelength):
+            raise ValueError(f"MUSE wavelength must be finite, got {wavelength}.")
+
+        mode = header.get('ESO INS MODE', None) if header is not None else None
+        mode = str(mode).strip().upper() if mode is not None else None
+        if mode is None or not (mode.startswith('WFM') and mode.endswith('-N')):
+            print(f"[WARNING] MUSE observing mode is {mode or 'unknown'}. The spectral resolution "
+                  f"formula was measured on wide-field nominal-range data. It may be less accurate here.")
+
+        low, high = MUSE_LSF_RANGE_ANGSTROM
+        wavelength_angstrom = float(wavelength) * 1.0e4
+        if not low <= wavelength_angstrom <= high:
+            # The formula was not measured at this wavelength. Use R at the nearest end and say so.
+            end = low if wavelength_angstrom < low else high
+            print(f"[WARNING] MUSE: {wavelength_angstrom:.1f} Angstrom is outside the measured range "
+                  f"({low:.0f}-{high:.0f} Angstrom). Using R at {end:.0f} Angstrom instead.")
+            wavelength_angstrom = end
+        fwhm = np.polyval(MUSE_LSF_FWHM_COEFFS, wavelength_angstrom)
+        return float(wavelength_angstrom / fwhm)
 
     elif instrument == 'NIRSPEC':
         if header is None:
