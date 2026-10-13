@@ -2372,12 +2372,20 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
                     # No set_ticks() call: Astropy auto-locates ticks for the current FOV.
 
+                    # RA goes on the bottom edge when it changes fastest along x.
+                    # A rotated image (V4046) has RA changing along y, so RA goes left.
+                    cx, cy = (nx - 1) / 2, (ny - 1) / 2
+                    center = ax.wcs.pixel_to_world(cx, cy)
+                    ra_step_x = abs(center.spherical_offsets_to(ax.wcs.pixel_to_world(cx + 1, cy))[0].arcsec)
+                    ra_step_y = abs(center.spherical_offsets_to(ax.wcs.pixel_to_world(cx, cy + 1))[0].arcsec)
+                    ra_side, dec_side = ('b', 'l') if ra_step_x >= ra_step_y else ('l', 'b')
+
                     ra.set_axislabel('RA',   minpad=0.5)
                     dec.set_axislabel('Dec', minpad=0.5)
-                    ra.set_ticklabel_position('tblr')
-                    dec.set_ticklabel_position('tblr')
-                    ra.set_axislabel_position('b')
-                    dec.set_axislabel_position('l')
+                    ra.set_ticklabel_position(ra_side)
+                    dec.set_ticklabel_position(dec_side)
+                    ra.set_axislabel_position(ra_side)
+                    dec.set_axislabel_position(dec_side)
                     ra.set_ticks_visible(True)
                     dec.set_ticks_visible(True)
                     ra.set_ticklabel_visible(True)
