@@ -763,7 +763,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self.select_map_region_btn = QPushButton("Select")
         self.select_map_region_btn.setToolTip(
-            "Check at least one line with a matching loaded cube."
+            "Run Calculate Maps on at least one cube-fit line first."
         )
         self.select_map_region_btn.clicked.connect(self.select_rot_map_region)
         self.select_map_region_btn.setEnabled(False)  # Blocked until a line/cube match exists
@@ -3316,12 +3316,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.convolve_maps_btn.setToolTip("Run Calculate Maps first.")
         else:
             self.convolve_maps_btn.setToolTip("")
-        # Draws on a raw cube slice -- cheap proxy here, the real "does a
-        # line actually match a loaded cube" check runs at click time.
-        can_select_region = checked_count >= 1 and bool(self.loaded_batch_cubes)
+        # Draws on the cached Calculate Maps flux map of a cube-fit line.
+        can_select_region = bool(self._rot_map_region_entries()[0])
         self.select_map_region_btn.setEnabled(can_select_region)
         self.select_map_region_btn.setToolTip(
-            "" if can_select_region else "Check at least one line with a matching loaded cube.")
+            "" if can_select_region else "Run Calculate Maps on at least one cube-fit line first.")
 
     def select_all_lines(self):
         """Select all lines in the table (skips rows disabled for missing HITRAN data).
@@ -3901,9 +3900,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self.lines_table.blockSignals(False)
 
     def select_rot_map_region(self):
-        """Draw a region on a raw cube slice at a checked line's peak
-        wavelength, instead of importing one saved elsewhere -- a second way
-        to set the same active region (see import_rot_map_region).
+        """Draw a region on a line's Calculate Maps flux map, instead of
+        importing one saved elsewhere -- a second way to set the same active
+        region (see import_rot_map_region). Needs Calculate Maps to have run.
 
         Args:
             None
@@ -3911,28 +3910,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        line_table, _discarded_ul, err = self._rot_map_gather_lines(min_lines=1)
-        if err:
-            QMessageBox.warning(self, "Select Region", err)
-            return
-        cube_rows = [l for l in line_table if not l.get('imported_map')]
-        if not cube_rows:
+        entries, n_sigma = self._rot_map_region_entries()
+        if not entries:
             QMessageBox.warning(
                 self, "Select Region",
-                "Check at least one cube-backed line (not an imported map).")
-            return
-        pairs, match_err = self._rot_map_match_lines_to_cubes(self.loaded_batch_cubes, cube_rows)
-        if match_err:
-            QMessageBox.warning(self, "Select Region", match_err)
+                "Run Calculate Maps on at least one cube-fit line first -- the region "
+                "is drawn on its flux map. Imported maps carry no fit, so they can't be used.")
             return
 
-        # One combo entry per distinct cube, not per line -- two lines
-        # sharing a cube would otherwise list it twice for no benefit.
-        cube_lines = {}
-        for cube, line in pairs:
-            cube_lines.setdefault(id(cube), (cube, []))[1].append(line["wavelength"])
-
-        dlg = SelectCubeRegionDialog(list(cube_lines.values()), parent=self)
+        dlg = SelectCubeRegionDialog(entries, n_sigma, parent=self)
         if dlg.exec_() != QDialog.Accepted or dlg.result_region is None:
             return
 
@@ -3946,6 +3932,41 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "pixels inside it, on every loaded cube. Any previously computed fluxes were "
             "cleared since they no longer reflect this region. Calculate Maps/Convolve Maps/"
             "Run Map are unaffected -- they always use the whole cube.")
+
+    def _rot_map_region_entries(self):
+        """Per-line data Select Region draws on, taken from the cached
+        Calculate Maps result. Imported-map lines are skipped: they have
+        no fit, so no upper-limit data.
+
+        Args:
+            None
+
+        Returns:
+            result (tuple): (entries, n_sigma) -- entries is a list of dicts
+                (see SelectCubeRegionDialog), sorted by wavelength; empty if
+                Calculate Maps has not run or has no cube-fit line. n_sigma
+                is the detection threshold that run used, or None.
+        """
+        native_cache = getattr(self, "_rot_map_native_cache", None)
+        if native_cache is None:
+            return [], None
+        result = native_cache["result"]
+        entries = []
+        for i, line in enumerate(result["kept_lines"]):
+            if result["native_status_maps"][i] is None:
+                continue
+            fname = result["cube_filenames"][i]
+            wavelength = line["wavelength"]
+            entries.append({
+                "label": f"{wavelength:.4f} um -- {os.path.basename(fname) if fname else 'cube'}",
+                "wavelength": wavelength,
+                "header": result["native_headers"][i],
+                "fit_flux": result["native_fit_flux_maps"][i],
+                "status": result["native_status_maps"][i],
+                "ceiling": result["native_ul_ceiling_maps"][i],
+            })
+        entries.sort(key=lambda e: e["wavelength"])
+        return entries, native_cache["key"][2]
 
     def import_rot_map_region(self):
         """Import a region saved elsewhere (Save Region, main window or 2D
@@ -4097,7 +4118,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         threshold_note = (
             f"Detection threshold: {n_sigma:g}σ\n\n"
-            f"A line fitted below {n_sigma:g}σ is an upper limit and stays NaN in the maps.\n\n"
+            f"A line fitted below {n_sigma:g}σ is an upper limit and stays NaN in the maps "
+            "(Select Region still shows its fitted value, marked).\n\n"
         )
         if imported_rows:
             threshold_note += "(Applies to the cube-fit lines only -- imported maps are used as-is.)\n\n"
@@ -4479,7 +4501,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             key: [native_result[key][i] for i in indices]
             for key in ("kept_lines", "native_flux_maps", "native_flux_error_maps",
                        "native_wcs", "native_shapes", "native_pix_arcsec", "cube_filenames",
-                       "native_instrument", "native_headers")
+                       "native_instrument", "native_headers", "native_fit_flux_maps",
+                       "native_status_maps", "native_ul_ceiling_maps")
         }
         subset["dropped_lines"] = native_result["dropped_lines"]
         return subset, []

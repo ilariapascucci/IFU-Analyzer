@@ -41,6 +41,12 @@ STATUS_FIT_FAILED = 3        # the rotational_diagram call raised
 
 MAP_KEYS = ("T", "T_err", "Ncol", "Ncol_err")
 
+# Per-pixel codes in a native line map's status map (Calculate Maps). Same
+# 0/1/2 order as the Gaussian map's Fit Status, so both read alike.
+NATIVE_PX_NONE = 0           # no fit: empty spectrum, failed fit, or outside a region
+NATIVE_PX_UL = 1             # fit succeeded but is below the n-sigma floor
+NATIVE_PX_DETECTION = 2      # fit succeeded and is at or above the n-sigma floor
+
 def _resolve_cube(cube_or_list):
     """
     Accept one cube, or a one-element list holding it, and return the cube.
@@ -703,14 +709,21 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
-        row (tuple): (row_idx, flux_row, err_row), each length n_x -- NaN
-            wherever the fit didn't succeed, came back below the n_sigma
-            detection floor (an upper limit, not a real value at that pixel),
-            or fell outside an imported region
+        row (tuple): (row_idx, flux_row, err_row, fit_row, status_row,
+            ceiling_row), each length n_x. flux_row/err_row are NaN wherever
+            the fit didn't succeed, came back below the n_sigma detection
+            floor (an upper limit, not a real value at that pixel), or fell
+            outside an imported region. fit_row holds the fitted flux at
+            every successful fit, upper limits included; status_row holds
+            the NATIVE_PX_* code (uint8); ceiling_row holds the n_sigma flux
+            ceiling wherever a fit succeeded
     """
     n_x = spectra_row.shape[1]
     flux_row = np.full(n_x, np.nan, dtype=np.float32)
     err_row = np.full(n_x, np.nan, dtype=np.float32)
+    fit_row = np.full(n_x, np.nan, dtype=np.float32)
+    ceiling_row = np.full(n_x, np.nan, dtype=np.float32)
+    status_row = np.full(n_x, NATIVE_PX_NONE, dtype=np.uint8)
     for x in range(n_x):
         if row_mask is not None and not row_mask[x]:
             continue
@@ -721,12 +734,19 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
             wavelength, spectrum, [line_wavelength], header, contam_lines=contam_lines,
             n_sigma=n_sigma)
         res = per_line[0]
-        # Detections only -- a fit that merely converged on noise (an upper
-        # limit at this pixel) must not leave a value in the map.
-        if res.get("success") and not res.get("is_upper_limit"):
+        if not res.get("success"):
+            continue
+        # The fitted value of an upper limit goes only in fit_row; flux_row
+        # stays detections-only, since Convolve Maps and Run Map read it.
+        fit_row[x] = res["flux_cgs"]
+        ceiling_row[x] = res["F_ul_cgs"]
+        if res.get("is_upper_limit"):
+            status_row[x] = NATIVE_PX_UL
+        else:
+            status_row[x] = NATIVE_PX_DETECTION
             flux_row[x] = res["flux_cgs"]
             err_row[x] = res.get("flux_error_cgs", np.nan)
-    return row_idx, flux_row, err_row
+    return row_idx, flux_row, err_row, fit_row, status_row, ceiling_row
 
 
 def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
@@ -756,14 +776,21 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
 
     Returns:
-        maps (tuple): (flux_map, flux_error_map), float32, NaN where there is
-            no data, the fit did not succeed, the line is below n_sigma, or
-            the pixel is outside an imported region
+        maps (tuple): (flux_map, flux_error_map, fit_flux_map, status_map,
+            ceiling_map). flux_map/flux_error_map are float32, NaN where
+            there is no data, the fit did not succeed, the line is below
+            n_sigma, or the pixel is outside an imported region.
+            fit_flux_map (float32) also holds the fitted flux of the
+            below-n_sigma pixels; status_map (uint8) holds the NATIVE_PX_*
+            code; ceiling_map (float32) holds the n_sigma flux ceiling
     """
     wavelength, _unit = extract_units(cube.wavelength)
     _n_wave, n_y, n_x = cube.cube.shape
     flux_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     err_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    fit_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    ceiling_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    status_map = np.full((n_y, n_x), NATIVE_PX_NONE, dtype=np.uint8)
     total = n_y * n_x
     completed = 0
 
@@ -790,8 +817,9 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
                 next_row += 1
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
             for fut in done:
-                y, flux_row, err_row = fut.result()
+                y, flux_row, err_row, fit_row, status_row, ceiling_row = fut.result()
                 flux_map[y], err_map[y] = flux_row, err_row
+                fit_map[y], status_map[y], ceiling_map[y] = fit_row, status_row, ceiling_row
                 completed += n_x
                 if progress_callback is not None:
                     progress_callback(completed, total)
@@ -805,7 +833,7 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
             executor.shutdown()
     print(f"    line {line_wavelength:.4f} um: native map done "
           f"({int(np.sum(np.isfinite(flux_map)))}/{total} px fit)")
-    return flux_map, err_map
+    return flux_map, err_map, fit_map, status_map, ceiling_map
 
 
 def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
@@ -989,6 +1017,9 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
         result (dict): 'kept_lines', 'dropped_lines' (line dicts),
             'native_flux_maps', 'native_flux_error_maps' (lists of 2D float32
             arrays, one per kept_lines entry, each cube's own native shape),
+            'native_fit_flux_maps', 'native_status_maps', 'native_ul_ceiling_maps'
+            (same layout; fitted flux including upper limits, NATIVE_PX_* codes,
+            n_sigma flux ceiling -- what Select Region shows),
             'native_wcs', 'native_shapes', 'native_pix_arcsec', 'native_instrument'
             (one per kept_lines entry), 'cube_filenames'
 
@@ -1044,6 +1075,7 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
             progress_callback(done, total_units)
 
     native_flux_maps, native_err_maps = [], []
+    native_fit_maps, native_status_maps, native_ceiling_maps = [], [], []
     # One pool for every line, not one per line: each fresh ProcessPoolExecutor
     # spawn re-imports the whole module chain (including pymc), which is slow
     # and prints its own startup warnings every time. Sharing it here means
@@ -1069,12 +1101,15 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
                 _seen["n"] = cur
 
             region_mask = region_masks.get(cube) if region_masks else None
-            flux_native, err_native = _native_line_map(
+            flux_native, err_native, fit_native, status_native, ceiling_native = _native_line_map(
                 cube, line["wavelength"], contam_lines=contam_lines, n_jobs=n_jobs,
                 progress_callback=_line_progress, cancel_flag=cancel_flag, executor=executor,
                 region_mask=region_mask, n_sigma=n_sigma)
             native_flux_maps.append(flux_native)
             native_err_maps.append(err_native)
+            native_fit_maps.append(fit_native)
+            native_status_maps.append(status_native)
+            native_ceiling_maps.append(ceiling_native)
             # Without this, a cancelled run kept marching through every
             # remaining line (each one still paying its own submit/wait
             # overhead) instead of actually stopping -- this is also why a
@@ -1086,6 +1121,8 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
     return {
         "kept_lines": kept_lines, "dropped_lines": dropped,
         "native_flux_maps": native_flux_maps, "native_flux_error_maps": native_err_maps,
+        "native_fit_flux_maps": native_fit_maps, "native_status_maps": native_status_maps,
+        "native_ul_ceiling_maps": native_ceiling_maps,
         "native_wcs": wcses, "native_shapes": shapes, "native_pix_arcsec": scales,
         "cube_filenames": [getattr(c, "filename", None) for c in cubes],
         "native_instrument": [c.instrument for c in cubes],
@@ -1207,7 +1244,9 @@ def _native_entry_from_imported_map(line):
     Returns:
         entry (dict): 'flux_map', 'flux_error_map', 'wcs', 'shape',
             'pix_arcsec', 'instrument', 'filename', 'header' -- one element
-            of each of compute_native_line_maps's own list outputs.
+            of each of compute_native_line_maps's own list outputs. Also
+            'fit_flux_map', 'status_map', 'ul_ceiling_map', all None: an
+            imported map has no fit, so no upper-limit data.
     """
     imp = line["imported_map"]
     flux_map = imp["flux_map"]
@@ -1221,6 +1260,7 @@ def _native_entry_from_imported_map(line):
         "flux_map": flux_map, "flux_error_map": err_map, "wcs": imp["wcs"],
         "shape": imp["shape"], "pix_arcsec": imp["pix_arcsec"],
         "instrument": imp["instrument"], "filename": imp["filename"], "header": imp["header"],
+        "fit_flux_map": None, "status_map": None, "ul_ceiling_map": None,
     }
 
 
@@ -1253,6 +1293,9 @@ def merge_native_results(native_cube_result, imported_lines, dedup_tol_um=1e-5):
                 "instrument": native_cube_result["native_instrument"][i],
                 "filename": native_cube_result["cube_filenames"][i],
                 "header": native_cube_result["native_headers"][i],
+                "fit_flux_map": native_cube_result["native_fit_flux_maps"][i],
+                "status_map": native_cube_result["native_status_maps"][i],
+                "ul_ceiling_map": native_cube_result["native_ul_ceiling_maps"][i],
             }
             pairs.append((entry, line))
     for line in imported_lines:
@@ -1272,6 +1315,9 @@ def merge_native_results(native_cube_result, imported_lines, dedup_tol_um=1e-5):
         "cube_filenames": [e["filename"] for e in kept_entries],
         "native_instrument": [e["instrument"] for e in kept_entries],
         "native_headers": [e["header"] for e in kept_entries],
+        "native_fit_flux_maps": [e["fit_flux_map"] for e in kept_entries],
+        "native_status_maps": [e["status_map"] for e in kept_entries],
+        "native_ul_ceiling_maps": [e["ul_ceiling_map"] for e in kept_entries],
     }
 
 

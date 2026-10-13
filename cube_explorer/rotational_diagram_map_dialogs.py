@@ -24,6 +24,7 @@ from .rotational_diagram_map import (
     fit_pixel, fit_pixel_multi, compute_native_line_maps, combine_line_maps,
     fit_region_multi, fit_region_mixed,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
+    NATIVE_PX_UL, NATIVE_PX_DETECTION,
 )
 from .rotational_diagram_h2_fitter import model_1T, model_2T
 from .fits_export import build_line_map_header, write_fits_product
@@ -31,7 +32,6 @@ from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from . import region_io
 from .region_selector import RegionSelector, mask_from_shape_coords
 from .analyzer_2d import _make_2d_wcs
-from .unit_converter import extract_units
 from .gui_region_selection import RegionSelectionMixin
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
@@ -952,13 +952,17 @@ class RotDiagMapResultsDialog(QDialog):
 
 class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
     """
-    Draw a region on a raw cube slice at a checked line's peak wavelength,
-    reusing RegionSelectionMixin/SlicePlotter -- the same engine the main
-    window's own panels run on -- instead of a bespoke approximation.
+    Draw a region on a line's Calculate Maps flux map, reusing
+    RegionSelectionMixin/SlicePlotter -- the same engine the main window's
+    own panels run on. Upper-limit pixels show their fitted flux, marked
+    with a dot.
 
     Args:
-        cube_lines (list): (CubeData, [wavelengths]) pairs, one per distinct
-            loaded cube with at least one matching checked line.
+        entries (list): One dict per cube-fit line: 'label' (str), 'wavelength'
+            (float, um), 'header' (astropy.io.fits.Header), 'fit_flux',
+            'status', 'ceiling' (2D arrays: fitted flux incl. upper limits,
+            NATIVE_PX_* codes, n-sigma flux ceiling).
+        n_sigma (float): Detection threshold the maps were calculated with.
         parent (QWidget): Parent widget.
 
     Returns:
@@ -971,22 +975,24 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         "⬭": "Ellipse selection", "✏": "Freehand drawing",
     }
 
-    def __init__(self, cube_lines, parent=None):
-        """Store the cube/line pairs and build the drawing UI.
+    def __init__(self, entries, n_sigma, parent=None):
+        """Store the line entries and build the drawing UI.
 
         Args:
-            cube_lines (list): (CubeData, [wavelengths]) pairs.
+            entries (list): Per-line dicts, see the class docstring.
+            n_sigma (float): Detection threshold the maps were calculated with.
             parent (QWidget): Parent widget.
 
         Returns:
             None
         """
         super().__init__(parent)
-        self.cube_lines = cube_lines
+        self.entries = entries
+        self.n_sigma = n_sigma
         self.result_region = None
         self._region_sky = None
-        self.current_cube = None
-        self.current_wave_idx = None
+        self.current_entry = None
+        self._ul_markers = None
 
         # RegionSelectionMixin's required state.
         self.region_state = {"left": "idle", "right": "idle"}
@@ -1003,7 +1009,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self._setup_ui()
 
     def _setup_ui(self):
-        """Build the cube picker, the mixin-driven slice panel (stats, hover,
+        """Build the line picker, the mixin-driven map panel (stats, hover,
         shape tools, Edit Shape, Colormap, Scale), and Accept/Cancel.
 
         Args:
@@ -1015,13 +1021,11 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         layout = QVBoxLayout(self)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("Cube:"))
-        self.cube_combo = QComboBox()
-        for cube, wavelengths in self.cube_lines:
-            name = getattr(cube, "filename", None) or "cube"
-            wl_text = ", ".join(f"{w:.4f}" for w in sorted(wavelengths))
-            self.cube_combo.addItem(f"{name} ({wl_text} um)")
-        top.addWidget(self.cube_combo)
+        top.addWidget(QLabel("Line:"))
+        self.line_combo = QComboBox()
+        for entry in self.entries:
+            self.line_combo.addItem(entry["label"])
+        top.addWidget(self.line_combo)
         top.addStretch()
         layout.addLayout(top)
 
@@ -1068,8 +1072,8 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         layout.addLayout(btns)
 
         self._build_right_stand_in()
-        self.cube_combo.currentIndexChanged.connect(self._on_cube_changed)
-        self._on_cube_changed()
+        self.line_combo.currentIndexChanged.connect(self._on_line_changed)
+        self._on_line_changed()
 
     def _build_sidebar(self):
         """Build the left sidebar exactly like gui.py's own
@@ -1157,8 +1161,9 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
 
     # ------------------------------------------------------- mixin hooks
     def _region_image(self, target):
-        """2D array shown in `target` -- the current cube's peak-wavelength
-        slice for "left"; always None for "right" (never shown).
+        """2D array shown in `target` -- the current line's fitted flux map
+        (upper limits included) for "left"; always None for "right" (never
+        shown). NaN where no fit succeeded.
 
         Args:
             target (str): 'left' or 'right'.
@@ -1166,12 +1171,12 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         Returns:
             image (numpy.ndarray or None)
         """
-        if target != "left" or self.current_cube is None:
+        if target != "left" or self.current_entry is None:
             return None
-        return np.asarray(self.current_cube.cube[self.current_wave_idx, :, :], dtype=float)
+        return np.asarray(self.current_entry["fit_flux"], dtype=float)
 
     def _region_flux_unit(self, target):
-        """BUNIT from the current cube's header, cleaned to a plain string.
+        """Unit of the Calculate Maps flux: always CGS integrated flux.
 
         Args:
             target (str): 'left' or 'right'.
@@ -1179,12 +1184,12 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         Returns:
             unit (str)
         """
-        if target != "left" or self.current_cube is None:
+        if target != "left" or self.current_entry is None:
             return ""
-        return str(self.current_cube.header.get("BUNIT", "") or "")
+        return "erg/s/cm2"
 
     def _region_pixel_coords(self, target, x, y):
-        """(ra_deg, dec_deg) for pixel (x, y) via the current cube's own WCS.
+        """(ra_deg, dec_deg) for pixel (x, y) via the current line's cube WCS.
 
         Args:
             target (str): 'left' or 'right'.
@@ -1194,9 +1199,9 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         Returns:
             coords (tuple): (ra_deg, dec_deg), or (None, None).
         """
-        if target != "left" or self.current_cube is None:
+        if target != "left" or self.current_entry is None:
             return None, None
-        wcs2d = _make_2d_wcs(self.current_cube.header)
+        wcs2d = _make_2d_wcs(self.current_entry["header"])
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
             return None, None
         try:
@@ -1205,22 +1210,40 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         except Exception:
             return None, None
 
+    def _pixel_status_lines(self, ix, iy):
+        """Detection / upper-limit / no-fit lines for one pixel of the current
+        line, with the n-sigma ceiling for an upper limit.
+
+        Args:
+            ix (int): Pixel x coordinate, already inside the image.
+            iy (int): Pixel y coordinate, already inside the image.
+
+        Returns:
+            lines (list): Text lines to show.
+        """
+        code = int(self.current_entry["status"][iy, ix])
+        if code == NATIVE_PX_DETECTION:
+            return ["Detection"]
+        if code == NATIVE_PX_UL:
+            ceiling = float(self.current_entry["ceiling"][iy, ix])
+            return [f"Upper limit ({self.n_sigma:g}σ)", f"Ceiling={ceiling:.3e}"]
+        return ["No fit"]
+
     def _region_pixel_extra_lines(self, target, x, y):
-        """One line naming the shown wavelength -- the 3D analogue of the
-        main window's own wavelength/velocity extra line.
+        """Wavelength and fit status of the clicked pixel.
 
         Args:
             target (str): 'left' or 'right'.
-            x (float): Unused -- the wavelength is the same for every pixel.
-            y (float): Unused.
+            x (float): Pixel x coordinate.
+            y (float): Pixel y coordinate.
 
         Returns:
             lines (list)
         """
-        if target != "left" or self.current_cube is None:
+        if target != "left" or self.current_entry is None:
             return []
-        wavelength, _unit = extract_units(self.current_cube.wavelength)
-        return [f"Wavelength: {wavelength[self.current_wave_idx]:.4f} um"]
+        lines = [f"Wavelength: {self.current_entry['wavelength']:.4f} um"]
+        return lines + self._pixel_status_lines(int(round(x)), int(round(y)))
 
     def _region_on_change(self, target, kind):
         """Keep self._region_sky (the sky-coordinate source of truth handed
@@ -1240,9 +1263,9 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             self.accept_btn.setEnabled(False)
             return
         sel = self.last_selection_left
-        if not sel or self.current_cube is None:
+        if not sel or self.current_entry is None:
             return
-        wcs2d = _make_2d_wcs(self.current_cube.header)
+        wcs2d = _make_2d_wcs(self.current_entry["header"])
         verts = None
         if sel["shape"] == "✏":
             verts = getattr(sel.get("patch"), "lasso_verts", None)
@@ -1286,10 +1309,38 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             return
         self.scale_left = dialog.result_scale
         self.slice1_vmin, self.slice1_vmax = dialog.result_vmin, dialog.result_vmax
+        self._draw_map()
+
+    def _draw_map(self):
+        """Plot the current line's fitted flux map and mark its upper-limit
+        pixels with a small dot, so they stay visible on any colormap.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        entry = self.current_entry
+        ax = self.slice1_plotter.ax
         self.slice1_plotter.plot_slice(
-            image, title=self.slice1_plotter.ax.get_title(),
+            self._region_image("left"), title=f"{entry['label']}  ({self.n_sigma:g}σ)",
             flux_unit=self._region_flux_unit("left"), scale=self.scale_left,
             vmin=self.slice1_vmin, vmax=self.slice1_vmax)
+
+        # plot_slice only clears the axes on its first call, so drop the old line's dots here.
+        if self._ul_markers is not None and self._ul_markers in ax.collections:
+            self._ul_markers.remove()
+        self._ul_markers = None
+        ys, xs = np.nonzero(entry["status"] == NATIVE_PX_UL)
+        if xs.size:
+            # scatter would autoscale the view past the image edge.
+            xlim, ylim = ax.get_xlim(), ax.get_ylim()
+            self._ul_markers = ax.scatter(
+                xs, ys, s=8, c="white", edgecolors="black", linewidths=0.5, zorder=3)
+            ax.set_xlim(xlim)
+            ax.set_ylim(ylim)
+        self.slice1_canvas.draw_idle()
 
     # ------------------------------------------------------- click/hover
     def _on_canvas_click(self, event):
@@ -1319,7 +1370,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             None
         """
         if (event.inaxes is not self.slice1_plotter.ax or event.xdata is None
-                or event.ydata is None or self.current_cube is None):
+                or event.ydata is None or self.current_entry is None):
             self.hover1_label.setText("Cursor Info:\n-")
             return
         ix, iy = int(round(event.xdata)), int(round(event.ydata))
@@ -1327,16 +1378,17 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         if image is None or not (0 <= iy < image.shape[0] and 0 <= ix < image.shape[1]):
             self.hover1_label.setText("Cursor Info:\n-")
             return
-        text = [f"Pixel: (x={ix}, y={iy})", f"Intensity={image[iy, ix]:.3e}"]
-        unit = self._region_flux_unit("left")
-        if unit:
-            text.append(f"[{unit}]")
+        text = [f"Pixel: (x={ix}, y={iy})"]
+        if np.isfinite(image[iy, ix]):
+            text.append(f"Flux={image[iy, ix]:.3e}")
+            text.append(f"[{self._region_flux_unit('left')}]")
+        text += self._pixel_status_lines(ix, iy)
         self.hover1_label.setText("\n".join(text))
 
-    # ------------------------------------------------------- cube switch
-    def _on_cube_changed(self):
-        """Swap to the combo's current cube's peak-wavelength slice, and
-        re-place any active selection there via the mixin's own
+    # ------------------------------------------------------- line switch
+    def _on_line_changed(self):
+        """Swap to the combo's current line's flux map, and re-place any
+        active selection there via the mixin's own
         _recreate_region/_handle_pixel_click -- not a bespoke preview.
 
         Args:
@@ -1345,12 +1397,10 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         Returns:
             None
         """
-        idx = self.cube_combo.currentIndex()
+        idx = self.line_combo.currentIndex()
         if idx < 0:
             return
-        cube, line_wavelengths = self.cube_lines[idx]
-        wavelength, _unit = extract_units(cube.wavelength)
-        wave_idx = int(np.abs(wavelength - line_wavelengths[0]).argmin())
+        entry = self.entries[idx]
         old_region_sky = self._region_sky
 
         if self.region_selector_left.interactive_patch is not None:
@@ -1362,13 +1412,12 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.active_shape = None
         self.active_target = None
 
-        self.current_cube = cube
-        self.current_wave_idx = wave_idx
+        self.current_entry = entry
+        # Another line's flux is on another scale, so a manual range from the last one is void.
+        self.slice1_vmin = None
+        self.slice1_vmax = None
         image = self._region_image("left")
-        self.slice1_plotter.plot_slice(
-            image, title=f"{getattr(cube, 'filename', 'cube')} @ {wavelength[wave_idx]:.4f} um",
-            flux_unit=self._region_flux_unit("left"), scale=self.scale_left,
-            vmin=self.slice1_vmin, vmax=self.slice1_vmax)
+        self._draw_map()
 
         self.last_selection_left = None
         self.stats1_label.setText(self._region_stats_placeholder("left"))
@@ -1379,7 +1428,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             return
         try:
             ny, nx = image.shape
-            wcs2d = _make_2d_wcs(cube.header)
+            wcs2d = _make_2d_wcs(entry["header"])
             placed = region_io.sky_to_region_shape(
                 old_region_sky["shape"], old_region_sky["sky_points"],
                 old_region_sky["sky_center"], old_region_sky["sky_axis_x"],
