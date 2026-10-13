@@ -20,6 +20,9 @@ NIRSPEC_GRATINGS = ('G140H', 'G140M', 'G235H', 'G235M', 'G395H', 'G395M', 'PRISM
 MUSE_LSF_FWHM_COEFFS = (5.866e-8, -9.187e-4, 6.040)
 MUSE_LSF_RANGE_ANGSTROM = (4750.0, 9350.0)
 
+# Keywords that only the PRIMARY header of a MUSE file has. The loader copies them to the cube header.
+MUSE_PRIMARY_KEYS = ('INSTRUME', 'TELESCOP', 'ESO INS MODE')
+
 
 def safe_worker_count(requested_jobs, per_worker_mb=400, usable_fraction=0.6):
     """
@@ -76,12 +79,38 @@ def _merge_primary_into_sci(hdul, sci_key):
     return sci_hdr
 
 
+def _muse_header(hdul):
+    """
+    Return the DATA header of a MUSE cube with three PRIMARY keywords added.
+    The keywords name the instrument, the telescope and the observing mode.
+    Only these three are copied, because the full PRIMARY header changes the WCS frame.
+
+    Args:
+        hdul (astropy.io.fits.HDUList): Open MUSE FITS file, with the cube in HDU 1
+
+    Returns:
+        data_hdr (astropy.io.fits.Header): Copy of the DATA header, plus the keywords
+            that PRIMARY has and DATA does not
+
+    Raises:
+        IndexError: if hdul has no HDU 1
+    """
+    data_hdr = hdul[1].header.copy()
+    primary_hdr = hdul[0].header
+    for key in MUSE_PRIMARY_KEYS:
+        if key in primary_hdr and key not in data_hdr:
+            # A HIERARCH card keeps the spaces in the keyword and gives no warning
+            card_key = f"HIERARCH {key}" if " " in key else key
+            data_hdr[card_key] = (primary_hdr[key], primary_hdr.comments[key])
+    return data_hdr
+
+
 """
 Where the main info lies on each telescope.
 """
 
 TELESCOPE_LOADERS = {
-    "MUSE": lambda hdul: (hdul[1].header, hdul[1].data),
+    "MUSE": lambda hdul: (_muse_header(hdul), hdul[1].data),
     "MIRI": lambda hdul: (
         (_merge_primary_into_sci(hdul, "SCI"), hdul["SCI"].data)
         if "SCI" in hdul else (hdul[0].header, hdul[0].data)
