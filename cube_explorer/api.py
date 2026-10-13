@@ -209,6 +209,54 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
     )
 
 
+from .continuum_cube import export_continuum_cubes as _export_continuum_cubes_internal
+
+def save_continuum_cubes(cube_data, continuum_path, contsub_path, continuum_params=None,
+                         anchor_wavelengths=None, n_jobs=None):
+    """Fit the continuum at every pixel, then save two cubes: the continuum
+    and the continuum-subtracted (line-only) cube. The same as the GUI's
+    Save Continuum Cubes button. The two cubes always sum to the original.
+
+    Two methods: automatic (the default), or anchor_wavelengths, the same
+    wavelengths you would click in the GUI's Custom Continuum tool. With
+    anchors, each pixel gets a cubic spline through its own flux at the
+    anchors (median of +/- 7 instrumental sigma, clipped at 3 sigma), held
+    flat beyond the first and last anchor. Scripts that call this need an
+    ``if __name__ == "__main__":`` guard on Windows/macOS.
+
+    Args:
+        cube_data (CubeData): Loaded cube from load_cube()
+        continuum_path (str): Output FITS path of the continuum cube
+        contsub_path (str): Output FITS path of the continuum-subtracted cube
+        continuum_params (dict, optional): Override the fit_continuum() keyword
+            arguments (window_size, sigma_threshold, peak_width, peak_distance,
+            peak_exclusion, iterations, smoothing_factor). The same values
+            apply to every pixel. If None, uses the defaults. Not allowed
+            together with anchor_wavelengths.
+        anchor_wavelengths (array-like, optional): At least 3 wavelengths, in the
+            units of cube_data.wavelength. If given, uses the anchor method
+            instead of the automatic one.
+        n_jobs (int, optional): Number of worker processes (default: auto-detect
+            CPUs, capped by available memory)
+
+    Returns:
+        int: Number of pixels that have data but got no continuum (automatic: too
+            few valid points; anchors: fewer than 3 valid anchors). They are
+            NaN in both cubes.
+
+    Example:
+        >>> cube = load_cube("data.fits")
+        >>> n_failed = save_continuum_cubes(cube, "cube_continuum.fits", "cube_contsub.fits")
+        >>> n_failed = save_continuum_cubes(
+        ...     cube, "cube_continuum.fits", "cube_contsub.fits",
+        ...     anchor_wavelengths=[6.55, 6.70, 6.95, 7.20, 7.35])
+    """
+    return _export_continuum_cubes_internal(
+        cube_data, continuum_path, contsub_path,
+        continuum_params=continuum_params, anchor_wavelengths=anchor_wavelengths, n_jobs=n_jobs,
+    )
+
+
 # --- Gaussian Fitting API ---
 
 from .gaussian_fitter import (
@@ -1028,6 +1076,7 @@ __all__ = [
     'extract_region_spectrum',
     # Continuum
     'fit_continuum',
+    'save_continuum_cubes',
     # Gaussian Fitting
     'fit_line',
     'fit_hitran_lines',

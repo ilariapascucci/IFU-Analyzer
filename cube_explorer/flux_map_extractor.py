@@ -159,12 +159,15 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
         # STEP 6: Final smoothing with spline
         try:
             spline = UnivariateSpline(
-                wavelength_clean[~exclude_mask], 
-                continuum[~exclude_mask], 
+                wavelength_clean[~exclude_mask],
+                continuum[~exclude_mask],
                 s=len(wavelength_clean) / smoothing_factor,
                 k=3
             )
-            continuum_smooth = spline(wavelength_clean)
+            # The spline only knows the unmasked points. Masked samples before the first or after
+            # the last one get its edge value, because a cubic spline extrapolates far off the data.
+            fitted_wavelength = wavelength_clean[~exclude_mask]
+            continuum_smooth = spline(np.clip(wavelength_clean, fitted_wavelength[0], fitted_wavelength[-1]))
         except Exception:
             continuum_smooth = continuum
         

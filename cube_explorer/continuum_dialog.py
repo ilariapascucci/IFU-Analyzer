@@ -6,7 +6,74 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, 
     QScrollArea, QWidget, QPushButton, QSpinBox, QDoubleSpinBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+import threading
+
+
+class ContinuumCubeWorker(QThread):
+    """Background worker thread for saving the continuum and continuum-subtracted cubes"""
+    finished = pyqtSignal(int)  # Emits the number of pixels with data but no continuum
+    error = pyqtSignal(str)  # Emits error message if failed
+    progress = pyqtSignal(int, int)  # (current, total) - emits progress updates
+
+    def __init__(self, cube_data, continuum_path, contsub_path, continuum_params=None,
+                 anchor_wavelengths=None, n_jobs=8):
+        """Build the worker. Call start() to run it.
+
+        Args:
+            cube_data (CubeData): Loaded cube to fit and subtract.
+            continuum_path (str): Destination FITS path of the continuum cube.
+            contsub_path (str): Destination FITS path of the continuum-subtracted cube.
+            continuum_params (dict): fit_auto_continuum() keyword arguments, or None for the defaults.
+            anchor_wavelengths (array): Anchor wavelengths for the custom fit, or None for the automatic fit.
+            n_jobs (int): Number of worker processes, capped by available memory.
+
+        Returns:
+            None
+        """
+        super().__init__()
+        self.cube_data = cube_data
+        self.continuum_path = continuum_path
+        self.contsub_path = contsub_path
+        self.continuum_params = continuum_params
+        self.anchor_wavelengths = anchor_wavelengths
+        self.n_jobs = n_jobs
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        """Request that the run stop after the currently in-flight rows finish.
+        Does not block. Nothing is written when a run is cancelled.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._cancel_event.set()
+
+    def run(self):
+        """Fit the continuum and write both cubes in the background thread.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        try:
+            from .continuum_cube import export_continuum_cubes
+            n_failed = export_continuum_cubes(
+                self.cube_data, self.continuum_path, self.contsub_path,
+                continuum_params=self.continuum_params, anchor_wavelengths=self.anchor_wavelengths,
+                n_jobs=self.n_jobs,
+                progress_callback=self.progress.emit, cancel_event=self._cancel_event,
+            )
+            # n_failed is None when cancel() fired before completion; nothing is listening by then.
+            if n_failed is not None:
+                self.finished.emit(n_failed)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class ContinuumParametersDialog(QDialog):

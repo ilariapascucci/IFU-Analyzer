@@ -831,6 +831,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         
         self.auto_continuum_toggle = QPushButton("Automatic Continuum")
         self.custom_continuum_toggle = QPushButton("Custom Continuum")
+        self.save_continuum_cubes_btn = QPushButton("Save Continuum Cubes")
+        self.save_continuum_cubes_btn.setToolTip(
+            "Fit the continuum at every pixel, then save the continuum cube and the continuum-subtracted cube")
+        self.save_continuum_cubes_btn.clicked.connect(self._save_continuum_cubes)
 
         self.auto_continuum_toggle.setCheckable(True)
         self.custom_continuum_toggle.setCheckable(True)
@@ -1277,6 +1281,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
         self.continuum_group.add_button(self.auto_continuum_toggle)
         self.continuum_group.add_button(self.custom_continuum_toggle)
+        self.continuum_group.add_button(self.save_continuum_cubes_btn)
         collapsible_layout.addWidget(self.continuum_group)
 
         # Group 4: Rotational Diagram
