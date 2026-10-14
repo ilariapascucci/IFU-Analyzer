@@ -181,6 +181,29 @@ def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
             "sigma_arcsec": sigma_kernel_arcsec}
 
 
+def _grid_step_arcsec(wcs, nx, ny):
+    """
+    Pick one grid step for both the RA and Dec axes: 1, 2 or 5 times a power of 10 arcsec,
+    chosen to put about 5 lines across the smaller side of the image on the sky.
+
+    Args:
+        wcs (astropy.wcs.WCS): Celestial WCS of the image
+        nx (int): Image width, in pixels
+        ny (int): Image height, in pixels
+
+    Returns:
+        step (float): Grid step, in arcsec
+    """
+    corners = wcs.pixel_to_world(np.array([-0.5, nx - 0.5, nx - 0.5, -0.5]),
+                                 np.array([-0.5, -0.5, ny - 0.5, ny - 0.5]))
+    center = wcs.pixel_to_world((nx - 1) / 2, (ny - 1) / 2)
+    d_ra = ((corners.ra.deg - center.ra.deg + 180) % 360 - 180) * np.cos(center.dec.rad) * 3600
+    d_dec = (corners.dec.deg - center.dec.deg) * 3600
+    target = min(np.ptp(d_ra), np.ptp(d_dec)) / 5
+    power_of_ten = 10 ** np.floor(np.log10(target))
+    return float(power_of_ten * min((1, 2, 5, 10), key=lambda m: abs(m - target / power_of_ten)))
+
+
 # BATCH MATCH RESOLUTION DIALOG
 # ==============================================================================
 
@@ -2130,7 +2153,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         if angle == 0.0:
             return
             
-        if self.rot_cw_radio.isChecked():
+        # A positive angle turns the image clockwise as drawn (origin='lower'), so counter-clockwise is negative.
+        if self.rot_ccw_radio.isChecked():
             angle = -angle
 
         if target == "left":
@@ -2159,7 +2183,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             
             array_out = rotate(base_image, total_angle, reshape=True, cval=np.nan, order=1)
             
-            cos_t, sin_t = np.cos(-theta), np.sin(-theta)
+            # Both rotation signs here were checked against a point source with a known sky position.
+            cos_t, sin_t = np.cos(theta), np.sin(theta)
             R_inv = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
             
             if hasattr(wcs_out.wcs, 'cd'):
@@ -2178,7 +2203,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             crpix_0 = wcs_in.wcs.crpix - 1
             dx, dy = crpix_0[0] - cx, crpix_0[1] - cy
             
-            cos_r, sin_r = np.cos(theta), np.sin(theta)
+            cos_r, sin_r = np.cos(-theta), np.sin(-theta)
             new_dx = dx * cos_r - dy * sin_r
             new_dy = dx * sin_r + dy * cos_r
             
@@ -2319,7 +2344,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         # 2. Render the Image
         im = ax.imshow(image_to_show, origin='lower', cmap=cmap, norm=norm,
-               interpolation='nearest', aspect='auto')
+               interpolation='nearest', aspect='equal')
         ax.set_title('', pad=4)
         # 3. WCS Grid and Labels
         unit_str = ""
@@ -2339,23 +2364,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     except (KeyError, TypeError):
                         ra, dec = ax.coords[0], ax.coords[1]
 
-                    # Choose formatter precision based on FOV; Astropy auto-picks spacing.
-                    cdelt    = abs(header.get('CDELT1', header.get('CD1_1', 0.0)))
-                    ny, nx   = image.shape
-                    fov_amin = cdelt * max(nx, ny) * 60.0   # arcmin
-
-                    if fov_amin > 10.0:
-                        ra.set_major_formatter('hh:mm:ss')
-                        dec.set_major_formatter('dd:mm:ss')
-                    elif fov_amin > 1.0:
-                        ra.set_major_formatter('hh:mm:ss.s')
-                        dec.set_major_formatter('dd:mm:ss')
-                    else:
-                        # Sub-arcmin field needs sub-second RA precision.
-                        ra.set_major_formatter('hh:mm:ss.ss')
-                        dec.set_major_formatter('dd:mm:ss.s')
-
-                    # No set_ticks() call: Astropy auto-locates ticks for the current FOV.
+                    # RA is written as an angle, like Dec, with the same step on both axes,
+                    # so the labels step by the same amount (1.0" and 1.0", not 0.1 s and 1.0").
+                    ny, nx = image.shape
+                    step = _grid_step_arcsec(ax.wcs, nx, ny)
+                    label_format = 'dd:mm:ss.s' if step < 1 else 'dd:mm:ss'
+                    ra.set_format_unit(u.deg)
+                    ra.set_major_formatter(label_format)
+                    dec.set_major_formatter(label_format)
+                    ra.set_ticks(spacing=step * u.arcsec)
+                    dec.set_ticks(spacing=step * u.arcsec)
 
                     # RA goes on the bottom edge when it changes fastest along x.
                     # A rotated image (V4046) has RA changing along y, so RA goes left.
@@ -2383,7 +2401,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     ra.set_axislabel('RA',  color='black', size=8)
                     dec.set_axislabel('Dec', color='black', size=8)
 
-                    print(f"DEBUG WCS grid: fov={fov_amin:.3f} arcmin, auto-spacing enabled")
+                    print(f"DEBUG WCS grid: {step:g} arcsec step on both axes")
 
                 except Exception as e:
                     QMessageBox.warning(self, "Grid Error", f"Failed to draw WCS grid:\n{str(e)}")
