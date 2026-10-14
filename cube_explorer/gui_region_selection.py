@@ -561,16 +561,20 @@ class RegionSelectionMixin:
             else:
                 self.last_selection_right = sel
 
+            current_text = stats_label.text().split("\n")
+            slice_stats = [line for line in current_text if self._region_slice_stat_keep(line)]
+
             unit = self._region_flux_unit(target)
             # Unit on its own line so the narrow stats column doesn't clip it.
-            stats_text = [f"Pixel: (x={x}, y={y})", f"Intensity={intensity:.3e}"]
+            pixel_stats = [f"Pixel: (x={x}, y={y})", f"Intensity={intensity:.3e}"]
             if unit:
-                stats_text.append(f"[{unit}]")
+                pixel_stats.append(f"[{unit}]")
             ra, dec = self._region_pixel_coords(target, x, y)
             if ra is not None and dec is not None:
-                stats_text += [f"RA={ra:.6f}°", f"DEC={dec:.6f}°"]
-            stats_text += self._region_pixel_extra_lines(target, x, y)
-            stats_label.setText("\n".join(stats_text))
+                pixel_stats += [f"RA={ra:.6f}°", f"DEC={dec:.6f}°"]
+            pixel_stats += self._region_pixel_extra_lines(target, x, y)
+            combined_stats = slice_stats + [""] + pixel_stats if slice_stats else pixel_stats
+            stats_label.setText("\n".join(combined_stats))
 
             if selector.interactive_patch is not None:
                 selector.interactive_patch.disconnect()

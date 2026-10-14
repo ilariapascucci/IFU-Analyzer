@@ -501,13 +501,16 @@ class GuiContinuumMixin:
         self.continuum_cube_progress.close()
         continuum_path, contsub_path = self._continuum_cube_paths
         message = f"Continuum cube:\n{continuum_path}\n\nContinuum-subtracted cube:\n{contsub_path}"
+        note = ("A pixel needs at least 10 valid slices for the automatic fit, or at least 3 valid anchors "
+                "for the custom fit. A pixel with only a few more valid slices than that, usually at the "
+                "edge of the field of view, still gets a continuum, but it can be unreliable.")
         if n_failed:
             QMessageBox.warning(
                 self, "Saved With Skipped Pixels",
-                f"{message}\n\n{n_failed:,} pixels have data but the continuum fit failed "
-                "(too few valid points). They are NaN in both cubes.")
+                f"{message}\n\n{n_failed:,} pixels have data but got no continuum. "
+                f"They are NaN in both cubes.\n\n{note}")
         else:
-            QMessageBox.information(self, "Continuum Cubes Saved", message)
+            QMessageBox.information(self, "Continuum Cubes Saved", f"{message}\n\n{note}")
 
     def _on_continuum_cubes_error(self, message):
         """Close the progress dialog and show why the save failed.

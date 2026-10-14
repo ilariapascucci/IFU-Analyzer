@@ -706,8 +706,8 @@ class RotDiagMapResultsDialog(QDialog):
         if self.fit2t and hot_key is not None:
             ax_left = self.fig.add_subplot(121)
             ax_right = self.fig.add_subplot(122)
-            self._draw_panel(ax_left, key, f"{label} (T1)", cbar_label, self.scale_combo_t1.currentText())
-            self._draw_panel(ax_right, hot_key, f"{label} (T2)", cbar_label, self.scale_combo_t2.currentText())
+            self._draw_panel(ax_left, key, f"{label} (T1, lower T)", cbar_label, self.scale_combo_t1.currentText())
+            self._draw_panel(ax_right, hot_key, f"{label} (T2, higher T)", cbar_label, self.scale_combo_t2.currentText())
             # Remembered so a click can tell which component's map it landed
             # on (see _on_canvas_click) -- only meaningful with two panels.
             self._ax_left, self._ax_right = ax_left, ax_right

@@ -1806,6 +1806,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         """
         return "Slice 1 Stats:\n-" if target == "left" else "Slice 2 Stats:\n-"
 
+    def _region_slice_stat_keep(self, line):
+        """Keep the whole-slice Scaling/vmin/vmax lines above region stats.
+
+        Args:
+            line (str): One line of the current stats label text.
+
+        Returns:
+            keep (bool): True for a Scaling/vmin/vmax line.
+        """
+        return line.startswith(("Scaling:", "vmin=", "vmax="))
+
     # Pixel readout omits RA/Dec (sky position is often unavailable here) and
     # wavelength (already shown on the spectrum and slice title).
 
@@ -1824,6 +1835,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 self.spec_canvas.draw()
             except Exception:
                 pass
+            # clear_region already blanked the stats label to a placeholder;
+            # restore the real Intensity/Scaling stats rather than leaving it stale.
+            if getattr(self, "cube_data", None) is not None:
+                idx = self.last_idx_left if target == "left" else self.last_idx_right
+                self._display_slice(idx, target)
         if getattr(self, "active_spectrum_tab", None) == target:
             self._refresh_active_spectrum_tab()
 
