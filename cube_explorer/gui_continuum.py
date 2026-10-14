@@ -8,6 +8,7 @@ from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
 from .unit_converter import clean_flux_unit, clean_wave_unit
 from .flux_map_extractor import fit_auto_continuum
+from .utils import take_resolution_notes
 
 def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
     """Extract a numeric wavelength value from a Quantity or plain array.
@@ -203,11 +204,13 @@ class GuiContinuumMixin:
             )
             self.subtract_continuum_btn.setChecked(False)
 
-    def _activate_custom_continuum_subtraction(self):
+    def _activate_custom_continuum_subtraction(self, _checked=False, for_cubes=False):
         """Handle the Custom Subtract toggle for the active tab.
 
         Args:
-            None
+            _checked (bool): Checked state that the button click passes. Not used.
+            for_cubes (bool): True when Save Continuum Cubes starts the session, so the
+                points are for the cubes and OK asks for the file name.
 
         Returns:
             None
@@ -253,7 +256,7 @@ class GuiContinuumMixin:
                 self.custom_continuum_selector.wavelength = base_wavelength
                 self.custom_continuum_selector.ax = self.spec_plotter.ax
 
-            self.custom_continuum_selector.activate()
+            self.custom_continuum_selector.activate(for_cubes)
             self.custom_continuum_active = True
             self.custom_delete_btn.setChecked(False)
             self.custom_continuum_selector.set_delete_mode(False)
@@ -339,7 +342,7 @@ class GuiContinuumMixin:
         choice.setText("Which continuum should be fitted at every pixel?")
         choice.setInformativeText(
             "Automatic: the automatic fit, with parameters you set next.\n"
-            "Custom: the wavelengths you clicked in the Custom Continuum tool. Each pixel gets "
+            "Custom: you click the continuum points on the spectrum next. Each pixel gets "
             "a spline through its own flux at those wavelengths.")
         automatic_btn = choice.addButton("Automatic", QMessageBox.AcceptRole)
         custom_btn = choice.addButton("Custom", QMessageBox.AcceptRole)
@@ -347,24 +350,78 @@ class GuiContinuumMixin:
         choice.exec_()
         clicked = choice.clickedButton()
 
-        params = None
-        anchor_wavelengths = None
         if clicked is automatic_btn:
             dialog = ContinuumParametersDialog(self)
             if dialog.exec_() != dialog.Accepted:
                 return
-            params = dialog.get_parameters()
+            self._start_continuum_cube_save(dialog.get_parameters(), None)
         elif clicked is custom_btn:
-            anchor_wavelengths = self._get_custom_anchor_wavelengths()
-            if anchor_wavelengths is None:
+            self._start_custom_points_for_cubes()
+
+    def _start_custom_points_for_cubes(self):
+        """Open the Custom Continuum tool so the user can place the points for the cubes.
+        Points already in a running session stay. The save starts when the user presses OK.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        # Turn the Custom Continuum tool on first. This can ask to clear Automatic progress.
+        if not self.custom_continuum_toggle.isChecked():
+            self.custom_continuum_toggle.setChecked(True)
+            self.on_custom_continuum_toggle()
+            if not self.custom_continuum_toggle.isChecked():
                 return
-        else:
+
+        selector = self.custom_continuum_selector
+        if selector is not None and selector.is_active and self.custom_continuum_active:
+            selector.for_cubes = True
+            QMessageBox.information(
+                self, "Custom Continuum for the Cubes",
+                "Your points stay. Add or remove points, then press OK or ENTER to choose the file name.")
             return
 
+        # A custom subtraction that is already applied would only be undone by the button.
+        tab = self.active_spectrum_tab
+        if self.continuum_subtracted.get(tab, False) and self.continuum_mode_applied.get(tab) == 'custom':
+            self._restore_from_custom_subtract()
+        self.custom_subtract_btn.setChecked(True)
+        self._activate_custom_continuum_subtraction(for_cubes=True)
+
+    def _finish_custom_points_for_cubes(self):
+        """Use the points on the spectrum for the cubes, after the user pressed OK.
+        If the user cancels the file name, the points stay and the user can keep editing.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        anchor_wavelengths = self._get_custom_anchor_wavelengths()
+        if anchor_wavelengths is None:
+            return
+        if self._start_continuum_cube_save(None, anchor_wavelengths):
+            self.custom_continuum_selector.deactivate()
+            self.custom_continuum_active = False
+            self.custom_subtract_btn.setChecked(False)
+
+    def _start_continuum_cube_save(self, params, anchor_wavelengths):
+        """Ask for the base file name, then start the background save of the two cubes.
+
+        Args:
+            params (dict): fit_auto_continuum() keyword arguments for the automatic fit, or None
+            anchor_wavelengths (numpy.ndarray): Anchor wavelengths for the custom fit, or None
+
+        Returns:
+            started (bool): True if the save started, False if the user cancelled.
+        """
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Continuum Cubes (base name)", "", "FITS files (*.fits)")
         if not path:
-            return
+            return False
         base = path[:-5] if path.lower().endswith('.fits') else path
         continuum_path = base + "_continuum.fits"
         contsub_path = base + "_contsub.fits"
@@ -375,7 +432,7 @@ class GuiContinuumMixin:
                 "These files already exist:\n\n" + "\n".join(existing) + "\n\nOverwrite them?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply != QMessageBox.Yes:
-                return
+                return False
 
         n_pixels = self.cube_data.cube.shape[1] * self.cube_data.cube.shape[2]
         self.continuum_cube_progress = QProgressDialog(
@@ -389,6 +446,7 @@ class GuiContinuumMixin:
         self.continuum_cube_progress.show()
 
         self._continuum_cube_paths = (continuum_path, contsub_path)
+        take_resolution_notes()  # drop the warnings of an earlier run
         self.continuum_cube_worker = ContinuumCubeWorker(
             self.cube_data, continuum_path, contsub_path, continuum_params=params,
             anchor_wavelengths=anchor_wavelengths, n_jobs=8)
@@ -396,46 +454,20 @@ class GuiContinuumMixin:
         self.continuum_cube_worker.error.connect(self._on_continuum_cubes_error)
         self.continuum_cube_worker.progress.connect(self._on_continuum_cubes_progress)
         self.continuum_cube_worker.start()
+        return True
 
     def _get_custom_anchor_wavelengths(self):
         """Get the anchor wavelengths for the custom cube fit, from the points on
-        the spectrum or from a saved points file. Only the wavelengths are used.
+        the spectrum. Only the wavelengths are used.
 
         Args:
             None
 
         Returns:
             wavelengths (numpy.ndarray): Anchor wavelengths in the cube's own wavelength array,
-                or None if the user cancelled or the anchors are not usable.
+                or None if the anchors are not usable.
         """
-        selector = getattr(self, 'custom_continuum_selector', None)
-        points = list(getattr(selector, 'continuum_points', None) or [])
-        x_values = None
-        if len(points) >= 3:
-            reply = QMessageBox.question(
-                self, "Custom Points",
-                f"Use the {len(points)} custom continuum points currently on the spectrum?\n\n"
-                "Click 'No' to load a saved points file instead.",
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
-            if reply == QMessageBox.Cancel:
-                return None
-            if reply == QMessageBox.Yes:
-                x_values = [x for x, _ in points]
-
-        if x_values is None:
-            fname, _ = QFileDialog.getOpenFileName(self, "Load Continuum Points", filter="Text files (*.txt *.csv)")
-            if not fname:
-                return None
-            try:
-                x_values = []
-                with open(fname, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            x_values.append(float(line.split(',')[0]))
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to read points:\n{str(e)}")
-                return None
+        x_values = [x for x, _ in self.custom_continuum_selector.continuum_points]
 
         # Points are on the active tab's axis, which can be shifted. Map them to slices, then
         # to the cube's own wavelength array, so the export finds the same slices again.
@@ -449,7 +481,7 @@ class GuiContinuumMixin:
                 self, "Points Outside Spectrum",
                 "Some points are outside the spectrum shown in the active tab "
                 f"({tab_wavelength.min():.5g} to {tab_wavelength.max():.5g}). "
-                "Check the file, or the tab's wavelength shift.")
+                "Check the points, or the tab's wavelength shift.")
             return None
         slices = np.abs(tab_wavelength[None, :] - x_values[:, None]).argmin(axis=1)
         if len(np.unique(slices)) < 3:
@@ -499,18 +531,23 @@ class GuiContinuumMixin:
             None
         """
         self.continuum_cube_progress.close()
+        resolution_note = take_resolution_notes()
+        if resolution_note:
+            QMessageBox.warning(self, "Spectral Resolution Held Flat", resolution_note)
         continuum_path, contsub_path = self._continuum_cube_paths
         message = f"Continuum cube:\n{continuum_path}\n\nContinuum-subtracted cube:\n{contsub_path}"
-        note = ("A pixel needs at least 10 valid slices for the automatic fit, or at least 3 valid anchors "
-                "for the custom fit. A pixel with only a few more valid slices than that, usually at the "
-                "edge of the field of view, still gets a continuum, but it can be unreliable.")
-        if n_failed:
-            QMessageBox.warning(
-                self, "Saved With Skipped Pixels",
-                f"{message}\n\n{n_failed:,} pixels have data but got no continuum. "
-                f"They are NaN in both cubes.\n\n{note}")
-        else:
-            QMessageBox.information(self, "Continuum Cubes Saved", f"{message}\n\n{note}")
+        # Skipped-pixel warning and 10-slice / 3-anchor note: off for now.
+        # note = ("A pixel needs at least 10 valid slices for the automatic fit, or at least 3 valid anchors "
+        #         "for the custom fit. A pixel with only a few more valid slices than that, usually at the "
+        #         "edge of the field of view, still gets a continuum, but it can be unreliable.")
+        # if n_failed:
+        #     QMessageBox.warning(
+        #         self, "Saved With Skipped Pixels",
+        #         f"{message}\n\n{n_failed:,} pixels have data but got no continuum. "
+        #         f"They are NaN in both cubes.\n\n{note}")
+        # else:
+        #     QMessageBox.information(self, "Continuum Cubes Saved", f"{message}\n\n{note}")
+        QMessageBox.information(self, "Continuum Cubes Saved", message)
 
     def _on_continuum_cubes_error(self, message):
         """Close the progress dialog and show why the save failed.
@@ -722,6 +759,8 @@ class GuiContinuumMixin:
 
     def on_custom_ok_clicked(self):
         """Preview the custom-fitted continuum and confirm before subtracting.
+        When the points are for Save Continuum Cubes, OK does not subtract.
+        It asks for the file name and saves the cubes.
 
         Args:
             None
@@ -736,6 +775,10 @@ class GuiContinuumMixin:
         if num_points < 3:
             QMessageBox.warning(self, "Too Few Points",
                                 "Place at least 3 continuum points before confirming.")
+            return
+
+        if self.custom_continuum_selector.for_cubes:
+            self._finish_custom_points_for_cubes()
             return
 
         try:

@@ -50,24 +50,28 @@ class CustomContinuumSelector:
         # Active state
         self.is_active = False
         self.delete_mode = False
-        
+        # True while the points are for Save Continuum Cubes, so OK saves the cubes.
+        self.for_cubes = False
+
         # Point requirements
         self.min_points = 3
         self.recommended_points = 5
         
-    def activate(self):
+    def activate(self, for_cubes=False):
         """Activate the custom continuum selector.
 
         Args:
-            None
+            for_cubes (bool): True when the points are for Save Continuum Cubes.
+                The instructions then say that OK asks for the file name.
 
         Returns:
             None
         """
         if self.is_active:
             return
-            
+
         self.is_active = True
+        self.for_cubes = for_cubes
         
         self.canvas.setFocusPolicy(Qt.StrongFocus)
         self.canvas.setFocus()
@@ -81,7 +85,28 @@ class CustomContinuumSelector:
         self.key_cid = self.canvas.mpl_connect('key_press_event', self.on_key_press)
         
         # Show instructions
-        if self.parent_widget:
+        if self.parent_widget and for_cubes:
+            QMessageBox.information(
+                self.parent_widget,
+                "Custom Continuum for the Cubes",
+                f"Instructions:\n"
+                f"• Click on the spectrum to select continuum points\n"
+                f"• Points will SNAP to the nearest spectrum data point\n"
+                f"• Select regions WITHOUT emission/absorption lines\n"
+                f"• Right-click on a black marker to remove it\n"
+                f"• Load Points adds points from a saved file\n"
+                f"• Press OK or ENTER when done, then choose the file name\n"
+                f"• Press ESC to cancel\n"
+                f"\n"
+                f"Click on the spectrum plot first if keys don't work\n"
+                f"\n"
+                f"Minimum: {self.min_points} points\n"
+                f"Recommended: {self.recommended_points}+ points for best results\n"
+                f"\n"
+                f"Method: every pixel gets a cubic spline through its own flux at these wavelengths.\n"
+                f"Only the wavelengths of the points are used."
+            )
+        elif self.parent_widget:
             QMessageBox.information(
                 self.parent_widget,
                 "Custom Continuum Subtraction",
@@ -116,9 +141,10 @@ class CustomContinuumSelector:
         """
         if not self.is_active:
             return
-            
+
         self.is_active = False
-        
+        self.for_cubes = False
+
         # Disconnect events
         if self.click_cid:
             self.canvas.mpl_disconnect(self.click_cid)

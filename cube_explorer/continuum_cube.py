@@ -22,8 +22,6 @@ from .utils import get_spectral_resolution, safe_worker_count
 # Same minimum as the interactive custom continuum tool.
 MIN_ANCHORS = 3
 CLIP_SIGMA = 3.0
-# A window with fewer valid samples than this gets a plain median, with no clipping.
-MIN_CLIP_SAMPLES = 5
 
 
 def _wavelength_values(wavelength):
@@ -75,7 +73,6 @@ def _anchor_values(block):
     """
     Get one value per pixel from a window of slices around an anchor.
     Samples more than CLIP_SIGMA from the window median are dropped, then the median of the rest is used.
-    A window with fewer than MIN_CLIP_SAMPLES valid samples uses its plain median.
 
     Args:
         block (array): Flux in the anchor window, shape (n_window, n_x)
@@ -90,9 +87,7 @@ def _anchor_values(block):
         median = np.nanmedian(block, axis=0)
         sigma = 1.4826 * np.nanmedian(np.abs(block - median), axis=0)
         keep = np.isfinite(block) & ((np.abs(block - median) <= CLIP_SIGMA * sigma) | (sigma == 0))
-        clipped = np.nanmedian(np.where(keep, block, np.nan), axis=0)
-    n_valid = np.isfinite(block).sum(axis=0)
-    return np.where(n_valid >= MIN_CLIP_SAMPLES, clipped, median)
+        return np.nanmedian(np.where(keep, block, np.nan), axis=0)
 
 
 def _custom_row_worker(row_idx, spectra_row, wavelength, anchors):

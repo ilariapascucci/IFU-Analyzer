@@ -12,6 +12,7 @@ from .flux_map_extractor import fit_auto_continuum
 from .continuum_dialog import ContinuumParametersDialog
 from .species_dialog import SpeciesDialog
 from .unit_converter import extract_units
+from .utils import take_resolution_notes
 
 class GuiFluxMapMixin:
     """
@@ -183,6 +184,7 @@ class GuiFluxMapMixin:
         self.flux_map_wave_min = wave_min
         self.flux_map_wave_max = wave_max
 
+        take_resolution_notes()  # drop the warnings of an earlier run
         self.flux_map_worker = FluxMapWorker(
             self.cube_data, use_catalog, self.flux_map_contam_catalog, n_jobs=n_jobs,
             wave_min=wave_min, wave_max=wave_max,
@@ -311,6 +313,9 @@ class GuiFluxMapMixin:
             None
         """
         self.flux_map_progress.close()
+        resolution_note = take_resolution_notes()
+        if resolution_note:
+            QMessageBox.warning(self, "Spectral Resolution Held Flat", resolution_note)
         self.flux_map_result_cache = result
         # Snapshot of what was actually selected (self.plotted_lines), not the full fetched
         # catalog -- matches what the cache-validity check below now compares against.

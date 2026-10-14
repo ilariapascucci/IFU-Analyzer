@@ -23,6 +23,47 @@ MUSE_LSF_RANGE_ANGSTROM = (4750.0, 9350.0)
 # Keywords that only the PRIMARY header of a MUSE file has. The loader copies them to the cube header.
 MUSE_PRIMARY_KEYS = ('INSTRUME', 'TELESCOP', 'ESO INS MODE')
 
+# Resolution clamp warnings kept since the last take_resolution_notes() call.
+_resolution_notes = []
+
+
+def _report_resolution_clamp(message):
+    """
+    Print a resolution clamp warning to the console and keep it for the GUI.
+    The GUI shows the kept warnings when a run ends.
+    The same message is kept one time only.
+
+    Args:
+        message (str): Which wavelength is outside the range, and which R is used instead
+
+    Returns:
+        None
+    """
+    print(f"[WARNING] {message}")
+    if message not in _resolution_notes:
+        _resolution_notes.append(message)
+
+
+def take_resolution_notes():
+    """
+    Return the kept resolution clamp warnings as one text, and forget them.
+    A GUI run calls this when it ends, to show the text in a warning dialog.
+    A GUI run also calls it when it starts, to drop the warnings of an earlier run.
+
+    Args:
+        None
+
+    Returns:
+        note (str): Text for a warning dialog, or an empty string if nothing was kept
+    """
+    if not _resolution_notes:
+        return ""
+    lines = "\n".join(f"- {message}" for message in _resolution_notes)
+    _resolution_notes.clear()
+    return ("The spectral resolution is not known at some wavelengths of this run. "
+            "R was held at the value of the nearest end, so the widths and windows there "
+            f"are approximate:\n\n{lines}")
+
 
 def safe_worker_count(requested_jobs, per_worker_mb=400, usable_fraction=0.6):
     """
@@ -248,8 +289,9 @@ def get_spectral_resolution(wavelength, instrument, header=None):
         if not low <= wavelength_angstrom <= high:
             # The formula was not measured at this wavelength. Use R at the nearest end and say so.
             end = low if wavelength_angstrom < low else high
-            print(f"[WARNING] MUSE: {wavelength_angstrom:.1f} Angstrom is outside the measured range "
-                  f"({low:.0f}-{high:.0f} Angstrom). Using R at {end:.0f} Angstrom instead.")
+            _report_resolution_clamp(
+                f"MUSE: {wavelength_angstrom:.1f} Angstrom is outside the measured range "
+                f"({low:.0f}-{high:.0f} Angstrom). Using R at {end:.0f} Angstrom instead.")
             wavelength_angstrom = end
         fwhm = np.polyval(MUSE_LSF_FWHM_COEFFS, wavelength_angstrom)
         return float(wavelength_angstrom / fwhm)
@@ -269,8 +311,9 @@ def get_spectral_resolution(wavelength, instrument, header=None):
         if not low <= wavelength <= high:
             # The table does not reach this wavelength. Use R at the nearest end and say so.
             end = low if wavelength < low else high
-            print(f"[WARNING] NIRSpec {grating}: {wavelength:.4f} um is outside the resolving-power "
-                  f"table ({low:.3f}-{high:.3f} um). Using R at {end:.3f} um instead.")
+            _report_resolution_clamp(
+                f"NIRSpec {grating}: {wavelength:.4f} um is outside the resolving-power "
+                f"table ({low:.3f}-{high:.3f} um). Using R at {end:.3f} um instead.")
         return float(np.interp(wavelength, table_wavelength, table_resolution))
 
     else:

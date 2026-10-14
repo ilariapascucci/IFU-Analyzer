@@ -7,6 +7,7 @@ from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
+from .utils import take_resolution_notes
 from .flux_map_extractor import (
     fit_auto_continuum, fit_hitran_lines_collective, DISPLAY_CROP_SIGMA_MULTIPLIER,
     AREA_ERROR_SANITY_RATIO, SIGMA_BOUND_LOWER_MULTIPLIER, SIGMA_BOUND_UPPER_MULTIPLIER, gaussian,
@@ -1049,6 +1050,7 @@ STATUS: {result.message}
         self._gauss_map_fit_tab = active_tab
         self._gauss_map_fit_mask = region_mask
 
+        take_resolution_notes()  # drop the warnings of an earlier run
         self.gauss_worker = GaussianMapWorker(
             cube=cube, wavelength=wavelength, lam_min=lam_min, lam_max=lam_max, n_jobs=8,
             fac_above_stdres=3.0, noise_min=noise_min, noise_max=noise_max,
@@ -1133,6 +1135,9 @@ STATUS: {result.message}
             None
         """
         self.gauss_progress.close()
+        resolution_note = take_resolution_notes()
+        if resolution_note:
+            QMessageBox.warning(self, "Spectral Resolution Held Flat", resolution_note)
         tab = getattr(self, '_gauss_map_fit_tab', self.active_spectrum_tab)
         mask = getattr(self, '_gauss_map_fit_mask', None)
         masked_results = self._mask_gaussian_map_results_for_tab(results, tab, mask)
