@@ -958,7 +958,8 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
     with a dot.
 
     Args:
-        entries (list): One dict per cube-fit line: 'label' (str), 'wavelength'
+        entries (list): One dict per cube-fit line: 'label' (str), 'file' (str,
+            the source cube's file name), 'wavelength'
             (float, um), 'header' (astropy.io.fits.Header), 'fit_flux',
             'status', 'ceiling' (2D arrays: fitted flux incl. upper limits,
             NATIVE_PX_* codes, n-sigma flux ceiling).
@@ -1032,6 +1033,11 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         body = QHBoxLayout()
 
         stats_col = QVBoxLayout()
+        self.file_label = QLabel("File: -")
+        self.file_label.setWordWrap(True)
+        self.file_label.setStyleSheet("font-weight: bold;")
+        stats_col.addWidget(self.file_label)
+        stats_col.addSpacing(12)
         self.stats1_label = QLabel(self._region_stats_placeholder("left"))
         self.stats1_label.setWordWrap(True)
         self.hover1_label = QLabel("Cursor Info:\n-")
@@ -1188,6 +1194,60 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             return ""
         return "erg/s/cm2"
 
+    def _map_stats_text(self):
+        """Whole-map stats in the same layout as the 3D window's slice stats: the
+        data's own min/max/mean/sum/std (upper-limit pixels included), then the
+        color range the plot uses.
+
+        Args:
+            None
+
+        Returns:
+            text (str): Stats label text, or the blank placeholder if no map is shown.
+        """
+        image = self._region_image("left")
+        if image is None:
+            return "Intensity:\n-"
+        mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
+        total_sum, std = np.nansum(image), np.nanstd(image)
+        view_vmin = mn if self.slice1_vmin is None else self.slice1_vmin
+        view_vmax = mx if self.slice1_vmax is None else self.slice1_vmax
+        return (
+            f"Intensity (data)\n[{self._region_flux_unit('left')}]:\n"
+            f"min={mn:.3e}\n"
+            f"max={mx:.3e}\n"
+            f"mean={mean:.3e}\n"
+            f"sum={total_sum:.3e}\n"
+            f"std={std:.3e}\n"
+            f"\n"
+            f"Scaling: {self.scale_left}\n"
+            f"vmin={view_vmin:.3e}\n"
+            f"vmax={view_vmax:.3e}\n"
+        )
+
+    def _region_stats_placeholder(self, target):
+        """Text the stats label reverts to when a selection is cleared: the
+        whole-map stats, like the 3D window restores its whole-slice stats.
+
+        Args:
+            target (str): 'left' or 'right'.
+
+        Returns:
+            text (str): Stats label text.
+        """
+        return self._map_stats_text() if target == "left" else "Intensity:\n-"
+
+    def _region_slice_stat_keep(self, line):
+        """Keep the whole-map Scaling/vmin/vmax lines above region stats.
+
+        Args:
+            line (str): One line of the current stats label text.
+
+        Returns:
+            keep (bool): True for a Scaling/vmin/vmax line.
+        """
+        return line.startswith(("Scaling:", "vmin=", "vmax="))
+
     def _region_pixel_coords(self, target, x, y):
         """(ra_deg, dec_deg) for pixel (x, y) via the current line's cube WCS.
 
@@ -1342,6 +1402,11 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             ax.set_ylim(ylim)
         self.slice1_canvas.draw_idle()
 
+        self.stats1_label.setText(self._map_stats_text())
+        range_desc = ("Auto" if self.slice1_vmin is None and self.slice1_vmax is None
+                      else f"{self.slice1_vmin:.3e} to {self.slice1_vmax:.3e}")
+        self.scale_btn_left.setToolTip(f"Intensity scaling ({self.scale_left}, {range_desc})")
+
     # ------------------------------------------------------- click/hover
     def _on_canvas_click(self, event):
         """Point ('*') selection: RegionSelector treats this as a no-op, so
@@ -1413,6 +1478,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.active_target = None
 
         self.current_entry = entry
+        self.file_label.setText(f"File: {entry['file']}")
         # Another line's flux is on another scale, so a manual range from the last one is void.
         self.slice1_vmin = None
         self.slice1_vmax = None

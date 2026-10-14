@@ -3958,7 +3958,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             fname = result["cube_filenames"][i]
             wavelength = line["wavelength"]
             entries.append({
-                "label": f"{wavelength:.4f} um -- {os.path.basename(fname) if fname else 'cube'}",
+                "label": f"{wavelength:.4f} um",
+                "file": os.path.basename(fname) if fname else "cube",
                 "wavelength": wavelength,
                 "header": result["native_headers"][i],
                 "fit_flux": result["native_fit_flux_maps"][i],

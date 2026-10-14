@@ -85,9 +85,17 @@ def build_2d_export_header(source_header, data_shape, extra=None):
 
     Returns:
         header (astropy.io.fits.Header): Ready for fits.PrimaryHDU/ImageHDU.
+
+    Raises:
+        ValueError: if source_header is None or has no sky (RA/Dec) WCS. The 2D viewer
+            cannot open a file without one, so the export stops here instead.
     """
     wcs2d = _make_2d_wcs(source_header) if source_header is not None else None
-    header = wcs2d.to_header() if wcs2d is not None else fits.Header()
+    if wcs2d is None or not wcs2d.has_celestial:
+        raise ValueError(
+            "Cannot write a 2D FITS export: the source header has no sky (RA/Dec) WCS. "
+            "Only data with a sky WCS, such as MIRI, NIRSpec and MUSE cubes, can be exported.")
+    header = wcs2d.to_header()
     header['NAXIS'] = 2
     header['NAXIS1'] = int(data_shape[1])
     header['NAXIS2'] = int(data_shape[0])

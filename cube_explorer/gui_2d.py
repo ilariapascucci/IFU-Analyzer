@@ -24,7 +24,7 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup, QMenu
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -39,6 +39,7 @@ from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
 from . import region_io
 from .utils import detect_instrument_from_header
+from .unit_converter import clean_flux_unit
 from .fits_export import (
     build_2d_export_header, build_resample_header, build_coverage_extension, write_fits_product,
 )
@@ -870,42 +871,33 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.scale_btn_left = make_scale_button('left')
         self.scale_btn_right = make_scale_button('right')
 
-        # Copy button sits on its own side's sidebar and pulls the OTHER
-        # panel's selection onto this one (matches the 3D window convention).
-        self.copy_btn_l = QPushButton("⎘")
-        self.copy_btn_l.setFixedSize(35, 35)
-        self.copy_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.copy_btn_l.setToolTip("Copy selection from right slice to left")
-        self.copy_btn_l.clicked.connect(lambda: self.copy_selection(source="right", target="left"))
+        # One copy button per panel. It opens a menu to copy the selection,
+        # colormap, or scale/range from the other panel (matches the 3D window).
+        def make_copy_button(target):
+            """Build a square button that opens a menu to copy selection,
+            colormap, or scale/range from the other panel.
 
-        self.copy_btn_r = QPushButton("⎘")
-        self.copy_btn_r.setFixedSize(35, 35)
-        self.copy_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.copy_btn_r.setToolTip("Copy selection from left slice to right")
-        self.copy_btn_r.clicked.connect(lambda: self.copy_selection(source="left", target="right"))
+            Args:
+                target (str): Panel the button applies to ('left' or 'right').
 
-        # Copy the OTHER panel's colormap onto this one (matches the 3D window).
-        self.copy_color_btn_l = QPushButton("⎘🌈")
-        self.copy_color_btn_l.setFixedSize(35, 35)
-        self.copy_color_btn_l.setToolTip("Copy right slice colormap to left slice")
-        self.copy_color_btn_l.clicked.connect(lambda: self.copy_colormap('right', 'left'))
+            Returns:
+                btn (QPushButton): The configured button.
+            """
+            other = "right" if target == "left" else "left"
+            btn = QPushButton("⎘")
+            btn.setFixedSize(35, 35)
+            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+            menu = QMenu(btn)
+            menu.addAction("Copy Selection",
+                           lambda: self.copy_selection(source=other, target=target))
+            menu.addAction("Copy Colormap", lambda: self.copy_colormap(other, target))
+            menu.addAction("Copy Scale/Range", lambda: self.copy_scale(other, target))
+            btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
+            btn.setToolTip(f"Copy selection, colormap, or scale/range from the {other} panel")
+            return btn
 
-        self.copy_color_btn_r = QPushButton("⎘🌈")
-        self.copy_color_btn_r.setFixedSize(35, 35)
-        self.copy_color_btn_r.setToolTip("Copy left slice colormap to right slice")
-        self.copy_color_btn_r.clicked.connect(lambda: self.copy_colormap('left', 'right'))
-
-        # Copy the OTHER panel's scale type and vmin/vmax range onto this one
-        # (matches the 3D window).
-        self.copy_scale_btn_l = QPushButton("⎘🎚")
-        self.copy_scale_btn_l.setFixedSize(35, 35)
-        self.copy_scale_btn_l.setToolTip("Copy right slice scale/range to left slice")
-        self.copy_scale_btn_l.clicked.connect(lambda: self.copy_scale('right', 'left'))
-
-        self.copy_scale_btn_r = QPushButton("⎘🎚")
-        self.copy_scale_btn_r.setFixedSize(35, 35)
-        self.copy_scale_btn_r.setToolTip("Copy left slice scale/range to right slice")
-        self.copy_scale_btn_r.clicked.connect(lambda: self.copy_scale('left', 'right'))
+        self.copy_menu_btn_l = make_copy_button('left')
+        self.copy_menu_btn_r = make_copy_button('right')
 
         self.erase_btn_l = QPushButton("✖")
         self.erase_btn_l.setFixedSize(35, 35)
@@ -1750,9 +1742,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         left_sidebar.addWidget(self.scale_btn_left)
         for shape in ["*", "▭", "○", "⬭", "✏"]:
             left_sidebar.addWidget(self.shape_buttons["left"][shape])
-        left_sidebar.addWidget(self.copy_btn_l)
-        left_sidebar.addWidget(self.copy_color_btn_l)
-        left_sidebar.addWidget(self.copy_scale_btn_l)
+        left_sidebar.addWidget(self.copy_menu_btn_l)
         left_sidebar.addWidget(self.edit_shape_btn_l)
         left_sidebar.addWidget(self.erase_btn_l)
         left_sidebar.addStretch()
@@ -1805,9 +1795,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         right_sidebar.addWidget(self.scale_btn_right)
         for shape in ["*", "▭", "○", "⬭", "✏"]:
             right_sidebar.addWidget(self.shape_buttons["right"][shape])
-        right_sidebar.addWidget(self.copy_btn_r)
-        right_sidebar.addWidget(self.copy_color_btn_r)
-        right_sidebar.addWidget(self.copy_scale_btn_r)
+        right_sidebar.addWidget(self.copy_menu_btn_r)
         right_sidebar.addWidget(self.edit_shape_btn_r)
         right_sidebar.addWidget(self.erase_btn_r)
         right_sidebar.addStretch()
@@ -2306,9 +2294,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         stored_vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
         vmin = auto_vmin if stored_vmin is None else stored_vmin
         vmax = auto_vmax if stored_vmax is None else stored_vmax
-        if vmin == vmax:
-            vmax = vmin + 1.0
-        view_vmin, view_vmax = vmin, vmax  # as the user sees them, before any Log shift
 
         image_to_show = image
         if scale == 'Log':
@@ -2325,8 +2310,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 vmax = vmax + shift
             norm = LogNorm(vmin=vmin, vmax=vmax)
         elif scale == 'Sqrt':
-            vmin_sqrt = max(vmin, 0.0)
-            norm = PowerNorm(gamma=0.5, vmin=vmin_sqrt, vmax=vmax)
+            # PowerNorm handles a negative vmin directly, the same as the 3D window.
+            norm = PowerNorm(gamma=0.5, vmin=vmin, vmax=vmax)
         elif scale == 'Power (γ=2)':
             norm = PowerNorm(gamma=2.0, vmin=vmin, vmax=vmax)
         else:
@@ -2422,17 +2407,40 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             
         plotter.cbar = cbar
 
-        # 5. Update Statistics Panel  (unit on its own line so the narrow
-        # stats column doesn't clip it - matches the 3D window)
-        mn   = np.nanmin(image)
-        mx   = np.nanmax(image)
-        mean = np.nanmean(image)
-        total_sum = np.nansum(image)
-        std  = np.nanstd(image)
-        bunit = header['BUNIT'] if (header is not None and 'BUNIT' in header) else ''
-        unit_line = f"[{bunit}]:\n" if bunit else ""
-        stats_label.setText(
-            f"Intensity\n{unit_line}"
+        # 5. Update Statistics Panel
+        stats_label.setText(self._whole_image_stats_text(target))
+
+        # 6. Refresh Canvas
+        if target == 'left':
+            self.slice1_canvas.draw()
+        else:
+            self.slice2_canvas.draw()
+
+    def _whole_image_stats_text(self, target):
+        """Whole-image stats in the same layout as the 3D window's slice stats:
+        the data's own min/max/mean/sum/std, then the color range the plot uses.
+        The unit is on its own line so the narrow stats column doesn't clip it.
+
+        Args:
+            target (str): Panel to describe, 'left' or 'right'.
+
+        Returns:
+            text (str): Stats label text, or the blank placeholder if no image is loaded.
+        """
+        image = self.image_left if target == 'left' else self.image_right
+        if image is None:
+            return "Intensity:\n-"
+        scale = self.scale_left if target == 'left' else self.scale_right
+        stored_vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
+        stored_vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
+        mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
+        total_sum, std = np.nansum(image), np.nanstd(image)
+        view_vmin = mn if stored_vmin is None else stored_vmin
+        view_vmax = mx if stored_vmax is None else stored_vmax
+        unit = self._region_flux_unit(target)
+        unit_line = f"[{unit}]:\n" if unit else ""
+        return (
+            f"Intensity (data)\n{unit_line}"
             f"min={mn:.3e}\n"
             f"max={mx:.3e}\n"
             f"mean={mean:.3e}\n"
@@ -2441,14 +2449,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             f"\n"
             f"Scaling: {scale}\n"
             f"vmin={view_vmin:.3e}\n"
-            f"vmax={view_vmax:.3e}"
+            f"vmax={view_vmax:.3e}\n"
         )
-
-        # 6. Refresh Canvas
-        if target == 'left':
-            self.slice1_canvas.draw()
-        else:
-            self.slice2_canvas.draw()
 
     def _on_mouse_hover(self, event, target):
         """Handle dynamic updates of mouse coordinate position and value mapping.
@@ -2462,7 +2464,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         """
         plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
         image = self.image_left if target == 'left' else self.image_right
-        header = self.header_left if target == 'left' else self.header_right
         hover_label = self.hover1_label if target == 'left' else self.hover2_label
 
         if image is None or event.inaxes != plotter.ax:
@@ -2494,9 +2495,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             except Exception:
                 pass
 
-        unit_str = ""
-        if header is not None and 'BUNIT' in header:
-            unit_str = f" [{header['BUNIT']}]"
+        unit = self._region_flux_unit(target)
+        unit_str = f" [{unit}]" if unit else ""
 
         # Update the live UI label directly
         text = f"Cursor Info:\nPixel: {ix}, {iy}\n{wcs_str}Val: {val:.4e}{unit_str}"
@@ -2526,8 +2526,31 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         """
         header = self.header_left if target == "left" else self.header_right
         if header is not None and "BUNIT" in header:
-            return str(header["BUNIT"])
+            return clean_flux_unit(str(header["BUNIT"]))
         return ""
+
+    def _region_stats_placeholder(self, target):
+        """Text the stats label reverts to when a selection is cleared: the
+        whole-image stats, like the 3D window restores its whole-slice stats.
+
+        Args:
+            target (str): Panel to build the text for, 'left' or 'right'.
+
+        Returns:
+            text (str): Stats label text.
+        """
+        return self._whole_image_stats_text(target)
+
+    def _region_slice_stat_keep(self, line):
+        """Keep the whole-image Scaling/vmin/vmax lines above region stats.
+
+        Args:
+            line (str): One line of the current stats label text.
+
+        Returns:
+            keep (bool): True for a Scaling/vmin/vmax line.
+        """
+        return line.startswith(("Scaling:", "vmin=", "vmax="))
 
     def _region_pixel_coords(self, target, x, y):
         """Convert a pixel position to sky coordinates for the given panel.
