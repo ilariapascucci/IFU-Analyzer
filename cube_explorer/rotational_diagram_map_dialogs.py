@@ -954,8 +954,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
     """
     Draw a region on a line's Calculate Maps flux map, reusing
     RegionSelectionMixin/SlicePlotter -- the same engine the main window's
-    own panels run on. Upper-limit pixels show their fitted flux, marked
-    with a dot.
+    own panels run on. Upper-limit pixels show their fitted flux.
 
     Args:
         entries (list): One dict per cube-fit line: 'label' (str), 'file' (str,
@@ -993,7 +992,6 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.result_region = None
         self._region_sky = None
         self.current_entry = None
-        self._ul_markers = None
 
         # RegionSelectionMixin's required state.
         self.region_state = {"left": "idle", "right": "idle"}
@@ -1372,8 +1370,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self._draw_map()
 
     def _draw_map(self):
-        """Plot the current line's fitted flux map and mark its upper-limit
-        pixels with a small dot, so they stay visible on any colormap.
+        """Plot the current line's fitted flux map, upper-limit pixels included.
 
         Args:
             None
@@ -1382,24 +1379,10 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             None
         """
         entry = self.current_entry
-        ax = self.slice1_plotter.ax
         self.slice1_plotter.plot_slice(
             self._region_image("left"), title=f"{entry['label']}  ({self.n_sigma:g}σ)",
             flux_unit=self._region_flux_unit("left"), scale=self.scale_left,
             vmin=self.slice1_vmin, vmax=self.slice1_vmax)
-
-        # plot_slice only clears the axes on its first call, so drop the old line's dots here.
-        if self._ul_markers is not None and self._ul_markers in ax.collections:
-            self._ul_markers.remove()
-        self._ul_markers = None
-        ys, xs = np.nonzero(entry["status"] == NATIVE_PX_UL)
-        if xs.size:
-            # scatter would autoscale the view past the image edge.
-            xlim, ylim = ax.get_xlim(), ax.get_ylim()
-            self._ul_markers = ax.scatter(
-                xs, ys, s=8, c="white", edgecolors="black", linewidths=0.5, zorder=3)
-            ax.set_xlim(xlim)
-            ax.set_ylim(ylim)
         self.slice1_canvas.draw_idle()
 
         self.stats1_label.setText(self._map_stats_text())

@@ -372,7 +372,7 @@ class RegionSelectionMixin:
                 f"sum={total_sum:.3e}",
                 f"std={std:.3e}",
             ]
-            combined_stats = slice_stats + [""] + region_stats if slice_stats else region_stats
+            combined_stats = region_stats + [""] + slice_stats if slice_stats else region_stats
             stats_label.setText("\n".join(combined_stats))
 
         canvas.draw()
@@ -573,7 +573,7 @@ class RegionSelectionMixin:
             if ra is not None and dec is not None:
                 pixel_stats += [f"RA={ra:.6f}°", f"DEC={dec:.6f}°"]
             pixel_stats += self._region_pixel_extra_lines(target, x, y)
-            combined_stats = slice_stats + [""] + pixel_stats if slice_stats else pixel_stats
+            combined_stats = pixel_stats + [""] + slice_stats if slice_stats else pixel_stats
             stats_label.setText("\n".join(combined_stats))
 
             if selector.interactive_patch is not None:
