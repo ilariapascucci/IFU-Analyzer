@@ -9,14 +9,17 @@ from reproject import reproject_exact
 from astropy.io import fits
 
 from .unit_converter import pixel_solid_angle
+from .utils import psf_fwhm_arcsec
 
 
 def gaussian_convolve_match(images,
                             wavelengths_um,
                             target_wavelength_um,
-                            pixel_scales_arcsec):
+                            pixel_scales_arcsec,
+                            instruments,
+                            target_instrument):
     """
-    Convolve a JWST/MIRI line-flux map to the PSF of a longer wavelength.
+    Convolve a JWST/MIRI or NIRSpec line-flux map to the PSF of a longer wavelength.
 
     Parameters
     ----------
@@ -33,6 +36,12 @@ def gaussian_convolve_match(images,
     pixel_scales_arcsec : list of float
         List of pixel sizes of the input images [arcsec/pixel].
 
+    instruments : list of str
+        Instrument of each input image ('MIRI' or 'NIRSpec').
+
+    target_instrument : str
+        Instrument of the image whose PSF is to be matched ('MIRI' or 'NIRSpec').
+
     Returns
     -------
     out : 2D ndarray
@@ -40,9 +49,10 @@ def gaussian_convolve_match(images,
 
     Notes
     -----
-    Assumes the MIRI PSF is Gaussian with
+    Assumes the PSF is Gaussian with the FWHM(") of psf_fwhm_arcsec:
 
-        FWHM(") = 0.033 * lambda(um) + 0.106
+        MIRI:    FWHM(") = 0.033 * lambda(um) + 0.106
+        NIRSpec: FWHM(") = 0.1 * (0.031406393 * lambda^2 + 0.019719141 * lambda + 1.5167115)
 
     NaNs are interpolated during convolution and restored afterwards.
     Flux is preserved by using a normalized convolution kernel.
@@ -53,9 +63,9 @@ def gaussian_convolve_match(images,
         image = np.asarray(images[i], dtype=float)
         image[np.where(image == 0.0)] = np.nan
 
-        # MIRI PSF FWHM (arcsec)
-        fwhm_in = 0.033 * wavelengths_um[i] + 0.106
-        fwhm_target = 0.033 * target_wavelength_um[0] + 0.106
+        # PSF FWHM (arcsec)
+        fwhm_in = psf_fwhm_arcsec(wavelengths_um[i], instruments[i])
+        fwhm_target = psf_fwhm_arcsec(target_wavelength_um[0], target_instrument)
 
         if fwhm_target <= fwhm_in:
             print(f"Skipping convolution for {wavelengths_um[i]} um -> {target_wavelength_um[0]} um")
@@ -227,10 +237,10 @@ def save_reprojected_fits(image, output_header, filename,
 from .analyzer_2d import _make_2d_wcs
 
 
-def _require_all_miri(kept_lines, instruments):
-    """Raise if any line isn't MIRI -- Convolve Maps/Run Map have no
-    confirmed PSF formula for any other instrument yet (NIRSpec in
-    particular), so a silent wrong answer is worse than refusing.
+def _require_all_supported(kept_lines, instruments):
+    """Raise if any line isn't MIRI or NIRSpec -- Convolve Maps/Run Map have no
+    confirmed PSF formula for any other instrument yet, so a silent wrong
+    answer is worse than refusing.
 
     Args:
         kept_lines (list): Line dicts, each with a 'wavelength' key.
@@ -240,19 +250,20 @@ def _require_all_miri(kept_lines, instruments):
         None
 
     Raises:
-        ValueError: naming every non-MIRI line's wavelength and instrument.
+        ValueError: naming every unsupported line's wavelength and instrument.
     """
-    bad = [(l["wavelength"], inst) for l, inst in zip(kept_lines, instruments) if inst != "MIRI"]
+    bad = [(l["wavelength"], inst) for l, inst in zip(kept_lines, instruments)
+           if inst not in ("MIRI", "NIRSpec")]
     if bad:
         detail = ", ".join(f"{wl:.4f} um ({inst or 'unknown'})" for wl, inst in bad)
         raise ValueError(
-            "Convolve Maps/Run Map currently support MIRI only (no confirmed "
+            "Convolve Maps/Run Map currently support MIRI and NIRSpec only (no confirmed "
             f"PSF formula for other instruments yet): {detail}")
 
 
 def convolution_plan(native_result):
     """Cheap, no-op preview of what convolve_reproject_maps will do to each
-    line -- the same FWHM(")=0.033*lambda+0.106 arithmetic, without running
+    line -- the same psf_fwhm_arcsec arithmetic, without running
     any convolution or reprojection. Shaped for the GUI's plan-confirmation table.
 
     Args:
@@ -261,33 +272,34 @@ def convolution_plan(native_result):
     Returns:
         plan (dict): 'worst_pix_arcsec' (reference line's native pixel
             scale), 'dst_shape' (reference line's native shape), 'per_cube'
-            (list of dicts: 'wavelength', 'filename', 'native_pix_arcsec',
-            'sigma_arcsec', 'sigma_pix'), 'dropped_lines'.
+            (list of dicts: 'wavelength', 'instrument', 'filename',
+            'native_pix_arcsec', 'sigma_arcsec', 'sigma_pix'), 'dropped_lines'.
     """
     kept_lines = native_result["kept_lines"]
     shapes = native_result["native_shapes"]
     scales = native_result["native_pix_arcsec"]
     filenames = native_result["cube_filenames"]
-    _require_all_miri(kept_lines, native_result["native_instrument"])
+    instruments = native_result["native_instrument"]
+    _require_all_supported(kept_lines, instruments)
 
     ref_idx = int(np.argmax([line["wavelength"] for line in kept_lines]))
     ref_wl = kept_lines[ref_idx]["wavelength"]
-    fwhm_target = 0.033 * ref_wl + 0.106
+    fwhm_target = psf_fwhm_arcsec(ref_wl, instruments[ref_idx])
 
     per_cube = []
     for i, line in enumerate(kept_lines):
         wl = line["wavelength"]
         if i == ref_idx:
-            per_cube.append({"wavelength": wl, "filename": filenames[i],
+            per_cube.append({"wavelength": wl, "instrument": instruments[i], "filename": filenames[i],
                              "native_pix_arcsec": scales[i],
                              "sigma_arcsec": 0.0, "sigma_pix": 0.0})
             continue
-        fwhm_in = 0.033 * wl + 0.106
+        fwhm_in = psf_fwhm_arcsec(wl, instruments[i])
         sigma_in = fwhm_in / gaussian_sigma_to_fwhm
         sigma_target = fwhm_target / gaussian_sigma_to_fwhm
         sigma_kernel_arcsec = (max(0.0, sigma_target**2 - sigma_in**2)) ** 0.5
         sigma_kernel_pix = sigma_kernel_arcsec / scales[i] if scales[i] > 0 else 0.0
-        per_cube.append({"wavelength": wl, "filename": filenames[i],
+        per_cube.append({"wavelength": wl, "instrument": instruments[i], "filename": filenames[i],
                          "native_pix_arcsec": scales[i],
                          "sigma_arcsec": sigma_kernel_arcsec, "sigma_pix": sigma_kernel_pix})
 
@@ -324,7 +336,8 @@ def convolve_reproject_maps(native_result):
     err_maps = native_result["native_flux_error_maps"]
     wcses = native_result["native_wcs"]
     scales = native_result["native_pix_arcsec"]
-    _require_all_miri(kept_lines, native_result["native_instrument"])
+    instruments = native_result["native_instrument"]
+    _require_all_supported(kept_lines, instruments)
 
     ref_idx = int(np.argmax([line["wavelength"] for line in kept_lines]))
     ref_shape = flux_maps[ref_idx].shape
@@ -344,6 +357,7 @@ def convolve_reproject_maps(native_result):
         images = [maps[i] for i in other_idx]
         wavelengths_um = [kept_lines[i]["wavelength"] for i in other_idx]
         pixel_scales_arcsec = [scales[i] for i in other_idx]
+        input_instruments = [instruments[i] for i in other_idx]
         input_headers = []
         for i in other_idx:
             h = wcses[i].to_header()
@@ -353,7 +367,8 @@ def convolve_reproject_maps(native_result):
             input_headers.append(h)
 
         convolved_images = gaussian_convolve_match(
-            images, wavelengths_um, [ref_wl], pixel_scales_arcsec)
+            images, wavelengths_um, [ref_wl], pixel_scales_arcsec,
+            input_instruments, instruments[ref_idx])
         if len(convolved_images) != len(other_idx):
             raise ValueError(
                 "gaussian_convolve_match skipped a line (fwhm_target <= fwhm_in) -- "

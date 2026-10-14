@@ -320,6 +320,40 @@ def get_spectral_resolution(wavelength, instrument, header=None):
         raise ValueError(f"Instrument {instrument} not yet supported for spectral resolution")
 
 
+def psf_fwhm_arcsec(wavelength, instrument):
+    """
+    Calculate the FWHM of the point spread function, in arcsec, at a wavelength.
+    MIRI uses a straight line in wavelength. NIRSpec uses an approximate quadratic fit.
+    Other instruments have no PSF formula here, so they raise an error.
+
+    Args:
+        wavelength (float): Wavelength, in microns
+        instrument (str): Instrument name ('MIRI' or 'NIRSpec')
+
+    Returns:
+        fwhm (float): PSF FWHM, in arcsec
+
+    Raises:
+        ValueError: If the instrument has no PSF formula
+
+    Formulas:
+        MIRI: FWHM(") = 0.033 * lambda + 0.106
+        NIRSpec: FWHM(") = 0.1 * (0.031406393 * lambda^2 + 0.019719141 * lambda + 1.5167115).
+            The fit gives the FWHM in pixels. NIRSpec has a constant scale of 0.1 arcsec per pixel.
+            It is an approximate fit, and a higher order polynomial might fit better.
+    """
+    name = str(instrument).upper()
+
+    if name == 'MIRI':
+        return 0.033 * wavelength + 0.106
+
+    elif name == 'NIRSPEC':
+        return 0.1 * (0.031406393 * wavelength ** 2 + 0.019719141 * wavelength + 1.5167115)
+
+    else:
+        raise ValueError(f"No PSF formula for instrument {instrument}. Only MIRI and NIRSpec are supported.")
+
+
 def infer_spec_axis(header, cube_shape):
     """
     Find which axis holds the spectral data, using the header's NAXIS3 value.

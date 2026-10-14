@@ -46,6 +46,7 @@ from .rotational_diagram_map_dialogs import (
 )
 from .fits_export import build_line_map_header, write_fits_product
 from .convolve_reproject import convolve_reproject_maps, convolution_plan
+from .utils import psf_fwhm_arcsec
 
 
 # Constants
@@ -4556,10 +4557,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         table.horizontalHeader().setStretchLastSection(True)
 
         def _native_psf_arcsec(c):
-            """This line's own native angular resolution (MIRI PSF formula),
-            before any convolution -- the reference row's value is the
+            """This line's own native angular resolution (its instrument's PSF
+            formula), before any convolution -- the reference row's value is the
             common resolution every other row is being PSF-matched to."""
-            return 0.033 * c["wavelength"] + 0.106
+            return psf_fwhm_arcsec(c["wavelength"], c["instrument"])
 
         def _blur_text(c):
             """

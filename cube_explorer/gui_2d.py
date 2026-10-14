@@ -38,7 +38,7 @@ from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
 from . import region_io
-from .utils import detect_instrument_from_header
+from .utils import detect_instrument_from_header, psf_fwhm_arcsec
 from .unit_converter import clean_flux_unit
 from .fits_export import (
     build_2d_export_header, build_resample_header, build_coverage_extension, write_fits_product,
@@ -109,8 +109,8 @@ def _get_line_wavelength_um(header, filename, parent):
     return float(value) if ok else None
 
 
-def _non_miri_files(infos):
-    """Return (filename, instrument) for every input that isn't MIRI --
+def _unsupported_files(infos):
+    """Return (filename, instrument) for every input that isn't MIRI or NIRSpec --
     the PSF formula has no confirmed fit for any other instrument yet.
 
     Args:
@@ -122,15 +122,15 @@ def _non_miri_files(infos):
     bad = []
     for filename, header in infos:
         inst = detect_instrument_from_header(header) if header is not None else None
-        if inst != "MIRI":
+        if inst not in ("MIRI", "NIRSpec"):
             bad.append((filename, inst or "unknown"))
     return bad
 
 
 def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
                        ref_img, ref_header, ref_wl):
-    """Convolve conv_img to ref_wl's PSF (FWHM(\")=0.033*lambda+0.106
-    formula) and reproject it onto ref_header's own native grid, using the
+    """Convolve conv_img to ref_wl's PSF (psf_fwhm_arcsec formula of each
+    image's instrument) and reproject it onto ref_header's own native grid, using the
     same unmodified gaussian_convolve_match/reproject_flux_maps ported for
     the rotational-diagram convolution.
 
@@ -152,8 +152,10 @@ def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
         ValueError: If ref_wl's PSF is not larger than conv_wl's (the
             formula requires the reference to have the longer wavelength).
     """
-    fwhm_in = 0.033 * conv_wl + 0.106
-    fwhm_target = 0.033 * ref_wl + 0.106
+    conv_instrument = detect_instrument_from_header(conv_header)
+    ref_instrument = detect_instrument_from_header(ref_header)
+    fwhm_in = psf_fwhm_arcsec(conv_wl, conv_instrument)
+    fwhm_target = psf_fwhm_arcsec(ref_wl, ref_instrument)
     if fwhm_target <= fwhm_in:
         raise ValueError(
             f"The convolution requires the reference wavelength "
@@ -170,7 +172,8 @@ def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
     ref_header["NAXIS1"] = ref_img.shape[1]
     ref_header["NAXIS2"] = ref_img.shape[0]
 
-    convolved = _convolve_match([conv_img], [conv_wl], [ref_wl], [conv_pix])
+    convolved = _convolve_match([conv_img], [conv_wl], [ref_wl], [conv_pix],
+                                [conv_instrument], ref_instrument)
     reprojected, footprints = _reproject_flux_maps(convolved, [conv_header], ref_header)
 
     sigma_in = fwhm_in / gaussian_sigma_to_fwhm
@@ -273,9 +276,9 @@ class BatchMatchResolutionDialog(QDialog):
         self.process_btn = QPushButton("Process & Download ZIP")
         self.process_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px;")
         self.process_btn.setToolTip(
-            "Convolve every file to the longest-wavelength file's PSF\n"
-            "(FWHM(\") = 0.033*wavelength_um + 0.106), reprojected\n"
-            "onto that file's own native grid. MIRI only."
+            "Convolve every file to the longest-wavelength file's PSF,\n"
+            "reprojected onto that file's own native grid.\n"
+            "MIRI and NIRSpec only."
         )
         self.process_btn.clicked.connect(self.process_and_zip)
 
@@ -323,8 +326,8 @@ class BatchMatchResolutionDialog(QDialog):
                 
     def process_and_zip(self):
         """"Process & Download ZIP" button: convolve every file to the
-        longest-wavelength file's PSF (FWHM(") = 0.033*wavelength_um + 0.106,
-        MIRI only), reprojected onto that file's own native grid.
+        longest-wavelength file's PSF (psf_fwhm_arcsec, MIRI and NIRSpec only),
+        reprojected onto that file's own native grid.
 
         Args:
             None
@@ -403,14 +406,14 @@ class BatchMatchResolutionDialog(QDialog):
                             "\n".join(msg_lines))
                         return
 
-            # ---- 2. MIRI-only check: no confirmed PSF formula otherwise ---
-            bad = _non_miri_files([(info['filename'], info['header']) for info in images_data])
+            # ---- 2. MIRI/NIRSpec-only check: no confirmed PSF formula otherwise ---
+            bad = _unsupported_files([(info['filename'], info['header']) for info in images_data])
             if bad:
                 QApplication.restoreOverrideCursor()
                 detail = "\n".join(f"  - {fn}: {inst}" for fn, inst in bad)
                 QMessageBox.warning(
                     self, "Unsupported Instrument",
-                    "Batch currently supports MIRI only (no confirmed PSF "
+                    "Batch currently supports MIRI and NIRSpec only (no confirmed PSF "
                     f"formula for other instruments yet):\n{detail}")
                 return
 
@@ -1018,15 +1021,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.batch_match_btn.setToolTip(
             "Select multiple 2D FITS files. All are convolved to the\n"
             "longest-wavelength file's PSF and reprojected onto its native\n"
-            "grid. Result is downloaded as a ZIP. MIRI only."
+            "grid. Result is downloaded as a ZIP. MIRI and NIRSpec only."
         )
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
 
         self.match_res_btn = QPushButton("Pair")
         self.match_res_btn.setToolTip(
             "Convolve the shorter-wavelength panel to match the longer-\n"
-            "wavelength panel's PSF (FWHM(\") = 0.033*wavelength_um + 0.106),\n"
-            "reprojected onto its own native grid. MIRI only."
+            "wavelength panel's PSF, reprojected onto its own native grid.\n"
+            "MIRI and NIRSpec only."
         )
         self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
 
@@ -2787,8 +2790,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
     def prompt_and_match_resolution(self):
         """"Pair" button: convolve the shorter-wavelength panel to the
-        longer-wavelength panel's PSF (FWHM(") = 0.033*wavelength_um + 0.106,
-        MIRI only), reprojecting onto its own native grid -- no padded WCS.
+        longer-wavelength panel's PSF (psf_fwhm_arcsec, MIRI and NIRSpec only),
+        reprojecting onto its own native grid -- no padded WCS.
 
         Args:
             None
@@ -2809,13 +2812,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 "Could not determine pixel scale for one or both images.")
             return
 
-        bad = _non_miri_files([(self.filename_left or "left panel", self.header_left),
+        bad = _unsupported_files([(self.filename_left or "left panel", self.header_left),
                                (self.filename_right or "right panel", self.header_right)])
         if bad:
             detail = "\n".join(f"  - {fn}: {inst}" for fn, inst in bad)
             QMessageBox.warning(
                 self, "Unsupported Instrument",
-                "Pair currently supports MIRI only (no confirmed PSF formula "
+                "Pair currently supports MIRI and NIRSpec only (no confirmed PSF formula "
                 f"for other instruments yet):\n{detail}")
             return
 
@@ -2872,8 +2875,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                     "Please load a matching pair of images of the same field.")
                 return
 
-        fwhm_in = 0.033 * conv_wl + 0.106
-        fwhm_target = 0.033 * ref_wl + 0.106
+        fwhm_in = psf_fwhm_arcsec(conv_wl, detect_instrument_from_header(fine_header))
+        fwhm_target = psf_fwhm_arcsec(ref_wl, detect_instrument_from_header(ref_header))
         sigma_arcsec = ((fwhm_target / gaussian_sigma_to_fwhm) ** 2 - (fwhm_in / gaussian_sigma_to_fwhm) ** 2) ** 0.5
 
         bunit = fine_header.get('BUNIT', '') if fine_header is not None else ''
@@ -2888,7 +2891,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             f"({ref_img.shape[1]} &times; {ref_img.shape[0]} px)<br>"
             f"BUNIT          : {bunit} &rarr; flux mode<br><br>"
             "Algorithm: gaussian_convolve_match/reproject_flux_maps "
-            "(FWHM(\") = 0.033*wavelength_um + 0.106). Proceed?"
+            "(MIRI and NIRSpec PSF formulas). Proceed?"
         )
         if QMessageBox.question(self, "Convolve", info) != QMessageBox.Yes:
             return
