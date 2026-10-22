@@ -52,7 +52,7 @@ from .species_dialog import SpeciesDialog
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
 from .flux_map_dialogs import FluxMapWorker, FluxMapResultsDialog
-from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit
+from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor
 from astropy.units import Quantity
 
 
@@ -2373,9 +2373,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if not ok:
             return
 
-        c = 299792.458  # Speed of light in km/s
         current_factor = self.spectrum_shift_factor.get(active_tab, 1.0)
-        new_factor = current_factor * (1 / (1 + velocity / c))
+        new_factor = current_factor * doppler_velocity_to_wavelength_factor(velocity)
 
         self.spectrum_shift_preview[active_tab] = {"velocity": velocity, "factor": new_factor}
 

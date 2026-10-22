@@ -8,7 +8,7 @@ to keep the main GUI file cleaner and more maintainable.
 import numpy as np
 import os
 import threading
-from .unit_converter import gaussian_map_unit_labels
+from .unit_converter import gaussian_map_unit_labels, wavelength_to_doppler_velocity
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product, _ascii_safe
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
@@ -309,6 +309,7 @@ class GaussianMapResultsDialog(QDialog):
             # Amplitude stays in the cube's native flux unit -- not CGS-converted, unlike Area.
             'Amplitude': (f'Amplitude [{self.flux_unit}]', 'plasma'),
             'Center': (f'Center [{wave_display}]', 'twilight'),
+            'Velocity': ('Velocity [km/s]', 'coolwarm'),
             'Sigma': (f'Sigma [{wave_display}]', 'cividis'),
             'FWHM': (f'FWHM [{wave_display}]', 'cividis'),
             'chi2 (fit quality)': ('chi^2 [dimensionless]', 'RdYlGn_r'),
@@ -345,7 +346,7 @@ class GaussianMapResultsDialog(QDialog):
         param_layout.addWidget(QLabel("Parameter:"))
         self.param_combo = QComboBox()
         self.param_combo.addItems([
-            "Area (AUC)", "Area Error", "Amplitude", "Center", "Sigma",
+            "Area (AUC)", "Area Error", "Amplitude", "Center", "Velocity", "Sigma",
             "FWHM", "chi2 (fit quality)", "Fit Status", "Success Mask", "Residuals"
         ])
         param_layout.addWidget(self.param_combo)
@@ -500,6 +501,16 @@ class GaussianMapResultsDialog(QDialog):
             data = self.results['center']
             title = f"Gaussian Center Position {wave_range}"
             unit_label, default_cmap = param_units['Center']
+        elif param_name == "Velocity":
+            data, reason = self._velocity_map()
+            if data is None:
+                ax.axis('off')
+                ax.text(0.5, 0.5, f"Velocity map unavailable:\n{reason}", ha='center', va='center',
+                        transform=ax.transAxes, wrap=True)
+                self.canvas.draw()
+                return
+            title = f"Velocity vs. Summed-Spectrum Fit {wave_range}"
+            unit_label, default_cmap = param_units['Velocity']
         elif param_name == "Sigma":
             data = self.results['sigma']
             title = f"Gaussian Width (sigma) {wave_range}"
@@ -548,6 +559,31 @@ class GaussianMapResultsDialog(QDialog):
         self.fig.tight_layout()
         self.canvas.draw()
 
+    def _velocity_map(self):
+        """
+        Build the Doppler velocity map of the fitted line centers, in km/s. Zero velocity
+        is the center of the Gaussian fitted to the summed spectrum of the whole cube.
+        Pixels without a detection stay NaN, because their center was never fitted.
+
+        Args:
+            None
+
+        Returns:
+            result (tuple): (velocity, reason). velocity is a 2D numpy.ndarray, or None
+                when it cannot be made. reason is None, or a sentence that says why not.
+        """
+        global_fit = self.results.get('global_fit')
+        if not global_fit or global_fit.get('center') is None:
+            return None, "The summed-spectrum fit that sets zero velocity was not computed."
+        if not global_fit.get('success'):
+            return None, "The summed-spectrum fit did not converge, so it cannot set zero velocity."
+        try:
+            velocity = wavelength_to_doppler_velocity(
+                self.results['center'], global_fit['center'], self.wave_unit)
+        except ValueError as e:
+            return None, str(e)
+        return velocity, None
+
     def _resolve_param_array(self, param_name):
         """
         Get the 2D array for a Parameter dropdown selection, straight from self.results
@@ -570,6 +606,8 @@ class GaussianMapResultsDialog(QDialog):
             return self.results['amplitude']
         if param_name == "Center":
             return self.results['center']
+        if param_name == "Velocity":
+            return self._velocity_map()[0]
         if param_name == "Sigma":
             return self.results['sigma']
         if param_name == "FWHM":
@@ -628,8 +666,14 @@ class GaussianMapResultsDialog(QDialog):
             units = unit_label[unit_label.index('[') + 1: unit_label.rindex(']')]
         lines.append(f"{param_name.upper()} VALUES:")
         lines.append(f"  Units:   {units}")
+        if param_name == "Velocity":
+            global_fit = self.results.get('global_fit')
+            if global_fit and global_fit.get('center') is not None:
+                lines.append(f"  Zero velocity: {global_fit['center']:.6f} {self.wave_unit} "
+                             "(summed-spectrum fit center)")
         if data is None:
-            lines.append("  (not available for this fit)")
+            lines.append("  (not available for this fit)" if param_name != "Velocity"
+                         else f"  ({self._velocity_map()[1]})")
         else:
             valid = data[np.isfinite(data)]
             if len(valid) == 0:
@@ -884,6 +928,7 @@ class GaussianMapResultsDialog(QDialog):
             "Area Error": (self.results['area_error'], f"{base_name}_gaussian_area_error_map.fits"),
             "Amplitude": (self.results['amplitude'], f"{base_name}_gaussian_amplitude_map.fits"),
             "Center": (self.results['center'], f"{base_name}_gaussian_center_map.fits"),
+            "Velocity": (self._velocity_map()[0], f"{base_name}_gaussian_velocity_map.fits"),
             "Sigma": (self.results['sigma'], f"{base_name}_gaussian_sigma_map.fits"),
             "FWHM": (self.results['fwhm'], f"{base_name}_gaussian_fwhm_map.fits"),
             "chi2 (fit quality)": (self.results['r_squared'], f"{base_name}_gaussian_chi2_map.fits"),
@@ -896,7 +941,10 @@ class GaussianMapResultsDialog(QDialog):
             return
         
         data, default_filename = param_map[param_name]
-        
+        if data is None:
+            QMessageBox.warning(self, "No Data", f"{param_name} map unavailable:\n{self._velocity_map()[1]}")
+            return
+
         out_path, _ = QFileDialog.getSaveFileName(
             self,
             f"Export {param_name} Map",
@@ -953,6 +1001,10 @@ class GaussianMapResultsDialog(QDialog):
                 'NSUCC': (int(np.sum(self.results['success'])), "Number of successful fits"),
                 'NTOTAL': (int(self.results['success'].size), "Total number of pixels"),
             }
+            if param_name == "Velocity":
+                extra['VREFWAV'] = (float(self.results['global_fit']['center']),
+                                    "Zero-velocity wavelength (summed-spectrum fit)")
+                extra['VREFUNIT'] = (_ascii_safe(str(self.wave_unit)), "Unit of VREFWAV")
             is_area = param_name == "Area (AUC)"
             if is_area and species_text:
                 try:

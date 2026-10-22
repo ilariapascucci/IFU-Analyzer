@@ -10,13 +10,12 @@ import pandas as pd
 import time
 from astropy.units import Quantity
 from astropy.io import ascii
-from astropy import constants as const
+from .unit_converter import wavelength_to_doppler_velocity
 
 # -------------------- Helper Functions --------------------
 # Shared by CSV import, Import Map, and Gaussian Map's export identity lookup.
 # 50 km/s covers real source/systemic velocities the old flat 1e-4 um cutoff missed.
 LINE_MATCH_VELOCITY_TOL_KMS = 50.0
-_C_KM_S = const.c.to_value("km/s")
 
 
 def match_nearest_hitran_line(hitran_lines, wavelength, velocity_tol_kms=LINE_MATCH_VELOCITY_TOL_KMS):
@@ -33,7 +32,7 @@ def match_nearest_hitran_line(hitran_lines, wavelength, velocity_tol_kms=LINE_MA
     best, best_diff = None, float('inf')
     for hl in hitran_lines:
         diff = abs(hl['wavelength'] - wavelength)
-        v_kms = diff / wavelength * _C_KM_S
+        v_kms = abs(wavelength_to_doppler_velocity(hl['wavelength'], wavelength, 'um'))
         if v_kms < velocity_tol_kms and diff < best_diff:
             best, best_diff = hl, diff
     return best

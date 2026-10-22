@@ -77,6 +77,9 @@ def _string_to_astropy_unit(unit_str):
         return None
 
 
+SPEED_OF_LIGHT_KMS = const.c.to_value(u.km / u.s)  # 299792.458
+
+
 def convert_wavelength(value, from_unit, to_unit):
     """
     Convert wavelength between different units, via astropy's own unit math.
@@ -105,6 +108,45 @@ def convert_wavelength(value, from_unit, to_unit):
         raise ValueError(f"Unsupported source unit: {from_unit}")
 
     return (value * from_unit_obj).to(to_unit_obj).value
+
+
+def wavelength_to_doppler_velocity(wavelength, reference, wave_unit):
+    """
+    Convert wavelengths to Doppler velocities in km/s relative to a reference wavelength.
+    Uses the non-relativistic optical formula v = c * (wavelength - reference) / reference.
+    A positive velocity means the line is redshifted (moving away).
+
+    Args:
+        wavelength (float/array): Line wavelength or wavelengths, in wave_unit
+        reference (float): Zero-velocity wavelength, in wave_unit
+        wave_unit (str): Unit of both wavelength and reference, for example 'um'
+
+    Returns:
+        velocity (float/array): Velocity in km/s, same shape as wavelength
+
+    Raises:
+        ValueError: if wave_unit is not a unit of length, or reference is not positive
+    """
+    unit_obj = _string_to_astropy_unit(wave_unit)
+    if unit_obj is None or unit_obj.physical_type != 'length':
+        raise ValueError(f"Velocity needs a wavelength axis, but the spectral unit is '{wave_unit}'")
+    if not (reference > 0):
+        raise ValueError(f"Reference wavelength must be positive, got {reference}")
+    return SPEED_OF_LIGHT_KMS * (np.asarray(wavelength, dtype=float) - reference) / reference
+
+
+def doppler_velocity_to_wavelength_factor(velocity):
+    """
+    Convert a Doppler velocity to the factor that moves observed wavelengths to rest.
+    This is the inverse of wavelength_to_doppler_velocity: rest = observed / (1 + v / c).
+
+    Args:
+        velocity (float): Velocity in km/s. Positive means moving away (redshift)
+
+    Returns:
+        factor (float): Number to multiply observed wavelengths by
+    """
+    return 1 / (1 + velocity / SPEED_OF_LIGHT_KMS)
 
 
 def are_units_compatible(unit1, unit2):
