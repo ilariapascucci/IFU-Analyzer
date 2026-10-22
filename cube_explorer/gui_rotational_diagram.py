@@ -45,6 +45,7 @@ from .rotational_diagram_map_dialogs import (
     CalculateNativeMapsWorker, CombineMapsWorker, SelectCubeRegionDialog,
 )
 from .fits_export import build_line_map_header, write_fits_product
+from .scale_dialog import ScaleSettings, build_norm
 from .convolve_reproject import convolve_reproject_maps, convolution_plan
 from .utils import psf_fwhm_arcsec
 
@@ -2586,7 +2587,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             data['wavelength'], data['flux_map'], data.get('header'),
             molecule=data.get('molecule', 'H2'), parent=self,
             error_map=data.get('flux_error_map'), identity_header=data.get('identity_header'),
-            src_filename=data.get('source_filename'),
+            src_filename=data.get('source_filename'), scale_store=data,
         ).exec_()
 
     def show_line_convolved_map(self, row):
@@ -2606,7 +2607,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             data['wavelength'], data['flux_map'], data.get('header'),
             molecule=data.get('molecule', 'H2'), parent=self,
             error_map=data.get('flux_error_map'), identity_header=data.get('identity_header'),
-            src_filename=data.get('source_filename'),
+            src_filename=data.get('source_filename'), scale_store=data,
         ).exec_()
 
     def _row_for_wavelength(self, wl):
@@ -2878,8 +2879,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return buf.getvalue()
 
     def _render_map_png_bytes(self, entry):
-        """Render one line's flux map as a PNG, same look (inferno colormap,
-        linear scale) as LineFluxMapDialog's default view.
+        """Render one line's flux map as a PNG with the inferno colormap and the
+        scale last chosen in LineFluxMapDialog (Linear with Auto range if none).
 
         Args:
             entry (dict): One _line_map_plot_data/_line_convolved_map_plot_data value.
@@ -2889,7 +2890,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         fig = Figure(figsize=(7, 5.5))
         ax = fig.add_subplot(111)
-        im = ax.imshow(np.asarray(entry["flux_map"], dtype=float), origin="lower", cmap="inferno")
+        norm, shown = build_norm(np.asarray(entry["flux_map"], dtype=float),
+                                 entry.get("scale_settings") or ScaleSettings())
+        im = ax.imshow(shown, origin="lower", cmap="inferno", norm=norm)
         ax.set_title(f"Flux @ {entry['wavelength']:.6f} um", fontweight="bold")
         ax.set_xlabel("x [pixel]")
         ax.set_ylabel("y [pixel]")

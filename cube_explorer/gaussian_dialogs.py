@@ -12,6 +12,10 @@ from .unit_converter import gaussian_map_unit_labels
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product, _ascii_safe
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
+from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
+
+# Parameters that flag pixels instead of measuring a quantity.
+_CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
 
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
@@ -357,9 +361,10 @@ class GaussianMapResultsDialog(QDialog):
         
         # Scale selector
         param_layout.addWidget(QLabel("  Scale:"))
-        self.scale_combo = QComboBox()
-        self.scale_combo.addItems(["Linear", "Log", "Percentile (2-98%)"])
-        param_layout.addWidget(self.scale_combo)
+        self.scale_settings = ScaleSettings()
+        self.scale_btn = QPushButton("🎚 Scale…")
+        self.scale_btn.clicked.connect(self._open_scale_dialog)
+        param_layout.addWidget(self.scale_btn)
 
         param_layout.addStretch()
         layout.addLayout(param_layout)
@@ -386,10 +391,9 @@ class GaussianMapResultsDialog(QDialog):
         layout.addWidget(self.canvas)
 
         # Connect combo boxes to update function
-        self.param_combo.currentIndexChanged.connect(self._update_plot)
+        self.param_combo.currentIndexChanged.connect(self._on_param_changed)
         self.cmap_combo.currentIndexChanged.connect(self._update_plot)
-        self.scale_combo.currentIndexChanged.connect(self._update_plot)
-        
+
         # Initial plot
         self._update_plot()
         
@@ -418,6 +422,38 @@ class GaussianMapResultsDialog(QDialog):
         
         self.setLayout(layout)
     
+    def _on_param_changed(self):
+        """Reset the absolute vmin/vmax to Auto, then redraw. A range typed
+        for one parameter has no meaning for another.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.scale_settings.clear_absolute_range()
+        self._update_plot()
+
+    def _open_scale_dialog(self):
+        """Open the shared scale/range picker for the parameter on screen and redraw.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        data = self._resolve_param_array(self.param_combo.currentText())
+        if data is None:
+            QMessageBox.warning(self, "No Data", "This parameter has no map to scale.")
+            return
+        dialog = ScaleDialog(self.scale_settings, np.asarray(data, dtype=float), parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        self.scale_settings = dialog.result_settings
+        self._update_plot()
+
     def _update_plot(self):
         """Update plot when parameter selection changes.
 
@@ -429,9 +465,10 @@ class GaussianMapResultsDialog(QDialog):
         """
         self.fig.clear()
         ax = self.fig.add_subplot(111)
-        
+
         param_name = self.param_combo.currentText()
-        
+        self.scale_btn.setEnabled(param_name not in _CATEGORICAL_PARAMS)
+
         # Remove export button if present
         if self._export_map_btn is not None:
             self.layout().removeWidget(self._export_map_btn)
@@ -496,33 +533,9 @@ class GaussianMapResultsDialog(QDialog):
         # Store the unit label that's being displayed (for export later)
         self._current_unit_label = unit_label
         
-        # Apply scaling
-        scale_selection = self.scale_combo.currentText()
-        from matplotlib.colors import LogNorm, Normalize
+        settings = ScaleSettings() if param_name in _CATEGORICAL_PARAMS else self.scale_settings
+        norm, data = build_norm(data, settings)
 
-        valid_data = data[~np.isnan(data)]
-        if len(valid_data) > 0:
-            if scale_selection == "Log":
-                # Log scale: requires positive values
-                if np.min(valid_data) > 0:
-                    norm = LogNorm(vmin=np.nanmin(valid_data), vmax=np.nanmax(valid_data))
-                else:
-                    # Shift data to make it positive
-                    offset = abs(np.min(valid_data)) + 1e-10
-                    data_shifted = data + offset
-                    norm = LogNorm(vmin=np.nanmin(data_shifted), vmax=np.nanmax(data_shifted))
-                    data = data_shifted
-            elif scale_selection == "Percentile (2-98%)":
-                # Use 2-98 percentile range to enhance contrast
-                vmin = np.nanpercentile(valid_data, 2)
-                vmax = np.nanpercentile(valid_data, 98)
-                norm = Normalize(vmin=vmin, vmax=vmax)
-            else:
-                # Linear (default)
-                norm = None
-        else:
-            norm = None
-        
         # Plot with NaN handling
         im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest', norm=norm)
         ax.set_title(title)
@@ -772,33 +785,8 @@ class GaussianMapResultsDialog(QDialog):
             cmap_selection = self.cmap_combo.currentText()
             cmap = default_cmap if cmap_selection == "Default" else cmap_selection
             
-            # Apply scaling
-            scale_selection = self.scale_combo.currentText()
-            from matplotlib.colors import LogNorm, Normalize
-            
-            valid_data = data[~np.isnan(data)]
-            if len(valid_data) > 0:
-                if scale_selection == "Log":
-                    # Log scale: requires positive values
-                    if np.min(valid_data) > 0:
-                        norm = LogNorm(vmin=np.nanmin(valid_data), vmax=np.nanmax(valid_data))
-                    else:
-                        # Shift data to make it positive for residuals (which can be negative)
-                        offset = abs(np.min(valid_data)) + 1e-10
-                        data_shifted = data + offset
-                        norm = LogNorm(vmin=np.nanmin(data_shifted), vmax=np.nanmax(data_shifted))
-                        data = data_shifted
-                elif scale_selection == "Percentile (2-98%)":
-                    # Use 2-98 percentile range to enhance contrast
-                    vmin = np.nanpercentile(valid_data, 2)
-                    vmax = np.nanpercentile(valid_data, 98)
-                    norm = Normalize(vmin=vmin, vmax=vmax)
-                else:
-                    # Linear (default)
-                    norm = None
-            else:
-                norm = None
-            
+            norm, data = build_norm(data, self.scale_settings)
+
             # Plot
             im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest', norm=norm)
             ax.set_title(title)

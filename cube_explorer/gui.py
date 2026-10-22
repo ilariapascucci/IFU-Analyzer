@@ -39,7 +39,7 @@ from .gui_spectrum import GuiSpectrumMixin
 from .gui_region_selection import RegionSelectionMixin
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
-from .scale_dialog import ScaleDialog
+from .scale_dialog import ScaleDialog, ScaleSettings, scaling_stats_text
 from .region_selector import RegionSelector
 from .analyzer_2d import _make_2d_wcs
 from . import region_io
@@ -1400,11 +1400,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_lines = []  # Store HITRAN lines separately
         self.plotted_lines = []  # Store currently plotted spectral lines
         self.plotted_artists = []  # Store matplotlib artist objects for plotted lines (detection + contaminant)
-        self.scale_left = 'Linear'
-        self.scale_right = 'Linear'
-        self.slice1_vmin = self.slice1_vmax = None  # None = auto
-        self.slice2_vmin = self.slice2_vmax = None
-        
+        self.slice1_scale = ScaleSettings()
+        self.slice2_scale = ScaleSettings()
+
         # Gaussian fitting state
         self.gauss_left_x = None
         self.gauss_peak_x = None
@@ -1729,14 +1727,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         
         # Update plot using stored colormap preference per slice if available
         cmap = getattr(self, 'slice1_cmap' if target == 'left' else 'slice2_cmap', None)
-        scale = self.scale_left if target == 'left' else self.scale_right
-        vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
-        vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
+        scale_settings = self.slice1_scale if target == 'left' else self.slice2_scale
         # Get the flux unit for colorbar display
         flux_unit_raw = getattr(self.cube_data, "flux_unit", "")
         flux_unit_clean = clean_flux_unit(flux_unit_raw) if flux_unit_raw else ""
-        plotter.plot_slice(image, title, cmap=cmap, scale=scale, flux_unit=flux_unit_clean,
-                           vmin=vmin, vmax=vmax)
+        plotter.plot_slice(image, title, cmap=cmap, settings=scale_settings,
+                           flux_unit=flux_unit_clean)
         
         # Intensity stats with units -- always the data's own true linear
         # values, regardless of the active display scale/range (see Scaling below).
@@ -1746,8 +1742,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         unit = clean_flux_unit(unit_raw)
         # Scaling: the color range the plot actually uses -- distinct from the
         # data stats above, which never change with scale/range.
-        view_vmin = mn if vmin is None else vmin
-        view_vmax = mx if vmax is None else vmax
         stats_label.setText(
             f"Intensity (data)\n[{unit}]:\n"
             f"min={mn:.3e}\n"
@@ -1756,9 +1750,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             f"sum={total_sum:.3e}\n"
             f"std={std:.3e}\n"
             f"\n"
-            f"Scaling: {scale}\n"
-            f"vmin={view_vmin:.3e}\n"
-            f"vmax={view_vmax:.3e}\n"
+            + scaling_stats_text(image, scale_settings)
         )
 
         # Force redraw
@@ -2556,7 +2548,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.slice2_plotter.set_cmap(src_cmap)
 
     def _open_scale_dialog(self, target):
-        """Open the scale-type + vmin/vmax range dialog for a slice.
+        """Open the scale, gamma, and color range dialog for a slice.
 
         Args:
             target (str): Panel to configure, 'left' or 'right'.
@@ -2570,34 +2562,35 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         idx = self.last_idx_left if target == 'left' else self.last_idx_right
         image = self.cube_data.get_slice(idx)
-        auto_vmin, auto_vmax = float(np.nanmin(image)), float(np.nanmax(image))
+        current = self.slice1_scale if target == 'left' else self.slice2_scale
 
-        current_scale = self.scale_left if target == 'left' else self.scale_right
-        current_vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
-        current_vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
-
-        dialog = ScaleDialog(current_scale, auto_vmin, auto_vmax,
-                             vmin=current_vmin, vmax=current_vmax, parent=self)
+        dialog = ScaleDialog(current, image, parent=self)
         if dialog.exec_() != QDialog.Accepted:
             return
 
-        scale_type = dialog.result_scale
-        vmin, vmax = dialog.result_vmin, dialog.result_vmax
-        range_desc = "Auto" if vmin is None and vmax is None else f"{vmin:.3e} to {vmax:.3e}"
-        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
-        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type}, {range_desc})")
-
-        if target == 'left':
-            self.scale_left = scale_type
-            self.slice1_vmin, self.slice1_vmax = vmin, vmax
-        else:
-            self.scale_right = scale_type
-            self.slice2_vmin, self.slice2_vmax = vmin, vmax
-
+        self._store_scale_settings(target, dialog.result_settings)
         self._display_slice(idx, target)
 
+    def _store_scale_settings(self, target, settings):
+        """Save a panel's scale settings and refresh its Scale button tooltip.
+
+        Args:
+            target (str): Panel to update, 'left' or 'right'.
+            settings (ScaleSettings): The new settings.
+
+        Returns:
+            None
+        """
+        if target == 'left':
+            self.slice1_scale = settings
+        else:
+            self.slice2_scale = settings
+        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
+        btn.setToolTip(f"Intensity scaling for {target} slice "
+                       f"({settings.scale_label()}, {settings.range_label()})")
+
     def copy_scale(self, source, target):
-        """Copy one slice's scale type and vmin/vmax range onto the other slice.
+        """Copy one slice's scale type, gamma, and color range onto the other slice.
 
         Args:
             source (str): Panel to copy from, 'left' or 'right'.
@@ -2606,23 +2599,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
-        if source == 'left':
-            scale_type = self.scale_left
-            vmin, vmax = self.slice1_vmin, self.slice1_vmax
-        else:
-            scale_type = self.scale_right
-            vmin, vmax = self.slice2_vmin, self.slice2_vmax
-
-        range_desc = "Auto" if vmin is None and vmax is None else f"{vmin:.3e} to {vmax:.3e}"
-        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
-        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type}, {range_desc})")
-
-        if target == 'left':
-            self.scale_left = scale_type
-            self.slice1_vmin, self.slice1_vmax = vmin, vmax
-        else:
-            self.scale_right = scale_type
-            self.slice2_vmin, self.slice2_vmax = vmin, vmax
+        settings = self.slice1_scale if source == 'left' else self.slice2_scale
+        self._store_scale_settings(target, settings.copy())
 
         if hasattr(self, 'cube_data') and self.cube_data is not None:
             idx = self.last_idx_left if target == 'left' else self.last_idx_right

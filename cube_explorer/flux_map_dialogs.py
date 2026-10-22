@@ -18,6 +18,7 @@ import matplotlib.cm as cm
 from astropy import units as u
 
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
+from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
 
 
 class FluxMapWorker(QThread):
@@ -287,20 +288,20 @@ class FluxMapResultsDialog(QDialog):
         if self.contam_detection_map is not None:
             param_items.append("Contam Detection Count")
         self.param_combo.addItems(param_items)
-        self.param_combo.currentIndexChanged.connect(self._update_plot)
+        self.param_combo.currentIndexChanged.connect(self._on_param_changed)
         ctrl_layout.addWidget(self.param_combo)
-        
+
         ctrl_layout.addWidget(QLabel("  Colormap:"))
         self.cmap_combo = QComboBox()
         self.cmap_combo.addItems(["viridis", "plasma", "inferno", "magma", "coolwarm", "RdYlGn"])
         self.cmap_combo.currentIndexChanged.connect(self._update_plot)
         ctrl_layout.addWidget(self.cmap_combo)
-        
+
         ctrl_layout.addWidget(QLabel("  Scale:"))
-        self.scale_combo = QComboBox()
-        self.scale_combo.addItems(["Linear", "Log", "Percentile"])
-        self.scale_combo.currentIndexChanged.connect(self._update_plot)
-        ctrl_layout.addWidget(self.scale_combo)
+        self.scale_settings = ScaleSettings()
+        self.scale_btn = QPushButton("🎚 Scale…")
+        self.scale_btn.clicked.connect(self._open_scale_dialog)
+        ctrl_layout.addWidget(self.scale_btn)
         
         # Toggle button for pixel selection mode
         self.pixel_select_btn = QPushButton("✓ Pixel Select ON")
@@ -522,6 +523,75 @@ class FluxMapResultsDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to inspect pixel:\n{str(e)}")
 
+    def _current_map(self):
+        """Pick the 2D array, title, and colorbar label the Display box selects.
+
+        Args:
+            None
+
+        Returns:
+            result (tuple): (data, title, cbar_label, is_flux). is_flux is
+                False for the two detection-count maps, which a scale cannot describe.
+        """
+        param = self.param_combo.currentText()
+        if param == f"{self.species_label} Flux":
+            return (self.flux_map, f"{self.species_label} Rovibrational Flux",
+                    f"Integrated {self.species_label} Flux ({self.flux_unit_str})", True)
+        if param == "Contam Flux":
+            return (self.contam_flux_map, "Contaminating-Line Flux",
+                    f"Integrated Contam Flux ({self.flux_unit_str})", True)
+        if param == "Contam Detection Count":
+            return (self.contam_detection_map.astype(float), "Contaminating Lines Detected",
+                    "Number of Lines", False)
+        return (self.detection_map.astype(float), f"{self.species_label} Lines Detected",
+                "Number of Lines", False)
+
+    @staticmethod
+    def _percentile_mask(data, is_flux):
+        """Pick the pixels that set the percentile range. A flux of exactly 0
+        means no line was detected there, so it must not count.
+
+        Args:
+            data (numpy.ndarray): The 2D map on screen.
+            is_flux (bool): True for a flux map, False for a detection count.
+
+        Returns:
+            mask (numpy.ndarray): Boolean array, or None to use every finite pixel.
+        """
+        if not is_flux:
+            return None
+        return np.isfinite(data) & (data != 0)
+
+    def _on_param_changed(self):
+        """Reset the absolute vmin/vmax to Auto, then redraw. A range typed
+        for one map has no meaning for another.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.scale_settings.clear_absolute_range()
+        self._update_plot()
+
+    def _open_scale_dialog(self):
+        """Open the shared scale/range picker for the map on screen and redraw.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        data, _, _, is_flux = self._current_map()
+        dialog = ScaleDialog(self.scale_settings, data,
+                             mask=self._percentile_mask(data, is_flux), parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        self.scale_settings = dialog.result_settings
+        self._update_plot()
+
     def _update_plot(self):
         """Update visualization.
 
@@ -533,44 +603,14 @@ class FluxMapResultsDialog(QDialog):
         """
         self.fig.clear()
         ax = self.fig.add_subplot(111)
-        
-        param = self.param_combo.currentText()
-        cmap = self.cmap_combo.currentText()
-        scale = self.scale_combo.currentText()
-        
-        # Select data and units
-        if param == f"{self.species_label} Flux":
-            data = self.flux_map
-            title = f"{self.species_label} Rovibrational Flux"
-            cbar_label = f"Integrated {self.species_label} Flux ({self.flux_unit_str})"
-        elif param == "Contam Flux":
-            data = self.contam_flux_map
-            title = "Contaminating-Line Flux"
-            cbar_label = f"Integrated Contam Flux ({self.flux_unit_str})"
-        elif param == "Contam Detection Count":
-            data = self.contam_detection_map.astype(float)
-            title = "Contaminating Lines Detected"
-            cbar_label = "Number of Lines"
-        else:
-            data = self.detection_map.astype(float)
-            title = f"{self.species_label} Lines Detected"
-            cbar_label = "Number of Lines"
 
-        # Handle NaN
-        plot_data = np.nan_to_num(data, nan=0.0)
-        
-        # Scaling
-        if scale == "Log":
-            plot_data = np.abs(plot_data)
-            plot_data[plot_data < 1e-10] = 1e-10
-            plot_data = np.log10(plot_data)
-        elif scale == "Percentile":
-            valid = plot_data[plot_data != 0]
-            if len(valid) > 0:
-                vmin, vmax = np.percentile(valid, [2, 98])
-                plot_data = np.clip(plot_data, vmin, vmax)
-        
-        im = ax.imshow(plot_data, origin='lower', cmap=cmap)
+        cmap = self.cmap_combo.currentText()
+        data, title, cbar_label, is_flux = self._current_map()
+        self.scale_btn.setEnabled(is_flux)
+        settings = self.scale_settings if is_flux else ScaleSettings()
+
+        norm, shown = build_norm(data, settings, self._percentile_mask(data, is_flux))
+        im = ax.imshow(shown, origin='lower', cmap=cmap, norm=norm)
         ax.set_title(title, fontweight='bold')
         ax.set_xlabel("X [pixels]")
         ax.set_ylabel("Y [pixels]")

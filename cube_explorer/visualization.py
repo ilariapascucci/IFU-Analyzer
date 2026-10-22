@@ -13,9 +13,10 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from matplotlib.colors import LogNorm, PowerNorm, Normalize
 from astropy.units import Quantity
 from astropy.units import Quantity
+
+from .scale_dialog import ScaleSettings, build_norm
 
 
 def _extract_wavelength_values(wavelength):
@@ -454,8 +455,7 @@ class SlicePlotter:
         self.ax.set_yticks([])
         self.fig.canvas.draw()
 
-    def plot_slice(self, image, title="", cmap=None, scale='Linear', flux_unit="",
-                   vmin=None, vmax=None):
+    def plot_slice(self, image, title="", cmap=None, settings=None, flux_unit="", mask=None):
         """Plot a 2D slice image with colorbar, creating or updating it as
         needed (origin lower-left, 'magma' colormap by default).
 
@@ -463,13 +463,11 @@ class SlicePlotter:
             image (numpy.ndarray): 2D array of intensity values.
             title (str): Title for the plot.
             cmap (str): Colormap name, or None to keep the current one.
-            scale (str): Intensity scaling: 'Linear', 'Log', 'Sqrt', or
-                'Power (gamma=2)'.
+            settings (ScaleSettings): Scale type, gamma, and color range, or
+                None for Linear with an Auto range.
             flux_unit (str): Unit string for the flux/intensity values.
-            vmin (float): Color-scale lower bound, or None to use the
-                image's own minimum (auto).
-            vmax (float): Color-scale upper bound, or None to use the
-                image's own maximum (auto).
+            mask (numpy.ndarray): Boolean array of the pixels that set the
+                percentile range, or None for all finite pixels.
 
         Returns:
             None
@@ -478,33 +476,8 @@ class SlicePlotter:
         if self.im is None or not self.ax.has_data():
             self.im = None
 
-        # Determine normalization based on scale
-        vmin = np.nanmin(image) if vmin is None else vmin
-        vmax = np.nanmax(image) if vmax is None else vmax
-        
-        # Log needs v>0. Shift image, vmin, and vmax by one constant so the
-        # window width survives (the old bug recomputed vmax from scratch).
-        # The shift is sized off the image's own true minimum, not vmin --
-        # a vmin narrowed above the true floor must still lift every pixel
-        # above zero, or anything left below zero gets masked by LogNorm
-        # instead of clamped to the floor color like every other scale.
-        if scale == 'Log':
-            img_min = float(np.nanmin(image))
-            if img_min <= 0:
-                shift = -img_min + 1e-10
-                image = image + shift
-                vmin = vmin + shift
-                vmax = vmax + shift
-            norm = LogNorm(vmin=vmin, vmax=vmax)
-        elif scale == 'Sqrt':
-            # PowerNorm handles a negative vmin directly, so it needs no
-            # shift (Power gamma=2 below also never needed one).
-            norm = PowerNorm(gamma=0.5, vmin=vmin, vmax=vmax)
-        elif scale == 'Power (γ=2)':
-            norm = PowerNorm(gamma=2.0, vmin=vmin, vmax=vmax)
-        else:  # Linear
-            norm = Normalize(vmin=vmin, vmax=vmax)
-            
+        norm, image = build_norm(image, settings or ScaleSettings(), mask)
+
         # First plot: create image and fixed colorbar
         if self.im is None:
             self.ax.clear()

@@ -35,7 +35,7 @@ from .analyzer_2d import _make_2d_wcs
 from .gui_region_selection import RegionSelectionMixin
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
-from .scale_dialog import ScaleDialog
+from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_text
 
 # Display combo: label -> (1T/T1 key, T2 key or None, colour-bar label).
 # 2T draws T1/T2 as two side-by-side panels; a None hot_key stays single.
@@ -47,6 +47,8 @@ _PARAMS = [
     ("Lines used", "n_lines", None, "detections"),
     ("Fit mask", "status", None, "1 = fitted"),
 ]
+# Parameters that count or flag pixels instead of measuring a quantity.
+_CATEGORICAL_KEYS = {"n_lines", "status"}
 
 
 class RotDiagMapWorker(QThread):
@@ -471,30 +473,6 @@ def pixel_result_html(text, highlight=None):
     return '<div style="white-space: pre-wrap;">' + "\n".join(lines) + "</div>"
 
 
-def _apply_scale_2d(data, mode):
-    """
-    Apply a linear/log/percentile display scale to a 2D array (NaNs preserved).
-    Shared by every per-pixel map viewer in this module.
-
-    Args:
-        data (np.ndarray): The map values
-        mode (str): "Linear", "Log", or "Percentile"
-
-    Returns:
-        scaled (np.ndarray): Log10, percentile-clipped, or unchanged
-    """
-    finite = data[np.isfinite(data)]
-    if mode == "Log":
-        out = np.full_like(data, np.nan)
-        pos = np.isfinite(data) & (data > 0)
-        out[pos] = np.log10(data[pos])
-        return out
-    if mode == "Percentile" and finite.size:
-        lo, hi = np.percentile(finite, [2, 98])
-        return np.clip(data, lo, hi)
-    return data
-
-
 def plot_rot_diagram(ax, plot_data, highlight=None):
     """
     Draw one rotational diagram on `ax`, the same style as show_results --
@@ -605,7 +583,7 @@ class RotDiagMapResultsDialog(QDialog):
         ctrl.addWidget(QLabel("Display:"))
         self.param_combo = QComboBox()
         self.param_combo.addItems([p[0] for p in _PARAMS])
-        self.param_combo.currentIndexChanged.connect(self._update_plot)
+        self.param_combo.currentIndexChanged.connect(self._on_param_changed)
         ctrl.addWidget(self.param_combo)
 
         ctrl.addWidget(QLabel("  Colormap:"))
@@ -616,24 +594,19 @@ class RotDiagMapResultsDialog(QDialog):
 
         # In 2T mode, T1 and T2 get their own independent scale -- e.g. a
         # faint T2 map in Log next to a well-behaved T1 map in Linear.
+        self.scale_t1 = ScaleSettings()
+        self.scale_t2 = ScaleSettings()
+        scale_label = "  Scale (T1):" if self.fit2t else "  Scale:"
+        ctrl.addWidget(QLabel(scale_label))
+        self.scale_btn_t1 = QPushButton("🎚 Scale…")
+        self.scale_btn_t1.clicked.connect(lambda: self._open_scale_dialog("t1"))
+        ctrl.addWidget(self.scale_btn_t1)
+        self.scale_btn_t2 = None
         if self.fit2t:
-            ctrl.addWidget(QLabel("  Scale (T1):"))
-            self.scale_combo_t1 = QComboBox()
-            self.scale_combo_t1.addItems(["Linear", "Log", "Percentile"])
-            self.scale_combo_t1.currentIndexChanged.connect(self._update_plot)
-            ctrl.addWidget(self.scale_combo_t1)
-
             ctrl.addWidget(QLabel("  Scale (T2):"))
-            self.scale_combo_t2 = QComboBox()
-            self.scale_combo_t2.addItems(["Linear", "Log", "Percentile"])
-            self.scale_combo_t2.currentIndexChanged.connect(self._update_plot)
-            ctrl.addWidget(self.scale_combo_t2)
-        else:
-            ctrl.addWidget(QLabel("  Scale:"))
-            self.scale_combo = QComboBox()
-            self.scale_combo.addItems(["Linear", "Log", "Percentile"])
-            self.scale_combo.currentIndexChanged.connect(self._update_plot)
-            ctrl.addWidget(self.scale_combo)
+            self.scale_btn_t2 = QPushButton("🎚 Scale…")
+            self.scale_btn_t2.clicked.connect(lambda: self._open_scale_dialog("t2"))
+            ctrl.addWidget(self.scale_btn_t2)
 
         self.pixel_btn = QPushButton("✓ Pixel Select ON")
         self.pixel_btn.setCheckable(True)
@@ -703,26 +676,100 @@ class RotDiagMapResultsDialog(QDialog):
         # so repeated redraws keep tightening further -- reset it each time.
         self.fig.subplotpars = SubplotParams()
 
+        self._update_scale_buttons(key, hot_key)
         if self.fit2t and hot_key is not None:
             ax_left = self.fig.add_subplot(121)
             ax_right = self.fig.add_subplot(122)
-            self._draw_panel(ax_left, key, f"{label} (T1, lower T)", cbar_label, self.scale_combo_t1.currentText())
-            self._draw_panel(ax_right, hot_key, f"{label} (T2, higher T)", cbar_label, self.scale_combo_t2.currentText())
+            self._draw_panel(ax_left, key, f"{label} (T1, lower T)", cbar_label, self.scale_t1)
+            self._draw_panel(ax_right, hot_key, f"{label} (T2, higher T)", cbar_label, self.scale_t2)
             # Remembered so a click can tell which component's map it landed
             # on (see _on_canvas_click) -- only meaningful with two panels.
             self._ax_left, self._ax_right = ax_left, ax_right
         else:
             ax = self.fig.add_subplot(111)
             # Lines used/Fit mask stay single-panel even in 2T mode (no
-            # hot_key) -- T1's own scale combo covers that one panel.
-            scale_type = self.scale_combo_t1.currentText() if self.fit2t else self.scale_combo.currentText()
-            self._draw_panel(ax, key, label, cbar_label, scale_type)
+            # hot_key) -- T1's own scale button covers that one panel.
+            self._draw_panel(ax, key, label, cbar_label, self.scale_t1)
             self._ax_left, self._ax_right = None, None
 
         self.fig.tight_layout()
         self.canvas.draw()
 
-    def _draw_panel(self, ax, key, title, cbar_label, scale_type):
+    def _on_param_changed(self):
+        """
+        Reset both panels' absolute vmin/vmax to Auto, then redraw. A range
+        typed for one parameter has no meaning for another.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.scale_t1.clear_absolute_range()
+        self.scale_t2.clear_absolute_range()
+        self._update_plot()
+
+    def _update_scale_buttons(self, key, hot_key):
+        """
+        Enable each Scale button only when its panel shows a continuous map.
+        Lines used and Fit mask are categories, so a scale has no meaning there.
+
+        Args:
+            key (str): Result dict key of the first panel
+            hot_key (str): Result dict key of the T2 panel, or None
+
+        Returns:
+            None
+        """
+        self.scale_btn_t1.setEnabled(key not in _CATEGORICAL_KEYS)
+        if self.scale_btn_t2 is not None:
+            self.scale_btn_t2.setEnabled(hot_key is not None)
+
+    def _panel_data(self, key):
+        """
+        Build the 2D array a parameter shows: fitted pixels only, except
+        "n_lines" (all pixels) and "status" (the binary fit mask).
+
+        Args:
+            key (str): Result dict key to plot
+
+        Returns:
+            data (np.ndarray): The map values, NaN where not fitted
+        """
+        status = self.result["status"]
+        if key == "status":
+            return (status == STATUS_OK).astype(float)
+        data = np.asarray(self.result[key], dtype=float)
+        if key != "n_lines":
+            data = np.where(status == STATUS_OK, data, np.nan)
+        return data
+
+    def _open_scale_dialog(self, which):
+        """
+        Open the shared scale/range picker for one panel and redraw.
+
+        Args:
+            which (str): "t1" for the first panel, "t2" for the second
+
+        Returns:
+            None
+        """
+        _, key, hot_key, _ = _PARAMS[self.param_combo.currentIndex()]
+        panel_key = key if which == "t1" else hot_key
+        if panel_key is None:
+            return
+        current = self.scale_t1 if which == "t1" else self.scale_t2
+        dialog = ScaleDialog(current, self._panel_data(panel_key), parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        if which == "t1":
+            self.scale_t1 = dialog.result_settings
+        else:
+            self.scale_t2 = dialog.result_settings
+        self._update_plot()
+
+    def _draw_panel(self, ax, key, title, cbar_label, settings):
         """
         Draw one map parameter on `ax`, with its own colorbar.
 
@@ -731,40 +778,25 @@ class RotDiagMapResultsDialog(QDialog):
             key (str): Result dict key to plot ("status" draws as binary)
             title (str): Axes title (overridden for "status")
             cbar_label (str): Colorbar label
-            scale_type (str): This panel's own "Linear"/"Log"/"Percentile"
+            settings (ScaleSettings): This panel's own scale and color range
 
         Returns:
             None
         """
-        status = self.result["status"]
+        data = self._panel_data(key)
         if key == "status":
-            data = (status == STATUS_OK).astype(float)
             cmap, title = "gray", "Fit mask  (white = fitted, black = no fit)"
         else:
-            data = np.asarray(self.result[key], dtype=float)
-            if key != "n_lines":
-                data = np.where(status == STATUS_OK, data, np.nan)
             cmap = self.cmap_combo.currentText()
-            data = self._apply_scale(data, scale_type)
+        if key in _CATEGORICAL_KEYS:
+            settings = ScaleSettings()
 
-        im = ax.imshow(data, origin="lower", cmap=cmap)
+        norm, shown = build_norm(data, settings)
+        im = ax.imshow(shown, origin="lower", cmap=cmap, norm=norm)
         ax.set_title(title, fontweight="bold")
         ax.set_xlabel("x [pixel]")
         ax.set_ylabel("y [pixel]")
         self.fig.colorbar(im, ax=ax).set_label(cbar_label)
-
-    def _apply_scale(self, data, scale_type):
-        """
-        Apply a scale type to a 2D array (NaNs preserved).
-
-        Args:
-            data (np.ndarray): The map values
-            scale_type (str): "Linear", "Log", or "Percentile"
-
-        Returns:
-            scaled (np.ndarray): Log10, percentile-clipped, or unchanged
-        """
-        return _apply_scale_2d(data, scale_type)
 
     def _on_canvas_click(self, event):
         """
@@ -999,9 +1031,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.active_target = None
         self.last_selection_left = None
         self.last_selection_right = None
-        self.scale_left = "Linear"
-        self.slice1_vmin = None
-        self.slice1_vmax = None
+        self.slice1_scale = ScaleSettings()
 
         self.setWindowTitle("Select Region")
         self.resize(900, 650)
@@ -1208,8 +1238,6 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             return "Intensity:\n-"
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
         total_sum, std = np.nansum(image), np.nanstd(image)
-        view_vmin = mn if self.slice1_vmin is None else self.slice1_vmin
-        view_vmax = mx if self.slice1_vmax is None else self.slice1_vmax
         return (
             f"Intensity (data)\n[{self._region_flux_unit('left')}]:\n"
             f"min={mn:.3e}\n"
@@ -1218,9 +1246,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             f"sum={total_sum:.3e}\n"
             f"std={std:.3e}\n"
             f"\n"
-            f"Scaling: {self.scale_left}\n"
-            f"vmin={view_vmin:.3e}\n"
-            f"vmax={view_vmax:.3e}\n"
+            + scaling_stats_text(image, self.slice1_scale)
         )
 
     def _region_stats_placeholder(self, target):
@@ -1360,13 +1386,10 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         image = self._region_image("left")
         if image is None:
             return
-        auto_vmin, auto_vmax = float(np.nanmin(image)), float(np.nanmax(image))
-        dialog = ScaleDialog(self.scale_left, auto_vmin, auto_vmax,
-                             vmin=self.slice1_vmin, vmax=self.slice1_vmax, parent=self)
+        dialog = ScaleDialog(self.slice1_scale, image, parent=self)
         if dialog.exec_() != QDialog.Accepted:
             return
-        self.scale_left = dialog.result_scale
-        self.slice1_vmin, self.slice1_vmax = dialog.result_vmin, dialog.result_vmax
+        self.slice1_scale = dialog.result_settings
         self._draw_map()
 
     def _draw_map(self):
@@ -1381,14 +1404,12 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         entry = self.current_entry
         self.slice1_plotter.plot_slice(
             self._region_image("left"), title=f"{entry['label']}  ({self.n_sigma:g}σ)",
-            flux_unit=self._region_flux_unit("left"), scale=self.scale_left,
-            vmin=self.slice1_vmin, vmax=self.slice1_vmax)
+            flux_unit=self._region_flux_unit("left"), settings=self.slice1_scale)
         self.slice1_canvas.draw_idle()
 
         self.stats1_label.setText(self._map_stats_text())
-        range_desc = ("Auto" if self.slice1_vmin is None and self.slice1_vmax is None
-                      else f"{self.slice1_vmin:.3e} to {self.slice1_vmax:.3e}")
-        self.scale_btn_left.setToolTip(f"Intensity scaling ({self.scale_left}, {range_desc})")
+        self.scale_btn_left.setToolTip(
+            f"Intensity scaling ({self.slice1_scale.scale_label()}, {self.slice1_scale.range_label()})")
 
     # ------------------------------------------------------- click/hover
     def _on_canvas_click(self, event):
@@ -1463,8 +1484,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.current_entry = entry
         self.file_label.setText(f"File: {entry['file']}")
         # Another line's flux is on another scale, so a manual range from the last one is void.
-        self.slice1_vmin = None
-        self.slice1_vmax = None
+        self.slice1_scale.clear_absolute_range()
         image = self._region_image("left")
         self._draw_map()
 
@@ -1541,7 +1561,7 @@ class LineFluxMapDialog(QDialog):
     """
 
     def __init__(self, wavelength, flux_map, source_header, molecule="H2", parent=None,
-                error_map=None, identity_header=None, src_filename=None):
+                error_map=None, identity_header=None, src_filename=None, scale_store=None):
         """Store the map and build the viewer UI.
 
         Args:
@@ -1557,6 +1577,8 @@ class LineFluxMapDialog(QDialog):
                 trusts source_header as-is.
             src_filename (str): Originating cube's filename, for export's
                 SRCFILE -- None omits it.
+            scale_store (dict): The line's plot-data entry. The dialog reads and
+                writes its 'scale_settings' key, so the PNG export can use it.
 
         Returns:
             None
@@ -1569,6 +1591,8 @@ class LineFluxMapDialog(QDialog):
         self.error_map = error_map
         self.identity_header = identity_header
         self.src_filename = src_filename
+        self.scale_store = scale_store if scale_store is not None else {}
+        self.scale_settings = self.scale_store.get("scale_settings") or ScaleSettings()
         self.setWindowTitle(f"{molecule} Flux Map @ {wavelength:.6f} μm")
         self.resize(750, 620)
         self._setup_ui()
@@ -1593,10 +1617,9 @@ class LineFluxMapDialog(QDialog):
         ctrl.addWidget(self.cmap_combo)
 
         ctrl.addWidget(QLabel("  Scale:"))
-        self.scale_combo = QComboBox()
-        self.scale_combo.addItems(["Linear", "Log", "Percentile"])
-        self.scale_combo.currentIndexChanged.connect(self._update_plot)
-        ctrl.addWidget(self.scale_combo)
+        self.scale_btn = QPushButton("🎚 Scale…")
+        self.scale_btn.clicked.connect(self._open_scale_dialog)
+        ctrl.addWidget(self.scale_btn)
         ctrl.addStretch()
         layout.addLayout(ctrl)
 
@@ -1630,16 +1653,34 @@ class LineFluxMapDialog(QDialog):
         Returns:
             None
         """
-        data = _apply_scale_2d(np.asarray(self.flux_map, dtype=float), self.scale_combo.currentText())
+        norm, shown = build_norm(np.asarray(self.flux_map, dtype=float), self.scale_settings)
         self.fig.clear()
         ax = self.fig.add_subplot(111)
-        im = ax.imshow(data, origin="lower", cmap=self.cmap_combo.currentText())
+        im = ax.imshow(shown, origin="lower", cmap=self.cmap_combo.currentText(), norm=norm)
         ax.set_title(f"Flux @ {self.wavelength:.6f} um", fontweight="bold")
         ax.set_xlabel("x [pixel]")
         ax.set_ylabel("y [pixel]")
         self.fig.colorbar(im, ax=ax).set_label("Flux (erg/s/cm2)")
         self.fig.tight_layout()
         self.canvas.draw()
+
+    def _open_scale_dialog(self):
+        """
+        Open the shared scale/range picker, save the choice on the line's
+        entry for the PNG export, and redraw.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        dialog = ScaleDialog(self.scale_settings, np.asarray(self.flux_map, dtype=float), parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        self.scale_settings = dialog.result_settings
+        self.scale_store["scale_settings"] = self.scale_settings
+        self._update_plot()
 
     def _show_statistics(self):
         """

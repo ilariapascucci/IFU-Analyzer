@@ -1,17 +1,208 @@
 """
-Scale Selection Dialog
-Provides a GUI dialog for choosing a slice's intensity scaling (Linear/Log/
-Sqrt/Power) and an optional manual vmin/vmax color-scale range, via a
-draggable dual-handle slider and/or typed Min/Max values.
+Scaling
+Intensity scaling shared by every image and map viewer: the scale settings
+(Linear/Log/Power with gamma, absolute or percentile color range), the matplotlib
+norm built from them, and the Scale dialog (slider plus typed values) that edits them.
 """
 
+import dataclasses
+from dataclasses import dataclass
+
 import numpy as np
+from matplotlib.colors import LogNorm, PowerNorm, Normalize
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QComboBox, QLineEdit, QMessageBox, QWidget
 )
 from PyQt5.QtCore import Qt, QPointF, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator, QPainter, QPen, QColor
+
+SCALE_TYPES = ["Linear", "Log", "Power"]
+RANGE_ABSOLUTE = "absolute"
+RANGE_PERCENTILE = "percentile"
+DEFAULT_GAMMA = 0.5
+DEFAULT_PERCENTILES = (2.0, 98.0)
+
+
+@dataclass
+class ScaleSettings:
+    """One viewer panel's scale type, gamma, and color range.
+
+    Args:
+        scale (str): 'Linear', 'Log', or 'Power'.
+        gamma (float): Exponent for the Power scale. Must be above 0.
+        range_mode (str): 'absolute' (vmin/vmax) or 'percentile' (p_lo/p_hi).
+        vmin (float): Absolute lower bound, or None for the image minimum.
+        vmax (float): Absolute upper bound, or None for the image maximum.
+        p_lo (float): Lower percentile, from 0 to 100.
+        p_hi (float): Upper percentile, from 0 to 100.
+    """
+
+    scale: str = "Linear"
+    gamma: float = DEFAULT_GAMMA
+    range_mode: str = RANGE_ABSOLUTE
+    vmin: float = None
+    vmax: float = None
+    p_lo: float = DEFAULT_PERCENTILES[0]
+    p_hi: float = DEFAULT_PERCENTILES[1]
+
+    def copy(self):
+        """Return an independent copy of these settings.
+
+        Args:
+            None
+
+        Returns:
+            settings (ScaleSettings): A new object with the same values.
+        """
+        return dataclasses.replace(self)
+
+    def clear_absolute_range(self):
+        """Reset vmin and vmax to Auto. Scale, gamma, and percentiles stay.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.vmin = None
+        self.vmax = None
+
+    def scale_label(self):
+        """Return the scale name for a label, with gamma for Power.
+
+        Args:
+            None
+
+        Returns:
+            label (str): The scale name. Power also shows the gamma value.
+        """
+        if self.scale == "Power":
+            return f"Power (γ={self.gamma:g})"
+        return self.scale
+
+    def range_label(self):
+        """Return a short text for the color range, for tooltips.
+
+        Args:
+            None
+
+        Returns:
+            label (str): 'Auto', 'vmin to vmax', or 'lo-hi%'.
+        """
+        if self.range_mode == RANGE_PERCENTILE:
+            return f"{self.p_lo:g}-{self.p_hi:g}%"
+        if self.vmin is None and self.vmax is None:
+            return "Auto"
+        low = "Auto" if self.vmin is None else f"{self.vmin:.3e}"
+        high = "Auto" if self.vmax is None else f"{self.vmax:.3e}"
+        return f"{low} to {high}"
+
+
+def finite_pixels(image, mask=None):
+    """Return the finite pixel values of an image, as a 1D array.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values.
+        mask (numpy.ndarray): Boolean array of the same shape. Only True
+            pixels count. None means all pixels count.
+
+    Returns:
+        values (numpy.ndarray): 1D array of the finite pixels.
+    """
+    image = np.asarray(image, dtype=float)
+    keep = np.isfinite(image)
+    if mask is not None:
+        keep = keep & mask
+    return image[keep]
+
+
+def resolve_range(image, settings, mask=None):
+    """Return the (vmin, vmax) the color scale uses for this image.
+
+    Absolute mode uses the typed bounds, or the image minimum or maximum for
+    a blank bound. Percentile mode uses the pixels in mask (all finite if none).
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values.
+        settings (ScaleSettings): The panel's scale settings.
+        mask (numpy.ndarray): Boolean array. Only True pixels set the
+            percentiles. None means all finite pixels.
+
+    Returns:
+        range (tuple): (vmin, vmax) as floats. (0.0, 1.0) if no finite pixel.
+    """
+    finite = finite_pixels(image)
+    if finite.size == 0:
+        return 0.0, 1.0
+    if settings.range_mode == RANGE_PERCENTILE:
+        population = finite_pixels(image, mask)
+        if population.size == 0:
+            population = finite
+        lo, hi = np.percentile(population, [settings.p_lo, settings.p_hi])
+        return float(lo), float(hi)
+    vmin = float(finite.min()) if settings.vmin is None else settings.vmin
+    vmax = float(finite.max()) if settings.vmax is None else settings.vmax
+    return vmin, vmax
+
+
+def build_norm(image, settings, mask=None):
+    """Build the matplotlib norm for an image, and the array to draw with it.
+
+    Log shifts the image, vmin, and vmax by one constant if any value is at
+    or below zero. The array to draw is then the shifted image.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values.
+        settings (ScaleSettings): The panel's scale settings.
+        mask (numpy.ndarray): Boolean array for the percentile population,
+            or None for all finite pixels.
+
+    Returns:
+        result (tuple): (norm, shown). norm is the matplotlib Normalize
+            object. shown is the array to pass to imshow.
+    """
+    vmin, vmax = resolve_range(image, settings, mask)
+    shown = image
+    if settings.scale == "Log":
+        finite = finite_pixels(image)
+        img_min = float(finite.min()) if finite.size else 0.0
+        if img_min <= 0:
+            span = max(abs(img_min), abs(float(finite.max()))) if finite.size else 0.0
+            # The floor must stay far below the data, so it shrinks for tiny values.
+            eps = 1e-10 * span if 0 < span < 1 else 1e-10
+            shift = -img_min + eps
+            shown = image + shift
+            vmin = vmin + shift
+            vmax = vmax + shift
+        return LogNorm(vmin=vmin, vmax=vmax), shown
+    if settings.scale == "Power":
+        return PowerNorm(gamma=settings.gamma, vmin=vmin, vmax=vmax), shown
+    return Normalize(vmin=vmin, vmax=vmax), shown
+
+
+def scaling_stats_text(image, settings, mask=None):
+    """Return the three stats lines that describe the active color scale.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values.
+        settings (ScaleSettings): The panel's scale settings.
+        mask (numpy.ndarray): Boolean array for the percentile population,
+            or None for all finite pixels.
+
+    Returns:
+        text (str): The 'Scaling:', 'vmin=', and 'vmax=' lines.
+    """
+    vmin, vmax = resolve_range(image, settings, mask)
+    low_tag = high_tag = ""
+    if settings.range_mode == RANGE_PERCENTILE:
+        low_tag, high_tag = f" ({settings.p_lo:g}%)", f" ({settings.p_hi:g}%)"
+    return (
+        f"Scaling: {settings.scale_label()}\n"
+        f"vmin={vmin:.3e}{low_tag}\n"
+        f"vmax={vmax:.3e}{high_tag}\n"
+    )
 
 
 class RangeSliderWidget(QWidget):
@@ -24,7 +215,7 @@ class RangeSliderWidget(QWidget):
     HANDLE_RADIUS = 7
     TRACK_MARGIN = 12
 
-    def __init__(self, data_min, data_max, scale_type, vmin=None, vmax=None, parent=None):
+    def __init__(self, data_min, data_max, scale_type, gamma=1.0, vmin=None, vmax=None, parent=None):
         """Build the slider over [data_min, data_max], with handles at vmin/vmax.
 
         Args:
@@ -33,7 +224,8 @@ class RangeSliderWidget(QWidget):
             data_max (float): Upper bound of the selectable range (the
                 slice's own auto maximum).
             scale_type (str): Initial layout transform ('Linear', 'Log',
-                'Sqrt', or 'Power (gamma=2)').
+                or 'Power').
+            gamma (float): Exponent for the Power layout. Must be above 0.
             vmin (float): Initial lower handle value, or None for data_min.
             vmax (float): Initial upper handle value, or None for data_max.
             parent (QWidget): Parent widget, or None.
@@ -49,20 +241,23 @@ class RangeSliderWidget(QWidget):
         self._vmin = float(vmin) if vmin is not None else self._data_min
         self._vmax = float(vmax) if vmax is not None else self._data_max
         self._scale_type = scale_type
+        self._gamma = float(gamma)
         self._dragging = None  # 'min', 'max', or None
         self.setMouseTracking(True)
 
-    def set_scale_type(self, scale_type):
+    def set_scale(self, scale_type, gamma):
         """Switch the layout transform and re-lay-out the handles (values
         unchanged -- only their on-screen position moves).
 
         Args:
             scale_type (str): New layout transform.
+            gamma (float): Exponent for the Power layout. Must be above 0.
 
         Returns:
             None
         """
         self._scale_type = scale_type
+        self._gamma = float(gamma)
         self.update()
 
     def set_range(self, vmin, vmax):
@@ -121,10 +316,8 @@ class RangeSliderWidget(QWidget):
         if self._scale_type == "Log":
             return (np.log10(v) - np.log10(lo)) / (np.log10(hi) - np.log10(lo))
         ratio = max(0.0, min(1.0, (v - lo) / (hi - lo)))
-        if self._scale_type == "Sqrt":
-            return ratio ** 0.5
-        if self._scale_type.startswith("Power"):
-            return ratio ** 2
+        if self._scale_type == "Power":
+            return ratio ** self._gamma
         return ratio  # Linear
 
     def _frac_to_value(self, f):
@@ -141,10 +334,8 @@ class RangeSliderWidget(QWidget):
         lo, hi = self._layout_bounds()
         if self._scale_type == "Log":
             return 10 ** (np.log10(lo) + f * (np.log10(hi) - np.log10(lo)))
-        if self._scale_type == "Sqrt":
-            return lo + (f ** 2) * (hi - lo)
-        if self._scale_type.startswith("Power"):
-            return lo + (f ** 0.5) * (hi - lo)
+        if self._scale_type == "Power":
+            return lo + (f ** (1.0 / self._gamma)) * (hi - lo)
         return lo + f * (hi - lo)  # Linear
 
     def _track_x_bounds(self):
@@ -255,21 +446,18 @@ class RangeSliderWidget(QWidget):
 
 
 class ScaleDialog(QDialog):
-    """Dialog to choose intensity scaling and an optional manual vmin/vmax range."""
+    """Dialog to choose intensity scaling, gamma, and an absolute or percentile color range."""
 
-    SCALE_TYPES = ["Linear", "Log", "Sqrt", "Power (γ=2)"]
-
-    def __init__(self, current_scale, auto_vmin, auto_vmax, vmin=None, vmax=None, parent=None):
-        """Build the scale-type + vmin/vmax picker.
+    def __init__(self, settings, image, mask=None, parent=None):
+        """Build the scale type, gamma, and color range picker.
 
         Args:
-            current_scale (str): Currently active scale type, preselected.
-            auto_vmin (float): This slice's own minimum, shown as a
-                placeholder/default when no manual vmin is set.
-            auto_vmax (float): This slice's own maximum, shown as a
-                placeholder/default when no manual vmax is set.
-            vmin (float): Current manual vmin override, or None for auto.
-            vmax (float): Current manual vmax override, or None for auto.
+            settings (ScaleSettings): The panel's current settings. The dialog
+                never changes this object.
+            image (numpy.ndarray): The 2D image the settings apply to. It sets
+                the Auto bounds and the percentile values.
+            mask (numpy.ndarray): Boolean array of the pixels that set the
+                percentiles, or None for all finite pixels.
             parent (QWidget): Parent widget, or None for a top-level dialog.
 
         Returns:
@@ -277,33 +465,62 @@ class ScaleDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("Scale and Color Range")
-        self.setMinimumWidth(340)
-        self.auto_vmin = auto_vmin
-        self.auto_vmax = auto_vmax
-        self.result_scale = current_scale
-        self.result_vmin = None
-        self.result_vmax = None
+        self.setMinimumWidth(360)
+        self.image = image
+        self.mask = mask
+        self.start_settings = settings.copy()
+        self.result_settings = settings.copy()
+
+        finite = finite_pixels(image)
+        self.auto_vmin = float(finite.min()) if finite.size else 0.0
+        self.auto_vmax = float(finite.max()) if finite.size else 1.0
 
         layout = QVBoxLayout()
-        info = QLabel("Choose the intensity scaling and, optionally, a fixed "
-                      "color-range (drag the slider or type vmin/vmax). Leave "
-                      "vmin/vmax blank for Auto.")
+        info = QLabel("Choose the intensity scaling and the color range. The range is "
+                      "either absolute (drag the slider or type vmin/vmax, blank = Auto) "
+                      "or relative (lower and upper percentile of this image).")
         info.setWordWrap(True)
         layout.addWidget(info)
 
         form = QFormLayout()
         self.scale_combo = QComboBox()
-        self.scale_combo.addItems(self.SCALE_TYPES)
-        if current_scale in self.SCALE_TYPES:
-            self.scale_combo.setCurrentText(current_scale)
+        self.scale_combo.addItems(SCALE_TYPES)
+        self.scale_combo.setCurrentText(settings.scale)
         self.scale_combo.currentTextChanged.connect(self._on_scale_changed)
         form.addRow("Scaling:", self.scale_combo)
+
+        self.gamma_label = QLabel("Gamma:")
+        self.gamma_edit = QLineEdit(f"{settings.gamma:g}")
+        gamma_validator = QDoubleValidator()
+        gamma_validator.setNotation(QDoubleValidator.StandardNotation)
+        self.gamma_edit.setValidator(gamma_validator)
+        self.gamma_edit.setPlaceholderText("e.g. sqrt: gamma=0.5, square: gamma=2")
+        self.gamma_edit.editingFinished.connect(self._on_scale_changed)
+        form.addRow(self.gamma_label, self.gamma_edit)
+
+        self.range_combo = QComboBox()
+        self.range_combo.addItems(["Absolute (vmin / vmax)", "Percentile"])
+        self.range_combo.setCurrentIndex(1 if settings.range_mode == RANGE_PERCENTILE else 0)
+        self.range_combo.currentIndexChanged.connect(self._on_range_mode_changed)
+        form.addRow("Color range:", self.range_combo)
+
+        pct_validator = QDoubleValidator(0.0, 100.0, 4)
+        pct_validator.setNotation(QDoubleValidator.StandardNotation)
+        self.p_lo_label = QLabel("Lower percentile (%):")
+        self.p_lo_edit = QLineEdit(f"{settings.p_lo:g}")
+        self.p_lo_edit.setValidator(pct_validator)
+        self.p_lo_edit.editingFinished.connect(self._refresh_percentile_range)
+        form.addRow(self.p_lo_label, self.p_lo_edit)
+        self.p_hi_label = QLabel("Upper percentile (%):")
+        self.p_hi_edit = QLineEdit(f"{settings.p_hi:g}")
+        self.p_hi_edit.setValidator(pct_validator)
+        self.p_hi_edit.editingFinished.connect(self._refresh_percentile_range)
+        form.addRow(self.p_hi_label, self.p_hi_edit)
         layout.addLayout(form)
 
-        slider_vmin = vmin if vmin is not None else auto_vmin
-        slider_vmax = vmax if vmax is not None else auto_vmax
-        self.slider = RangeSliderWidget(auto_vmin, auto_vmax, self.scale_combo.currentText(),
-                                        vmin=slider_vmin, vmax=slider_vmax)
+        self.slider = RangeSliderWidget(self.auto_vmin, self.auto_vmax, settings.scale,
+                                        gamma=settings.gamma,
+                                        vmin=settings.vmin, vmax=settings.vmax)
         self.slider.rangeChanged.connect(self._on_slider_changed)
         layout.addWidget(self.slider)
 
@@ -313,25 +530,25 @@ class ScaleDialog(QDialog):
 
         self.min_edit = QLineEdit()
         self.min_edit.setValidator(validator)
-        self.min_edit.setPlaceholderText(f"Auto ({auto_vmin:.3e})")
-        if vmin is not None:
-            self.min_edit.setText(f"{vmin:.6e}")
+        self.min_edit.setPlaceholderText(f"Auto ({self.auto_vmin:.3e})")
+        if settings.vmin is not None:
+            self.min_edit.setText(f"{settings.vmin:.6e}")
         self.min_edit.editingFinished.connect(self._sync_slider_from_fields)
         form2.addRow("vmin:", self.min_edit)
 
         self.max_edit = QLineEdit()
         self.max_edit.setValidator(validator)
-        self.max_edit.setPlaceholderText(f"Auto ({auto_vmax:.3e})")
-        if vmax is not None:
-            self.max_edit.setText(f"{vmax:.6e}")
+        self.max_edit.setPlaceholderText(f"Auto ({self.auto_vmax:.3e})")
+        if settings.vmax is not None:
+            self.max_edit.setText(f"{settings.vmax:.6e}")
         self.max_edit.editingFinished.connect(self._sync_slider_from_fields)
         form2.addRow("vmax:", self.max_edit)
 
         layout.addLayout(form2)
 
-        reset_btn = QPushButton("Reset to Auto")
-        reset_btn.clicked.connect(self._reset_to_auto)
-        layout.addWidget(reset_btn)
+        self.reset_btn = QPushButton("Reset to Auto")
+        self.reset_btn.clicked.connect(self._reset_to_auto)
+        layout.addWidget(self.reset_btn)
 
         btn_layout = QHBoxLayout()
         ok_btn = QPushButton("OK")
@@ -344,20 +561,123 @@ class ScaleDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self.setLayout(layout)
+        self._update_visibility()
+        if settings.range_mode == RANGE_PERCENTILE:
+            self._refresh_percentile_range()
 
-    def _on_scale_changed(self, scale_type):
+    def _is_percentile_mode(self):
+        """Tell whether the Percentile color range is selected.
+
+        Args:
+            None
+
+        Returns:
+            is_percentile (bool): True for Percentile, False for Absolute.
+        """
+        return self.range_combo.currentIndex() == 1
+
+    def _update_visibility(self):
+        """Show the gamma row only for Power and the percentile rows only
+        for Percentile. In Percentile mode, vmin and vmax are read-only.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        is_power = self.scale_combo.currentText() == "Power"
+        self.gamma_label.setVisible(is_power)
+        self.gamma_edit.setVisible(is_power)
+        is_pct = self._is_percentile_mode()
+        for widget in (self.p_lo_label, self.p_lo_edit, self.p_hi_label, self.p_hi_edit):
+            widget.setVisible(is_pct)
+        self.min_edit.setReadOnly(is_pct)
+        self.max_edit.setReadOnly(is_pct)
+        self.slider.setEnabled(not is_pct)
+        self.reset_btn.setText("Reset to Auto (Absolute)" if is_pct else "Reset to Auto")
+
+    def _current_gamma(self):
+        """Read the gamma box. Return the stored gamma if the box is not valid.
+
+        Args:
+            None
+
+        Returns:
+            gamma (float): The gamma value in the box, or the last valid one.
+        """
+        try:
+            gamma = float(self.gamma_edit.text())
+        except ValueError:
+            return self.result_settings.gamma
+        return gamma if gamma > 0 else self.result_settings.gamma
+
+    def _on_scale_changed(self, *_):
         """Re-lay-out the slider's handles under the new scale, and push its
         current values into the Min/Max fields live -- a drag is not the
         only trigger for an update.
 
         Args:
-            scale_type (str): Newly selected scale type.
+            *_ (tuple): Unused signal arguments.
 
         Returns:
             None
         """
-        self.slider.set_scale_type(scale_type)
-        self._on_slider_changed(*self.slider.value_range())
+        self._update_visibility()
+        self.slider.set_scale(self.scale_combo.currentText(), self._current_gamma())
+        if not self._is_percentile_mode():
+            self._on_slider_changed(*self.slider.value_range())
+
+    def _on_range_mode_changed(self, _index):
+        """Switch between Absolute and Percentile. Leaving Percentile keeps
+        the percentile values in the vmin and vmax boxes as absolute numbers.
+
+        Args:
+            _index (int): Unused index of the new combo entry.
+
+        Returns:
+            None
+        """
+        self._update_visibility()
+        if self._is_percentile_mode():
+            self._refresh_percentile_range()
+
+    def _percentiles_from_fields(self):
+        """Read the two percentile boxes.
+
+        Args:
+            None
+
+        Returns:
+            result (tuple): (p_lo, p_hi) as floats, or None if a box is not a
+                valid number or the pair is not 0 <= lo < hi <= 100.
+        """
+        try:
+            p_lo = float(self.p_lo_edit.text())
+            p_hi = float(self.p_hi_edit.text())
+        except ValueError:
+            return None
+        if not 0.0 <= p_lo < p_hi <= 100.0:
+            return None
+        return p_lo, p_hi
+
+    def _refresh_percentile_range(self):
+        """Write the percentile values of this image into the vmin and vmax
+        boxes and move the slider to match. Do nothing for an invalid pair.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        pair = self._percentiles_from_fields()
+        if pair is None or not self._is_percentile_mode():
+            return
+        trial = ScaleSettings(range_mode=RANGE_PERCENTILE, p_lo=pair[0], p_hi=pair[1])
+        vmin, vmax = resolve_range(self.image, trial, self.mask)
+        self.slider.set_range(vmin, vmax)
+        self._on_slider_changed(vmin, vmax)
 
     def _on_slider_changed(self, vmin, vmax):
         """Mirror a slider drag into the Min/Max text fields.
@@ -395,8 +715,8 @@ class ScaleDialog(QDialog):
         self.slider.set_range(vmin, vmax)
 
     def _reset_to_auto(self):
-        """Clear both Min/Max fields and reset the slider, reverting to
-        automatic scaling.
+        """Switch to the Absolute range, clear both Min/Max fields, and
+        reset the slider, reverting to automatic scaling.
 
         Args:
             None
@@ -404,12 +724,14 @@ class ScaleDialog(QDialog):
         Returns:
             None
         """
+        self.range_combo.setCurrentIndex(0)
         self.min_edit.clear()
         self.max_edit.clear()
         self.slider.set_range(self.auto_vmin, self.auto_vmax)
 
     def accept(self):
-        """Validate and parse Min/Max (blank = auto / None) before closing.
+        """Validate every box, then store the new settings in result_settings.
+        Show a warning and keep the dialog open if a value is not valid.
 
         Args:
             None
@@ -417,21 +739,43 @@ class ScaleDialog(QDialog):
         Returns:
             None
         """
-        self.result_scale = self.scale_combo.currentText()
-
-        min_text = self.min_edit.text().strip()
-        max_text = self.max_edit.text().strip()
+        scale = self.scale_combo.currentText()
         try:
-            self.result_vmin = float(min_text) if min_text else None
-            self.result_vmax = float(max_text) if max_text else None
+            gamma = float(self.gamma_edit.text())
         except ValueError:
-            QMessageBox.warning(self, "Invalid Value",
-                                "vmin/vmax must be numbers (e.g. 1.5e-16), or left blank for Auto.")
+            gamma = None
+        if scale == "Power" and (gamma is None or gamma <= 0):
+            QMessageBox.warning(self, "Invalid Gamma",
+                                "Gamma must be a number above 0 (sqrt: 0.5, square: 2).")
             return
+        new = self.start_settings.copy()
+        new.scale = scale
+        if gamma is not None and gamma > 0:
+            new.gamma = gamma
 
-        if (self.result_vmin is not None and self.result_vmax is not None
-                and self.result_vmin >= self.result_vmax):
-            QMessageBox.warning(self, "Invalid Range", "vmin must be less than vmax.")
-            return
+        if self._is_percentile_mode():
+            pair = self._percentiles_from_fields()
+            if pair is None:
+                QMessageBox.warning(self, "Invalid Percentile",
+                                    "Percentiles must be numbers with 0 <= lower < upper <= 100.")
+                return
+            new.range_mode = RANGE_PERCENTILE
+            new.p_lo, new.p_hi = pair
+        else:
+            min_text = self.min_edit.text().strip()
+            max_text = self.max_edit.text().strip()
+            try:
+                vmin = float(min_text) if min_text else None
+                vmax = float(max_text) if max_text else None
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Value",
+                                    "vmin/vmax must be numbers (e.g. 1.5e-16), or left blank for Auto.")
+                return
+            if vmin is not None and vmax is not None and vmin >= vmax:
+                QMessageBox.warning(self, "Invalid Range", "vmin must be less than vmax.")
+                return
+            new.range_mode = RANGE_ABSOLUTE
+            new.vmin, new.vmax = vmin, vmax
 
+        self.result_settings = new
         super().accept()

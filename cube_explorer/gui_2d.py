@@ -29,11 +29,11 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from matplotlib.colors import LogNorm, Normalize, PowerNorm  # used by: display_image
+from matplotlib.colors import Normalize  # used by: Superimpose overlay
 from PyQt5.QtCore import Qt
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
-from .scale_dialog import ScaleDialog
+from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_text
 from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
@@ -608,10 +608,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self.region_state = {"left": "idle", "right": "idle"}
         self.last_contour_right_wcs = None
         self.last_contour_right_level = None
-        self.scale_left = 'Linear'
-        self.scale_right = 'Linear'
-        self.slice1_vmin = self.slice1_vmax = None  # None = auto
-        self.slice2_vmin = self.slice2_vmax = None
+        self.slice1_scale = ScaleSettings()
+        self.slice2_scale = ScaleSettings()
         self.slice1_cmap = 'magma'
         self.slice2_cmap = 'magma'
         
@@ -759,7 +757,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 self.display_image('right')
 
     def _open_scale_dialog(self, target):
-        """Open the scale-type + vmin/vmax range dialog for a panel (matches 3D).
+        """Open the scale, gamma, and color range dialog for a panel (matches 3D).
 
         Args:
             target (str): Panel to configure, 'left' or 'right'.
@@ -772,36 +770,34 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             QMessageBox.warning(self, "No Image Loaded", "Load an image into this panel first.")
             return
 
-        finite = image[np.isfinite(image)]
-        auto_vmin = float(np.nanmin(finite)) if finite.size else 0.0
-        auto_vmax = float(np.nanmax(finite)) if finite.size else 1.0
-
-        current_scale = self.scale_left if target == 'left' else self.scale_right
-        current_vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
-        current_vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
-
-        dialog = ScaleDialog(current_scale, auto_vmin, auto_vmax,
-                             vmin=current_vmin, vmax=current_vmax, parent=self)
+        current = self.slice1_scale if target == 'left' else self.slice2_scale
+        dialog = ScaleDialog(current, image, parent=self)
         if dialog.exec_() != QDialog.Accepted:
             return
 
-        scale_type = dialog.result_scale
-        vmin, vmax = dialog.result_vmin, dialog.result_vmax
-        range_desc = "Auto" if vmin is None and vmax is None else f"{vmin:.3e} to {vmax:.3e}"
-        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
-        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type}, {range_desc})")
-
-        if target == 'left':
-            self.scale_left = scale_type
-            self.slice1_vmin, self.slice1_vmax = vmin, vmax
-        else:
-            self.scale_right = scale_type
-            self.slice2_vmin, self.slice2_vmax = vmin, vmax
-
+        self._store_scale_settings(target, dialog.result_settings)
         self.display_image(target)
 
+    def _store_scale_settings(self, target, settings):
+        """Save a panel's scale settings and refresh its Scale button tooltip.
+
+        Args:
+            target (str): Panel to update, 'left' or 'right'.
+            settings (ScaleSettings): The new settings.
+
+        Returns:
+            None
+        """
+        if target == 'left':
+            self.slice1_scale = settings
+        else:
+            self.slice2_scale = settings
+        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
+        btn.setToolTip(f"Intensity scaling for {target} slice "
+                       f"({settings.scale_label()}, {settings.range_label()})")
+
     def copy_scale(self, source, target):
-        """Copy one panel's scale type and vmin/vmax range onto the other (matches 3D).
+        """Copy one panel's scale type, gamma, and color range onto the other (matches 3D).
 
         Args:
             source (str): Panel to copy from, 'left' or 'right'.
@@ -810,27 +806,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         Returns:
             None
         """
-        if source == 'left':
-            scale_type = self.scale_left
-            vmin, vmax = self.slice1_vmin, self.slice1_vmax
-        else:
-            scale_type = self.scale_right
-            vmin, vmax = self.slice2_vmin, self.slice2_vmax
-
-        range_desc = "Auto" if vmin is None and vmax is None else f"{vmin:.3e} to {vmax:.3e}"
-        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
-        btn.setToolTip(f"Intensity scaling for {target} slice ({scale_type}, {range_desc})")
-
-        if target == 'left':
-            self.scale_left = scale_type
-            self.slice1_vmin, self.slice1_vmax = vmin, vmax
-            if self.image_left is not None:
-                self.display_image('left')
-        else:
-            self.scale_right = scale_type
-            self.slice2_vmin, self.slice2_vmax = vmin, vmax
-            if self.image_right is not None:
-                self.display_image('right')
+        settings = self.slice1_scale if source == 'left' else self.slice2_scale
+        self._store_scale_settings(target, settings.copy())
+        image = self.image_left if target == 'left' else self.image_right
+        if image is not None:
+            self.display_image(target)
 
     def _init_shape_controls(self):
         """Initialize shape selection buttons.
@@ -2302,7 +2282,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
         stats_label = self.stats1_label if target == 'left' else self.stats2_label
         cmap  = getattr(self, 'slice1_cmap' if target == 'left' else 'slice2_cmap', 'magma')
-        scale = self.scale_left if target == 'left' else self.scale_right
+        scale_settings = self.slice1_scale if target == 'left' else self.slice2_scale
 
         ax = plotter.ax
         for artist in list(ax.images):
@@ -2313,37 +2293,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             line.remove()
         ax.set_title('')
 
-        # 1. Calculate Intensity Normalization -- stored vmin/vmax (Scale
-        # dialog) override auto, same resolution order as the 3D window.
-        finite = image[np.isfinite(image)]
-        auto_vmin = float(np.nanmin(finite)) if finite.size else 0.0
-        auto_vmax = float(np.nanmax(finite)) if finite.size else 1.0
-        stored_vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
-        stored_vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
-        vmin = auto_vmin if stored_vmin is None else stored_vmin
-        vmax = auto_vmax if stored_vmax is None else stored_vmax
-
-        image_to_show = image
-        if scale == 'Log':
-            # Log needs v>0. Shift image, vmin, and vmax by one constant --
-            # sized off the image's own true minimum, not vmin, so a vmin
-            # narrowed above the true floor still lifts every real pixel
-            # above zero instead of leaving some at/below zero for LogNorm
-            # to mask instead of clamp to the floor color (see visualization.py).
-            img_min = float(np.nanmin(finite)) if finite.size else 0.0
-            if img_min <= 0:
-                shift = -img_min + 1e-10
-                image_to_show = image + shift
-                vmin = vmin + shift
-                vmax = vmax + shift
-            norm = LogNorm(vmin=vmin, vmax=vmax)
-        elif scale == 'Sqrt':
-            # PowerNorm handles a negative vmin directly, the same as the 3D window.
-            norm = PowerNorm(gamma=0.5, vmin=vmin, vmax=vmax)
-        elif scale == 'Power (γ=2)':
-            norm = PowerNorm(gamma=2.0, vmin=vmin, vmax=vmax)
-        else:
-            norm = Normalize(vmin=vmin, vmax=vmax)
+        # 1. Calculate Intensity Normalization -- the same shared code as the 3D window.
+        norm, image_to_show = build_norm(image, scale_settings)
 
         # 2. Render the Image
         im = ax.imshow(image_to_show, origin='lower', cmap=cmap, norm=norm,
@@ -2451,13 +2402,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         image = self.image_left if target == 'left' else self.image_right
         if image is None:
             return "Intensity:\n-"
-        scale = self.scale_left if target == 'left' else self.scale_right
-        stored_vmin = self.slice1_vmin if target == 'left' else self.slice2_vmin
-        stored_vmax = self.slice1_vmax if target == 'left' else self.slice2_vmax
+        scale_settings = self.slice1_scale if target == 'left' else self.slice2_scale
         mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
         total_sum, std = np.nansum(image), np.nanstd(image)
-        view_vmin = mn if stored_vmin is None else stored_vmin
-        view_vmax = mx if stored_vmax is None else stored_vmax
         unit = self._region_flux_unit(target)
         unit_line = f"[{unit}]:\n" if unit else ""
         return (
@@ -2468,9 +2415,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             f"sum={total_sum:.3e}\n"
             f"std={std:.3e}\n"
             f"\n"
-            f"Scaling: {scale}\n"
-            f"vmin={view_vmin:.3e}\n"
-            f"vmax={view_vmax:.3e}\n"
+            + scaling_stats_text(image, scale_settings)
         )
 
     def _on_mouse_hover(self, event, target):
