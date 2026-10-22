@@ -827,13 +827,22 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             "left": {shape: make_shape_button(shape, "left") for shape in shapes},
             "right": {shape: make_shape_button(shape, "right") for shape in shapes}
         }
+        shape_tooltips = {
+            "*": "Select one pixel.", "▭": "Select a rectangle.", "○": "Select a circle.",
+            "⬭": "Select an ellipse.", "✏": "Select a freehand shape.",
+        }
+        for side in ("left", "right"):
+            for shape, tooltip in shape_tooltips.items():
+                self.shape_buttons[side][shape].setToolTip(tooltip)
 
         self.color_btn_left = QPushButton("🌈")
         self.color_btn_left.setFixedSize(35, 35)
+        self.color_btn_left.setToolTip("Change the color map of the left image.")
         self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
 
         self.color_btn_right = QPushButton("🌈")
         self.color_btn_right.setFixedSize(35, 35)
+        self.color_btn_right.setToolTip("Change the color map of the right image.")
         self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
 
         # Scale selection buttons - square icon buttons that open the scale/
@@ -849,11 +858,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.erase_btn_l = QPushButton("✖")
         self.erase_btn_l.setFixedSize(35, 35)
         self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.erase_btn_l.setToolTip("Clear the selection on the left image.")
         self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
 
         self.erase_btn_r = QPushButton("✖")
         self.erase_btn_r.setFixedSize(35, 35)
         self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.erase_btn_r.setToolTip("Clear the selection on the right image.")
         self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
 
         # Edit Shape: toggles drag/resize handles on a placed selection.
@@ -901,6 +912,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         # ----- ROTATION CONTROLS (per-panel; no "which slice?" prompt) -----
         self.rot_ccw_radio = QRadioButton("Counter-Clockwise")
         self.rot_cw_radio = QRadioButton("Clockwise")
+        self.rot_ccw_radio.setToolTip("Rotate counter-clockwise.")
+        self.rot_cw_radio.setToolTip("Rotate clockwise.")
         self.rot_ccw_radio.setChecked(True)
         self.rot_dir_group = QButtonGroup(self)
         self.rot_dir_group.addButton(self.rot_ccw_radio)
@@ -911,18 +924,23 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.angle_spin.setValue(90.0)
         self.angle_spin.setSuffix(" °")
         self.angle_spin.setMaximumWidth(90)
+        self.angle_spin.setToolTip("Rotation angle, in degrees.")
 
-        self.rotate_left_btn = QPushButton("Rotate Left")
+        self.rotate_left_btn = QPushButton("Rotate (Left)")
+        self.rotate_left_btn.setToolTip("Rotate the left image by the angle and direction set here.")
         self.rotate_left_btn.clicked.connect(lambda: self.rotate_image("left"))
 
-        self.rotate_right_btn = QPushButton("Rotate Right")
+        self.rotate_right_btn = QPushButton("Rotate (Right)")
+        self.rotate_right_btn.setToolTip("Rotate the right image by the angle and direction set here.")
         self.rotate_right_btn.clicked.connect(lambda: self.rotate_image("right"))
 
         # ----- CONTOUR CONTROLS (grouped under the "Contour" collapsible) -----
         self.contour_btn = QPushButton("Plot")
+        self.contour_btn.setToolTip("Plot sigma-level contours on one panel.")
         self.contour_btn.clicked.connect(self._prompt_and_contour)
 
         self.superimpose_btn = QPushButton("Superimpose")
+        self.superimpose_btn.setToolTip("Blend one image over the other image, matched by sky coordinates.")
         self.superimpose_btn.clicked.connect(self._prompt_and_superimpose)
 
         self.save_contour_btn = QPushButton("Save")
@@ -1108,7 +1126,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         target_layout = QHBoxLayout()
         target_layout.addWidget(QLabel("Plot contour ON:"))
         target_combo = QComboBox()
-        target_combo.addItems(["Left Slice", "Right Slice"])
+        target_combo.addItems(["Left Image", "Right Image"])
         target_layout.addWidget(target_combo)
         layout.addLayout(target_layout)
 
@@ -1116,7 +1134,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         source_layout = QHBoxLayout()
         source_layout.addWidget(QLabel("Generate contour FROM:"))
         source_combo = QComboBox()
-        source_combo.addItems(["Same Slice (Self)", "Other Slice (Match WCS)"])
+        source_combo.addItems(["Same Image (Self)", "Other Image (Match WCS)"])
         source_layout.addWidget(source_combo)
         layout.addLayout(source_layout)
 
@@ -1436,7 +1454,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             None
         """
         target = self._ask_target_panel(
-            "Load Saved Contour", "Which slice would you like to plot the loaded contour ON?")
+            "Load Saved Contour", "Which image gets the loaded contour?")
         if target is None:
             return
 
@@ -1653,12 +1671,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         left_half = QHBoxLayout()
         
         self.open_left_btn = QPushButton("Open 2D FITS (Left)")
+        self.open_left_btn.setToolTip("Open a 2D FITS file in the left panel.")
         self.open_left_btn.clicked.connect(lambda: self.load_2d_fits("left"))
-        
+
         self.header_left_btn = QPushButton("Header")
+        self.header_left_btn.setToolTip("Show the FITS header of the left image.")
         self.header_left_btn.clicked.connect(lambda: self.show_header("left"))
 
         self.save_left_btn = QPushButton("Save FITS")
+        self.save_left_btn.setToolTip("Save the left image and its header to a FITS file.")
         self.save_left_btn.clicked.connect(lambda: self.save_fits("left"))
 
         # Left Stats strictly bounded so they don't stretch Canvas space
@@ -1706,12 +1727,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         right_half = QHBoxLayout()
         
         self.open_right_btn = QPushButton("Open 2D FITS (Right)")
+        self.open_right_btn.setToolTip("Open a 2D FITS file in the right panel.")
         self.open_right_btn.clicked.connect(lambda: self.load_2d_fits("right"))
-        
+
         self.header_right_btn = QPushButton("Header")
+        self.header_right_btn.setToolTip("Show the FITS header of the right image.")
         self.header_right_btn.clicked.connect(lambda: self.show_header("right"))
 
         self.save_right_btn = QPushButton("Save FITS")
+        self.save_right_btn.setToolTip("Save the right image and its header to a FITS file.")
         self.save_right_btn.clicked.connect(lambda: self.save_fits("right"))
 
         # Right Stats strictly bounded

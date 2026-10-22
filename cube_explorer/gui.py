@@ -35,7 +35,7 @@ from .scale_dialog import ScaleDialog, ScaleSettings, scaling_stats_text
 from .region_selector import RegionSelector
 from .utils import make_2d_wcs
 from . import region_io
-from .line_catalog import get_available_molecules, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
+from .line_catalog import get_available_molecules, hitran_gui_interface, load_contaminating_lines_catalog, load_custom_line_catalog
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
@@ -364,7 +364,7 @@ class WavelengthSpinBox(QDoubleSpinBox):
 class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin, GuiSpectrumMixin,
                    RegionSelectionMixin, DualPanelViewMixin):
     def __init__(self):
-        """Build the main window and load the CO line catalogs at startup.
+        """Build the main window.
 
         Args:
             None
@@ -376,8 +376,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.setWindowTitle("Cube Explorer")
         self.cube_data = CubeData()
         self._init_ui()
-        # Load CO line catalogs on startup
-        self._load_CO_catalogs()
+        # The user loads contaminating lines later, so there are none at startup.
+        self.contam_lines = None
 
     def closeEvent(self, event):
         """Cancel any running Gaussian map fit and free cube memory on close.
@@ -403,21 +403,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         gc.collect()
         event.accept()
 
-    def _load_CO_catalogs(self):
-        """Load CO line catalogs at GUI startup.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        CO_path = os.path.join(base_path, 'data', 'CO', 'CO_comprehensive_linelist_with_g.ecsv')
-        
-        self.CO_lines = load_CO_line_catalog(CO_path)
-        # Contaminating lines are now optional - users can load them separately after HITRAN parameters are set
-        self.contam_lines = None
     def _clear_all_displays(self):
         """Clear all plots, selections, and stats when loading a new cube.
 
@@ -670,7 +655,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.two_d_btn.clicked.connect(self.open_2d_window)
 
         self.rot_diag_btn = QPushButton("Rot Diag")
-        self.rot_diag_btn.setToolTip("Open rotational diagram analyzer for H2")
+        self.rot_diag_btn.setToolTip("Open the rotational diagram analyzer for H2 or CO.")
         self.rot_diag_btn.clicked.connect(self.open_rotational_diagram)
         
         self.instrument_label = QLabel("Instrument: -")
@@ -779,11 +764,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
 
         # Gaussian fitting buttons
-        self.gauss_left_btn = QPushButton("Left")
+        self.gauss_left_btn = QPushButton("Fit Left")
         self.gauss_peak_btn = QPushButton("Peak")
-        self.gauss_right_btn = QPushButton("Right")
-        self.gauss_noise_left_btn = QPushButton("Noise L")
-        self.gauss_noise_right_btn = QPushButton("Noise R")
+        self.gauss_right_btn = QPushButton("Fit Right")
+        self.gauss_noise_left_btn = QPushButton("Noise Left")
+        self.gauss_noise_right_btn = QPushButton("Noise Right")
         self.gauss_fit_btn = QPushButton("Fit Gaussian")
         self.gauss_map_btn = QPushButton("Fit Gaussian Map")
         self.multi_gauss_fit_btn = QPushButton("Multi-Gauss")
@@ -890,19 +875,20 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.set_left_btn.setToolTip("Click on the left slice to set the wavelength from that pixel")
         self.set_right_btn.setToolTip("Click on the right slice to set the wavelength from that pixel")
         self.shift_btn.setToolTip("Preview a Doppler shift for the active tab's spectrum")
-        self.gauss_left_btn.setToolTip("Click on spectrum to set left boundary of Gaussian fit")
-        self.gauss_peak_btn.setToolTip("Click on spectrum to set peak center of Gaussian fit")
-        self.gauss_right_btn.setToolTip("Click on spectrum to set right boundary of Gaussian fit")
+        self.gauss_left_btn.setToolTip("Click the spectrum to set the left edge of the Gaussian fit.")
+        self.gauss_peak_btn.setToolTip("Click the spectrum to set the peak of the Gaussian fit.")
+        self.gauss_right_btn.setToolTip("Click the spectrum to set the right edge of the Gaussian fit.")
         self.gauss_fit_btn.setToolTip("Fit a Gaussian to the selected line")
         self.save_results_btn.setToolTip(
             "Save wavelength, original spectrum, fitted continuum, "
             "and continuum-subtracted spectrum to a single ASCII file."
         )
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
-        self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
+        self.gauss_map_btn.setToolTip(
+            "Fit a Gaussian at every pixel. This uses Fit Left, Fit Right, Noise Left, and Noise Right.")
         self.multi_gauss_fit_btn.setToolTip("Fit Gaussians to all selected HITRAN lines using current continuum")
-        self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
-        self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
+        self.gauss_noise_left_btn.setToolTip("Click the spectrum to set the left edge of a line-free noise region.")
+        self.gauss_noise_right_btn.setToolTip("Click the spectrum to set the right edge of a line-free noise region.")
         self.flux_map_btn.setToolTip("Fit multiple lines and create an integrated flux map")
 
 
@@ -3621,7 +3607,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.warning(self, "2D Window Error", f"Could not open 2D window:\n{e}")
 
     def open_rotational_diagram(self):
-        """Open a new rotational-diagram analyzer window for H2.
+        """Open a new rotational-diagram analyzer window for H2 or CO.
 
         Args:
             None

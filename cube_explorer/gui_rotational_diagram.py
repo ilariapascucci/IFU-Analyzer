@@ -498,7 +498,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         toggle_layout = QHBoxLayout()
         toggle_layout.addWidget(QLabel("Error input:"))
         self.error_mode = QComboBox()
-        self.error_mode.addItems(["Values (Column 8)", "Percentages (Column 9)"])
+        self.error_mode.addItems(["Flux Error", "Error %"])
         self.error_mode.currentTextChanged.connect(self.on_error_mode_changed)
         toggle_layout.addWidget(self.error_mode)
         
@@ -569,6 +569,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         bottom_layout = QHBoxLayout()
         
         bottom_layout.addWidget(QLabel("R (au):"))
+        self.radius_input = QLineEdit()
+        self.radius_input.setText("17")
+        self.radius_input.setMaximumWidth(100)
+        bottom_layout.addWidget(self.radius_input)
+
         self.radius_unknown_check = QCheckBox("Unknown R")
         self.radius_unknown_check.setToolTip(
             "Leave R unspecified: Nu is computed as a total molecule count instead of "
@@ -576,11 +581,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         )
         self.radius_unknown_check.stateChanged.connect(self.on_radius_unknown_toggled)
         bottom_layout.addWidget(self.radius_unknown_check)
-
-        self.radius_input = QLineEdit()
-        self.radius_input.setText("17")
-        self.radius_input.setMaximumWidth(100)
-        bottom_layout.addWidget(self.radius_input)
 
         bottom_layout.addWidget(QLabel("Distance (pc):"))
         self.distance_input = QLineEdit()
@@ -1106,7 +1106,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not (flux_error_item and error_pct_item):
             return
 
-        is_value_mode = "Values" in self.error_mode.currentText()
+        is_value_mode = self.error_mode.currentIndex() == 0
         if is_value_mode:
             flux_error_item.setFlags(flux_error_item.flags() | Qt.ItemIsEditable)
             error_pct_item.setFlags(error_pct_item.flags() & ~Qt.ItemIsEditable)
@@ -1865,7 +1865,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 line_data = self.hitran_lines[row]
                 if 'flux_error' in line_data:
                     # Determine which column to fill based on error mode
-                    is_value_mode = "Values" in self.error_mode.currentText()
+                    is_value_mode = self.error_mode.currentIndex() == 0
 
                     if is_value_mode:
                         # Column 7: Flux Error (absolute value)
@@ -4023,8 +4023,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "Calculate Fluxes and Run Fit will now only use pixels inside it, on every loaded "
             "cube. Any previously computed fluxes were cleared since they no longer reflect "
             "this region. Calculate Maps/Convolve Maps/Run Map are unaffected -- they always "
-            "use the whole cube. Import a different region to replace it, or use Clear Region "
-            "to go back to fitting the whole cube.")
+            "use the whole cube. Import a different region to replace it. Or click Delete "
+            "to fit the whole cube again.")
 
     def clear_rot_map_region(self):
         """Drop the active region -- Calculate Fluxes/Run Fit go back to

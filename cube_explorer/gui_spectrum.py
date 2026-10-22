@@ -25,8 +25,8 @@ class GuiSpectrumMixin:
         self.spec_tab_bar = QTabBar()
         self.spec_tab_bar.setExpanding(False)
         self.spec_tab_bar.addTab("Full")
-        self.spec_tab_bar.addTab("Left Slice")
-        self.spec_tab_bar.addTab("Right Slice")
+        self.spec_tab_bar.addTab("Left Region")
+        self.spec_tab_bar.addTab("Right Region")
         self.spec_tab_bar.setCurrentIndex(0)
         self.spec_tab_bar.currentChanged.connect(self._on_spectrum_tab_changed)
 
@@ -47,13 +47,18 @@ class GuiSpectrumMixin:
         self.overplot_right = False
 
         self.normalize_checkbox = QCheckBox("Normalize")
+        self.normalize_checkbox.setToolTip("Divide every spectrum by the peak of the full spectrum.")
         self.normalize_checkbox.toggled.connect(self._on_normalize_toggled)
 
         self.overplot_left_checkbox = QCheckBox("Show Left")
+        self.overplot_left_checkbox.setToolTip(
+            "Overlay the left region's spectrum on the Full tab. Select a region on the left image first.")
         self.overplot_left_checkbox.setEnabled(False)
         self.overplot_left_checkbox.toggled.connect(lambda checked: self._on_overplot_toggled("left", checked))
 
         self.overplot_right_checkbox = QCheckBox("Show Right")
+        self.overplot_right_checkbox.setToolTip(
+            "Overlay the right region's spectrum on the Full tab. Select a region on the right image first.")
         self.overplot_right_checkbox.setEnabled(False)
         self.overplot_right_checkbox.toggled.connect(lambda checked: self._on_overplot_toggled("right", checked))
 
@@ -63,10 +68,14 @@ class GuiSpectrumMixin:
         self.self_normalize_right = False
 
         self.self_normalize_left_checkbox = QCheckBox("Self-Normalize Left")
+        self.self_normalize_left_checkbox.setToolTip(
+            "Divide the left region's spectrum by its own peak. Select a region on the left image first.")
         self.self_normalize_left_checkbox.setEnabled(False)
         self.self_normalize_left_checkbox.toggled.connect(lambda checked: self._on_self_normalize_toggled("left", checked))
 
         self.self_normalize_right_checkbox = QCheckBox("Self-Normalize Right")
+        self.self_normalize_right_checkbox.setToolTip(
+            "Divide the right region's spectrum by its own peak. Select a region on the right image first.")
         self.self_normalize_right_checkbox.setEnabled(False)
         self.self_normalize_right_checkbox.toggled.connect(lambda checked: self._on_self_normalize_toggled("right", checked))
 

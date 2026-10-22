@@ -137,7 +137,7 @@ class GuiGaussianMixin:
             if hasattr(self, 'gauss_left_marker') and self.gauss_left_marker:
                 try: self.gauss_left_marker.remove()
                 except Exception: pass
-            self.gauss_left_marker = ax.axvline(x_pos, color='green', linestyle='--', linewidth=1.5, label='Left', alpha=0.7)
+            self.gauss_left_marker = ax.axvline(x_pos, color='green', linestyle='--', linewidth=1.5, label='Fit Left', alpha=0.7)
             self.gauss_left_x = x_pos
             self.gauss_left_btn.setChecked(False)
             self.gauss_mode = None
@@ -155,7 +155,7 @@ class GuiGaussianMixin:
             if hasattr(self, 'gauss_right_marker') and self.gauss_right_marker:
                 try: self.gauss_right_marker.remove()
                 except Exception: pass
-            self.gauss_right_marker = ax.axvline(x_pos, color='purple', linestyle='--', linewidth=1.5, label='Right', alpha=0.7)
+            self.gauss_right_marker = ax.axvline(x_pos, color='purple', linestyle='--', linewidth=1.5, label='Fit Right', alpha=0.7)
             self.gauss_right_x = x_pos
             self.gauss_right_btn.setChecked(False)
             self.gauss_mode = None
@@ -164,7 +164,7 @@ class GuiGaussianMixin:
             if hasattr(self, 'gauss_noise_left_marker') and self.gauss_noise_left_marker:
                 try: self.gauss_noise_left_marker.remove()
                 except Exception: pass
-            self.gauss_noise_left_marker = ax.axvline(x_pos, color='orange', linestyle='--', linewidth=1.3, label='Noise L', alpha=0.7)
+            self.gauss_noise_left_marker = ax.axvline(x_pos, color='orange', linestyle='--', linewidth=1.3, label='Noise Left', alpha=0.7)
             self.gauss_noise_left_x = x_pos
             self.gauss_noise_left_btn.setChecked(False)
             self.gauss_mode = None
@@ -173,7 +173,7 @@ class GuiGaussianMixin:
             if hasattr(self, 'gauss_noise_right_marker') and self.gauss_noise_right_marker:
                 try: self.gauss_noise_right_marker.remove()
                 except Exception: pass
-            self.gauss_noise_right_marker = ax.axvline(x_pos, color='sienna', linestyle='--', linewidth=1.3, label='Noise R', alpha=0.7)
+            self.gauss_noise_right_marker = ax.axvline(x_pos, color='sienna', linestyle='--', linewidth=1.3, label='Noise Right', alpha=0.7)
             self.gauss_noise_right_x = x_pos
             self.gauss_noise_right_btn.setChecked(False)
             self.gauss_mode = None
@@ -258,7 +258,8 @@ class GuiGaussianMixin:
             None
         """
         if self.gauss_left_x is None or self.gauss_right_x is None:
-            QMessageBox.warning(self, "Missing Boundaries", "Please select LEFT, PEAK, and RIGHT boundaries in order.")
+            QMessageBox.warning(self, "Missing Boundaries",
+                                "Set Fit Left, Peak, and Fit Right first. Click each button, then click the spectrum.")
             return
         
         if self.gauss_peak_x is None:
@@ -287,8 +288,8 @@ class GuiGaussianMixin:
         if n_finite_in_fit < MIN_FINITE_POINTS:
             QMessageBox.warning(
                 self, "Not Enough Data",
-                f"Only {n_finite_in_fit} finite point(s) between Left and Right "
-                f"(need at least {MIN_FINITE_POINTS}). Widen the boundaries."
+                f"Only {n_finite_in_fit} finite point(s) between Fit Left and Fit Right. "
+                f"The fit needs at least {MIN_FINITE_POINTS}. Move them further apart."
             )
             return
         
@@ -303,9 +304,9 @@ class GuiGaussianMixin:
             if n_finite_in_noise < MIN_NOISE_POINTS:
                 QMessageBox.warning(
                     self, "Noise Region Too Narrow",
-                    f"Only {n_finite_in_noise} finite point(s) in the noise region "
-                    f"(need at least {MIN_NOISE_POINTS}). Widen Noise L/Noise R, or "
-                    f"clear them to fit without a noise region."
+                    f"Only {n_finite_in_noise} finite point(s) in the noise region. "
+                    f"The fit needs at least {MIN_NOISE_POINTS}. Move Noise Left and Noise Right "
+                    f"further apart, or clear them to fit without a noise region."
                 )
                 return
 
@@ -380,9 +381,9 @@ class GuiGaussianMixin:
             noise_text = f"not set ({n_points} points in fit window)"
 
         user_input_text = f"""USER INPUT:
-  Left boundary:         {_fmt_input(left_x)}
+  Fit Left:              {_fmt_input(left_x)}
   Peak:                  {_fmt_input(peak_x)}
-  Right boundary:        {_fmt_input(right_x)}
+  Fit Right:             {_fmt_input(right_x)}
   Noise region:          {noise_text}"""
 
         results_text = f"""GAUSSIAN FIT RESULTS
@@ -963,7 +964,7 @@ STATUS: {result.message}
             None
         """
         if self.gauss_left_x is None or self.gauss_right_x is None:
-            QMessageBox.warning(self, "Missing Boundaries", "Please select both LEFT and RIGHT boundaries first.")
+            QMessageBox.warning(self, "Missing Boundaries", "Set Fit Left and Fit Right first.")
             return
 
         if not hasattr(self, 'cube_data') or self.cube_data is None:
@@ -1013,8 +1014,8 @@ STATUS: {result.message}
         if n_wave_in_noise < MIN_NOISE_POINTS:
             QMessageBox.warning(
                 self, "Noise Region Too Narrow",
-                f"Only {n_wave_in_noise} wavelength sample(s) in the noise region "
-                f"(need at least {MIN_NOISE_POINTS}). Widen Noise L/Noise R."
+                f"Only {n_wave_in_noise} wavelength sample(s) in the noise region. "
+                f"The map fit needs at least {MIN_NOISE_POINTS}. Move Noise Left and Noise Right further apart."
             )
             return
 
