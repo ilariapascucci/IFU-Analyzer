@@ -4,8 +4,16 @@ a hardcoded H2 partition function (Q_Herbst). For any other molecule, see
 rotational_diagram_general_fitter.py instead.
 """
 
+import logging
+
 import numpy as np
 from scipy.optimize import curve_fit
+
+# nutpie compiles with numba, so PyTensor's C++ compiler is not used.
+# Drop only its "g++ not detected" warnings; other warnings stay visible.
+logging.getLogger("pytensor.configdefaults").addFilter(
+    lambda record: "g++" not in record.getMessage())
+
 import pymc as pm
 import nutpie
 import arviz as az

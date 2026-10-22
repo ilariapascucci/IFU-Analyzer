@@ -3,46 +3,50 @@
 # ============================================================================
 # Complete list of all dependencies for IFU Analyzer
 # Install with: pip install -r requirements.txt
+# Pinned to the versions validated on Python 3.12 (3.12.6); use Python 3.12.x.
+# To upgrade a package, change its pin on purpose and re-test.
 # ============================================================================
 
 # ============================================================================
 # GUI & VISUALIZATION
 # ============================================================================
-PyQt5>=5.15.0              # Cross-platform GUI framework
-PyQt5-sip>=12.9.0          # SIP module for PyQt5
+PyQt5==5.15.11              # Cross-platform GUI framework
+PyQt5-sip==12.17.1          # SIP module for PyQt5
 
-matplotlib>=3.5.0          # 2D/3D plotting and visualization
-matplotlib-inline>=0.1.3   # Inline plotting for Jupyter/IPython
+matplotlib==3.9.2          # 2D/3D plotting and visualization
+matplotlib-inline==0.1.7   # Inline plotting for Jupyter/IPython
 
 # ============================================================================
 # SCIENTIFIC COMPUTING & DATA PROCESSING
 # ============================================================================
-numpy>=1.21.0              # Numerical array computing and linear algebra
-scipy>=1.7.0               # Scientific computing (optimization, interpolation, signal processing)
-pandas>=1.3.0              # Data manipulation and analysis
-psutil>=5.9.0               # Available-memory check, caps ProcessPoolExecutor worker count
+numpy==2.2.6              # Numerical array computing and linear algebra
+scipy==1.13.1               # Scientific computing (optimization, interpolation, signal processing)
+pandas==2.3.2              # Data manipulation and analysis
+psutil==7.1.0               # Available-memory check, caps ProcessPoolExecutor worker count
                             # (see safe_worker_count in utils.py)
 
-scikit-learn>=1.6.0        # Machine learning (RANSAC, polynomial features, pipelines)
-astropy>=7.1.0             # Astronomy-specific tools (FITS, WCS, units, coordinates)
-astropy-iers-data>=0.2025.10.6.0.35.25           # Astropy dependency
-reproject>=0.14.0          # Only used by convolve_reproject.py, a faithful port of a
+scikit-learn==1.6.0        # Machine learning (RANSAC, polynomial features, pipelines)
+astropy==7.1.0             # Astronomy-specific tools (FITS, WCS, units, coordinates)
+astropy-iers-data==0.2025.10.6.0.35.25           # Astropy dependency
+reproject==0.21.0          # Only used by convolve_reproject.py, a faithful port of a
                             # collaborator's own convolution/reprojection notebook -- our own
                             # analyzer_2d.py deliberately reimplements this without the dependency
 
 # ============================================================================
 # BAYESIAN STATISTICS & CENSORED REGRESSION
 # ============================================================================
-pymc>=4.0                  # Bayesian inference (censored regression for upper limits)
-nutpie>=0.13                # Compiled NUTS sampler (numba) -- PyMC's own PyTensor
+pymc==5.28.4               # Bayesian inference (censored regression for upper limits)
+nutpie==0.16.11                # Compiled NUTS sampler (numba) -- PyMC's own PyTensor
                              # backend needs a C++ compiler to run at reasonable
                              # speed; nutpie doesn't, and it's what the rotational
                              # diagram's censored 1T/2T fits actually sample with.
 
+arviz==0.23.4              # Posterior diagnostics; imported directly by rotational_diagram_h2_fitter
+
 # ============================================================================
 # HITRAN DATABASE & SPECTROSCOPY
 # ============================================================================
-hitran-api>=1.3.0.0        # HITRAN line lists (>=1.3.0.0 adds molecules 56-61; renamed purgeCache -> dropTable)
+hitran-api==1.3.0.0        # HITRAN line lists (>=1.3.0.0 adds molecules 56-61; renamed purgeCache -> dropTable)
 
 # ============================================================================
 # DOCUMENTATION (only needed to rebuild docs/ with `cd docs && make html`)
