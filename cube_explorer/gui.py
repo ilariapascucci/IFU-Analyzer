@@ -654,19 +654,37 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.two_d_btn.setToolTip("Open a 2D FITS analyzer window")
         self.two_d_btn.clicked.connect(self.open_2d_window)
 
-        self.rot_diag_btn = QPushButton("Rot Diag")
+        self.rot_diag_btn = QPushButton("Rotational Diagram")
         self.rot_diag_btn.setToolTip("Open the rotational diagram analyzer for H2 or CO.")
         self.rot_diag_btn.clicked.connect(self.open_rotational_diagram)
         
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
 
+        def separator():
+            """Build a thin vertical line that splits the top-bar button groups.
+
+            Args:
+                None
+
+            Returns:
+                line (QFrame): The vertical separator line.
+            """
+            line = QFrame()
+            line.setFixedWidth(1)
+            line.setStyleSheet("background-color: palette(mid);")
+            return line
+
         self.controls_layout = QHBoxLayout()
         self.controls_layout.addWidget(self.open_btn)
         self.controls_layout.addWidget(self.header_btn)
+        self.controls_layout.addWidget(separator())
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
+        self.controls_layout.addWidget(separator())
+        self.controls_layout.addWidget(self.rot_diag_btn)
         self.controls_layout.addWidget(self.two_d_btn)
+        self.controls_layout.addWidget(separator())
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
@@ -785,7 +803,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_continuum_toggle.setCheckable(True)
 
         # Action buttons (initially hidden)
-        self.continuum_line_btn = QPushButton("Continuum Line")
+        self.continuum_line_btn = QPushButton("Fit Continuum")
         self.subtract_continuum_btn = QPushButton("Subtract Continuum")
         self.custom_subtract_btn = QPushButton("Custom Subtract")
         self.custom_delete_btn = QPushButton("Delete Point")
@@ -797,7 +815,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_save_pts_btn.setToolTip("Save custom continuum points to a .txt file")
         self.custom_load_pts_btn.setToolTip("Load custom continuum points from a .txt file")
 
-        self.save_results_btn = QPushButton("Save Results")
+        self.save_results_btn = QPushButton("Save Spectrum")
 
         # Make action buttons checkable
         self.continuum_line_btn.setCheckable(True)
@@ -909,7 +927,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.max_wave_input.setToolTip("Max wavelength (λ)")
 
         # HITRAN collapsible group buttons
-        self.hitran_btn = QPushButton("HITRAN")
+        self.hitran_btn = QPushButton("Fetch HITRAN")
         self.hitran_btn.setToolTip("Fetch HITRAN lines with transition level filtering")
         self.hitran_btn.clicked.connect(self.fetch_hitran_lines)
 
@@ -934,8 +952,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         )
         self.mark_contam_btn.toggled.connect(self._toggle_mark_contam_mode)
 
-        self.show_species_btn = QPushButton("Lines")
-        self.show_species_btn.setToolTip("Show available HITRAN species")
+        self.show_species_btn = QPushButton("Select Lines")
+        self.show_species_btn.setToolTip("Choose the lines to plot on the spectrum.")
         self.show_species_btn.clicked.connect(self.show_available_species)
 
     def _init_shape_controls(self):
@@ -1189,12 +1207,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.continuum_group.add_button(self.save_continuum_cubes_btn)
         collapsible_layout.addWidget(self.continuum_group)
 
-        # Group 4: Rotational Diagram
-        self.rotational_diagram_group = CollapsibleButtonGroup("Rotational Diagram")
-        self.rotational_diagram_group.add_button(self.rot_diag_btn)
-        collapsible_layout.addWidget(self.rotational_diagram_group)
-
-        # Group 5: HITRAN (wavelength inputs + action buttons + flux map)
+        # Group 4: HITRAN (wavelength inputs + action buttons + flux map)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
         self.hitran_group.add_button(QLabel("λ min (µm):"))
         self.hitran_group.add_button(self.min_wave_input)
@@ -2616,7 +2629,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
     def plot_selected_lines(self, rows):
         """Replace the full set of plotted lines (detection + contaminant alike)
-        with exactly what's checked in the Lines dialog, then redraw.
+        with exactly what's checked in the Select Lines dialog, then redraw.
 
         Args:
             rows (list[dict]): Line rows to plot, replacing the current set.
@@ -3551,7 +3564,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Results as ASCII",
+            "Save Spectrum as ASCII",
             "results.txt",
             "Text files (*.txt);;CSV files (*.csv);;All files (*)"
         )
@@ -3576,12 +3589,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 for w, o, c, s in zip(wavelength, original, continuum, subtracted):
                     f.write(f"{w:.6e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\n")
 
-            QMessageBox.information(self, "Success", f"Results saved to:\n{file_path}")
-            print(f"Results saved to {file_path}")
+            QMessageBox.information(self, "Success", f"Spectrum saved to:\n{file_path}")
+            print(f"Spectrum saved to {file_path}")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save results:\n{e}")
-            print(f"Error saving results: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save the spectrum:\n{e}")
+            print(f"Error saving spectrum: {e}")
 
     def open_2d_window(self):
         """Open a new standalone 2D FITS analyzer window.

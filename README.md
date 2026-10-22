@@ -182,7 +182,7 @@ Bring any number of multi-instrument images to one common resolution and field o
 
 ### Export Capabilities
 
-- **Continuum results (ASCII):** the "Save Results" button writes a four-column file — wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum — in tab-delimited format. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The `# Type: full_results` header line identifies the file format.
+- **Continuum results (ASCII):** the "Save Spectrum" button writes a four-column file — wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum — in tab-delimited format. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The `# Type: full_results` header line identifies the file format.
 - **Residuals cube (FITS):** export of the 3D normalised residuals cube with full header metadata
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
@@ -514,7 +514,7 @@ python main.py
 
    **Automatic method:**
    - Click "Automatic Continuum".
-   - Click "Continuum Line" to open the parameter dialog.
+   - Click "Fit Continuum" to open the parameter dialog.
    - Set the window size, the sigma threshold, the peak-exclusion width, the iterations, and the smoothing factor.
    - The fitted continuum shows in orange over the original spectrum.
    - Click "Subtract Continuum". The full subtracted spectrum is shown.
@@ -527,7 +527,7 @@ python main.py
    - Click "OK". The fitted cubic-spline continuum is shown in orange as a preview.
    - Confirm the subtraction in the dialog. "No" returns to editing mode.
    - The full subtracted spectrum is shown after the confirmation.
-   - Save the result with "Save Points" or "Save Results".
+   - Save the result with "Save Points" or "Save Spectrum".
 
 ### 2D Image Viewer
 
@@ -586,7 +586,7 @@ python main.py
 ### Rovibrational Flux Mapping
 
 7. Extract the flux from the full data cube for any target species. Open the "HITRAN" group.
-   - Load lines with "HITRAN" or "Import Lines", then select the ones you want in the "Lines" dialog.
+   - Load lines with "Fetch HITRAN" or "Import Lines", then choose the ones you want with "Select Lines".
    - Optionally, click "Contam. Lines" to exclude contaminating lines from the fit.
    - Click "Flux Map". The continuum subtraction always runs automatically before the detection, with the default or the custom parameters.
    - View the flux maps, the SNR statistics, and the detection quality.
@@ -595,7 +595,7 @@ python main.py
 ### Rotational-Diagram Analysis
 
 8. Fit the rotational temperatures.
-   - Click "Rot Diag" to open the analyzer window.
+   - Click "Rotational Diagram" to open the analyzer window.
    - Fetch line data with "Fetch from HITRAN", or import a custom CSV with "Import from CSV".
    - Select the lines to include. Enter the measured flux and the flux error for each line.
    - For a non-detection, mark the line as an upper limit. Use "Load FITS Files" and "Calculate Fluxes" to derive the limit from the cube.
@@ -606,15 +606,15 @@ python main.py
 ### Data Export
 
 9. Export the results:
-   - **Spectrum:** click "Save Results" below the spectrum plot.
-   - **Continuum:** click "Save Points" to export the anchor points, or "Save Results" for the full four-column file.
+   - **Spectrum:** click "Save Spectrum" below the spectrum plot.
+   - **Continuum:** click "Save Points" to export the anchor points, or "Save Spectrum" for the full four-column file.
 
 ### Additional Features
 
 10. Other tools:
    - **Header viewer:** open "Header" to inspect the FITS header of a selected HDU.
    - **Line catalog:** "Import Lines" loads a custom spectral-line catalog (LST format).
-   - **HITRAN database:** "HITRAN" queries molecular lines. "Lines" shows the available species.
+   - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Select Lines" lets you choose which lines to plot.
    - **Normalize spectrum:** the "Normalize" checkbox uses baseline points for a normalised display.
    - **Doppler shift:** "Shift" applies a multiplicative wavelength correction (km/s). Use "Apply Shift", "Cancel Preview", and "Revert Shift" to control it.
    - **Wavelength range:** set the minimum and the maximum for a linked view update.
@@ -697,7 +697,7 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
 
 7. **Continuum-subtraction problems:**
    - Every fit, in either mode, is applied to the original spectrum. You can refit and re-subtract repeatedly without a compounding error.
-   - A "No Continuum" message means that you clicked "Subtract Continuum" before the fit. Click "Continuum Line" first, or place at least 3 custom points and click "OK".
+   - A "No Continuum" message means that you clicked "Subtract Continuum" before the fit. Click "Fit Continuum" first, or place at least 3 custom points and click "OK".
    - A "Too Few Points" message in custom mode means that you tried to fit with fewer than 3 anchor points. A cubic spline needs at least 3.
    - For a very noisy spectrum, increase the median-filter window size to 101 and the sigma threshold to 3.0.
 

@@ -492,7 +492,7 @@ class GuiSpectrumMixin:
             line.set_visible(False)
 
         # Continuum-fit preview: only the ACTIVE tab's own fitted continuum
-        # ever shows, and only while the "Continuum Line" toggle is on.
+        # ever shows, and only while the "Fit Continuum" toggle is on.
         continuum_fit = self.continuum_fitted.get(tab)
         if getattr(self, 'continuum_line_btn', None) is not None and self.continuum_line_btn.isChecked() and continuum_fit is not None:
             x_t = tab_x(tab)

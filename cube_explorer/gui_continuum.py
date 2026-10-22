@@ -27,7 +27,7 @@ class GuiContinuumMixin:
     """
 
     def _on_continuum_line_clicked(self, checked):
-        """Handle the Continuum Line toggle: fit and show, or clear it.
+        """Handle the Fit Continuum toggle: fit and show, or clear it.
 
         Args:
             checked (bool): New checked state of the toggle.
@@ -119,7 +119,7 @@ class GuiContinuumMixin:
 
         if self.subtract_continuum_btn.isChecked():
             if self.continuum_fitted.get(tab) is None:
-                QMessageBox.warning(self, "No Continuum", "Please create the continuum line first.")
+                QMessageBox.warning(self, "No Continuum", "Click Fit Continuum first.")
                 self.subtract_continuum_btn.setChecked(False)
                 return
 
