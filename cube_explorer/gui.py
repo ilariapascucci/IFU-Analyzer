@@ -5,31 +5,22 @@ Main GUI class for the Cube Explorer application
 import os
 import gc
 import warnings
-import traceback
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm, PowerNorm, Normalize
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
-    QLabel, QMessageBox, QTextEdit, QLineEdit, QInputDialog, QDialog, QToolTip, QComboBox,
-    QListWidget, QListWidgetItem, QSplitter, QFrame, QProgressDialog, QDoubleSpinBox,
-    QSizePolicy, QMenu
+    QLabel, QMessageBox, QTextEdit, QInputDialog, QDialog, QToolTip,
+    QListWidget, QListWidgetItem, QFrame, QDoubleSpinBox,
+    QSizePolicy
 )
-from PyQt5.QtCore import Qt, QPoint, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import QPoint, QPropertyAnimation, QEasingCurve
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-
-from PyQt5.QtWidgets import QApplication
-
-from scipy.ndimage import median_filter
-from scipy.interpolate import UnivariateSpline
-from scipy.signal import find_peaks  # NEW: Import find_peaks
 
 from .data_loader import CubeData
 from .gui_continuum import GuiContinuumMixin
@@ -37,23 +28,18 @@ from .gui_gaussian import GuiGaussianMixin
 from .gui_flux_map import GuiFluxMapMixin
 from .gui_spectrum import GuiSpectrumMixin
 from .gui_region_selection import RegionSelectionMixin
+from .gui_mixins import DualPanelViewMixin
 from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, scaling_stats_text
 from .region_selector import RegionSelector
-from .analyzer_2d import _make_2d_wcs
+from .utils import make_2d_wcs
 from . import region_io
-from .continuum_dialog import ContinuumParametersDialog
-from .custom_continuum import CustomContinuumSelector
-from .line_catalog import get_available_molecules, normalize_species_input, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
+from .line_catalog import get_available_molecules, hitran_gui_interface, load_CO_line_catalog, load_contaminating_lines_catalog, load_custom_line_catalog
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
-from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
-from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog
-from .flux_map_dialogs import FluxMapWorker, FluxMapResultsDialog
-from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor
-from astropy.units import Quantity
+from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity
 
 
 # Feature flag for the 2D FITS viewer entry point (gui_2d.py). Kept as a
@@ -61,28 +47,6 @@ from astropy.units import Quantity
 ENABLE_2D_VIEWER = True
 
 
-def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
-    """
-    Extract numeric value from wavelength Quantity or array.
-    
-    Args:
-        wavelength_quantity_or_array: Wavelength (Quantity, scalar, or array)
-        index: Optional index for array access
-    
-    Returns:
-        Numeric value (units stripped if Quantity)
-    """
-    if isinstance(wavelength_quantity_or_array, Quantity):
-        if index is not None:
-            return wavelength_quantity_or_array[index].value
-        else:
-            return wavelength_quantity_or_array.value
-    else:
-        if index is not None:
-            return wavelength_quantity_or_array[index]
-        else:
-            return wavelength_quantity_or_array
-        
 class CollapsibleButtonGroup(QWidget):
     """
     A collapsible button group that expands/collapses with animation.
@@ -402,7 +366,7 @@ class WavelengthSpinBox(QDoubleSpinBox):
 
 
 class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin, GuiSpectrumMixin,
-                   RegionSelectionMixin):
+                   RegionSelectionMixin, DualPanelViewMixin):
     def __init__(self):
         """Build the main window and load the CO line catalogs at startup.
 
@@ -1057,52 +1021,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # Scale selection buttons - square icon buttons that open the scale/
         # range dialog, matching the other square buttons.
-        def make_scale_button(target):
-            """Build a square button that opens the scale/range dialog.
-
-            Args:
-                target (str): Panel the button applies to ('left' or 'right').
-
-            Returns:
-                btn (QPushButton): The configured button.
-            """
-            btn = QPushButton("🎚")
-            btn.setFixedSize(35, 35)
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            btn.clicked.connect(lambda: self._open_scale_dialog(target))
-            btn.setToolTip(f"Intensity scaling for {target} slice (Linear, Auto range)")
-            return btn
-
-        self.scale_btn_left = make_scale_button('left')
-        self.scale_btn_right = make_scale_button('right')
+        self.scale_btn_left = self._make_scale_button('left')
+        self.scale_btn_right = self._make_scale_button('right')
 
         # One copy button per panel. It opens a menu to copy the selection,
         # colormap, or scale/range from the other panel.
-        def make_copy_button(target):
-            """Build a square button that opens a menu to copy selection,
-            colormap, or scale/range from the other panel.
-
-            Args:
-                target (str): Panel the button applies to ('left' or 'right').
-
-            Returns:
-                btn (QPushButton): The configured button.
-            """
-            other = "right" if target == "left" else "left"
-            btn = QPushButton("⎘")
-            btn.setFixedSize(35, 35)
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            menu = QMenu(btn)
-            menu.addAction("Copy Selection",
-                           lambda: self.copy_selection(source=other, target=target))
-            menu.addAction("Copy Colormap", lambda: self.copy_colormap(other, target))
-            menu.addAction("Copy Scale/Range", lambda: self.copy_scale(other, target))
-            btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
-            btn.setToolTip(f"Copy selection, colormap, or scale/range from the {other} panel")
-            return btn
-
-        self.copy_menu_btn_l = make_copy_button('left')
-        self.copy_menu_btn_r = make_copy_button('right')
+        self.copy_menu_btn_l = self._make_copy_button('left')
+        self.copy_menu_btn_r = self._make_copy_button('right')
 
         # Edit Shape toggle buttons (enable drag/resize on a placed shape)
         self.edit_shape_btn_l = QPushButton("✎")
@@ -1501,7 +1426,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
             # Permanent, never-mutated reference wavelength for the per-tab shift
             # system; each tab's displayed wavelength derives from this array.
-            self.base_wavelength = np.array(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
+            self.base_wavelength = np.array(extract_value_from_quantity(self.cube_data.wavelength), dtype=float)
 
             # Update instrument label with filename
             filename = os.path.basename(self.cube_data.filename)
@@ -1543,7 +1468,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 QMessageBox.warning(self, "Display Error", f"Error displaying slices: {str(slice_error)}")
 
             # Wire up left/right wavelength spin boxes to this cube's grid
-            wavelength = _extract_wavelength_value(self.cube_data.wavelength)
+            wavelength = extract_value_from_quantity(self.cube_data.wavelength)
             if wavelength is not None:
                 wl = np.asarray(wavelength, dtype=float)
                 for spin in (self.left_wave_input, self.right_wave_input):
@@ -1713,7 +1638,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Title with spectral value
         if hasattr(self.cube_data, 'wavelength') and self.cube_data.wavelength is not None:
             # Extract wavelength value, handling Quantity objects
-            wave = _extract_wavelength_value(self.cube_data.wavelength, idx)
+            wave = extract_value_from_quantity(self.cube_data.wavelength[idx])
             if self.cube_data.wave_unit == "Å":
                 title = f"{target.capitalize()} Slice (idx={idx}) @ {wave:.6f} {clean_wave_unit(self.cube_data.wave_unit)}"
             elif self.cube_data.wave_unit == "um":
@@ -2000,7 +1925,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 f"Select a region or pixel on the {target.capitalize()} side first.")
             return
 
-        wcs2d = _make_2d_wcs(self.cube_data.header)
+        wcs2d = make_2d_wcs(self.cube_data.header)
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
             QMessageBox.critical(
                 self, "No WCS Available",
@@ -2048,7 +1973,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if target is None:
             return
 
-        wcs2d = _make_2d_wcs(self.cube_data.header)
+        wcs2d = make_2d_wcs(self.cube_data.header)
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
             QMessageBox.critical(
                 self, "No WCS Available",
@@ -2234,7 +2159,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return
 
         # Find nearest wavelength index
-        wavelength = _extract_wavelength_value(self.cube_data.wavelength)
+        wavelength = extract_value_from_quantity(self.cube_data.wavelength)
         if wavelength is None:
             idx = int(click_x)
         else:
@@ -2271,7 +2196,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._display_slice(idx, target)
 
         # Snap the wavelength spin box to this slice's exact wavelength
-        wavelength = _extract_wavelength_value(self.cube_data.wavelength)
+        wavelength = extract_value_from_quantity(self.cube_data.wavelength)
         if wavelength is not None:
             spin = self.left_wave_input if target == "left" else self.right_wave_input
             spin.blockSignals(True)
@@ -2309,7 +2234,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         """
         if not hasattr(self, 'cube_data') or not hasattr(self.cube_data, 'wavelength'):
             return
-        wavelength = _extract_wavelength_value(self.cube_data.wavelength)
+        wavelength = extract_value_from_quantity(self.cube_data.wavelength)
         if wavelength is None:
             return
         spin = self.left_wave_input if target == "left" else self.right_wave_input
@@ -2569,24 +2494,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self._store_scale_settings(target, dialog.result_settings)
         self._display_slice(idx, target)
-
-    def _store_scale_settings(self, target, settings):
-        """Save a panel's scale settings and refresh its Scale button tooltip.
-
-        Args:
-            target (str): Panel to update, 'left' or 'right'.
-            settings (ScaleSettings): The new settings.
-
-        Returns:
-            None
-        """
-        if target == 'left':
-            self.slice1_scale = settings
-        else:
-            self.slice2_scale = settings
-        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
-        btn.setToolTip(f"Intensity scaling for {target} slice "
-                       f"({settings.scale_label()}, {settings.range_label()})")
 
     def copy_scale(self, source, target):
         """Copy one slice's scale type, gamma, and color range onto the other slice.
@@ -3138,7 +3045,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if not hasattr(self, 'cube_data') or self.cube_data is None:
             return 0.0
         from .flux_map_extractor import _line_sigma
-        wave = np.asarray(_extract_wavelength_value(self.cube_data.wavelength), dtype=float)
+        wave = np.asarray(extract_value_from_quantity(self.cube_data.wavelength), dtype=float)
         header = getattr(self.cube_data, 'header', None)
         edge_sigmas = [
             _line_sigma(float(np.nanmin(wave)), header),

@@ -1,7 +1,8 @@
 """
 Dual 2D FITS Viewer - the ``Ifu_analyzer_2d_window`` QWidget plus its batch
 resolution-matching dialog. The reprojection/convolution math lives in
-``analyzer_2d.py`` (GUI-free); this module is Qt only.
+``convolve_reproject.py`` and the WCS helpers in ``utils.py`` (both
+GUI-free); this module is Qt only.
 """
 
 import os
@@ -18,13 +19,14 @@ from astropy.stats import gaussian_sigma_to_fwhm
 from astropy.coordinates import SkyCoord  # used by: _apply_loaded_contour
 import astropy.units as u  # used by: _apply_loaded_contour
 from scipy.ndimage import rotate  # used by: rotate_image
+from reproject import reproject_exact  # used by: _prompt_and_superimpose
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup, QMenu
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -37,18 +39,15 @@ from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_
 from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
+from .gui_mixins import DualPanelViewMixin
 from . import region_io
-from .utils import detect_instrument_from_header, psf_fwhm_arcsec
+from .utils import (
+    detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
+    is_per_pixel_flux_unit, wcs_footprints_overlap,
+)
 from .unit_converter import clean_flux_unit
 from .fits_export import (
     build_2d_export_header, build_resample_header, build_coverage_extension, write_fits_product,
-)
-from .analyzer_2d import (
-    _get_pixel_size_arcsec,
-    _make_2d_wcs,
-    _is_per_pixel_flux_unit,
-    _wcs_footprints_overlap,
-    _reproject_wcs_to_wcs,
 )
 from .convolve_reproject import (
     gaussian_convolve_match as _convolve_match,
@@ -363,12 +362,12 @@ class BatchMatchResolutionDialog(QDialog):
                     if data is None:
                         raise ValueError(
                             f"No 2D image data in {os.path.basename(fp)}")
-                    pix = _get_pixel_size_arcsec(header)
+                    pix = get_pixel_size_arcsec(header)
                     if pix is None:
                         raise ValueError(
                             f"Could not find pixel scale in "
                             f"{os.path.basename(fp)}")
-                    wcs = _make_2d_wcs(header)
+                    wcs = make_2d_wcs(header)
                     if wcs is None:
                         raise ValueError(
                             f"Could not build WCS for {os.path.basename(fp)}")
@@ -381,7 +380,7 @@ class BatchMatchResolutionDialog(QDialog):
                     for i in range(len(images_data)):
                         for j in range(i + 1, len(images_data)):
                             a, b = images_data[i], images_data[j]
-                            if not _wcs_footprints_overlap(
+                            if not wcs_footprints_overlap(
                                     a['wcs'], a['shape'], b['wcs'], b['shape']):
                                 disjoint_pairs.append((a['filename'], b['filename']))
 
@@ -420,7 +419,7 @@ class BatchMatchResolutionDialog(QDialog):
             # ---- 3. BUNIT check: reproject_flux_maps assumes -------------
             #         flux-per-pixel input for every file.
             for info in images_data:
-                if not _is_per_pixel_flux_unit(info['header'].get('BUNIT', '')):
+                if not is_per_pixel_flux_unit(info['header'].get('BUNIT', '')):
                     QApplication.restoreOverrideCursor()
                     QMessageBox.warning(
                         self, "Unsupported BUNIT",
@@ -533,7 +532,7 @@ class BatchMatchResolutionDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
 
-class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
+class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
     def __init__(self, parent=None):
         """Build the 2D dual-viewer window and initialize its state.
 
@@ -778,24 +777,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         self._store_scale_settings(target, dialog.result_settings)
         self.display_image(target)
 
-    def _store_scale_settings(self, target, settings):
-        """Save a panel's scale settings and refresh its Scale button tooltip.
-
-        Args:
-            target (str): Panel to update, 'left' or 'right'.
-            settings (ScaleSettings): The new settings.
-
-        Returns:
-            None
-        """
-        if target == 'left':
-            self.slice1_scale = settings
-        else:
-            self.slice2_scale = settings
-        btn = self.scale_btn_left if target == 'left' else self.scale_btn_right
-        btn.setToolTip(f"Intensity scaling for {target} slice "
-                       f"({settings.scale_label()}, {settings.range_label()})")
-
     def copy_scale(self, source, target):
         """Copy one panel's scale type, gamma, and color range onto the other (matches 3D).
 
@@ -858,52 +839,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
 
         # Scale selection buttons - square icon buttons that open the scale/
         # range dialog, matching the 3D window's own scale buttons.
-        def make_scale_button(target):
-            """Build a square button that opens the scale/range dialog.
-
-            Args:
-                target (str): Panel the button applies to ('left' or 'right').
-
-            Returns:
-                btn (QPushButton): The configured button.
-            """
-            btn = QPushButton("🎚")
-            btn.setFixedSize(35, 35)
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            btn.clicked.connect(lambda: self._open_scale_dialog(target))
-            btn.setToolTip(f"Intensity scaling for {target} slice (Linear, Auto range)")
-            return btn
-
-        self.scale_btn_left = make_scale_button('left')
-        self.scale_btn_right = make_scale_button('right')
+        self.scale_btn_left = self._make_scale_button('left')
+        self.scale_btn_right = self._make_scale_button('right')
 
         # One copy button per panel. It opens a menu to copy the selection,
         # colormap, or scale/range from the other panel (matches the 3D window).
-        def make_copy_button(target):
-            """Build a square button that opens a menu to copy selection,
-            colormap, or scale/range from the other panel.
-
-            Args:
-                target (str): Panel the button applies to ('left' or 'right').
-
-            Returns:
-                btn (QPushButton): The configured button.
-            """
-            other = "right" if target == "left" else "left"
-            btn = QPushButton("⎘")
-            btn.setFixedSize(35, 35)
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            menu = QMenu(btn)
-            menu.addAction("Copy Selection",
-                           lambda: self.copy_selection(source=other, target=target))
-            menu.addAction("Copy Colormap", lambda: self.copy_colormap(other, target))
-            menu.addAction("Copy Scale/Range", lambda: self.copy_scale(other, target))
-            btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
-            btn.setToolTip(f"Copy selection, colormap, or scale/range from the {other} panel")
-            return btn
-
-        self.copy_menu_btn_l = make_copy_button('left')
-        self.copy_menu_btn_r = make_copy_button('right')
+        self.copy_menu_btn_l = self._make_copy_button('left')
+        self.copy_menu_btn_r = self._make_copy_button('right')
 
         self.erase_btn_l = QPushButton("✖")
         self.erase_btn_l.setFixedSize(35, 35)
@@ -1672,7 +1614,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
 
-            reprojected, footprint = _reproject_wcs_to_wcs(ov_img, ov_wcs, bg_wcs, bg_img.shape, order=1)
+            reprojected, footprint = reproject_exact((ov_img, ov_wcs), bg_wcs, shape_out=bg_img.shape)
 
             plotter = self.slice1_plotter if bg == 'left' else self.slice2_plotter
             canvas  = self.slice1_canvas  if bg == 'left' else self.slice2_canvas
@@ -2625,7 +2567,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             return
 
         header = self.header_left if target == "left" else self.header_right
-        wcs2d = _make_2d_wcs(header)
+        wcs2d = make_2d_wcs(header)
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
             QMessageBox.critical(
                 self, "No WCS Available",
@@ -2671,7 +2613,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             return
 
         header = self.header_left if target == "left" else self.header_right
-        wcs2d = _make_2d_wcs(header)
+        wcs2d = make_2d_wcs(header)
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
             QMessageBox.critical(
                 self, "No WCS Available",
@@ -2749,8 +2691,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                                 "Load images in BOTH panels first.")
             return
 
-        pix_l = _get_pixel_size_arcsec(self.header_left)
-        pix_r = _get_pixel_size_arcsec(self.header_right)
+        pix_l = get_pixel_size_arcsec(self.header_left)
+        pix_r = get_pixel_size_arcsec(self.header_right)
         if pix_l is None or pix_r is None:
             QMessageBox.warning(
                 self, "Missing Pixel Scale",
@@ -2767,8 +2709,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
                 f"for other instruments yet):\n{detail}")
             return
 
-        if not _is_per_pixel_flux_unit(self.header_left.get('BUNIT', '') if self.header_left else '') or \
-           not _is_per_pixel_flux_unit(self.header_right.get('BUNIT', '') if self.header_right else ''):
+        if not is_per_pixel_flux_unit(self.header_left.get('BUNIT', '') if self.header_left else '') or \
+           not is_per_pixel_flux_unit(self.header_right.get('BUNIT', '') if self.header_right else ''):
             QMessageBox.warning(
                 self, "Unsupported BUNIT",
                 "The convolution assumes both images are flux-per-pixel.\n\n"
@@ -2802,15 +2744,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin):
             ref_header, ref_img = self.header_right, self.image_right
             fine_header, fine_img, fine_pix = self.header_left, self.image_left, pix_l
 
-        fine_wcs = _make_2d_wcs(fine_header)
+        fine_wcs = make_2d_wcs(fine_header)
         if fine_wcs is None:
             QMessageBox.warning(self, "WCS Error",
                                 "Could not build a 2D WCS for the fine image.")
             return
 
-        ref_wcs = _make_2d_wcs(ref_header)
+        ref_wcs = make_2d_wcs(ref_header)
         if ref_wcs is not None and ref_img is not None:
-            if not _wcs_footprints_overlap(
+            if not wcs_footprints_overlap(
                     fine_wcs, fine_img.shape, ref_wcs, ref_img.shape):
                 QMessageBox.warning(
                     self, "No Sky Overlap",

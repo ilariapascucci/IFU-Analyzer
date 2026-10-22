@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
     QComboBox, QLineEdit, QMessageBox, QWidget
 )
-from PyQt5.QtCore import Qt, QPointF, pyqtSignal
+from PyQt5.QtCore import QPointF, pyqtSignal
 from PyQt5.QtGui import QDoubleValidator, QPainter, QPen, QColor
 
 SCALE_TYPES = ["Linear", "Log", "Power"]

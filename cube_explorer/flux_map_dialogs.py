@@ -6,7 +6,6 @@ Simplified: no parameter dialog, automatic processing of entire spectrum.
 """
 
 import numpy as np
-import os
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -14,11 +13,12 @@ from PyQt5.QtWidgets import (
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
-import matplotlib.cm as cm
 from astropy import units as u
 
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
+from .visualization import draw_map
+from .gui_mixins import MapResultsDialogMixin
 
 
 class FluxMapWorker(QThread):
@@ -116,7 +116,7 @@ class FluxMapWorker(QThread):
         self.cancelled = True
 
 
-class FluxMapResultsDialog(QDialog):
+class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
     """Display flux extraction results with interactive viewer"""
 
     @staticmethod
@@ -349,23 +349,6 @@ class FluxMapResultsDialog(QDialog):
         
         self._update_plot()
     
-    def _toggle_pixel_selection(self):
-        """Toggle pixel selection mode on/off.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.pixel_selection_enabled = self.pixel_select_btn.isChecked()
-        if self.pixel_selection_enabled:
-            self.pixel_select_btn.setText("✓ Pixel Select ON")
-            self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
-        else:
-            self.pixel_select_btn.setText("✗ Pixel Select OFF")
-            self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
-    
     def _on_canvas_click(self, event):
         """Handle click on flux map to inspect pixel spectrum.
 
@@ -562,19 +545,6 @@ class FluxMapResultsDialog(QDialog):
             return None
         return np.isfinite(data) & (data != 0)
 
-    def _on_param_changed(self):
-        """Reset the absolute vmin/vmax to Auto, then redraw. A range typed
-        for one map has no meaning for another.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.scale_settings.clear_absolute_range()
-        self._update_plot()
-
     def _open_scale_dialog(self):
         """Open the shared scale/range picker for the map on screen and redraw.
 
@@ -610,12 +580,7 @@ class FluxMapResultsDialog(QDialog):
         settings = self.scale_settings if is_flux else ScaleSettings()
 
         norm, shown = build_norm(data, settings, self._percentile_mask(data, is_flux))
-        im = ax.imshow(shown, origin='lower', cmap=cmap, norm=norm)
-        ax.set_title(title, fontweight='bold')
-        ax.set_xlabel("X [pixels]")
-        ax.set_ylabel("Y [pixels]")
-        cbar = self.fig.colorbar(im, ax=ax)
-        cbar.set_label(cbar_label)
+        draw_map(self.fig, ax, shown, norm, cmap, title, cbar_label)
         
         self.fig.tight_layout()
         self.canvas.draw()

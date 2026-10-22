@@ -31,9 +31,9 @@ from .fits_export import build_line_map_header, write_fits_product
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from . import region_io
 from .region_selector import RegionSelector, mask_from_shape_coords
-from .analyzer_2d import _make_2d_wcs
+from .utils import make_2d_wcs
 from .gui_region_selection import RegionSelectionMixin
-from .visualization import SlicePlotter
+from .visualization import SlicePlotter, draw_map
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_text
 
@@ -883,11 +883,7 @@ class RotDiagMapResultsDialog(QDialog):
             settings = ScaleSettings()
 
         norm, shown = build_norm(data, settings)
-        im = ax.imshow(shown, origin="lower", cmap=cmap, norm=norm)
-        ax.set_title(title, fontweight="bold")
-        ax.set_xlabel("x [pixel]")
-        ax.set_ylabel("y [pixel]")
-        self.fig.colorbar(im, ax=ax).set_label(cbar_label)
+        draw_map(self.fig, ax, shown, norm, cmap, title, cbar_label)
 
     def _on_canvas_click(self, event):
         """
@@ -1378,7 +1374,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         """
         if target != "left" or self.current_entry is None:
             return None, None
-        wcs2d = _make_2d_wcs(self.current_entry["header"])
+        wcs2d = make_2d_wcs(self.current_entry["header"])
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
             return None, None
         try:
@@ -1442,7 +1438,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         sel = self.last_selection_left
         if not sel or self.current_entry is None:
             return
-        wcs2d = _make_2d_wcs(self.current_entry["header"])
+        wcs2d = make_2d_wcs(self.current_entry["header"])
         verts = None
         if sel["shape"] == "✏":
             verts = getattr(sel.get("patch"), "lasso_verts", None)
@@ -1590,7 +1586,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             return
         try:
             ny, nx = image.shape
-            wcs2d = _make_2d_wcs(entry["header"])
+            wcs2d = make_2d_wcs(entry["header"])
             placed = region_io.sky_to_region_shape(
                 old_region_sky["shape"], old_region_sky["sky_points"],
                 old_region_sky["sky_center"], old_region_sky["sky_axis_x"],
@@ -1671,7 +1667,7 @@ class LineFluxMapDialog(QDialog):
             src_filename (str): Originating cube's filename, for export's
                 SRCFILE -- None omits it.
             scale_store (dict): The line's plot-data entry. The dialog reads and
-                writes its 'scale_settings' key, so the PNG export can use it.
+                writes its 'scale_settings' and 'cmap' keys, so the PNG export can use them.
 
         Returns:
             None
@@ -1706,6 +1702,8 @@ class LineFluxMapDialog(QDialog):
         ctrl.addWidget(QLabel("Colormap:"))
         self.cmap_combo = QComboBox()
         self.cmap_combo.addItems(["inferno", "viridis", "plasma", "magma", "cividis", "coolwarm"])
+        if self.scale_store.get("cmap"):
+            self.cmap_combo.setCurrentText(self.scale_store["cmap"])
         self.cmap_combo.currentIndexChanged.connect(self._update_plot)
         ctrl.addWidget(self.cmap_combo)
 
@@ -1749,11 +1747,10 @@ class LineFluxMapDialog(QDialog):
         norm, shown = build_norm(np.asarray(self.flux_map, dtype=float), self.scale_settings)
         self.fig.clear()
         ax = self.fig.add_subplot(111)
-        im = ax.imshow(shown, origin="lower", cmap=self.cmap_combo.currentText(), norm=norm)
-        ax.set_title(f"Flux @ {self.wavelength:.6f} um", fontweight="bold")
-        ax.set_xlabel("x [pixel]")
-        ax.set_ylabel("y [pixel]")
-        self.fig.colorbar(im, ax=ax).set_label("Flux (erg/s/cm2)")
+        cmap = self.cmap_combo.currentText()
+        self.scale_store["cmap"] = cmap
+        draw_map(self.fig, ax, shown, norm, cmap,
+                 f"Flux @ {self.wavelength:.6f} um", "Flux (erg/s/cm2)")
         self.fig.tight_layout()
         self.canvas.draw()
 

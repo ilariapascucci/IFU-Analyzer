@@ -28,7 +28,6 @@ from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog, match_nearest_hitran_line
 from .table_drag_select import SortableCheckboxTableMixin
 from . import region_io
-from .analyzer_2d import _make_2d_wcs, _get_pixel_size_arcsec
 from .region_selector import mask_from_shape_coords
 from .rotational_diagram_h2_fitter import (
     rotational_diagram as rotational_diagram_h2,
@@ -37,7 +36,7 @@ from .rotational_diagram_h2_fitter import (
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .flux_map_extractor import DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
 from .rotational_diagram_map import (
-    _line_keys, combine_line_maps, build_imported_map_payload, merge_native_results,
+    _line_keys, build_imported_map_payload, merge_native_results,
 )
 from .import_map_dialog import _peek_header, _has_real_error
 from .rotational_diagram_map_dialogs import (
@@ -47,14 +46,12 @@ from .rotational_diagram_map_dialogs import (
 )
 from .fits_export import build_line_map_header, write_fits_product
 from .scale_dialog import ScaleSettings, build_norm
+from .visualization import draw_map
 from .convolve_reproject import convolve_reproject_maps, convolution_plan
-from .utils import psf_fwhm_arcsec
+from .utils import psf_fwhm_arcsec, make_2d_wcs, get_pixel_size_arcsec
 
 
 # Constants
-AU = 1.496e13  # cm
-PC = 3.086e18  # cm
-
 # Isotopologue ranges per molecule (HITRAN numbering)
 MOLECULE_ISOTOPOLOGUES = {
     'H2': {'labels': ['H₂', 'HD', 'D₂'], 'range': (1, 3)},
@@ -2880,8 +2877,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         return buf.getvalue()
 
     def _render_map_png_bytes(self, entry):
-        """Render one line's flux map as a PNG with the inferno colormap and the
-        scale last chosen in LineFluxMapDialog (Linear with Auto range if none).
+        """Render one line's flux map as a PNG with the colormap and scale last chosen
+        in LineFluxMapDialog (inferno, Linear and Auto range if it was never opened).
 
         Args:
             entry (dict): One _line_map_plot_data/_line_convolved_map_plot_data value.
@@ -2893,11 +2890,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         ax = fig.add_subplot(111)
         norm, shown = build_norm(np.asarray(entry["flux_map"], dtype=float),
                                  entry.get("scale_settings") or ScaleSettings())
-        im = ax.imshow(shown, origin="lower", cmap="inferno", norm=norm)
-        ax.set_title(f"Flux @ {entry['wavelength']:.6f} um", fontweight="bold")
-        ax.set_xlabel("x [pixel]")
-        ax.set_ylabel("y [pixel]")
-        fig.colorbar(im, ax=ax).set_label("Flux (erg/s/cm2)")
+        draw_map(fig, ax, shown, norm, entry.get("cmap") or "inferno",
+                 f"Flux @ {entry['wavelength']:.6f} um", "Flux (erg/s/cm2)")
         fig.tight_layout()
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=150)
@@ -3791,9 +3785,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         lines, wcses, shapes, scales, files, instruments = [], [], [], [], [], []
         for cube, line in cubes_and_lines:
             lines.append(line)
-            wcses.append(_make_2d_wcs(cube.header))
+            wcses.append(make_2d_wcs(cube.header))
             shapes.append((cube.cube.shape[1], cube.cube.shape[2]))
-            scales.append(_get_pixel_size_arcsec(cube.header))
+            scales.append(get_pixel_size_arcsec(cube.header))
             files.append(getattr(cube, "filename", None))
             instruments.append(cube.instrument)
         for line in imported_lines:
@@ -4042,7 +4036,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         saved = self._rot_map_region_sky
         if saved is None:
             return None
-        wcs2d = _make_2d_wcs(cube.header)
+        wcs2d = make_2d_wcs(cube.header)
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
             raise ValueError(
                 f"{getattr(cube, 'filename', 'This cube')} has no usable celestial WCS, "

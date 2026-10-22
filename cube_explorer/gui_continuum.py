@@ -6,31 +6,8 @@ from PyQt5.QtWidgets import QMessageBox, QApplication, QFileDialog, QProgressDia
 
 from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
-from .unit_converter import clean_flux_unit, clean_wave_unit
 from .flux_map_extractor import fit_auto_continuum
 from .utils import take_resolution_notes
-
-def _extract_wavelength_value(wavelength_quantity_or_array, index=None):
-    """Extract a numeric wavelength value from a Quantity or plain array.
-
-    Args:
-        wavelength_quantity_or_array: Wavelength Quantity, scalar, or array.
-        index (int): Optional index to read; None reads the whole value.
-
-    Returns:
-        value: Numeric value(s) with units stripped if Quantity.
-    """
-    from astropy.units import Quantity
-    if isinstance(wavelength_quantity_or_array, Quantity):
-        if index is not None:
-            return wavelength_quantity_or_array[index].value
-        else:
-            return wavelength_quantity_or_array.value
-    else:
-        if index is not None:
-            return wavelength_quantity_or_array[index]
-        else:
-            return wavelength_quantity_or_array
 
 class GuiContinuumMixin:
     """

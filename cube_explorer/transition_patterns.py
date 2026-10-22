@@ -525,39 +525,3 @@ def get_transition_pattern(molecule):
             None if the molecule has no entry.
     """
     return _PATTERNS_CI.get(molecule.upper())
-
-
-def get_all_molecules():
-    """
-    List every molecule name that has a transition pattern entry.
-
-    Args:
-        None
-
-    Returns:
-        molecules (list): Molecule name strings, in dict order.
-    """
-    return list(TRANSITION_PATTERNS.keys())
-
-
-def get_pattern_info(molecule):
-    """
-    Build a short human-readable summary of a molecule's transition format.
-
-    Args:
-        molecule (str): Molecule name, e.g. 'CO'.
-
-    Returns:
-        info (str): Multi-line summary, or a "not found" message.
-    """
-    pattern = get_transition_pattern(molecule)
-    if not pattern:
-        return f"Molecule '{molecule}' not found"
-
-    info = f"{molecule} transitions:\n"
-    info += f"  Format: {pattern['description']}\n"
-    info += f"  Example: {pattern['example']}\n"
-    info += f"  Match: {pattern.get('match', 'regex')}\n"
-    if pattern.get('regex'):
-        info += f"  Regex: {pattern['regex']}\n"
-    return info

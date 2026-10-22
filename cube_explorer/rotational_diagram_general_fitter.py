@@ -4,20 +4,14 @@ that is H2-only physics (see rotational_diagram_h2_fitter.py). Q(T) comes
 from HITRAN's TIPS data, so this works for any get_available_molecules() entry.
 """
 
-import numpy as np
-from scipy.optimize import curve_fit
 from hapi import partitionSum
 
 from .line_catalog import get_available_molecules
-# Molecule-agnostic engine reused as-is (doesn't depend on OPR or Q(T)),
-# rather than a second copy that could drift out of sync.
+# The shared fit engine lives next to the models and PyMC code it calls.
+# This module only supplies Q(T) for any HITRAN molecule.
 from .rotational_diagram_h2_fitter import (
-    pc, model_1T, model_2T, compute_Nu, upper_limit_1T, upper_limit_2T,
-    gaussian_flux_upper_limit, compute_line_fluxes_collective,
+    pc, T_CAP, require_fit_selected, build_excitation_dataset, fit_excitation_diagram,
 )
-
-# curve_fit upper bound on T (K). Matches H2's T_CAP (rotational_diagram_h2_fitter.py).
-T_CAP = 10000
 
 # Molecular data for the line set being fit (populated per-call from molecular_data)
 wave = {}  # micron
@@ -95,10 +89,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
     Raises:
         ValueError: if neither fit1T nor fit2T is True
     """
-    if not fit1T and not fit2T:
-        raise ValueError("At least one of fit1T/fit2T must be True -- nothing to fit.")
-
-    t_cap = T_CAP
+    require_fit_selected(fit1T, fit2T)
 
     global wave, Aul, Eu, gu
 
@@ -109,298 +100,13 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         gu = molecular_data.get('gu', {})
 
     # Build dataset (no OPR to correct for here)
-    def _build_dataset():
-        """
-        Compute excitation diagram arrays.
+    E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr = build_excitation_dataset(
+        fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist,
+    )
 
-        Args:
-            None
-
-        Returns:
-            E, y, y_err, is_ul, dropped, wave_arr (tuple): Arrays (E in K, y=log(Nu/gu)),
-                the list of J values dropped for missing error data, and the wavelength
-                (micron) of each kept point
-        """
-        E_list, y_list, y_err_list, is_ul_list, wave_list = [], [], [], [], []
-        dropped = []  # J values excluded (detections with no error data)
-
-        for J in sorted(fluxes.keys(), key=lambda j: wave.get(j, float('inf'))):
-            if J not in wave:
-                continue
-
-            F = fluxes[J]
-            Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
-            y = np.log(Nu / gu[J])
-
-            is_ul = upper_limits is not None and J in upper_limits
-
-            # Skip detections without error data - no defaults allowed
-            if (not is_ul) and (J not in flux_errors):
-                print(f"J={J}: skipping (detection without error data)")
-                dropped.append(J)
-                continue
-
-            E_list.append(Eu[J])
-            y_list.append(y)
-            is_ul_list.append(is_ul)
-            wave_list.append(wave[J])
-
-            # Same dF/F propagation for detections and upper limits -- see
-            # rotational_diagram_h2_fitter's own _build_dataset for the full reasoning.
-            if J in flux_errors:
-                dF = flux_errors[J]
-                dNu = Nu * (dF / F)
-                y_err = dNu / Nu
-                y_err_list.append(y_err)
-            else:
-                y_err_list.append(0.0)
-
-        return (np.array(E_list),
-                np.array(y_list),
-                np.array(y_err_list),
-                np.array(is_ul_list, dtype=bool),
-                dropped,
-                np.array(wave_list))
-
-    # Bounded curve_fit helpers
-    def _bounds_1T(y_arr):
-        """
-        Bounds for the single-temperature model.
-
-        Args:
-            y_arr (array): y values (log(Nu/gu)) in the current dataset
-
-        Returns:
-            bounds (tuple): (lower, upper) bound lists for curve_fit
-        """
-        return ([np.min(y_arr), 10],
-                [np.max(y_arr) + 10, t_cap])
-
-    def _bounds_2T(y_arr):
-        """
-        Bounds for the two-temperature model.
-
-        Args:
-            y_arr (array): y values (log(Nu/gu)) in the current dataset
-
-        Returns:
-            bounds (tuple): (lower, upper) bound lists for curve_fit
-        """
-        lo = np.min(y_arr)
-        hi = np.max(y_arr) + 10
-        return ([lo, 10, lo, 10],
-                [hi, t_cap, hi, t_cap])
-
-    def _fit_1T_curvefit(E, y, y_err):
-        """
-        Perform a single-temperature fit.
-
-        Args:
-            E, y, y_err (array): Rotational-diagram data
-
-        Returns:
-            popt, pcov (tuple): curve_fit's best-fit params and covariance
-        """
-        sigma = y_err if np.any(y_err > 0) else None  # prevent all zeros array
-        p0 = [np.max(y), 500]
-        bounds = _bounds_1T(y)
-
-        popt, pcov = curve_fit(
-            model_1T, E, y, sigma=sigma, absolute_sigma=True, p0=p0, bounds=bounds
-        )
-        return popt, pcov
-
-    def _fit_2T_curvefit(E, y, y_err, a_seed, T_seed):
-        """
-        Perform a two-temperature fit seeded from a 1T solution.
-
-        Args:
-            E, y, y_err (array): Rotational-diagram data
-            a_seed, T_seed (float): 1T fit result, seeds component 1
-
-        Returns:
-            popt, pcov (tuple): curve_fit's best-fit params and covariance
-        """
-        sigma = y_err if np.any(y_err > 0) else None
-        bounds = _bounds_2T(y)
-        p0 = [a_seed, T_seed, a_seed - 5, T_seed * 2]
-        # a_seed-5/T_seed*2 can exceed bounds when the 1T seed pins at t_cap;
-        # clip only the starting point, not the fitted result.
-        p0 = np.clip(p0, bounds[0], bounds[1])
-
-        popt, pcov = curve_fit(
-            model_2T, E, y, sigma=sigma, absolute_sigma=True, p0=p0, bounds=bounds, maxfev=10000
-        )
-        return popt, pcov
-
-    def _derive_column(a, da, T, dT):
-        """
-        Convert log-intercept to total column density with uncertainty.
-
-        Args:
-            a, da (float): log(Ncol) intercept and its uncertainty
-            T, dT (float): Temperature (K) and its uncertainty
-
-        Returns:
-            Ntot, dNtot (tuple): Total column density and its uncertainty
-        """
-        Ncol = np.exp(a)
-        dNcol = Ncol * da
-        Q = partition_function(T, molecule, isotopologue)
-        Ntot = Ncol * Q
-        dNtot = Ntot * np.sqrt(
-            (dNcol / Ncol) ** 2
-            + (partition_function_err(T, dT, molecule, isotopologue) / Q) ** 2)
-        return Ntot, dNtot
-
-    # Build dataset (full data, including upper limits)
-    E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr = _build_dataset()
-
-    if len(E_arr) < 2:
-        raise ValueError("Need at least 2 points")
-
-    # Check if we have enough detections for PyMC (at least 2 detections required)
-    n_detections = np.sum(~is_ul_mask)
-    has_upper_limits = np.any(is_ul_mask)
-
-    # A detection's y_err is only ever real data
-    det_y_err = y_err[~is_ul_mask]
-    if np.any(det_y_err <= 0):
-        bad_idx = np.where(~is_ul_mask)[0][det_y_err <= 0]
-        bad_E = ", ".join(f"{E_arr[i]:.1f} K" for i in bad_idx)
-        raise ValueError(
-            f"Detection(s) at E_u = {bad_E} have a flux error of zero, which isn't "
-            f"a valid measurement uncertainty. Enter a real error, mark the line as "
-            f"an upper limit, or deselect it."
-        )
-
-    if has_upper_limits and n_detections < 2:
-        if n_detections == 0:
-            raise ValueError(f"Cannot fit: all {len(E_arr)} measurements are upper limits. Need at least 2 detections to constrain temperature and column density.")
-        else:
-            raise ValueError(f"Need at least 2 detections for fitting with upper limits. You have {n_detections} detection(s) and {np.sum(is_ul_mask)} upper limit(s).")
-
-    # Decide method: auto-use PyMC if upper limits present
-    use_pymc = has_upper_limits
-    # Used below for both 1T's and 2T's own chi2 -- needed regardless of fit1T.
-    det_mask = ~is_ul_mask
-
-    # 1T fit (final): always runs as 2T's own seed, see
-    # rotational_diagram_h2_fitter for why.
-    if not use_pymc:
-        print("\n--- 1T FIT (curve_fit) ---")
-        popt1, pcov1 = _fit_1T_curvefit(E_arr, y_arr, y_err)
-        a1, T1 = popt1
-        da1, dT1 = np.sqrt(np.diag(pcov1))
-    else:
-        print("\n--- 1T FIT (PyMC, upper-limit barrier) ---")
-        result = upper_limit_1T(
-            E_arr, y_arr, y_err, is_ul_mask,
-            progress_callback=(lambda cur, tot: progress_callback("1T", cur, tot)) if progress_callback else None,
-            t_cap=t_cap,
-        )
-        a1, T1 = result["a"], result["T"]
-        da1, dT1 = result["da"], result["dT"]
-        pymc_diag_1T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
-
-    results = {}
-    if dropped_detections:
-        results["dropped_J"] = dropped_detections
-
-    if fit1T:
-        Ntot1, dNtot1 = _derive_column(a1, da1, T1, dT1)
-
-        y_model1 = model_1T(E_arr[det_mask], a1, T1)
-        chi2_1T = np.sum(((y_arr[det_mask] - y_model1) / np.maximum(y_err[det_mask], 1e-10))**2)
-        dof_1T = max(np.sum(det_mask) - 2, 1)
-
-        results["1T"] = {
-            "T": T1,
-            "dT": dT1,
-            "Ncol": Ntot1,
-            "dNcol": dNtot1,
-            "chi2": chi2_1T,
-            "red_chi2": chi2_1T / dof_1T,
-        }
-        if use_pymc:
-            results["1T"]["n_divergences"] = pymc_diag_1T["n_divergences"]
-            results["1T"]["max_r_hat"] = pymc_diag_1T["max_r_hat"]
-
-    # 2T fit (final)
-    if fit2T:
-        if not use_pymc:
-            print("\n--- 2T FIT (curve_fit) ---")
-            popt2, pcov2 = _fit_2T_curvefit(E_arr, y_arr, y_err, a1, T1)
-            a1_2, T1_2, a2_2, T2_2 = popt2
-            errs = np.sqrt(np.diag(pcov2))
-        else:
-            print("\n--- 2T FIT (PyMC, upper-limit barrier) ---")
-            result = upper_limit_2T(
-                E_arr, y_arr, y_err, is_ul_mask, a1, T1,
-                progress_callback=(lambda cur, tot: progress_callback("2T", cur, tot)) if progress_callback else None,
-                t_cap=t_cap,
-            )
-            a1_2, T1_2, a2_2, T2_2 = result["popt"]
-            errs = result["errs"]
-            pymc_diag_2T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
-
-        # Canonicalize component order: T1 is always the cooler component.
-        # curve_fit's own bounds (_bounds_2T) don't enforce T1<=T2 -- only
-        # the PyMC path's prior (T2 ~ Uniform(T1, t_cap)) does -- so swap
-        # both the value and error pairs together whenever curve_fit
-        # converged the other way. This makes "T1=cooler" consistently
-        # true everywhere downstream (map, Run Fit, Show Statistics, FITS
-        # export, and the plot below), not just on average.
-        if T1_2 > T2_2:
-            a1_2, T1_2, a2_2, T2_2 = a2_2, T2_2, a1_2, T1_2
-            errs = [errs[2], errs[3], errs[0], errs[1]]
-        popt2 = [a1_2, T1_2, a2_2, T2_2]
-
-        da1_2, dT1_2, da2_2, dT2_2 = errs
-
-        N1_tot, dN1_tot = _derive_column(a1_2, da1_2, T1_2, dT1_2)
-        N2_tot, dN2_tot = _derive_column(a2_2, da2_2, T2_2, dT2_2)
-
-        y_model2 = model_2T(E_arr[det_mask], a1_2, T1_2, a2_2, T2_2)
-        chi2_2T = np.sum(((y_arr[det_mask] - y_model2) / np.maximum(y_err[det_mask], 1e-10))**2)
-        dof_2T = max(np.sum(det_mask) - 4, 1)
-
-        results["2T"] = {
-            "T1": T1_2,
-            "dT1": dT1_2,
-            "T2": T2_2,
-            "dT2": dT2_2,
-            "Ncol1": N1_tot,
-            "dNcol1": dN1_tot,
-            "Ncol2": N2_tot,
-            "dNcol2": dN2_tot,
-            "chi2": chi2_2T,
-            "red_chi2": chi2_2T / dof_2T,
-        }
-        if use_pymc:
-            results["2T"]["n_divergences"] = pymc_diag_2T["n_divergences"]
-            results["2T"]["max_r_hat"] = pymc_diag_2T["max_r_hat"]
-
-        results["_plot_data"] = {
-            "E_arr": E_arr,
-            "y_arr": y_arr,
-            "y_err": y_err,
-            "is_ul_mask": is_ul_mask,
-            "wave_arr": wave_arr,
-            "has_R": R is not None,
-            "popt1": list(popt1) if not use_pymc else [a1, T1],
-            "popt2": list(popt2),
-        }
-    else:
-        results["_plot_data"] = {
-            "E_arr": E_arr,
-            "y_arr": y_arr,
-            "y_err": y_err,
-            "is_ul_mask": is_ul_mask,
-            "wave_arr": wave_arr,
-            "has_R": R is not None,
-            "popt1": list(popt1) if not use_pymc else [a1, T1],
-            "popt2": None,
-        }
-
-    return results
+    return fit_excitation_diagram(
+        E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr, R, fit1T, fit2T,
+        lambda T: partition_function(T, molecule, isotopologue),
+        lambda T, dT: partition_function_err(T, dT, molecule, isotopologue),
+        progress_callback=progress_callback, t_cap=T_CAP,
+    )

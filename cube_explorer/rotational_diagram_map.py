@@ -16,16 +16,14 @@ from threading import Lock
 
 import numpy as np
 from astropy.io import fits
-from astropy.stats import gaussian_sigma_to_fwhm
 
 from .unit_converter import extract_units
-from .utils import safe_worker_count, detect_instrument
+from .utils import safe_worker_count, detect_instrument, get_pixel_size_arcsec, make_2d_wcs, wcs_footprints_overlap
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
-from .analyzer_2d import _get_pixel_size_arcsec, _make_2d_wcs, _wcs_footprints_overlap
-from .convolve_reproject import convolve_reproject_maps, convolution_plan
+from .convolve_reproject import convolve_reproject_maps
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
-    compute_line_fluxes_collective, get_gu, pc, T_CAP as T_CAP_H2,
+    compute_line_fluxes_collective, get_gu, T_CAP as T_CAP_H2,
     rotational_diagram as rotational_diagram_h2,
 )
 from .rotational_diagram_general_fitter import (
@@ -38,8 +36,6 @@ STATUS_OK = 0
 STATUS_NO_DATA = 1           # pixel spectrum is empty or all-NaN
 STATUS_TOO_FEW_LINES = 2     # fewer detections than min_lines
 STATUS_FIT_FAILED = 3        # the rotational_diagram call raised
-
-MAP_KEYS = ("T", "T_err", "Ncol", "Ncol_err")
 
 # Per-pixel codes in a native line map's status map (Calculate Maps). Same
 # 0/1/2 order as the Gaussian map's Fit Status, so both read alike.
@@ -1040,14 +1036,14 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
     cubes = [c for c, _ in kept_pairs]
     kept_lines = [l for _, l in kept_pairs]
 
-    wcses = [_make_2d_wcs(c.header) for c in cubes]
+    wcses = [make_2d_wcs(c.header) for c in cubes]
     shapes = [(c.cube.shape[1], c.cube.shape[2]) for c in cubes]
-    scales = [_get_pixel_size_arcsec(c.header) for c in cubes]
+    scales = [get_pixel_size_arcsec(c.header) for c in cubes]
     if any(w is None for w in wcses) or any(s is None for s in scales):
         raise ValueError("Could not read a celestial WCS/pixel scale from every cube's header.")
     for i in range(len(cubes)):
         for j in range(i + 1, len(cubes)):
-            if not _wcs_footprints_overlap(wcses[i], shapes[i], wcses[j], shapes[j]):
+            if not wcs_footprints_overlap(wcses[i], shapes[i], wcses[j], shapes[j]):
                 raise ValueError(
                     f"The cube for {kept_lines[i]['wavelength']:.4f} um and the cube "
                     f"for {kept_lines[j]['wavelength']:.4f} um share no sky coverage.")
@@ -1210,10 +1206,10 @@ def build_imported_map_payload(fits_path, error_pct):
         if kw in header:
             del header[kw]
 
-    wcs2d = _make_2d_wcs(header)
+    wcs2d = make_2d_wcs(header)
     if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
         raise ValueError(f"{fits_path} has no usable celestial WCS -- it can't be reprojected.")
-    pix_arcsec = _get_pixel_size_arcsec(header)
+    pix_arcsec = get_pixel_size_arcsec(header)
     if pix_arcsec is None:
         raise ValueError(f"Could not read a pixel scale from {fits_path}'s header.")
 
@@ -1518,9 +1514,9 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
     kept_pairs_peek, _ = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
     cubes_peek = [c for c, _ in kept_pairs_peek]
     total_native = sum(c.cube.shape[1] * c.cube.shape[2] for c in cubes_peek)
-    wcses_peek = [_make_2d_wcs(c.header) for c in cubes_peek]
+    wcses_peek = [make_2d_wcs(c.header) for c in cubes_peek]
     shapes_peek = [(c.cube.shape[1], c.cube.shape[2]) for c in cubes_peek]
-    scales_peek = [_get_pixel_size_arcsec(c.header) for c in cubes_peek]
+    scales_peek = [get_pixel_size_arcsec(c.header) for c in cubes_peek]
     if any(w is None for w in wcses_peek) or any(s is None for s in scales_peek):
         raise ValueError("Could not read a celestial WCS/pixel scale from every cube's header.")
     # Reference grid = longest-wavelength line's own native shape (the
@@ -1622,9 +1618,9 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
     # progress_callback's total is accurate from the start.
     wcses_peek, shapes_peek, scales_peek, wavelengths_peek = [], [], [], []
     for c, line in cubes_and_lines:
-        wcses_peek.append(_make_2d_wcs(c.header))
+        wcses_peek.append(make_2d_wcs(c.header))
         shapes_peek.append((c.cube.shape[1], c.cube.shape[2]))
-        scales_peek.append(_get_pixel_size_arcsec(c.header))
+        scales_peek.append(get_pixel_size_arcsec(c.header))
         wavelengths_peek.append(line["wavelength"])
     for line in imported_lines:
         imp = line["imported_map"]

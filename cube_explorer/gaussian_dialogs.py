@@ -10,9 +10,11 @@ import os
 import threading
 from .unit_converter import gaussian_map_unit_labels, wavelength_to_doppler_velocity
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
-from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product, _ascii_safe
+from .fits_export import build_line_map_header, write_fits_product, _ascii_safe
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
+from .visualization import draw_map
+from .gui_mixins import MapResultsDialogMixin
 
 # Parameters that flag pixels instead of measuring a quantity.
 _CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
@@ -23,9 +25,8 @@ STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, QInputDialog
+    QComboBox, QFileDialog, QMessageBox, QInputDialog
 )
-from PyQt5.QtGui import QColor, QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from matplotlib.colors import ListedColormap
@@ -203,7 +204,7 @@ class MultiGaussianFitWorker(QThread):
         self.progress.emit(current, total)
 
 
-class GaussianMapResultsDialog(QDialog):
+class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
     """
     Dialog window for displaying Gaussian parameter maps.
     
@@ -423,19 +424,6 @@ class GaussianMapResultsDialog(QDialog):
         
         self.setLayout(layout)
     
-    def _on_param_changed(self):
-        """Reset the absolute vmin/vmax to Auto, then redraw. A range typed
-        for one parameter has no meaning for another.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.scale_settings.clear_absolute_range()
-        self._update_plot()
-
     def _open_scale_dialog(self):
         """Open the shared scale/range picker for the parameter on screen and redraw.
 
@@ -548,13 +536,7 @@ class GaussianMapResultsDialog(QDialog):
         norm, data = build_norm(data, settings)
 
         # Plot with NaN handling
-        im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest', norm=norm)
-        ax.set_title(title)
-        ax.set_xlabel("X Pixel")
-        ax.set_ylabel("Y Pixel")
-        
-        # Colorbar with units
-        self.fig.colorbar(im, ax=ax, label=unit_label)
+        draw_map(self.fig, ax, data, norm, cmap, title, unit_label)
 
         self.fig.tight_layout()
         self.canvas.draw()
@@ -712,23 +694,6 @@ class GaussianMapResultsDialog(QDialog):
         dlg.setLayout(layout)
         dlg.exec_()
 
-    def _toggle_pixel_selection(self):
-        """Toggle click-a-pixel mode so the matplotlib toolbar can be used instead.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.pixel_selection_enabled = self.pixel_select_btn.isChecked()
-        if self.pixel_selection_enabled:
-            self.pixel_select_btn.setText("✓ Pixel Select ON")
-            self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
-        else:
-            self.pixel_select_btn.setText("✗ Pixel Select OFF")
-            self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
-
     def _on_canvas_click(self, event):
         """Open the single-pixel fit view for the clicked map pixel.
 
@@ -832,18 +797,13 @@ class GaussianMapResultsDialog(QDialog):
             norm, data = build_norm(data, self.scale_settings)
 
             # Plot
-            im = ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest', norm=norm)
-            ax.set_title(title)
-            ax.set_xlabel("X Pixel")
-            ax.set_ylabel("Y Pixel")
-            self.fig.colorbar(im, ax=ax, label="Residuals")
+            draw_map(self.fig, ax, data, norm, cmap, title, "Residuals")
         else:
             # Fallback if residuals not in results
             data = np.zeros((self.results['success'].shape[0], self.results['success'].shape[1]))
             title = "Residuals (not computed)"
             cmap = 'gray'
-            ax.imshow(data, origin='lower', cmap=cmap, interpolation='nearest')
-            ax.set_title(title)
+            draw_map(self.fig, ax, data, None, cmap, title)
         
         self.fig.tight_layout()
         self.canvas.draw()
@@ -1086,171 +1046,3 @@ class GaussianMapResultsDialog(QDialog):
                 "Export Error",
                 f"Failed to export {param_name}:\n{str(e)}"
             )
-
-
-class HITRANGaussianResultsDialog(QDialog):
-    """
-    Dialog for displaying multi-Gaussian fit results for HITRAN lines.
-    
-    Shows a searchable, sortable table with results for each fitted line:
-    - Wavelength, Species, Transition
-    - Amplitude, Sigma, FWHM
-    - Area (native and/or CGS units)
-    - R^2 and fit status
-    """
-    
-    def __init__(self, parent, results, wave_unit='um', flux_unit=''):
-        """Build the HITRAN multi-Gaussian fit results table dialog.
-
-        Args:
-            parent (QWidget): Parent widget.
-            results (list): Per-line fit result dicts to display.
-            wave_unit (str): Wavelength unit label for the table.
-            flux_unit (str): Flux unit label for the table.
-
-        Returns:
-            None
-        """
-        super().__init__(parent)
-        self.setWindowTitle("HITRAN Gaussian Fit Results")
-        self.setMinimumSize(1000, 600)
-        
-        self.results = results
-        self.wave_unit = wave_unit
-        self.flux_unit = flux_unit
-        
-        layout = QVBoxLayout()
-        
-        # Summary statistics
-        summary_layout = QHBoxLayout()
-        
-        n_total = len(results)
-        n_success = sum(1 for r in results if r.get('success', False))
-        
-        summary_text = QLabel(
-            f"<b>Summary:</b> {n_success} of {n_total} lines successfully fitted"
-        )
-        summary_layout.addWidget(summary_text)
-        summary_layout.addStretch()
-        
-        layout.addLayout(summary_layout)
-        
-        # Results table
-        self.table = QTableWidget()
-        self.table.setColumnCount(11)
-        self.table.setHorizontalHeaderLabels([
-            "lambda (" + wave_unit + ")",
-            "Species",
-            "Transition",
-            "Amplitude",
-            "sigma (" + wave_unit + ")",
-            "FWHM (" + wave_unit + ")",
-            "Area (native)",
-            "Area (CGS)",
-            "R^2",
-            "Status",
-            "Message"
-        ])
-        
-        self.table.setRowCount(len(results))
-        self.table.setAlternatingRowColors(True)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        
-        # Populate table
-        for row_idx, result in enumerate(results):
-            items = [
-                QTableWidgetItem(f"{result.get('wavelength', 0):.6f}"),
-                QTableWidgetItem(result.get('species', '')),
-                QTableWidgetItem(result.get('transition', '')),
-                QTableWidgetItem(f"{result.get('amplitude', 0):.4e}"),
-                QTableWidgetItem(f"{result.get('sigma', 0):.6f}"),
-                QTableWidgetItem(f"{result.get('fwhm', 0):.6f}"),
-                QTableWidgetItem(f"{result.get('area_native', 0):.4e}"),
-                QTableWidgetItem(f"{result.get('area', 0):.4e}"),
-                QTableWidgetItem(f"{result.get('r_squared', 0):.4f}"),
-                QTableWidgetItem("Y" if result.get('success', False) else "N"),
-                QTableWidgetItem(result.get('message', ''))
-            ]
-            
-            for col_idx, item in enumerate(items):
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                
-                # Color code based on success
-                if col_idx == 9:  # Status column
-                    if result.get('success', False):
-                        item.setForeground(QColor('green'))
-                        font = QFont()
-                        font.setBold(True)
-                        item.setFont(font)
-                    else:
-                        item.setForeground(QColor('red'))
-                
-                self.table.setItem(row_idx, col_idx, item)
-        
-        # Auto-resize columns
-        self.table.resizeColumnsToContents()
-        layout.addWidget(self.table)
-        
-        # Export button
-        button_layout = QHBoxLayout()
-        
-        export_csv_btn = QPushButton("Export to CSV")
-        export_csv_btn.clicked.connect(self._export_to_csv)
-        button_layout.addWidget(export_csv_btn)
-        
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        button_layout.addStretch()
-        button_layout.addWidget(close_btn)
-        
-        layout.addLayout(button_layout)
-        self.setLayout(layout)
-    
-    def _export_to_csv(self):
-        """Export results to CSV file.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        from PyQt5.QtWidgets import QFileDialog
-        import csv
-        
-        out_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export HITRAN Results to CSV",
-            "hitran_fit_results.csv",
-            "CSV Files (*.csv)"
-        )
-        
-        if not out_path:
-            return
-        
-        try:
-            with open(out_path, 'w', newline='') as f:
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=[
-                        'wavelength', 'species', 'transition',
-                        'amplitude', 'sigma', 'fwhm',
-                        'area_native', 'area', 'r_squared',
-                        'success', 'message'
-                    ]
-                )
-                writer.writeheader()
-                writer.writerows(self.results)
-            
-            QMessageBox.information(
-                self,
-                "Export Successful",
-                f"Results exported to:\n{out_path}"
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Export Error",
-                f"Failed to export results:\n{str(e)}"
-            )
-

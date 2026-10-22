@@ -8,9 +8,8 @@ import os
 import numpy as np
 import pandas as pd
 import time
-from astropy.units import Quantity
 from astropy.io import ascii
-from .unit_converter import wavelength_to_doppler_velocity
+from .unit_converter import wavelength_to_doppler_velocity, extract_value_from_quantity
 
 # -------------------- Helper Functions --------------------
 # Shared by CSV import, Import Map, and Gaussian Map's export identity lookup.
@@ -36,21 +35,6 @@ def match_nearest_hitran_line(hitran_lines, wavelength, velocity_tol_kms=LINE_MA
         if v_kms < velocity_tol_kms and diff < best_diff:
             best, best_diff = hl, diff
     return best
-
-
-def _extract_wavelength_value(wavelength):
-    """Extract numeric value from wavelength Quantity or return raw value.
-    Allows division operations to work with both Quantity and raw arrays.
-
-    Args:
-        wavelength: Quantity, scalar, or array.
-
-    Returns:
-        value: Numeric value(s) with units stripped if Quantity.
-    """
-    if isinstance(wavelength, Quantity):
-        return wavelength.value
-    return wavelength
 
 
 def dedupe_colocated_lines(items, tol_um, line_of=lambda item: item):
@@ -108,185 +92,6 @@ def format_isotopologue_name(iso_name):
     s = re.sub(r'(?<=[A-Za-z])(\d+)', lambda m: m.group(1).translate(_ISO_SUBSCRIPT), s)
     return s
 
-
-# -------------------- Species Normalization --------------------
-def normalize_species_input(user_input):
-    """Converts various species input formats into standardized bracketed
-    notation. Handles space-separated (Fe II), concatenated (FeII),
-    numeric (Fe2), and already-bracketed formats.
-
-    Args:
-        user_input (str): Raw species text typed by the user.
-
-    Returns:
-        species (str): Standardized bracketed notation (e.g. '[Fe II]'),
-            or user_input unchanged if it doesn't match a known pattern.
-    """
-    if not user_input:
-        return user_input
-    
-    original = user_input.strip()
-    
-    if original.startswith('[') and original.endswith(']'):
-        return original
-    
-    species = original.upper()
-    species = species.replace('[', '').replace(']', '').strip()
-    
-    molecules = ['H2', 'CO', 'CO2', 'H2O', 'CH4', 'NH3', 'O2', 'N2', 'NO', 'NO2', 
-                 'SO2', 'O3', 'H2S', 'HCN', 'C2H2', 'C2H6', 'PH3', 'H2CO', 'N2O',
-                 'HCL', 'HF', 'HBR', 'HI', 'OH', 'CLO', 'OCS', 'HOCL']
-    
-    if species in molecules:
-        return original
-    
-    ionization_map = {
-        '1': 'I', '2': 'II', '3': 'III', '4': 'IV', '5': 'V',
-        '6': 'VI', '7': 'VII', '8': 'VIII', '9': 'IX', '10': 'X',
-        'I': 'I', 'II': 'II', 'III': 'III', 'IV': 'IV', 'V': 'V',
-        'VI': 'VI', 'VII': 'VII', 'VIII': 'VIII', 'IX': 'IX', 'X': 'X'
-    }
-    
-    parts = species.split()
-    if len(parts) == 2:
-        element, ion_state = parts[0], parts[1]
-        if ion_state in ionization_map or ion_state.isdigit():
-            if ion_state.isdigit():
-                ion_state = ionization_map.get(ion_state, ion_state)
-            else:
-                ion_state = ionization_map.get(ion_state, ion_state)
-            return f"[{element.capitalize()} {ion_state}]"
-    
-    match = re.match(r'^([A-Z][A-Z])([IVX]+)$', species)
-    if match:
-        element, ion_state = match.groups()
-        second_char = element[1]
-        if (second_char not in ['I', 'V', 'X'] or len(ion_state) >= 2) and ion_state in ionization_map:
-            return f"[{element.capitalize()} {ion_state}]"
-    
-    match = re.match(r'^([A-Z])([IVX]{2,})$', species)
-    if match:
-        element, ion_state = match.groups()
-        if ion_state in ionization_map:
-            return f"[{element} {ion_state}]"
-    
-    match = re.match(r'^([A-Z][A-Z]?)(\d+)$', species)
-    if match:
-        element, ion_num = match.groups()
-        if not (len(element) == 1 and element + ion_num in molecules):
-            ion_state = ionization_map.get(ion_num, ion_num)
-            return f"[{element.capitalize()} {ion_state}]"
-    
-    return original
-
-# -------------------- Local Line Filter --------------------
-def filter_spectral_lines(file_path, wavelength_min, wavelength_max, species=None):
-    """Parse a local spectral line list and return entries within a
-    wavelength range, optionally filtered by species (case-insensitive
-    exact or bracketed element match).
-
-    Args:
-        file_path (str): Path to the local line-list text file.
-        wavelength_min (float): Minimum wavelength to keep.
-        wavelength_max (float): Maximum wavelength to keep.
-        species (str): Species to filter to, or None/'' for all lines.
-
-    Returns:
-        result (tuple): (data_rows, all_species) -- matching line entries
-            and a dict of every species seen in range.
-    """
-    if not os.path.exists(file_path):
-        print(f"Error: File '{file_path}' not found.")
-        return [], {}
-    try:
-        with open(file_path, 'r') as f:
-            lines = f.readlines()
-    except Exception as e:
-        print(f"Error reading file: {e}")
-        return [], {}
-    
-    data_rows = []
-    all_species = {}
-    
-    for line in lines[1:]:
-        parts = line.split()
-        if len(parts) >= 3:
-            try:
-                wavelength = float(parts[1])
-                if wavelength_min <= wavelength <= wavelength_max:
-                    bracketed_match = re.search(r'\[[\w\s]+\]', line)
-                    if bracketed_match:
-                        found_species = bracketed_match.group()
-                    else:
-                        if len(parts) > 3 and (parts[3].upper() in ['I','II','III','IV','V','VI','VII','VIII','IX','X']):
-                            found_species = parts[2] + ' ' + parts[3]
-                        else:
-                            found_species = parts[2].strip()
-                    
-                    all_species[found_species] = all_species.get(found_species, 0) + 1
-
-                    # If no species filter requested include everything
-                    if species is None or str(species).strip() == "":
-                        priority = 0
-                        include = True
-                    else:
-                        species_upper = species.upper()
-                        found_upper = found_species.upper()
-                        exact_match = (found_upper == species_upper)
-                        element_match = species_upper in found_upper and '[' in found_species
-                        priority = 0 if exact_match else 1 if element_match else 2
-                        include = (priority <= 1)
-
-                    if include:
-                        wavelength_val = _extract_wavelength_value(wavelength)
-                        wavenumber = 1e4 / wavelength_val
-                        model = parts[0]
-                        transition = ""
-                        a_coeff = 0.0
-                        e_upper = 0.0
-                        
-                        try:
-                            fields = line.split()
-                            if len(fields) >= 6:
-                                transition_parts = []
-                                coeff_idx = -1
-                                for i in range(3, len(fields)):
-                                    if 'E' in fields[i] and any(c.isdigit() for c in fields[i]):
-                                        try:
-                                            a_coeff = float(fields[i])
-                                            coeff_idx = i
-                                            break
-                                        except Exception:
-                                            transition_parts.append(fields[i])
-                                    else:
-                                        transition_parts.append(fields[i])
-                                transition = " ".join(transition_parts) if transition_parts else "Unknown"
-                                if coeff_idx >= 0 and coeff_idx + 1 < len(fields):
-                                    try:
-                                        e_upper = float(fields[coeff_idx + 1])
-                                    except Exception:
-                                        pass
-                        except Exception:
-                            pass
-                        data_rows.append({
-                            'model': model,
-                            'wavelength': wavelength,
-                            'wavenumber': wavenumber,
-                            'species': found_species,
-                            'transition': transition,
-                            'a_coeff': a_coeff,
-                            'e_upper': e_upper,
-                            'priority': priority,
-                        })
-            except (ValueError, IndexError):
-                continue
-    
-    # Sort: if priority present use it, else all zeros
-    data_rows = sorted(data_rows, key=lambda x: (x.get('priority', 0), x['wavelength']))
-    for row in data_rows:
-        if 'priority' in row:
-            del row['priority']
-    return data_rows, all_species
 
 # -------------------- HITRAN Utilities --------------------
 
@@ -483,8 +288,8 @@ def compute_hitran_table_name(wavelength_min, wavelength_max, molecule, isotopol
     M = get_available_molecules().get(molecule)
     if M is None:
         return None
-    wavelength_min_val = _extract_wavelength_value(wavelength_min)
-    wavelength_max_val = _extract_wavelength_value(wavelength_max)
+    wavelength_min_val = extract_value_from_quantity(wavelength_min)
+    wavelength_max_val = extract_value_from_quantity(wavelength_max)
     wavenum_min = 1e4 / wavelength_max_val
     wavenum_max = 1e4 / wavelength_min_val
     return f'{molecule}_{M}_{isotopologue}_{int(wavenum_min)}_{int(wavenum_max)}'
@@ -507,8 +312,8 @@ def find_containing_cached_table(wavelength_min, wavelength_max, molecule, isoto
     M = get_available_molecules().get(molecule)
     if M is None:
         return None
-    wavelength_min_val = _extract_wavelength_value(wavelength_min)
-    wavelength_max_val = _extract_wavelength_value(wavelength_max)
+    wavelength_min_val = extract_value_from_quantity(wavelength_min)
+    wavelength_max_val = extract_value_from_quantity(wavelength_max)
     wavenum_min = 1e4 / wavelength_max_val
     wavenum_max = 1e4 / wavelength_min_val
 
@@ -530,28 +335,6 @@ def find_containing_cached_table(wavelength_min, wavelength_max, molecule, isoto
                 if best_span is None or span < best_span:
                     best_name, best_span = fname[:-len('.data')], span
     return best_name
-
-
-def is_hitran_data_cached(wavelength_min, wavelength_max, molecule, isotopologue=1):
-    """
-    Check whether fetch_hitran_data() can serve this query from either cache
-    directory (an exact-range table, or a wider table that contains it), with no
-    network access. A caller can then offer the local copy before an online refresh.
-
-    Args:
-        wavelength_min, wavelength_max (float): Wavelength range in um
-        molecule (str): Molecule name, per get_available_molecules()
-        isotopologue (int): HITRAN isotopologue number
-
-    Returns:
-        cached (bool): True if a local .data file already covers this query
-    """
-    table_name = compute_hitran_table_name(wavelength_min, wavelength_max, molecule, isotopologue)
-    if table_name is not None and any(
-        os.path.exists(os.path.join(d, f'{table_name}.data')) for d in HITRAN_DIRS
-    ):
-        return True
-    return find_containing_cached_table(wavelength_min, wavelength_max, molecule, isotopologue) is not None
 
 
 # The offline starter pack: molecules and isotopologues bundled in hitran_local/
@@ -684,8 +467,8 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
     iso_entry = ISO.get((M, I))
     iso_name_pretty = format_isotopologue_name(iso_entry[1]) if iso_entry else None
     # Convert wavelength (micron) to wavenumber (1/cm)
-    wavelength_min_val = _extract_wavelength_value(wavelength_min)
-    wavelength_max_val = _extract_wavelength_value(wavelength_max)
+    wavelength_min_val = extract_value_from_quantity(wavelength_min)
+    wavelength_max_val = extract_value_from_quantity(wavelength_max)
     wavenum_min = 1e4 / wavelength_max_val
     wavenum_max = 1e4 / wavelength_min_val
     table_name = compute_hitran_table_name(wavelength_min, wavelength_max, molecule, I)
@@ -843,40 +626,6 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
         # don't report a failed offline/network fetch as if HITRAN had nothing.
         print(f"[ERROR] {str(e)}")
         return [], {'error': True, 'message': str(e)}
-
-def display_results(results):
-    """Formats and prints spectral line data in a clean tabular layout:
-    wavelength, wavenumber, species, transition, A-coefficient, and
-    upper energy level for each line, sorted by wavelength.
-
-    Args:
-        results (list): Line-data dicts to display.
-
-    Returns:
-        None
-    """
-    if not results:
-        print("No entries found.")
-        return
-    
-    print("="*115)
-    print(f"{'MODEL':<10} | {'Wavelength [um]':<19} | {'Wavenumber [cm^-1]':<20} | {'L-species':<10} | {'Transition':<20} | {'A-coeff(1/sec)':<14} | {'E_upper [K]':<12}")
-    print("="*115)
-    
-    # Sort by wavelength for organized output
-    sorted_results = sorted(results, key=lambda x: x['wavelength'])
-    for row in sorted_results:
-        print(
-            f"{row['model']:<10} | "
-            f"{row['wavelength']:>19.9f} | "
-            f"{row['wavenumber']:>20.4f} | "
-            f"{row['species']:<10} | "
-            f"{row['transition']:<20} | "
-            f"{row['a_coeff']:>13.3e} | "
-            f"{row['e_upper']:>11.2f}"
-        )
-    print("="*115)
-    print(f"Total entries: {len(results)}\n")
 
 def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None):
     """

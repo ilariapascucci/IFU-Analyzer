@@ -6,10 +6,9 @@ import numpy as np
 from astropy.convolution import convolve_fft, Gaussian2DKernel
 from astropy.stats import gaussian_sigma_to_fwhm
 from reproject import reproject_exact
-from astropy.io import fits
 
 from .unit_converter import pixel_solid_angle
-from .utils import psf_fwhm_arcsec
+from .utils import psf_fwhm_arcsec, make_2d_wcs
 
 
 def gaussian_convolve_match(images,
@@ -172,70 +171,6 @@ def reproject_flux_maps(images, input_headers, output_header):
     return reprojected_images, footprints
 
 
-def save_reprojected_fits(image, output_header, filename,
-                          overwrite=True,
-                          history=None):
-    """
-    Save a reprojected flux map as a FITS file with the correct WCS header.
-
-    Parameters
-    ----------
-    image : 2D ndarray
-        Reprojected image (e.g., W m^-2 pixel^-1).
-
-    output_header : astropy.io.fits.Header
-        Header defining the final WCS/grid.
-
-    filename : str
-        Output FITS filename.
-
-    overwrite : bool, optional
-        Overwrite existing file.
-
-    history : str or list of str, optional
-        Additional HISTORY entries.
-
-    Returns
-    -------
-    None
-    """
-
-    # Make a copy so the original header is not modified
-    header = output_header.copy()
-
-    # Ensure dimensions match the saved array
-    header["NAXIS"] = 2
-    header["NAXIS1"] = image.shape[1]
-    header["NAXIS2"] = image.shape[0]
-
-    # Add optional provenance
-    header.add_history(
-        "Image PSF-matched and reprojected using reproject_exact."
-    )
-
-    if history is not None:
-        if isinstance(history, str):
-            history = [history]
-
-        for h in history:
-            header.add_history(h)
-
-    # Write FITS
-    hdu = fits.PrimaryHDU(
-        data=np.asarray(image, dtype=float),
-        header=header
-    )
-
-    hdu.writeto(
-        filename,
-        overwrite=overwrite
-    )
-
-
-
-
-from .analyzer_2d import _make_2d_wcs
-
 
 def _require_all_supported(kept_lines, instruments):
     """Raise if any line isn't MIRI or NIRSpec -- Convolve Maps/Run Map have no
@@ -391,7 +326,7 @@ def convolve_reproject_maps(native_result):
     return {
         "kept_lines": kept_lines, "dropped_lines": native_result["dropped_lines"],
         "line_flux_maps": out_flux, "line_flux_error_maps": out_err,
-        "dst_wcs": _make_2d_wcs(ref_header), "dst_shape": ref_shape,
+        "dst_wcs": make_2d_wcs(ref_header), "dst_shape": ref_shape,
         "worst_pix_arcsec": scales[ref_idx],
         "reference_wavelength": ref_wl, "reference_header": ref_header,
         "native_flux_maps": native_result["native_flux_maps"],

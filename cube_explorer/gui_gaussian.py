@@ -9,7 +9,7 @@ from .species_dialog import SpeciesDialog
 from .unit_converter import clean_flux_unit, clean_wave_unit
 from .utils import take_resolution_notes
 from .flux_map_extractor import (
-    fit_auto_continuum, fit_hitran_lines_collective, DISPLAY_CROP_SIGMA_MULTIPLIER,
+    fit_auto_continuum, DISPLAY_CROP_SIGMA_MULTIPLIER,
     AREA_ERROR_SANITY_RATIO, SIGMA_BOUND_LOWER_MULTIPLIER, SIGMA_BOUND_UPPER_MULTIPLIER, gaussian,
 )
 

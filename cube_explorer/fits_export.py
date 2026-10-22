@@ -3,7 +3,7 @@ Shared FITS export helpers: a common 2D header (WCS + descriptive metadata)
 and a common file writer, so every "save this map as FITS" site builds its
 output the same way instead of repeating the same header-building logic.
 
-GUI-free, mirrors analyzer_2d.py's and region_io.py's pattern. Only for 2D
+GUI-free, mirrors region_io.py's pattern. Only for 2D
 derived products (slices, parameter/flux/temperature maps) -- a 3D cube
 export (the region-cube export, the Gaussian residuals cube) needs its full
 original header kept intact, not reduced to a clean 2D WCS, so those stay
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import numpy as np
 from astropy.io import fits
 
-from .analyzer_2d import _make_2d_wcs
+from .utils import make_2d_wcs
 
 # Copied onto every 2D export unmodified. BUNIT is deliberately not here --
 # every export site either keeps the cube's own unit or computes its own
@@ -90,7 +90,7 @@ def build_2d_export_header(source_header, data_shape, extra=None):
         ValueError: if source_header is None or has no sky (RA/Dec) WCS. The 2D viewer
             cannot open a file without one, so the export stops here instead.
     """
-    wcs2d = _make_2d_wcs(source_header) if source_header is not None else None
+    wcs2d = make_2d_wcs(source_header) if source_header is not None else None
     if wcs2d is None or not wcs2d.has_celestial:
         raise ValueError(
             "Cannot write a 2D FITS export: the source header has no sky (RA/Dec) WCS. "

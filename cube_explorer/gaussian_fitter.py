@@ -866,12 +866,6 @@ STATUS_NO_DATA = 0
 STATUS_UPPER_LIMIT = 1
 STATUS_DETECTION = 2
 
-STATUS_LABELS = {
-    STATUS_NO_DATA: "No data",
-    STATUS_UPPER_LIMIT: "Upper limit",
-    STATUS_DETECTION: "Detection",
-}
-
 
 def pixel_fit_status(results: dict, row: int, col: int) -> int:
     """

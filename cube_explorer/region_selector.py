@@ -6,7 +6,6 @@ import numpy as np
 from matplotlib.widgets import RectangleSelector, EllipseSelector, LassoSelector
 from matplotlib.path import Path
 from matplotlib.patches import Rectangle, PathPatch
-from matplotlib.lines import Line2D
 
 
 def mask_from_shape_coords(shape, coords, verts, target_shape):

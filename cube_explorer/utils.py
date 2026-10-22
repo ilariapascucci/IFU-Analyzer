@@ -8,6 +8,8 @@ from pathlib import Path
 import numpy as np
 import astropy.units as u
 from astropy.io import fits
+from astropy.wcs import WCS
+from astropy.wcs.utils import proj_plane_pixel_scales
 from .unit_converter import convert_wavelength
 
 # Resolving-power tables from the JWST docs (Jakobsen et al. 2022), one file per disperser.
@@ -467,3 +469,141 @@ def get_wavelength(header, instrument, cube_shape):
         return {'wavelength': None * u.dimensionless_unscaled, 'unit': ""}
 
 
+# --- 2D WCS and BUNIT helpers ---
+
+def get_pixel_size_arcsec(header):
+    """Return the celestial pixel scale (arcsec/pixel) from a FITS header.
+    Uses proj_plane_pixel_scales so rotated CD/PC matrices (e.g. JWST IFU)
+    are handled correctly; falls back to raw CDELT if the WCS fails.
+
+    Args:
+        header (astropy.io.fits.Header): FITS header to read the WCS from.
+
+    Returns:
+        scale (float): Pixel scale in arcsec/pixel, or None if not found.
+    """
+    try:
+        w = WCS(header)
+        if w.has_celestial:
+            return abs(float(proj_plane_pixel_scales(w.celestial)[0])) * 3600.0
+    except Exception:
+        pass
+    for k in ('CDELT1', 'CD1_1'):
+        if k in header:
+            try:
+                return abs(float(header[k])) * 3600.0
+            except Exception:
+                pass
+    return None
+
+
+def make_2d_wcs(header):
+    """Build a clean 2-D celestial WCS from a header (drops trivial axes).
+
+    Args:
+        header (astropy.io.fits.Header): FITS header to build the WCS from.
+
+    Returns:
+        wcs (astropy.wcs.WCS): The 2D WCS, or None if it could not be built.
+    """
+    try:
+        w = WCS(header)
+        if w.pixel_n_dim > 2 and w.has_celestial:
+            return w.celestial
+        while w.pixel_n_dim > 2:
+            w = w.dropaxis(w.pixel_n_dim - 1)
+        return w
+    except Exception:
+        return None
+
+
+# --- BUNIT helper: per-pixel-flux detection ---
+
+def is_per_pixel_flux_unit(bunit):
+    """Heuristic: does this BUNIT indicate per-pixel total flux (vs SB)?
+    Per-pixel units (erg/s/cm^2, counts, DN, electrons, plain Jy) return True.
+    Surface-brightness units (MJy/sr, Jy/beam) return False.
+
+    Args:
+        bunit (str): FITS BUNIT header value, or None.
+
+    Returns:
+        is_flux (bool): True if bunit looks like a per-pixel flux unit.
+    """
+    if bunit is None:
+        return False
+    s = str(bunit).strip().lower().replace(' ', '')
+    sb_markers = ['/sr', 'sr-1', 'sr^-1',
+                  '/arcsec2', 'arcsec-2', 'arcsec^-2',
+                  '/beam', 'beam-1', 'beam^-1',
+                  '/pix', 'pix-1', 'pix^-1',
+                  '/deg2', 'deg-2']
+    if any(m in s for m in sb_markers):
+        return False
+    per_pix_markers = [
+        'erg/(s*cm2)', 'erg/s/cm2', 'erg.s-1.cm-2', 'ergs-1cm-2',
+        'jy', 'mjy', 'ujy', 'njy',
+        'counts', 'count', 'cts', 'ct',
+        'dn', 'electrons', 'electron', 'e-', 'photons', 'photon',
+        'w/m2', 'wm-2', 'w.m-2',
+    ]
+    return any(s == m or s.endswith(m) for m in per_pix_markers)
+
+
+# --- WCS footprint overlap check ---
+
+def wcs_footprints_overlap(wcs1, shape1, wcs2, shape2):
+    """Return True if the two image footprints share any sky coverage.
+    Projects each image's corners and centre into the other's pixel frame
+    (covers partial overlap, containment, and rotated/thin-strip cases).
+
+    Args:
+        wcs1 (astropy.wcs.WCS): WCS of the first image.
+        shape1 (tuple): (ny, nx) shape of the first image.
+        wcs2 (astropy.wcs.WCS): WCS of the second image.
+        shape2 (tuple): (ny, nx) shape of the second image.
+
+    Returns:
+        overlap (bool): True if any sample point falls inside the other
+            image; also True on any exception, so a WCS that cannot be
+            evaluated never blocks the caller.
+    """
+    try:
+        ny1, nx1 = shape1
+        ny2, nx2 = shape2
+
+        # Sample 5 points per image: 4 corners + centre
+        xs1 = np.array([-0.5, nx1 - 0.5, nx1 - 0.5, -0.5, (nx1 - 1) / 2.0])
+        ys1 = np.array([-0.5, -0.5,      ny1 - 0.5, ny1 - 0.5, (ny1 - 1) / 2.0])
+        xs2 = np.array([-0.5, nx2 - 0.5, nx2 - 0.5, -0.5, (nx2 - 1) / 2.0])
+        ys2 = np.array([-0.5, -0.5,      ny2 - 0.5, ny2 - 0.5, (ny2 - 1) / 2.0])
+
+        # Project image-1 points into image-2 pixel space
+        sky1 = wcs1.pixel_to_world(xs1, ys1)
+        px_1in2, py_1in2 = wcs2.world_to_pixel(sky1)
+        px_1in2 = np.asarray(px_1in2, dtype=float)
+        py_1in2 = np.asarray(py_1in2, dtype=float)
+        if np.any(
+            np.isfinite(px_1in2) & np.isfinite(py_1in2)
+            & (px_1in2 >= -0.5) & (px_1in2 <= nx2 - 0.5)
+            & (py_1in2 >= -0.5) & (py_1in2 <= ny2 - 0.5)
+        ):
+            return True
+
+        # Project image-2 points into image-1 pixel space
+        sky2 = wcs2.pixel_to_world(xs2, ys2)
+        px_2in1, py_2in1 = wcs1.world_to_pixel(sky2)
+        px_2in1 = np.asarray(px_2in1, dtype=float)
+        py_2in1 = np.asarray(py_2in1, dtype=float)
+        if np.any(
+            np.isfinite(px_2in1) & np.isfinite(py_2in1)
+            & (px_2in1 >= -0.5) & (px_2in1 <= nx1 - 0.5)
+            & (py_2in1 >= -0.5) & (py_2in1 <= ny1 - 0.5)
+        ):
+            return True
+
+        return False
+    except Exception:
+        # Cannot evaluate the WCS: assume overlap so a degenerate header
+        # never blocks the caller; a real non-overlap yields all-NaN output.
+        return True

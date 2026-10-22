@@ -2,7 +2,7 @@
 GUI-free pixel<->sky conversion for region shapes, with a small text-file
 format to save and load them. Lets a region drawn on one cube be placed on
 a different cube, at the same sky position, instead of being re-measured
-by eye. Mirrors analyzer_2d.py's small PyQt5-free helper-module pattern.
+by eye.
 """
 
 import numpy as np

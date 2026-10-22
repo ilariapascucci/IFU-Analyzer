@@ -30,9 +30,6 @@ erg2ev = 6.24150647996e11  # erg -> eV
 clight = 2.99792458e10  # cm/s
 hplanck_eV = 4.135667696e-15  # eV*s
 hplanck = hplanck_eV / erg2ev  # erg*s
-pmass = 1.6726219e-24  # g
-Msun = 1.989e33  # g
-au = 1.496e13  # cm
 pc = 3.086e18  # cm
 
 _PYMC_RANDOM_SEED = 42  # PyMC random seed for deterministic approach
@@ -54,7 +51,7 @@ HITRAN DATA
 wave = {}  # micron
 Aul = {}  # s^-1
 Eu = {}  # K
-#gu = {}  # unitless
+gu = {}  # unitless
 
 
 
@@ -543,117 +540,17 @@ def upper_limit_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None, 
 ROTATIONAL DIAGRAM
 '''
 
-def partitionH2(T, OPR='equilibrium'):
+def require_fit_selected(fit1T, fit2T):
     """
-    H2 partition function, Popovas & Jorgensen (2016). Unused (Q_Herbst is the
-    active H2 partition function) -- kept for reference alongside Q_total below.
-    https://ui.adsabs.harvard.edu/abs/2016A%26A...595A.130P/abstract
+    Stop early when the caller selected no fit.
+    Both rotational_diagram functions call this before they do any work.
 
     Args:
-        T (float or array): Temperature in K
-        OPR (str): 'normal', 'equilibrium', 'ortho', or 'para'
+        fit1T (bool): True to report the 1T fit
+        fit2T (bool): True to perform the 2T fit
 
     Returns:
-        Q, loQ, miQ, hiQ (tuple): Combined Q(T) and its three piecewise polynomial terms
-
-    Raises:
-        NotImplementedError: if OPR isn't one of the four recognized options
-    """
-    T = np.maximum(T,10)
-    # Adjusted from ranges given in paper (which overlap) to minimise jump
-    loT = (T>=10)*(T<=237.5)
-    miT = (T>=237.5)*(T<=1100)
-    hiT = (T>=1100)*(T<=20000)
-    extrapolate = (T>=20000)
-    if OPR=='normal':
-        loQ =  2.277668085144430     +  3.115475456535298e-04*T + -1.199204285095701e-05*T**2 +  1.348313176588763e-07*T**3 + -2.493525433376579e-10*T**4
-        miQ =  1.919800108599199     +  1.746213811668277e-03*T +  7.693197369847348e-06*T**2 + -6.504303232753276e-09*T**3 +  2.132168610356154e-12*T**4
-        hiQ = -1.142827289681385e-01 +  7.245357485089481e-03*T + -6.404547049175155e-07*T**2 +  3.110974834335349e-10*T**3 + -1.642844436813594e-14*T**4 + 2.790315674249059e-19*T**5
-    elif OPR=='equilibrium':
-        loQ =  2.673071615415136e-01 + -3.495586051757211e-03*T +  1.227901619954258e-04*T**2 + -5.776440695273789e-07*T**3 +  9.251224490175610e-10*T**4
-        miQ =  1.410033600294133e-01 +  6.085738724141971e-03*T + -4.096994909866605e-07*T**2 +  4.220221708082499e-10*T**3 + -8.790594164685680e-14*T**4
-        hiQ = -9.661842638994980e-01 +  7.302127874247883e-03*T + -6.760893004505151e-07*T**2 +  3.128741080316710e-10*T**3 + -1.645206030945910e-14*T**4 + 2.788597060472472e-19*T**5
-    elif OPR=='ortho':
-        loQ =  2.996425936476927     +  3.807856081411796e-04*T + -8.659737634951350e-06*T**2 +  5.779158662343921e-08*T**3 + -5.407749218414769e-11*T**4
-        miQ =  2.891845114721733     + -1.243647561012797e-03*T +  1.312997140340565e-05*T**2 + -1.105110818469195e-08*T**3 +  3.562652399419052e-12*T**4
-        hiQ =  2.231696541394133e-01 +  7.190413006059544e-03*T + -6.192076726407582e-07*T**2 +  3.096074912455146e-10*T**3 + -1.640036910200170e-14*T**4 + 2.790310846593324e-19*T**5
-    elif OPR=='para':
-        loQ =  9.994339093261912e-01 +  3.135419941617079e-04*T + -1.599408560500201e-05*T**2 +  2.032015813340736e-07*T**3 + -4.090066248229891e-10*T**4
-        miQ =  3.312881928317837e-01 +  4.871438707876421e-03*T +  2.339907793941012e-06*T**2 + -2.214128676054798e-09*T**3 +  8.210809799374644e-13*T**4
-        hiQ = -1.019053774741465e+00 +  7.360074236377774e-03*T + -6.935790834485644e-07*T**2 +  3.145274660505019e-10*T**3 + -1.646581413255403e-14*T**4 + 2.782419680521890e-19*T**5
-    else:
-        raise NotImplementedError("Option not recognised")
-    return loQ*loT+miQ*miT+hiQ*hiT+hiQ*extrapolate, loQ, miQ, hiQ
-
-
-def Q_total(T, OPR=3.0):
-    """
-    H2 partition function combining ortho/para components, weighted by OPR.
-    Unused (partition_function/Q_Herbst are the active ones) -- kept for reference.
-
-    Args:
-        T (float or array): Temperature in K
-        OPR (float): Ortho-para ratio weight
-
-    Returns:
-        Q (float or array): f_para*Q_para + OPR*Q_ortho
-    """
-    Q_ortho, _, _, _ = partitionH2(T, OPR='ortho')
-    Q_para, _, _, _ = partitionH2(T, OPR='para')
-
-    f_ortho = OPR
-    f_para = 1.0
-
-    return f_para * Q_para + f_ortho * Q_ortho
-
-
-def Q_total_err(T, dT, OPR, dOPR=0.0):
-    """
-    Uncertainty on Q_total propagated from dT and dOPR, via finite differences.
-    Unused (Q_total is unused) -- kept for reference.
-
-    Args:
-        T (float): Temperature in K
-        dT (float): Uncertainty on T
-        OPR (float): Ortho-para ratio
-        dOPR (float): Uncertainty on OPR
-
-    Returns:
-        dQ (float): Propagated uncertainty on Q_total(T, OPR)
-    """
-    eps_T = max(0.1, abs(T) * 1e-5)
-    dQ_dT = (Q_total(T + eps_T, OPR) - Q_total(T - eps_T, OPR)) / (2 * eps_T)
-
-    if dOPR > 0:
-        eps_OPR = max(1e-5, abs(OPR) * 1e-5)
-        dQ_dOPR = (Q_total(T, OPR + eps_OPR) - Q_total(T, OPR - eps_OPR)) / (2 * eps_OPR)
-    else:
-        dQ_dOPR = 0.0
-
-    return np.sqrt((dQ_dT * dT)**2 + (dQ_dOPR * dOPR)**2)
-
-
-def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit1T=True, fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None):
-    """
-    Fit an H2 rotational diagram (1T and/or 2T) to a set of line fluxes.
-
-    Args:
-        fluxes (dict): {J: flux_value}, J is the upper rotational level
-        flux_errors (dict): {J: flux_error}
-        molecular_data (dict): 'wavelengths', 'Aul', 'Eu', 'gu' keys, each {J: value}
-        OPR (float): Fixed ortho-para ratio. None defaults to 3.0
-        fit_opr (bool): Grid-search OPR to minimize chi-squared
-        opr_grid (array): OPR values to search. Defaults to np.linspace(0.1, 5.0, 200)
-        fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
-        fit2T (bool): Perform the 2T fit
-        R (float): Emitting radius (AU or cm)
-        dist (float): Distance (pc or cm)
-        upper_limits (dict): {J: True} for measurements marked as upper limits
-        progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
-
-    Returns:
-        results (dict): Fit results, always including "OPR"/"OPR_err"/"OPR_err_pos"/"OPR_err_neg"
+        None
 
     Raises:
         ValueError: if neither fit1T nor fit2T is True
@@ -661,246 +558,221 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
     if not fit1T and not fit2T:
         raise ValueError("At least one of fit1T/fit2T must be True -- nothing to fit.")
 
-    t_cap = T_CAP
 
-    global wave, Aul, Eu, gu
+def build_excitation_dataset(fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist,
+                             nu_correction=None):
+    """
+    Compute excitation diagram arrays from line fluxes.
+    An optional correction is applied to each upper-level population, for example
+    the H2 ortho-para ratio.
 
-    if molecular_data is not None:
-        wave = molecular_data.get('wavelengths', {})
-        Aul = molecular_data.get('Aul', {})
-        Eu = molecular_data.get('Eu', {})
-        gu = molecular_data.get('gu', {})
+    Args:
+        fluxes (dict): {J: flux_value}, J is the upper rotational level
+        flux_errors (dict): {J: flux_error}
+        wave (dict): {J: wavelength in micron}
+        Aul (dict): {J: Einstein A coefficient in s^-1}
+        Eu (dict): {J: upper-level energy in K}
+        gu (dict): {J: upper-level degeneracy}
+        upper_limits (dict): {J: True} for upper limits, or None
+        R (float): Emitting radius (AU or cm)
+        dist (float): Distance (pc or cm)
+        nu_correction (callable): (Nu, J) -> corrected Nu, or None for no correction
 
-    # Build dataset for a given trial OPR
-    def _build_dataset(opr_value):
-        """
-        Compute excitation diagram arrays for a given OPR.
+    Returns:
+        E, y, y_err, is_ul, dropped, wave_arr (tuple): Arrays (E in K, y=log(Nu/gu)),
+            the list of J values dropped for missing error data, and the wavelength
+            (micron) of each kept point
+    """
+    E_list, y_list, y_err_list, is_ul_list, wave_list = [], [], [], [], []
+    dropped = []  # J values excluded (detections with no error data)
 
-        Args:
-            opr_value (float): Ortho-para ratio to apply
+    for J in sorted(fluxes.keys(), key=lambda j: wave.get(j, float('inf'))):
+        if J not in wave:
+            continue
 
-        Returns:
-            E, y, y_err, is_ul, dropped, wave_arr (tuple): Arrays (E in K, y=log(Nu/gu)),
-                the list of J values dropped for missing error data, and the wavelength
-                (micron) of each kept point
-        """
-        E_list, y_list, y_err_list, is_ul_list, wave_list = [], [], [], [], []
-        dropped = []  # J values excluded (detections with no error data)
+        F = fluxes[J]
+        Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
+        if nu_correction is not None:
+            Nu = nu_correction(Nu, J)
+        y = np.log(Nu / gu[J])
 
-        for J in sorted(fluxes.keys(), key=lambda j: wave.get(j, float('inf'))):
-            if J not in wave:
-                continue
+        is_ul = upper_limits is not None and J in upper_limits
 
-            F = fluxes[J]
-            Nu_no_opr = compute_Nu(F, wave[J], Aul[J], R, dist)
-            Nu = apply_OPR(Nu_no_opr, J, opr_value)
-            y = np.log(Nu / gu[J])
+        # Skip detections without error data - no defaults allowed
+        if (not is_ul) and (J not in flux_errors):
+            print(f"J={J}: skipping (detection without error data)")
+            dropped.append(J)
+            continue
 
-            is_ul = upper_limits is not None and J in upper_limits
+        E_list.append(Eu[J])
+        y_list.append(y)
+        is_ul_list.append(is_ul)
+        wave_list.append(wave[J])
 
-            # Skip detections without error data - no defaults allowed
-            if (not is_ul) and (J not in flux_errors):
-                print(f"J={J}: skipping (detection without error data)")
-                dropped.append(J)
-                continue
+        # Same dF/F propagation for detections and upper limits; an upper limit's own
+        # error isn't used by the barrier fit, kept for display. Falls back to 0.0 if missing.
+        if J in flux_errors:
+            dF = flux_errors[J]
+            dNu = Nu * (dF / F)
+            y_err = dNu / Nu
+            y_err_list.append(y_err)
+        else:
+            y_err_list.append(0.0)
 
-            E_list.append(Eu[J])
-            y_list.append(y)
-            is_ul_list.append(is_ul)
-            wave_list.append(wave[J])
+    return (np.array(E_list),
+            np.array(y_list),
+            np.array(y_err_list),
+            np.array(is_ul_list, dtype=bool),
+            dropped,
+            np.array(wave_list))
 
-            # Same dF/F propagation for detections and upper limits; an upper limit's own
-            # error isn't used by the barrier fit, kept for display. Falls back to 0.0 if missing.
-            if J in flux_errors:
-                dF = flux_errors[J]
-                dNu = Nu * (dF / F)
-                y_err = dNu / Nu
-                y_err_list.append(y_err)
-            else:
-                y_err_list.append(0.0)
 
-        return (np.array(E_list),
-                np.array(y_list),
-                np.array(y_err_list),
-                np.array(is_ul_list, dtype=bool),
-                dropped,
-                np.array(wave_list))
+# Bounded curve_fit helpers, used for the OPR grid search and the final
+# fit whenever PyMC/upper-limit handling isn't required.
+def _bounds_1T(y_arr, t_cap):
+    """
+    Bounds for the single-temperature model.
 
-    # Bounded curve_fit helpers, used for the OPR grid search and the final
-    # fit whenever PyMC/upper-limit handling isn't required.
-    def _bounds_1T(y_arr):
-        """
-        Bounds for the single-temperature model.
+    Args:
+        y_arr (array): y values (log(Nu/gu)) in the current dataset
+        t_cap (float): Upper bound on the temperature in K
 
-        Args:
-            y_arr (array): y values (log(Nu/gu)) in the current dataset
+    Returns:
+        bounds (tuple): (lower, upper) bound lists for curve_fit
+    """
+    return ([np.min(y_arr), 10],
+            [np.max(y_arr) + 10, t_cap])
 
-        Returns:
-            bounds (tuple): (lower, upper) bound lists for curve_fit
-        """
-        return ([np.min(y_arr), 10],
-                [np.max(y_arr) + 10, t_cap])
 
-    def _bounds_2T(y_arr):
-        """
-        Bounds for the two-temperature model.
+def _bounds_2T(y_arr, t_cap):
+    """
+    Bounds for the two-temperature model.
 
-        Args:
-            y_arr (array): y values (log(Nu/gu)) in the current dataset
+    Args:
+        y_arr (array): y values (log(Nu/gu)) in the current dataset
+        t_cap (float): Upper bound on the temperatures in K
 
-        Returns:
-            bounds (tuple): (lower, upper) bound lists for curve_fit
-        """
-        lo = np.min(y_arr)
-        hi = np.max(y_arr) + 10
-        return ([lo, 10, lo, 10],
-                [hi, t_cap, hi, t_cap])
+    Returns:
+        bounds (tuple): (lower, upper) bound lists for curve_fit
+    """
+    lo = np.min(y_arr)
+    hi = np.max(y_arr) + 10
+    return ([lo, 10, lo, 10],
+            [hi, t_cap, hi, t_cap])
 
-    def _fit_1T_curvefit(E, y, y_err):
-        """
-        Perform a single-temperature fit.
 
-        Args:
-            E, y, y_err (array): Rotational-diagram data
+def _fit_1T_curvefit(E, y, y_err, t_cap):
+    """
+    Perform a single-temperature fit.
 
-        Returns:
-            popt, pcov (tuple): curve_fit's best-fit params and covariance
-        """
-        sigma = y_err if np.any(y_err > 0) else None  # prevent all zeros array
-        p0 = [np.max(y), 500]
-        bounds = _bounds_1T(y)
+    Args:
+        E, y, y_err (array): Rotational-diagram data
+        t_cap (float): Upper bound on the temperature in K
 
-        popt, pcov = curve_fit(
-            model_1T,
-            E,
-            y,
-            sigma=sigma,
-            absolute_sigma=True,
-            p0=p0,
-            bounds=bounds
-        )
-        return popt, pcov
+    Returns:
+        popt, pcov (tuple): curve_fit's best-fit params and covariance
+    """
+    sigma = y_err if np.any(y_err > 0) else None  # prevent all zeros array
+    p0 = [np.max(y), 500]
+    bounds = _bounds_1T(y, t_cap)
 
-    def _fit_2T_curvefit(E, y, y_err, a_seed, T_seed):
-        """
-        Perform a two-temperature fit seeded from a 1T solution.
+    popt, pcov = curve_fit(
+        model_1T,
+        E,
+        y,
+        sigma=sigma,
+        absolute_sigma=True,
+        p0=p0,
+        bounds=bounds
+    )
+    return popt, pcov
 
-        Args:
-            E, y, y_err (array): Rotational-diagram data
-            a_seed, T_seed (float): 1T fit result, seeds component 1
 
-        Returns:
-            popt, pcov (tuple): curve_fit's best-fit params and covariance
-        """
-        sigma = y_err if np.any(y_err > 0) else None
-        bounds = _bounds_2T(y)
-        p0 = [a_seed, T_seed, a_seed - 5, T_seed * 2]
-        # a_seed-5/T_seed*2 can exceed bounds when the 1T seed pins at t_cap;
-        # clip only the starting point, not the fitted result.
-        p0 = np.clip(p0, bounds[0], bounds[1])
+def _fit_2T_curvefit(E, y, y_err, a_seed, T_seed, t_cap):
+    """
+    Perform a two-temperature fit seeded from a 1T solution.
 
-        popt, pcov = curve_fit(
-            model_2T,
-            E,
-            y,
-            sigma=sigma,
-            absolute_sigma=True,
-            p0=p0,
-            bounds=bounds,
-            maxfev=10000
-        )
-        return popt, pcov
+    Args:
+        E, y, y_err (array): Rotational-diagram data
+        a_seed, T_seed (float): 1T fit result, seeds component 1
+        t_cap (float): Upper bound on the temperatures in K
 
-    def _compute_chi2(E_arr, y_arr, y_err, is_ul_mask, use_2T):
-        """
-        Chi-squared for a quick fit (1T or 2T) on detections only -- upper limits
-        are reintroduced later via the PyMC barrier path, not here.
+    Returns:
+        popt, pcov (tuple): curve_fit's best-fit params and covariance
+    """
+    sigma = y_err if np.any(y_err > 0) else None
+    bounds = _bounds_2T(y, t_cap)
+    p0 = [a_seed, T_seed, a_seed - 5, T_seed * 2]
+    # a_seed-5/T_seed*2 can exceed bounds when the 1T seed pins at t_cap;
+    # clip only the starting point, not the fitted result.
+    p0 = np.clip(p0, bounds[0], bounds[1])
 
-        Args:
-            E_arr, y_arr, y_err (array): Rotational-diagram data
-            is_ul_mask (array): True where the point is an upper limit
-            use_2T (bool): Fit the two-temperature model instead of one
+    popt, pcov = curve_fit(
+        model_2T,
+        E,
+        y,
+        sigma=sigma,
+        absolute_sigma=True,
+        p0=p0,
+        bounds=bounds,
+        maxfev=10000
+    )
+    return popt, pcov
 
-        Returns:
-            chi2 (float): Sum of squared normalized residuals, or inf if underdetermined
-        """
-        keep = ~is_ul_mask  # only consider non-upper limits here
-        E_d, y_d, y_err_d = E_arr[keep], y_arr[keep], y_err[keep]
 
-        n_params = 4 if use_2T else 2
-        if len(E_d) <= n_params:
-            # Not enough detections to constrain the model at this grid point -
-            # avoid a degenerate zero-residual "perfect fit" from winning the search.
-            return np.inf
+def _derive_column(a, da, T, dT, Q_fn, Q_err_fn):
+    """
+    Convert log-intercept to total column density with uncertainty.
 
-        try:
-            popt_1t, _ = _fit_1T_curvefit(E_d, y_d, y_err_d)
-            if use_2T:
-                popt, _ = _fit_2T_curvefit(E_d, y_d, y_err_d, popt_1t[0], popt_1t[1])
-                model_vals = model_2T(E_d, *popt)
-            else:
-                model_vals = model_1T(E_d, *popt_1t)
-        except Exception:
-            return np.inf
+    Args:
+        a, da (float): log(Ncol) intercept and its uncertainty
+        T, dT (float): Temperature (K) and its uncertainty
+        Q_fn (callable): T -> partition function Q(T)
+        Q_err_fn (callable): (T, dT) -> uncertainty on Q(T)
 
-        residuals = (y_d - model_vals) / np.maximum(y_err_d, 1e-10)
-        return np.sum(residuals**2)
+    Returns:
+        Ntot, dNtot (tuple): Total column density and its uncertainty
+    """
+    Ncol = np.exp(a)
+    dNcol = Ncol * da
+    Q = Q_fn(T)
+    Ntot = Ncol * Q
+    dNtot = Ntot * np.sqrt(
+        (dNcol / Ncol) ** 2
+        + (Q_err_fn(T, dT) / Q) ** 2)
+    return Ntot, dNtot
 
-    def _derive_column(a, da, T, dT):
-        """
-        Convert log-intercept to total column density with uncertainty.
 
-        Args:
-            a, da (float): log(Ncol) intercept and its uncertainty
-            T, dT (float): Temperature (K) and its uncertainty
+def fit_excitation_diagram(E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr, R,
+                           fit1T, fit2T, Q_fn, Q_err_fn, progress_callback=None, t_cap=T_CAP,
+                           results_prefix=None, plot_extra=None):
+    """
+    Fit a built excitation diagram with the 1T and 2T models.
+    This is the shared engine for every molecule. Only the partition function changes.
+    Upper limits send the fit to PyMC. Without them, curve_fit is used.
 
-        Returns:
-            Ntot, dNtot (tuple): Total column density and its uncertainty
-        """
-        Ncol = np.exp(a)
-        dNcol = Ncol * da
-        Ntot = Ncol * Q_Herbst(T)
-        dNtot = Ntot * np.sqrt(
-            (dNcol / Ncol) ** 2
-            + (Q_Herbst_err(T, dT) / Q_Herbst(T)) ** 2)
-        return Ntot, dNtot
+    Args:
+        E_arr, y_arr, y_err (array): Excitation diagram from build_excitation_dataset
+        is_ul_mask (array): True where the point is an upper limit
+        dropped_detections (list): J values dropped for missing error data
+        wave_arr (array): Wavelength (micron) of each point
+        R (float): Emitting radius, or None. Only sets the has_R flag in the plot data
+        fit1T (bool): True to report the 1T fit (it always runs as the 2T seed)
+        fit2T (bool): True to perform the 2T fit
+        Q_fn (callable): T -> partition function Q(T)
+        Q_err_fn (callable): (T, dT) -> uncertainty on Q(T)
+        progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
+        t_cap (float): Upper bound on the temperatures in K
+        results_prefix (dict): Entries to put first in the results, or None
+        plot_extra (dict): Entries to add to the results' "_plot_data", or None
 
-    # OPR grid search (fast, detections-only, curve_fit)
-    best_opr = OPR if OPR is not None else 3.0
-    best_opr_err = None
-    best_opr_err_pos = None
-    best_opr_err_neg = None
-    opr_search_data = None
+    Returns:
+        results (dict): Fit results ("1T" and/or "2T" keys, plus "_plot_data")
 
-    if fit_opr:
-        if opr_grid is None:
-            opr_grid = np.linspace(0.1, 5.0, 200)
-
-        chi2_list = []
-        for opr_try in opr_grid:
-            # consider upper limit as 4th param
-            E_try, y_try, y_err_try, ul_try, _, _ = _build_dataset(opr_try)
-            chi2_list.append(_compute_chi2(E_try, y_try, y_err_try, ul_try, use_2T=fit2T))
-
-        chi2_arr = np.array(chi2_list)
-
-        best_idx = np.argmin(chi2_arr)
-        best_opr = opr_grid[best_idx]
-        err_opr_pos = opr_grid[np.where(chi2_arr < chi2_arr[best_idx] + 1)[0][-1]] - best_opr
-        err_opr_neg = best_opr - opr_grid[np.where(chi2_arr < chi2_arr[best_idx] + 1)[0][0]]
-        best_opr_err = 0.5 * (err_opr_pos + err_opr_neg)
-        best_opr_err_pos = err_opr_pos
-        best_opr_err_neg = err_opr_neg
-
-        print("\n--- OPR FIT (curve_fit grid search, detections only) ---")
-        print(f"Best-fit OPR = {best_opr:.3f}")
-        print(f"OPR 1-sigma error: -{err_opr_neg:.4f} / +{err_opr_pos:.4f} (symm ~= {best_opr_err:.4f})")
-
-        opr_search_data = {"opr_grid": opr_grid, "chi2_list": chi2_arr}
-
-    # Build final dataset at best_opr (full data, including upper limits)
-    E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr = _build_dataset(best_opr)
-
+    Raises:
+        ValueError: if there are fewer than 2 points, a detection has a zero error,
+            or the upper limits leave fewer than 2 detections
+    """
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 points")
 
@@ -936,7 +808,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         print("\n--- 1T FIT (curve_fit) ---")
 
-        popt1, pcov1 = _fit_1T_curvefit(E_arr, y_arr, y_err)
+        popt1, pcov1 = _fit_1T_curvefit(E_arr, y_arr, y_err, t_cap)
 
         a1, T1 = popt1
         da1, dT1 = np.sqrt(np.diag(pcov1))
@@ -955,18 +827,14 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         da1, dT1 = result["da"], result["dT"]
         pymc_diag_1T = {"n_divergences": result["n_divergences"], "max_r_hat": result["max_r_hat"]}
 
-    results = {"OPR": best_opr}
-    if best_opr_err is not None:
-        results["OPR_err"] = best_opr_err
-        results["OPR_err_pos"] = best_opr_err_pos
-        results["OPR_err_neg"] = best_opr_err_neg
+    results = dict(results_prefix) if results_prefix else {}
 
     if dropped_detections:
         results["dropped_J"] = dropped_detections
 
     if fit1T:
         # Derived quantities
-        Ntot1, dNtot1 = _derive_column(a1, da1, T1, dT1)
+        Ntot1, dNtot1 = _derive_column(a1, da1, T1, dT1, Q_fn, Q_err_fn)
 
         # chi2 uses detections only - upper limits have no meaningful sigma to weight by
         # (y_err=0 is just a placeholder for them, not a real 1e-10 uncertainty)
@@ -993,7 +861,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
             print("\n--- 2T FIT (curve_fit) ---")
 
-            popt2, pcov2 = _fit_2T_curvefit(E_arr, y_arr, y_err, a1, T1)
+            popt2, pcov2 = _fit_2T_curvefit(E_arr, y_arr, y_err, a1, T1, t_cap)
 
             a1_2, T1_2, a2_2, T2_2 = popt2
             errs = np.sqrt(np.diag(pcov2))
@@ -1027,8 +895,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
 
         da1_2, dT1_2, da2_2, dT2_2 = errs
 
-        N1_tot, dN1_tot = _derive_column(a1_2, da1_2, T1_2, dT1_2)
-        N2_tot, dN2_tot = _derive_column(a2_2, da2_2, T2_2, dT2_2)
+        N1_tot, dN1_tot = _derive_column(a1_2, da1_2, T1_2, dT1_2, Q_fn, Q_err_fn)
+        N2_tot, dN2_tot = _derive_column(a2_2, da2_2, T2_2, dT2_2, Q_fn, Q_err_fn)
 
         # chi2 uses detections only, same reasoning as the 1T fit above
         y_model2 = model_2T(E_arr[det_mask], a1_2, T1_2, a2_2, T2_2)
@@ -1073,8 +941,150 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "popt2": None,
         }
 
-    if opr_search_data is not None:
-        results["_plot_data"]["opr_grid"] = opr_search_data["opr_grid"]
-        results["_plot_data"]["chi2_list"] = opr_search_data["chi2_list"]
+    if plot_extra:
+        results["_plot_data"].update(plot_extra)
 
     return results
+
+
+def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
+                        fit1T=True, fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None):
+    """
+    Fit an H2 rotational diagram (1T and/or 2T) to a set of line fluxes.
+
+    Args:
+        fluxes (dict): {J: flux_value}, J is the upper rotational level
+        flux_errors (dict): {J: flux_error}
+        molecular_data (dict): 'wavelengths', 'Aul', 'Eu', 'gu' keys, each {J: value}
+        OPR (float): Fixed ortho-para ratio. None defaults to 3.0
+        fit_opr (bool): Grid-search OPR to minimize chi-squared
+        opr_grid (array): OPR values to search. Defaults to np.linspace(0.1, 5.0, 200)
+        fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
+        fit2T (bool): Perform the 2T fit
+        R (float): Emitting radius (AU or cm)
+        dist (float): Distance (pc or cm)
+        upper_limits (dict): {J: True} for measurements marked as upper limits
+        progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
+
+    Returns:
+        results (dict): Fit results, always including "OPR"/"OPR_err"/"OPR_err_pos"/"OPR_err_neg"
+
+    Raises:
+        ValueError: if neither fit1T nor fit2T is True
+    """
+    require_fit_selected(fit1T, fit2T)
+
+    global wave, Aul, Eu, gu
+
+    if molecular_data is not None:
+        wave = molecular_data.get('wavelengths', {})
+        Aul = molecular_data.get('Aul', {})
+        Eu = molecular_data.get('Eu', {})
+        gu = molecular_data.get('gu', {})
+
+    # Build dataset for a given trial OPR
+    def _build_dataset(opr_value):
+        """
+        Compute excitation diagram arrays for a given OPR.
+
+        Args:
+            opr_value (float): Ortho-para ratio to apply
+
+        Returns:
+            E, y, y_err, is_ul, dropped, wave_arr (tuple): Arrays (E in K, y=log(Nu/gu)),
+                the list of J values dropped for missing error data, and the wavelength
+                (micron) of each kept point
+        """
+        return build_excitation_dataset(
+            fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist,
+            nu_correction=lambda Nu, J: apply_OPR(Nu, J, opr_value),
+        )
+
+    def _compute_chi2(E_arr, y_arr, y_err, is_ul_mask, use_2T):
+        """
+        Chi-squared for a quick fit (1T or 2T) on detections only -- upper limits
+        are reintroduced later via the PyMC barrier path, not here.
+
+        Args:
+            E_arr, y_arr, y_err (array): Rotational-diagram data
+            is_ul_mask (array): True where the point is an upper limit
+            use_2T (bool): Fit the two-temperature model instead of one
+
+        Returns:
+            chi2 (float): Sum of squared normalized residuals, or inf if underdetermined
+        """
+        keep = ~is_ul_mask  # only consider non-upper limits here
+        E_d, y_d, y_err_d = E_arr[keep], y_arr[keep], y_err[keep]
+
+        n_params = 4 if use_2T else 2
+        if len(E_d) <= n_params:
+            # Not enough detections to constrain the model at this grid point -
+            # avoid a degenerate zero-residual "perfect fit" from winning the search.
+            return np.inf
+
+        try:
+            popt_1t, _ = _fit_1T_curvefit(E_d, y_d, y_err_d, T_CAP)
+            if use_2T:
+                popt, _ = _fit_2T_curvefit(E_d, y_d, y_err_d, popt_1t[0], popt_1t[1], T_CAP)
+                model_vals = model_2T(E_d, *popt)
+            else:
+                model_vals = model_1T(E_d, *popt_1t)
+        except Exception:
+            return np.inf
+
+        residuals = (y_d - model_vals) / np.maximum(y_err_d, 1e-10)
+        return np.sum(residuals**2)
+
+    # OPR grid search (fast, detections-only, curve_fit)
+    best_opr = OPR if OPR is not None else 3.0
+    best_opr_err = None
+    best_opr_err_pos = None
+    best_opr_err_neg = None
+    opr_search_data = None
+
+    if fit_opr:
+        if opr_grid is None:
+            opr_grid = np.linspace(0.1, 5.0, 200)
+
+        chi2_list = []
+        for opr_try in opr_grid:
+            # consider upper limit as 4th param
+            E_try, y_try, y_err_try, ul_try, _, _ = _build_dataset(opr_try)
+            chi2_list.append(_compute_chi2(E_try, y_try, y_err_try, ul_try, use_2T=fit2T))
+
+        chi2_arr = np.array(chi2_list)
+
+        best_idx = np.argmin(chi2_arr)
+        best_opr = opr_grid[best_idx]
+        err_opr_pos = opr_grid[np.where(chi2_arr < chi2_arr[best_idx] + 1)[0][-1]] - best_opr
+        err_opr_neg = best_opr - opr_grid[np.where(chi2_arr < chi2_arr[best_idx] + 1)[0][0]]
+        best_opr_err = 0.5 * (err_opr_pos + err_opr_neg)
+        best_opr_err_pos = err_opr_pos
+        best_opr_err_neg = err_opr_neg
+
+        print("\n--- OPR FIT (curve_fit grid search, detections only) ---")
+        print(f"Best-fit OPR = {best_opr:.3f}")
+        print(f"OPR 1-sigma error: -{err_opr_neg:.4f} / +{err_opr_pos:.4f} (symm ~= {best_opr_err:.4f})")
+
+        opr_search_data = {"opr_grid": opr_grid, "chi2_list": chi2_arr}
+
+    # Build final dataset at best_opr (full data, including upper limits)
+    E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr = _build_dataset(best_opr)
+
+    results_prefix = {"OPR": best_opr}
+    if best_opr_err is not None:
+        results_prefix["OPR_err"] = best_opr_err
+        results_prefix["OPR_err_pos"] = best_opr_err_pos
+        results_prefix["OPR_err_neg"] = best_opr_err_neg
+
+    plot_extra = None
+    if opr_search_data is not None:
+        plot_extra = {"opr_grid": opr_search_data["opr_grid"],
+                      "chi2_list": opr_search_data["chi2_list"]}
+
+    return fit_excitation_diagram(
+        E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr, R, fit1T, fit2T,
+        Q_Herbst, Q_Herbst_err,
+        progress_callback=progress_callback, t_cap=T_CAP,
+        results_prefix=results_prefix, plot_extra=plot_extra,
+    )

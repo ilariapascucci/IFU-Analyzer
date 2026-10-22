@@ -11,7 +11,7 @@ shows is exactly what the maps contain.
 """
 
 import numpy as np
-from astropy.units import Quantity
+from .unit_converter import extract_value_from_quantity
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget
@@ -28,20 +28,6 @@ from .gaussian_fitter import (
 # How much spectrum to show on either side of the fit window, as a fraction of the
 # window width. Enough context to judge whether the endpoint baseline is sensible.
 CONTEXT_PAD_FRACTION = 1.5
-
-
-def _extract_wavelength_value(wavelength):
-    """Extract numeric value from wavelength Quantity or return raw value.
-
-    Args:
-        wavelength (Quantity or ndarray): Wavelength array, with or without units.
-
-    Returns:
-        value (ndarray): Plain numeric wavelength array.
-    """
-    if isinstance(wavelength, Quantity):
-        return wavelength.value
-    return wavelength
 
 
 class PixelFitDialog(QDialog):
@@ -99,7 +85,7 @@ class PixelFitDialog(QDialog):
         self.lam_min = min(lam_min, lam_max)
         self.lam_max = max(lam_min, lam_max)
 
-        self.wavelength = _extract_wavelength_value(wavelength)
+        self.wavelength = extract_value_from_quantity(wavelength)
         self.wave_mask = (self.wavelength >= self.lam_min) & (self.wavelength <= self.lam_max)
         self.x_data = self.wavelength[self.wave_mask]
 

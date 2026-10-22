@@ -19,7 +19,6 @@ from cube_explorer.flux_map_extractor import fit_hitran_lines_collective
 from cube_explorer.line_catalog import fetch_hitran_data
 from cube_explorer.continuum_dialog import ContinuumParametersDialog  # Get default params
 from cube_explorer.gui_continuum import GuiContinuumMixin
-from cube_explorer.visualization import plot_line_decomposition
 
 
 def fit_continuum_directly(wavelength, flux):

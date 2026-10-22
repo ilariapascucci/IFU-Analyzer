@@ -13,8 +13,6 @@ import warnings
 import traceback
 from threading import Lock
 from scipy.optimize import curve_fit
-from astropy.io import fits
-from astropy import units as u
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # RANSAC for continuum fitting (from Pascucci)
@@ -40,7 +38,6 @@ from .unit_converter import (
     integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs,
     extract_units, extract_value_from_quantity,
 )
-from .fits_export import build_2d_export_header, write_fits_product
 
 # fit_glines' actual curve_fit bounds on fitted sigma, x instrumental sigma.
 SIGMA_BOUND_LOWER_MULTIPLIER = 0.5
@@ -1816,72 +1813,3 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
         'wave_range': (wave_min, wave_max),
         'flux_unit': flux_unit_output
     }
-
-
-def save_flux_map_fits(flux_map_data, output_path, map_type='flux'):
-    """
-    Save a flux map (from create_flux_map) as a 2-HDU FITS file: PRIMARY (flux map)
-    and DETECTION (line counts per pixel).
-
-    Args:
-        flux_map_data (dict): Output of create_flux_map(). Must have keys 'flux_map',
-            'detection_map', 'wavelength', 'header', 'wave_range'
-        output_path (str): Output file path, for example 'flux_map.fits'
-        map_type (str): Map type label, for example 'flux' or 'contamination_flux'
-
-    Returns:
-        success (bool): True if the file was written, False if it failed
-    """
-    
-    try:
-        flux_map = flux_map_data['flux_map']
-        detection_map = flux_map_data['detection_map']
-        wavelength = flux_map_data['wavelength']
-        header = flux_map_data.get('header', fits.Header())
-        wave_range = flux_map_data.get('wave_range', (np.nanmin(wavelength), np.nanmax(wavelength)))
-        flux_unit_output = flux_map_data.get('flux_unit', None)  # Get output flux unit if available
-
-        # Extract BUNIT - use output unit if conversion was done, otherwise the ORIGINAL header's.
-        try:
-            if flux_unit_output and flux_unit_output != 'MJy/sr um':
-                # Conversion was applied
-                flux_unit_str = "erg/s/cm2" if flux_unit_output == 'erg/s/cm2' else flux_unit_output
-            else:
-                # Use the original header. Use 'UNKNOWN' if BUNIT is not there, not a guess.
-                bunit_str = header.get('BUNIT', 'UNKNOWN') if header is not None else 'UNKNOWN'
-                # Try to parse as astropy unit
-                try:
-                    base_unit = u.Unit(bunit_str)
-                    flux_unit_str = f"{base_unit} um"
-                except (ValueError, TypeError):
-                    # Fallback to string concatenation if not a valid unit
-                    flux_unit_str = f"{bunit_str} um"
-        except Exception:
-            flux_unit_str = flux_unit_output if flux_unit_output else "UNKNOWN"
-
-        out_header = build_2d_export_header(header, flux_map.shape, extra={
-            'MAPTYPE': (map_type, 'Type of flux map'),
-            'WAVEMIN': (wave_range[0], 'Minimum wavelength used (um)'),
-            'WAVEMAX': (wave_range[1], 'Maximum wavelength used (um)'),
-            'BUNIT': flux_unit_str,
-        })
-        out_header['COMMENT'] = f'Rovibrational {map_type} Map'
-        out_header['COMMENT'] = 'Flux extracted by simultaneous multi-Gaussian fitting'
-        out_header['COMMENT'] = 'Values are amplitude * sigma * sqrt(2*pi) integrated from all detected target lines'
-
-        # Detection map extension: same WCS, so it's independently usable.
-        detection_header = build_2d_export_header(header, flux_map.shape, extra={'BUNIT': 'count'})
-        detection_header['COMMENT'] = 'Number of target lines detected and fit in each pixel'
-
-        write_fits_product(output_path, flux_map.astype(np.float32), out_header,
-                            extensions=[('DETECTION', detection_map.astype(np.int32), detection_header)])
-
-        print(f"[OK] Flux map saved to {output_path}")
-        print(f"  - PRIMARY HDU: {map_type} ({flux_map.shape[0]}x{flux_map.shape[1]})")
-        print(f"  - DETECTION HDU: Line counts per pixel")
-
-        return True
-
-    except Exception as e:
-        print(f"[ERROR] Error saving FITS file: {e}")
-        return False

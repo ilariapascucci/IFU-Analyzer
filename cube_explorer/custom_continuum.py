@@ -431,58 +431,6 @@ class CustomContinuumSelector:
             traceback.print_exc()
             return None
             
-    def show_fitted_line(self):
-        """Show the fitted continuum line on the plot (RED spline).
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        if self.fitted_continuum is None:
-            return
-        
-        # Remove previous continuum line if exists
-        if self.continuum_line_artist is not None:
-            try:
-                self.continuum_line_artist.remove()
-            except Exception:
-                pass
-        
-        # Plot the fitted spline in RED
-        self.continuum_line_artist = self.ax.plot(
-            self.wavelength, 
-            self.fitted_continuum,
-            color='red',
-            linewidth=2.5,
-            linestyle='-',
-            label='Custom Spline Continuum',
-            zorder=50,
-            alpha=0.8
-        )[0]
-        
-        # Update legend
-        self.ax.legend(loc='upper right', fontsize=8)
-        
-        # Redraw
-        self.canvas.draw_idle()
-        
-        print("[DEBUG] Custom continuum spline displayed (red line)")
-
-        
-    def get_fitted_continuum(self):
-        """Return the fitted continuum array.
-
-        Args:
-            None
-
-        Returns:
-            continuum (numpy.ndarray): The fitted continuum, or None if
-                fit_continuum() has not run successfully yet.
-        """
-        return self.fitted_continuum
-
     def clear_all(self):
         """Clear all points and fitted continuum.
 

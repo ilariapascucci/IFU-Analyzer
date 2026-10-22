@@ -9,11 +9,7 @@ It creates Figure objects that can be embedded in Qt GUIs or saved to disk.
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from astropy.units import Quantity
 from astropy.units import Quantity
 
 from .scale_dialog import ScaleSettings, build_norm
@@ -258,58 +254,6 @@ class SpectrumPlotter:
         self.ax.legend(loc='upper right', fontsize=8)
         
         print(f"[DEBUG] Gaussian fit plotted, total lines now: {len(self.ax.lines)}")
-
-
-    def normalize_global(self, factor):
-        """Normalize the global spectrum line in-place.
-
-        Args:
-            factor (float): Value to divide the spectrum's y-data by.
-
-        Returns:
-            None
-        """
-        if hasattr(self, 'global_line'):
-            ydata = self.global_line.get_ydata()
-            self.global_line.set_ydata(ydata / factor)
-            self.fig.canvas.draw()
-
-    def update_spectrum(self, spectrum):
-        """Update the global spectrum with new data (e.g., normalized).
-
-        Args:
-            spectrum (numpy.ndarray): New spectrum values.
-
-        Returns:
-            None
-        """
-        if hasattr(self, 'global_line') and self.global_line is not None:
-            # Get x values - extract from Quantity if needed
-            if self.wavelength is not None and len(self.wavelength) == len(spectrum):
-                x = _extract_wavelength_values(self.wavelength)
-            else:
-                x = np.arange(len(spectrum))
-            
-            # Update the line data
-            self.global_line.set_data(x, spectrum)
-            
-            # Adjust y-limits based on new data
-            valid_y = spectrum[np.isfinite(spectrum)]
-            if len(valid_y) > 0:
-                ymin, ymax = np.nanpercentile(valid_y, [1, 99])
-                margin = (ymax - ymin) * 0.1
-                self.ax.set_ylim(ymin - margin, ymax + margin)
-                print(f"[DEBUG] Updated spectrum, new ylim: ({ymin - margin:.2e}, {ymax + margin:.2e})")
-            
-            # Force redraw
-            try:
-                self.fig.canvas.draw_idle()
-            except Exception:
-                self.fig.canvas.draw()
-        else:
-            # If no line exists, plot it
-            self.plot_spectrum(spectrum)
-
 
     def update_slice_indicator(self, wavelength_idx, target="left"):
         """Move the vertical line showing the current slice position for
@@ -570,135 +514,27 @@ class SlicePlotter:
         self.ax.pixel_marker = [marker]  # Store only the new marker
 
 
-# ================== Flux Extraction Visualization ==================
-
-def plot_fit_residuals(wavelength, spectrum_flux, model_flux, title="Multi-Gaussian Fit Diagnostics"):
-    """Create diagnostic plot comparing observed spectrum to fitted model.
-
-    Args:
-        wavelength (numpy.ndarray): Wavelength values.
-        spectrum_flux (numpy.ndarray): Observed spectrum flux.
-        model_flux (numpy.ndarray): Best-fit model flux.
-        title (str): Plot title.
-
-    Returns:
-        fig (matplotlib.figure.Figure): Figure with 3 panels: observed,
-            model, residuals.
-    """
-    fig, axes = plt.subplots(3, 1, figsize=(12, 8))
-    
-    # Observed spectrum
-    axes[0].step(wavelength, spectrum_flux, where='mid', color='steelblue', label='Observed')
-    axes[0].set_ylabel('Flux')
-    axes[0].set_title(title)
-    axes[0].legend(loc='upper right')
-    axes[0].grid(True, alpha=0.3)
-    
-    # Model (fit)
-    axes[1].step(wavelength, spectrum_flux, where='mid', color='steelblue', alpha=0.5, label='Observed')
-    axes[1].plot(wavelength, model_flux, color='orange', linewidth=2, label='Model', drawstyle='steps')
-    axes[1].set_ylabel('Flux')
-    axes[1].set_title('Fitted Model')
-    axes[1].legend(loc='upper right')
-    axes[1].grid(True, alpha=0.3)
-    
-    # Residuals (observed - model)
-    residuals = spectrum_flux - model_flux
-    axes[2].plot(wavelength, residuals, color='grey', linewidth=1, drawstyle='steps')
-    axes[2].axhline(0, color='red', linestyle='--', linewidth=1)
-    axes[2].fill_between(wavelength, residuals, 0, color='grey', alpha=0.3)
-    axes[2].set_xlabel('Wavelength')
-    axes[2].set_ylabel('Residuals')
-    axes[2].set_title('Residuals (Observed - Model)')
-    axes[2].grid(True, alpha=0.3)
-    
-    fig.tight_layout()
-    return fig
-
-
-def plot_line_decomposition(wavelength, spectrum_flux, model_flux, continuum_flux, 
-                             line_components, line_names=None):
-    """Create plot showing individual line decomposition of multi-Gaussian fit.
+def draw_map(fig, ax, shown, norm, cmap, title, cbar_label=None):
+    """Draw one 2D map on an axes, with its title, pixel-axis labels and colorbar.
+    Every map dialog and the PNG export use this function, so all maps look alike.
 
     Args:
-        wavelength (numpy.ndarray): Wavelength values.
-        spectrum_flux (numpy.ndarray): Observed spectrum.
-        model_flux (numpy.ndarray): Total fitted model.
-        continuum_flux (numpy.ndarray): Fitted continuum.
-        line_components (list): Individual Gaussian components (excluding
-            continuum).
-        line_names (list): Names for each line (e.g., ["CO P(4)", "CO P(5)"]),
-            or None to auto-generate.
+        fig (matplotlib.figure.Figure): Figure that owns the axes and the colorbar.
+        ax (matplotlib.axes.Axes): Axes to draw on.
+        shown (numpy.ndarray): 2D array to display, from build_norm.
+        norm (matplotlib.colors.Normalize): Norm from build_norm, or None.
+        cmap (str or matplotlib.colors.Colormap): Colormap name or object.
+        title (str): Axes title.
+        cbar_label (str): Colorbar label, or None for no colorbar.
 
     Returns:
-        fig (matplotlib.figure.Figure): Figure with spectrum and individual
-            line decomposition.
+        im (matplotlib.image.AxesImage): The drawn image.
     """
-    if line_names is None:
-        line_names = [f"Line {i}" for i in range(len(line_components))]
-    
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    # Plot observed spectrum
-    ax.step(wavelength, spectrum_flux, where='mid', color='black', linewidth=2, 
-            label='Observed', zorder=10)
-    
-    # Plot continuum
-    ax.plot(wavelength, continuum_flux, 'k--', linewidth=2, label='Continuum', zorder=9)
-    
-    # Plot individual line components
-    colors = plt.cm.tab10(np.linspace(0, 1, len(line_components)))
-    for i, (component, color, name) in enumerate(zip(line_components, colors, line_names)):
-        ax.fill_between(wavelength, continuum_flux, continuum_flux + component, 
-                        alpha=0.3, color=color, label=name, zorder=8-i)
-    
-    ax.set_xlabel('Wavelength (μm)')
-    ax.set_ylabel('Flux')
-    ax.set_title('Multi-Gaussian Line Decomposition')
-    ax.legend(loc='upper right', ncol=2, fontsize=9)
-    ax.grid(True, alpha=0.3)
-    
-    fig.tight_layout()
-    return fig
-
-
-def plot_flux_map_diagnostics(flux_map, detection_map, error_map=None):
-    """Create diagnostic plots for flux extraction map results.
-
-    Args:
-        flux_map (numpy.ndarray): 2D map of integrated flux.
-        detection_map (numpy.ndarray): 2D map of detection counts (lines
-            per pixel).
-        error_map (numpy.ndarray): 2D map of flux uncertainties, or None.
-
-    Returns:
-        fig (matplotlib.figure.Figure): Figure with 2-3 panels showing
-            flux, detections, and errors.
-    """
-    n_panels = 3 if error_map is not None else 2
-    fig, axes = plt.subplots(1, n_panels, figsize=(15, 5))
-    
-    # Flux map
-    im0 = axes[0].imshow(flux_map, origin='lower', cmap='viridis')
-    axes[0].set_title('Flux Map')
-    axes[0].set_xlabel('X [pixels]')
-    axes[0].set_ylabel('Y [pixels]')
-    plt.colorbar(im0, ax=axes[0], label='Flux')
-    
-    # Detection map
-    im1 = axes[1].imshow(detection_map, origin='lower', cmap='plasma')
-    axes[1].set_title('Line Detection Count')
-    axes[1].set_xlabel('X [pixels]')
-    axes[1].set_ylabel('Y [pixels]')
-    plt.colorbar(im1, ax=axes[1], label='# Lines')
-    
-    # Error map (if provided)
-    if error_map is not None:
-        im2 = axes[2].imshow(error_map, origin='lower', cmap='RdYlGn_r')
-        axes[2].set_title('Uncertainty/Error Map')
-        axes[2].set_xlabel('X [pixels]')
-        axes[2].set_ylabel('Y [pixels]')
-        plt.colorbar(im2, ax=axes[2], label='Error')
-    
-    fig.tight_layout()
-    return fig
+    # 'nearest' keeps every data pixel a sharp square instead of blending neighbours.
+    im = ax.imshow(shown, origin='lower', cmap=cmap, norm=norm, interpolation='nearest')
+    ax.set_title(title, fontweight='bold')
+    ax.set_xlabel("x [pixel]")
+    ax.set_ylabel("y [pixel]")
+    if cbar_label is not None:
+        fig.colorbar(im, ax=ax).set_label(cbar_label)
+    return im
