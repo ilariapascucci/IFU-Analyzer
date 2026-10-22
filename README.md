@@ -37,8 +37,6 @@ IFU Analyzer is a Python application for the analysis of Integral Field Unit (IF
 
 The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and other 2D FITS products. It is WCS-aware. It shows the cursor coordinates and gives multi-image analysis tools.
 
-> **Note:** The 2D viewer is not feature-complete. The `2D` button in the main window is disabled. To use the viewer, set `ENABLE_2D_VIEWER = True` near the top of `cube_explorer/gui.py`.
-
 #### Image Display
 
 - Dual-panel layout. Load an independent 2D FITS file into the left panel or the right panel.
@@ -535,7 +533,7 @@ python main.py
 
 6. Examine a 2D FITS image.
 
-   > The `2D` button in the main window is disabled. To use the viewer, set `ENABLE_2D_VIEWER = True` near the top of `cube_explorer/gui.py`, then start `python main.py` again and click `2D`.
+   > Click the `2D` button in the main window to open the viewer.
 
    - Load an image with "Open 2D FITS (Left)" or "Open 2D FITS (Right)".
    - The WCS grid (RA and Dec) shows automatically if the FITS header has WCS.

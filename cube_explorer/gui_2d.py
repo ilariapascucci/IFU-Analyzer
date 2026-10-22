@@ -423,12 +423,11 @@ class BatchMatchResolutionDialog(QDialog):
                     QApplication.restoreOverrideCursor()
                     QMessageBox.warning(
                         self, "Unsupported BUNIT",
-                        f"'{info['filename']}' has BUNIT "
-                        f"'{info['header'].get('BUNIT', '')}', not a "
+                        f"'{info['filename']}' has the unit "
+                        f"'{info['header'].get('BUNIT', '')}'. It is not a "
                         "flux-per-pixel unit.\n\n"
-                        "The convolution assumes flux-per-pixel input for "
-                        "every file -- use the regular Batch button for "
-                        "surface-brightness images.")
+                        "The convolution needs flux-per-pixel input for every file. "
+                        "It does not support surface-brightness units such as MJy/sr.")
                     return
 
             # ---- 4. Wavelength per file (LINEWAVE header, else prompt) ---
@@ -2713,8 +2712,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
            not is_per_pixel_flux_unit(self.header_right.get('BUNIT', '') if self.header_right else ''):
             QMessageBox.warning(
                 self, "Unsupported BUNIT",
-                "The convolution assumes both images are flux-per-pixel.\n\n"
-                "Use the regular Pair button for surface-brightness images.")
+                "The convolution needs flux-per-pixel input for both images.\n\n"
+                "It does not support surface-brightness units such as MJy/sr.")
             return
 
         wl_left = _get_line_wavelength_um(

@@ -42,11 +42,6 @@ from .species_dialog import SpeciesDialog
 from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity
 
 
-# Feature flag for the 2D FITS viewer entry point (gui_2d.py). Kept as a
-# toggle for feature-branch work even though it now defaults to enabled.
-ENABLE_2D_VIEWER = True
-
-
 class CollapsibleButtonGroup(QWidget):
     """
     A collapsible button group that expands/collapses with animation.
@@ -141,7 +136,7 @@ class CollapsibleButtonGroup(QWidget):
         self.button_layout.addWidget(button)
 
     def close_other_groups(self):
-        """Close all other collapsible groups (accordion behavior).
+        """Close all other collapsible groups in this window (accordion behavior).
 
         Args:
             None
@@ -149,8 +144,9 @@ class CollapsibleButtonGroup(QWidget):
         Returns:
             None
         """
+        # Groups in other windows keep their own open state.
         for group in CollapsibleButtonGroup._all_groups:
-            if group is not self and group.is_expanded:
+            if group is not self and group.is_expanded and group.window() is self.window():
                 group.close()
 
     def close(self):
@@ -660,17 +656,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self.refresh_btn = QPushButton("🔄")
         self.refresh_btn.clicked.connect(self.refresh_view)
-        self.refresh_btn.setToolTip("Refresh all plots")
+        self.refresh_btn.setToolTip(
+            "Reset the view. This clears the selections, plotted lines, Gaussian fits, "
+            "and continuum state. It reloads the spectrum.")
 
         # New Window button: spawn another CubeExplorer window
         self.new_window_btn = QPushButton("🗗")
         self.new_window_btn.setToolTip("Open a new Cube Explorer window")
         self.new_window_btn.clicked.connect(self._open_new_window)
 
-        if ENABLE_2D_VIEWER:
-            self.two_d_btn = QPushButton("2D")
-            self.two_d_btn.setToolTip("Open a 2D FITS analyzer window")
-            self.two_d_btn.clicked.connect(self.open_2d_window)
+        self.two_d_btn = QPushButton("2D")
+        self.two_d_btn.setToolTip("Open a 2D FITS analyzer window")
+        self.two_d_btn.clicked.connect(self.open_2d_window)
 
         self.rot_diag_btn = QPushButton("Rot Diag")
         self.rot_diag_btn.setToolTip("Open rotational diagram analyzer for H2")
@@ -684,8 +681,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.controls_layout.addWidget(self.header_btn)
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
-        if ENABLE_2D_VIEWER:
-            self.controls_layout.addWidget(self.two_d_btn)
+        self.controls_layout.addWidget(self.two_d_btn)
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
@@ -843,12 +839,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_ok_btn.hide()
         self.custom_save_pts_btn.hide()
         self.custom_load_pts_btn.hide()
+        self.custom_delete_btn.hide()
 
         # Tooltips
         self.auto_continuum_toggle.setToolTip("Toggle automatic continuum fitting mode")
         self.custom_continuum_toggle.setToolTip("Toggle custom continuum point selection mode")
         self.continuum_line_btn.setToolTip("Fit and display continuum line")
-        self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum")
         self.custom_subtract_btn.setToolTip("Manually select continuum points and fit")
         self.custom_ok_btn.setToolTip("Calculate and apply custom continuum")
         self.custom_delete_btn.setToolTip("Toggle to delete points with left-click")
@@ -902,14 +898,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "Save wavelength, original spectrum, fitted continuum, "
             "and continuum-subtracted spectrum to a single ASCII file."
         )
-        self.continuum_line_btn.setToolTip("Toggle continuum subtraction mode")
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
         self.gauss_map_btn.setToolTip("Fit Gaussian to all pixels using Left/Right boundaries")
         self.multi_gauss_fit_btn.setToolTip("Fit Gaussians to all selected HITRAN lines using current continuum")
         self.gauss_noise_left_btn.setToolTip("Select left boundary of a line-free noise region")
         self.gauss_noise_right_btn.setToolTip("Select right boundary of a line-free noise region")
-        self.custom_subtract_btn.setToolTip("Manually select continuum points")
-        self.flux_map_btn.setToolTip("Fit multiple lines and and creat an integrated flux map")
+        self.flux_map_btn.setToolTip("Fit multiple lines and create an integrated flux map")
 
 
         # Wavelength range inputs (for line search)
@@ -1216,7 +1210,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # Group 5: HITRAN (wavelength inputs + action buttons + flux map)
         self.hitran_group = CollapsibleButtonGroup("HITRAN")
+        self.hitran_group.add_button(QLabel("λ min (µm):"))
         self.hitran_group.add_button(self.min_wave_input)
+        self.hitran_group.add_button(QLabel("λ max (µm):"))
         self.hitran_group.add_button(self.max_wave_input)
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.load_custom_lines_btn)
@@ -1480,6 +1476,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                     spin.blockSignals(False)
                     spin.setEnabled(True)
 
+            self._fill_wave_range_inputs()
+
             for btn in (self.region_save_slice_btn, self.region_save_slice_masked_btn, self.region_save_cube_btn,
                         self.region_save_wcs_btn, self.region_import_wcs_btn):
                 btn.setEnabled(True)
@@ -1490,6 +1488,29 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
             print(f"Detailed error: {e}")  # For debugging
+
+    def _fill_wave_range_inputs(self):
+        """Set the Min/Max wavelength boxes to the loaded cube's full range, in micron.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        wavelength = np.asarray(extract_value_from_quantity(self.cube_data.wavelength), dtype=float)
+        wavelength = wavelength[np.isfinite(wavelength)]
+        if wavelength.size == 0:
+            return
+        try:
+            low = convert_wavelength(float(wavelength.min()), self.cube_data.wave_unit, "um")
+            high = convert_wavelength(float(wavelength.max()), self.cube_data.wave_unit, "um")
+        except ValueError:
+            # A velocity axis has no micron range; the boxes keep their defaults.
+            print(f"[INFO] Min/Max wavelength unchanged: the spectral axis is in {self.cube_data.wave_unit}.")
+            return
+        self.min_wave_input.setValue(low)
+        self.max_wave_input.setValue(high)
 
     def _open_new_window(self):
         """Open a new independent CubeExplorer window.
@@ -2811,7 +2832,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if not hasattr(self, 'cube_data') or self.cube_data is None:
             print("[DEBUG] No cube data loaded")
             return
-        
+
+        reply = QMessageBox.question(
+            self, "Reset View",
+            "Reset the view?\n\nThis clears the region selections, plotted lines, Gaussian fits, "
+            "and continuum subtraction. It sets both slices to the first wavelength.\n\n"
+            "It does not change the Doppler shifts or the line lists.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
         # Reset state variables
         self.last_idx_left = 0
         self.last_idx_right = 0
@@ -2881,8 +2912,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
         self.gauss_left_btn.setChecked(False)
+        self.gauss_peak_btn.setChecked(False)
         self.gauss_right_btn.setChecked(False)
-        
+        self.gauss_noise_left_btn.setChecked(False)
+        self.gauss_noise_right_btn.setChecked(False)
+
         # Clear all plotted lines (detection + contaminant)
         if hasattr(self, 'plotted_artists'):
             for artist in self.plotted_artists:

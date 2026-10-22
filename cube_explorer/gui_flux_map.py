@@ -35,7 +35,47 @@ class GuiFluxMapMixin:
         
         if not hasattr(self, 'contam_lines'):
             self.contam_lines = None
-        
+
+        # Check the range and the lines before the first prompt.
+        try:
+            wave_min = float(self.min_wave_input.text())
+            wave_max = float(self.max_wave_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Wavelength", "Enter valid min/max wavelength values.")
+            return
+
+        if wave_min >= wave_max:
+            QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
+            return
+
+        # Source of truth is self.plotted_lines: exactly what's checked in the
+        # Lines dialog, mirroring Multi-Gaussian (previously ignored checkbox state).
+        if not getattr(self, 'plotted_lines', None):
+            QMessageBox.warning(self, "No Lines Selected", "Fetch/load lines and select them in the Lines dialog first.")
+            return
+
+        detection_rows = [r for r in self.plotted_lines if r.get('source') != 'Contaminant']
+        contam_rows = [r for r in self.plotted_lines if r.get('source') == 'Contaminant']
+
+        def _in_range(row):
+            """Check whether a line row's wavelength falls in [wave_min, wave_max].
+
+            Args:
+                row (dict): A line row, as used throughout the Lines dialog.
+
+            Returns:
+                in_range (bool): True if the row's wavelength is in range.
+            """
+            wave = SpeciesDialog.get_row_wavelength(row)
+            return wave is not None and wave_min <= float(wave) <= wave_max
+
+        filtered_lines = [r for r in detection_rows if _in_range(r)]
+        if not filtered_lines:
+            QMessageBox.warning(self, "No Lines Selected",
+                                 f"No selected (checked) lines fall within {wave_min:.6f} - {wave_max:.6f} μm. "
+                                 "Select lines in the Lines dialog first.")
+            return
+
         reply = QMessageBox.question(
             self,
             "Continuum Subtraction",
@@ -55,17 +95,6 @@ class GuiFluxMapMixin:
         else:
             self.flux_map_continuum_params = None
 
-        try:
-            wave_min = float(self.min_wave_input.text())
-            wave_max = float(self.max_wave_input.text())
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Wavelength", "Enter valid min/max wavelength values.")
-            return
-        
-        if wave_min >= wave_max:
-            QMessageBox.warning(self, "Invalid Range", "Min wavelength must be less than Max.")
-            return
-        
         if hasattr(self, 'flux_map_result_cache') and hasattr(self, 'flux_map_params_cache'):
             params_match = (
                 self.flux_map_params_cache.get('wave_min') == wave_min and
@@ -104,35 +133,7 @@ class GuiFluxMapMixin:
                     )
                     results_dialog.exec_()
                     return
-        
-        # Source of truth is self.plotted_lines: exactly what's checked in the
-        # Lines dialog, mirroring Multi-Gaussian (previously ignored checkbox state).
-        if not getattr(self, 'plotted_lines', None):
-            QMessageBox.warning(self, "No Lines Selected", "Fetch/load lines and select them in the Lines dialog first.")
-            return
 
-        detection_rows = [r for r in self.plotted_lines if r.get('source') != 'Contaminant']
-        contam_rows = [r for r in self.plotted_lines if r.get('source') == 'Contaminant']
-
-        def _in_range(row):
-            """Check whether a line row's wavelength falls in [wave_min, wave_max].
-
-            Args:
-                row (dict): A line row, as used throughout the Lines dialog.
-
-            Returns:
-                in_range (bool): True if the row's wavelength is in range.
-            """
-            wave = SpeciesDialog.get_row_wavelength(row)
-            return wave is not None and wave_min <= float(wave) <= wave_max
-
-        filtered_lines = [r for r in detection_rows if _in_range(r)]
-        if not filtered_lines:
-            QMessageBox.warning(self, "No Lines Selected",
-                                 f"No selected (checked) lines fall within {wave_min:.6f} - {wave_max:.6f} μm. "
-                                 "Select lines in the Lines dialog first.")
-            return
-        
         cube_shape = self.cube_data.cube.shape
         spectrum_wave, _ = extract_units(self.cube_data.wavelength)
 

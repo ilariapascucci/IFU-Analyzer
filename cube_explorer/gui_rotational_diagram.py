@@ -654,19 +654,28 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         bottom_layout.addStretch()
 
         self.run_fit_btn = QPushButton("Run Fit")
+        self.run_fit_btn.setToolTip(
+            "Fit the rotational diagram to the checked lines. The Fit box sets 1T or 2T.")
         self.run_fit_btn.clicked.connect(self.run_rotational_fit)
         self.run_fit_btn.setEnabled(False)
         bottom_layout.addWidget(self.run_fit_btn)
 
         self.run_map_btn = QPushButton("Run Map")
         self.run_map_btn.setToolTip(
-            "Run the same fit at every pixel of the loaded cube(s). Detections "
-            "only, 1T. Load cube(s) with the Load Cubes button.")
+            "Run the same fit at every pixel of the common grid. It uses detections only. "
+            "The Fit box sets 1T or 2T.")
         self.run_map_btn.clicked.connect(self.run_rotational_map)
         self.run_map_btn.setEnabled(False)
         bottom_layout.addWidget(self.run_map_btn)
 
         main_layout.addLayout(bottom_layout)
+
+        # Each button's own description. on_line_selected adds the "why disabled" reason after it.
+        self._base_tooltips = {
+            btn: btn.toolTip() for btn in (
+                self.run_fit_btn, self.run_map_btn, self.calculate_maps_btn,
+                self.convolve_maps_btn, self.select_map_region_btn)
+        }
 
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
@@ -3282,44 +3291,60 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self.run_fit_btn.setEnabled(checked_count >= 2 and fit_data_ready)
         if checked_count < 2:
-            self.run_fit_btn.setToolTip("Select at least 2 lines -- a line fit needs 2+ points.")
+            self._set_gated_tooltip(self.run_fit_btn, "Select at least 2 lines -- a line fit needs 2+ points.")
         elif not fit_data_ready:
-            self.run_fit_btn.setToolTip(
+            self._set_gated_tooltip(
+                self.run_fit_btn,
                 "Every checked line needs a Flux (and Flux Error/Error %, unless Upper Limit).")
         else:
-            self.run_fit_btn.setToolTip("")
+            self._set_gated_tooltip(self.run_fit_btn, "")
         # 1T needs 3 detections/pixel to constrain its slope, 2T needs 5 --
         # fewer total checked lines than that can never reach the threshold.
         fit2t = self.fit_mode.currentText() == "2T"
         min_lines_needed = 5 if fit2t else 3
         self.run_map_btn.setEnabled(checked_count >= min_lines_needed and convolved_ready)
         if checked_count < min_lines_needed:
-            self.run_map_btn.setToolTip(
+            self._set_gated_tooltip(
+                self.run_map_btn,
                 f"Select at least {min_lines_needed} lines for a per-pixel {'2T' if fit2t else '1T'} map.")
         elif not convolved_ready:
-            self.run_map_btn.setToolTip("Run Calculate Maps, then Convolve Maps, first.")
+            self._set_gated_tooltip(self.run_map_btn, "Run Calculate Maps, then Convolve Maps, first.")
         else:
-            self.run_map_btn.setToolTip("")
+            self._set_gated_tooltip(self.run_map_btn, "")
         # Calculate Maps doesn't need a T-fit -- "need a loaded cube" is
         # checked at click time instead, same as Run Map's own "No Cube" check.
         self.calculate_maps_btn.setEnabled(checked_count >= 1)
-        self.calculate_maps_btn.setToolTip(
-            "" if checked_count >= 1 else "Select at least 1 line."
-        )
+        self._set_gated_tooltip(
+            self.calculate_maps_btn, "" if checked_count >= 1 else "Select at least 1 line.")
         # Needs 2+ lines (cube-fit or imported) -- with only one, there is
         # only one resolution and nothing to convolve.
         self.convolve_maps_btn.setEnabled(checked_count >= 2 and native_ready)
         if checked_count < 2:
-            self.convolve_maps_btn.setToolTip("Select at least 2 lines -- nothing to convolve with only one.")
+            self._set_gated_tooltip(
+                self.convolve_maps_btn, "Select at least 2 lines -- nothing to convolve with only one.")
         elif not native_ready:
-            self.convolve_maps_btn.setToolTip("Run Calculate Maps first.")
+            self._set_gated_tooltip(self.convolve_maps_btn, "Run Calculate Maps first.")
         else:
-            self.convolve_maps_btn.setToolTip("")
+            self._set_gated_tooltip(self.convolve_maps_btn, "")
         # Draws on the cached Calculate Maps flux map of a cube-fit line.
         can_select_region = bool(self._rot_map_region_entries()[0])
         self.select_map_region_btn.setEnabled(can_select_region)
-        self.select_map_region_btn.setToolTip(
+        self._set_gated_tooltip(
+            self.select_map_region_btn,
             "" if can_select_region else "Run Calculate Maps on at least one cube-fit line first.")
+
+    def _set_gated_tooltip(self, button, reason):
+        """Show a button's own description, then the reason it is disabled.
+
+        Args:
+            button (QPushButton): Button to update.
+            reason (str): Why the button is disabled, or an empty string if it is enabled.
+
+        Returns:
+            None
+        """
+        base = self._base_tooltips.get(button, "")
+        button.setToolTip(f"{base}\n\n{reason}" if base and reason else base or reason)
 
     def select_all_lines(self):
         """Select all lines in the table (skips rows disabled for missing HITRAN data).
