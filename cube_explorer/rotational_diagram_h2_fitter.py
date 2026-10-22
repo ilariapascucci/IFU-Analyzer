@@ -672,10 +672,11 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             opr_value (float): Ortho-para ratio to apply
 
         Returns:
-            E, y, y_err, is_ul, dropped (tuple): Arrays (E in K, y=log(Nu/gu)) plus
-                the list of J values dropped for missing error data
+            E, y, y_err, is_ul, dropped, wave_arr (tuple): Arrays (E in K, y=log(Nu/gu)),
+                the list of J values dropped for missing error data, and the wavelength
+                (micron) of each kept point
         """
-        E_list, y_list, y_err_list, is_ul_list = [], [], [], []
+        E_list, y_list, y_err_list, is_ul_list, wave_list = [], [], [], [], []
         dropped = []  # J values excluded (detections with no error data)
 
         for J in sorted(fluxes.keys(), key=lambda j: wave.get(j, float('inf'))):
@@ -698,6 +699,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             E_list.append(Eu[J])
             y_list.append(y)
             is_ul_list.append(is_ul)
+            wave_list.append(wave[J])
 
             # Same dF/F propagation for detections and upper limits; an upper limit's own
             # error isn't used by the barrier fit, kept for display. Falls back to 0.0 if missing.
@@ -713,7 +715,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
                 np.array(y_list),
                 np.array(y_err_list),
                 np.array(is_ul_list, dtype=bool),
-                dropped)
+                dropped,
+                np.array(wave_list))
 
     # Bounded curve_fit helpers, used for the OPR grid search and the final
     # fit whenever PyMC/upper-limit handling isn't required.
@@ -868,7 +871,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         chi2_list = []
         for opr_try in opr_grid:
             # consider upper limit as 4th param
-            E_try, y_try, y_err_try, ul_try, _ = _build_dataset(opr_try)
+            E_try, y_try, y_err_try, ul_try, _, _ = _build_dataset(opr_try)
             chi2_list.append(_compute_chi2(E_try, y_try, y_err_try, ul_try, use_2T=fit2T))
 
         chi2_arr = np.array(chi2_list)
@@ -888,7 +891,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         opr_search_data = {"opr_grid": opr_grid, "chi2_list": chi2_arr}
 
     # Build final dataset at best_opr (full data, including upper limits)
-    E_arr, y_arr, y_err, is_ul_mask, dropped_detections = _build_dataset(best_opr)
+    E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr = _build_dataset(best_opr)
 
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 points")
@@ -1045,6 +1048,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "y_arr": y_arr,
             "y_err": y_err,
             "is_ul_mask": is_ul_mask,
+            "wave_arr": wave_arr,
+            "has_R": R is not None,
             "popt1": list(popt1) if not use_pymc else [a1, T1],
             "popt2": list(popt2),
         }
@@ -1054,6 +1059,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
             "y_arr": y_arr,
             "y_err": y_err,
             "is_ul_mask": is_ul_mask,
+            "wave_arr": wave_arr,
+            "has_R": R is not None,
             "popt1": list(popt1) if not use_pymc else [a1, T1],
             "popt2": None,
         }

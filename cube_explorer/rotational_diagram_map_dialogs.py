@@ -524,6 +524,97 @@ def plot_rot_diagram(ax, plot_data, highlight=None):
                 text.set_fontweight("bold")
 
 
+def attach_rot_diagram_hover(canvas, ax, plot_data, hit_radius_pt=5):
+    """
+    Show a tooltip when the mouse is on a marker of a rotational diagram.
+    The tooltip gives the wavelength, E_u and log(N_u/g_u) of the point.
+    No tooltip is made without 'wave_arr'.
+
+    Args:
+        canvas (FigureCanvasQTAgg): Canvas that shows the figure of `ax`
+        ax (matplotlib.axes.Axes): Axes that plot_rot_diagram (or show_results) drew on
+        plot_data (dict): The fitter's '_plot_data'
+        hit_radius_pt (float): Largest mouse-to-marker distance, in points, that shows a tooltip.
+            The default is the radius of the largest marker (8 pt wide) plus 1 pt
+
+    Returns:
+        None
+    """
+    wave_arr = plot_data.get("wave_arr")
+    if wave_arr is None:
+        return
+    wave_arr = np.asarray(wave_arr, dtype=float)
+    e_arr = np.asarray(plot_data["E_arr"], dtype=float)
+    ln10 = np.log(10)
+    y_log = np.asarray(plot_data["y_arr"], dtype=float) / ln10
+    y_err = np.asarray(plot_data["y_err"], dtype=float) / ln10
+    is_ul = np.asarray(plot_data.get("is_ul_mask", np.zeros(len(e_arr), dtype=bool)), dtype=bool)
+
+    # Without an emitting radius, N_u is a total number of molecules, not a column density
+    unit = "cm⁻²" if plot_data["has_R"] else "(total molecules)"
+    note = ax.annotate("", xy=(0, 0), xytext=(14, 14), textcoords="offset points",
+                       fontsize=9, zorder=10,
+                       bbox=dict(boxstyle="round", fc="white", ec="0.4", alpha=0.95))
+    note.set_visible(False)
+    shown = {"index": None}
+
+    def _tooltip_text(i):
+        """
+        Build the tooltip text of one point.
+
+        Args:
+            i (int): Index of the point in the plot_data arrays
+
+        Returns:
+            text (str): Multi-line tooltip text
+        """
+        lines = [f"λ = {wave_arr[i]:.6f} μm", f"E_u = {e_arr[i]:.0f} K"]
+        if is_ul[i]:
+            lines.append(f"log(N_u/g_u) < {y_log[i]:.3f} {unit} (upper limit)")
+            return "\n".join(lines)
+        lines.append(f"log(N_u/g_u) = {y_log[i]:.3f} ± {y_err[i]:.3f} {unit}")
+        return "\n".join(lines)
+
+    def _on_move(event):
+        """
+        Show the tooltip of the marker under the mouse, or hide it.
+        When two markers overlap, the one closer to the mouse is used.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Motion event
+
+        Returns:
+            None
+        """
+        index = None
+        if event.inaxes is ax:
+            pts = ax.transData.transform(np.column_stack([e_arr, y_log]))
+            dist = np.hypot(pts[:, 0] - event.x, pts[:, 1] - event.y)
+            dist[~np.isfinite(dist)] = np.inf
+            nearest = int(np.argmin(dist))
+            if dist[nearest] <= hit_radius_pt * ax.figure.dpi / 72:
+                index = nearest
+        if index == shown["index"]:
+            return
+        shown["index"] = index
+        if index is None:
+            note.set_visible(False)
+        else:
+            # Flip the tooltip to the free side so it stays inside the axes
+            px, py = ax.transData.transform((e_arr[index], y_log[index]))
+            right_half = (px - ax.bbox.x0) / ax.bbox.width > 0.5
+            top_half = (py - ax.bbox.y0) / ax.bbox.height > 0.5
+            note.xy = (e_arr[index], y_log[index])
+            note.set_position((-14 if right_half else 14, -14 if top_half else 14))
+            note.set_ha("right" if right_half else "left")
+            note.set_va("top" if top_half else "bottom")
+            note.set_text(_tooltip_text(index))
+            note.set_visible(True)
+        canvas.draw_idle()
+
+    canvas.mpl_connect("motion_notify_event", _on_move)
+
+
 class RotDiagMapResultsDialog(QDialog):
     """
     Map viewer for a rotational diagram map, with per-pixel diagram on click.
@@ -870,9 +961,11 @@ class RotDiagMapResultsDialog(QDialog):
 
         if out["status"] == STATUS_OK and "_plot_data" in out["results"]:
             fig = Figure(figsize=(6.5, 5), dpi=100)
-            plot_rot_diagram(fig.add_subplot(111), out["results"]["_plot_data"], highlight=highlight)
+            ax = fig.add_subplot(111)
+            plot_rot_diagram(ax, out["results"]["_plot_data"], highlight=highlight)
             fig.tight_layout()
             canvas = FigureCanvasQTAgg(fig)
+            attach_rot_diagram_hover(canvas, ax, out["results"]["_plot_data"])
             box = QWidget()
             box_lay = QVBoxLayout(box)
             box_lay.addWidget(NavigationToolbar2QT(canvas, dlg))

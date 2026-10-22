@@ -43,6 +43,7 @@ from .import_map_dialog import _peek_header, _has_real_error
 from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker, SelectCubeRegionDialog,
+    attach_rot_diagram_hover,
 )
 from .fits_export import build_line_map_header, write_fits_product
 from .scale_dialog import ScaleSettings, build_norm
@@ -4942,6 +4943,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             plot_layout = QVBoxLayout(plot_widget)
 
             canvas = FigureCanvas(fig)
+            attach_rot_diagram_hover(canvas, ax, plot_data)
             toolbar = NavigationToolbar(canvas, dialog)
 
             plot_layout.addWidget(toolbar)

@@ -117,10 +117,11 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
             None
 
         Returns:
-            E, y, y_err, is_ul, dropped (tuple): Arrays (E in K, y=log(Nu/gu)) plus
-                the list of J values dropped for missing error data
+            E, y, y_err, is_ul, dropped, wave_arr (tuple): Arrays (E in K, y=log(Nu/gu)),
+                the list of J values dropped for missing error data, and the wavelength
+                (micron) of each kept point
         """
-        E_list, y_list, y_err_list, is_ul_list = [], [], [], []
+        E_list, y_list, y_err_list, is_ul_list, wave_list = [], [], [], [], []
         dropped = []  # J values excluded (detections with no error data)
 
         for J in sorted(fluxes.keys(), key=lambda j: wave.get(j, float('inf'))):
@@ -142,6 +143,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
             E_list.append(Eu[J])
             y_list.append(y)
             is_ul_list.append(is_ul)
+            wave_list.append(wave[J])
 
             # Same dF/F propagation for detections and upper limits -- see
             # rotational_diagram_h2_fitter's own _build_dataset for the full reasoning.
@@ -157,7 +159,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
                 np.array(y_list),
                 np.array(y_err_list),
                 np.array(is_ul_list, dtype=bool),
-                dropped)
+                dropped,
+                np.array(wave_list))
 
     # Bounded curve_fit helpers
     def _bounds_1T(y_arr):
@@ -251,7 +254,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         return Ntot, dNtot
 
     # Build dataset (full data, including upper limits)
-    E_arr, y_arr, y_err, is_ul_mask, dropped_detections = _build_dataset()
+    E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr = _build_dataset()
 
     if len(E_arr) < 2:
         raise ValueError("Need at least 2 points")
@@ -383,6 +386,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
             "y_arr": y_arr,
             "y_err": y_err,
             "is_ul_mask": is_ul_mask,
+            "wave_arr": wave_arr,
+            "has_R": R is not None,
             "popt1": list(popt1) if not use_pymc else [a1, T1],
             "popt2": list(popt2),
         }
@@ -392,6 +397,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
             "y_arr": y_arr,
             "y_err": y_err,
             "is_ul_mask": is_ul_mask,
+            "wave_arr": wave_arr,
+            "has_R": R is not None,
             "popt1": list(popt1) if not use_pymc else [a1, T1],
             "popt2": None,
         }
