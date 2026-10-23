@@ -2,6 +2,11 @@
 
 IFU Analyzer is a Python application for the analysis of Integral Field Unit (IFU) spectroscopic data. It reads 3D spectral data cubes from MUSE, MIRI, and NIRSpec. The interface shows the data cube, extracts spectra from selected regions, fits Gaussian line profiles, subtracts the continuum, and exports the results.
 
+> [!WARNING]
+> **This project is still under development.** Some features can change, and some parts can have bugs.
+>
+> If you find an issue, please tell us. [Open an issue on GitHub](https://github.com/ilariapascucci/IFU-Analyzer/issues) and include the steps to repeat it, the instrument (MIRI, NIRSpec, or MUSE), and any error message.
+
 ## Features
 
 ### Instrument Support
@@ -10,6 +15,11 @@ IFU Analyzer is a Python application for the analysis of Integral Field Unit (IF
 - **MIRI** (JWST) — mid-infrared spectroscopy
 - **NIRSpec** (JWST) — near-infrared spectroscopy
 
+Some tools have a narrower scope:
+
+- **Fetch HITRAN, Flux Map, and the rotational diagram** read wavelengths in µm, so use them on MIRI and NIRSpec cubes. The offline HITRAN data in `hitran_local/` covers 1 to 30 µm. For another range, the app fetches the lines from HITRAN online, so it needs an internet connection.
+- **Pair and Batch** (resolution matching) work on MIRI and NIRSpec images only.
+
 ### Interactive Visualization
 
 - Full-spectrum display with wavelength and velocity axes
@@ -17,7 +27,7 @@ IFU Analyzer is a Python application for the analysis of Integral Field Unit (IF
 - The spectrum updates when you change the selection
 - Region tools: point, rectangle, circle, ellipse, and freehand polygon
 - Draggable region handles for a move or a resize
-- Colour scales: Linear, Log, Power, and Square Root
+- Colour scales: Linear, Log, and Power (with an adjustable gamma), with an absolute or a percentile colour range
 - Colormap selection through a dialog, with colourblind-friendly options
 - Support for 2D images (intensity maps and Gaussian parameter maps)
 - Copy of colormaps and regions between the two displays
@@ -43,13 +53,13 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 - Full WCS grid overlay. The RA and Dec tick labels stay in the correct position at any rotation angle.
 - The tick-label format adjusts to the field of view (degrees, then arcmin, then arcsec, then sub-arcsec).
 - Live cursor readout: pixel coordinates, RA (hh:mm:ss), Dec (dd:mm:ss), and flux value
-- Intensity statistics panel: minimum, maximum, and mean, with the flux unit from the FITS header
-- Colour scales: Linear, Log, Sqrt, and Power (γ = 2)
+- Intensity statistics panel: minimum, maximum, mean, sum, and standard deviation, plus the colour range in use, with the flux unit from the FITS header
+- Colour scales: Linear, Log, and Power (with an adjustable gamma), with an absolute or a percentile colour range
 - Colormap selection through a dialog
 
 #### Image Rotation
 
-- Rotate an image by any angle. Select "Counter-Clockwise" or "Clockwise", then click "Rotate Left" or "Rotate Right".
+- Rotate an image by any angle. Select "Counter-Clockwise" or "Clockwise", then click "Rotate (Left)" or "Rotate (Right)".
 - The WCS header is updated on each rotation, so the RA and Dec labels stay correct.
 - The rotation is cumulative. Successive rotations compose correctly.
 - Save the rotated image as a new FITS file with the updated WCS header.
@@ -66,52 +76,39 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 #### Contour Export and Import
 
 - **Save (.txt):** writes all contour path vertices as pixel coordinates and RA/Dec (degrees) with the sigma-level labels. The file is human-readable.
-- **Load:** reads a saved binary FITS mask and draws it on either panel through the WCS mapping.
-- **Save contour mask as FITS:** writes a binary 0/1 mask with a WCS header for use in other tools.
+- **Load:** reads a saved contour (`.txt` or `.csv`) and draws it on either panel through the WCS mapping. The contour lines up on an image with a different pixel scale or orientation.
 
 #### WCS Superimpose
 
 - Overlay two images that have a different WCS grid (a different pixel scale, array size, orientation, or pointing) onto one panel.
-- The overlay image is reprojected onto the pixel grid of the background image with WCS transforms.
-- The reprojection is self-implemented with `numpy`, `scipy`, and `astropy.wcs`. No external package is necessary.
+- The overlay image is reprojected onto the pixel grid of the background image with `reproject_exact` from the `reproject` package. This method conserves flux.
 - The overlay colormap and the alpha transparency (0.1 to 1.0) are configurable.
-- A peak-separation diagnostic prints the angular offset between the two image peaks to the terminal. Use it to confirm the alignment.
-- The reprojection uses bicubic interpolation (`order=3`) with NaN-aware masking.
 
 #### Resolution Matching — Pair (two images)
 
-Match a pair of images to a common spatial resolution. This is the standard step before a multi-instrument flux comparison.
+Match two images of one field to the same spatial resolution. This is the standard step before a flux comparison between two lines or two instruments.
 
-- Load two FITS images with a different pixel scale into the left panel and the right panel.
-- Click **Pair** to open the confirmation dialog.
-- The tool finds which image is finer and which is coarser. It then convolves the **finer** image up to the **coarser** pixel scale with a Gaussian kernel.
-- Kernel width: from the quadrature subtraction `σ = √(σ_target² − σ_input²) / 2.3548`, in fine-image pixels.
-- The convolution uses `astropy.convolution.convolve_fft` with these settings:
-  - `nan_treatment='interpolate'` — NaN pixels (for example the IFU footprint border) are handled correctly and do not propagate.
-  - `normalize_kernel=True` — the kernel sum is unity, so the surface brightness per pixel is kept.
-  - NaN padding of width `⌈4σ⌉` before the FFT, so the kernel tails stay inside the domain.
-  - A final flux renormalisation: `Σ(output_finite) == Σ(input_finite)` to machine precision (about 1e-7 relative error).
-- After the smoothing, the tool reprojects the convolved image onto a new pixel grid at the coarse pixel scale. It uses a flux-conserving spherical-polygon-intersection algorithm (equivalent to `reproject_exact`, self-implemented, with no external `reproject` dependency).
-- The output shape is large enough to contain the full original field of view of the fine image. No sky coverage is lost.
-- **Same-resolution guard:** if both panels have the same pixel scale (within 0.0001 arcsec/px), the tool shows a "nothing to do" message and does not run. This prevents an unnecessary convolution.
+- **Input:** two MIRI or NIRSpec images in a flux-per-pixel unit, one in each panel. The images must overlap on the sky. A surface-brightness unit such as MJy/sr is rejected.
+- Each image needs its line wavelength. The tool reads it from the `LINEWAVE` header key (written by the rotational-diagram "Save Maps"), or from the middle of `LAMMIN` and `LAMMAX` (written by the Gaussian-map export). If the header has neither, the tool asks for the wavelength.
+- Click **Pair** to open the confirmation dialog. It shows the two PSF widths, the kernel width, and the output grid.
+- The image with the **longer wavelength** is the reference, because its PSF is wider. The tool convolves the other image with a Gaussian kernel up to the reference PSF.
+- Kernel width: `σ = √(σ_ref² − σ_image²)`. Each σ comes from the PSF FWHM of the instrument at the line wavelength. MIRI: `FWHM(") = 0.033 × λ(µm) + 0.106`. NIRSpec: an approximate quadratic fit.
+- The tool then reprojects the convolved image onto the **native pixel grid of the reference image**, and it conserves the flux.
 - The output is a 2-HDU FITS file: the image, and a `COVERAGE` extension (the per-pixel overlap fraction, 0 to 1).
-- The save dialog shows a flux audit. `Ratio out/in : 1.000000` confirms exact flux conservation.
+- If both panels have the same wavelength, the tool shows a "nothing to convolve" message and does not run.
+- The save dialog shows a flux audit: the input total, the output total, and `Ratio out/in`. A ratio close to 1 (within about 1%) means that the flux is conserved. A clearly lower ratio means that part of the image falls outside the grid of the reference image. A small deviation can also come from NaN pixels at the edge of the image footprint.
 
 #### Resolution Matching — Batch (multiple images)
 
-Bring any number of multi-instrument images to one common resolution and field of view in a single step.
+Bring several images to one resolution in a single step.
 
 - Click **Batch** to open the batch dialog.
-- Click **+ Add FITS Files** to add two or more 2D FITS files (any mix of instruments, pixel scales, and orientations).
-- The tool does the following:
-  1. It finds the **coarsest pixel scale** among all inputs. This becomes the target scale.
-  2. It finds the **largest-area image** (the most sky coverage). This sets the output orientation and centre.
-  3. It builds one common output WCS at the coarsest scale, large enough to cover the **union of all input footprints**. No image loses sky coverage.
-  4. For each input, it applies the correct Gaussian kernel (σ from quadrature) and reprojects onto the common grid.
-  5. An image that is already at the coarsest scale gets σ = 0 (no smoothing, and a reproject only if it is necessary).
-- Click **Process & Download ZIP**. All outputs are packed into a `.zip` file: one FITS file per input, all on the same WCS grid, ready for a pixel-by-pixel comparison.
+- Click **+ Add FITS Files** to add two or more 2D FITS files. The requirements are the same as for Pair: MIRI or NIRSpec, a flux-per-pixel unit, and an overlap on the sky.
+- The tool reads or asks for the line wavelength of each file, as in Pair.
+- The file with the **longest wavelength** is the reference. The tool convolves every other file to the PSF of the reference and reprojects it onto the native grid of the reference. The reference file is not smoothed.
+- Click **Process & Download ZIP** and choose a save path. The `.zip` file has one `matched_<name>.fits` file for each input. All files are on the same grid, ready for a pixel-by-pixel comparison.
 - Each output FITS file includes the `COVERAGE` extension.
-- The completion dialog shows a flux-audit table (`ratio = 1.000000` per file).
+- The completion dialog shows the flux audit (the output total divided by the input total) for each file.
 
 #### Region Selection
 
@@ -130,12 +127,12 @@ Bring any number of multi-instrument images to one common resolution and field o
   - Pixel-level diagnostics with a fit plot
 
 - **Parameter maps:**
-  - Integrated area (intensity map)
+  - Integrated area (intensity map) and its error
   - Peak amplitude
-  - Line centre (kinematics)
+  - Line centre and velocity (kinematics)
   - Line width (σ and FWHM)
   - Fit quality (χ²)
-  - Success mask
+  - Fit status and success mask
 
 - **Residuals analysis:**
   - Export of a normalised residuals cube
@@ -157,20 +154,23 @@ Bring any number of multi-instrument images to one common resolution and field o
     - Save the fitted continuum as ASCII, or save the continuum-subtracted spectrum.
 
 - **Rotational-diagram analysis:**
-  - A separate analyzer window for rotational-temperature diagrams (1T and 2T fits)
+  - A separate analyzer window for rotational-temperature diagrams (1T and 2T fits), for H2 and CO
   - Fetch line data from HITRAN, or import a custom CSV of transitions.
-  - Select or clear individual lines. Enter the flux and the flux error for each line.
-  - Mark a non-detection as an upper limit. A dialog computes the limit directly from a FITS cube.
+  - Select or clear individual lines. Enter the flux and the flux error for each line, or calculate them from loaded cubes.
+  - Mark a non-detection as an upper limit. "Calculate Fluxes" computes the limit directly from a FITS cube.
   - Automatic method selection: ordinary least squares (`scipy.curve_fit`) when all points are detections; PyMC Bayesian censored regression when one or more upper limits are present.
+  - Ortho-to-para ratio (OPR) fit for H2
   - Emitting-radius and distance inputs (au and pc) for the column-density normalisation
   - The results dialog reports the fitted temperature or temperatures and the column densities.
+  - Restrict "Calculate Fluxes" and "Run Fit" to a region. Draw the region on a flux map, or import a saved region.
+  - **Pixel-by-pixel temperature maps:** "Calculate Maps" makes a flux map for each line. "Convolve Maps" puts the maps on one grid at the coarsest resolution. "Run Map" fits the rotational diagram at every pixel. "Load Maps" adds flux maps that you made in another tool.
 
 ### Data Processing
 
 - Coordinate conversion (pixel to RA and Dec)
 - Region-based spectral extraction
 - Statistical analysis of a selected region
-- Spectrum normalisation with baseline points
+- Spectrum normalisation to the peak of the full spectrum, or to the peak of a region's own spectrum
 - Continuum baseline subtraction (interactive and automatic)
 - Spectral-line identification (the HITRAN database and custom catalogs)
 - Multi-line automatic detection with SNR thresholding
@@ -188,7 +188,6 @@ Bring any number of multi-instrument images to one common resolution and field o
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
 - **Slice or region (FITS):** a single 2D slice, or the full cube masked to a selected region, from the main window's "Export" tool group
 - **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position
-- **Contour mask (FITS):** export of the binary region mask with a WCS header
 - **Rotated image (FITS):** save of the rotated image with the updated WCS header
 - **Convolved image (FITS):** save of the resolution-matched image (the "Pair" output) with the 2-HDU layout (image and `COVERAGE`)
 - **Batch ZIP:** a zip archive of all resolution-matched FITS files on a common WCS grid
@@ -419,11 +418,36 @@ Every CLI command that produces a spectrum saves a tab-delimited or comma-delimi
 
 ---
 
+## Python API (cube_explorer.api)
+
+`cube_explorer/api.py` gives the analysis functions of the GUI without the GUI. Use it in scripts and in Jupyter notebooks. The functions return plain Python objects, NumPy arrays, and dictionaries.
+
+```python
+from cube_explorer.api import load_cube, fit_line
+
+cube = load_cube("my_data.fits")
+result = fit_line(wavelength=cube.wavelength, spectrum=cube.spectrum, x1=7.43, x2=7.49)
+print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
+```
+
+| Task                | Functions                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Load data           | `load_cube`, `extract_pixel_spectrum`, `extract_region_spectrum`                                            |
+| Continuum           | `fit_continuum`, `save_continuum_cubes`                                                                     |
+| Gaussian fitting    | `fit_line`, `fit_hitran_lines`, `measure_equivalent_width`, `create_gaussian_map`, `export_residual_cube`   |
+| Flux                | `extract_flux`, `create_flux_map`                                                                           |
+| Rotational diagrams | `rotational_diagram`, `fit_region`, `fit_pixel`, `create_rotational_diagram_map`, `save_rotational_diagram_map_fits`, and the `_multi` versions for cubes at different pixel scales |
+
+- Each function has a docstring with its arguments and an example. Use `help(function_name)` to read it.
+- The map functions use several processes. On Windows and macOS, put the code of your script under `if __name__ == "__main__":`.
+
+---
+
 ## Installation
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.12 (the pinned versions in `requirements.txt` are tested on 3.12.x)
 - pip (the Python package installer)
 
 ### Dependencies
@@ -486,26 +510,27 @@ python main.py
    - Click a shape button (point, rectangle, circle, ellipse, or freehand) to start a region tool.
    - Draw the region on either slice view.
    - The statistics update automatically.
-   - The extracted spectrum shows in the bottom panel.
-   - Click the copy button to copy a region to the other panel.
+   - The extracted spectrum shows in the bottom panel, on the "Left Region" or "Right Region" tab.
+   - Use the copy button to copy a selection, a colormap, or a colour scale to the other panel.
 
 ### Gaussian Fitting
 
 4. Fit a Gaussian line profile. Open the "Gaussian Fit" group.
 
-   **Single-pixel fitting:**
-   - Click "Left" to mark the left boundary on the spectrum.
-   - Click "Right" to mark the right boundary on the spectrum.
+   **Single-line fitting (the spectrum on the active tab):**
+   - Click "Fit Left", then click the spectrum to mark the left edge of the fit window.
+   - Click "Peak", then click the spectrum to mark the line peak.
+   - Click "Fit Right", then click the spectrum to mark the right edge. "Fit Left" must be to the left of "Fit Right".
+   - Optionally, mark a line-free noise region with "Noise Left" and "Noise Right".
    - Click "Fit Gaussian" to run the fit.
-   - Read the fit results, the parameters, and the residuals.
-   - Open "Pixel Diagnostics" for the fit quality and the residual detail.
+   - Read the fit results: the centre, the amplitude, the width, the area, the baseline, and R².
 
    **Full-cube mapping:**
-   - Mark the boundaries as above.
+   - Mark "Fit Left" and "Fit Right" as above. The map fit also needs the noise region ("Noise Left" and "Noise Right").
    - Click "Fit Gaussian Map" to fit every pixel.
    - Wait for the background processing (10 to 30 seconds is typical).
-   - View the parameter maps (Area, Amplitude, Centre, FWHM, and so on).
-   - Use "Pixel Diagnostics" to find a problem region.
+   - View the parameter maps (Area, Amplitude, Centre, Velocity, FWHM, and so on).
+   - With "Pixel Select: ON" in the results window, click a pixel on the map to see its fit.
    - Export the residuals cube as FITS if it is necessary.
 
 ### Continuum Fitting
@@ -540,7 +565,7 @@ python main.py
 
    **Rotation:**
    - Select "Counter-Clockwise" or "Clockwise", and set the angle.
-   - Click "Rotate Left" or "Rotate Right".
+   - Click "Rotate (Left)" or "Rotate (Right)".
    - The WCS labels stay correct at any angle.
 
    **Contours.** Open the "Contour" group.
@@ -554,11 +579,11 @@ python main.py
    - "Clear" removes all contour overlays from a panel.
 
    **Save contour:**
-   - Click "Save", then choose a panel. The tool saves a `.txt` file with the columns `level, x_pixel, y_pixel, RA_deg, Dec_deg`.
+   - Click "Save". If both panels have contours, choose one. The tool saves a `.txt` file with the columns `level, x_pixel, y_pixel, RA_deg, Dec_deg`.
 
    **Load a saved contour:**
-   - Click "Load" and select a binary FITS mask file.
-   - The mask is drawn on the chosen panel through the WCS mapping.
+   - Click "Load", choose a panel, and select a saved contour `.txt` or `.csv` file. Then choose the line colour.
+   - The contour is drawn on the chosen panel through the WCS mapping.
 
    **Superimpose:**
    - Load a different image into the left panel and the right panel.
@@ -566,22 +591,20 @@ python main.py
    - Choose the background panel (the reference grid).
    - Select the overlay colormap and the alpha (0.5 is a good starting value).
    - The overlay image is reprojected onto the background WCS grid and blended.
-   - The terminal prints the peak separation in arcsec, so you can confirm the alignment.
 
    **Pair (resolution matching, two images).** Open the "Convolution" group.
-   - Load two images with a different pixel scale into the left panel and the right panel.
-   - Click "Pair".
-   - The confirmation dialog shows which image is convolved, the Gaussian kernel σ, and the output grid size.
-   - Click "Yes" to run. The output FITS file has a 2-HDU layout (image and `COVERAGE`).
-   - The success dialog shows the flux audit: `Ratio out/in : 1.000000`.
-   - If both panels have the same pixel scale, a message explains that no convolution is necessary.
+   - Load two MIRI or NIRSpec flux-per-pixel images of the same field into the left panel and the right panel.
+   - Click "Pair". If a header has no `LINEWAVE` key, enter the line wavelength (in µm) when the tool asks.
+   - The confirmation dialog shows which image is convolved, the two PSF widths, the kernel σ, and the output grid size. The image with the longer wavelength is the reference.
+   - Click "Yes" to run, then choose a save path. The output FITS file has a 2-HDU layout (image and `COVERAGE`).
+   - The success dialog shows the flux audit: the input total, the output total, and `Ratio out/in`.
+   - If both panels have the same wavelength, a message explains that there is nothing to convolve.
 
    **Batch (resolution matching, several files):**
    - Click "Batch".
-   - Click "+ Add FITS Files" and select two or more 2D FITS files.
-   - Click "Process & Download ZIP".
-   - Choose a save path for the output `.zip` file.
-   - All outputs share the same WCS grid (the coarsest pixel scale, the union field of view), ready for a comparison.
+   - Click "+ Add FITS Files" and select two or more 2D FITS files (MIRI or NIRSpec, flux-per-pixel units, the same field).
+   - Click "Process & Download ZIP" and choose a save path for the output `.zip` file.
+   - The file with the longest wavelength is the reference. All outputs are on its pixel grid, ready for a comparison.
 
 ### Rovibrational Flux Mapping
 
@@ -595,13 +618,26 @@ python main.py
 ### Rotational-Diagram Analysis
 
 8. Fit the rotational temperatures.
-   - Click "Rotational Diagram" to open the analyzer window.
+   - Click "Rotational Diagram" to open the analyzer window. The molecule (H2 or CO) shows above the table.
    - Fetch line data with "Fetch from HITRAN", or import a custom CSV with "Import from CSV".
    - Select the lines to include. Enter the measured flux and the flux error for each line.
-   - For a non-detection, mark the line as an upper limit. Use "Load FITS Files" and "Calculate Fluxes" to derive the limit from the cube.
-   - Enter the emitting radius ("R (au)") and the distance ("Distance (pc)"), then choose a 1T or a 2T fit in "Fit".
+   - For a non-detection, mark the line as an upper limit. Use "Load Cubes" and "Calculate Fluxes" to derive the flux or the limit from the cube.
+   - Enter the emitting radius ("R (au)") and the distance ("Distance (pc)"). Both fields start empty, and both are required. You can check "Unknown R" instead of a radius. Then choose a 1T or a 2T fit in "Fit".
    - Click "Run Fit". If any line is an upper limit, the fit switches to PyMC Bayesian censored regression instead of ordinary least squares.
    - Read the fitted temperature or temperatures and the column densities in the results dialog.
+   - Click "Save Fluxes" to save the fluxes as a CSV file. "Import from CSV" reads the file back.
+
+   **Temperature map (every pixel):**
+   - Load the cubes with "Load Cubes". To add a flux map that you made in another tool, use "Load Maps".
+   - Click "Calculate Maps". The tool asks for the detection threshold (3σ is the default) and makes one flux map for each checked line. Double-click "View" in the "Map" column to see a map.
+   - Click "Convolve Maps" to put all maps on one grid at the coarsest resolution. It needs two or more lines. It shows its plan first. Double-click "View" in the "Convolved Map" column to see a map.
+   - Click "Run Map". It needs at least 3 lines (5 lines for a 2T fit). The results window shows the temperature map, and a click on a pixel refits the diagram of that pixel.
+   - Click "Save Maps" to save the maps as FITS and PNG files in one zip file.
+
+   **Region (optional):**
+   - Click "Draw Region" to draw a region on the flux map of a line. It needs "Calculate Maps" first. Or click "Import Region" to load a region that you saved with "Save Region" in the main window or in the 2D viewer.
+   - "Calculate Fluxes" and "Run Fit" then use only that region. "Delete Region" goes back to the whole cube.
+   - "Calculate Maps", "Convolve Maps", and "Run Map" always use the whole cube.
 
 ### Data Export
 
@@ -615,47 +651,65 @@ python main.py
    - **Header viewer:** open "Header" to inspect the FITS header of a selected HDU.
    - **Line catalog:** "Import Lines" loads a custom spectral-line catalog (LST format).
    - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Show Lines" lists the loaded lines and lets you choose which ones to plot.
-   - **Normalize spectrum:** the "Normalize" checkbox uses baseline points for a normalised display.
+   - **Normalize spectrum:** the "Normalize" checkbox divides every spectrum by the peak of the full spectrum. "Show Left" and "Show Right" overlay a region's spectrum on the "Full" tab. "Self-Normalize Left" and "Self-Normalize Right" divide a region's spectrum by its own peak.
    - **Doppler shift:** "Shift" applies a multiplicative wavelength correction (km/s). Use "Apply Shift", "Cancel Preview", and "Revert Shift" to control it.
-   - **Wavelength range:** set the minimum and the maximum for a linked view update.
+   - **Wavelength range:** the "λ min" and "λ max" boxes (in µm) in the "Lines & Fit" group set the range for "Fetch HITRAN", "Import Lines", "Contam. Lines", and "Flux Map". They fill from the cube when you load it.
    - **New window:** the new-window button opens an independent application window for a multi-file comparison.
 
 ## File Structure
 
 ```
 IFU-Analyzer/
-├── main.py                              # Application entry point (GUI)
-├── clip.py                              # Command-line interface
-├── example_basic_api.py                 # Scripted, non-GUI analysis example
+├── main.py                                   # Application entry point (GUI)
+├── clip.py                                   # Command-line interface
+├── example_basic_api.py                      # Scripted, non-GUI analysis example
+├── warm_hitran_cache.py                      # Builds the offline HITRAN starter pack in hitran_local/
 ├── cube_explorer/
 │   ├── __init__.py
-│   ├── gui.py                           # Main window: spectrum and slice plots, layout (~3000 lines)
-│   ├── gui_continuum.py                 # Continuum-subtraction mixin (automatic and custom modes)
-│   ├── gui_gaussian.py                  # Gaussian-fitting mixin (single-pixel, full-cube, multi-Gaussian)
-│   ├── gui_flux_map.py                  # Flux-map mixin
-│   ├── gui_spectrum.py                  # Spectrum-plot mixin (tabs, normalisation, overplot)
-│   ├── gui_region_selection.py          # Shared region-selection controller (main window and 2D viewer)
-│   ├── gui_rotational_diagram.py        # Rotational-diagram analyzer window
-│   ├── gui_2d.py                        # 2D FITS dual viewer (WCS, rotation, contours, superimpose, resolution matching)
-│   ├── analyzer_2d.py                   # GUI-free Gaussian convolution and flux-conserving reprojection for gui_2d.py
-│   ├── data_loader.py                   # CubeData: FITS loading and instrument detection
-│   ├── gaussian_fitter.py              # Single and multi-Gaussian line fitting; full-cube parallel fits
-│   ├── flux_map_extractor.py           # Full-cube rovibrational flux mapping for any species
+│   ├── api.py                                # Programmatic (non-GUI) interface for scripts and notebooks
+│   ├── gui.py                                # Main window: spectrum and slice plots, layout (~3700 lines)
+│   ├── gui_continuum.py                      # Continuum-subtraction mixin (automatic and custom modes)
+│   ├── gui_gaussian.py                       # Gaussian-fitting mixin (single-line, full-cube, multi-Gaussian)
+│   ├── gui_flux_map.py                       # Flux-map mixin
+│   ├── gui_spectrum.py                       # Spectrum-plot mixin (tabs, normalisation, overplot)
+│   ├── gui_region_selection.py               # Shared region-selection controller (main window and 2D viewer)
+│   ├── gui_mixins.py                         # Shared helpers for the two-panel windows and the map dialogs
+│   ├── gui_rotational_diagram.py             # Rotational-diagram analyzer window
+│   ├── gui_2d.py                             # 2D FITS dual viewer (WCS, rotation, contours, superimpose, resolution matching)
+│   ├── data_loader.py                        # CubeData: FITS loading and instrument detection
+│   ├── gaussian_fitter.py                    # Single and multi-Gaussian line fitting; full-cube parallel fits
+│   ├── flux_map_extractor.py                 # Full-cube rovibrational flux mapping for any species
+│   ├── continuum_cube.py                     # Per-pixel continuum fits that write the continuum and continuum-subtracted cubes
 │   ├── rotational_diagram_h2_fitter.py       # H2 rotational-diagram temperature fits (1T and 2T)
 │   ├── rotational_diagram_general_fitter.py  # Rotational-diagram fits for non-H2 species
-│   ├── visualization.py               # SpectrumPlotter and SlicePlotter rendering classes
-│   ├── region_selector.py             # Matplotlib region-selector widgets
-│   ├── pixel_diagnostics.py           # Pixel-level fit-inspection dialog
-│   ├── colormap_dialog.py             # Colormap-customisation dialog
-│   ├── continuum_dialog.py            # Automatic-continuum parameter dialog
-│   ├── custom_continuum.py            # Interactive continuum anchor-point selector
-│   ├── flux_map_dialogs.py            # Flux-map configuration dialog, worker, and results dialog
-│   ├── gaussian_dialogs.py            # Gaussian-map worker and results dialog
-│   ├── species_dialog.py             # HITRAN species-selection dialog
-│   ├── line_catalog.py               # Line identification and HITRAN integration (cached in hitran_local/)
-│   ├── unit_converter.py             # Wavelength, frequency, velocity, and CGS unit conversion
-│   └── utils.py                      # Instrument detection and helper functions
-└── data/                            # Local sample FITS files (not tracked)
+│   ├── rotational_diagram_map.py             # Pixel-by-pixel rotational-diagram maps
+│   ├── rotational_diagram_map_dialogs.py     # Workers and dialogs for the rotational-diagram maps
+│   ├── convolve_reproject.py                 # PSF-matching convolution and reprojection (2D viewer and rotational-diagram maps)
+│   ├── import_map_dialog.py                  # Header checks for the Load Maps button
+│   ├── fits_export.py                        # Shared FITS headers and writers for the map exports
+│   ├── region_io.py                          # Save and load a region as sky coordinates
+│   ├── visualization.py                      # SpectrumPlotter and SlicePlotter rendering classes
+│   ├── region_selector.py                    # Matplotlib region-selector widgets
+│   ├── scale_dialog.py                       # Colour-scale and colour-range dialog (Linear, Log, Power)
+│   ├── colormap_dialog.py                    # Colormap-selection dialog
+│   ├── continuum_dialog.py                   # Automatic-continuum parameter dialog
+│   ├── custom_continuum.py                   # Interactive continuum anchor-point selector
+│   ├── pixel_diagnostics.py                  # Pixel-level fit-inspection dialog
+│   ├── flux_map_dialogs.py                   # Flux-map configuration dialog, worker, and results dialog
+│   ├── gaussian_dialogs.py                   # Gaussian-map worker and results dialog
+│   ├── species_dialog.py                     # Line-selection dialog ("Show Lines")
+│   ├── table_drag_select.py                  # Sortable tables with drag-to-check boxes
+│   ├── line_catalog.py                       # Line identification and HITRAN integration (cached in hitran_local/)
+│   ├── transition_patterns.py                # Per-molecule transition patterns for HITRAN lines
+│   ├── molecule_transition_filters.py        # Transition filter prompts for HITRAN lines
+│   ├── unit_converter.py                     # Wavelength, frequency, velocity, and CGS unit conversion
+│   ├── utils.py                              # Instrument detection and helper functions
+│   ├── icon_loader.py                        # Loads the SVG button icons
+│   └── icons/                                # SVG button icons (Calcite Sharp Line Icons, MIT License)
+├── hitran_local/                             # Offline HITRAN starter pack
+├── nirspec_disp/                             # JWST NIRSpec resolving-power tables
+├── docs/                                     # Sphinx documentation sources
+└── data/                                     # Local sample FITS files (not tracked)
 ```
 
 The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed above.
@@ -686,14 +740,17 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
    - A non-celestial WCS falls back to plain pixel axes automatically.
 
 5. **Superimpose misalignment:**
-   - Check the terminal for `DEBUG superimpose: Peak separation`. It should be less than 0.5 px.
-   - A large separation indicates a WCS header difference between the two files.
+   - A visible offset between the two images indicates a WCS header difference between the two files.
+   - Open "Header" on each panel and compare the WCS keywords.
 
 6. **"Pair" or "Batch" problems:**
-   - If the output sum differs from the input sum, confirm that both files have a valid `CDELT` or CD matrix in the header. The pixel scale is necessary to compute the kernel size.
-   - The flux-audit dialog (`Ratio out/in`) should always read `1.000000`. A large deviation indicates a corrupt WCS header.
-   - A "same resolution" message is expected when both panels have the same pixel scale. No action is necessary.
+   - An "Unsupported Instrument" message means that a file is not from MIRI or NIRSpec. The PSF formulas exist for those two instruments only.
+   - An "Unsupported BUNIT" message means that a file is not in a flux-per-pixel unit. A surface-brightness unit such as MJy/sr is rejected.
+   - The tool asks for a line wavelength when the header has no `LINEWAVE` key. Enter the wavelength in µm.
+   - A "same wavelength" message is expected when both panels have the same wavelength. No action is necessary.
    - A "No Sky Overlap" warning means that the two images cover disjoint sky regions. Load images of the same field. In "Batch" mode, the warning lists the file pairs that do not share sky, so you can remove the off-field file and try again.
+   - A "Missing Pixel Scale" message means that a header has no valid `CDELT` or CD matrix. The pixel scale is necessary to compute the kernel size.
+   - A flux-audit ratio clearly below 1 means that part of the image falls outside the grid of the reference image. A ratio near 0 means that the two images barely overlap. A deviation of about 1% or less can come from NaN pixels at the edge of the image footprint.
 
 7. **Continuum-subtraction problems:**
    - Every fit, in either mode, is applied to the original spectrum. You can refit and re-subtract repeatedly without a compounding error.
