@@ -14,16 +14,18 @@ Selecting the Fit Region
 Click **Gaussian Fit** on the middle toolbar to reveal the fitting controls. You then mark
 three wavelengths on the spectrum:
 
-- **Left** (λ_left): the shorter-wavelength edge of the fit window
+- **Fit Left** (λ_left): the shorter-wavelength edge of the fit window
 - **Peak** (λ_peak): the approximate line center, used as the initial guess for the fit
-- **Right** (λ_right): the longer-wavelength edge of the fit window
+- **Fit Right** (λ_right): the longer-wavelength edge of the fit window
 
-Each of **Left**, **Peak** and **Right** stays pressed until you click it again. The
-workflow is:
+To set one point:
 
 1. Click the button for the point you want to set
-2. Click on the spectrum at that wavelength
-3. Click the button again to release it
+2. Click on the spectrum at that wavelength. A dashed line marks the point, and the
+   button releases by itself
+
+To move a point, click its button and click the spectrum again. The Full, Left Region,
+and Right Region tabs each keep their own points.
 
 The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
 constrain the result — it only seeds the optimizer, and the fitted center is bounded by
@@ -37,7 +39,7 @@ the window edges, not by your click.
 
 The three points must be in order — ``λ_left < λ_peak < λ_right``. Both rules are
 enforced, and a violation stops the fit rather than producing a result you did not ask
-for:
+for. The message shows in a "Fit Failed" window:
 
 .. list-table::
    :header-rows: 1
@@ -45,14 +47,18 @@ for:
 
    * - Selection
      - What happens
-   * - Left at a longer wavelength than Right
-     - *Error: Left boundary must be less than the right boundary. Re-select the
-       boundaries in order.*
-   * - Peak outside the Left–Right window
-     - *Error: Peak lies outside the fit window. Move the Peak marker inside the
-       Left/Right boundaries.*
+   * - Fit Left at a longer wavelength than Fit Right
+     - *Error: Left boundary (…) must be less than the right boundary (…). Re-select
+       the boundaries in order.*
+   * - Peak outside the Fit Left–Fit Right window
+     - *Error: Peak (…) lies outside the fit window […]. Move the Peak marker inside
+       the Left/Right boundaries.*
 
-Re-toggle the offending button and click again; the other two points are kept.
+Click the button of the wrong point and click the spectrum again; the other points are kept.
+
+Before the fit starts, the window must also hold at least **5** finite data points. If it
+does not, a "Not Enough Data" message asks you to move Fit Left and Fit Right further
+apart.
 
 Running the Fit
 ===============
@@ -69,7 +75,7 @@ sloping continuum does not bias the width or area.
    :width: 100%
 
    A completed fit, zoomed to the selected window. The green and purple dashed lines are
-   the **Left** and **Right** boundaries; the red dotted line is the **Peak** click. The
+   the **Fit Left** and **Fit Right** boundaries; the red dotted line is the **Peak** click. The
    black dashed line is the linear **Baseline** connecting the flux at the two edges, and
    the shaded region between it and the red **Gaussian Fit** is the **Integrated Area** —
    the quantity reported as *Gaussian Area* in erg/s/cm².
@@ -88,9 +94,10 @@ The results window is organized into the same blocks the application prints:
 USER INPUT
 ----------
 
-Echoes back the wavelengths you actually clicked — **Left boundary**, **Peak** and
-**Right boundary** — so you can check the fit against what you asked for, plus the
-**Noise region** and whether it was required (see :ref:`noise-region-1d`).
+Echoes back the wavelengths you actually clicked — **Fit Left**, **Peak** and
+**Fit Right** — so you can check the fit against what you asked for, plus the
+**Noise region** (or "not set") and the number of points in the fit window (see
+:ref:`noise-region-1d`).
 
 FITTED PARAMETERS
 -----------------
@@ -193,39 +200,28 @@ warning, or the reason the fit failed.
 The Noise Region
 ================
 
-**Noise L** and **Noise R** are toggle buttons like the others, and mark a line-free
-stretch of spectrum used to estimate the noise level.
+**Noise Left** and **Noise Right** work like the other buttons: click one, then click the
+spectrum. They mark a line-free stretch of spectrum.
 
-For a normal 1D fit you can ignore them. They become **mandatory** in one specific case:
+For a 1D fit the noise region is **optional**. You can ignore it.
 
-.. important::
+**The noise region does not change any fitted value.** The noise estimate is not used in
+the optimization, the area, or R².
 
-   If fewer than **15** wavelength samples fall between λ_left and λ_right, the fit will
-   not run until you set both **Noise L** and **Noise R**. You will get:
+- If you set only one of the two, the application ignores both.
+- If you set both, the region needs at least **4** finite data points. If it has fewer,
+  a "Noise Region Too Narrow" message asks you to move Noise Left and Noise Right further
+  apart, or to clear them.
 
-       *Narrow range (N points, under 15). Define a noise region first, or widen the fit
-       window.*
-
-   The reason is sampling, not arithmetic. A Gaussian has three free parameters, so a
-   window of a dozen points is close to underdetermined, and the application refuses to
-   hand back parameters from it without you having at least looked at the surrounding
-   noise.
-
-**The noise region does not change any fitted value.** Once the fit runs, the noise
-estimate is not used in the optimization, the area, or R² — it only unlocks the narrow
-case. If you hit the warning, widening the window is usually the better fix, since a line
-sampled by fewer than 15 points is marginal regardless of what the noise level turns out
-to be.
-
-The results window states which case applied, so an unset noise region never looks like
-something you forgot:
+The results window shows the noise region you set, or "not set", with the number of
+points in the fit window:
 
 .. code-block:: text
 
-    Noise region:          not set (not required at 25 points)
-    Noise region:          7.100000 µm - 7.150000 µm (required at 12 points)
+    Noise region:          not set (25 points in fit window)
+    Noise region:          7.100000 µm - 7.150000 µm (25 points in fit window)
 
-Noise L / Noise R carry their full weight in :doc:`gaussian_fitting_cube`, where they are
+Noise Left / Noise Right carry their full weight in :doc:`gaussian_fitting_cube`, where they are
 always mandatory and set the detection threshold that separates detections from upper
 limits.
 
@@ -234,13 +230,14 @@ Constraints
 
 1. ``λ_left < λ_peak < λ_right``, enforced — see
    :ref:`the ordering rules above <ordering-rules>`
-2. The window needs at least **4** samples, since a Gaussian has three free parameters.
-   Below that the fit fails with "Not enough points in selected region (need at least
-   4)". Through the API, an empty or all-NaN window raises ``ValueError``
+2. The window needs at least **5** finite samples in the GUI ("Not Enough Data" message),
+   since a Gaussian has three free parameters. The fitter itself fails below 4 samples
+   with "Not enough points in selected region (need at least 4)". Through the API, an
+   empty or all-NaN window raises ``ValueError``, and so does ``x1 >= x2``
 3. Keep the window tight around the line. A window many times wider than the FWHM
    depresses R² and lets baseline structure far from the line influence the linear
    baseline subtraction
-4. Windows narrower than 15 samples require a noise region — see
+4. The noise region is optional. If you set it, it needs at least 4 finite samples — see
    :ref:`noise-region-1d` above
 5. The fitted center is bounded to ``[λ_left, λ_right]``. A line whose true center lies
    outside your window cannot be recovered — you have to move the boundaries

@@ -64,7 +64,11 @@
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Exporting Data</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#export-options-overview">Export Options Overview</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#exporting-spectra">Exporting Spectra</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-slices-regions-and-cubes">Exporting Slices, Regions, and Cubes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-continuum-cubes">Exporting Continuum Cubes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#exporting-gaussian-fit-maps">Exporting Gaussian Fit Maps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-flux-maps-and-rotational-diagrams">Exporting Flux Maps and Rotational Diagrams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#exporting-from-the-2d-viewer">Exporting from the 2D Viewer</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="2d_viewer.html">2D FITS Dual Image Viewer</a></li>
@@ -132,12 +136,37 @@
 </thead>
 <tbody>
 <tr class="row-even"><td><p><strong>Spectrum</strong></p></td>
-<td><p>ASCII, FITS</p></td>
+<td><p>Text (.txt, .csv)</p></td>
 <td><p>Further analysis</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>Gaussian Fit Maps</strong></p></td>
+<tr class="row-odd"><td><p><strong>Slice, masked slice, cube</strong></p></td>
+<td><p>FITS</p></td>
+<td><p>One slice, or the cube outside a region set to NaN</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Region</strong></p></td>
+<td><p>Text</p></td>
+<td><p>The sky coordinates of a region, for reuse on
+another cube (<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Continuum cubes</strong></p></td>
+<td><p>FITS</p></td>
+<td><p>The continuum and the continuum-subtracted cube</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Gaussian Fit Maps</strong></p></td>
 <td><p>FITS</p></td>
 <td><p>Imaging analysis tools</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Flux Map</strong></p></td>
+<td><p>FITS</p></td>
+<td><p>The flux map and the detection map</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Rotational diagram</strong></p></td>
+<td><p>CSV, FITS and PNG</p></td>
+<td><p>Line fluxes, and the temperature maps</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>2D viewer images</strong></p></td>
+<td><p>FITS, text, ZIP</p></td>
+<td><p>Rotated images, contours, and matched images</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Visualization</strong></p></td>
 <td><p>PNG, JPEG, PDF</p></td>
@@ -148,29 +177,79 @@
 </section>
 <section id="exporting-spectra">
 <h2>Exporting Spectra<a class="headerlink" href="#exporting-spectra" title="Link to this heading"></a></h2>
-<p><strong>ASCII Format</strong></p>
-<p>Export spectrum as tab-delimited text:</p>
+<p><strong>Text Format</strong></p>
+<p>Export the displayed spectrum as tab-delimited text:</p>
 <ol class="arabic simple">
-<li><p>Click on <strong>Save Spectrum</strong></p></li>
-<li><p>Specify filename with .txt or .csv extension</p></li>
-<li><p>File created with header that includes instrument and units</p></li>
-<li><p>File created with columns:</p></li>
+<li><p>Select the tab (Full, Left Region, or Right Region) that you want to save</p></li>
+<li><p>Click <strong>Save Spectrum</strong>, under the spectrum plot</p></li>
+<li><p>Specify a filename with a .txt or .csv extension</p></li>
+<li><p>The file starts with header lines that give the instrument, the tab, and the units. Then
+the columns follow:</p></li>
 </ol>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Wavelength(um)    Flux(mJy)
-4.5000            12.34
-4.5012            12.41
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span># Results Export from Cube Explorer
+# Instrument: MIRI
+# Spectrum tab: full
+# Type: full_results
+# Wavelength unit: um
+# Flux unit: MJy/sr
+#
+# Wavelength (um)    Original    Continuum    Subtracted
+4.500000e+00    1.234000e+01    nan    nan
+4.501200e+00    1.241000e+01    nan    nan
 ...
 </pre></div>
 </div>
+<p>The <strong>Continuum</strong> and <strong>Subtracted</strong> columns hold values only after you fit a continuum for
+that tab (<a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a>). Without a continuum, they are NaN.</p>
+</section>
+<section id="exporting-slices-regions-and-cubes">
+<h2>Exporting Slices, Regions, and Cubes<a class="headerlink" href="#exporting-slices-regions-and-cubes" title="Link to this heading"></a></h2>
+<p>The <strong>Export</strong> and <strong>Region</strong> groups in the toolbar hold the buttons for slices, cubes, and
+regions. Each button first asks which slice, Left or Right, to use.</p>
+<ul class="simple">
+<li><p><strong>Save Slice</strong>: the current slice as a standalone 2D FITS file</p></li>
+<li><p><strong>Save Slice (Masked)</strong>: the same, with everything outside the region set to NaN</p></li>
+<li><p><strong>Save Cube (Masked)</strong>: the whole cube, with everything outside the region set to NaN</p></li>
+<li><p><strong>Save Region</strong> and <strong>Import Region</strong>: a region as RA/Dec sky coordinates in a text file, and
+the way back (<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>)</p></li>
+</ul>
+</section>
+<section id="exporting-continuum-cubes">
+<h2>Exporting Continuum Cubes<a class="headerlink" href="#exporting-continuum-cubes" title="Link to this heading"></a></h2>
+<p><strong>Save Continuum Cubes</strong> (in the <strong>Continuum Tools</strong> group) writes two FITS cubes:
+<code class="docutils literal notranslate"><span class="pre">&lt;name&gt;_continuum.fits</span></code> and <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;_contsub.fits</span></code>
+(<a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a>).</p>
 </section>
 <section id="exporting-gaussian-fit-maps">
 <h2>Exporting Gaussian Fit Maps<a class="headerlink" href="#exporting-gaussian-fit-maps" title="Link to this heading"></a></h2>
 <p><strong>Export Gaussian Fitting Results</strong></p>
 <p>Save maps created from pixel-by-pixel cube fitting:</p>
 <ol class="arabic simple">
-<li><p>Click on <strong>Save as FITS file</strong> for each parameter on its result window</p></li>
+<li><p>In the “Gaussian Parameter Maps” window, select the map in the <strong>Parameter</strong> dropdown</p></li>
+<li><p>Click <strong>Save as FITS File</strong></p></li>
 <li><p>Specify filename</p></li>
 </ol>
+<p>Each map is a single-slice FITS file. The <strong>Residuals</strong> map is saved as a 3D cube
+(<a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a>).</p>
+</section>
+<section id="exporting-flux-maps-and-rotational-diagrams">
+<h2>Exporting Flux Maps and Rotational Diagrams<a class="headerlink" href="#exporting-flux-maps-and-rotational-diagrams" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Flux Map:</strong> in the results window, click <strong>Export as FITS</strong> to save the map that is
+displayed (<a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a>).</p></li>
+<li><p><strong>Rotational diagram:</strong> <strong>Save Fluxes</strong> writes the line table as a CSV file, and
+<strong>Import from CSV</strong> reads it back. <strong>Save Maps</strong> writes the maps as FITS and PNG files in one
+ZIP file (<a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a>).</p></li>
+</ul>
+</section>
+<section id="exporting-from-the-2d-viewer">
+<h2>Exporting from the 2D Viewer<a class="headerlink" href="#exporting-from-the-2d-viewer" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Save FITS</strong> (on each panel): the image, with its updated WCS header, for example after a rotation</p></li>
+<li><p><strong>Save</strong> in the <strong>Contour</strong> group: the contours as a text or CSV file</p></li>
+<li><p><strong>Pair</strong> and <strong>Batch</strong>: the matched images as FITS files, or as one ZIP file for <strong>Batch</strong>
+(<a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Image Viewer</span></a>)</p></li>
+</ul>
 <p><strong>Image Export Formats</strong></p>
 <p>Export intensity map as image:</p>
 <ol class="arabic simple">

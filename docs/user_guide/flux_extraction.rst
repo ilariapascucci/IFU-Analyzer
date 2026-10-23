@@ -9,20 +9,22 @@ analyzes emission or absorption across multiple rotational transitions of that s
 Starting Flux Extraction
 =========================
 
-**Fetch from HITRAN**
+**Fetch HITRAN**
 
-1. Enter min/max wavelengths in the toolbar, then click **HITRAN**
+1. Enter **λ min** and **λ max** (in µm) in the **Lines & Fit** group, then click **Fetch HITRAN**.
+   The boxes fill from the cube when you load it
 2. Choose a molecule (required)
 3. Choose isotopologue number (optional)
 4. Choose transition level (optional, different molecules have different transition levels)
 5. Refresh HITRAN cache (optional)
 
-Seven common molecules are preloaded and ready offline, no fetch needed: **H2O, CO2, CO,
-OH, HCN, C2H2, H2**. Any other molecule is fetched live from HITRAN the first time you
-request it (via HAPI, version 1.3.0.0), then cached locally for next time.
+Seven common molecules are preloaded for 1–30 µm and ready offline, no fetch needed: **H2O,
+CO2, CO, OH, HCN, C2H2, H2**. Any other molecule, or any other wavelength range, is fetched
+live from HITRAN the first time you request it (via HAPI, version 1.3.0.0), so it needs an
+internet connection. The lines are then cached locally for next time.
 
-52 molecules have lines in the 1–30 µm range this app targets, and support transition-level
-filtering (step 4 above):
+52 molecules support transition-level filtering (step 4 above). These are the molecules that
+have HITRAN lines between 1 and 30 µm:
 
 CO, H2, OH, H2O, HCN, C2H2, CO2, CS, OCS, SO2, C2H6, C4H2, HC3N, CH4, NH3, CH3, H3⁺, HF,
 HCl, HBr, HI, N2, NO⁺, NO, ClO, O2, SO, O3, N2O, NO2, HNO3, H2CO, HOCl, H2O2, H2S, HO2,
@@ -35,7 +37,7 @@ When HITRAN isn't reachable, click **Import Lines** to load your own line list f
 instead. Both ``wavelength`` and ``species`` columns are required.
 
 Once lines are loaded (either way), the spectrum shows them. Hovering over a line shows its
-species, wavelength, transition, and Einstein coefficients. Click **Lines** to open a table
+species, wavelength, transition, and Einstein coefficients. Click **Show Lines** to open a table
 of every currently loaded line: detections and contaminants together, with "Detection
 Only"/"Contaminating Only" filters. Check/uncheck rows to change what's plotted. Click any
 column header to sort by that column.
@@ -44,7 +46,7 @@ Load Contaminating Lines
 =========================
 
 Additionally (and optionally), you can mark contaminating (non-target) lines so both
-**Flux Map** and **Multi-Gaussian Fit** (below) can account for them instead of letting
+**Flux Map** and **Multi-Gauss** (below) can account for them instead of letting
 their flux distort a nearby target line's measurement. Two ways, and they merge together:
 
 **From a CSV**
@@ -58,15 +60,15 @@ Both ``wavelength`` and ``species`` columns are required.
 1. Click **Mark Contaminant**, then click the feature on the spectrum
 2. No HITRAN match is needed -- it's listed with species "N/A"
 3. The button stays toggled on so you can mark several in a row; click it again to stop
-4. To remove one, uncheck it in **Lines** or click its marker on the spectrum
+4. To remove one, uncheck it in **Show Lines** or click its marker on the spectrum
 
-Run **Flux Map** / **Multi-Gaussian Fit** again after loading or marking one for the fit to
+Run **Flux Map** / **Multi-Gauss** again after loading or marking one for the fit to
 pick it up.
 
 Multi-Gaussian Fit
 =====================
 
-Fit every currently-plotted line at once via ``curve_fit``, using each line's own
+The **Multi-Gauss** button fits every currently-plotted line at once via ``curve_fit``, using each line's own
 instrumental width. Lines that land in the same wavelength chunk (close or blended) are fit
 together against one shared continuum, so they no longer double-claim overlapping flux the
 way independent, uninformed per-line fits would.
@@ -84,10 +86,10 @@ interleaved with the target lines in the results, in wavelength order. It's neve
 toward the target line total or "Total Integrated Flux", but summed on its own as "Total
 Contaminant Flux" (see *Reading the results* below).
 
-1. (Optional) Fit a continuum first via **Continuum Tools → Automatic Continuum → Continuum
-   Line**. If you skip this, **Multi-Gaussian Fit** computes one automatically the first
+1. (Optional) Fit a continuum first via **Continuum Tools → Automatic Continuum → Fit
+   Continuum**. If you skip this, **Multi-Gauss** computes one automatically the first
    time you click it.
-2. Click **Multi-Gaussian Fit**
+2. Click **Multi-Gauss**
 
 A Gaussian curve is overlaid on the spectrum for each plotted line, and a results window
 opens with one block per line, an overall summary, and a separate section listing any
@@ -158,7 +160,7 @@ it -- neither numbering is global across the whole listing.
 How Chunking Works
 --------------------
 
-**Multi-Gaussian Fit** does not fit each line alone. It groups nearby lines into chunks
+**Multi-Gauss** does not fit each line alone. It groups nearby lines into chunks
 first.
 
 A chunk is a group of lines close enough in wavelength to overlap. Lines in one chunk
@@ -224,14 +226,18 @@ Using the API
 **Run the Full-Cube Flux Map**
 
 Extract a flux map across every spatial pixel, for whichever lines are currently checked
-in the **Lines** dialog (any species -- the map isn't restricted to CO):
+in the **Show Lines** dialog (any species -- the map isn't restricted to CO):
 
-1. Click on **Flux Map**.
-2. A popup explains that continuum subtraction runs automatically per pixel, using default
+1. Set **λ min** and **λ max** (in µm) in the **Lines & Fit** group. The map uses only the
+   checked lines inside this range.
+2. Click on **Flux Map**. The application checks the range and the lines first. If it finds
+   a problem, a message tells you what to change, for example "No Lines Selected": click
+   **Show Lines** and check some lines in the range.
+3. A popup explains that continuum subtraction runs automatically per pixel, using default
    parameters that work well for typical spectra. Click **No** to use those defaults, or
    **Yes** to open the same parameter dialog as the manual Automatic Continuum tool and set
-   your own values instead.
-3. A preview shows the brightest pixel within your wavelength range (a sanity check before
+   your own values instead. **Cancel** stops here.
+4. A preview shows the brightest pixel within your wavelength range (a sanity check before
    committing to a full-cube run), and exactly the checked lines that will be fit. Click
    **YES - Extract Map** to proceed.
 
@@ -279,7 +285,7 @@ map is currently selected.
 
 **Inspecting Individual Pixels**
 
-With **Pixel Select** on (the default), clicking a pixel on any of the four maps opens that pixel's fit:
+With **Pixel Select: ON** (the default), clicking a pixel on any of the four maps opens that pixel's fit:
 
 .. figure:: ../_static/pixel_spectrum.png
    :alt: Pixel spectrum zoomed to the fitted wavelength range, with the fitted continuum and every CO line marked in red
@@ -289,7 +295,7 @@ With **Pixel Select** on (the default), clicking a pixel on any of the four maps
    full 4.40–4.80 µm, 56-line CO band), with the real per-chunk fitted continuum trend and
    every detected target line marked in red.
 
-Turn **Pixel Select** off to zoom/pan the map freely instead of reopening this dialog on every
+Turn **Pixel Select** to OFF to zoom/pan the map freely instead of reopening this dialog on every
 click.
 
 
@@ -302,7 +308,7 @@ Extract fluxes programmatically for single spectra or full data cubes, using
 
 .. note::
 
-   This is a **different algorithm** from **Multi-Gaussian Fit**, and the two don't produce
+   This is a **different algorithm** from **Multi-Gauss**, and the two don't produce
    identical totals for the same spectrum. Both now fit lines simultaneously via the same
    function, so the real remaining difference isn't the fitting method itself, it's *which*
    lines get fit: ``extract_flux``/``create_flux_map`` auto-detect lines per pixel and

@@ -247,13 +247,13 @@ auto-detected from the ``-c`` argument:
 
    .. code-block:: bash
 
-      python clip.py subtract-continuum -i data/alma_cube.fits -c 0.03
+      python clip.py subtract-continuum -i data/miri_cube.fits -c 0.03
 
    Re-use a previously fitted continuum:
 
    .. code-block:: bash
 
-      python clip.py subtract-continuum -i data/alma_cube.fits -c continuum_export.txt
+      python clip.py subtract-continuum -i data/miri_cube.fits -c continuum_export.txt
 
    Re-use a GUI-saved results file (4-column format):
 

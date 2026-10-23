@@ -84,6 +84,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#continuum-fitting">Continuum Fitting</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.fit_continuum"><code class="docutils literal notranslate"><span class="pre">fit_continuum()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.measure_equivalent_width"><code class="docutils literal notranslate"><span class="pre">measure_equivalent_width()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.save_continuum_cubes"><code class="docutils literal notranslate"><span class="pre">save_continuum_cubes()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#flux-analysis">Flux Analysis</a><ul>
@@ -96,6 +97,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#cube_explorer.api.rotational_diagram"><code class="docutils literal notranslate"><span class="pre">rotational_diagram()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#rotational-diagram-maps">Rotational Diagram Maps</a></li>
 </ul>
 </li>
 </ul>
@@ -157,7 +159,7 @@ numbers.</p>
 with automatic instrument detection.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Path to FITS file</p>
+<dd class="field-odd"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Path to FITS file</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Object containing cube data, wavelength, WCS, and metadata</p>
@@ -166,7 +168,7 @@ with automatic instrument detection.</p>
 <dd class="field-odd"><p>CubeData</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If instrument cannot be detected or file is invalid</p>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.15)"><strong>ValueError</strong></a> – If instrument cannot be detected or file is invalid</p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -191,8 +193,8 @@ it always applies the correct (wavelength, y, x) axis order.</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube</strong> (<em>CubeData</em>) – Loaded cube, as returned by load_cube()</p></li>
-<li><p><strong>x</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – X pixel coordinate (0-based)</p></li>
-<li><p><strong>y</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Y pixel coordinate (0-based)</p></li>
+<li><p><strong>x</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a>) – X pixel coordinate (0-based)</p></li>
+<li><p><strong>y</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a>) – Y pixel coordinate (0-based)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -254,15 +256,15 @@ sample between x1 and x2, or pass peak_x explicitly.</p>
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values. Astropy
 Quantities are accepted; their units are stripped.</p></li>
 <li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values.</p></li>
-<li><p><strong>x1</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Left boundary of the fitting region.</p></li>
-<li><p><strong>x2</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Right boundary of the fitting region.</p></li>
-<li><p><strong>line_name</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Descriptive label for the line. Not stored
+<li><p><strong>x1</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Left boundary of the fitting region.</p></li>
+<li><p><strong>x2</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Right boundary of the fitting region.</p></li>
+<li><p><strong>line_name</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – Descriptive label for the line. Not stored
 on the result; it exists for readability at the call site.</p></li>
-<li><p><strong>peak_x</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Initial guess for the line center. Defaults
+<li><p><strong>peak_x</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Initial guess for the line center. Defaults
 to the brightest wavelength between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>.</p></li>
 <li><p><strong>header</strong> (<em>optional</em>) – FITS header used for unit conversion. Pass
 <code class="docutils literal notranslate"><span class="pre">cube.header</span></code> to match what the GUI produces.</p></li>
-<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Spectral axis unit, e.g. <code class="docutils literal notranslate"><span class="pre">cube.wave_unit</span></code>.</p></li>
+<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – Spectral axis unit, e.g. <code class="docutils literal notranslate"><span class="pre">cube.wave_unit</span></code>.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -280,7 +282,7 @@ dividing by a continuum measured in the cube’s own units.</p>
 <dd class="field-odd"><p>GaussianFitResult</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If no wavelength samples lie between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>, or
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.15)"><strong>ValueError</strong></a> – If no wavelength samples lie between <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>, or
     if every flux value in that window is NaN.</p>
 </dd>
 </dl>
@@ -307,14 +309,14 @@ dividing by a continuum measured in the cube’s own units.</p>
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">create_gaussian_map</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_jobs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#create_gaussian_map"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.create_gaussian_map" title="Link to this definition"></a></dt>
 <dd><p>Fit a Gaussian to every spatial pixel’s spectrum in a wavelength window.</p>
 <p>This is the same full-cube fitting used by the GUI’s Gaussian mapping
-dialog. RANSAC outlier rejection is always enabled.</p>
+dialog. Iterative sigma-clipping outlier rejection is always enabled.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube_data</strong> (<em>CubeData</em>) – Loaded cube from load_cube()</p></li>
-<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window (default: full range)</p></li>
-<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window (default: full range)</p></li>
-<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker threads (default: auto-detect CPUs)</p></li>
+<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window (default: full range)</p></li>
+<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window (default: full range)</p></li>
+<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker processes (default: auto-detect CPUs)</p></li>
 <li><p><strong>**kwargs</strong> – Passed through to fit_gaussians_per_pixel (e.g. fac_above_stdres,
 noise_min, noise_max, lambda_0, progress_callback)</p></li>
 </ul>
@@ -327,7 +329,7 @@ noise_min, noise_max, lambda_0, progress_callback)</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)">dict</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -346,11 +348,11 @@ noise_min, noise_max, lambda_0, progress_callback)</p></li>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube_data</strong> (<em>CubeData</em>) – Loaded cube from load_cube()</p></li>
-<li><p><strong>out_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Output FITS filename (default “residual_cube.fits”)</p></li>
-<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window</p></li>
-<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window</p></li>
-<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker threads (default: auto-detect CPUs)</p></li>
-<li><p><strong>return_cube</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – If True, return the residual array instead of writing
+<li><p><strong>out_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Output FITS filename (default “residual_cube.fits”)</p></li>
+<li><p><strong>lam_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength for the fit window</p></li>
+<li><p><strong>lam_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength for the fit window</p></li>
+<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker threads (default: auto-detect CPUs)</p></li>
+<li><p><strong>return_cube</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><em>bool</em></a>) – If True, return the residual array instead of writing
 to out_path – the two are exclusive, not additive: out_path is
 ignored when return_cube is True.</p></li>
 </ul>
@@ -387,7 +389,7 @@ smooth continuum through the remaining points.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
 <li><p><strong>flux</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>method</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Fitting method - currently only ‘auto’ is supported</p></li>
+<li><p><strong>method</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Fitting method - currently only ‘auto’ is supported</p></li>
 <li><p><strong>**kwargs</strong> – Additional arguments for fine-tuning:
 window_size (int): Size of median filter window (default 51, must be odd)
 sigma_threshold (float): Prominence threshold in sigma (default 2.0)
@@ -426,7 +428,7 @@ array is averaged over the wavelengths actually fitted.</p>
 <li><p><strong>fit_result</strong> (<em>GaussianFitResult</em>) – Result from <a class="reference internal" href="#cube_explorer.api.fit_line" title="cube_explorer.api.fit_line"><code class="xref py py-func docutils literal notranslate"><span class="pre">fit_line()</span></code></a>.</p></li>
 <li><p><strong>wavelength</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Wavelength array matching
 <code class="docutils literal notranslate"><span class="pre">continuum_spectrum</span></code>. Required when passing a continuum array.</p></li>
-<li><p><strong>continuum_spectrum</strong> (<em>array-like</em><em> or </em><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Continuum-only
+<li><p><strong>continuum_spectrum</strong> (<em>array-like</em><em> or </em><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Continuum-only
 spectrum, or a single continuum level. If omitted, the fit’s own
 baseline is used.</p></li>
 </ul>
@@ -436,16 +438,68 @@ baseline is used.</p></li>
 0.0 if the fit failed or the continuum level is non-positive.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)">float</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)">float</a></p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If a continuum array is given without a wavelength array.</p>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.15)"><strong>ValueError</strong></a> – If a continuum array is given without a wavelength array.</p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">continuum</span> <span class="o">=</span> <span class="n">fit_continuum</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">ew</span> <span class="o">=</span> <span class="n">measure_equivalent_width</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">continuum</span><span class="p">)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Equivalent width: </span><span class="si">{</span><span class="n">ew</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cube_explorer.api.save_continuum_cubes">
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">save_continuum_cubes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contsub_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">anchor_wavelengths</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_jobs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#save_continuum_cubes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.save_continuum_cubes" title="Link to this definition"></a></dt>
+<dd><p>Fit the continuum at every pixel, then save two cubes: the continuum
+and the continuum-subtracted (line-only) cube. The same as the GUI’s
+Save Continuum Cubes button. The two cubes always sum to the original.</p>
+<p>Two methods: automatic (the default), or anchor_wavelengths, the same
+wavelengths you would click in the GUI’s Custom Continuum tool. With
+anchors, each pixel gets a cubic spline through its own flux at the
+anchors (median of +/- 7 instrumental sigma, clipped at 3 sigma), held
+flat beyond the first and last anchor. Scripts that call this need an
+<code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">__name__</span> <span class="pre">==</span> <span class="pre">&quot;__main__&quot;:</span></code> guard on Windows/macOS.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cube_data</strong> (<em>CubeData</em>) – Loaded cube from load_cube()</p></li>
+<li><p><strong>continuum_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Output FITS path of the continuum cube</p></li>
+<li><p><strong>contsub_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Output FITS path of the continuum-subtracted cube</p></li>
+<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the fit_continuum() keyword
+arguments (window_size, sigma_threshold, peak_width, peak_distance,
+peak_exclusion, iterations, smoothing_factor). The same values
+apply to every pixel. If None, uses the defaults. Not allowed
+together with anchor_wavelengths.</p></li>
+<li><p><strong>anchor_wavelengths</strong> (<em>array-like</em><em>, </em><em>optional</em>) – At least 3 wavelengths, in the
+units of cube_data.wavelength. If given, uses the anchor method
+instead of the automatic one.</p></li>
+<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a><em>, </em><em>optional</em>) – Number of worker processes (default: auto-detect
+CPUs, capped by available memory)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>Number of pixels that have data but got no continuum (automatic: too</dt><dd><p>few valid points; anchors: fewer than 3 valid anchors). They are
+NaN in both cubes.</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)">int</a></p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">n_failed</span> <span class="o">=</span> <span class="n">save_continuum_cubes</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="s2">&quot;cube_continuum.fits&quot;</span><span class="p">,</span> <span class="s2">&quot;cube_contsub.fits&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">n_failed</span> <span class="o">=</span> <span class="n">save_continuum_cubes</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">cube</span><span class="p">,</span> <span class="s2">&quot;cube_continuum.fits&quot;</span><span class="p">,</span> <span class="s2">&quot;cube_contsub.fits&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">anchor_wavelengths</span><span class="o">=</span><span class="p">[</span><span class="mf">6.55</span><span class="p">,</span> <span class="mf">6.70</span><span class="p">,</span> <span class="mf">6.95</span><span class="p">,</span> <span class="mf">7.20</span><span class="p">,</span> <span class="mf">7.35</span><span class="p">])</span>
 </pre></div>
 </div>
 </dd></dl>
@@ -464,13 +518,13 @@ contaminant sharing its chunk fit simultaneously, so they don’t double-claim f
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength/frequency values</p></li>
 <li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Molecule name (e.g., ‘CO’, ‘H2O’, ‘CH4’, ‘[Fe II]’)</p></li>
-<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength to search. If None, uses spectrum min.</p></li>
-<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength to search. If None, uses spectrum max.</p></li>
-<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Isotopologue number (default 1 for main isotope)</p></li>
-<li><p><strong>refresh_cache</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Force refresh HITRAN cache (default False)</p></li>
-<li><p><strong>v_upper</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by upper vibrational level (e.g., 1 for v=1)</p></li>
-<li><p><strong>v_lower</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by lower vibrational level (e.g., 0 for v=0)</p></li>
+<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Molecule name (e.g., ‘CO’, ‘H2O’, ‘CH4’, ‘[Fe II]’)</p></li>
+<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Minimum wavelength to search. If None, uses spectrum min.</p></li>
+<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Maximum wavelength to search. If None, uses spectrum max.</p></li>
+<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a>) – Isotopologue number (default 1 for main isotope)</p></li>
+<li><p><strong>refresh_cache</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><em>bool</em></a>) – Force refresh HITRAN cache (default False)</p></li>
+<li><p><strong>v_upper</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by upper vibrational level (e.g., 1 for v=1)</p></li>
+<li><p><strong>v_lower</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a><em>, </em><em>optional</em>) – Filter by lower vibrational level (e.g., 0 for v=0)</p></li>
 <li><p><strong>header</strong> – FITS header. Required whenever any line is actually found – each
 line’s fit width comes from the instrument’s real spectral resolution at
 that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
@@ -510,7 +564,7 @@ let it convert; always check this rather than assuming</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.14)">list</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)">list</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -543,10 +597,10 @@ algorithm as the GUI’s Flux Map button, run on a single spectrum.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>wavelength</strong> (<em>array-like</em>) – Wavelength values in same units as catalog</p></li>
 <li><p><strong>spectrum</strong> (<em>array-like</em>) – Flux values</p></li>
-<li><p><strong>target_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Path to target line catalog (ECSV format)</p></li>
-<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines catalog</p></li>
-<li><p><strong>snr_threshold</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Minimum signal-to-noise for line detection (default 3.0)</p></li>
-<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
+<li><p><strong>target_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Path to target line catalog (ECSV format)</p></li>
+<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines catalog</p></li>
+<li><p><strong>snr_threshold</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Minimum signal-to-noise for line detection (default 3.0)</p></li>
+<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
 parameters (window_size, sigma_threshold, peak_width, peak_distance,
 peak_exclusion, iterations, smoothing_factor). If None, uses the defaults,
 which work well for typical spectra.</p></li>
@@ -556,7 +610,7 @@ that wavelength (MIRI/NIRSpec only), not a guess, so a missing header
 raises ValueError as soon as a line is found rather than silently fitting
 with the wrong width. Also used to convert ‘flux’/’contam_flux’ to
 erg/s/cm2 – ‘flux_unit’ in the result always tells you which you got.</p></li>
-<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Wavelength unit (e.g. ‘um’). Used alongside
+<li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – Wavelength unit (e.g. ‘um’). Used alongside
 header for the CGS conversion.</p></li>
 </ul>
 </dd>
@@ -577,7 +631,7 @@ and the conversion is supported for this instrument, else native units</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)">dict</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -604,15 +658,15 @@ as the GUI’s Flux Map button (continuum subtraction, then per-pixel fit).</p>
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>cube_data</strong> (<em>CubeData</em>) – Loaded cube from load_cube()</p></li>
-<li><p><strong>target_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to target line catalog (ECSV format).
+<li><p><strong>target_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – Path to target line catalog (ECSV format).
 If None, automatically fetches CO from HITRAN.</p></li>
-<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines</p></li>
-<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – Number of parallel jobs (default 8)</p></li>
-<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Min wavelength to fit, and for the HITRAN
+<li><p><strong>contamination_catalog_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – Path to contaminant lines</p></li>
+<li><p><strong>n_jobs</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a>) – Number of parallel jobs (default 8)</p></li>
+<li><p><strong>wavelength_min</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Min wavelength to fit, and for the HITRAN
 search when target_catalog_path is None (auto-detect if None)</p></li>
-<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>, </em><em>optional</em>) – Max wavelength to fit, and for the HITRAN
+<li><p><strong>wavelength_max</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a><em>, </em><em>optional</em>) – Max wavelength to fit, and for the HITRAN
 search when target_catalog_path is None (auto-detect if None)</p></li>
-<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
+<li><p><strong>continuum_params</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a><em>, </em><em>optional</em>) – Override the default continuum-fitting
 parameters, applied identically to every pixel. If None, uses the defaults,
 which work well for typical spectra.</p></li>
 </ul>
@@ -637,7 +691,7 @@ per pixel</p></li>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a></p>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)">dict</a></p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -660,20 +714,20 @@ HITRAN-based fitter (any molecule, e.g. CO) depending on <cite>molecule</cite>.<
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>fluxes</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – {J: flux_value}, J is the upper rotational level</p></li>
-<li><p><strong>flux_errors</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – {J: flux_error}</p></li>
-<li><p><strong>molecular_data</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – ‘wavelengths’, ‘Aul’, ‘Eu’, ‘gu’ keys, each {J: value}</p></li>
-<li><p><strong>OPR</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Fixed ortho-para ratio (H2 only; ignored otherwise)</p></li>
-<li><p><strong>fit_opr</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Grid-search OPR to minimize chi-squared (H2 only; ignored otherwise)</p></li>
+<li><p><strong>fluxes</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a>) – {J: flux_value}, J is the upper rotational level</p></li>
+<li><p><strong>flux_errors</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a>) – {J: flux_error}</p></li>
+<li><p><strong>molecular_data</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a>) – ‘wavelengths’, ‘Aul’, ‘Eu’, ‘gu’ keys, each {J: value}</p></li>
+<li><p><strong>OPR</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Fixed ortho-para ratio (H2 only; ignored otherwise)</p></li>
+<li><p><strong>fit_opr</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><em>bool</em></a>) – Grid-search OPR to minimize chi-squared (H2 only; ignored otherwise)</p></li>
 <li><p><strong>opr_grid</strong> (<em>array</em>) – OPR values to search (H2 only). Defaults to np.linspace(0.1, 5.0, 200)</p></li>
-<li><p><strong>fit1T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Report the 1T fit (always computed regardless, as 2T’s own seed)</p></li>
-<li><p><strong>fit2T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Perform the 2T fit</p></li>
-<li><p><strong>R</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Emitting radius (AU or cm)</p></li>
-<li><p><strong>dist</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Distance (pc or cm)</p></li>
-<li><p><strong>upper_limits</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – {J: True} for measurements marked as upper limits</p></li>
+<li><p><strong>fit1T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><em>bool</em></a>) – Report the 1T fit (always computed regardless, as 2T’s own seed)</p></li>
+<li><p><strong>fit2T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><em>bool</em></a>) – Perform the 2T fit</p></li>
+<li><p><strong>R</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Emitting radius (AU or cm)</p></li>
+<li><p><strong>dist</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Distance (pc or cm)</p></li>
+<li><p><strong>upper_limits</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a>) – {J: True} for measurements marked as upper limits</p></li>
 <li><p><strong>progress_callback</strong> (<em>callable</em>) – (phase, current, total) -&gt; None, for a GUI progress bar</p></li>
-<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>) – Species being fit, per get_available_molecules()</p></li>
-<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – HITRAN isotopologue number for <cite>molecule</cite> (ignored for H2)</p></li>
+<li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Species being fit, per get_available_molecules()</p></li>
+<li><p><strong>isotopologue</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#int" title="(in Python v3.15)"><em>int</em></a>) – HITRAN isotopologue number for <cite>molecule</cite> (ignored for H2)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -684,14 +738,29 @@ HITRAN-based fitter (any molecule, e.g. CO) depending on <cite>molecule</cite>.<
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>results (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.14)">dict</a>)</p>
+<dd class="field-odd"><p>results (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)">dict</a>)</p>
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – if neither fit1T nor fit2T is True</p>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.15)"><strong>ValueError</strong></a> – if neither fit1T nor fit2T is True</p>
 </dd>
 </dl>
 </dd></dl>
 
+</section>
+<section id="rotational-diagram-maps">
+<h2>Rotational Diagram Maps<a class="headerlink" href="#rotational-diagram-maps" title="Link to this heading"></a></h2>
+<p>These functions fit the rotational diagram at the pixels of one cube, or of several cubes
+with different pixel scales (the <code class="docutils literal notranslate"><span class="pre">_multi</span></code> versions). Each function has a docstring with its
+arguments. Use <code class="docutils literal notranslate"><span class="pre">help(function_name)</span></code> to read it. The user guide page
+<a class="reference internal" href="../user_guide/rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> has worked examples.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">fit_region</span></code>, <code class="docutils literal notranslate"><span class="pre">fit_pixel</span></code>, <code class="docutils literal notranslate"><span class="pre">create_rotational_diagram_map</span></code>: one cube</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">fit_region_multi</span></code>, <code class="docutils literal notranslate"><span class="pre">fit_pixel_multi</span></code>, <code class="docutils literal notranslate"><span class="pre">create_rotational_diagram_map_multi</span></code>: several
+cubes at different pixel scales</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">save_rotational_diagram_map_fits</span></code>: write a map result to a FITS file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">STATUS_OK</span></code>, <code class="docutils literal notranslate"><span class="pre">STATUS_NO_DATA</span></code>, <code class="docutils literal notranslate"><span class="pre">STATUS_TOO_FEW_LINES</span></code>, <code class="docutils literal notranslate"><span class="pre">STATUS_FIT_FAILED</span></code>: the
+outcome of each fit</p></li>
+</ul>
 </section>
 </section>
 

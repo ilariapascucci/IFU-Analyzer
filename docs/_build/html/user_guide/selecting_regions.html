@@ -66,7 +66,7 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#statistics">Statistics</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#each-region-gets-its-own-spectrum">Each Region Gets Its Own Spectrum</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#exporting-a-region-as-a-cube">Exporting a Region as a Cube</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#saving-slices-and-regions">Saving Slices and Regions</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#using-the-api">Using the API</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
@@ -141,24 +141,24 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><strong>*</strong> Point</p></td>
+<tr class="row-even"><td><p><strong>Point</strong></p></td>
 <td><p>Single pixels or precise locations</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>▭</strong> Rectangle</p></td>
+<tr class="row-odd"><td><p><strong>Rectangle</strong></p></td>
 <td><p>Rectangular areas, embedded sources</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>○</strong> Circle</p></td>
+<tr class="row-even"><td><p><strong>Circle</strong></p></td>
 <td><p>Circular features</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>⬭</strong> Ellipse</p></td>
+<tr class="row-odd"><td><p><strong>Ellipse</strong></p></td>
 <td><p>Elongated structures, galaxies</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>✏</strong> Freehand</p></td>
+<tr class="row-even"><td><p><strong>Freehand</strong></p></td>
 <td><p>Precise manual outlines</p></td>
 </tr>
 </tbody>
 </table>
-<p>Five more buttons sit alongside them in each slice’s toolbar:</p>
+<p>Three more buttons sit alongside them in each slice’s toolbar:</p>
 <table class="docutils align-default">
 <thead>
 <tr class="row-odd"><th class="head"><p>Button</p></th>
@@ -166,23 +166,18 @@
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><strong>✎</strong> Edit Shape</p></td>
+<tr class="row-even"><td><p><strong>Edit shape</strong></p></td>
 <td><p>Toggle drag/resize of the placed region</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>✖</strong> Clear</p></td>
+<tr class="row-odd"><td><p><strong>Clear</strong></p></td>
 <td><p>Remove the region and start over</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>⎘</strong> Copy</p></td>
-<td><p>Copy the selection to the other slice</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>⎘🌈</strong> Copy Color</p></td>
-<td><p>Copy this slice’s colormap to the other slice</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>💾</strong> Export</p></td>
-<td><p>Save the region (or a Point) as a NaN-masked cube</p></td>
+<tr class="row-even"><td><p><strong>Copy</strong> (menu)</p></td>
+<td><p>Copy the selection, the colormap, or the scale and range from the other slice</p></td>
 </tr>
 </tbody>
 </table>
+<p>Saving a slice or a region is a separate step, covered below.</p>
 </section>
 <section id="how-region-selection-works">
 <h2>How Region Selection Works<a class="headerlink" href="#how-region-selection-works" title="Link to this heading"></a></h2>
@@ -201,20 +196,20 @@ to <strong>Intensity (Area Selected)</strong> for the region.</p></li>
 </ol>
 <img alt="A placed rectangular region, with all shape buttons greyed out" src="../_images/region_placed.png" />
 <ol class="arabic simple" start="4">
-<li><p><strong>Edit if needed.</strong> Toggle <strong>✎</strong> to drag or resize. Toggle it off again to
+<li><p><strong>Edit if needed.</strong> Toggle <strong>Edit shape</strong> to drag or resize. Toggle it off again to
 commit the change.</p></li>
-<li><p><strong>Clear before drawing again.</strong> Press <strong>✖</strong> to remove the region. The shape
+<li><p><strong>Clear before drawing again.</strong> Press <strong>Clear</strong> to remove the region. The shape
 buttons become available again.</p></li>
 </ol>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>If the shape buttons look greyed out, a region is already placed on that
-slice. Press <strong>✖</strong> to clear it before selecting a new one.</p>
+slice. Press <strong>Clear</strong> to clear it before selecting a new one.</p>
 </div>
 </section>
 <section id="editing-a-placed-region">
 <h2>Editing a Placed Region<a class="headerlink" href="#editing-a-placed-region" title="Link to this heading"></a></h2>
-<p><strong>✎</strong> is a toggle, and it only becomes available once a region has been placed.</p>
+<p><strong>Edit shape</strong> is a toggle, and it only becomes available once a region has been placed.</p>
 <ul class="simple">
 <li><p><strong>Toggle on</strong>: handles appear; drag to move or resize</p></li>
 <li><p><strong>Toggle off</strong>: the edit is committed and handles are removed</p></li>
@@ -225,7 +220,7 @@ nudged out of place by an accidental click while you are working with the
 spectrum.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>✎</strong> is not available for <strong>Point</strong> selections, since a single pixel has nothing
+<p><strong>Edit shape</strong> is not available for <strong>Point</strong> selections, since a single pixel has nothing
 to resize. Clear it and place a new point instead.</p>
 </div>
 </section>
@@ -234,19 +229,19 @@ to resize. Clear it and place a new point instead.</p>
 <section id="point-select">
 <h3>Point Select<a class="headerlink" href="#point-select" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click <strong>*</strong> in the slice toolbar</p></li>
+<li><p>Click <strong>Point</strong> in the slice toolbar</p></li>
 <li><p>Click a pixel location</p></li>
 </ol>
 </section>
 <section id="rectangle-circle-and-ellipse-select">
 <h3>Rectangle, Circle and Ellipse Select<a class="headerlink" href="#rectangle-circle-and-ellipse-select" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click <strong>▭</strong>, <strong>○</strong>, or <strong>⬭</strong> in the slice toolbar</p></li>
+<li><p>Click <strong>Rectangle</strong>, <strong>Circle</strong>, or <strong>Ellipse</strong> in the slice toolbar</p></li>
 <li><p>Press and hold at one corner</p></li>
 <li><p>Drag to the opposite corner</p></li>
 <li><p>Release to place the region</p></li>
 </ol>
-<p>To adjust it afterwards, toggle <strong>✎</strong> and drag the handles:</p>
+<p>To adjust it afterwards, toggle <strong>Edit shape</strong> and drag the handles:</p>
 <ul class="simple">
 <li><p><strong>Drag edge</strong>: resize in one dimension</p></li>
 <li><p><strong>Drag corner</strong>: resize in two dimensions</p></li>
@@ -265,7 +260,7 @@ shows exactly what’s being summed into the region’s stats and spectrum.</spa
 <section id="freehand-select">
 <h3>Freehand Select<a class="headerlink" href="#freehand-select" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click <strong>✏</strong> in the slice toolbar</p></li>
+<li><p>Click <strong>Freehand</strong> in the slice toolbar</p></li>
 <li><p>Draw a closed outline around the feature</p></li>
 <li><p>Release to place the region</p></li>
 </ol>
@@ -294,7 +289,7 @@ it also populates that side’s own tab in the Spectrum Panel below.</p>
 <ul class="simple">
 <li><p><strong>Full</strong> tab: always shows the whole cube’s summed spectrum, regardless of
 any regions selected.</p></li>
-<li><p><strong>Left Slice</strong> / <strong>Right Slice</strong> tabs: show <em>only</em> that side’s own
+<li><p><strong>Left Region</strong> / <strong>Right Region</strong> tabs: show <em>only</em> that side’s own
 selected region’s spectrum. Empty until a region is selected on that
 side, and replaced (not blended) if you draw a new one.</p></li>
 <li><p><strong>Show Left</strong> / <strong>Show Right</strong>: while viewing the Full tab, overlay the
@@ -310,13 +305,42 @@ comparison, not a per-pixel average.</p>
 <p>For normalizing or Doppler-shifting these spectra once you have them, see
 <a class="reference internal" href="spectrum_display.html"><span class="doc">Spectrum Display</span></a>.</p>
 </section>
-<section id="exporting-a-region-as-a-cube">
-<h2>Exporting a Region as a Cube<a class="headerlink" href="#exporting-a-region-as-a-cube" title="Link to this heading"></a></h2>
-<p>Once a region – or a single <strong>Point</strong> – is placed, <strong>💾</strong> saves a copy of the loaded
-cube to a new FITS file with every spaxel outside it set to NaN. A Point selection works
-too: the exported cube keeps just that one spaxel, everything else NaN. Shape and WCS are
-unchanged either way, so the file reloads normally and a plain sum over it reproduces the
-region’s (or single pixel’s) own spectrum exactly.</p>
+<section id="saving-slices-and-regions">
+<h2>Saving Slices and Regions<a class="headerlink" href="#saving-slices-and-regions" title="Link to this heading"></a></h2>
+<p>The <strong>Region</strong> and <strong>Export</strong> groups, in the collapsible toolbar above the spectrum (next to
+<strong>Gaussian Fit</strong> and <strong>Lines &amp; Fit</strong>), hold five buttons for saving and loading.
+<strong>Region</strong> has Save Region and Import Region. <strong>Export</strong> has Save Slice, Save Slice (Masked),
+and Save Cube (Masked):</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Button</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Save Slice</p></td>
+<td><p>Save the current slice as a standalone 2D FITS file</p></td>
+</tr>
+<tr class="row-odd"><td><p>Save Slice (Masked)</p></td>
+<td><p>Same, with everything outside the region set to NaN</p></td>
+</tr>
+<tr class="row-even"><td><p>Save Cube (Masked)</p></td>
+<td><p>Save the whole cube, with everything outside the region set to NaN</p></td>
+</tr>
+<tr class="row-odd"><td><p>Save Region</p></td>
+<td><p>Save the region’s shape as RA/Dec sky coordinates</p></td>
+</tr>
+<tr class="row-even"><td><p>Import Region</p></td>
+<td><p>Load a region saved as text onto the current slice</p></td>
+</tr>
+</tbody>
+</table>
+<p>Every button first asks which slice, Left or Right, to use – the two slices keep
+independent regions, so this makes sure you save or load the one you mean.</p>
+<p><strong>Save Cube (Masked)</strong> is the original export: a copy of the loaded cube with every
+spaxel outside the region (or, for a <strong>Point</strong>, outside that one spaxel) set to NaN.
+Shape and WCS stay unchanged, so the file reloads normally and a plain sum over it
+reproduces the region’s own spectrum exactly.</p>
 <figure class="align-default" id="id2">
 <a class="reference internal image-reference" href="../_images/region_cube.png"><img alt="A cube reloaded from an exported region file, instrument label reading region-Level3_ch1-long_s3d.fits" src="../_images/region_cube.png" style="width: 100%;" />
 </a>
@@ -328,9 +352,19 @@ everything inside is untouched.</span><a class="headerlink" href="#id2" title="L
 </figure>
 <p>This is useful for handing just one region’s data to another tool (Flux Map, Rotational
 Diagram Map) without it seeing the rest of the cube, or for sharing one source’s data
-without the surrounding field.</p>
-<p><strong>💾</strong> stays disabled until something – a region or a Point – is placed, and disables
-again after clearing it with <strong>✖</strong>.</p>
+without the surrounding field. <strong>Save Slice</strong> and <strong>Save Slice (Masked)</strong> are the same
+idea for a single 2D image instead of the whole cube – the file reopens in the
+standalone 2D Viewer.</p>
+<p><strong>Save Region</strong> and <strong>Import Region</strong> carry a region between cubes with a
+different pixel scale or orientation, at the same point on the sky, instead of you
+re-measuring it by eye each time. Saving writes the region’s RA/Dec coordinates to a
+plain text file; importing reads that file and rebuilds the shape using the <em>currently
+open</em> cube’s own WCS. A Rectangle, Circle, or Ellipse that would come out rotated on the
+new cube is rebuilt as a Freehand shape instead, since a rotated box can’t be described
+by an axis-aligned selection tool. Both actions need a cube with usable sky coordinates:
+without one, or if the saved region falls entirely off the target cube’s frame, the
+action stops and explains why, rather than placing something in the wrong spot.</p>
+<p>All five buttons stay disabled until a cube is loaded.</p>
 </section>
 <section id="using-the-api">
 <h2>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h2>

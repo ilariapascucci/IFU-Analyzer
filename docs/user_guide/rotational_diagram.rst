@@ -11,7 +11,16 @@ Using the Rotational Diagram Tool
 
 **Accessing the Tool**
 
-1. Click the **Rot Diag** button in the main toolbar (**Rotational Diagram** group)
+1. Click the **Rotational Diagram** button in the top bar of the main window. The analyzer
+   window opens. The molecule (H2 or CO) shows above the table.
+
+The buttons of the window are in five collapsible groups:
+
+- **Lines**: **Fetch from HITRAN** and **Import from CSV**
+- **Source**: **Load Cubes**, **Load Maps**, and **Load Contaminating Lines**
+- **Flux**: **Calculate Fluxes** and **Save Fluxes**
+- **Maps**: **Calculate Maps**, **Convolve Maps**, and **Save Maps**
+- **Region**: **Draw Region**, **Import Region**, and **Delete Region**
 
 **Step 1: Get Line Data**
 
@@ -30,10 +39,11 @@ Two ways to populate the line table:
   the same molecule and it isn't the one currently selected above, the **Molecule** dropdown
   switches to match.
 
-A **Calculate Fluxes** button also appears once HITRAN lines are fetched, for measuring
-fluxes directly from a loaded cube instead of entering them by hand. Every line covered by
+The **Source** and **Flux** groups unlock once lines are in the table. Click **Load Cubes**
+to choose the FITS cube or cubes. Then click **Calculate Fluxes** to measure the fluxes
+from the cubes instead of entering them by hand. Every line covered by
 the same FITS file is fit simultaneously via ``curve_fit`` (the same chunked engine as
-:doc:`flux_extraction`'s **Multi-Gaussian Fit**, not a separate implementation), and the
+:doc:`flux_extraction`'s **Multi-Gauss**, not a separate implementation), and the
 results, including flux error, upper-limit status, and fit quality, are written straight
 into the table below.
 
@@ -50,17 +60,18 @@ again automatically instead of showing it as a plain detection.
    :alt: The Rotational Diagram Analyzer window, showing the line table and the Run Fit / Run Map buttons side by side
    :width: 100%
 
-   The line table -- ☑, HITRAN columns, flux/error columns, and the Calculate-Fluxes-only
+   The line table -- Use, HITRAN columns, flux/error columns, and the Calculate-Fluxes-only
    columns described below -- with **Run Fit** and **Run Map** at the bottom right.
 
 The table shows every fetched/imported line, in three groups of columns:
 
-- **☑**, **λ (μm)**, **Transition**, **A_ul (s⁻¹)**, **E_u (K)**, **g_u** — from HITRAN, not
-  editable. ☑ controls whether the line is included in the fit.
+- **Use**, **λ (μm)**, **Transition**, **A_ul (s⁻¹)**, **E_u (K)**, **g_u** — from HITRAN, not
+  editable. **Use** controls whether the line is included in the fit. **Select All** and
+  **Deselect All** above the table set every line at once.
 - **Flux**, **Flux Error**, **Error %**, **Upper Limit?** — enter by hand, or let
   **Calculate Fluxes** fill them in. A flux and either an absolute error or a percentage
   auto-calculate from each other as you type (toggle which one drives the calculation with
-  the **Error input** dropdown above the table). Check **Upper Limit?** instead of entering
+  the **Error input** dropdown above the table: **Flux Error** or **Error %**). Check **Upper Limit?** instead of entering
   an error for a non-detection.
 - **UL Flux (3σ)**, **Calculated?**, **Source**, **Fit R²**, **Fit** — only
   filled in by **Calculate Fluxes**:
@@ -81,7 +92,11 @@ The table shows every fetched/imported line, in three groups of columns:
   - **Fit R²**: quality of the underlying Gaussian fit, flagged red below 0.5 (the same
     threshold used elsewhere in the app)
   - **Fit**: click to open a plot of this line's own fit (spectrum, baseline, fitted curve,
-    flux, amplitude, R², FWHM), the same style as **Multi-Gaussian Fit**'s display
+    flux, amplitude, R², FWHM), the same style as **Multi-Gauss**'s display
+
+- **Map**, **Convolved Map** — filled by **Calculate Maps** and **Convolve Maps**. Double-click
+  **View** to see the map of a line (see *Creating a Rotational Diagram Map* below). These two
+  columns always use the whole cube, even if you set a region.
 
 .. figure:: ../_static/chunk_wide_rotdiag.png
    :alt: Individual line fit plot opened from the Fit column, showing spectrum, baseline, and Gaussian fit
@@ -127,12 +142,14 @@ still override the checkbox by hand afterward.
 
 **Step 3: Set Physical Parameters and Fit Options**
 
-- **R (AU)** — emitting region radius. Check **Unknown R** to skip it entirely; N\ :sub:`u`
+- **R (au)** — emitting region radius. Check **Unknown R** to skip it entirely; N\ :sub:`u`
   is then reported as a total molecule count rather than a column density.
 - **Distance (pc)**
+- **R (au)** and **Distance (pc)** start empty. Enter a number in both, or check **Unknown R**.
+  Without them, **Run Fit** stops and shows a message.
 - **Fit** — **1T** or **2T**
 - **Fit OPR** — grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
-  fixed equilibrium value **OPR = 3**. Only affects H2 S-branch lines. Click **▶ Advanced**
+  fixed equilibrium value **OPR = 3**. Only affects H2 S-branch lines. Click **▸ Advanced**
   to override the search grid (default: OPR from 0.1 to 3.0 in 400 steps).
 
 **Step 4: Run Fit → Results**
@@ -157,6 +174,20 @@ fit that struggled to sample doesn't look identical to one that converged cleanl
 **Run Map**, next to **Run Fit**, repeats this exact fit at every pixel of the loaded cube
 instead of once on the whole-cube summed spectrum -- see *Creating a Rotational Diagram Map*
 below.
+
+**Restrict the fit to a region (optional)**
+
+By default, **Calculate Fluxes** and **Run Fit** use the whole cube. To use only part of
+the field:
+
+- **Draw Region**: draw a region on the flux map of one line. It needs **Calculate Maps**
+  first, because the region is drawn on a map
+- **Import Region**: load a region that you saved with **Save Region** in the main window or
+  in the 2D viewer. The region is applied to each cube through that cube's own WCS, so one
+  region works for cubes with different pixel scales
+- **Delete Region**: go back to the whole cube
+
+**Calculate Maps**, **Convolve Maps**, and **Run Map** always use the whole cube.
 
 Worked Examples
 ================
@@ -211,9 +242,27 @@ Creating a Rotational Diagram Map
 ===================================
 
 **Run Map** repeats the same fit at every spaxel instead of once on the whole-cube summed
-spectrum. It uses the same line selection (☑), flux/error values or **Calculate Fluxes**
-measurements, and physical parameters (R, distance, 1T/2T, Fit OPR) as **Run Fit** -- the
-only difference is that the fit runs independently at every pixel.
+spectrum. It uses the same line selection (Use), and physical parameters (R, distance, 1T/2T,
+Fit OPR) as **Run Fit** -- the only difference is that the fit runs independently at every
+pixel. The flux of each line at each pixel comes from a flux map, so **Run Map** needs these
+steps in order:
+
+1. Click **Load Cubes** and choose the cubes. To add a flux map that you made in another tool,
+   click **Load Maps**.
+2. Check the lines to use (**Use** column). A 1T map needs at least 3 lines. A 2T map needs
+   at least 5 lines.
+3. Click **Calculate Maps**. The application asks for the detection threshold (3σ is the
+   default; any number of 0 or more is allowed). It fits each checked line at every pixel and
+   makes one flux map for each line. A line fitted below the threshold is an upper limit and
+   stays NaN in the maps. Double-click **View** in the **Map** column to see a map.
+4. Click **Convolve Maps**. It puts all maps on one grid at the coarsest resolution among them
+   and shows its plan first. It needs two or more lines. Double-click **View** in the
+   **Convolved Map** column to see a map.
+5. Click **Run Map**. It is available after steps 3 and 4. The results window shows the
+   temperature map, and a click on a pixel refits the diagram of that pixel.
+6. Click **Save Maps** to save the maps in a ZIP file (FITS and PNG files).
+
+The tooltip of a button that is not available says what is missing.
 
 .. figure:: ../_static/rotdiag_overview.png
    :alt: The Rotational Diagram Analyzer window, showing the line table and the Run Fit / Run Map buttons side by side
@@ -224,8 +273,8 @@ only difference is that the fit runs independently at every pixel.
 
 **Per-pixel detection gating**
 
-At each pixel, only lines whose flux clears the 3σ threshold *at that specific pixel* count
-as detections; a pixel needs at least the configured minimum number of detected lines (3 by
+At each pixel, only lines whose flux clears the detection threshold (3σ by default) *at that
+specific pixel* count as detections; a pixel needs at least the configured minimum number of detected lines (3 by
 default) before a fit is attempted there. Every pixel ends up in exactly one status:
 
 - **Fitted** -- enough lines detected, and the fit converged
@@ -243,7 +292,7 @@ cm⁻² -- one number averaging over everything the per-pixel map below resolves
 
    * - Pixel status
      - Count
-   * - Fitted (of which pinned at the 3000 K ceiling: 104)
+   * - Fitted (of which pinned at the temperature ceiling: 104)
      - 630 (21.6%)
    * - Not fitted -- no data
      - 1,479
@@ -257,8 +306,9 @@ cm⁻² -- one number averaging over everything the per-pixel map below resolves
    :width: 100%
 
    Temperature map. Median 1892.4 K across fitted pixels (std 587.1 K, range
-   629.8-3000 K) -- values that would exceed 3000 K are pinned at that ceiling rather
-   than left unbounded.
+   629.8-3000 K) -- values that would exceed the temperature ceiling are pinned at that
+   ceiling rather than left unbounded. The fit now allows temperatures up to 10000 K, so
+   a new run can show higher values than this older example.
 
 .. figure:: ../_static/rotdiagmap_colden_log.png
    :alt: Per-pixel column density map, log scale
@@ -377,7 +427,7 @@ the GUI's **Run Fit** / **Run Map** buttons call, for one cube:
     save_rotational_diagram_map_fits(result, "rot_diag_map.fits")
 
 On a real NIRSpec cube (37 H2 v=1→0 lines, 55×53 pixels), this fits 877/2915 pixels;
-``fit_region`` sums all 2915 into T = 5000.0 ± 138.0 K (pinned at the ceiling -- this
+``fit_region`` sums all 2915 into T = 5000.0 ± 138.0 K (pinned at the ceiling of that older run -- this
 particular v=1→0 hot-band set doesn't constrain a clean rotational diagram the way the
 S(1)–S(7) pure-rotational set does above); ``fit_pixel`` at (20, 25) finds 8 lines
 individually, one more than the whole-cube sum found.

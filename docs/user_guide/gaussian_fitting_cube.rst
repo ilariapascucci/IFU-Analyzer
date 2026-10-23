@@ -18,63 +18,64 @@ result is a set of maps rather than a single number per parameter.
 Setting Up the Fit
 ==================
 
-The cube fit reuses the same toggle buttons as the 1D fit. Set **Left** and **Right** to
+The cube fit reuses the same buttons as the 1D fit. Set **Fit Left** and **Fit Right** to
 bracket the line; this becomes the fit window for every pixel.
 
 **Peak is not used.** The cube fit derives its own center guess by fitting the summed
 spectrum of the whole cube once, or from the nearest HITRAN catalog line in the window if
 a line list is loaded. Your **Peak** click has no effect here.
 
-**Noise region is mandatory.** Set **Noise L** and **Noise R** over a line-free stretch of
-spectrum: the fit will not start without them. The noise measured there sets the
-detection threshold and the size of any upper limits.
+**Noise region is mandatory.** Set **Noise Left** and **Noise Right** over a line-free stretch
+of spectrum: the fit will not start without them ("Noise Region Required"). The region
+needs at least 4 wavelength samples ("Noise Region Too Narrow"). The noise measured there
+sets the detection threshold and the size of any upper limits.
+
+**Left Region and Right Region tabs.** On one of these tabs, select a region of more than
+one pixel first. A single point is not enough ("Region Selection Required"). The fit
+runs on the whole cube, and the maps show values only inside your region.
 
 .. _detection-caveat:
 
 .. note::
 
-   **"Detections" is not a strict 3σ cut.** A pixel can also be flagged as a detection with
-   a weaker signal (down to about 0.5σ) as long as the fit converges — this is deliberate,
-   meant to catch faint-but-real lines a strict cut would drop, at the cost of also letting
-   some noise through. Treat the mask as "a Gaussian was fitted here", not as a significance
-   cut, and apply your own SNR threshold before using an area map for science.
+   **A detection is a 3σ detection.** A pixel counts as a detection only when the fit
+   converged **and** the fitted amplitude is at least 3 times the noise. The noise comes from
+   your noise region, and the 3σ threshold is fixed in the GUI. A pixel that fails the test
+   becomes an upper limit instead.
 
 Running the Fit
 ===============
 
-Click **Fit Gaussian Map** and confirm the prompt. A progress bar tracks completion, and
-**Cancel** stops the run.
+Click **Fit Gaussian Map** and confirm the prompt ("Continue with map fitting?"). A
+"Gaussian Map Fitting" window tracks completion, and **Cancel** stops the run.
 
 **Cost.** A bit expensive compared to the other fitting tools, but still manageable --
 typically minutes, scaling with pixel count and window width.
 
-**Results are cached.** Re-running with the same Left/Right *and* the same Noise L/Noise R
-reuses the previous fit instead of recomputing it, and tells you so. Change any of the four
-boundaries to force a fresh run.
+**Results are cached.** Re-running with the same Fit Left/Fit Right *and* the same Noise
+Left/Noise Right, on the same tab, reuses the previous fit instead of recomputing it, and
+tells you so ("Cached Results"). Change any of the four boundaries to force a fresh run.
 
 Reading the Results
 ===================
 
-The results window opens automatically when the fit completes, headed by a summary:
+The "Gaussian Parameter Maps" window opens automatically when the fit completes. It starts
+with a headline: ``Successfully fit N / M pixels (x%)``. This counts the pixels where the fit
+converged. Click **Show Statistics** for the full breakdown:
 
-- **Successfully fit N / M pixels** — how many converged, e.g. from a real MIRI run:
-  ``Successfully fit 1,181 / 2,009 pixels (58.8%)``
-- **Detections | Upper limits** — how many pixels landed in each category (see
-  :ref:`the detection note <detection-caveat>`), e.g. ``Detections: 1,181 | Upper limits: 340``
-- **Global 1D fit** — the summed-spectrum fit used to seed the per-pixel initial guesses,
-  and where its center came from, e.g.
+- **Successfully fit** — how many pixels converged
+- **Detections** — pixels that converged and passed the 3σ test (see
+  :ref:`the detection note <detection-caveat>`)
+- **Upper limits** — pixels that failed the test. If some fits never ran (too few finite
+  samples, or an error inside the fit), the window says how many
+- **No data** — pixels with no valid spectrum, for example outside the field of view
 
-  .. code-block:: text
+The same dialog shows the minimum, maximum, mean, median, and standard deviation of the map
+that you selected.
 
-      Global 1D fit: A=3.6669e+05 MJy/sr, mu=7.4605 um, sigma=0.0029 um (center from total-spectrum)
-
-  ``center from total-spectrum`` means the seed came from fitting the summed cube. With a
-  HITRAN list loaded it can instead come from the nearest catalog line in the window.
-  ``A`` stays in the cube's native flux unit (not CGS-converted), unlike the Amplitude
-  map below, since this is just the initial guess used to seed every pixel's fit.
-
-Below that, a dropdown selects which map to display, with colormap and scale controls
-(Linear, Log, or Percentile 2–98%):
+Below the headline, the **Parameter** dropdown selects which map to display. Next to it are
+the **Colormap** dropdown and the **Scale…** button (Linear, Log, or Power, with an absolute
+or a percentile color range):
 
 .. figure:: ../_static/area_under_gaussian.png
    :alt: Gaussian Parameter Maps results window showing the Area (AUC) map for a real MIRI cube fit
@@ -100,11 +101,17 @@ Available in the dropdown:
      - Integrated line flux per pixel, ``A × σ × √(2π)``. In **erg/s/cm²** for MIRI,
        NIRSpec and MUSE (see :ref:`the unit table on the 1D page <area-units-1d>`);
        otherwise in the cube's native flux×wavelength units.
+   * - **Area Error**
+     - Uncertainty of the area, in the same unit as Area. NaN where the pixel is not a detection
    * - **Amplitude**
      - Peak height above the baseline, in the cube's **native flux unit** (e.g. MJy/sr) --
        unlike Area, this is *not* CGS-converted
    * - **Center**
-     - Fitted line center wavelength — this is your velocity map, once converted
+     - Fitted line center wavelength
+   * - **Velocity**
+     - Doppler velocity of the fitted center, in km/s. Zero velocity is the center of the fit
+       to the summed spectrum (shown in **Show Statistics**). If that fit did not converge,
+       the window says that the map is unavailable
    * - **Sigma**
      - Gaussian σ, in the spectral axis unit
    * - **FWHM**
@@ -112,6 +119,8 @@ Available in the dropdown:
    * - **chi2 (fit quality)**
      - Reduced χ², computed against the measured noise. Informational only — it does not
        affect which pixels count as detections.
+   * - **Fit Status**
+     - One value for each pixel: 0 = no data, 1 = upper limit, 2 = detection. See the table below
    * - **Success Mask**
      - Binary map of converged pixels
    * - **Residuals**
@@ -120,30 +129,30 @@ Available in the dropdown:
 Where every pixel goes
 ----------------------
 
-Each pixel lands in exactly one of three states, and they account for the whole map. From
-the MIRI run above:
+Each pixel lands in exactly one of three states, and they account for the whole map. The
+**Fit Status** map shows the state of each pixel, and **Show Statistics** counts them:
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 18 60
+   :widths: 22 12 66
 
    * - State
-     - Example
+     - Status
      - What is stored
    * - **Detection**
-     - 1,181 (58.8%)
-     - Converged and passed the detection test — which is **not** a 3σ cut, see
-       :ref:`the detection caveat <detection-caveat>`. Every parameter populated.
+     - 2
+     - Converged and passed the 3σ test, see
+       :ref:`the detection note <detection-caveat>`. Every parameter populated.
    * - **Upper limit**
-     - 340 (16.9%)
+     - 1
      - ``area`` holds an upper limit; amplitude, center, sigma, FWHM and χ²_red are **NaN**.
    * - **No data**
-     - 488 (24.3%)
+     - 0
      - The spectrum was entirely NaN — outside the field of view. Everything is NaN and
        *no* flag is set, so these pixels appear in neither mask.
 
-1,181 + 340 + 488 = 2,009. If your three numbers do not add up to the pixel count,
-something is wrong with the window or the cube.
+The three counts must add up to the pixel count. If they do not, something is wrong with the
+window or the cube.
 
 .. note::
 
@@ -162,14 +171,15 @@ with an upper limit at the detection threshold, and the pixel is flagged in the
    ``is_upper_limit`` is set by **several** paths, not only "amplitude below threshold": a
    window with fewer than 5 finite samples, a failed noise estimate, and an exception inside
    the fit all land here too. In the last case, if the failure happened before an initial σ
-   guess existed, ``area`` is **NaN while** ``is_upper_limit`` **is True**.
+   guess existed, ``area`` is **NaN while** ``is_upper_limit`` **is True**. The ``fit_failed``
+   mask marks the pixels whose fit never ran.
 
 Inspecting Individual Pixels
 =============================
 
-With **Pixel Select** on (the default), clicking a pixel on the map opens that pixel's own
+With **Pixel Select: ON** (the default), clicking a pixel on the map opens that pixel's own
 fit, the same control as :doc:`flux_extraction`'s pixel inspector, but for a single
-Gaussian instead of a multi-line fit. Turn **Pixel Select** off to zoom/pan the map
+Gaussian instead of a multi-line fit. Turn **Pixel Select** to OFF to zoom/pan the map
 freely instead of reopening this dialog on every click.
 
 .. figure:: ../_static/gaussian_map_pixel.png
@@ -193,7 +203,7 @@ single-slice FITS file you can reopen in the 2D viewer (:doc:`2d_viewer`) or in 
 tools.
 
 The header of each exported map carries the fit's provenance: ``LAMMIN``/``LAMMAX`` for the
-window, ``NSUCC``/``NTOTAL`` for the detection count, ``PARAM`` for which map it is, and
+window, ``NSUCC``/``NTOTAL`` for the number of successful fits and the number of pixels, ``PARAM`` for which map it is, and
 ``BUNIT`` set to the same unit shown on the colorbar.
 
 .. note::
@@ -236,12 +246,17 @@ Using the API
 .. code-block:: python
 
     maps['amplitude']         # Peak amplitude, in the cube's native flux unit (e.g. MJy/sr)
+    maps['amplitude_error']   # Amplitude uncertainty
     maps['center']            # Line center wavelength
     maps['sigma']             # Gaussian sigma
     maps['fwhm']              # 2.355 * sigma
     maps['area']              # Integrated flux, or an upper limit - check is_upper_limit
-    maps['success']           # Boolean: did the pixel converge and pass the detection test?
+    maps['area_error']        # Area uncertainty (NaN where the pixel is not a detection)
+    maps['r_squared']         # Reduced chi-squared (the "chi2" map in the GUI)
+    maps['success']           # Boolean: did the fit converge?
+    maps['is_detection']      # Boolean: converged and amplitude >= fac_above_stdres * noise
     maps['is_upper_limit']    # Boolean: area is an upper limit (may still be NaN)
+    maps['fit_failed']        # Boolean: the part of is_upper_limit whose fit never ran
     maps['residuals_cube']    # 3D residuals cached during fitting
     maps['fac_above_stdres']  # The threshold that was used
     maps['wavelength_unit']   # Spectral axis unit string
@@ -281,7 +296,9 @@ file:
 Constraints and Tips
 ====================
 
-1. **Left < Right**, and the noise region must be set — the run will not start otherwise
+1. **Fit Left < Fit Right**, and the noise region must be set (at least 4 samples) — the
+   run will not start otherwise. On the Left Region or Right Region tab, you also need a
+   region of more than one pixel
 2. Keep the noise region **close in wavelength** to the fit window. Detector noise varies
    with wavelength, so a distant noise estimate misstates the detection threshold across
    the whole map

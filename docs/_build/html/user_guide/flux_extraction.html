@@ -131,19 +131,21 @@ molecule/atom HITRAN or a custom catalog supports) from spectral data cubes. Thi
 analyzes emission or absorption across multiple rotational transitions of that species.</p>
 <section id="starting-flux-extraction">
 <h2>Starting Flux Extraction<a class="headerlink" href="#starting-flux-extraction" title="Link to this heading"></a></h2>
-<p><strong>Fetch from HITRAN</strong></p>
+<p><strong>Fetch HITRAN</strong></p>
 <ol class="arabic simple">
-<li><p>Enter min/max wavelengths in the toolbar, then click <strong>HITRAN</strong></p></li>
+<li><p>Enter <strong>λ min</strong> and <strong>λ max</strong> (in µm) in the <strong>Lines &amp; Fit</strong> group, then click <strong>Fetch HITRAN</strong>.
+The boxes fill from the cube when you load it</p></li>
 <li><p>Choose a molecule (required)</p></li>
 <li><p>Choose isotopologue number (optional)</p></li>
 <li><p>Choose transition level (optional, different molecules have different transition levels)</p></li>
 <li><p>Refresh HITRAN cache (optional)</p></li>
 </ol>
-<p>Seven common molecules are preloaded and ready offline, no fetch needed: <strong>H2O, CO2, CO,
-OH, HCN, C2H2, H2</strong>. Any other molecule is fetched live from HITRAN the first time you
-request it (via HAPI, version 1.3.0.0), then cached locally for next time.</p>
-<p>52 molecules have lines in the 1–30 µm range this app targets, and support transition-level
-filtering (step 4 above):</p>
+<p>Seven common molecules are preloaded for 1–30 µm and ready offline, no fetch needed: <strong>H2O,
+CO2, CO, OH, HCN, C2H2, H2</strong>. Any other molecule, or any other wavelength range, is fetched
+live from HITRAN the first time you request it (via HAPI, version 1.3.0.0), so it needs an
+internet connection. The lines are then cached locally for next time.</p>
+<p>52 molecules support transition-level filtering (step 4 above). These are the molecules that
+have HITRAN lines between 1 and 30 µm:</p>
 <p>CO, H2, OH, H2O, HCN, C2H2, CO2, CS, OCS, SO2, C2H6, C4H2, HC3N, CH4, NH3, CH3, H3⁺, HF,
 HCl, HBr, HI, N2, NO⁺, NO, ClO, O2, SO, O3, N2O, NO2, HNO3, H2CO, HOCl, H2O2, H2S, HO2,
 COF2, COCl2, CS2, PH3, SO3, GeH4, HCOOH, C2H4, CH3OH, CH3Cl, CH3Br, CH3CN, CH3F, CH3I,
@@ -152,7 +154,7 @@ COFCl, ClNO2.</p>
 <p>When HITRAN isn’t reachable, click <strong>Import Lines</strong> to load your own line list from a CSV
 instead. Both <code class="docutils literal notranslate"><span class="pre">wavelength</span></code> and <code class="docutils literal notranslate"><span class="pre">species</span></code> columns are required.</p>
 <p>Once lines are loaded (either way), the spectrum shows them. Hovering over a line shows its
-species, wavelength, transition, and Einstein coefficients. Click <strong>Lines</strong> to open a table
+species, wavelength, transition, and Einstein coefficients. Click <strong>Show Lines</strong> to open a table
 of every currently loaded line: detections and contaminants together, with “Detection
 Only”/”Contaminating Only” filters. Check/uncheck rows to change what’s plotted. Click any
 column header to sort by that column.</p>
@@ -160,7 +162,7 @@ column header to sort by that column.</p>
 <section id="load-contaminating-lines">
 <h2>Load Contaminating Lines<a class="headerlink" href="#load-contaminating-lines" title="Link to this heading"></a></h2>
 <p>Additionally (and optionally), you can mark contaminating (non-target) lines so both
-<strong>Flux Map</strong> and <strong>Multi-Gaussian Fit</strong> (below) can account for them instead of letting
+<strong>Flux Map</strong> and <strong>Multi-Gauss</strong> (below) can account for them instead of letting
 their flux distort a nearby target line’s measurement. Two ways, and they merge together:</p>
 <p><strong>From a CSV</strong></p>
 <ol class="arabic simple">
@@ -172,14 +174,14 @@ their flux distort a nearby target line’s measurement. Two ways, and they merg
 <li><p>Click <strong>Mark Contaminant</strong>, then click the feature on the spectrum</p></li>
 <li><p>No HITRAN match is needed – it’s listed with species “N/A”</p></li>
 <li><p>The button stays toggled on so you can mark several in a row; click it again to stop</p></li>
-<li><p>To remove one, uncheck it in <strong>Lines</strong> or click its marker on the spectrum</p></li>
+<li><p>To remove one, uncheck it in <strong>Show Lines</strong> or click its marker on the spectrum</p></li>
 </ol>
-<p>Run <strong>Flux Map</strong> / <strong>Multi-Gaussian Fit</strong> again after loading or marking one for the fit to
+<p>Run <strong>Flux Map</strong> / <strong>Multi-Gauss</strong> again after loading or marking one for the fit to
 pick it up.</p>
 </section>
 <section id="multi-gaussian-fit">
 <h2>Multi-Gaussian Fit<a class="headerlink" href="#multi-gaussian-fit" title="Link to this heading"></a></h2>
-<p>Fit every currently-plotted line at once via <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>, using each line’s own
+<p>The <strong>Multi-Gauss</strong> button fits every currently-plotted line at once via <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>, using each line’s own
 instrumental width. Lines that land in the same wavelength chunk (close or blended) are fit
 together against one shared continuum, so they no longer double-claim overlapping flux the
 way independent, uninformed per-line fits would.</p>
@@ -195,10 +197,10 @@ interleaved with the target lines in the results, in wavelength order. It’s ne
 toward the target line total or “Total Integrated Flux”, but summed on its own as “Total
 Contaminant Flux” (see <em>Reading the results</em> below).</p>
 <ol class="arabic simple">
-<li><p>(Optional) Fit a continuum first via <strong>Continuum Tools → Automatic Continuum → Continuum
-Line</strong>. If you skip this, <strong>Multi-Gaussian Fit</strong> computes one automatically the first
+<li><p>(Optional) Fit a continuum first via <strong>Continuum Tools → Automatic Continuum → Fit
+Continuum</strong>. If you skip this, <strong>Multi-Gauss</strong> computes one automatically the first
 time you click it.</p></li>
-<li><p>Click <strong>Multi-Gaussian Fit</strong></p></li>
+<li><p>Click <strong>Multi-Gauss</strong></p></li>
 </ol>
 <p>A Gaussian curve is overlaid on the spectrum for each plotted line, and a results window
 opens with one block per line, an overall summary, and a separate section listing any
@@ -262,7 +264,7 @@ it – neither numbering is global across the whole listing.</p>
 </section>
 <section id="how-chunking-works">
 <h3>How Chunking Works<a class="headerlink" href="#how-chunking-works" title="Link to this heading"></a></h3>
-<p><strong>Multi-Gaussian Fit</strong> does not fit each line alone. It groups nearby lines into chunks
+<p><strong>Multi-Gauss</strong> does not fit each line alone. It groups nearby lines into chunks
 first.</p>
 <p>A chunk is a group of lines close enough in wavelength to overlap. Lines in one chunk
 share one continuum. The fit solves for every line in the chunk at the same time, in one
@@ -319,13 +321,17 @@ No line’s flux comes from a fit that ignored what sits next to it.</p>
 </div>
 <p><strong>Run the Full-Cube Flux Map</strong></p>
 <p>Extract a flux map across every spatial pixel, for whichever lines are currently checked
-in the <strong>Lines</strong> dialog (any species – the map isn’t restricted to CO):</p>
+in the <strong>Show Lines</strong> dialog (any species – the map isn’t restricted to CO):</p>
 <ol class="arabic simple">
-<li><p>Click on <strong>Flux Map</strong>.</p></li>
+<li><p>Set <strong>λ min</strong> and <strong>λ max</strong> (in µm) in the <strong>Lines &amp; Fit</strong> group. The map uses only the
+checked lines inside this range.</p></li>
+<li><p>Click on <strong>Flux Map</strong>. The application checks the range and the lines first. If it finds
+a problem, a message tells you what to change, for example “No Lines Selected”: click
+<strong>Show Lines</strong> and check some lines in the range.</p></li>
 <li><p>A popup explains that continuum subtraction runs automatically per pixel, using default
 parameters that work well for typical spectra. Click <strong>No</strong> to use those defaults, or
 <strong>Yes</strong> to open the same parameter dialog as the manual Automatic Continuum tool and set
-your own values instead.</p></li>
+your own values instead. <strong>Cancel</strong> stops here.</p></li>
 <li><p>A preview shows the brightest pixel within your wavelength range (a sanity check before
 committing to a full-cube run), and exactly the checked lines that will be fit. Click
 <strong>YES - Extract Map</strong> to proceed.</p></li>
@@ -371,7 +377,7 @@ target total).</span><a class="headerlink" href="#id4" title="Link to this image
 <p><strong>Export as FITS</strong> / <strong>Show Statistics</strong> buttons in the results window apply to whichever
 map is currently selected.</p>
 <p><strong>Inspecting Individual Pixels</strong></p>
-<p>With <strong>Pixel Select</strong> on (the default), clicking a pixel on any of the four maps opens that pixel’s fit:</p>
+<p>With <strong>Pixel Select: ON</strong> (the default), clicking a pixel on any of the four maps opens that pixel’s fit:</p>
 <figure class="align-default" id="id6">
 <a class="reference internal image-reference" href="../_images/pixel_spectrum.png"><img alt="Pixel spectrum zoomed to the fitted wavelength range, with the fitted continuum and every CO line marked in red" src="../_images/pixel_spectrum.png" style="width: 100%;" />
 </a>
@@ -381,7 +387,7 @@ full 4.40–4.80 µm, 56-line CO band), with the real per-chunk fitted continuum
 every detected target line marked in red.</span><a class="headerlink" href="#id6" title="Link to this image"></a></p>
 </figcaption>
 </figure>
-<p>Turn <strong>Pixel Select</strong> off to zoom/pan the map freely instead of reopening this dialog on every
+<p>Turn <strong>Pixel Select</strong> to OFF to zoom/pan the map freely instead of reopening this dialog on every
 click.</p>
 </section>
 </section>
@@ -392,7 +398,7 @@ click.</p>
 <strong>Flux Map</strong> button.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>This is a <strong>different algorithm</strong> from <strong>Multi-Gaussian Fit</strong>, and the two don’t produce
+<p>This is a <strong>different algorithm</strong> from <strong>Multi-Gauss</strong>, and the two don’t produce
 identical totals for the same spectrum. Both now fit lines simultaneously via the same
 function, so the real remaining difference isn’t the fitting method itself, it’s <em>which</em>
 lines get fit: <code class="docutils literal notranslate"><span class="pre">extract_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_flux_map</span></code> auto-detect lines per pixel and

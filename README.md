@@ -447,27 +447,30 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 
 ### Prerequisites
 
-- Python 3.12 (the pinned versions in `requirements.txt` are tested on 3.12.x)
+- Python 3.12 only. The pinned versions in `requirements.txt` are tested on 3.12.x. Python 3.11 and 3.13 fail at the install step. If you do not have 3.12, use conda (see Setup).
 - pip (the Python package installer)
-
-### Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-Core dependencies: `PyQt5`, `matplotlib`, `numpy`, `scipy`, `pandas`, `scikit-learn`, and `astropy`. `pymc` and `nutpie` are necessary for the Bayesian censored-regression fits (the rotational-diagram upper limits). `hitran-api` is necessary for live HITRAN database queries. Refer to `requirements.txt` for the full list with versions.
 
 ### Setup
 
-1. Clone the repository:
+1. Get the code. Using Git is recommended, because it lets you update later. If Git is not on your computer yet: on macOS run `brew install git`, on Windows use the installer from https://git-scm.com, and on Linux use your package manager (for example `sudo apt install git`). Then clone the repository:
 
 ```bash
 git clone https://github.com/ilariapascucci/IFU-Analyzer.git
 cd IFU-Analyzer
 ```
 
-2. (Optional) Create and activate a virtual environment:
+   After the clone, you are on the `main` branch. To switch to another branch, run `git checkout <branch-name>`.
+
+   Without Git: open https://github.com/ilariapascucci/IFU-Analyzer, click **Code**, then **Download ZIP**. Extract the ZIP file and open a terminal in the extracted folder.
+
+2. Create an environment with Python 3.12 (recommended). With conda, which installs Python 3.12 for you:
+
+```bash
+conda create -n ifu-analyzer python=3.12
+conda activate ifu-analyzer
+```
+
+   Without conda, use `venv`. Python 3.12 must already be installed:
 
 ```bash
 python -m venv venv
@@ -476,6 +479,18 @@ venv\Scripts\activate
 # On Unix or macOS
 source venv/bin/activate
 ```
+
+3. Install the dependencies. This can take several minutes:
+
+```bash
+pip install -r requirements.txt
+```
+
+Core dependencies: `PyQt5`, `matplotlib`, `numpy`, `scipy`, `pandas`, `scikit-learn`, and `astropy`. `pymc` and `nutpie` are necessary for the Bayesian censored-regression fits (the rotational-diagram upper limits). `hitran-api` is necessary for live HITRAN database queries. Refer to `requirements.txt` for the full list with versions.
+
+### Updating
+
+If you cloned the repository with Git, run `git pull` in the `IFU-Analyzer` folder each time before you run the program. If `requirements.txt` changed, run `pip install -r requirements.txt` again. A ZIP download cannot update itself: download the ZIP file again.
 
 ### Data Files
 
@@ -772,3 +787,5 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
 ## Credits
 
 The button icons in `cube_explorer/icons/` are from the Calcite Sharp Line Icons collection by Esri, used under the MIT License. See `cube_explorer/icons/LICENSE`.
+
+IFU Analyzer is released under the MIT License. See `LICENSE`.

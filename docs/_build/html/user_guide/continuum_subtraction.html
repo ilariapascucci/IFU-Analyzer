@@ -60,6 +60,8 @@
 <li class="toctree-l2"><a class="reference internal" href="gaussian_fitting_cube.html">Pixel-by-Pixel Cube Fitting</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Continuum Subtraction</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#automatic-continuum-subtraction">Automatic Continuum Subtraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-continuum-subtraction">Custom Continuum Subtraction</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#save-continuum-cubes">Save Continuum Cubes</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="flux_extraction.html">Flux Extraction</a></li>
@@ -131,10 +133,21 @@ is essential for accurate line flux measurements.</p>
 <p><strong>Via the GUI:</strong></p>
 <ol class="arabic simple">
 <li><p>Click <strong>Continuum Tools</strong> in the toolbar</p></li>
-<li><p>Select <strong>Automatic Continuum</strong></p></li>
-<li><p>Choose <strong>Continuum Line</strong> to fit the global continuum</p></li>
-<li><p>The spectrum will update showing the continuum-subtracted result</p></li>
+<li><p>Click <strong>Automatic Continuum</strong>. Two buttons appear in a row under the toolbar:
+<strong>Fit Continuum</strong> and <strong>Subtract Continuum</strong></p></li>
+<li><p>Click <strong>Fit Continuum</strong>. The “Continuum Fitting Parameters” window opens. It has seven
+settings: Window Size (pixels), Sigma Threshold (σ), Minimum Peak Width, Minimum Peak
+Separation, Peak Exclusion Zone, Number of Iterations, and Smoothing Factor. Accept the
+defaults or change them, then click OK. The fitted continuum shows on the spectrum</p></li>
+<li><p>Click <strong>Subtract Continuum</strong>. The spectrum updates to show the continuum-subtracted result</p></li>
+<li><p>Click <strong>Subtract Continuum</strong> again to undo the subtraction. Click <strong>Fit Continuum</strong> again
+to remove the continuum line</p></li>
 </ol>
+<p>The continuum is fitted and subtracted for the tab that is active (Full, Left Region, or
+Right Region). Each tab keeps its own continuum.</p>
+<p>If you click <strong>Subtract Continuum</strong> before a continuum exists, the message “Click Fit
+Continuum first.” appears. If you switch between Automatic and Custom mode, the application
+asks you to confirm, because it clears the progress of the other mode.</p>
 <figure class="align-default" id="id1">
 <a class="reference internal image-reference" href="../_images/automatic_continuum.png"><img alt="Spectrum with an automatically-fitted continuum overlaid in orange" src="../_images/automatic_continuum.png" style="width: 100%;" />
 </a>
@@ -150,6 +163,50 @@ is essential for accurate line flux measurements.</p>
 instead of the sloped/varying continuum above.</span><a class="headerlink" href="#id2" title="Link to this image"></a></p>
 </figcaption>
 </figure>
+</section>
+<section id="custom-continuum-subtraction">
+<h2>Custom Continuum Subtraction<a class="headerlink" href="#custom-continuum-subtraction" title="Link to this heading"></a></h2>
+<p>Use the custom mode when the automatic fit does not follow your continuum. You choose the
+points, and the application fits a cubic spline through them.</p>
+<p><strong>Via the GUI:</strong></p>
+<ol class="arabic simple">
+<li><p>Click <strong>Continuum Tools</strong>, then <strong>Custom Continuum</strong>. A row of buttons appears:
+<strong>Custom Subtract</strong>, <strong>Delete Point</strong>, <strong>Save Points</strong>, <strong>Load Points</strong>, and <strong>OK</strong></p></li>
+<li><p>Click <strong>Custom Subtract</strong>. A window with instructions opens</p></li>
+<li><p>Click on the spectrum to add continuum points. Each point snaps to the nearest data
+point. Choose places <strong>without</strong> emission or absorption lines. You need at least <strong>3</strong>
+points, and more points give a better fit</p></li>
+<li><p>To remove a point, right-click its black marker. Or turn on <strong>Delete Point</strong> and
+left-click the marker</p></li>
+<li><p>Click <strong>OK</strong> (or press ENTER) when you are done. The fitted continuum shows in orange, and
+the application asks “Subtract it from the spectrum?”. Click Yes to subtract. Press ESC to cancel</p></li>
+<li><p>Click <strong>Custom Subtract</strong> again to undo the subtraction</p></li>
+</ol>
+<p>If the keys do not work, click on the spectrum plot first.</p>
+<p><strong>Save Points</strong> writes the points to a text or CSV file (wavelength and flux). <strong>Load Points</strong>
+reads such a file into the current session. Use them to reuse the same points on another cube.</p>
+</section>
+<section id="save-continuum-cubes">
+<h2>Save Continuum Cubes<a class="headerlink" href="#save-continuum-cubes" title="Link to this heading"></a></h2>
+<p><strong>Save Continuum Cubes</strong> (in the <strong>Continuum Tools</strong> group) fits the continuum at <strong>every
+pixel</strong> and writes two cubes. The two cubes always add up to the original cube.</p>
+<ol class="arabic simple">
+<li><p>Click <strong>Save Continuum Cubes</strong></p></li>
+<li><p>Choose the method:</p>
+<ul class="simple">
+<li><p><strong>Automatic</strong>: the application asks for the same seven settings as above</p></li>
+<li><p><strong>Custom</strong>: you place the points on the spectrum, as in the custom mode, and press OK.
+Only the wavelengths of the points are used. Each pixel gets a cubic spline through its
+own flux at those wavelengths</p></li>
+</ul>
+</li>
+<li><p>Choose a base file name. The application writes <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;_continuum.fits</span></code> (the continuum
+cube) and <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;_contsub.fits</span></code> (the continuum-subtracted cube). If the files exist,
+it asks before it overwrites them</p></li>
+<li><p>A progress window shows the fit. <strong>Cancel</strong> stops it</p></li>
+</ol>
+<p>Pixels that have data but get no continuum are NaN in both cubes. The completion message
+tells you how many.</p>
 <p><strong>Using the Continuum API</strong></p>
 <p>Fit and subtract continuum programmatically:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">fit_continuum</span>
@@ -182,6 +239,7 @@ instead of the sloped/varying continuum above.</span><a class="headerlink" href=
     <span class="n">spectrum</span><span class="p">,</span>
     <span class="n">window_size</span><span class="o">=</span><span class="mi">51</span><span class="p">,</span>           <span class="c1"># Window for median filter (must be odd)</span>
     <span class="n">sigma_threshold</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>      <span class="c1"># Prominence threshold in sigma</span>
+    <span class="n">peak_width</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>             <span class="c1"># Minimum width of a peak, in pixels</span>
     <span class="n">peak_distance</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>          <span class="c1"># Minimum pixels between peaks</span>
     <span class="n">peak_exclusion</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>         <span class="c1"># Pixels excluded on each side of peak</span>
     <span class="n">iterations</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>             <span class="c1"># Number of refinement iterations</span>
@@ -191,6 +249,24 @@ instead of the sloped/varying continuum above.</span><a class="headerlink" href=
 </div>
 <p>Higher <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span></code> values are less aggressive (detect fewer lines).
 Lower <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span></code> values are more aggressive (detect more lines).</p>
+<p><strong>Saving continuum cubes</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">save_continuum_cubes</span></code> does the same as the <strong>Save Continuum Cubes</strong> button. It needs an
+<code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">__name__</span> <span class="pre">==</span> <span class="pre">&quot;__main__&quot;:</span></code> guard on Windows and macOS, because it uses several processes:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">save_continuum_cubes</span>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Automatic method (default parameters, or pass continuum_params={...})</span>
+    <span class="n">n_failed</span> <span class="o">=</span> <span class="n">save_continuum_cubes</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="s2">&quot;cube_continuum.fits&quot;</span><span class="p">,</span> <span class="s2">&quot;cube_contsub.fits&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Custom method: the wavelengths of the points that you would click in the GUI</span>
+    <span class="n">n_failed</span> <span class="o">=</span> <span class="n">save_continuum_cubes</span><span class="p">(</span>
+        <span class="n">cube</span><span class="p">,</span> <span class="s2">&quot;cube_continuum.fits&quot;</span><span class="p">,</span> <span class="s2">&quot;cube_contsub.fits&quot;</span><span class="p">,</span>
+        <span class="n">anchor_wavelengths</span><span class="o">=</span><span class="p">[</span><span class="mf">6.55</span><span class="p">,</span> <span class="mf">6.70</span><span class="p">,</span> <span class="mf">6.95</span><span class="p">,</span> <span class="mf">7.20</span><span class="p">,</span> <span class="mf">7.35</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>The function returns the number of pixels that have data but got no continuum.</p>
 <p><strong>Tips for Better Continuum Fits</strong></p>
 <ul class="simple">
 <li><p>If too much continuum is being subtracted, increase <code class="docutils literal notranslate"><span class="pre">sigma_threshold</span></code></p></li>

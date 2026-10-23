@@ -64,22 +64,28 @@ Cursor readout and statistics
   - Dec in ``dd:mm:ss``
   - Flux value at the cursor (with the unit from ``BUNIT``)
 
-- The **Image Stats** panel reports min, max, and mean of the displayed
-  image, plus the unit string from ``BUNIT``.
+- The statistics panel reports min, max, mean, sum, and standard deviation of the
+  displayed image (or of the region, if you draw one), the color range in use, and the
+  unit string from ``BUNIT``.
 
 Color scale and colormap
 ------------------------
 
-- Each panel has a **🎚** button that opens a menu with four scaling options:
+- Each panel has a **Scale** icon that opens the "Scale and Color Range" dialog. It has
+  three scales:
 
   - **Linear** — direct mapping
   - **Log** — ``log10`` of the data (useful for faint extended emission)
-  - **Sqrt** — square-root stretch (intermediate compression)
-  - **Power** — ``data^2`` stretch (boosts high-flux regions)
+  - **Power** — normalized data raised to a gamma value that you set (boosts high-flux
+    regions when gamma is above 1)
 
-- Click the **🌈** button on either panel to open the colormap dialog
+  The color range can be absolute (typed values) or percentile.
+
+- Click the **Colormap** icon on either panel to open the colormap dialog
   and pick any matplotlib colormap. Colorblind-friendly options are
   included.
+- The **Copy** icon on each panel opens a menu. It copies the selection, the colormap, or
+  the scale and range from the other panel.
 
 .. image:: ../_static/2d_colormap_dialog.png
    :alt: The Select Colormap dialog showing available colormaps
@@ -110,8 +116,8 @@ Performing a rotation
 
 1. Select the direction (**Clockwise** or **Counter-Clockwise**).
 2. Enter the angle in degrees (any positive number).
-3. Click **Rotate** and pick the panel (**Left** / **Right**) to apply
-   the rotation to.
+3. Click **Rotate (Left)** or **Rotate (Right)** to apply the rotation to
+   that panel.
 
 .. image:: ../_static/2dslice_rotateCCW90.png
    :alt: The same slice after a 90 degree counter-clockwise rotation, WCS grid still correct
@@ -134,7 +140,7 @@ What happens internally
 Saving the rotated image
 ------------------------
 
-Click **Save Rotated FITS** to write the rotated image and its updated
+Click **Save FITS** on the panel to write the rotated image and its updated
 WCS header to a new FITS file. The new file is self-contained — you can
 load it into the viewer (or any other tool) and the WCS will be correct.
 
@@ -148,20 +154,20 @@ panel or on the other panel (WCS-matched cross-image contours).
 Drawing contours
 ----------------
 
-1. Click **Plot Contour**.
-2. Choose:
+1. Open the **Contour** group and click **Plot**.
+2. In the "Plot WCS Contour" window, choose:
 
-   - **Draw on**: which panel to draw the contour overlays on
-     (Left / Right)
-   - **Source image**: same panel, or the opposite panel for
-     cross-image contours
-   - **Background std**: leave blank to use Astropy
+   - **Plot contour ON**: which panel to draw the contour overlays on
+     (Left Image / Right Image)
+   - **Generate contour FROM**: the same image (**Same Image (Self)**), or the
+     opposite panel's image (**Other Image (Match WCS)**) for cross-image contours
+   - **Background Std**: leave blank to use Astropy
      ``sigma_clipped_stats`` (3σ clipping) for automatic background
      estimation; or enter a custom value
    - **Sigma levels**: comma-separated list, e.g. ``3, 5, 10``
-   - **Contour color**: any matplotlib color string or hex code
+   - **Contour Color**: white, red, green, cyan, magenta, yellow, or black
 
-3. Click **OK** to draw the contours.
+3. Click **Plot** to draw the contours.
 
 For each level ``N`` in your list, a contour line is drawn at
 ``median + N × std``, where ``median`` and ``std`` are from the
@@ -179,7 +185,8 @@ The result is a contour overlay on the chosen panel:
    :align: center
    :width: 55%
 
-   
+The contours stay on the panel when you change the colormap or the scale of the panel.
+
 Cross-image contours (WCS-matched)
 ----------------------------------
 
@@ -192,28 +199,28 @@ the two images have:
 - Different array sizes
 - Different orientations
 
-Select **Other Slice (Match WCS)** as the "Generate contour FROM" source, and the contours
+Select **Other Image (Match WCS)** as the "Generate contour FROM" source, and the contours
 match across both panels via WCS.
 
 Stacking and clearing
 ---------------------
 
-- Multiple **Plot Contour** runs add contour sets on top of each other —
+- Multiple **Plot** runs add contour sets on top of each other —
   for example, draw 3σ in white, then 10σ in red.
-- Click **Clear Contours** to remove all contour overlays from a panel.
+- Click **Clear** (in the **Contour** group) to remove all contour overlays from a panel.
 
 
 Contour Export / Import
 =======================
 
-Once you have a set of contours you like, you can persist them in two
-formats: a human-readable text file or a binary FITS mask.
+Once you have a set of contours you like, you can save them as a human-readable text file
+and load them again, on this image or on another one.
 
-Save contour as .txt
---------------------
+Save contour as .txt or .csv
+----------------------------
 
-- Click **Save Contour Mask** → choose the source panel → enter a
-  filename.
+- In the **Contour** group, click **Save**. If both panels have contours, choose the panel.
+  Then enter a filename (``.txt`` or ``.csv``).
 - Output is a comma-separated ASCII file:
 
 .. code-block:: text
@@ -231,18 +238,11 @@ used by any external tool.
 Load saved contour
 ------------------
 
-- Click **Load Saved Contour** → pick a binary FITS mask file.
-- Choose the destination panel.
-- The mask is reprojected onto the panel's pixel grid via WCS coordinate
-  mapping and drawn as an overlay.
-
-Save contour mask as FITS
--------------------------
-
-- Exports a binary 0/1 ``uint8`` FITS image with the WCS header of the
-  source panel.
-- Use this when you need to feed the contour as a mask into another
-  analysis tool.
+- Click **Load** (in the **Contour** group), choose the panel that gets the contour, and
+  select a saved contour ``.txt`` or ``.csv`` file.
+- Choose the line color.
+- The contour is drawn on the panel through the WCS mapping. It lines up on an image with
+  a different pixel scale or orientation.
 
 
 WCS Superimpose
@@ -255,92 +255,89 @@ Procedure
 ---------
 
 1. Load one image in the Left panel and another in the Right panel.
-2. Click **Superimpose WCS**.
+2. In the **Contour** group, click **Superimpose**.
 3. Choose:
 
-   - The **background panel** (this becomes the reference grid)
-   - The **overlay colormap**
-   - The overlay **alpha** (transparency, 0.1–1.0; ~0.5 is a good
+   - The **Background (reference) image** (Left or Right). This becomes the reference grid
+   - The **Overlay colormap**
+   - The **Overlay alpha** (transparency, 0.1-1.0; ~0.5 is a good
      starting point)
 
 4. The viewer reprojects the overlay image onto the background image's
-   pixel grid using the project's built-in WCS coordinate transform
-   pipeline (no external ``reproject`` package required). Bicubic
-   interpolation (``order=3``) is used with NaN-aware masking.
+   pixel grid with ``reproject_exact`` from the ``reproject`` package, which conserves
+   flux, and blends it with the alpha that you chose.
 
-Alignment diagnostic
---------------------
+The overlay disappears when the panel is drawn again, for example when you change its
+colormap or scale. To remove the overlay, change the colormap or the scale of the panel.
 
-After superimposing, the terminal prints the **peak separation** — the
-angular distance between the brightest pixels of the two images, in
-arcseconds. Use this to confirm the WCS headers agree:
-
-- ``< 0.5 px`` → good alignment
-- Large separation → WCS header discrepancy (check ``EQUINOX``,
-  ``CRPIX``, the CD matrix, etc.)
+If the two images do not line up, open **Header** on each panel and compare the WCS
+keywords (``EQUINOX``, ``CRPIX``, the CD matrix, and so on).
 
 
-Slides Convolute — pairwise resolution matching
-===============================================
+Pair — pairwise resolution matching
+===================================
 
-Match the resolution of two images so they can be compared pixel-by-pixel.
-This is the standard step before any multi-instrument flux comparison
-(e.g. MIRI vs NIRSpec H₂ intensity).
+Match two images of one field to the same spatial resolution so they can be compared
+pixel-by-pixel. This is the standard step before a flux comparison between two lines or two
+instruments (e.g. MIRI vs NIRSpec H₂ intensity).
+
+Requirements
+------------
+
+- Both images are from **MIRI** or **NIRSpec**. Other instruments are not supported, because
+  the PSF formulas exist only for these two.
+- Both images are in a flux-per-pixel unit. A surface-brightness unit such as MJy/sr is
+  rejected ("Unsupported BUNIT").
+- The images overlap on the sky.
+- Each image has a line wavelength. The tool reads it from the ``LINEWAVE`` header key
+  (written by the rotational-diagram "Save Maps"), or from the middle of ``LAMMIN`` and
+  ``LAMMAX`` (written by the Gaussian-map export). If the header has neither, the tool
+  asks you for the wavelength in µm.
 
 Procedure
 ---------
 
 1. Load both images into the Left and Right panels.
-2. Click **Slides Convolute**.
+2. Open the **Convolution** group and click **Pair**.
 3. A confirmation dialog shows:
 
-   - Which image will be convolved (the finer one)
-   - The Gaussian kernel σ in arcsec and in fine-image pixels
-   - The output grid dimensions
+   - Which image will be convolved
+   - The two PSF widths, the Gaussian kernel σ, and the output grid dimensions
 
 4. Click **Yes** to run.
-5. Choose a save path — the convolved image is written as a 2-HDU FITS
-   (image + ``COVERAGE`` extension).
-6. The success dialog shows a flux audit: ``Ratio out/in : 1.000000``
-   confirms exact flux conservation.
+5. Choose a save path — the result is written as a 2-HDU FITS
+   (image + ``COVERAGE`` extension, the per-pixel overlap fraction from 0 to 1).
+6. The success dialog shows a flux audit: the input total, the output total, and
+   ``Ratio out/in``.
 
 What happens internally
 -----------------------
 
-The tool automatically identifies the finer image and convolves it up to
-the coarser pixel scale:
-
-- **Kernel width** is derived by quadrature subtraction:
-  ``σ = √(σ_target² − σ_input²) / 2.3548`` (in fine-image pixels).
-- **Convolution** uses ``astropy.convolution.convolve_fft`` with
-  ``nan_treatment='interpolate'`` (NaN pixels — e.g. IFU footprint
-  borders — are handled without propagating gaps),
-  ``normalize_kernel=True`` (kernel sum is unity, so surface brightness
-  is preserved per pixel), and NaN-padding of width ``⌈4σ⌉`` before the
-  FFT so kernel tails stay inside the domain.
-- A final flux renormalisation guarantees
-  ``Σ(output_finite) == Σ(input_finite)`` to machine precision
-  (~10⁻⁷ relative error).
-- The convolved image is then reprojected onto a new pixel grid at the
-  coarse pixel scale using a flux-conserving spherical-polygon
-  intersection algorithm (equivalent to ``reproject_exact`` —
-  self-implemented; no external ``reproject`` dependency).
-- Output shape is sized to fully contain the fine image's original FOV
-  so no sky coverage is lost.
+- The image with the **longer wavelength** is the reference, because its PSF is wider.
+  The tool convolves the other image with a Gaussian kernel up to the PSF of the reference.
+- **Kernel width:** ``σ = √(σ_ref² − σ_image²)``. Each σ comes from the PSF FWHM of the
+  instrument at the line wavelength. MIRI: ``FWHM(") = 0.033 × λ(µm) + 0.106``.
+  NIRSpec: an approximate quadratic fit.
+- **Convolution** uses ``astropy.convolution.convolve_fft`` with a normalized kernel. NaN
+  pixels (for example the borders of an IFU footprint) are interpolated during the
+  convolution and restored afterwards.
+- The convolved image is then reprojected with ``reproject_exact`` onto the **native pixel
+  grid of the reference image**, and the flux is conserved.
+- This is the same engine that the rotational-diagram **Convolve Maps** and **Run Map** use.
 
 Guards and edge cases
 ---------------------
 
-- **Same-resolution guard:** if both panels have the same pixel scale
-  (within 0.0001 arcsec/px), Slides Convolute shows a "nothing to do"
-  message instead of running. This prevents repeated unnecessary
-  convolutions.
-- **No-overlap guard:** if the two images cover completely different
-  sky regions, the viewer warns "No Sky Overlap" and refuses to run.
-  Load images of the same field.
-- **Empty-result postcheck:** if the inputs technically overlap but the
-  full-coverage output region is empty (e.g. very thin edge-only
-  overlap), the viewer warns and does not save an all-NaN result.
+- **Same wavelength:** if both panels have the same wavelength, **Pair** shows a "nothing
+  to convolve" message instead of running.
+- **No overlap:** if the two images cover completely different sky regions, the viewer
+  warns "No Sky Overlap" and refuses to run. Load images of the same field.
+- **Missing pixel scale:** if a header has no valid ``CDELT`` or CD matrix, the viewer shows
+  a "Missing Pixel Scale" message. The pixel scale is necessary to compute the kernel size.
+- **Reading the flux audit:** a ratio close to 1 (within about 1%) means that the flux is
+  conserved. A clearly lower ratio means that part of the image falls outside the grid of
+  the reference image. A ratio near 0 means that the two images barely overlap. A small
+  deviation can also come from NaN pixels at the edge of the image footprint.
 
 Worked example: MIRI ch1-long (Left) and ch2-long (Right) as the pair, both in log scale:
 
@@ -354,27 +351,27 @@ Worked example: MIRI ch1-long (Left) and ch2-long (Right) as the pair, both in l
    :align: center
    :width: 55%
 
-And the Slides Convolute result -- ch1-long convolved and reprojected onto ch2-long's
-(coarser) grid, still in log scale:
+And the Pair result -- ch1-long convolved and reprojected onto ch2-long's
+grid, still in log scale:
 
 .. image:: ../_static/miri_ch1_ch2_long.png
-   :alt: ch1-long after Slides Convolute matches it to ch2-long's resolution and grid, log scale
+   :alt: ch1-long after Pair matches it to ch2-long's resolution and grid, log scale
    :align: center
    :width: 55%
 
 
-Batch Convolution — multi-image resolution matching
-===================================================
+Batch — multi-image resolution matching
+=======================================
 
-Bring any number of images to a single common resolution and FOV in one
-step.
+Bring several images to one resolution in a single step.
 
 Procedure
 ---------
 
-1. Click **Batch Convolution** to open the batch dialog.
-2. Use **+ Add FITS Files** to add two or more 2D FITS files. Any mix
-   of instruments, pixel scales, and orientations is allowed.
+1. In the **Convolution** group, click **Batch** to open the batch dialog.
+2. Use **+ Add FITS Files** to add two or more 2D FITS files. The requirements are the same
+   as for **Pair**: MIRI or NIRSpec, a flux-per-pixel unit, and an overlap on the sky. The
+   tool reads or asks for the line wavelength of each file.
 3. Click **Process & Download ZIP**.
 4. Choose a save path for the output ``.zip`` file.
 
@@ -385,32 +382,19 @@ share sky, so you can remove the off-field file before retrying.
 What happens internally
 -----------------------
 
-The tool:
-
-1. Identifies the **worst (coarsest) pixel scale** among all inputs —
-   this becomes the target scale.
-2. Identifies the **largest-area image** (most sky coverage) to define
-   the output orientation and centre.
-3. Builds a single common output WCS at the worst scale, sized to cover
-   the **union of all input footprints** — no image loses sky coverage.
-4. For each input, applies the appropriate Gaussian kernel (σ from
-   quadrature) and reprojects onto the common grid.
-5. Images already at the worst scale receive ``σ = 0`` (no smoothing;
-   only a reproject if needed).
+The file with the **longest wavelength** is the reference. The tool convolves every other
+file to the PSF of the reference and reprojects it onto the native grid of the reference.
+The reference file is not smoothed.
 
 Output
 ------
 
-- All outputs are packed into a ``.zip`` archive — one FITS per input,
-  all on the same WCS grid, ready for pixel-by-pixel comparison.
+- All outputs are packed into a ``.zip`` archive — one ``matched_<name>.fits`` file for each
+  input, all on the same WCS grid, ready for pixel-by-pixel comparison.
 - Each output FITS includes the ``COVERAGE`` extension (per-pixel
-  overlap fraction 0–1).
-- The completion dialog shows a flux audit table — every row should
-  read ``ratio = 1.000000``. Any large deviation indicates a corrupted
-  WCS header in the corresponding input.
-- Files that produced an all-NaN frame appear in the audit table with
-  ``[EMPTY]`` next to their name; they're skipped in the ZIP so the
-  rest of the batch is still useful.
+  overlap fraction 0-1).
+- The completion dialog shows the flux audit (the output total divided by the input total)
+  for each file. The same reading rules as for **Pair** apply.
 
 
 Region Selection
@@ -427,14 +411,15 @@ way as :doc:`selecting_regions`:
 - **Freehand** — click to add vertices, double-click to close
 
 Once a region is drawn on either panel, statistics appear in the image stats panel: min,
-max, mean, sum, std for the pixels enclosed by the region. **Edit Shape** toggles
-drag/resize handles and **Copy Color** copies this panel's colormap to the other panel,
-exactly as in :doc:`selecting_regions`.
+max, mean, sum, std for the pixels enclosed by the region. **Edit shape** toggles
+drag/resize handles and the **Copy** menu copies the selection, the colormap, or the scale and
+range to the other panel, exactly as in :doc:`selecting_regions`.
 
-.. note::
-
-   **💾** Export Region (:doc:`selecting_regions`) is main-window only -- it isn't
-   available in the 2D Viewer.
+The 2D viewer has its own **Region** group with three buttons: **Save Slice (Masked)**
+(the image with everything outside the region set to NaN), **Save Region**, and
+**Import Region**. They work like the buttons of the same name in the main window
+(:doc:`selecting_regions`). A plain **Save Slice** and **Save Cube (Masked)** exist only in
+the main window.
 
 **Copy** is the one place behavior actually differs: the two 2D panels can hold images of
 completely different pixel scale and orientation (unlike the main viewer's two slices,

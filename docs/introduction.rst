@@ -22,7 +22,7 @@ Interactive Visualization
 - **3D Spectral Data Cube Exploration**: Load and navigate through 3D FITS data cubes with wavelength slicing
 - **Multiple Wavelength Views**: Explore data across different wavelength ranges interactively
 - **Real-time Updates**: Spectra update instantly as you select regions or pixels
-- **Advanced Color Controls**: Apply linear, logarithmic, power-law, and square-root scaling with customizable colormaps
+- **Advanced Color Controls**: Apply linear, logarithmic, and power-law scaling (with an adjustable gamma), an absolute or percentile color range, and customizable colormaps
 - **2D Imaging**: Support for 2D images
 - **Multiple Selection Tools**: Point, rectangular, circular, elliptical, and free-form selection
 

@@ -140,8 +140,10 @@
 </section>
 <section id="color-scales">
 <h2>Color Scales<a class="headerlink" href="#color-scales" title="Link to this heading"></a></h2>
-<p>Different scales emphasize different aspects of your data. The same slice
-rendered with each of them:</p>
+<p>Different scales emphasize different aspects of your data. Click the <strong>Scale</strong> icon
+on a slice to open the “Scale and Color Range” dialog. There you choose the scale and
+the color range. Each slice has its own settings. The same slice rendered with each
+scale:</p>
 <img alt="The same MIRI slice rendered with Linear, Log, Sqrt and Power scales" src="../_images/scale_comparison.png" />
 <p><strong>Linear Scale</strong> (Default)</p>
 <ul class="simple">
@@ -155,24 +157,29 @@ rendered with each of them:</p>
 <li><p>Best for: Wide dynamic range</p></li>
 <li><p>Emphasizes: Faint features</p></li>
 </ul>
-<p><strong>Square Root Scale</strong></p>
+<p><strong>Power Scale</strong></p>
 <ul class="simple">
-<li><p>Scale: intensity → √intensity</p></li>
-<li><p>Best for: Moderate dynamic range</p></li>
-<li><p>Balanced detail emphasis</p></li>
-</ul>
-<p><strong>Power Law Scale</strong></p>
-<ul class="simple">
-<li><p>Scale: intensity → intensity^2</p></li>
+<li><p>Scale: normalized intensity raised to a power, called gamma</p></li>
+<li><p>You set the gamma value in the dialog. Gamma must be above 0</p></li>
+<li><p>A gamma below 1 brightens faint features. A gamma above 1 emphasizes bright features</p></li>
 <li><p>Best for: Custom emphasis</p></li>
 </ul>
+<p><strong>Color Range</strong></p>
+<p>The color range sets which intensity values map to the ends of the color bar. Choose one mode:</p>
+<ul class="simple">
+<li><p><strong>Absolute</strong>: type a lower and an upper value. A blank box uses the minimum or the
+maximum of the image</p></li>
+<li><p><strong>Percentile</strong>: use percentiles of the image pixels, for example to ignore a few very bright pixels</p></li>
+</ul>
+<p>To use the same scale and range on the other slice, click the <strong>Copy</strong> icon and choose
+<strong>Copy Scale/Range</strong>.</p>
 </section>
 <section id="colormaps">
 <h2>Colormaps<a class="headerlink" href="#colormaps" title="Link to this heading"></a></h2>
 <p>Colormaps control how intensity is mapped to colors on slices. IFU Analyzer includes many options.</p>
 <p><strong>Changing Colormaps</strong></p>
 <ol class="arabic simple">
-<li><p>Click <strong>🌈</strong> button in slice toolbar</p></li>
+<li><p>Click the <strong>Colormap</strong> icon in the slice toolbar</p></li>
 <li><p>Select colormap from list</p></li>
 <li><p>Preview updates immediately</p></li>
 </ol>

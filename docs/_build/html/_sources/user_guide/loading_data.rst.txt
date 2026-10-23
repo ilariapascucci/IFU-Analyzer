@@ -54,7 +54,7 @@ Multiple File Management
 **Loading Multiple Files:**
 
 1. Click **Open FITS** button (first file)
-2. Click **🗗** (second file)
+2. Click the **New window** icon in the top bar, then **Open FITS** in the new window (second file)
 
 Next Steps
 ==========

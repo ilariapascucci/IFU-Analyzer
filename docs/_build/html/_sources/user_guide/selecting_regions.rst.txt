@@ -12,24 +12,24 @@ IFU Analyzer provides five selection tools for different use cases:
 ======================== ==================================================================
 Tool                     Best For
 ======================== ==================================================================
-**\*** Point             Single pixels or precise locations
-**▭** Rectangle          Rectangular areas, embedded sources
-**○** Circle             Circular features
-**⬭** Ellipse            Elongated structures, galaxies
-**✏** Freehand           Precise manual outlines
+**Point**                Single pixels or precise locations
+**Rectangle**            Rectangular areas, embedded sources
+**Circle**               Circular features
+**Ellipse**              Elongated structures, galaxies
+**Freehand**             Precise manual outlines
 ======================== ==================================================================
 
-Five more buttons sit alongside them in each slice's toolbar:
+Three more buttons sit alongside them in each slice's toolbar:
 
 ======================== ==================================================================
 Button                   Purpose
 ======================== ==================================================================
-**✎** Edit Shape         Toggle drag/resize of the placed region
-**✖** Clear              Remove the region and start over
-**⎘** Copy               Copy the selection to the other slice
-**⎘🌈** Copy Color        Copy this slice's colormap to the other slice
-**💾** Export             Save the region (or a Point) as a NaN-masked cube
+**Edit shape**           Toggle drag/resize of the placed region
+**Clear**                Remove the region and start over
+**Copy** (menu)          Copy the selection, the colormap, or the scale and range from the other slice
 ======================== ==================================================================
+
+Saving a slice or a region is a separate step, covered below.
 
 How Region Selection Works
 ==========================
@@ -51,20 +51,20 @@ state independently. Only **one region per slice** can exist at a time.
 .. image:: /_static/region_placed.png
    :alt: A placed rectangular region, with all shape buttons greyed out
 
-4. **Edit if needed.** Toggle **✎** to drag or resize. Toggle it off again to
+4. **Edit if needed.** Toggle **Edit shape** to drag or resize. Toggle it off again to
    commit the change.
-5. **Clear before drawing again.** Press **✖** to remove the region. The shape
+5. **Clear before drawing again.** Press **Clear** to remove the region. The shape
    buttons become available again.
 
 .. note::
 
    If the shape buttons look greyed out, a region is already placed on that
-   slice. Press **✖** to clear it before selecting a new one.
+   slice. Press **Clear** to clear it before selecting a new one.
 
 Editing a Placed Region
 =======================
 
-**✎** is a toggle, and it only becomes available once a region has been placed.
+**Edit shape** is a toggle, and it only becomes available once a region has been placed.
 
 - **Toggle on**: handles appear; drag to move or resize
 - **Toggle off**: the edit is committed and handles are removed
@@ -78,7 +78,7 @@ spectrum.
 
 .. note::
 
-   **✎** is not available for **Point** selections, since a single pixel has nothing
+   **Edit shape** is not available for **Point** selections, since a single pixel has nothing
    to resize. Clear it and place a new point instead.
 
 Using the Tools
@@ -87,18 +87,18 @@ Using the Tools
 Point Select
 ------------
 
-1. Click **\*** in the slice toolbar
+1. Click **Point** in the slice toolbar
 2. Click a pixel location
 
 Rectangle, Circle and Ellipse Select
 ------------------------------------
 
-1. Click **▭**, **○**, or **⬭** in the slice toolbar
+1. Click **Rectangle**, **Circle**, or **Ellipse** in the slice toolbar
 2. Press and hold at one corner
 3. Drag to the opposite corner
 4. Release to place the region
 
-To adjust it afterwards, toggle **✎** and drag the handles:
+To adjust it afterwards, toggle **Edit shape** and drag the handles:
 
 - **Drag edge**: resize in one dimension
 - **Drag corner**: resize in two dimensions
@@ -115,7 +115,7 @@ To adjust it afterwards, toggle **✎** and drag the handles:
 Freehand Select
 ---------------
 
-1. Click **✏** in the slice toolbar
+1. Click **Freehand** in the slice toolbar
 2. Draw a closed outline around the feature
 3. Release to place the region
 
@@ -140,7 +140,7 @@ it also populates that side's own tab in the Spectrum Panel below.
 
 - **Full** tab: always shows the whole cube's summed spectrum, regardless of
   any regions selected.
-- **Left Slice** / **Right Slice** tabs: show *only* that side's own
+- **Left Region** / **Right Region** tabs: show *only* that side's own
   selected region's spectrum. Empty until a region is selected on that
   side, and replaced (not blended) if you draw a new one.
 - **Show Left** / **Show Right**: while viewing the Full tab, overlay the
@@ -156,14 +156,31 @@ it also populates that side's own tab in the Spectrum Panel below.
 For normalizing or Doppler-shifting these spectra once you have them, see
 :doc:`spectrum_display`.
 
-Exporting a Region as a Cube
-=============================
+Saving Slices and Regions
+==========================
 
-Once a region -- or a single **Point** -- is placed, **💾** saves a copy of the loaded
-cube to a new FITS file with every spaxel outside it set to NaN. A Point selection works
-too: the exported cube keeps just that one spaxel, everything else NaN. Shape and WCS are
-unchanged either way, so the file reloads normally and a plain sum over it reproduces the
-region's (or single pixel's) own spectrum exactly.
+The **Region** and **Export** groups, in the collapsible toolbar above the spectrum (next to
+**Gaussian Fit** and **Lines & Fit**), hold five buttons for saving and loading.
+**Region** has Save Region and Import Region. **Export** has Save Slice, Save Slice (Masked),
+and Save Cube (Masked):
+
+======================== ==================================================================
+Button                   Purpose
+======================== ==================================================================
+Save Slice               Save the current slice as a standalone 2D FITS file
+Save Slice (Masked)      Same, with everything outside the region set to NaN
+Save Cube (Masked)       Save the whole cube, with everything outside the region set to NaN
+Save Region              Save the region's shape as RA/Dec sky coordinates
+Import Region            Load a region saved as text onto the current slice
+======================== ==================================================================
+
+Every button first asks which slice, Left or Right, to use -- the two slices keep
+independent regions, so this makes sure you save or load the one you mean.
+
+**Save Cube (Masked)** is the original export: a copy of the loaded cube with every
+spaxel outside the region (or, for a **Point**, outside that one spaxel) set to NaN.
+Shape and WCS stay unchanged, so the file reloads normally and a plain sum over it
+reproduces the region's own spectrum exactly.
 
 .. figure:: ../_static/region_cube.png
    :alt: A cube reloaded from an exported region file, instrument label reading region-Level3_ch1-long_s3d.fits
@@ -175,10 +192,21 @@ region's (or single pixel's) own spectrum exactly.
 
 This is useful for handing just one region's data to another tool (Flux Map, Rotational
 Diagram Map) without it seeing the rest of the cube, or for sharing one source's data
-without the surrounding field.
+without the surrounding field. **Save Slice** and **Save Slice (Masked)** are the same
+idea for a single 2D image instead of the whole cube -- the file reopens in the
+standalone 2D Viewer.
 
-**💾** stays disabled until something -- a region or a Point -- is placed, and disables
-again after clearing it with **✖**.
+**Save Region** and **Import Region** carry a region between cubes with a
+different pixel scale or orientation, at the same point on the sky, instead of you
+re-measuring it by eye each time. Saving writes the region's RA/Dec coordinates to a
+plain text file; importing reads that file and rebuilds the shape using the *currently
+open* cube's own WCS. A Rectangle, Circle, or Ellipse that would come out rotated on the
+new cube is rebuilt as a Freehand shape instead, since a rotated box can't be described
+by an axis-aligned selection tool. Both actions need a cube with usable sky coordinates:
+without one, or if the saved region falls entirely off the target cube's frame, the
+action stops and explains why, rather than placing something in the wrong spot.
+
+All five buttons stay disabled until a cube is loaded.
 
 Using the API
 =============

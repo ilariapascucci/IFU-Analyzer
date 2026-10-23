@@ -50,6 +50,8 @@ Continuum Fitting
 
 .. autofunction:: cube_explorer.api.measure_equivalent_width
 
+.. autofunction:: cube_explorer.api.save_continuum_cubes
+
 Flux Analysis
 ================
 
@@ -63,3 +65,18 @@ Rotational Diagram
 ==================
 
 .. autofunction:: cube_explorer.api.rotational_diagram
+
+Rotational Diagram Maps
+=======================
+
+These functions fit the rotational diagram at the pixels of one cube, or of several cubes
+with different pixel scales (the ``_multi`` versions). Each function has a docstring with its
+arguments. Use ``help(function_name)`` to read it. The user guide page
+:doc:`../user_guide/rotational_diagram` has worked examples.
+
+- ``fit_region``, ``fit_pixel``, ``create_rotational_diagram_map``: one cube
+- ``fit_region_multi``, ``fit_pixel_multi``, ``create_rotational_diagram_map_multi``: several
+  cubes at different pixel scales
+- ``save_rotational_diagram_map_fits``: write a map result to a FITS file
+- ``STATUS_OK``, ``STATUS_NO_DATA``, ``STATUS_TOO_FEW_LINES``, ``STATUS_FIT_FAILED``: the
+  outcome of each fit

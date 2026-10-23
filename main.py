@@ -7,17 +7,46 @@ A graphical tool for visualizing and analyzing integral field unit (IFU)
 data cubes from various telescopes and instruments.
 
 The application will open in a window sized 1100x800 pixels.
-Use File->Open to load a FITS data cube.
+Click Open FITS to load a FITS data cube.
 """
 
 import sys
 
+# The versions in requirements.txt are tested on this Python version only.
+TESTED_PYTHON = (3, 12)
+
+
+def warn_if_untested_python():
+    """Print a warning when the Python version is not the tested one.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
+    if sys.version_info[:2] != TESTED_PYTHON:
+        found = f"{sys.version_info[0]}.{sys.version_info[1]}"
+        print(f"[WARNING] IFU Analyzer is tested on Python {TESTED_PYTHON[0]}.{TESTED_PYTHON[1]}. "
+              f"You have Python {found}.")
+        print("          The libraries may not install, or results may differ. "
+              "See the Installation page of the documentation.")
+
+
 if __name__ == "__main__":
+    warn_if_untested_python()
+
     # Spawn reruns this file per worker with __name__ != "__main__". Imports
     # here stay out of workers, instead of loading the GUI stack 8x over.
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication
-    from cube_explorer.gui import CubeExplorer
+    try:
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtWidgets import QApplication
+        from cube_explorer.gui import CubeExplorer
+    except ImportError as exc:
+        print(f"[ERROR] A required library is missing or has the wrong version: {exc}")
+        print("        Install the libraries with: pip install -r requirements.txt")
+        print(f"        These versions need Python {TESTED_PYTHON[0]}.{TESTED_PYTHON[1]}.")
+        sys.exit(1)
 
     # Scaling window
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)

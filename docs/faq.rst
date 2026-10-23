@@ -14,7 +14,7 @@ A: Follow these steps:
 1. See :doc:`installation` for setup
 2. Install sample data (or find your own FITS cube)
 3. Launch the application: ``python main.py``
-4. File → Open FITS to load your first data cube
+4. Click **Open FITS** to load your first data cube
 5. Explore the interface and refer to :doc:`user_guide/index` for tutorials
 
 **Q: What FITS data can I use?**

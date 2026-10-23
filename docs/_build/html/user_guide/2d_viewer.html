@@ -85,23 +85,22 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#contour-export-import">Contour Export / Import</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#save-contour-as-txt">Save contour as .txt</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#save-contour-as-txt-or-csv">Save contour as .txt or .csv</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#load-saved-contour">Load saved contour</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#save-contour-mask-as-fits">Save contour mask as FITS</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#wcs-superimpose">WCS Superimpose</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#procedure">Procedure</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#alignment-diagnostic">Alignment diagnostic</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#slides-convolute-pairwise-resolution-matching">Slides Convolute — pairwise resolution matching</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pair-pairwise-resolution-matching">Pair — pairwise resolution matching</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#requirements">Requirements</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#id1">Procedure</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#id2">What happens internally</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#guards-and-edge-cases">Guards and edge cases</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#batch-convolution-multi-image-resolution-matching">Batch Convolution — multi-image resolution matching</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#batch-multi-image-resolution-matching">Batch — multi-image resolution matching</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#id3">Procedure</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#id4">What happens internally</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#output">Output</a></li>
@@ -215,24 +214,29 @@ degrees → arcmin → arcsec → sub-arcsec.</p></li>
 <li><p>Flux value at the cursor (with the unit from <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>)</p></li>
 </ul>
 </li>
-<li><p>The <strong>Image Stats</strong> panel reports min, max, and mean of the displayed
-image, plus the unit string from <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>.</p></li>
+<li><p>The statistics panel reports min, max, mean, sum, and standard deviation of the
+displayed image (or of the region, if you draw one), the color range in use, and the
+unit string from <code class="docutils literal notranslate"><span class="pre">BUNIT</span></code>.</p></li>
 </ul>
 </section>
 <section id="color-scale-and-colormap">
 <h3>Color scale and colormap<a class="headerlink" href="#color-scale-and-colormap" title="Link to this heading"></a></h3>
-<ul class="simple">
-<li><p>Each panel has a <strong>🎚</strong> button that opens a menu with four scaling options:</p>
 <ul>
+<li><p>Each panel has a <strong>Scale</strong> icon that opens the “Scale and Color Range” dialog. It has
+three scales:</p>
+<ul class="simple">
 <li><p><strong>Linear</strong> — direct mapping</p></li>
 <li><p><strong>Log</strong> — <code class="docutils literal notranslate"><span class="pre">log10</span></code> of the data (useful for faint extended emission)</p></li>
-<li><p><strong>Sqrt</strong> — square-root stretch (intermediate compression)</p></li>
-<li><p><strong>Power</strong> — <code class="docutils literal notranslate"><span class="pre">data^2</span></code> stretch (boosts high-flux regions)</p></li>
+<li><p><strong>Power</strong> — normalized data raised to a gamma value that you set (boosts high-flux
+regions when gamma is above 1)</p></li>
 </ul>
+<p>The color range can be absolute (typed values) or percentile.</p>
 </li>
-<li><p>Click the <strong>🌈</strong> button on either panel to open the colormap dialog
+<li><p>Click the <strong>Colormap</strong> icon on either panel to open the colormap dialog
 and pick any matplotlib colormap. Colorblind-friendly options are
 included.</p></li>
+<li><p>The <strong>Copy</strong> icon on each panel opens a menu. It copies the selection, the colormap, or
+the scale and range from the other panel.</p></li>
 </ul>
 <a class="reference internal image-reference" href="../_images/2d_colormap_dialog.png"><img alt="The Select Colormap dialog showing available colormaps" class="align-center" src="../_images/2d_colormap_dialog.png" style="width: 35%;" />
 </a>
@@ -258,8 +262,8 @@ keeping the WCS correct, so RA/Dec coordinates remain accurate.</p>
 <ol class="arabic simple">
 <li><p>Select the direction (<strong>Clockwise</strong> or <strong>Counter-Clockwise</strong>).</p></li>
 <li><p>Enter the angle in degrees (any positive number).</p></li>
-<li><p>Click <strong>Rotate</strong> and pick the panel (<strong>Left</strong> / <strong>Right</strong>) to apply
-the rotation to.</p></li>
+<li><p>Click <strong>Rotate (Left)</strong> or <strong>Rotate (Right)</strong> to apply the rotation to
+that panel.</p></li>
 </ol>
 <a class="reference internal image-reference" href="../_images/2dslice_rotateCCW90.png"><img alt="The same slice after a 90 degree counter-clockwise rotation, WCS grid still correct" class="align-center" src="../_images/2dslice_rotateCCW90.png" style="width: 55%;" />
 </a>
@@ -280,7 +284,7 @@ the same sky coordinate, so RA/Dec tick labels remain correct.</p></li>
 </section>
 <section id="saving-the-rotated-image">
 <h3>Saving the rotated image<a class="headerlink" href="#saving-the-rotated-image" title="Link to this heading"></a></h3>
-<p>Click <strong>Save Rotated FITS</strong> to write the rotated image and its updated
+<p>Click <strong>Save FITS</strong> on the panel to write the rotated image and its updated
 WCS header to a new FITS file. The new file is self-contained — you can
 load it into the viewer (or any other tool) and the WCS will be correct.</p>
 </section>
@@ -292,21 +296,21 @@ panel or on the other panel (WCS-matched cross-image contours).</p>
 <section id="drawing-contours">
 <h3>Drawing contours<a class="headerlink" href="#drawing-contours" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click <strong>Plot Contour</strong>.</p></li>
-<li><p>Choose:</p>
+<li><p>Open the <strong>Contour</strong> group and click <strong>Plot</strong>.</p></li>
+<li><p>In the “Plot WCS Contour” window, choose:</p>
 <ul class="simple">
-<li><p><strong>Draw on</strong>: which panel to draw the contour overlays on
-(Left / Right)</p></li>
-<li><p><strong>Source image</strong>: same panel, or the opposite panel for
-cross-image contours</p></li>
-<li><p><strong>Background std</strong>: leave blank to use Astropy
+<li><p><strong>Plot contour ON</strong>: which panel to draw the contour overlays on
+(Left Image / Right Image)</p></li>
+<li><p><strong>Generate contour FROM</strong>: the same image (<strong>Same Image (Self)</strong>), or the
+opposite panel’s image (<strong>Other Image (Match WCS)</strong>) for cross-image contours</p></li>
+<li><p><strong>Background Std</strong>: leave blank to use Astropy
 <code class="docutils literal notranslate"><span class="pre">sigma_clipped_stats</span></code> (3σ clipping) for automatic background
 estimation; or enter a custom value</p></li>
 <li><p><strong>Sigma levels</strong>: comma-separated list, e.g. <code class="docutils literal notranslate"><span class="pre">3,</span> <span class="pre">5,</span> <span class="pre">10</span></code></p></li>
-<li><p><strong>Contour color</strong>: any matplotlib color string or hex code</p></li>
+<li><p><strong>Contour Color</strong>: white, red, green, cyan, magenta, yellow, or black</p></li>
 </ul>
 </li>
-<li><p>Click <strong>OK</strong> to draw the contours.</p></li>
+<li><p>Click <strong>Plot</strong> to draw the contours.</p></li>
 </ol>
 <p>For each level <code class="docutils literal notranslate"><span class="pre">N</span></code> in your list, a contour line is drawn at
 <code class="docutils literal notranslate"><span class="pre">median</span> <span class="pre">+</span> <span class="pre">N</span> <span class="pre">×</span> <span class="pre">std</span></code>, where <code class="docutils literal notranslate"><span class="pre">median</span></code> and <code class="docutils literal notranslate"><span class="pre">std</span></code> are from the
@@ -316,6 +320,7 @@ background statistics.</p>
 <p>The result is a contour overlay on the chosen panel:</p>
 <a class="reference internal image-reference" href="../_images/2dslice_contour.png"><img alt="Image with contour overlay at multiple sigma levels" class="align-center" src="../_images/2dslice_contour.png" style="width: 55%;" />
 </a>
+<p>The contours stay on the panel when you change the colormap or the scale of the panel.</p>
 </section>
 <section id="cross-image-contours-wcs-matched">
 <h3>Cross-image contours (WCS-matched)<a class="headerlink" href="#cross-image-contours-wcs-matched" title="Link to this heading"></a></h3>
@@ -328,27 +333,27 @@ the two images have:</p>
 <li><p>Different array sizes</p></li>
 <li><p>Different orientations</p></li>
 </ul>
-<p>Select <strong>Other Slice (Match WCS)</strong> as the “Generate contour FROM” source, and the contours
+<p>Select <strong>Other Image (Match WCS)</strong> as the “Generate contour FROM” source, and the contours
 match across both panels via WCS.</p>
 </section>
 <section id="stacking-and-clearing">
 <h3>Stacking and clearing<a class="headerlink" href="#stacking-and-clearing" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>Multiple <strong>Plot Contour</strong> runs add contour sets on top of each other —
+<li><p>Multiple <strong>Plot</strong> runs add contour sets on top of each other —
 for example, draw 3σ in white, then 10σ in red.</p></li>
-<li><p>Click <strong>Clear Contours</strong> to remove all contour overlays from a panel.</p></li>
+<li><p>Click <strong>Clear</strong> (in the <strong>Contour</strong> group) to remove all contour overlays from a panel.</p></li>
 </ul>
 </section>
 </section>
 <section id="contour-export-import">
 <h2>Contour Export / Import<a class="headerlink" href="#contour-export-import" title="Link to this heading"></a></h2>
-<p>Once you have a set of contours you like, you can persist them in two
-formats: a human-readable text file or a binary FITS mask.</p>
-<section id="save-contour-as-txt">
-<h3>Save contour as .txt<a class="headerlink" href="#save-contour-as-txt" title="Link to this heading"></a></h3>
+<p>Once you have a set of contours you like, you can save them as a human-readable text file
+and load them again, on this image or on another one.</p>
+<section id="save-contour-as-txt-or-csv">
+<h3>Save contour as .txt or .csv<a class="headerlink" href="#save-contour-as-txt-or-csv" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>Click <strong>Save Contour Mask</strong> → choose the source panel → enter a
-filename.</p></li>
+<li><p>In the <strong>Contour</strong> group, click <strong>Save</strong>. If both panels have contours, choose the panel.
+Then enter a filename (<code class="docutils literal notranslate"><span class="pre">.txt</span></code> or <code class="docutils literal notranslate"><span class="pre">.csv</span></code>).</p></li>
 <li><p>Output is a comma-separated ASCII file:</p></li>
 </ul>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span># IFU Analyzer 2D - Contour Export
@@ -365,19 +370,11 @@ used by any external tool.</p>
 <section id="load-saved-contour">
 <h3>Load saved contour<a class="headerlink" href="#load-saved-contour" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>Click <strong>Load Saved Contour</strong> → pick a binary FITS mask file.</p></li>
-<li><p>Choose the destination panel.</p></li>
-<li><p>The mask is reprojected onto the panel’s pixel grid via WCS coordinate
-mapping and drawn as an overlay.</p></li>
-</ul>
-</section>
-<section id="save-contour-mask-as-fits">
-<h3>Save contour mask as FITS<a class="headerlink" href="#save-contour-mask-as-fits" title="Link to this heading"></a></h3>
-<ul class="simple">
-<li><p>Exports a binary 0/1 <code class="docutils literal notranslate"><span class="pre">uint8</span></code> FITS image with the WCS header of the
-source panel.</p></li>
-<li><p>Use this when you need to feed the contour as a mask into another
-analysis tool.</p></li>
+<li><p>Click <strong>Load</strong> (in the <strong>Contour</strong> group), choose the panel that gets the contour, and
+select a saved contour <code class="docutils literal notranslate"><span class="pre">.txt</span></code> or <code class="docutils literal notranslate"><span class="pre">.csv</span></code> file.</p></li>
+<li><p>Choose the line color.</p></li>
+<li><p>The contour is drawn on the panel through the WCS mapping. It lines up on an image with
+a different pixel scale or orientation.</p></li>
 </ul>
 </section>
 </section>
@@ -389,116 +386,113 @@ scale, array size, orientation, or pointing — onto a single panel.</p>
 <h3>Procedure<a class="headerlink" href="#procedure" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
 <li><p>Load one image in the Left panel and another in the Right panel.</p></li>
-<li><p>Click <strong>Superimpose WCS</strong>.</p></li>
+<li><p>In the <strong>Contour</strong> group, click <strong>Superimpose</strong>.</p></li>
 <li><p>Choose:</p>
 <ul class="simple">
-<li><p>The <strong>background panel</strong> (this becomes the reference grid)</p></li>
-<li><p>The <strong>overlay colormap</strong></p></li>
-<li><p>The overlay <strong>alpha</strong> (transparency, 0.1–1.0; ~0.5 is a good
+<li><p>The <strong>Background (reference) image</strong> (Left or Right). This becomes the reference grid</p></li>
+<li><p>The <strong>Overlay colormap</strong></p></li>
+<li><p>The <strong>Overlay alpha</strong> (transparency, 0.1-1.0; ~0.5 is a good
 starting point)</p></li>
 </ul>
 </li>
 <li><p>The viewer reprojects the overlay image onto the background image’s
-pixel grid using the project’s built-in WCS coordinate transform
-pipeline (no external <code class="docutils literal notranslate"><span class="pre">reproject</span></code> package required). Bicubic
-interpolation (<code class="docutils literal notranslate"><span class="pre">order=3</span></code>) is used with NaN-aware masking.</p></li>
+pixel grid with <code class="docutils literal notranslate"><span class="pre">reproject_exact</span></code> from the <code class="docutils literal notranslate"><span class="pre">reproject</span></code> package, which conserves
+flux, and blends it with the alpha that you chose.</p></li>
 </ol>
+<p>The overlay disappears when the panel is drawn again, for example when you change its
+colormap or scale. To remove the overlay, change the colormap or the scale of the panel.</p>
+<p>If the two images do not line up, open <strong>Header</strong> on each panel and compare the WCS
+keywords (<code class="docutils literal notranslate"><span class="pre">EQUINOX</span></code>, <code class="docutils literal notranslate"><span class="pre">CRPIX</span></code>, the CD matrix, and so on).</p>
 </section>
-<section id="alignment-diagnostic">
-<h3>Alignment diagnostic<a class="headerlink" href="#alignment-diagnostic" title="Link to this heading"></a></h3>
-<p>After superimposing, the terminal prints the <strong>peak separation</strong> — the
-angular distance between the brightest pixels of the two images, in
-arcseconds. Use this to confirm the WCS headers agree:</p>
+</section>
+<section id="pair-pairwise-resolution-matching">
+<h2>Pair — pairwise resolution matching<a class="headerlink" href="#pair-pairwise-resolution-matching" title="Link to this heading"></a></h2>
+<p>Match two images of one field to the same spatial resolution so they can be compared
+pixel-by-pixel. This is the standard step before a flux comparison between two lines or two
+instruments (e.g. MIRI vs NIRSpec H₂ intensity).</p>
+<section id="requirements">
+<h3>Requirements<a class="headerlink" href="#requirements" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">&lt;</span> <span class="pre">0.5</span> <span class="pre">px</span></code> → good alignment</p></li>
-<li><p>Large separation → WCS header discrepancy (check <code class="docutils literal notranslate"><span class="pre">EQUINOX</span></code>,
-<code class="docutils literal notranslate"><span class="pre">CRPIX</span></code>, the CD matrix, etc.)</p></li>
+<li><p>Both images are from <strong>MIRI</strong> or <strong>NIRSpec</strong>. Other instruments are not supported, because
+the PSF formulas exist only for these two.</p></li>
+<li><p>Both images are in a flux-per-pixel unit. A surface-brightness unit such as MJy/sr is
+rejected (“Unsupported BUNIT”).</p></li>
+<li><p>The images overlap on the sky.</p></li>
+<li><p>Each image has a line wavelength. The tool reads it from the <code class="docutils literal notranslate"><span class="pre">LINEWAVE</span></code> header key
+(written by the rotational-diagram “Save Maps”), or from the middle of <code class="docutils literal notranslate"><span class="pre">LAMMIN</span></code> and
+<code class="docutils literal notranslate"><span class="pre">LAMMAX</span></code> (written by the Gaussian-map export). If the header has neither, the tool
+asks you for the wavelength in µm.</p></li>
 </ul>
 </section>
-</section>
-<section id="slides-convolute-pairwise-resolution-matching">
-<h2>Slides Convolute — pairwise resolution matching<a class="headerlink" href="#slides-convolute-pairwise-resolution-matching" title="Link to this heading"></a></h2>
-<p>Match the resolution of two images so they can be compared pixel-by-pixel.
-This is the standard step before any multi-instrument flux comparison
-(e.g. MIRI vs NIRSpec H₂ intensity).</p>
 <section id="id1">
 <h3>Procedure<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
 <li><p>Load both images into the Left and Right panels.</p></li>
-<li><p>Click <strong>Slides Convolute</strong>.</p></li>
+<li><p>Open the <strong>Convolution</strong> group and click <strong>Pair</strong>.</p></li>
 <li><p>A confirmation dialog shows:</p>
 <ul class="simple">
-<li><p>Which image will be convolved (the finer one)</p></li>
-<li><p>The Gaussian kernel σ in arcsec and in fine-image pixels</p></li>
-<li><p>The output grid dimensions</p></li>
+<li><p>Which image will be convolved</p></li>
+<li><p>The two PSF widths, the Gaussian kernel σ, and the output grid dimensions</p></li>
 </ul>
 </li>
 <li><p>Click <strong>Yes</strong> to run.</p></li>
-<li><p>Choose a save path — the convolved image is written as a 2-HDU FITS
-(image + <code class="docutils literal notranslate"><span class="pre">COVERAGE</span></code> extension).</p></li>
-<li><p>The success dialog shows a flux audit: <code class="docutils literal notranslate"><span class="pre">Ratio</span> <span class="pre">out/in</span> <span class="pre">:</span> <span class="pre">1.000000</span></code>
-confirms exact flux conservation.</p></li>
+<li><p>Choose a save path — the result is written as a 2-HDU FITS
+(image + <code class="docutils literal notranslate"><span class="pre">COVERAGE</span></code> extension, the per-pixel overlap fraction from 0 to 1).</p></li>
+<li><p>The success dialog shows a flux audit: the input total, the output total, and
+<code class="docutils literal notranslate"><span class="pre">Ratio</span> <span class="pre">out/in</span></code>.</p></li>
 </ol>
 </section>
 <section id="id2">
 <h3>What happens internally<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
-<p>The tool automatically identifies the finer image and convolves it up to
-the coarser pixel scale:</p>
 <ul class="simple">
-<li><p><strong>Kernel width</strong> is derived by quadrature subtraction:
-<code class="docutils literal notranslate"><span class="pre">σ</span> <span class="pre">=</span> <span class="pre">√(σ_target²</span> <span class="pre">−</span> <span class="pre">σ_input²)</span> <span class="pre">/</span> <span class="pre">2.3548</span></code> (in fine-image pixels).</p></li>
-<li><p><strong>Convolution</strong> uses <code class="docutils literal notranslate"><span class="pre">astropy.convolution.convolve_fft</span></code> with
-<code class="docutils literal notranslate"><span class="pre">nan_treatment='interpolate'</span></code> (NaN pixels — e.g. IFU footprint
-borders — are handled without propagating gaps),
-<code class="docutils literal notranslate"><span class="pre">normalize_kernel=True</span></code> (kernel sum is unity, so surface brightness
-is preserved per pixel), and NaN-padding of width <code class="docutils literal notranslate"><span class="pre">⌈4σ⌉</span></code> before the
-FFT so kernel tails stay inside the domain.</p></li>
-<li><p>A final flux renormalisation guarantees
-<code class="docutils literal notranslate"><span class="pre">Σ(output_finite)</span> <span class="pre">==</span> <span class="pre">Σ(input_finite)</span></code> to machine precision
-(~10⁻⁷ relative error).</p></li>
-<li><p>The convolved image is then reprojected onto a new pixel grid at the
-coarse pixel scale using a flux-conserving spherical-polygon
-intersection algorithm (equivalent to <code class="docutils literal notranslate"><span class="pre">reproject_exact</span></code> —
-self-implemented; no external <code class="docutils literal notranslate"><span class="pre">reproject</span></code> dependency).</p></li>
-<li><p>Output shape is sized to fully contain the fine image’s original FOV
-so no sky coverage is lost.</p></li>
+<li><p>The image with the <strong>longer wavelength</strong> is the reference, because its PSF is wider.
+The tool convolves the other image with a Gaussian kernel up to the PSF of the reference.</p></li>
+<li><p><strong>Kernel width:</strong> <code class="docutils literal notranslate"><span class="pre">σ</span> <span class="pre">=</span> <span class="pre">√(σ_ref²</span> <span class="pre">−</span> <span class="pre">σ_image²)</span></code>. Each σ comes from the PSF FWHM of the
+instrument at the line wavelength. MIRI: <code class="docutils literal notranslate"><span class="pre">FWHM(&quot;)</span> <span class="pre">=</span> <span class="pre">0.033</span> <span class="pre">×</span> <span class="pre">λ(µm)</span> <span class="pre">+</span> <span class="pre">0.106</span></code>.
+NIRSpec: an approximate quadratic fit.</p></li>
+<li><p><strong>Convolution</strong> uses <code class="docutils literal notranslate"><span class="pre">astropy.convolution.convolve_fft</span></code> with a normalized kernel. NaN
+pixels (for example the borders of an IFU footprint) are interpolated during the
+convolution and restored afterwards.</p></li>
+<li><p>The convolved image is then reprojected with <code class="docutils literal notranslate"><span class="pre">reproject_exact</span></code> onto the <strong>native pixel
+grid of the reference image</strong>, and the flux is conserved.</p></li>
+<li><p>This is the same engine that the rotational-diagram <strong>Convolve Maps</strong> and <strong>Run Map</strong> use.</p></li>
 </ul>
 </section>
 <section id="guards-and-edge-cases">
 <h3>Guards and edge cases<a class="headerlink" href="#guards-and-edge-cases" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p><strong>Same-resolution guard:</strong> if both panels have the same pixel scale
-(within 0.0001 arcsec/px), Slides Convolute shows a “nothing to do”
-message instead of running. This prevents repeated unnecessary
-convolutions.</p></li>
-<li><p><strong>No-overlap guard:</strong> if the two images cover completely different
-sky regions, the viewer warns “No Sky Overlap” and refuses to run.
-Load images of the same field.</p></li>
-<li><p><strong>Empty-result postcheck:</strong> if the inputs technically overlap but the
-full-coverage output region is empty (e.g. very thin edge-only
-overlap), the viewer warns and does not save an all-NaN result.</p></li>
+<li><p><strong>Same wavelength:</strong> if both panels have the same wavelength, <strong>Pair</strong> shows a “nothing
+to convolve” message instead of running.</p></li>
+<li><p><strong>No overlap:</strong> if the two images cover completely different sky regions, the viewer
+warns “No Sky Overlap” and refuses to run. Load images of the same field.</p></li>
+<li><p><strong>Missing pixel scale:</strong> if a header has no valid <code class="docutils literal notranslate"><span class="pre">CDELT</span></code> or CD matrix, the viewer shows
+a “Missing Pixel Scale” message. The pixel scale is necessary to compute the kernel size.</p></li>
+<li><p><strong>Reading the flux audit:</strong> a ratio close to 1 (within about 1%) means that the flux is
+conserved. A clearly lower ratio means that part of the image falls outside the grid of
+the reference image. A ratio near 0 means that the two images barely overlap. A small
+deviation can also come from NaN pixels at the edge of the image footprint.</p></li>
 </ul>
 <p>Worked example: MIRI ch1-long (Left) and ch2-long (Right) as the pair, both in log scale:</p>
 <a class="reference internal image-reference" href="../_images/miri_ch1_long.png"><img alt="MIRI ch1-long flux map on its own native pixel grid, log scale" class="align-center" src="../_images/miri_ch1_long.png" style="width: 55%;" />
 </a>
 <a class="reference internal image-reference" href="../_images/miri_ch2_long.png"><img alt="MIRI ch2-long flux map on its own native pixel grid, log scale" class="align-center" src="../_images/miri_ch2_long.png" style="width: 55%;" />
 </a>
-<p>And the Slides Convolute result – ch1-long convolved and reprojected onto ch2-long’s
-(coarser) grid, still in log scale:</p>
-<a class="reference internal image-reference" href="../_images/miri_ch1_ch2_long.png"><img alt="ch1-long after Slides Convolute matches it to ch2-long's resolution and grid, log scale" class="align-center" src="../_images/miri_ch1_ch2_long.png" style="width: 55%;" />
+<p>And the Pair result – ch1-long convolved and reprojected onto ch2-long’s
+grid, still in log scale:</p>
+<a class="reference internal image-reference" href="../_images/miri_ch1_ch2_long.png"><img alt="ch1-long after Pair matches it to ch2-long's resolution and grid, log scale" class="align-center" src="../_images/miri_ch1_ch2_long.png" style="width: 55%;" />
 </a>
 </section>
 </section>
-<section id="batch-convolution-multi-image-resolution-matching">
-<h2>Batch Convolution — multi-image resolution matching<a class="headerlink" href="#batch-convolution-multi-image-resolution-matching" title="Link to this heading"></a></h2>
-<p>Bring any number of images to a single common resolution and FOV in one
-step.</p>
+<section id="batch-multi-image-resolution-matching">
+<h2>Batch — multi-image resolution matching<a class="headerlink" href="#batch-multi-image-resolution-matching" title="Link to this heading"></a></h2>
+<p>Bring several images to one resolution in a single step.</p>
 <section id="id3">
 <h3>Procedure<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
-<li><p>Click <strong>Batch Convolution</strong> to open the batch dialog.</p></li>
-<li><p>Use <strong>+ Add FITS Files</strong> to add two or more 2D FITS files. Any mix
-of instruments, pixel scales, and orientations is allowed.</p></li>
+<li><p>In the <strong>Convolution</strong> group, click <strong>Batch</strong> to open the batch dialog.</p></li>
+<li><p>Use <strong>+ Add FITS Files</strong> to add two or more 2D FITS files. The requirements are the same
+as for <strong>Pair</strong>: MIRI or NIRSpec, a flux-per-pixel unit, and an overlap on the sky. The
+tool reads or asks for the line wavelength of each file.</p></li>
 <li><p>Click <strong>Process &amp; Download ZIP</strong>.</p></li>
 <li><p>Choose a save path for the output <code class="docutils literal notranslate"><span class="pre">.zip</span></code> file.</p></li>
 </ol>
@@ -508,33 +502,19 @@ share sky, so you can remove the off-field file before retrying.</p>
 </section>
 <section id="id4">
 <h3>What happens internally<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
-<p>The tool:</p>
-<ol class="arabic simple">
-<li><p>Identifies the <strong>worst (coarsest) pixel scale</strong> among all inputs —
-this becomes the target scale.</p></li>
-<li><p>Identifies the <strong>largest-area image</strong> (most sky coverage) to define
-the output orientation and centre.</p></li>
-<li><p>Builds a single common output WCS at the worst scale, sized to cover
-the <strong>union of all input footprints</strong> — no image loses sky coverage.</p></li>
-<li><p>For each input, applies the appropriate Gaussian kernel (σ from
-quadrature) and reprojects onto the common grid.</p></li>
-<li><p>Images already at the worst scale receive <code class="docutils literal notranslate"><span class="pre">σ</span> <span class="pre">=</span> <span class="pre">0</span></code> (no smoothing;
-only a reproject if needed).</p></li>
-</ol>
+<p>The file with the <strong>longest wavelength</strong> is the reference. The tool convolves every other
+file to the PSF of the reference and reprojects it onto the native grid of the reference.
+The reference file is not smoothed.</p>
 </section>
 <section id="output">
 <h3>Output<a class="headerlink" href="#output" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>All outputs are packed into a <code class="docutils literal notranslate"><span class="pre">.zip</span></code> archive — one FITS per input,
-all on the same WCS grid, ready for pixel-by-pixel comparison.</p></li>
+<li><p>All outputs are packed into a <code class="docutils literal notranslate"><span class="pre">.zip</span></code> archive — one <code class="docutils literal notranslate"><span class="pre">matched_&lt;name&gt;.fits</span></code> file for each
+input, all on the same WCS grid, ready for pixel-by-pixel comparison.</p></li>
 <li><p>Each output FITS includes the <code class="docutils literal notranslate"><span class="pre">COVERAGE</span></code> extension (per-pixel
-overlap fraction 0–1).</p></li>
-<li><p>The completion dialog shows a flux audit table — every row should
-read <code class="docutils literal notranslate"><span class="pre">ratio</span> <span class="pre">=</span> <span class="pre">1.000000</span></code>. Any large deviation indicates a corrupted
-WCS header in the corresponding input.</p></li>
-<li><p>Files that produced an all-NaN frame appear in the audit table with
-<code class="docutils literal notranslate"><span class="pre">[EMPTY]</span></code> next to their name; they’re skipped in the ZIP so the
-rest of the batch is still useful.</p></li>
+overlap fraction 0-1).</p></li>
+<li><p>The completion dialog shows the flux audit (the output total divided by the input total)
+for each file. The same reading rules as for <strong>Pair</strong> apply.</p></li>
 </ul>
 </section>
 </section>
@@ -551,14 +531,14 @@ way as <a class="reference internal" href="selecting_regions.html"><span class="
 <li><p><strong>Freehand</strong> — click to add vertices, double-click to close</p></li>
 </ul>
 <p>Once a region is drawn on either panel, statistics appear in the image stats panel: min,
-max, mean, sum, std for the pixels enclosed by the region. <strong>Edit Shape</strong> toggles
-drag/resize handles and <strong>Copy Color</strong> copies this panel’s colormap to the other panel,
-exactly as in <a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><strong>💾</strong> Export Region (<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>) is main-window only – it isn’t
-available in the 2D Viewer.</p>
-</div>
+max, mean, sum, std for the pixels enclosed by the region. <strong>Edit shape</strong> toggles
+drag/resize handles and the <strong>Copy</strong> menu copies the selection, the colormap, or the scale and
+range to the other panel, exactly as in <a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>.</p>
+<p>The 2D viewer has its own <strong>Region</strong> group with three buttons: <strong>Save Slice (Masked)</strong>
+(the image with everything outside the region set to NaN), <strong>Save Region</strong>, and
+<strong>Import Region</strong>. They work like the buttons of the same name in the main window
+(<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>). A plain <strong>Save Slice</strong> and <strong>Save Cube (Masked)</strong> exist only in
+the main window.</p>
 <p><strong>Copy</strong> is the one place behavior actually differs: the two 2D panels can hold images of
 completely different pixel scale and orientation (unlike the main viewer’s two slices,
 which always share one cube’s grid), so copying a selection here reprojects its corners

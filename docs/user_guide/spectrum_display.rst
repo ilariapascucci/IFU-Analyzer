@@ -3,20 +3,20 @@ Spectrum Display
 =================
 
 Controls for how the spectrum panel normalizes and Doppler-shifts the Full,
-Left Slice, and Right Slice spectra. These sit in the always-visible control
+Left Region, and Right Region spectra. These sit in the always-visible control
 row above the spectrum plot (see :doc:`gui_overview`), and apply regardless
 of which tab is active.
 
 .. note::
 
-   This page assumes you're already familiar with the Full / Left Slice /
-   Right Slice tabs; see :doc:`selecting_regions` for how a region
+   This page assumes you're already familiar with the Full / Left Region /
+   Right Region tabs; see :doc:`selecting_regions` for how a region
    selection becomes its own spectrum.
 
 Normalization
 =============
 
-A Left Slice tab's spectrum, unnormalized, showing raw flux in the cube's own
+A Left Region tab's spectrum, unnormalized, showing raw flux in the cube's own
 units:
 
 .. image:: /_static/left_spec.png
@@ -70,10 +70,10 @@ peak reaches 1.0:
 Doppler Shifting
 =================
 
-Each of the Full / Left Slice / Right Slice tabs can be Doppler-shifted
+Each of the Full / Left Region / Right Region tabs can be Doppler-shifted
 independently: shifting Left never touches Full or Right.
 
-1. Select the tab you want to shift (Full, Left Slice, or Right Slice). For
+1. Select the tab you want to shift (Full, Left Region, or Right Region). For
    Left/Right, that side must already have a region selected.
 2. Click **Shift** and enter a systemic velocity in km/s. This previews the
    shift as an orange overlay on that tab's spectrum, without changing the

@@ -126,38 +126,43 @@ updates that side’s own analysis and spectrum tab independently of the other.<
 <h2>Main Window Layout<a class="headerlink" href="#main-window-layout" title="Link to this heading"></a></h2>
 <img alt="The main Cube Explorer window, showing the Left/Right slice panels, tool group toolbar, and spectrum panel with display controls" src="../_images/gui_overview.png" />
 <p>The window loaded above (a MIRI cube): Left and Right intensity maps at top, each with its
-own running stats (min/max/mean/sum/std) and cursor readout; the Gaussian Fit / Continuum
-Tools / Rotational Diagram / HITRAN tool groups in the blue bar; and the spectrum panel
-with its Set Slice / tab / Normalize / Shift controls and plot at the bottom.</p>
-<p><strong>1. Menu Bar</strong> (Top)</p>
+own running stats (min/max/mean/sum/std) and cursor readout; the Region / Export / Gaussian
+Fit / Continuum Tools / Lines &amp; Fit tool groups in the bar below them; and the spectrum
+panel with its Set Slice / tab / Normalize / Shift controls and plot at the bottom.</p>
+<p><strong>1. Top Bar</strong> (Top)</p>
+<p>The top bar has three sets of buttons. Thin lines separate the sets.</p>
 <ul class="simple">
 <li><p><strong>Open FITS</strong>: browse for and load a FITS cube or 2D image; the instrument is
 auto-detected from the header</p></li>
 <li><p><strong>Header</strong>: view the FITS header of the loaded file(s)</p></li>
-<li><p><strong>🔄</strong>: complete reset – clears every plot, region selection, normalization, and
-Gaussian fit, then reloads the spectrum from the original data</p></li>
-<li><p><strong>🗗</strong>: open a second, independent Cube Explorer window</p></li>
+<li><p><strong>Refresh</strong> (arrow icon): asks “Reset the view?” first. If you confirm, it clears every
+plot, region selection, normalization, and Gaussian fit, then reloads the spectrum from
+the original data</p></li>
+<li><p><strong>New window</strong> (icon): open a second, independent Cube Explorer window</p></li>
+<li><p><strong>Rotational Diagram</strong>: open the <a class="reference internal" href="rotational_diagram.html"><span class="doc">rotational diagram analyzer</span></a></p></li>
 <li><p><strong>2D</strong>: open the <a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Viewer</span></a></p></li>
 </ul>
+<p>The name of the loaded instrument shows at the right end of the bar.</p>
 <p><strong>2. Main Viewing Area</strong> (Top Center)</p>
 <p>Displays the currently selected wavelength left and right slices:</p>
 <ul class="simple">
 <li><p><strong>Intensity Map</strong>: Color-coded flux data with statistics</p></li>
-<li><p><strong>🌈🎚 Color &amp; Scale</strong>: Edit color scheme or scale</p></li>
-<li><p><strong>Region Selection</strong>: Select a region of a slice for analysis</p>
+<li><p><strong>Region Selection</strong>: Select a region of a slice for analysis. Each slice has its own
+row of icon buttons:</p>
 <ul>
-<li><p><strong>*</strong> Pixel</p></li>
-<li><p><strong>▭</strong> Rectangle</p></li>
-<li><p><strong>○</strong> Circle</p></li>
-<li><p><strong>⬭</strong> Ellipse</p></li>
-<li><p><strong>✏</strong> Free-Form (polygon)</p></li>
-<li><p><strong>✎</strong> Edit the placed region (drag/resize)</p></li>
-<li><p><strong>⎘</strong> Copy the selection from the adjacent slice</p></li>
-<li><p><strong>⎘🌈</strong> Copy the colormap from the adjacent slice</p></li>
-<li><p><strong>💾</strong> Export the region as a NaN-masked FITS cube (<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>)</p></li>
+<li><p><strong>Point</strong>, <strong>Rectangle</strong>, <strong>Circle</strong>, <strong>Ellipse</strong>, <strong>Freehand</strong>: the five shape tools</p></li>
+<li><p><strong>Edit shape</strong>: drag or resize the placed region</p></li>
+<li><p><strong>Clear</strong>: remove the region</p></li>
+<li><p><strong>Copy</strong> (menu): copy the selection, the colormap, or the scale and range from the
+other slice</p></li>
+<li><p><strong>Colormap</strong>: choose a colormap</p></li>
+<li><p><strong>Scale</strong>: choose the scale (Linear, Log, or Power) and the color range</p></li>
 </ul>
 </li>
 </ul>
+<p>Hover over an icon to read its tooltip. Saving a slice or a region is done from the
+<strong>Region</strong> and <strong>Export</strong> tool groups below, not from a button here
+(<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>).</p>
 <p><strong>3. Spectrum Panel</strong> (Bottom Center)</p>
 <p>Shows the 1D spectrum, with its axes in flux and wavelength. Two rows of
 controls sit above the plot: a row of collapsible analysis tool groups, and
@@ -174,6 +179,14 @@ a row of display/navigation controls that are always visible.</p>
 </tr>
 </thead>
 <tbody>
+<tr class="row-even"><td><p><strong>Region</strong></p></td>
+<td><p>Save a region as sky coordinates, or import a region saved on another cube
+(<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Export</strong></p></td>
+<td><p>Save a slice, a masked slice, or a masked cube as FITS
+(<a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>)</p></td>
+</tr>
 <tr class="row-even"><td><p><strong>Gaussian Fit</strong></p></td>
 <td><p>Fit lines, mark noise regions, and build full-cube parameter maps</p></td>
 </tr>
@@ -181,11 +194,10 @@ a row of display/navigation controls that are always visible.</p>
 <td><p>Fit and subtract the continuum, automatically or from custom anchor
 points</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>Rotational Diagram</strong></p></td>
-<td><p>Fit H2 rotational temperatures from measured line fluxes</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>HITRAN</strong></p></td>
-<td><p>Fetch molecular line lists with transition-level filtering</p></td>
+<tr class="row-even"><td><p><strong>Lines &amp; Fit</strong></p></td>
+<td><p>Set the wavelength range (λ min and λ max, in µm). Fetch HITRAN lines or
+import your own, show them on the spectrum, mark contaminating lines, then
+run Multi-Gauss or Flux Map</p></td>
 </tr>
 </tbody>
 </table>
@@ -204,9 +216,9 @@ points</p></td>
 <tr class="row-even"><td><p><strong>Set Left Slice / Set Right Slice</strong></p></td>
 <td><p>Click a slice to set the left or right wavelength from that pixel</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>Full / Left Slice / Right Slice tabs</strong></p></td>
+<tr class="row-odd"><td><p><strong>Full / Left Region / Right Region tabs</strong></p></td>
 <td><p>Switch which spectrum is displayed. Full always shows the whole
-cube’s spectrum; Left Slice and Right Slice each show only that
+cube’s spectrum; Left Region and Right Region each show only that
 side’s own selected region (nothing, if no region is selected there)</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Show Left / Show Right</strong></p></td>
@@ -227,6 +239,8 @@ cancel, or revert it</p></td>
 </tr>
 </tbody>
 </table>
+<p>The <strong>Save Spectrum</strong> button sits alone under the spectrum plot. It saves the
+displayed spectrum as a text file (<a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a>).</p>
 </section>
 <section id="getting-help">
 <h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
@@ -238,10 +252,10 @@ cancel, or revert it</p></td>
 <ol class="arabic simple">
 <li><p><a class="reference internal" href="gaussian_fitting_1d.html"><span class="doc">1D Spectrum Fitting</span></a> and <a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> for the Gaussian Fit group</p></li>
 <li><p><a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a> for the Continuum Tools group</p></li>
-<li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> for the Rotational Diagram group</p></li>
-<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a> for the HITRAN group’s fetch/plot workflow</p></li>
+<li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> for the Rotational Diagram button in the top bar</p></li>
+<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a> for the Lines &amp; Fit group’s fetch/plot workflow</p></li>
 <li><p><a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a> and <a class="reference internal" href="spectrum_display.html"><span class="doc">Spectrum Display</span></a> for the display
-controls row (Set Slice, Full/Left/Right tabs, Normalize, Shift)</p></li>
+controls row (Set Slice, Full/Left Region/Right Region tabs, Normalize, Shift)</p></li>
 </ol>
 </section>
 </section>

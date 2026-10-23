@@ -13,39 +13,45 @@ Main Window Layout
    :alt: The main Cube Explorer window, showing the Left/Right slice panels, tool group toolbar, and spectrum panel with display controls
 
 The window loaded above (a MIRI cube): Left and Right intensity maps at top, each with its
-own running stats (min/max/mean/sum/std) and cursor readout; the Gaussian Fit / Continuum
-Tools / Rotational Diagram / HITRAN tool groups in the blue bar; and the spectrum panel
-with its Set Slice / tab / Normalize / Shift controls and plot at the bottom.
+own running stats (min/max/mean/sum/std) and cursor readout; the Region / Export / Gaussian
+Fit / Continuum Tools / Lines & Fit tool groups in the bar below them; and the spectrum
+panel with its Set Slice / tab / Normalize / Shift controls and plot at the bottom.
 
-**1. Menu Bar** (Top)
+**1. Top Bar** (Top)
+
+The top bar has three sets of buttons. Thin lines separate the sets.
 
 - **Open FITS**: browse for and load a FITS cube or 2D image; the instrument is
   auto-detected from the header
 - **Header**: view the FITS header of the loaded file(s)
-- **🔄**: complete reset -- clears every plot, region selection, normalization, and
-  Gaussian fit, then reloads the spectrum from the original data
-- **🗗**: open a second, independent Cube Explorer window
+- **Refresh** (arrow icon): asks "Reset the view?" first. If you confirm, it clears every
+  plot, region selection, normalization, and Gaussian fit, then reloads the spectrum from
+  the original data
+- **New window** (icon): open a second, independent Cube Explorer window
+- **Rotational Diagram**: open the :doc:`rotational diagram analyzer <rotational_diagram>`
 - **2D**: open the :doc:`2D FITS Dual Viewer <2d_viewer>`
+
+The name of the loaded instrument shows at the right end of the bar.
 
 **2. Main Viewing Area** (Top Center)
 
 Displays the currently selected wavelength left and right slices:
 
 - **Intensity Map**: Color-coded flux data with statistics
-- **🌈🎚 Color & Scale**: Edit color scheme or scale
-- **Region Selection**: Select a region of a slice for analysis
+- **Region Selection**: Select a region of a slice for analysis. Each slice has its own
+  row of icon buttons:
 
-  - **\*** Pixel
-  - **▭** Rectangle
-  - **○** Circle
-  - **⬭** Ellipse
-  - **✏** Free-Form (polygon)
-  - **✎** Edit the placed region (drag/resize)
-  - **⎘** Copy the selection from the adjacent slice
-  - **⎘🌈** Copy the colormap from the adjacent slice
+  - **Point**, **Rectangle**, **Circle**, **Ellipse**, **Freehand**: the five shape tools
+  - **Edit shape**: drag or resize the placed region
+  - **Clear**: remove the region
+  - **Copy** (menu): copy the selection, the colormap, or the scale and range from the
+    other slice
+  - **Colormap**: choose a colormap
+  - **Scale**: choose the scale (Linear, Log, or Power) and the color range
 
-Saving a slice or a region is done from the **Region** tool group below, not
-from a button here (:doc:`selecting_regions`).
+Hover over an icon to read its tooltip. Saving a slice or a region is done from the
+**Region** and **Export** tool groups below, not from a button here
+(:doc:`selecting_regions`).
 
 **3. Spectrum Panel** (Bottom Center)
 
@@ -61,18 +67,21 @@ a row of display/navigation controls that are always visible.
 
    * - Group
      - What it does
+   * - **Region**
+     - Save a region as sky coordinates, or import a region saved on another cube
+       (:doc:`selecting_regions`)
+   * - **Export**
+     - Save a slice, a masked slice, or a masked cube as FITS
+       (:doc:`selecting_regions`)
    * - **Gaussian Fit**
      - Fit lines, mark noise regions, and build full-cube parameter maps
    * - **Continuum Tools**
      - Fit and subtract the continuum, automatically or from custom anchor
        points
-   * - **Rotational Diagram**
-     - Fit H2 rotational temperatures from measured line fluxes
-   * - **HITRAN**
-     - Fetch molecular line lists with transition-level filtering
-   * - **Region**
-     - Save a slice or a region, or import a region saved on another cube
-       (:doc:`selecting_regions`)
+   * - **Lines & Fit**
+     - Set the wavelength range (λ min and λ max, in µm). Fetch HITRAN lines or
+       import your own, show them on the spectrum, mark contaminating lines, then
+       run Multi-Gauss or Flux Map
 
 *Display Controls (bottom row)*
 
@@ -84,9 +93,9 @@ a row of display/navigation controls that are always visible.
      - What it does
    * - **Set Left Slice / Set Right Slice**
      - Click a slice to set the left or right wavelength from that pixel
-   * - **Full / Left Slice / Right Slice tabs**
+   * - **Full / Left Region / Right Region tabs**
      - Switch which spectrum is displayed. Full always shows the whole
-       cube's spectrum; Left Slice and Right Slice each show only that
+       cube's spectrum; Left Region and Right Region each show only that
        side's own selected region (nothing, if no region is selected there)
    * - **Show Left / Show Right**
      - While on the Full tab, overlay the Left and/or Right selection's own
@@ -101,6 +110,9 @@ a row of display/navigation controls that are always visible.
      - Preview a Doppler shift on the active tab's spectrum, then apply,
        cancel, or revert it
 
+The **Save Spectrum** button sits alone under the spectrum plot. It saves the
+displayed spectrum as a text file (:doc:`exporting_data`).
+
 Getting Help
 ============
 
@@ -113,7 +125,7 @@ Each tool group above has its own dedicated page with the full workflow:
 
 1. :doc:`gaussian_fitting_1d` and :doc:`gaussian_fitting_cube` for the Gaussian Fit group
 2. :doc:`continuum_subtraction` for the Continuum Tools group
-3. :doc:`rotational_diagram` for the Rotational Diagram group
-4. :doc:`flux_extraction` for the HITRAN group's fetch/plot workflow
+3. :doc:`rotational_diagram` for the Rotational Diagram button in the top bar
+4. :doc:`flux_extraction` for the Lines & Fit group's fetch/plot workflow
 5. :doc:`selecting_regions` and :doc:`spectrum_display` for the display
-   controls row (Set Slice, Full/Left/Right tabs, Normalize, Shift)
+   controls row (Set Slice, Full/Left Region/Right Region tabs, Normalize, Shift)
