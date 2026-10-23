@@ -478,7 +478,7 @@ STATUS: {result.message}
 
     def _active_contam_lines(self):
         """Contaminant lines currently checked/plotted, not the full loaded
-        catalog -- unchecking one in the Select Lines dialog, or clicking its marker
+        catalog -- unchecking one in the Show Lines dialog, or clicking its marker
         off the spectrum, must exclude it from the fit, not just the picture.
 
         Args: None

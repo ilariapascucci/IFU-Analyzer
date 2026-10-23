@@ -907,7 +907,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.multi_gauss_fit_btn.setToolTip("Fit Gaussians to all selected HITRAN lines using current continuum")
         self.gauss_noise_left_btn.setToolTip("Click the spectrum to set the left edge of a line-free noise region.")
         self.gauss_noise_right_btn.setToolTip("Click the spectrum to set the right edge of a line-free noise region.")
-        self.flux_map_btn.setToolTip("Fit multiple lines and create an integrated flux map")
+        self.flux_map_btn.setToolTip(
+            "Fit the checked lines at every pixel and create an integrated flux map. "
+            "It uses the λ min and λ max boxes.")
 
 
         # Wavelength range inputs (for line search)
@@ -952,8 +954,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         )
         self.mark_contam_btn.toggled.connect(self._toggle_mark_contam_mode)
 
-        self.show_species_btn = QPushButton("Select Lines")
-        self.show_species_btn.setToolTip("Choose the lines to plot on the spectrum.")
+        self.show_species_btn = QPushButton("Show Lines")
+        self.show_species_btn.setToolTip("Show the loaded lines. Check the ones to plot on the spectrum.")
         self.show_species_btn.clicked.connect(self.show_available_species)
 
     def _init_shape_controls(self):
@@ -1179,17 +1181,21 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         collapsible_layout.setSpacing(0)
         collapsible_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Group 1: Region (save/import for slices and regions -- each
-        # button asks which panel, left or right, to use).
+        # Group 1: Region (save or import a region as sky coordinates).
+        # Each button asks which panel, left or right, to use.
         self.region_group = CollapsibleButtonGroup("Region")
-        self.region_group.add_button(self.region_save_slice_btn)
-        self.region_group.add_button(self.region_save_slice_masked_btn)
-        self.region_group.add_button(self.region_save_cube_btn)
         self.region_group.add_button(self.region_save_wcs_btn)
         self.region_group.add_button(self.region_import_wcs_btn)
         collapsible_layout.addWidget(self.region_group)
 
-        # Group 2: Gaussian Fit
+        # Group 2: Export (save a slice or the cube as FITS).
+        self.export_group = CollapsibleButtonGroup("Export")
+        self.export_group.add_button(self.region_save_slice_btn)
+        self.export_group.add_button(self.region_save_slice_masked_btn)
+        self.export_group.add_button(self.region_save_cube_btn)
+        collapsible_layout.addWidget(self.export_group)
+
+        # Group 3: Gaussian Fit
         self.gaussian_group = CollapsibleButtonGroup("Gaussian Fit")
         self.gaussian_group.add_button(self.gauss_left_btn)
         self.gaussian_group.add_button(self.gauss_peak_btn)
@@ -1200,31 +1206,40 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gaussian_group.add_button(self.gauss_map_btn)
         collapsible_layout.addWidget(self.gaussian_group)
 
-        # Group 3: Continuum Tools
+        # Group 4: Continuum Tools
         self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
         self.continuum_group.add_button(self.auto_continuum_toggle)
         self.continuum_group.add_button(self.custom_continuum_toggle)
         self.continuum_group.add_button(self.save_continuum_cubes_btn)
         collapsible_layout.addWidget(self.continuum_group)
 
-        # Group 4: HITRAN (wavelength inputs + action buttons + flux map)
-        self.hitran_group = CollapsibleButtonGroup("HITRAN")
+        # Group 5: Lines & Fit (build the line list first, then fit the lines)
+        self.hitran_group = CollapsibleButtonGroup("Lines && Fit")
         self.hitran_group.add_button(QLabel("λ min (µm):"))
         self.hitran_group.add_button(self.min_wave_input)
         self.hitran_group.add_button(QLabel("λ max (µm):"))
         self.hitran_group.add_button(self.max_wave_input)
         self.hitran_group.add_button(self.hitran_btn)
         self.hitran_group.add_button(self.load_custom_lines_btn)
+        self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.load_contam_btn)
         self.hitran_group.add_button(self.mark_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
-        self.hitran_group.add_button(self.show_species_btn)
         self.hitran_group.add_button(self.flux_map_btn)
         collapsible_layout.addWidget(self.hitran_group)
 
         collapsible_layout.addStretch()  # Push all groups to the left
         
         main_layout.addLayout(collapsible_layout)
+
+        # These buttons show under the group buttons when a continuum mode is on.
+        self.continuum_action_layout = QHBoxLayout()
+        for btn in (self.continuum_line_btn, self.subtract_continuum_btn, self.custom_subtract_btn,
+                    self.custom_delete_btn, self.custom_save_pts_btn, self.custom_load_pts_btn,
+                    self.custom_ok_btn):
+            self.continuum_action_layout.addWidget(btn)
+        self.continuum_action_layout.addStretch()
+        main_layout.addLayout(self.continuum_action_layout)
 
         # Slice selection, spectrum tabs, and shifting share one row here
         # (not the toolbar above) since all three act on the spectrum itself.
@@ -1259,19 +1274,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         main_layout.addWidget(self.spec_canvas, 2)
         main_layout.addWidget(self.spec_toolbar)
         
-        # Add save spectrum button separately
-        self.continuum_action_layout = QHBoxLayout()
-        self.continuum_action_layout.addStretch()
-        self.continuum_action_layout.addWidget(self.continuum_line_btn)
-        self.continuum_action_layout.addWidget(self.subtract_continuum_btn)
-        self.continuum_action_layout.addWidget(self.custom_subtract_btn)
-        self.continuum_action_layout.addWidget(self.custom_delete_btn)
-        self.continuum_action_layout.addWidget(self.custom_save_pts_btn)
-        self.continuum_action_layout.addWidget(self.custom_load_pts_btn)
-        self.continuum_action_layout.addWidget(self.custom_ok_btn)
-        self.continuum_action_layout.addWidget(self.save_results_btn)
-        self.continuum_action_layout.addStretch()
-        main_layout.addLayout(self.continuum_action_layout)
+        # Save Spectrum stays under the spectrum plot, always visible.
+        save_layout = QHBoxLayout()
+        save_layout.addStretch()
+        save_layout.addWidget(self.save_results_btn)
+        save_layout.addStretch()
+        main_layout.addLayout(save_layout)
 
         self.setLayout(main_layout)
 
@@ -2629,7 +2637,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
     def plot_selected_lines(self, rows):
         """Replace the full set of plotted lines (detection + contaminant alike)
-        with exactly what's checked in the Select Lines dialog, then redraw.
+        with exactly what's checked in the Show Lines dialog, then redraw.
 
         Args:
             rows (list[dict]): Line rows to plot, replacing the current set.

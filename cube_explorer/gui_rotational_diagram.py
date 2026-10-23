@@ -456,7 +456,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.current_molecule = 'H2'  # Default molecule
         self.current_isotopologue = 1  # Set by Fetch from HITRAN; read by Run Fit/Run Map
         self.setWindowTitle(f"{self.current_molecule} Rotational Diagram Analyzer")
-        self.setGeometry(100, 100, 1500, 800)
+        screen_width = QApplication.primaryScreen().availableGeometry().width()
+        self.setGeometry(100, 100, min(1650, int(screen_width * 0.95)), 800)
         
         self.hitran_lines = []
         self.fetch_thread = None
@@ -492,7 +493,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         main_layout.addWidget(self.create_hitran_section())
         
         # Lines table
-        main_layout.addWidget(QLabel("Select lines and enter flux data:"))
+        label_row = QHBoxLayout()
+        self.molecule_label = QLabel(f"Molecule: {self.current_molecule}")
+        self.molecule_label.setStyleSheet("font-weight: bold;")
+        label_row.addWidget(self.molecule_label)
+        label_row.addWidget(QLabel("Select lines and enter flux data:"))
+        label_row.addStretch()
+        main_layout.addLayout(label_row)
         
         # Error input mode toggle
         toggle_layout = QHBoxLayout()
@@ -570,7 +577,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         
         bottom_layout.addWidget(QLabel("R (au):"))
         self.radius_input = QLineEdit()
-        self.radius_input.setText("17")
+        self.radius_input.setPlaceholderText("required")
+        self.radius_input.setToolTip("Radius of the emitting region, in au.")
         self.radius_input.setMaximumWidth(100)
         bottom_layout.addWidget(self.radius_input)
 
@@ -584,7 +592,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         bottom_layout.addWidget(QLabel("Distance (pc):"))
         self.distance_input = QLineEdit()
-        self.distance_input.setText("71.5")
+        self.distance_input.setPlaceholderText("required")
+        self.distance_input.setToolTip("Distance to the source, in pc.")
         self.distance_input.setMaximumWidth(100)
         bottom_layout.addWidget(self.distance_input)
         
@@ -770,14 +779,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_maps_btn.clicked.connect(self.save_all_maps)
         self.save_maps_btn.setEnabled(False)  # Blocked until lines are loaded
 
-        self.select_map_region_btn = QPushButton("Select")
+        self.select_map_region_btn = QPushButton("Draw Region")
         self.select_map_region_btn.setToolTip(
-            "Run Calculate Maps on at least one cube-fit line first."
+            "Draw a region on a line's flux map. Calculate Fluxes and Run Fit then use only that region."
         )
         self.select_map_region_btn.clicked.connect(self.select_rot_map_region)
         self.select_map_region_btn.setEnabled(False)  # Blocked until a line/cube match exists
 
-        self.import_map_region_btn = QPushButton("Import")
+        self.import_map_region_btn = QPushButton("Import Region")
         self.import_map_region_btn.setToolTip(
             "Restrict Calculate Fluxes/Run Fit to one sky region, imported from a region "
             "saved elsewhere (Save Region, main window or 2D viewer). Applies per cube using "
@@ -787,9 +796,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.import_map_region_btn.clicked.connect(self.import_rot_map_region)
         self.import_map_region_btn.setEnabled(False)  # Blocked until lines are loaded
 
-        self.clear_map_region_btn = QPushButton("Delete")
+        self.clear_map_region_btn = QPushButton("Delete Region")
         self.clear_map_region_btn.setToolTip(
-            "Remove the imported region and go back to fitting the whole cube."
+            "Delete the region. Calculate Fluxes and Run Fit then use the whole cube."
         )
         self.clear_map_region_btn.clicked.connect(self.clear_rot_map_region)
         self.clear_map_region_btn.setEnabled(False)  # Blocked until a region is imported
@@ -889,6 +898,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         self.current_molecule = molecule
         self.setWindowTitle(f"{molecule} Rotational Diagram Analyzer")
+        self.molecule_label.setText(f"Molecule: {molecule}")
         self.update_isotopologue_range()
 
         # OPR is H2-only physics; block the checkbox for anything else.
@@ -950,7 +960,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
     def _reveal_line_workflow_buttons(self):
         """Enable the line-workflow buttons once the table has at least one
-        line -- shared by Fetch HITRAN, Import CSV, and Import Map. Select/
+        line -- shared by Fetch HITRAN, Import CSV, and Import Map. Draw/
         Delete Region are gated separately (on_line_selected/a region
         actually being active), not by this.
 
@@ -3506,7 +3516,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             try:
                 radius_au = float(self.radius_input.text().strip())
             except ValueError:
-                QMessageBox.warning(self, "Error", "Invalid radius (R) - must be a number")
+                QMessageBox.warning(self, "Error", "Enter a number for the radius (R), in au. Or check Unknown R.")
                 return
 
             if radius_au <= 0:
@@ -3516,7 +3526,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         try:
             distance_pc = float(self.distance_input.text().strip())
         except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid distance - must be a number")
+            QMessageBox.warning(self, "Error", "Enter a number for the distance, in pc.")
             return
 
         if distance_pc <= 0:
@@ -3937,7 +3947,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         entries, n_sigma = self._rot_map_region_entries()
         if not entries:
             QMessageBox.warning(
-                self, "Select Region",
+                self, "Draw Region",
                 "Run Calculate Maps on at least one cube-fit line first -- the region "
                 "is drawn on its flux map. Imported maps carry no fit, so they can't be used.")
             return
@@ -3958,7 +3968,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "Run Map are unaffected -- they always use the whole cube.")
 
     def _rot_map_region_entries(self):
-        """Per-line data Select Region draws on, taken from the cached
+        """Per-line data Draw Region draws on, taken from the cached
         Calculate Maps result. Imported-map lines are skipped: they have
         no fit, so no upper-limit data.
 
@@ -4023,7 +4033,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "Calculate Fluxes and Run Fit will now only use pixels inside it, on every loaded "
             "cube. Any previously computed fluxes were cleared since they no longer reflect "
             "this region. Calculate Maps/Convolve Maps/Run Map are unaffected -- they always "
-            "use the whole cube. Import a different region to replace it. Or click Delete "
+            "use the whole cube. Import a different region to replace it. Or click Delete Region "
             "to fit the whole cube again.")
 
     def clear_rot_map_region(self):
@@ -4144,7 +4154,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         threshold_note = (
             f"Detection threshold: {n_sigma:g}σ\n\n"
             f"A line fitted below {n_sigma:g}σ is an upper limit and stays NaN in the maps "
-            "(Select Region still shows its fitted value, marked).\n\n"
+            "(Draw Region still shows its fitted value, marked).\n\n"
         )
         if imported_rows:
             threshold_note += "(Applies to the cube-fit lines only -- imported maps are used as-is.)\n\n"

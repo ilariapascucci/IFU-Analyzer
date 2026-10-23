@@ -272,7 +272,7 @@ class BatchMatchResolutionDialog(QDialog):
         self.add_btn = QPushButton("+ Add FITS Files")
         self.add_btn.clicked.connect(self.add_files)
         
-        self.process_btn = QPushButton("Process & Download ZIP")
+        self.process_btn = QPushButton("Process && Download ZIP")
         self.process_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 16px;")
         self.process_btn.setToolTip(
             "Convolve every file to the longest-wavelength file's PSF,\n"

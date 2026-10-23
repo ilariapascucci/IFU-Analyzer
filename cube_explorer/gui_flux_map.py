@@ -49,9 +49,9 @@ class GuiFluxMapMixin:
             return
 
         # Source of truth is self.plotted_lines: exactly what's checked in the
-        # Select Lines dialog, mirroring Multi-Gaussian (previously ignored checkbox state).
+        # Show Lines dialog, mirroring Multi-Gaussian (previously ignored checkbox state).
         if not getattr(self, 'plotted_lines', None):
-            QMessageBox.warning(self, "No Lines Selected", "Fetch or load lines, then click Select Lines to choose them.")
+            QMessageBox.warning(self, "No Lines Selected", "Fetch or load lines, then click Show Lines to choose them.")
             return
 
         detection_rows = [r for r in self.plotted_lines if r.get('source') != 'Contaminant']
@@ -61,7 +61,7 @@ class GuiFluxMapMixin:
             """Check whether a line row's wavelength falls in [wave_min, wave_max].
 
             Args:
-                row (dict): A line row, as used throughout the Select Lines dialog.
+                row (dict): A line row, as used throughout the Show Lines dialog.
 
             Returns:
                 in_range (bool): True if the row's wavelength is in range.
@@ -73,7 +73,7 @@ class GuiFluxMapMixin:
         if not filtered_lines:
             QMessageBox.warning(self, "No Lines Selected",
                                  f"No selected (checked) lines fall within {wave_min:.6f} - {wave_max:.6f} μm. "
-                                 "Click Select Lines to choose lines in this range.")
+                                 "Click Show Lines to choose lines in this range.")
             return
 
         reply = QMessageBox.question(
@@ -272,8 +272,9 @@ class GuiFluxMapMixin:
         layout.addWidget(plot_widget)
         
         info_text = QLabel(
-            "<b>Lines shown:</b> the lines checked in Select Lines, "
-            "within this wavelength range. Click Select Lines to change the selection.<br>"
+            "<b>Lines shown:</b> the lines checked in Show Lines, "
+            f"within {wave_min:.6f} - {wave_max:.6f} μm (the λ min and λ max boxes). "
+            "Click Show Lines to change the selection.<br>"
             "Proceed with extraction?"
         )
         layout.addWidget(info_text)

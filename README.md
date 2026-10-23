@@ -186,7 +186,7 @@ Bring any number of multi-instrument images to one common resolution and field o
 - **Residuals cube (FITS):** export of the 3D normalised residuals cube with full header metadata
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
-- **Slice or region (FITS):** a single 2D slice, or the full cube masked to a selected region, from the main window's "Region" tool group
+- **Slice or region (FITS):** a single 2D slice, or the full cube masked to a selected region, from the main window's "Export" tool group
 - **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position
 - **Contour mask (FITS):** export of the binary region mask with a WCS header
 - **Rotated image (FITS):** save of the rotated image with the updated WCS header
@@ -585,8 +585,8 @@ python main.py
 
 ### Rovibrational Flux Mapping
 
-7. Extract the flux from the full data cube for any target species. Open the "HITRAN" group.
-   - Load lines with "Fetch HITRAN" or "Import Lines", then choose the ones you want with "Select Lines".
+7. Extract the flux from the full data cube for any target species. Open the "Lines & Fit" group.
+   - Load lines with "Fetch HITRAN" or "Import Lines", then choose the ones you want with "Show Lines".
    - Optionally, click "Contam. Lines" to exclude contaminating lines from the fit.
    - Click "Flux Map". The continuum subtraction always runs automatically before the detection, with the default or the custom parameters.
    - View the flux maps, the SNR statistics, and the detection quality.
@@ -614,7 +614,7 @@ python main.py
 10. Other tools:
    - **Header viewer:** open "Header" to inspect the FITS header of a selected HDU.
    - **Line catalog:** "Import Lines" loads a custom spectral-line catalog (LST format).
-   - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Select Lines" lets you choose which lines to plot.
+   - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Show Lines" lists the loaded lines and lets you choose which ones to plot.
    - **Normalize spectrum:** the "Normalize" checkbox uses baseline points for a normalised display.
    - **Doppler shift:** "Shift" applies a multiplicative wavelength correction (km/s). Use "Apply Shift", "Cancel Preview", and "Revert Shift" to control it.
    - **Wavelength range:** set the minimum and the maximum for a linked view update.
