@@ -143,12 +143,12 @@ window opens. The molecule (H2 or CO) shows above the table.</p></li>
 <p><strong>Step 1: Get Line Data</strong></p>
 <p>Two ways to populate the line table:</p>
 <ul class="simple">
-<li><p><strong>Fetch from HITRAN</strong> — set the wavelength range (μm), molecule (<strong>H2</strong> or <strong>CO</strong>) and
+<li><p><strong>Fetch from HITRAN</strong>: set the wavelength range (μm), molecule (<strong>H2</strong> or <strong>CO</strong>) and
 isotopologue, and either check <strong>All transitions</strong> or specify <code class="docutils literal notranslate"><span class="pre">v_upper</span></code>/<code class="docutils literal notranslate"><span class="pre">v_lower</span></code>,
 then click <strong>Fetch from HITRAN</strong>. Populates the table with every matching line’s
-wavelength, A coefficient, E<sub>upper</sub> and statistical weight — the flux columns are
+wavelength, A coefficient, E<sub>upper</sub> and statistical weight. The flux columns are
 left blank for you to fill in.</p></li>
-<li><p><strong>Import from CSV</strong> — load a file with <code class="docutils literal notranslate"><span class="pre">species</span></code>, <code class="docutils literal notranslate"><span class="pre">wavelength</span></code> and <code class="docutils literal notranslate"><span class="pre">flux</span></code> columns
+<li><p><strong>Import from CSV</strong>: load a file with <code class="docutils literal notranslate"><span class="pre">species</span></code>, <code class="docutils literal notranslate"><span class="pre">wavelength</span></code> and <code class="docutils literal notranslate"><span class="pre">flux</span></code> columns
 (a column with “error” in its name is optional, and so is <code class="docutils literal notranslate"><span class="pre">upper_limit</span></code> – the format
 <strong>Save Fluxes</strong> writes), e.g. <code class="docutils literal notranslate"><span class="pre">data/H2_lines.csv</span></code>. Each row is matched to the nearest
 HITRAN line by wavelength to fill in A/E<sub>upper</sub>/g<sub>upper</sub> automatically, and
@@ -180,15 +180,15 @@ columns described below – with <strong>Run Fit</strong> and <strong>Run Map</s
 </figure>
 <p>The table shows every fetched/imported line, in three groups of columns:</p>
 <ul>
-<li><p><strong>Use</strong>, <strong>λ (μm)</strong>, <strong>Transition</strong>, <strong>A_ul (s⁻¹)</strong>, <strong>E_u (K)</strong>, <strong>g_u</strong> — from HITRAN, not
+<li><p><strong>Use</strong>, <strong>λ (μm)</strong>, <strong>Transition</strong>, <strong>A_ul (s⁻¹)</strong>, <strong>E_u (K)</strong>, <strong>g_u</strong>: from HITRAN, not
 editable. <strong>Use</strong> controls whether the line is included in the fit. <strong>Select All</strong> and
 <strong>Deselect All</strong> above the table set every line at once.</p></li>
-<li><p><strong>Flux</strong>, <strong>Flux Error</strong>, <strong>Error %</strong>, <strong>Upper Limit?</strong> — enter by hand, or let
+<li><p><strong>Flux</strong>, <strong>Flux Error</strong>, <strong>Error %</strong>, <strong>Upper Limit?</strong>: enter by hand, or let
 <strong>Calculate Fluxes</strong> fill them in. A flux and either an absolute error or a percentage
 auto-calculate from each other as you type (toggle which one drives the calculation with
 the <strong>Error input</strong> dropdown above the table: <strong>Flux Error</strong> or <strong>Error %</strong>). Check <strong>Upper Limit?</strong> instead of entering
 an error for a non-detection.</p></li>
-<li><p><strong>UL Flux (3σ)</strong>, <strong>Calculated?</strong>, <strong>Source</strong>, <strong>Fit R²</strong>, <strong>Fit</strong> — only
+<li><p><strong>UL Flux (3σ)</strong>, <strong>Calculated?</strong>, <strong>Source</strong>, <strong>Fit R²</strong>, <strong>Fit</strong>: only
 filled in by <strong>Calculate Fluxes</strong>:</p>
 <ul>
 <li><p><strong>UL Flux (3σ)</strong>: the 3σ upper-limit flux for this line, computed the same way whether
@@ -208,7 +208,7 @@ threshold used elsewhere in the app)</p></li>
 flux, amplitude, R², FWHM), the same style as <strong>Multi-Gauss</strong>’s display</p></li>
 </ul>
 </li>
-<li><p><strong>Map</strong>, <strong>Convolved Map</strong> — filled by <strong>Calculate Maps</strong> and <strong>Convolve Maps</strong>. Double-click
+<li><p><strong>Map</strong>, <strong>Convolved Map</strong>: filled by <strong>Calculate Maps</strong> and <strong>Convolve Maps</strong>. Double-click
 <strong>View</strong> to see the map of a line (see <em>Creating a Rotational Diagram Map</em> below). These two
 columns always use the whole cube, even if you set a region.</p></li>
 </ul>
@@ -236,14 +236,14 @@ model either way.</p>
 <p><strong>How Calculate Fluxes measures a line</strong></p>
 <p>Flux error combines two terms in quadrature:</p>
 <ul>
-<li><p><strong>Statistical</strong> — from the error-propagation formula for
+<li><p><strong>Statistical</strong>: from the error-propagation formula for
 <span class="math notranslate nohighlight">\(\text{area} = A \sigma \sqrt{2\pi}\)</span>, assuming amplitude and sigma are
 uncorrelated:</p>
 <div class="math notranslate nohighlight">
 \[\sigma_{area} = \sqrt{2\pi \left(\sigma^2 \sigma_A^2 + A^2 \sigma_\sigma^2\right)}\]</div>
 <p>using <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>’s own covariance for <span class="math notranslate nohighlight">\(\sigma_A\)</span> and <span class="math notranslate nohighlight">\(\sigma_\sigma\)</span>.</p>
 </li>
-<li><p><strong>Systematic</strong> — a fixed 5% of the flux, representing flux-calibration and
+<li><p><strong>Systematic</strong>: a fixed 5% of the flux, representing flux-calibration and
 continuum-estimation uncertainty that doesn’t shrink just because a particular fit was
 well-constrained.</p></li>
 </ul>
@@ -252,21 +252,21 @@ above. <strong>Calculate Fluxes</strong> auto-checks <strong>Upper Limit?</stron
 still override the checkbox by hand afterward.</p>
 <p><strong>Step 3: Set Physical Parameters and Fit Options</strong></p>
 <ul class="simple">
-<li><p><strong>R (au)</strong> — emitting region radius. Check <strong>Unknown R</strong> to skip it entirely; N<sub>u</sub>
+<li><p><strong>R (au)</strong>: emitting region radius. Check <strong>Unknown R</strong> to skip it entirely; N<sub>u</sub>
 is then reported as a total molecule count rather than a column density.</p></li>
 <li><p><strong>Distance (pc)</strong></p></li>
 <li><p><strong>R (au)</strong> and <strong>Distance (pc)</strong> start empty. Enter a number in both, or check <strong>Unknown R</strong>.
 Without them, <strong>Run Fit</strong> stops and shows a message.</p></li>
-<li><p><strong>Fit</strong> — <strong>1T</strong> or <strong>2T</strong></p></li>
-<li><p><strong>Fit OPR</strong> — grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
+<li><p><strong>Fit</strong>: <strong>1T</strong> or <strong>2T</strong></p></li>
+<li><p><strong>Fit OPR</strong>: grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
 fixed equilibrium value <strong>OPR = 3</strong>. Only affects H2 S-branch lines. Click <strong>▸ Advanced</strong>
 to override the search grid (default: OPR from 0.1 to 3.0 in 400 steps).</p></li>
 </ul>
 <p><strong>Step 4: Run Fit → Results</strong></p>
 <p>Click <strong>Run Fit</strong>. The results window shows both text and a plot:</p>
 <ul class="simple">
-<li><p><strong>Detections</strong> — black points with error bars</p></li>
-<li><p><strong>Upper limits</strong> — red downward-pointing arrows (no error bar, since the constraint is
+<li><p><strong>Detections</strong>: black points with error bars</p></li>
+<li><p><strong>Upper limits</strong>: red downward-pointing arrows (no error bar, since the constraint is
 one-sided)</p></li>
 <li><p><strong>1T mode</strong>: a single dashed line through the points</p></li>
 <li><p><strong>2T mode</strong>: dotted <strong>Warm</strong>/<strong>Hot</strong> lines for each component, plus a solid red
@@ -320,7 +320,7 @@ that motivates using 2T here instead.</span><a class="headerlink" href="#id3" ti
 </a>
 <figcaption>
 <p><span class="caption-text">2T fit with <strong>Fit OPR</strong> enabled, on the 5 highest-E<sub>u</sub> lines only and larger
-flux errors — a messier, more realistic case. The OPR search converged to 1.859 ± 1.072;
+flux errors, a messier, more realistic case. The OPR search converged to 1.859 ± 1.072;
 with only 5 points feeding a 4-parameter 2T model plus OPR, T1’s own uncertainty balloons
 (202.9 ± 937.3 K) even though the fit still runs.</span><a class="headerlink" href="#id5" title="Link to this image"></a></p>
 </figcaption>
@@ -477,7 +477,7 @@ an individual pixel’s fit, same style as the whole-cube <strong>Run Fit</stron
 </section>
 <section id="using-the-api">
 <h2>Using the API<a class="headerlink" href="#using-the-api" title="Link to this heading"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">rotational_diagram()</span></code> is not a separate wrapper — it’s the exact function the GUI calls,
+<p><code class="docutils literal notranslate"><span class="pre">rotational_diagram()</span></code> is not a separate wrapper. It’s the exact function the GUI calls,
 imported directly. There’s no GUI/API divergence to account for here, unlike flux extraction above.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotational_diagram</span>
 
@@ -578,10 +578,10 @@ constrain a temperature anywhere. A real map needs several well-detected lines p
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a> — a different molecule’s line fluxes, fit the same way</p></li>
-<li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> — the per-pixel Gaussian fitting <strong>Calculate Fluxes</strong> shares
+<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a>: a different molecule’s line fluxes, fit the same way</p></li>
+<li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a>: the per-pixel Gaussian fitting <strong>Calculate Fluxes</strong> shares
 its algorithm with</p></li>
-<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — other export paths</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a>: other export paths</p></li>
 </ul>
 </section>
 </section>

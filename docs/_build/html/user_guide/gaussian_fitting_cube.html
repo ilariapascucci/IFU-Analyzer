@@ -178,16 +178,16 @@ tells you so (“Cached Results”). Change any of the four boundaries to force 
 with a headline: <code class="docutils literal notranslate"><span class="pre">Successfully</span> <span class="pre">fit</span> <span class="pre">N</span> <span class="pre">/</span> <span class="pre">M</span> <span class="pre">pixels</span> <span class="pre">(x%)</span></code>. This counts the pixels where the fit
 converged. Click <strong>Show Statistics</strong> for the full breakdown:</p>
 <ul class="simple">
-<li><p><strong>Successfully fit</strong> — how many pixels converged</p></li>
-<li><p><strong>Detections</strong> — pixels that converged and passed the 3σ test (see
+<li><p><strong>Successfully fit</strong>: how many pixels converged</p></li>
+<li><p><strong>Detections</strong>: pixels that converged and passed the 3σ test (see
 <a class="reference internal" href="#detection-caveat"><span class="std std-ref">the detection note</span></a>). The next line counts the detections whose
 line center sits at the end of the allowed range, for example “6.9826 to 6.9873 µm”. The
 fit does not let a pixel’s center go outside that range around the center of the summed
 spectrum. A center at the end was set by this limit, not measured freely. These pixels stay in
 the maps</p></li>
-<li><p><strong>Upper limits</strong> — pixels that failed the test. If some fits never ran (too few finite
+<li><p><strong>Upper limits</strong>: pixels that failed the test. If some fits never ran (too few finite
 samples, or an error inside the fit), the window says how many</p></li>
-<li><p><strong>No data</strong> — pixels with no valid spectrum, for example outside the field of view</p></li>
+<li><p><strong>No data</strong>: pixels with no valid spectrum, for example outside the field of view</p></li>
 </ul>
 <p>The same dialog shows the minimum, maximum, mean, median, and standard deviation of the map
 that you selected.</p>
@@ -248,7 +248,7 @@ km/s). <strong>Show Statistics</strong> counts these pixels</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">2.355</span> <span class="pre">×</span> <span class="pre">σ</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>chi2 (fit quality)</strong></p></td>
-<td><p>Reduced χ², computed against the measured noise. Informational only — it does not
+<td><p>Reduced χ², computed against the measured noise. Informational only. It does not
 affect which pixels count as detections.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Fit Status</strong></p></td>
@@ -258,7 +258,7 @@ affect which pixels count as detections.</p></td>
 <td><p>Binary map of converged pixels</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Residuals</strong></p></td>
-<td><p>Data minus fitted model. Display only — see the export note below.</p></td>
+<td><p>Data minus fitted model. Display only. See the export note below.</p></td>
 </tr>
 </tbody>
 </table>
@@ -290,7 +290,7 @@ affect which pixels count as detections.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>No data</strong></p></td>
 <td><p>0</p></td>
-<td><p>The spectrum was entirely NaN — outside the field of view. Everything is NaN and
+<td><p>The spectrum was entirely NaN (outside the field of view). Everything is NaN and
 <em>no</em> flag is set, so these pixels appear in neither mask.</p></td>
 </tr>
 </tbody>
@@ -299,7 +299,7 @@ affect which pixels count as detections.</p></td>
 window or the cube.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The exact counts are not reproducible to the pixel — identical runs can differ by a
+<p>The exact counts are not reproducible to the pixel. Identical runs can differ by a
 few pixels due to floating-point non-determinism inside <code class="docutils literal notranslate"><span class="pre">curve_fit</span></code>.</p>
 </div>
 </section>
@@ -350,8 +350,8 @@ window, <code class="docutils literal notranslate"><span class="pre">NSUCC</span
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>Residuals export as a 3D cube, not a 2D map.</strong> Selecting <strong>Residuals</strong> and clicking
-<strong>Save as FITS File</strong> writes the full normalized residual cube — shape
-<code class="docutils literal notranslate"><span class="pre">(n_wave,</span> <span class="pre">n_y,</span> <span class="pre">n_x)</span></code> over the fit window, with <code class="docutils literal notranslate"><span class="pre">BUNIT</span> <span class="pre">=</span> <span class="pre">'Normalized</span> <span class="pre">residuals'</span></code> —
+<strong>Save as FITS File</strong> writes the full normalized residual cube (shape
+<code class="docutils literal notranslate"><span class="pre">(n_wave,</span> <span class="pre">n_y,</span> <span class="pre">n_x)</span></code> over the fit window, with <code class="docutils literal notranslate"><span class="pre">BUNIT</span> <span class="pre">=</span> <span class="pre">'Normalized</span> <span class="pre">residuals'</span></code>),
 even though the dialog only ever displays the middle wavelength slice. The API
 equivalent is <code class="docutils literal notranslate"><span class="pre">export_residual_cube</span></code> (below).</p>
 </div>
@@ -432,7 +432,7 @@ file:</p>
 <section id="constraints-and-tips">
 <h2>Constraints and Tips<a class="headerlink" href="#constraints-and-tips" title="Link to this heading"></a></h2>
 <ol class="arabic simple">
-<li><p><strong>Fit Left &lt; Fit Right</strong>, and the noise region must be set (at least 4 samples) — the
+<li><p><strong>Fit Left &lt; Fit Right</strong>, and the noise region must be set (at least 4 samples): the
 run will not start otherwise. On the Left Region or Right Region tab, you also need a
 region of more than one pixel</p></li>
 <li><p>Keep the noise region <strong>close in wavelength</strong> to the fit window. Detector noise varies
@@ -448,11 +448,11 @@ interpreting a parameter map</p></li>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a> — turn per-pixel line fluxes into temperatures, handling the
+<li><p><a class="reference internal" href="rotational_diagram.html"><span class="doc">Rotational Diagram</span></a>: turn per-pixel line fluxes into temperatures, handling the
 upper limits correctly</p></li>
-<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a> — simultaneous multi-line fitting for rovibrational bands, any species</p></li>
-<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — other export paths</p></li>
-<li><p><a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Image Viewer</span></a> — open the exported parameter maps with WCS support</p></li>
+<li><p><a class="reference internal" href="flux_extraction.html"><span class="doc">Flux Extraction</span></a>: simultaneous multi-line fitting for rovibrational bands, any species</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a>: other export paths</p></li>
+<li><p><a class="reference internal" href="2d_viewer.html"><span class="doc">2D FITS Dual Image Viewer</span></a>: open the exported parameter maps with WCS support</p></li>
 </ul>
 </section>
 </section>

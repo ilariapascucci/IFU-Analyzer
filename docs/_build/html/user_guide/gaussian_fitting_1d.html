@@ -153,13 +153,13 @@ button releases by itself</p></li>
 <p>To move a point, click its button and click the spectrum again. The Full, Left Region,
 and Right Region tabs each keep their own points.</p>
 <p>The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
-constrain the result — it only seeds the optimizer, and the fitted center is bounded by
+constrain the result. It only seeds the optimizer, and the fitted center is bounded by
 the window edges, not by your click.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>A rough click is fine.</strong> Anywhere inside the window converges to the same answer.</p>
 </div>
-<p id="ordering-rules">The three points must be in order — <code class="docutils literal notranslate"><span class="pre">λ_left</span> <span class="pre">&lt;</span> <span class="pre">λ_peak</span> <span class="pre">&lt;</span> <span class="pre">λ_right</span></code>. Both rules are
+<p id="ordering-rules">The three points must be in order: <code class="docutils literal notranslate"><span class="pre">λ_left</span> <span class="pre">&lt;</span> <span class="pre">λ_peak</span> <span class="pre">&lt;</span> <span class="pre">λ_right</span></code>. Both rules are
 enforced, and a violation stops the fit rather than producing a result you did not ask
 for. The message shows in a “Fit Failed” window:</p>
 <table class="docutils align-default">
@@ -202,7 +202,7 @@ sloping continuum does not bias the width or area.</p>
 <p><span class="caption-text">A completed fit, zoomed to the selected window. The green and purple dashed lines are
 the <strong>Fit Left</strong> and <strong>Fit Right</strong> boundaries; the red dotted line is the <strong>Peak</strong> click. The
 black dashed line is the linear <strong>Baseline</strong> connecting the flux at the two edges, and
-the shaded region between it and the red <strong>Gaussian Fit</strong> is the <strong>Integrated Area</strong> —
+the shaded region between it and the red <strong>Gaussian Fit</strong> is the <strong>Integrated Area</strong>:
 the quantity reported as <em>Gaussian Area</em> in erg/s/cm².</span><a class="headerlink" href="#id1" title="Link to this image"></a></p>
 <div class="legend">
 <p>This is the same fit the code sample further down produces: Left <code class="docutils literal notranslate"><span class="pre">7.491492</span></code>, Peak
@@ -218,8 +218,8 @@ the line is not counted, which is why a sloping continuum does not inflate the r
 <p>The results window is organized into the same blocks the application prints:</p>
 <section id="user-input">
 <h3>USER INPUT<a class="headerlink" href="#user-input" title="Link to this heading"></a></h3>
-<p>Echoes back the wavelengths you actually clicked — <strong>Fit Left</strong>, <strong>Peak</strong> and
-<strong>Fit Right</strong> — so you can check the fit against what you asked for, plus the
+<p>Echoes back the wavelengths you actually clicked (<strong>Fit Left</strong>, <strong>Peak</strong> and
+<strong>Fit Right</strong>) so you can check the fit against what you asked for, plus the
 <strong>Noise region</strong> (or “not set”) and the number of points in the fit window (see
 <a class="reference internal" href="#noise-region-1d"><span class="std std-ref">The Noise Region</span></a>).</p>
 </section>
@@ -280,7 +280,7 @@ wavelength, so <code class="docutils literal notranslate"><span class="pre">A</s
 factor is applied.</p>
 <p>If the header is missing or the units are not recognized, the area is reported in the
 cube’s own flux×wavelength units instead, and the displayed unit label says so. The
-label always states what the number actually is — do not assume erg/s/cm².</p>
+label always states what the number actually is. Do not assume erg/s/cm².</p>
 </li>
 <li><p><strong>Equivalent Width</strong>: how wide a rectangle at the continuum’s height would need to be
 to hold the same total flux as this line. It’s a way to describe a line’s strength that
@@ -295,7 +295,7 @@ axis unit (µm, Å, etc.), not in flux units.</p></li>
 <p>The straight line subtracted before fitting:</p>
 <ul class="simple">
 <li><p><strong>Slope</strong>: continuum gradient across the fit window, in flux per spectral unit</p></li>
-<li><p><strong>Left endpoint</strong>: not a coordinate — it’s the continuum’s flux level at λ_left, one of
+<li><p><strong>Left endpoint</strong>: not a coordinate. It’s the continuum’s flux level at λ_left, one of
 the two points defining the straight baseline that was subtracted before fitting.
 Diagnostic info, in the cube’s flux unit, confirming what baseline the fit assumed.</p></li>
 </ul>
@@ -321,7 +321,7 @@ fewer than roughly 3 points per FWHM means the line is undersampled and the fitt
 </section>
 <section id="status">
 <h3>STATUS<a class="headerlink" href="#status" title="Link to this heading"></a></h3>
-<p>A message summarizing the outcome — success with the R² value, a poor-fit-quality
+<p>A message summarizing the outcome: success with the R² value, a poor-fit-quality
 warning, or the reason the fit failed.</p>
 </section>
 </section>
@@ -351,7 +351,7 @@ limits.</p>
 <section id="constraints">
 <h2>Constraints<a class="headerlink" href="#constraints" title="Link to this heading"></a></h2>
 <ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">λ_left</span> <span class="pre">&lt;</span> <span class="pre">λ_peak</span> <span class="pre">&lt;</span> <span class="pre">λ_right</span></code>, enforced — see
+<li><p><code class="docutils literal notranslate"><span class="pre">λ_left</span> <span class="pre">&lt;</span> <span class="pre">λ_peak</span> <span class="pre">&lt;</span> <span class="pre">λ_right</span></code>, enforced; see
 <a class="reference internal" href="#ordering-rules"><span class="std std-ref">the ordering rules above</span></a></p></li>
 <li><p>The window needs at least <strong>5</strong> finite samples in the GUI (“Not Enough Data” message),
 since a Gaussian has three free parameters. The fitter itself fails below 4 samples
@@ -360,10 +360,10 @@ empty or all-NaN window raises <code class="docutils literal notranslate"><span 
 <li><p>Keep the window tight around the line. A window many times wider than the FWHM
 depresses R² and lets baseline structure far from the line influence the linear
 baseline subtraction</p></li>
-<li><p>The noise region is optional. If you set it, it needs at least 4 finite samples — see
+<li><p>The noise region is optional. If you set it, it needs at least 4 finite samples; see
 <a class="reference internal" href="#noise-region-1d"><span class="std std-ref">The Noise Region</span></a> above</p></li>
 <li><p>The fitted center is bounded to <code class="docutils literal notranslate"><span class="pre">[λ_left,</span> <span class="pre">λ_right]</span></code>. A line whose true center lies
-outside your window cannot be recovered — you have to move the boundaries</p></li>
+outside your window cannot be recovered. You have to move the boundaries</p></li>
 </ol>
 </section>
 <section id="using-the-api">
@@ -399,11 +399,11 @@ outside your window cannot be recovered — you have to move the boundaries</p><
 <p>Pass <code class="docutils literal notranslate"><span class="pre">header=cube.header</span></code> if you want <code class="docutils literal notranslate"><span class="pre">area</span></code> in erg/s/cm². Without it the fitter
 has no pixel scale to work with and leaves the area in the cube’s native
 flux×wavelength units. Always read <code class="docutils literal notranslate"><span class="pre">result.area_unit</span></code> rather than assuming.</p>
-<p><code class="docutils literal notranslate"><span class="pre">peak_x</span></code> is optional — it defaults to the brightest sample inside the window, which
+<p><code class="docutils literal notranslate"><span class="pre">peak_x</span></code> is optional. It defaults to the brightest sample inside the window, which
 is the programmatic equivalent of clicking on the peak.</p>
 </div>
 <p>To fit more than one line, call <code class="docutils literal notranslate"><span class="pre">fit_line</span></code> again for each region. There is no batch
-function — the lines are independent fits, not one simultaneous model.</p>
+function. The lines are independent fits, not one simultaneous model.</p>
 <p><strong>Result fields</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="n">fit_line</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">cube</span><span class="o">.</span><span class="n">spectrum</span><span class="p">,</span> <span class="mf">7.491492</span><span class="p">,</span> <span class="mf">7.516985</span><span class="p">,</span>
                   <span class="n">peak_x</span><span class="o">=</span><span class="mf">7.503455</span><span class="p">,</span>
@@ -434,16 +434,16 @@ function — the lines are independent fits, not one simultaneous model.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Use <code class="docutils literal notranslate"><span class="pre">area_native</span></code>, not <code class="docutils literal notranslate"><span class="pre">area</span></code>, whenever you divide by something measured in the
-cube’s own units — an equivalent width, for example. Dividing a converted erg/s/cm²
+cube’s own units: an equivalent width, for example. Dividing a converted erg/s/cm²
 area by a continuum in MJy/sr mixes unit systems and gives a meaningless number.</p>
 </div>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a> — repeat this fit across every spatial pixel</p></li>
-<li><p><a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a> — remove the continuum before fitting</p></li>
-<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a> — save spectra and fit results</p></li>
+<li><p><a class="reference internal" href="gaussian_fitting_cube.html"><span class="doc">Pixel-by-Pixel Cube Fitting</span></a>: repeat this fit across every spatial pixel</p></li>
+<li><p><a class="reference internal" href="continuum_subtraction.html"><span class="doc">Continuum Subtraction</span></a>: remove the continuum before fitting</p></li>
+<li><p><a class="reference internal" href="exporting_data.html"><span class="doc">Exporting Data</span></a>: save spectra and fit results</p></li>
 </ul>
 </section>
 </section>

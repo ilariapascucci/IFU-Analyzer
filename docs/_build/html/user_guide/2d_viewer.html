@@ -93,14 +93,14 @@
 <li class="toctree-l4"><a class="reference internal" href="#procedure">Procedure</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#pair-pairwise-resolution-matching">Pair — pairwise resolution matching</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pair-pairwise-resolution-matching">Pair: pairwise resolution matching</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#requirements">Requirements</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#id1">Procedure</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#id2">What happens internally</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#guards-and-edge-cases">Guards and edge cases</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="#batch-multi-image-resolution-matching">Batch — multi-image resolution matching</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#batch-multi-image-resolution-matching">Batch: multi-image resolution matching</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#id3">Procedure</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#id4">What happens internally</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#output">Output</a></li>
@@ -182,7 +182,7 @@ with <strong>Left</strong> and <strong>Right</strong> image slots that each beha
 <ul class="simple">
 <li><p>Click <strong>Open 2D FITS (Left)</strong> or <strong>Open 2D FITS (Right)</strong> to load a 2D
 FITS image into the corresponding panel.</p></li>
-<li><p>Each panel keeps its own WCS, scaling, and colormap state — you can mix
+<li><p>Each panel keeps its own WCS, scaling, and colormap state: you can mix
 any two images of any pixel scale or orientation.</p></li>
 <li><p>A 2D viewer panel accepts any standard 2D FITS image: intensity maps,
 Gaussian-derived maps (peak, sigma, area), moment maps, RGB-channel
@@ -197,7 +197,7 @@ exports, etc.</p></li>
 <li><p>If the FITS header contains a celestial WCS (<code class="docutils literal notranslate"><span class="pre">CTYPE1</span></code>/<code class="docutils literal notranslate"><span class="pre">CTYPE2</span></code> with
 <code class="docutils literal notranslate"><span class="pre">RA---*</span></code> / <code class="docutils literal notranslate"><span class="pre">DEC--*</span></code>), an RA/Dec grid is automatically drawn over
 the image.</p></li>
-<li><p>Tick label format auto-scales to the field of view —
+<li><p>Tick label format auto-scales to the field of view:
 degrees → arcmin → arcsec → sub-arcsec.</p></li>
 <li><p>Tick positions remain correct after any rotation.</p></li>
 <li><p>Non-celestial WCS automatically falls back to plain pixel axes.</p></li>
@@ -225,9 +225,9 @@ unit string from <code class="docutils literal notranslate"><span class="pre">BU
 <li><p>Each panel has a <strong>Scale</strong> icon that opens the “Scale and Color Range” dialog. It has
 three scales:</p>
 <ul class="simple">
-<li><p><strong>Linear</strong> — direct mapping</p></li>
-<li><p><strong>Log</strong> — <code class="docutils literal notranslate"><span class="pre">log10</span></code> of the data (useful for faint extended emission)</p></li>
-<li><p><strong>Power</strong> — normalized data raised to a gamma value that you set (boosts high-flux
+<li><p><strong>Linear</strong>: direct mapping</p></li>
+<li><p><strong>Log</strong>: <code class="docutils literal notranslate"><span class="pre">log10</span></code> of the data (useful for faint extended emission)</p></li>
+<li><p><strong>Power</strong>: normalized data raised to a gamma value that you set (boosts high-flux
 regions when gamma is above 1)</p></li>
 </ul>
 <p>The color range can be absolute (typed values) or percentile.</p>
@@ -276,16 +276,16 @@ that panel.</p></li>
 so they don’t contaminate later analysis.</p></li>
 <li><p>The CD matrix is updated as <code class="docutils literal notranslate"><span class="pre">CD_new</span> <span class="pre">=</span> <span class="pre">CD_orig</span> <span class="pre">×</span> <span class="pre">R⁻¹</span></code> where <code class="docutils literal notranslate"><span class="pre">R</span></code> is
 the 2D rotation matrix for the opposite of the requested angle.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">CRPIX</span></code> is <strong>not</strong> changed — the reference pixel stays anchored to
+<li><p><code class="docutils literal notranslate"><span class="pre">CRPIX</span></code> is <strong>not</strong> changed: the reference pixel stays anchored to
 the same sky coordinate, so RA/Dec tick labels remain correct.</p></li>
-<li><p>Rotations are cumulative — applying 30°, then 30° gives the correct
+<li><p>Rotations are cumulative: applying 30°, then 30° gives the correct
 60° image (errors do not stack).</p></li>
 </ul>
 </section>
 <section id="saving-the-rotated-image">
 <h3>Saving the rotated image<a class="headerlink" href="#saving-the-rotated-image" title="Link to this heading"></a></h3>
 <p>Click <strong>Save FITS</strong> on the panel to write the rotated image and its updated
-WCS header to a new FITS file. The new file is self-contained — you can
+WCS header to a new FITS file. The new file is self-contained: you can
 load it into the viewer (or any other tool) and the WCS will be correct.</p>
 </section>
 </section>
@@ -339,7 +339,7 @@ match across both panels via WCS.</p>
 <section id="stacking-and-clearing">
 <h3>Stacking and clearing<a class="headerlink" href="#stacking-and-clearing" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>Multiple <strong>Plot</strong> runs add contour sets on top of each other —
+<li><p>Multiple <strong>Plot</strong> runs add contour sets on top of each other:
 for example, draw 3σ in white, then 10σ in red.</p></li>
 <li><p>Click <strong>Clear</strong> (in the <strong>Contour</strong> group) to remove all contour overlays from a panel.</p></li>
 </ul>
@@ -380,8 +380,8 @@ a different pixel scale or orientation.</p></li>
 </section>
 <section id="wcs-superimpose">
 <h2>WCS Superimpose<a class="headerlink" href="#wcs-superimpose" title="Link to this heading"></a></h2>
-<p>Overlay two images that have different WCS grids — different pixel
-scale, array size, orientation, or pointing — onto a single panel.</p>
+<p>Overlay two images that have different WCS grids (different pixel
+scale, array size, orientation, or pointing) onto a single panel.</p>
 <section id="procedure">
 <h3>Procedure<a class="headerlink" href="#procedure" title="Link to this heading"></a></h3>
 <ol class="arabic simple">
@@ -406,7 +406,7 @@ keywords (<code class="docutils literal notranslate"><span class="pre">EQUINOX</
 </section>
 </section>
 <section id="pair-pairwise-resolution-matching">
-<h2>Pair — pairwise resolution matching<a class="headerlink" href="#pair-pairwise-resolution-matching" title="Link to this heading"></a></h2>
+<h2>Pair: pairwise resolution matching<a class="headerlink" href="#pair-pairwise-resolution-matching" title="Link to this heading"></a></h2>
 <p>Match two images of one field to the same spatial resolution so they can be compared
 pixel-by-pixel. This is the standard step before a flux comparison between two lines or two
 instruments (e.g. MIRI vs NIRSpec H₂ intensity).</p>
@@ -436,7 +436,7 @@ asks you for the wavelength in µm.</p></li>
 </ul>
 </li>
 <li><p>Click <strong>Yes</strong> to run.</p></li>
-<li><p>Choose a save path — the result is written as a 2-HDU FITS
+<li><p>Choose a save path. The result is written as a 2-HDU FITS
 (image + <code class="docutils literal notranslate"><span class="pre">COVERAGE</span></code> extension, the per-pixel overlap fraction from 0 to 1).</p></li>
 <li><p>The success dialog shows a flux audit: the input total, the output total, and
 <code class="docutils literal notranslate"><span class="pre">Ratio</span> <span class="pre">out/in</span></code>.</p></li>
@@ -484,7 +484,7 @@ grid, still in log scale:</p>
 </section>
 </section>
 <section id="batch-multi-image-resolution-matching">
-<h2>Batch — multi-image resolution matching<a class="headerlink" href="#batch-multi-image-resolution-matching" title="Link to this heading"></a></h2>
+<h2>Batch: multi-image resolution matching<a class="headerlink" href="#batch-multi-image-resolution-matching" title="Link to this heading"></a></h2>
 <p>Bring several images to one resolution in a single step.</p>
 <section id="id3">
 <h3>Procedure<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
@@ -497,7 +497,7 @@ tool reads or asks for the line wavelength of each file.</p></li>
 <li><p>Choose a save path for the output <code class="docutils literal notranslate"><span class="pre">.zip</span></code> file.</p></li>
 </ol>
 <p>The dialog prevents you from launching when the inputs cover disjoint
-sky regions — a “No Sky Overlap” warning lists which file pairs don’t
+sky regions: a “No Sky Overlap” warning lists which file pairs don’t
 share sky, so you can remove the off-field file before retrying.</p>
 </section>
 <section id="id4">
@@ -509,7 +509,7 @@ The reference file is not smoothed.</p>
 <section id="output">
 <h3>Output<a class="headerlink" href="#output" title="Link to this heading"></a></h3>
 <ul class="simple">
-<li><p>All outputs are packed into a <code class="docutils literal notranslate"><span class="pre">.zip</span></code> archive — one <code class="docutils literal notranslate"><span class="pre">matched_&lt;name&gt;.fits</span></code> file for each
+<li><p>All outputs are packed into a <code class="docutils literal notranslate"><span class="pre">.zip</span></code> archive, one <code class="docutils literal notranslate"><span class="pre">matched_&lt;name&gt;.fits</span></code> file for each
 input, all on the same WCS grid, ready for pixel-by-pixel comparison.</p></li>
 <li><p>Each output FITS includes the <code class="docutils literal notranslate"><span class="pre">COVERAGE</span></code> extension (per-pixel
 overlap fraction 0-1).</p></li>
@@ -524,11 +524,11 @@ for each file. The same reading rules as for <strong>Pair</strong> apply.</p></l
 <code class="docutils literal notranslate"><span class="pre">RegionSelectionMixin</span></code>), so drawing, editing, and reading stats back all work the same
 way as <a class="reference internal" href="selecting_regions.html"><span class="doc">Selecting Regions</span></a>:</p>
 <ul class="simple">
-<li><p><strong>Point</strong> — single-pixel readout</p></li>
-<li><p><strong>Rectangle</strong> — axis-aligned box</p></li>
-<li><p><strong>Circle</strong> — fixed-aspect-ratio ellipse</p></li>
-<li><p><strong>Ellipse</strong> — independently adjustable major and minor axes</p></li>
-<li><p><strong>Freehand</strong> — click to add vertices, double-click to close</p></li>
+<li><p><strong>Point</strong>: single-pixel readout</p></li>
+<li><p><strong>Rectangle</strong>: axis-aligned box</p></li>
+<li><p><strong>Circle</strong>: fixed-aspect-ratio ellipse</p></li>
+<li><p><strong>Ellipse</strong>: independently adjustable major and minor axes</p></li>
+<li><p><strong>Freehand</strong>: click to add vertices, double-click to close</p></li>
 </ul>
 <p>Once a region is drawn on either panel, statistics appear in the image stats panel: min,
 max, mean, sum, std for the pixels enclosed by the region. <strong>Edit shape</strong> toggles

@@ -32,7 +32,7 @@ Loading images
 
 - Click **Open 2D FITS (Left)** or **Open 2D FITS (Right)** to load a 2D
   FITS image into the corresponding panel.
-- Each panel keeps its own WCS, scaling, and colormap state — you can mix
+- Each panel keeps its own WCS, scaling, and colormap state: you can mix
   any two images of any pixel scale or orientation.
 - A 2D viewer panel accepts any standard 2D FITS image: intensity maps,
   Gaussian-derived maps (peak, sigma, area), moment maps, RGB-channel
@@ -49,7 +49,7 @@ WCS grid overlay
 - If the FITS header contains a celestial WCS (``CTYPE1``/``CTYPE2`` with
   ``RA---*`` / ``DEC--*``), an RA/Dec grid is automatically drawn over
   the image.
-- Tick label format auto-scales to the field of view —
+- Tick label format auto-scales to the field of view:
   degrees → arcmin → arcsec → sub-arcsec.
 - Tick positions remain correct after any rotation.
 - Non-celestial WCS automatically falls back to plain pixel axes.
@@ -74,9 +74,9 @@ Color scale and colormap
 - Each panel has a **Scale** icon that opens the "Scale and Color Range" dialog. It has
   three scales:
 
-  - **Linear** — direct mapping
-  - **Log** — ``log10`` of the data (useful for faint extended emission)
-  - **Power** — normalized data raised to a gamma value that you set (boosts high-flux
+  - **Linear**: direct mapping
+  - **Log**: ``log10`` of the data (useful for faint extended emission)
+  - **Power**: normalized data raised to a gamma value that you set (boosts high-flux
     regions when gamma is above 1)
 
   The color range can be absolute (typed values) or percentile.
@@ -132,16 +132,16 @@ What happens internally
   so they don't contaminate later analysis.
 - The CD matrix is updated as ``CD_new = CD_orig × R⁻¹`` where ``R`` is
   the 2D rotation matrix for the opposite of the requested angle.
-- ``CRPIX`` is **not** changed — the reference pixel stays anchored to
+- ``CRPIX`` is **not** changed: the reference pixel stays anchored to
   the same sky coordinate, so RA/Dec tick labels remain correct.
-- Rotations are cumulative — applying 30°, then 30° gives the correct
+- Rotations are cumulative: applying 30°, then 30° gives the correct
   60° image (errors do not stack).
 
 Saving the rotated image
 ------------------------
 
 Click **Save FITS** on the panel to write the rotated image and its updated
-WCS header to a new FITS file. The new file is self-contained — you can
+WCS header to a new FITS file. The new file is self-contained: you can
 load it into the viewer (or any other tool) and the WCS will be correct.
 
 
@@ -205,7 +205,7 @@ match across both panels via WCS.
 Stacking and clearing
 ---------------------
 
-- Multiple **Plot** runs add contour sets on top of each other —
+- Multiple **Plot** runs add contour sets on top of each other:
   for example, draw 3σ in white, then 10σ in red.
 - Click **Clear** (in the **Contour** group) to remove all contour overlays from a panel.
 
@@ -248,8 +248,8 @@ Load saved contour
 WCS Superimpose
 ===============
 
-Overlay two images that have different WCS grids — different pixel
-scale, array size, orientation, or pointing — onto a single panel.
+Overlay two images that have different WCS grids (different pixel
+scale, array size, orientation, or pointing) onto a single panel.
 
 Procedure
 ---------
@@ -274,7 +274,7 @@ If the two images do not line up, open **Header** on each panel and compare the 
 keywords (``EQUINOX``, ``CRPIX``, the CD matrix, and so on).
 
 
-Pair — pairwise resolution matching
+Pair: pairwise resolution matching
 ===================================
 
 Match two images of one field to the same spatial resolution so they can be compared
@@ -305,7 +305,7 @@ Procedure
    - The two PSF widths, the Gaussian kernel σ, and the output grid dimensions
 
 4. Click **Yes** to run.
-5. Choose a save path — the result is written as a 2-HDU FITS
+5. Choose a save path. The result is written as a 2-HDU FITS
    (image + ``COVERAGE`` extension, the per-pixel overlap fraction from 0 to 1).
 6. The success dialog shows a flux audit: the input total, the output total, and
    ``Ratio out/in``.
@@ -360,7 +360,7 @@ grid, still in log scale:
    :width: 55%
 
 
-Batch — multi-image resolution matching
+Batch: multi-image resolution matching
 =======================================
 
 Bring several images to one resolution in a single step.
@@ -376,7 +376,7 @@ Procedure
 4. Choose a save path for the output ``.zip`` file.
 
 The dialog prevents you from launching when the inputs cover disjoint
-sky regions — a "No Sky Overlap" warning lists which file pairs don't
+sky regions: a "No Sky Overlap" warning lists which file pairs don't
 share sky, so you can remove the off-field file before retrying.
 
 What happens internally
@@ -389,7 +389,7 @@ The reference file is not smoothed.
 Output
 ------
 
-- All outputs are packed into a ``.zip`` archive — one ``matched_<name>.fits`` file for each
+- All outputs are packed into a ``.zip`` archive, one ``matched_<name>.fits`` file for each
   input, all on the same WCS grid, ready for pixel-by-pixel comparison.
 - Each output FITS includes the ``COVERAGE`` extension (per-pixel
   overlap fraction 0-1).
@@ -404,11 +404,11 @@ The 2D Viewer shares its region-selection code with the main cube viewer (the sa
 ``RegionSelectionMixin``), so drawing, editing, and reading stats back all work the same
 way as :doc:`selecting_regions`:
 
-- **Point** — single-pixel readout
-- **Rectangle** — axis-aligned box
-- **Circle** — fixed-aspect-ratio ellipse
-- **Ellipse** — independently adjustable major and minor axes
-- **Freehand** — click to add vertices, double-click to close
+- **Point**: single-pixel readout
+- **Rectangle**: axis-aligned box
+- **Circle**: fixed-aspect-ratio ellipse
+- **Ellipse**: independently adjustable major and minor axes
+- **Freehand**: click to add vertices, double-click to close
 
 Once a region is drawn on either panel, statistics appear in the image stats panel: min,
 max, mean, sum, std for the pixels enclosed by the region. **Edit shape** toggles

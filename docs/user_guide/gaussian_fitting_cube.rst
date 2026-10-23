@@ -63,16 +63,16 @@ The "Gaussian Parameter Maps" window opens automatically when the fit completes.
 with a headline: ``Successfully fit N / M pixels (x%)``. This counts the pixels where the fit
 converged. Click **Show Statistics** for the full breakdown:
 
-- **Successfully fit** — how many pixels converged
-- **Detections** — pixels that converged and passed the 3σ test (see
+- **Successfully fit**: how many pixels converged
+- **Detections**: pixels that converged and passed the 3σ test (see
   :ref:`the detection note <detection-caveat>`). The next line counts the detections whose
   line center sits at the end of the allowed range, for example "6.9826 to 6.9873 µm". The
   fit does not let a pixel's center go outside that range around the center of the summed
   spectrum. A center at the end was set by this limit, not measured freely. These pixels stay in
   the maps
-- **Upper limits** — pixels that failed the test. If some fits never ran (too few finite
+- **Upper limits**: pixels that failed the test. If some fits never ran (too few finite
   samples, or an error inside the fit), the window says how many
-- **No data** — pixels with no valid spectrum, for example outside the field of view
+- **No data**: pixels with no valid spectrum, for example outside the field of view
 
 The same dialog shows the minimum, maximum, mean, median, and standard deviation of the map
 that you selected.
@@ -123,14 +123,14 @@ Available in the dropdown:
    * - **FWHM**
      - ``2.355 × σ``
    * - **chi2 (fit quality)**
-     - Reduced χ², computed against the measured noise. Informational only — it does not
+     - Reduced χ², computed against the measured noise. Informational only. It does not
        affect which pixels count as detections.
    * - **Fit Status**
      - One value for each pixel: 0 = no data, 1 = upper limit, 2 = detection. See the table below
    * - **Success Mask**
      - Binary map of converged pixels
    * - **Residuals**
-     - Data minus fitted model. Display only — see the export note below.
+     - Data minus fitted model. Display only. See the export note below.
 
 Where every pixel goes
 ----------------------
@@ -154,7 +154,7 @@ Each pixel lands in exactly one of three states, and they account for the whole 
      - ``area`` holds an upper limit; amplitude, center, sigma, FWHM and χ²_red are **NaN**.
    * - **No data**
      - 0
-     - The spectrum was entirely NaN — outside the field of view. Everything is NaN and
+     - The spectrum was entirely NaN (outside the field of view). Everything is NaN and
        *no* flag is set, so these pixels appear in neither mask.
 
 The three counts must add up to the pixel count. If they do not, something is wrong with the
@@ -162,7 +162,7 @@ window or the cube.
 
 .. note::
 
-   The exact counts are not reproducible to the pixel — identical runs can differ by a
+   The exact counts are not reproducible to the pixel. Identical runs can differ by a
    few pixels due to floating-point non-determinism inside ``curve_fit``.
 
 Upper limits
@@ -215,8 +215,8 @@ window, ``NSUCC``/``NTOTAL`` for the number of successful fits and the number of
 .. note::
 
    **Residuals export as a 3D cube, not a 2D map.** Selecting **Residuals** and clicking
-   **Save as FITS File** writes the full normalized residual cube — shape
-   ``(n_wave, n_y, n_x)`` over the fit window, with ``BUNIT = 'Normalized residuals'`` —
+   **Save as FITS File** writes the full normalized residual cube (shape
+   ``(n_wave, n_y, n_x)`` over the fit window, with ``BUNIT = 'Normalized residuals'``),
    even though the dialog only ever displays the middle wavelength slice. The API
    equivalent is ``export_residual_cube`` (below).
 
@@ -303,7 +303,7 @@ file:
 Constraints and Tips
 ====================
 
-1. **Fit Left < Fit Right**, and the noise region must be set (at least 4 samples) — the
+1. **Fit Left < Fit Right**, and the noise region must be set (at least 4 samples): the
    run will not start otherwise. On the Left Region or Right Region tab, you also need a
    region of more than one pixel
 2. Keep the noise region **close in wavelength** to the fit window. Detector noise varies
@@ -318,8 +318,8 @@ Constraints and Tips
 Next Steps
 ==========
 
-- :doc:`rotational_diagram` — turn per-pixel line fluxes into temperatures, handling the
+- :doc:`rotational_diagram`: turn per-pixel line fluxes into temperatures, handling the
   upper limits correctly
-- :doc:`flux_extraction` — simultaneous multi-line fitting for rovibrational bands, any species
-- :doc:`exporting_data` — other export paths
-- :doc:`2d_viewer` — open the exported parameter maps with WCS support
+- :doc:`flux_extraction`: simultaneous multi-line fitting for rovibrational bands, any species
+- :doc:`exporting_data`: other export paths
+- :doc:`2d_viewer`: open the exported parameter maps with WCS support

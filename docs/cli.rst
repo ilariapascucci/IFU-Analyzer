@@ -90,28 +90,28 @@ written as ``<name>.txt`` in the current directory.
       ``window sigma width distance exclusion iters smoothing``.
       Defaults to ``51 2.0 1 3 3 2 5`` if omitted.
 
-      * **window** (int, default 51) — Median-filter window size in channels.
+      * **window** (int, default 51): Median-filter window size in channels.
         Larger values produce a smoother baseline but may miss fine
         structure. Must be odd. Typical range 21–101.
 
-      * **sigma** (float, default 2.0) — Peak-detection threshold in
+      * **sigma** (float, default 2.0): Peak-detection threshold in
         units of the RMS. Lower values detect weaker lines. Use 1.5 for
         clean data, 2.0 for typical, 3.0 for noisy.
 
-      * **width** (int, default 1) — Minimum width in channels for a
+      * **width** (int, default 1): Minimum width in channels for a
         feature to count as a peak. Filters out single-channel spikes.
 
-      * **distance** (int, default 3) — Minimum separation in channels
+      * **distance** (int, default 3): Minimum separation in channels
         between detected peaks.
 
-      * **exclusion** (int, default 3) — Channels masked on each side of
+      * **exclusion** (int, default 3): Channels masked on each side of
         every detected peak before the final fit. Use larger values for
         broad lines.
 
-      * **iters** (int, default 2) — Number of sigma-clipping passes
+      * **iters** (int, default 2): Number of sigma-clipping passes
         after the first fit.
 
-      * **smoothing** (int, default 5) — Spline smoothing factor.
+      * **smoothing** (int, default 5): Spline smoothing factor.
         Smoothness scales as ``s = N / smoothing_factor``. Lower →
         closer fit to the data; higher → smoother curve.
 
@@ -143,7 +143,7 @@ written as ``<name>.txt`` in the current directory.
 
       python clip.py auto-continuum -i data/miri_cube.fits
 
-   Custom parameters — larger window, tighter sigma, more exclusion:
+   Custom parameters: larger window, tighter sigma, more exclusion:
 
    .. code-block:: bash
 
@@ -161,7 +161,7 @@ custom-continuum
 
 Fit a cubic spline through user-supplied wavelength/flux anchor points,
 then subtract the result from the spectrum. The output is a 4-column
-ASCII file in ``# Type: full_results`` format — identical to the GUI's
+ASCII file in ``# Type: full_results`` format, identical to the GUI's
 ``Save Results`` button.
 
 :Parameters:
@@ -294,7 +294,7 @@ coordinates remain accurate after rotation.
      ``cval=NaN`` (empty border pixels are NaN, not zero).
    * The CD matrix update is ``CD_new = CD_orig × R⁻¹`` where ``R`` is
      the 2D rotation matrix for ``-angle``.
-   * ``CRPIX`` is **not** changed — the reference pixel stays at the
+   * ``CRPIX`` is **not** changed: the reference pixel stays at the
      same sky coordinate.
 
 :Output:
@@ -404,13 +404,13 @@ Jupyter notebook issues
    Fix: pipe the filename in via ``echo``, or use the Python wrapper
    functions:
 
-   Option A — pipe the filename in (Jupyter shell syntax, not Python):
+   Option A: pipe the filename in (Jupyter shell syntax, not Python):
 
    .. code-block:: text
 
       !echo my_output | python clip.py auto-continuum -i cube.fits
 
-   Option B — use the wrapper (recommended):
+   Option B: use the wrapper (recommended):
 
    .. code-block:: python
 

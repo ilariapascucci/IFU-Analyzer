@@ -111,10 +111,10 @@ Reading the results
 
 Each line's block reports two groups of numbers:
 
-- **Catalog identification** — ``Line λ``, ``Transition``, ``A coeff`` and ``E_upper``,
+- **Catalog identification**: ``Line λ``, ``Transition``, ``A coeff`` and ``E_upper``,
   copied straight from the HITRAN entry, not measured. Useful for cross-checking that the
   fit actually locked onto the line you think it did.
-- **Fitted parameters** — ``Center``, ``Amplitude``, ``Sigma``, ``FWHM``, ``Integrated
+- **Fitted parameters**: ``Center``, ``Amplitude``, ``Sigma``, ``FWHM``, ``Integrated
   Area`` and ``R²``. ``Center`` and ``Sigma`` are fitted, not fixed, but each is bounded
   around the catalog wavelength and the instrument's spectral resolution respectively (see
   above). Units follow the same rules as the 1D page (:doc:`gaussian_fitting_1d`):
@@ -385,7 +385,7 @@ Columns are loaded as-is, with no validation: a file missing ``line_wave_um`` or
 Next Steps
 ==========
 
-- :doc:`gaussian_fitting_cube` — the general per-pixel Gaussian fitting this shares its
+- :doc:`gaussian_fitting_cube`: the general per-pixel Gaussian fitting this shares its
   algorithm with
-- :doc:`exporting_data` — other export paths
-- :doc:`2d_viewer` — open the exported target/contam flux maps with WCS support
+- :doc:`exporting_data`: other export paths
+- :doc:`2d_viewer`: open the exported target/contam flux maps with WCS support

@@ -26,12 +26,12 @@ The buttons of the window are in five collapsible groups:
 
 Two ways to populate the line table:
 
-- **Fetch from HITRAN** — set the wavelength range (μm), molecule (**H2** or **CO**) and
+- **Fetch from HITRAN**: set the wavelength range (μm), molecule (**H2** or **CO**) and
   isotopologue, and either check **All transitions** or specify ``v_upper``/``v_lower``,
   then click **Fetch from HITRAN**. Populates the table with every matching line's
-  wavelength, A coefficient, E\ :sub:`upper` and statistical weight — the flux columns are
+  wavelength, A coefficient, E\ :sub:`upper` and statistical weight. The flux columns are
   left blank for you to fill in.
-- **Import from CSV** — load a file with ``species``, ``wavelength`` and ``flux`` columns
+- **Import from CSV**: load a file with ``species``, ``wavelength`` and ``flux`` columns
   (a column with "error" in its name is optional, and so is ``upper_limit`` -- the format
   **Save Fluxes** writes), e.g. ``data/H2_lines.csv``. Each row is matched to the nearest
   HITRAN line by wavelength to fill in A/E\ :sub:`upper`/g\ :sub:`upper` automatically, and
@@ -65,15 +65,15 @@ again automatically instead of showing it as a plain detection.
 
 The table shows every fetched/imported line, in three groups of columns:
 
-- **Use**, **λ (μm)**, **Transition**, **A_ul (s⁻¹)**, **E_u (K)**, **g_u** — from HITRAN, not
+- **Use**, **λ (μm)**, **Transition**, **A_ul (s⁻¹)**, **E_u (K)**, **g_u**: from HITRAN, not
   editable. **Use** controls whether the line is included in the fit. **Select All** and
   **Deselect All** above the table set every line at once.
-- **Flux**, **Flux Error**, **Error %**, **Upper Limit?** — enter by hand, or let
+- **Flux**, **Flux Error**, **Error %**, **Upper Limit?**: enter by hand, or let
   **Calculate Fluxes** fill them in. A flux and either an absolute error or a percentage
   auto-calculate from each other as you type (toggle which one drives the calculation with
   the **Error input** dropdown above the table: **Flux Error** or **Error %**). Check **Upper Limit?** instead of entering
   an error for a non-detection.
-- **UL Flux (3σ)**, **Calculated?**, **Source**, **Fit R²**, **Fit** — only
+- **UL Flux (3σ)**, **Calculated?**, **Source**, **Fit R²**, **Fit**: only
   filled in by **Calculate Fluxes**:
 
   - **UL Flux (3σ)**: the 3σ upper-limit flux for this line, computed the same way whether
@@ -94,7 +94,7 @@ The table shows every fetched/imported line, in three groups of columns:
   - **Fit**: click to open a plot of this line's own fit (spectrum, baseline, fitted curve,
     flux, amplitude, R², FWHM), the same style as **Multi-Gauss**'s display
 
-- **Map**, **Convolved Map** — filled by **Calculate Maps** and **Convolve Maps**. Double-click
+- **Map**, **Convolved Map**: filled by **Calculate Maps** and **Convolve Maps**. Double-click
   **View** to see the map of a line (see *Creating a Rotational Diagram Map* below). These two
   columns always use the whole cube, even if you set a region.
 
@@ -123,7 +123,7 @@ The table shows every fetched/imported line, in three groups of columns:
 
 Flux error combines two terms in quadrature:
 
-- **Statistical** — from the error-propagation formula for
+- **Statistical**: from the error-propagation formula for
   :math:`\text{area} = A \sigma \sqrt{2\pi}`, assuming amplitude and sigma are
   uncorrelated:
 
@@ -132,7 +132,7 @@ Flux error combines two terms in quadrature:
      \sigma_{area} = \sqrt{2\pi \left(\sigma^2 \sigma_A^2 + A^2 \sigma_\sigma^2\right)}
 
   using ``curve_fit``'s own covariance for :math:`\sigma_A` and :math:`\sigma_\sigma`.
-- **Systematic** — a fixed 5% of the flux, representing flux-calibration and
+- **Systematic**: a fixed 5% of the flux, representing flux-calibration and
   continuum-estimation uncertainty that doesn't shrink just because a particular fit was
   well-constrained.
 
@@ -142,13 +142,13 @@ still override the checkbox by hand afterward.
 
 **Step 3: Set Physical Parameters and Fit Options**
 
-- **R (au)** — emitting region radius. Check **Unknown R** to skip it entirely; N\ :sub:`u`
+- **R (au)**: emitting region radius. Check **Unknown R** to skip it entirely; N\ :sub:`u`
   is then reported as a total molecule count rather than a column density.
 - **Distance (pc)**
 - **R (au)** and **Distance (pc)** start empty. Enter a number in both, or check **Unknown R**.
   Without them, **Run Fit** stops and shows a message.
-- **Fit** — **1T** or **2T**
-- **Fit OPR** — grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
+- **Fit**: **1T** or **2T**
+- **Fit OPR**: grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
   fixed equilibrium value **OPR = 3**. Only affects H2 S-branch lines. Click **▸ Advanced**
   to override the search grid (default: OPR from 0.1 to 3.0 in 400 steps).
 
@@ -156,8 +156,8 @@ still override the checkbox by hand afterward.
 
 Click **Run Fit**. The results window shows both text and a plot:
 
-- **Detections** — black points with error bars
-- **Upper limits** — red downward-pointing arrows (no error bar, since the constraint is
+- **Detections**: black points with error bars
+- **Upper limits**: red downward-pointing arrows (no error bar, since the constraint is
   one-sided)
 - **1T mode**: a single dashed line through the points
 - **2T mode**: dotted **Warm**/**Hot** lines for each component, plus a solid red
@@ -215,7 +215,7 @@ imported from ``data/H2_lines.csv``.
    :width: 100%
 
    2T fit with **Fit OPR** enabled, on the 5 highest-E\ :sub:`u` lines only and larger
-   flux errors — a messier, more realistic case. The OPR search converged to 1.859 ± 1.072;
+   flux errors, a messier, more realistic case. The OPR search converged to 1.859 ± 1.072;
    with only 5 points feeding a 4-parameter 2T model plus OPR, T1's own uncertainty balloons
    (202.9 ± 937.3 K) even though the fit still runs.
 
@@ -359,7 +359,7 @@ the whole cube.
 Using the API
 ==============
 
-``rotational_diagram()`` is not a separate wrapper — it's the exact function the GUI calls,
+``rotational_diagram()`` is not a separate wrapper. It's the exact function the GUI calls,
 imported directly. There's no GUI/API divergence to account for here, unlike flux extraction above.
 
 .. code-block:: python
@@ -470,7 +470,7 @@ constrain a temperature anywhere. A real map needs several well-detected lines p
 Next Steps
 ==========
 
-- :doc:`flux_extraction` — a different molecule's line fluxes, fit the same way
-- :doc:`gaussian_fitting_cube` — the per-pixel Gaussian fitting **Calculate Fluxes** shares
+- :doc:`flux_extraction`: a different molecule's line fluxes, fit the same way
+- :doc:`gaussian_fitting_cube`: the per-pixel Gaussian fitting **Calculate Fluxes** shares
   its algorithm with
-- :doc:`exporting_data` — other export paths
+- :doc:`exporting_data`: other export paths

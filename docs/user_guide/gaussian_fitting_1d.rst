@@ -28,7 +28,7 @@ To move a point, click its button and click the spectrum again. The Full, Left R
 and Right Region tabs each keep their own points.
 
 The window between λ_left and λ_right is the only data the fit sees. λ_peak does not
-constrain the result — it only seeds the optimizer, and the fitted center is bounded by
+constrain the result. It only seeds the optimizer, and the fitted center is bounded by
 the window edges, not by your click.
 
 .. note::
@@ -37,7 +37,7 @@ the window edges, not by your click.
 
 .. _ordering-rules:
 
-The three points must be in order — ``λ_left < λ_peak < λ_right``. Both rules are
+The three points must be in order: ``λ_left < λ_peak < λ_right``. Both rules are
 enforced, and a violation stops the fit rather than producing a result you did not ask
 for. The message shows in a "Fit Failed" window:
 
@@ -77,7 +77,7 @@ sloping continuum does not bias the width or area.
    A completed fit, zoomed to the selected window. The green and purple dashed lines are
    the **Fit Left** and **Fit Right** boundaries; the red dotted line is the **Peak** click. The
    black dashed line is the linear **Baseline** connecting the flux at the two edges, and
-   the shaded region between it and the red **Gaussian Fit** is the **Integrated Area** —
+   the shaded region between it and the red **Gaussian Fit** is the **Integrated Area**:
    the quantity reported as *Gaussian Area* in erg/s/cm².
 
    This is the same fit the code sample further down produces: Left ``7.491492``, Peak
@@ -94,8 +94,8 @@ The results window is organized into the same blocks the application prints:
 USER INPUT
 ----------
 
-Echoes back the wavelengths you actually clicked — **Fit Left**, **Peak** and
-**Fit Right** — so you can check the fit against what you asked for, plus the
+Echoes back the wavelengths you actually clicked (**Fit Left**, **Peak** and
+**Fit Right**) so you can check the fit against what you asked for, plus the
 **Noise region** (or "not set") and the number of points in the fit window (see
 :ref:`noise-region-1d`).
 
@@ -152,7 +152,7 @@ INTEGRATED QUANTITIES
 
   If the header is missing or the units are not recognized, the area is reported in the
   cube's own flux×wavelength units instead, and the displayed unit label says so. The
-  label always states what the number actually is — do not assume erg/s/cm².
+  label always states what the number actually is. Do not assume erg/s/cm².
 
 - **Equivalent Width**: how wide a rectangle at the continuum's height would need to be
   to hold the same total flux as this line. It's a way to describe a line's strength that
@@ -167,7 +167,7 @@ BASELINE
 The straight line subtracted before fitting:
 
 - **Slope**: continuum gradient across the fit window, in flux per spectral unit
-- **Left endpoint**: not a coordinate — it's the continuum's flux level at λ_left, one of
+- **Left endpoint**: not a coordinate. It's the continuum's flux level at λ_left, one of
   the two points defining the straight baseline that was subtracted before fitting.
   Diagnostic info, in the cube's flux unit, confirming what baseline the fit assumed.
 
@@ -192,7 +192,7 @@ FIT QUALITY
 STATUS
 ------
 
-A message summarizing the outcome — success with the R² value, a poor-fit-quality
+A message summarizing the outcome: success with the R² value, a poor-fit-quality
 warning, or the reason the fit failed.
 
 .. _noise-region-1d:
@@ -228,7 +228,7 @@ limits.
 Constraints
 ===========
 
-1. ``λ_left < λ_peak < λ_right``, enforced — see
+1. ``λ_left < λ_peak < λ_right``, enforced; see
    :ref:`the ordering rules above <ordering-rules>`
 2. The window needs at least **5** finite samples in the GUI ("Not Enough Data" message),
    since a Gaussian has three free parameters. The fitter itself fails below 4 samples
@@ -237,10 +237,10 @@ Constraints
 3. Keep the window tight around the line. A window many times wider than the FWHM
    depresses R² and lets baseline structure far from the line influence the linear
    baseline subtraction
-4. The noise region is optional. If you set it, it needs at least 4 finite samples — see
+4. The noise region is optional. If you set it, it needs at least 4 finite samples; see
    :ref:`noise-region-1d` above
 5. The fitted center is bounded to ``[λ_left, λ_right]``. A line whose true center lies
-   outside your window cannot be recovered — you have to move the boundaries
+   outside your window cannot be recovered. You have to move the boundaries
 
 Using the API
 =============
@@ -280,11 +280,11 @@ The same fit is available without the GUI.
    has no pixel scale to work with and leaves the area in the cube's native
    flux×wavelength units. Always read ``result.area_unit`` rather than assuming.
 
-   ``peak_x`` is optional — it defaults to the brightest sample inside the window, which
+   ``peak_x`` is optional. It defaults to the brightest sample inside the window, which
    is the programmatic equivalent of clicking on the peak.
 
 To fit more than one line, call ``fit_line`` again for each region. There is no batch
-function — the lines are independent fits, not one simultaneous model.
+function. The lines are independent fits, not one simultaneous model.
 
 **Result fields**
 
@@ -318,12 +318,12 @@ function — the lines are independent fits, not one simultaneous model.
 .. note::
 
    Use ``area_native``, not ``area``, whenever you divide by something measured in the
-   cube's own units — an equivalent width, for example. Dividing a converted erg/s/cm²
+   cube's own units: an equivalent width, for example. Dividing a converted erg/s/cm²
    area by a continuum in MJy/sr mixes unit systems and gives a meaningless number.
 
 Next Steps
 ==========
 
-- :doc:`gaussian_fitting_cube` — repeat this fit across every spatial pixel
-- :doc:`continuum_subtraction` — remove the continuum before fitting
-- :doc:`exporting_data` — save spectra and fit results
+- :doc:`gaussian_fitting_cube`: repeat this fit across every spatial pixel
+- :doc:`continuum_subtraction`: remove the continuum before fitting
+- :doc:`exporting_data`: save spectra and fit results

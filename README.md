@@ -11,9 +11,9 @@ IFU Analyzer is a Python application for the analysis of Integral Field Unit (IF
 
 ### Instrument Support
 
-- **MUSE** (VLT) — optical spectroscopy
-- **MIRI** (JWST) — mid-infrared spectroscopy
-- **NIRSpec** (JWST) — near-infrared spectroscopy
+- **MUSE** (VLT): optical spectroscopy
+- **MIRI** (JWST): mid-infrared spectroscopy
+- **NIRSpec** (JWST): near-infrared spectroscopy
 
 Some tools have a narrower scope:
 
@@ -84,7 +84,7 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 - The overlay image is reprojected onto the pixel grid of the background image with `reproject_exact` from the `reproject` package. This method conserves flux.
 - The overlay colormap and the alpha transparency (0.1 to 1.0) are configurable.
 
-#### Resolution Matching — Pair (two images)
+#### Resolution Matching: Pair (two images)
 
 Match two images of one field to the same spatial resolution. This is the standard step before a flux comparison between two lines or two instruments.
 
@@ -98,7 +98,7 @@ Match two images of one field to the same spatial resolution. This is the standa
 - If both panels have the same wavelength, the tool shows a "nothing to convolve" message and does not run.
 - The save dialog shows a flux audit: the input total, the output total, and `Ratio out/in`. A ratio close to 1 (within about 1%) means that the flux is conserved. A clearly lower ratio means that part of the image falls outside the grid of the reference image. A small deviation can also come from NaN pixels at the edge of the image footprint.
 
-#### Resolution Matching — Batch (multiple images)
+#### Resolution Matching: Batch (multiple images)
 
 Bring several images to one resolution in a single step.
 
@@ -182,7 +182,7 @@ Bring several images to one resolution in a single step.
 
 ### Export Capabilities
 
-- **Continuum results (ASCII):** the "Save Spectrum" button writes a four-column file — wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum — in tab-delimited format. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The `# Type: full_results` header line identifies the file format.
+- **Continuum results (ASCII):** the "Save Spectrum" button writes a four-column file (wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum) in tab-delimited format. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The `# Type: full_results` header line identifies the file format.
 - **Residuals cube (FITS):** export of the 3D normalised residuals cube with full header metadata
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
@@ -213,7 +213,7 @@ python clip.py <command> [options]
 
 ### Commands
 
-#### `auto-continuum` — automatic continuum detection and export
+#### `auto-continuum`: automatic continuum detection and export
 
 Fits a continuum baseline to the integrated spectrum of the cube with median filtering, peak detection, and iterative sigma clipping. It then saves the fitted curve as a text file.
 
@@ -260,7 +260,7 @@ python clip.py auto-continuum -i data/miri_cube.fits -p 75 1.5 2 5 5 3 8
 
 ---
 
-#### `custom-continuum` — continuum from user-supplied points
+#### `custom-continuum`: continuum from user-supplied points
 
 Fits a cubic spline through a set of user-defined wavelength and flux anchor points, then subtracts the result from the spectrum.
 
@@ -273,7 +273,7 @@ python clip.py custom-continuum -i <cube.fits> -p <points.csv>
 | `-i` / `--input`  | Path to the input FITS cube                  |
 | `-p` / `--points` | Path to the CSV file with the anchor points |
 
-**Points file format** — comma-separated, one point per line, no header:
+**Points file format** (comma-separated, one point per line, no header):
 
 ```
 3.5e-6,0.012
@@ -291,7 +291,7 @@ python clip.py custom-continuum -i data/muse_cube.fits -p my_points.csv
 
 ---
 
-#### `subtract-continuum` — subtract a continuum from a spectrum
+#### `subtract-continuum`: subtract a continuum from a spectrum
 
 Subtracts a constant offset, a previously exported fitted-continuum file, or a raw-points file from the spectrum of the cube.
 
@@ -329,7 +329,7 @@ python clip.py subtract-continuum -i data/nirspec_cube.fits -c my_baseline_point
 
 ---
 
-#### `2d-rotate` — rotate a 2D FITS image
+#### `2d-rotate`: rotate a 2D FITS image
 
 Rotates a 2D FITS image by any angle and updates the WCS CD matrix, so the RA and Dec coordinates stay correct after the rotation.
 
@@ -360,7 +360,7 @@ python clip.py 2d-rotate -i data/miri_intensity.fits -a 45
 
 ---
 
-#### `2d-contour` — extract contour coordinates from a 2D FITS image
+#### `2d-contour`: extract contour coordinates from a 2D FITS image
 
 Generates contour lines at user-specified sigma levels, computes the RA and Dec for every contour vertex with the image WCS, and saves the result as a text file.
 
@@ -378,7 +378,7 @@ python clip.py 2d-contour -i <image.fits> -l <level1> [level2 ...]
 - The background median and RMS are estimated with the Astropy `sigma_clipped_stats` function (3σ clipping).
 - Each level `N` draws a contour at `median + N × RMS`.
 
-**Output file format** — comma-separated:
+**Output file format** (comma-separated):
 
 ```
 # IFU Analyzer 2D - Contour Export
@@ -586,7 +586,7 @@ python main.py
    **Contours.** Open the "Contour" group.
    - Click "Plot" and set:
      - The panel to draw on ("Plot contour ON")
-     - The source image ("Generate contour FROM" — the same panel, or the other panel for a WCS-matched cross-image contour)
+     - The source image ("Generate contour FROM": the same panel, or the other panel for a WCS-matched cross-image contour)
      - The background std (blank for the Astropy automatic value, or enter a value)
      - The sigma levels as a comma-separated list, for example `3, 5, 10`
      - The contour colour
