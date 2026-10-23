@@ -40,6 +40,7 @@ from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
+from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
 from . import region_io
 from .utils import (
     detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
@@ -231,7 +232,8 @@ class FileListItem(QWidget):
         self.lbl = QLabel(os.path.basename(filepath))
         self.lbl.setToolTip(filepath)
         
-        self.remove_btn = QPushButton("✖")
+        self.remove_btn = QPushButton()
+        set_button_icon(self.remove_btn, "clear", 14)
         self.remove_btn.setFixedSize(24, 24)
         self.remove_btn.setStyleSheet("""
             QPushButton { color: red; font-weight: bold; border: none; } 
@@ -812,7 +814,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             Returns:
                 btn (QPushButton): The configured button.
             """
-            btn = QPushButton(symbol)
+            btn = QPushButton()
+            set_button_icon(btn, SHAPE_ICON_NAMES[symbol])
             btn.setCheckable(True)
             btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -835,12 +838,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             for shape, tooltip in shape_tooltips.items():
                 self.shape_buttons[side][shape].setToolTip(tooltip)
 
-        self.color_btn_left = QPushButton("🌈")
+        self.color_btn_left = QPushButton()
+        set_button_icon(self.color_btn_left, "colormap")
         self.color_btn_left.setFixedSize(35, 35)
         self.color_btn_left.setToolTip("Change the color map of the left image.")
         self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
 
-        self.color_btn_right = QPushButton("🌈")
+        self.color_btn_right = QPushButton()
+        set_button_icon(self.color_btn_right, "colormap")
         self.color_btn_right.setFixedSize(35, 35)
         self.color_btn_right.setToolTip("Change the color map of the right image.")
         self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
@@ -855,13 +860,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.copy_menu_btn_l = self._make_copy_button('left')
         self.copy_menu_btn_r = self._make_copy_button('right')
 
-        self.erase_btn_l = QPushButton("✖")
+        self.erase_btn_l = QPushButton()
+        set_button_icon(self.erase_btn_l, "clear")
         self.erase_btn_l.setFixedSize(35, 35)
         self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_l.setToolTip("Clear the selection on the left image.")
         self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
 
-        self.erase_btn_r = QPushButton("✖")
+        self.erase_btn_r = QPushButton()
+        set_button_icon(self.erase_btn_r, "clear")
         self.erase_btn_r.setFixedSize(35, 35)
         self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_r.setToolTip("Clear the selection on the right image.")
@@ -869,7 +876,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         # Edit Shape: toggles drag/resize handles on a placed selection.
         # Enabled only in the "placed" state (and not for pixel selections).
-        self.edit_shape_btn_l = QPushButton("✎")
+        self.edit_shape_btn_l = QPushButton()
+        set_button_icon(self.edit_shape_btn_l, "edit_shape")
         self.edit_shape_btn_l.setCheckable(True)
         self.edit_shape_btn_l.setFixedSize(35, 35)
         self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -877,7 +885,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.edit_shape_btn_l.setEnabled(False)
         self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
 
-        self.edit_shape_btn_r = QPushButton("✎")
+        self.edit_shape_btn_r = QPushButton()
+        set_button_icon(self.edit_shape_btn_r, "edit_shape")
         self.edit_shape_btn_r.setCheckable(True)
         self.edit_shape_btn_r.setFixedSize(35, 35)
         self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -1944,6 +1953,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         plotter.cbar_ax = plotter.fig.add_axes(cbar_rect)
         plotter.cbar_ax.set_visible(False)
 
+        # The figure is clear, so the old contours are gone. Drop their records.
+        plotter.contours = []
+        plotter.current_contour = None
+
         # The figure was cleared above, so the old RegionSelector's patch
         # handlers would leak; disconnect it before rebinding a fresh selector.
         old_selector = self.region_selector_left if target == 'left' else self.region_selector_right
@@ -2229,6 +2242,25 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save FITS file:\n{str(e)}")
 
+    def _contour_artists(self, plotter):
+        """Return the artists that belong to a panel's plotted contours.
+
+        Args:
+            plotter (SlicePlotter): Panel plotter that holds the contour sets.
+
+        Returns:
+            artists (list): Contour sets, plus their collections or lines.
+        """
+        artists = []
+        for cset in list(getattr(plotter, 'contours', [])) + [getattr(plotter, 'current_contour', None)]:
+            if cset is None:
+                continue
+            artists.append(cset)
+            # Reading cset.collections would make matplotlib build new collections here.
+            artists.extend(vars(cset).get('collections', []))
+            artists.extend(getattr(cset, '_old_style_split_collections', None) or [])
+        return artists
+
     def display_image(self, target, title=''):
         """Render a panel's current image with its colormap and scale.
 
@@ -2250,12 +2282,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         scale_settings = self.slice1_scale if target == 'left' else self.slice2_scale
 
         ax = plotter.ax
+        # Contours stay on the axes. Every other collection and line is drawn again.
+        kept = self._contour_artists(plotter)
         for artist in list(ax.images):
             artist.remove()
-        for coll in list(ax.collections):
-            coll.remove()
-        for line in list(ax.lines):
-            line.remove()
+        for artist in list(ax.collections) + list(ax.lines):
+            if artist not in kept:
+                artist.remove()
         ax.set_title('')
 
         # 1. Calculate Intensity Normalization -- the same shared code as the 3D window.

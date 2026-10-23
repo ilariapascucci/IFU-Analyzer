@@ -299,12 +299,12 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
 
         ctrl_layout.addWidget(QLabel("  Scale:"))
         self.scale_settings = ScaleSettings()
-        self.scale_btn = QPushButton("🎚 Scale…")
+        self.scale_btn = QPushButton("Scale…")
         self.scale_btn.clicked.connect(self._open_scale_dialog)
         ctrl_layout.addWidget(self.scale_btn)
         
         # Toggle button for pixel selection mode
-        self.pixel_select_btn = QPushButton("✓ Pixel Select ON")
+        self.pixel_select_btn = QPushButton("Pixel Select: ON")
         self.pixel_select_btn.setCheckable(True)
         self.pixel_select_btn.setChecked(True)
         self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")

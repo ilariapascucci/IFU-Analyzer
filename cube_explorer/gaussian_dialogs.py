@@ -364,7 +364,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         # Scale selector
         param_layout.addWidget(QLabel("  Scale:"))
         self.scale_settings = ScaleSettings()
-        self.scale_btn = QPushButton("🎚 Scale…")
+        self.scale_btn = QPushButton("Scale…")
         self.scale_btn.clicked.connect(self._open_scale_dialog)
         param_layout.addWidget(self.scale_btn)
 
@@ -374,7 +374,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         # Own row, below the selectors, so the window doesn't end up wider than
         # the map; same pixel-select control as the flux map.
         select_layout = QHBoxLayout()
-        self.pixel_select_btn = QPushButton("✓ Pixel Select ON")
+        self.pixel_select_btn = QPushButton("Pixel Select: ON")
         self.pixel_select_btn.setCheckable(True)
         self.pixel_select_btn.setChecked(True)
         self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")

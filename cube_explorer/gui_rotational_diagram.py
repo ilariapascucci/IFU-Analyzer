@@ -526,7 +526,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.lines_table = QTableWidget()
         self.lines_table.setColumnCount(17)
         self.lines_table.setHorizontalHeaderLabels(
-            ["✓", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
+            ["Use", "λ (μm)", "Transition", "A_ul (s⁻¹)", "E_u (K)", "g_u", "Flux", "Flux Error",
              "Error %", "Upper Limit?", "UL Flux (3σ)", "Calculated?", "Source", "Fit R²", "Fit",
              "Map", "Convolved Map"]
         )
@@ -612,7 +612,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.fit_opr_check.stateChanged.connect(self.on_fit_opr_toggled)
         bottom_layout.addWidget(self.fit_opr_check)
 
-        self.opr_advanced_btn = QPushButton("▶ Advanced")
+        self.opr_advanced_btn = QPushButton("▸ Advanced")
         self.opr_advanced_btn.setCheckable(True)
         self.opr_advanced_btn.setMaximumWidth(90)
         self.opr_advanced_btn.setEnabled(False)
@@ -1030,7 +1030,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         expanded = self.opr_advanced_btn.isChecked()
         self.opr_advanced_frame.setVisible(expanded)
-        self.opr_advanced_btn.setText(("▼" if expanded else "▶") + " Advanced")
+        self.opr_advanced_btn.setText(("▾" if expanded else "▸") + " Advanced")
 
     def on_opr_min_default_toggled(self):
         """Lock OPR min to its default value while 'Default' is checked.

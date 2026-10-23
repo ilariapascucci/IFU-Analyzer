@@ -711,3 +711,7 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
    - Run `clip.py` from the project root, not from inside `cube_explorer/`.
    - If you see `ImportError: Could not import CubeData`, move `clip.py` up one directory level.
    - The `--params` flag for `auto-continuum` needs all seven values in order: `window sigma width distance exclusion iters smoothing`.
+
+## Credits
+
+The button icons in `cube_explorer/icons/` are from the Calcite Sharp Line Icons collection by Esri, used under the MIT License. See `cube_explorer/icons/LICENSE`.

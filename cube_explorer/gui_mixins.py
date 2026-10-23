@@ -7,6 +7,8 @@ serves the Flux Map and Gaussian Map results dialogs.
 
 from PyQt5.QtWidgets import QPushButton, QMenu
 
+from .icon_loader import set_button_icon
+
 
 class DualPanelViewMixin:
     """Scale-button and copy-button helpers for a window with a left and a right panel.
@@ -42,7 +44,8 @@ class DualPanelViewMixin:
         Returns:
             btn (QPushButton): The configured button.
         """
-        btn = QPushButton("🎚")
+        btn = QPushButton()
+        set_button_icon(btn, "scale")
         btn.setFixedSize(35, 35)
         btn.setStyleSheet("QPushButton { font-size: 18pt; }")
         btn.clicked.connect(lambda: self._open_scale_dialog(target))
@@ -60,7 +63,8 @@ class DualPanelViewMixin:
             btn (QPushButton): The configured button.
         """
         other = "right" if target == "left" else "left"
-        btn = QPushButton("⎘")
+        btn = QPushButton()
+        set_button_icon(btn, "copy")
         btn.setFixedSize(35, 35)
         btn.setStyleSheet("QPushButton { font-size: 18pt; }")
         menu = QMenu(btn)
@@ -91,10 +95,10 @@ class MapResultsDialogMixin:
         """
         self.pixel_selection_enabled = self.pixel_select_btn.isChecked()
         if self.pixel_selection_enabled:
-            self.pixel_select_btn.setText("✓ Pixel Select ON")
+            self.pixel_select_btn.setText("Pixel Select: ON")
             self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
         else:
-            self.pixel_select_btn.setText("✗ Pixel Select OFF")
+            self.pixel_select_btn.setText("Pixel Select: OFF")
             self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
 
     def _on_param_changed(self):

@@ -32,6 +32,7 @@ from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from . import region_io
 from .region_selector import RegionSelector, mask_from_shape_coords
 from .utils import make_2d_wcs
+from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
 from .gui_region_selection import RegionSelectionMixin
 from .visualization import SlicePlotter, draw_map
 from .colormap_dialog import ColorMapDialog
@@ -689,17 +690,17 @@ class RotDiagMapResultsDialog(QDialog):
         self.scale_t2 = ScaleSettings()
         scale_label = "  Scale (T1):" if self.fit2t else "  Scale:"
         ctrl.addWidget(QLabel(scale_label))
-        self.scale_btn_t1 = QPushButton("🎚 Scale…")
+        self.scale_btn_t1 = QPushButton("Scale…")
         self.scale_btn_t1.clicked.connect(lambda: self._open_scale_dialog("t1"))
         ctrl.addWidget(self.scale_btn_t1)
         self.scale_btn_t2 = None
         if self.fit2t:
             ctrl.addWidget(QLabel("  Scale (T2):"))
-            self.scale_btn_t2 = QPushButton("🎚 Scale…")
+            self.scale_btn_t2 = QPushButton("Scale…")
             self.scale_btn_t2.clicked.connect(lambda: self._open_scale_dialog("t2"))
             ctrl.addWidget(self.scale_btn_t2)
 
-        self.pixel_btn = QPushButton("✓ Pixel Select ON")
+        self.pixel_btn = QPushButton("Pixel Select: ON")
         self.pixel_btn.setCheckable(True)
         self.pixel_btn.setChecked(True)
         self.pixel_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
@@ -743,10 +744,10 @@ class RotDiagMapResultsDialog(QDialog):
         """
         self.pixel_select_enabled = self.pixel_btn.isChecked()
         if self.pixel_select_enabled:
-            self.pixel_btn.setText("✓ Pixel Select ON")
+            self.pixel_btn.setText("Pixel Select: ON")
             self.pixel_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
         else:
-            self.pixel_btn.setText("✗ Pixel Select OFF")
+            self.pixel_btn.setText("Pixel Select: OFF")
             self.pixel_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
 
     def _update_plot(self):
@@ -1211,14 +1212,16 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         """
         sidebar = QVBoxLayout()
 
-        self.color_btn_left = QPushButton("🌈")
+        self.color_btn_left = QPushButton()
+        set_button_icon(self.color_btn_left, "colormap")
         self.color_btn_left.setFixedSize(35, 35)
         self.color_btn_left.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.color_btn_left.setToolTip("Change color scale")
         self.color_btn_left.clicked.connect(self._open_colormap_dialog)
         sidebar.addWidget(self.color_btn_left)
 
-        self.scale_btn_left = QPushButton("🎚")
+        self.scale_btn_left = QPushButton()
+        set_button_icon(self.scale_btn_left, "scale")
         self.scale_btn_left.setFixedSize(35, 35)
         self.scale_btn_left.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.scale_btn_left.setToolTip("Intensity scaling (Linear, Auto range)")
@@ -1227,7 +1230,8 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
 
         self.shape_buttons = {"left": {}, "right": {}}
         for shape in self._SHAPES:
-            btn = QPushButton(shape)
+            btn = QPushButton()
+            set_button_icon(btn, SHAPE_ICON_NAMES[shape])
             btn.setCheckable(True)
             btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -1235,16 +1239,18 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             btn.clicked.connect(lambda _checked, s=shape: self._set_shape(s, "left"))
             self.shape_buttons["left"][shape] = btn
             sidebar.addWidget(btn)
-            self.shape_buttons["right"][shape] = QPushButton(shape)  # never shown
+            self.shape_buttons["right"][shape] = QPushButton()  # never shown
 
-        self.copy_menu_btn_l = QPushButton("⎘")
+        self.copy_menu_btn_l = QPushButton()
+        set_button_icon(self.copy_menu_btn_l, "copy")
         self.copy_menu_btn_l.setFixedSize(35, 35)
         self.copy_menu_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.copy_menu_btn_l.setToolTip("Copy -- not applicable with a single panel")
         self.copy_menu_btn_l.setEnabled(False)
         sidebar.addWidget(self.copy_menu_btn_l)
 
-        self.edit_shape_btn_l = QPushButton("✎")
+        self.edit_shape_btn_l = QPushButton()
+        set_button_icon(self.edit_shape_btn_l, "edit_shape")
         self.edit_shape_btn_l.setCheckable(True)
         self.edit_shape_btn_l.setFixedSize(35, 35)
         self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -1252,9 +1258,10 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.edit_shape_btn_l.setEnabled(False)
         self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
         sidebar.addWidget(self.edit_shape_btn_l)
-        self.edit_shape_btn_r = QPushButton("✎")  # never shown
+        self.edit_shape_btn_r = QPushButton()  # never shown
 
-        self.erase_btn_l = QPushButton("✖")
+        self.erase_btn_l = QPushButton()
+        set_button_icon(self.erase_btn_l, "clear")
         self.erase_btn_l.setFixedSize(35, 35)
         self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_l.setToolTip("Clear selection")
@@ -1708,7 +1715,7 @@ class LineFluxMapDialog(QDialog):
         ctrl.addWidget(self.cmap_combo)
 
         ctrl.addWidget(QLabel("  Scale:"))
-        self.scale_btn = QPushButton("🎚 Scale…")
+        self.scale_btn = QPushButton("Scale…")
         self.scale_btn.clicked.connect(self._open_scale_dialog)
         ctrl.addWidget(self.scale_btn)
         ctrl.addStretch()

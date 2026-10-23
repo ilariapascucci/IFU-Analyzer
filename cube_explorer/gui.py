@@ -34,6 +34,7 @@ from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, scaling_stats_text
 from .region_selector import RegionSelector
 from .utils import make_2d_wcs
+from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
 from . import region_io
 from .line_catalog import get_available_molecules, hitran_gui_interface, load_contaminating_lines_catalog, load_custom_line_catalog
 from .transition_patterns import TRANSITION_PATTERNS
@@ -83,7 +84,7 @@ class CollapsibleButtonGroup(QWidget):
         self.main_layout.setSpacing(0)  # Tighter spacing
         
         # Toggle button (always visible)
-        self.toggle_btn = QPushButton(f"▶ {title}")
+        self.toggle_btn = QPushButton(f"▸ {title}")
         self.toggle_btn.setCheckable(True)
         self.toggle_btn.setFixedWidth(150)  # Wider to fit "Continuum Tools"
         self.toggle_btn.setStyleSheet("""
@@ -177,7 +178,7 @@ class CollapsibleButtonGroup(QWidget):
             
             # Expand
             self.is_expanded = True
-            self.toggle_btn.setText(self.toggle_btn.text().replace("▶", "▼"))
+            self.toggle_btn.setText(self.toggle_btn.text().replace("▸", "▾"))
             
             # Calculate target width
             target_width = sum(
@@ -193,7 +194,7 @@ class CollapsibleButtonGroup(QWidget):
         else:
             # Collapse
             self.is_expanded = False
-            self.toggle_btn.setText(self.toggle_btn.text().replace("▼", "▶"))
+            self.toggle_btn.setText(self.toggle_btn.text().replace("▾", "▸"))
             
             self.animation.setStartValue(self.button_container.maximumWidth())
             self.animation.setEndValue(0)
@@ -639,14 +640,16 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.header_btn.clicked.connect(self.show_header)
         self.header_btn.setToolTip("Display the FITS header information")
 
-        self.refresh_btn = QPushButton("🔄")
+        self.refresh_btn = QPushButton()
+        set_button_icon(self.refresh_btn, "refresh")
         self.refresh_btn.clicked.connect(self.refresh_view)
         self.refresh_btn.setToolTip(
             "Reset the view. This clears the selections, plotted lines, Gaussian fits, "
             "and continuum state. It reloads the spectrum.")
 
         # New Window button: spawn another CubeExplorer window
-        self.new_window_btn = QPushButton("🗗")
+        self.new_window_btn = QPushButton()
+        set_button_icon(self.new_window_btn, "new_window")
         self.new_window_btn.setToolTip("Open a new Cube Explorer window")
         self.new_window_btn.clicked.connect(self._open_new_window)
 
@@ -980,7 +983,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             Returns:
                 btn (QPushButton): The configured button.
             """
-            btn = QPushButton(symbol)
+            btn = QPushButton()
+            set_button_icon(btn, SHAPE_ICON_NAMES[symbol])
             btn.setCheckable(checkable)
             btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -1009,12 +1013,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 self.shape_buttons[side][shape].setToolTip(tooltip)
 
         # Colormap (color scale) buttons (non-shape, open dialog)
-        self.color_btn_left = QPushButton("🌈")
+        self.color_btn_left = QPushButton()
+        set_button_icon(self.color_btn_left, "colormap")
         self.color_btn_left.setFixedSize(35, 35)
         self.color_btn_left.setToolTip("Change left slice color scale")
         self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
 
-        self.color_btn_right = QPushButton("🌈")
+        self.color_btn_right = QPushButton()
+        set_button_icon(self.color_btn_right, "colormap")
         self.color_btn_right.setFixedSize(36, 36)
         self.color_btn_right.setToolTip("Change right slice color scale")
         self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
@@ -1030,7 +1036,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.copy_menu_btn_r = self._make_copy_button('right')
 
         # Edit Shape toggle buttons (enable drag/resize on a placed shape)
-        self.edit_shape_btn_l = QPushButton("✎")
+        self.edit_shape_btn_l = QPushButton()
+        set_button_icon(self.edit_shape_btn_l, "edit_shape")
         self.edit_shape_btn_l.setCheckable(True)
         self.edit_shape_btn_l.setFixedSize(35, 35)
         self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -1038,7 +1045,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.edit_shape_btn_l.setEnabled(False)
         self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
 
-        self.edit_shape_btn_r = QPushButton("✎")
+        self.edit_shape_btn_r = QPushButton()
+        set_button_icon(self.edit_shape_btn_r, "edit_shape")
         self.edit_shape_btn_r.setCheckable(True)
         self.edit_shape_btn_r.setFixedSize(35, 35)
         self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -1047,13 +1055,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
 
         # Erase (clear) selection buttons
-        self.erase_btn_l = QPushButton("✖")
+        self.erase_btn_l = QPushButton()
+        set_button_icon(self.erase_btn_l, "clear")
         self.erase_btn_l.setFixedSize(35, 35)
         self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_l.setToolTip("Clear selection on left slice")
         self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
 
-        self.erase_btn_r = QPushButton("✖")
+        self.erase_btn_r = QPushButton()
+        set_button_icon(self.erase_btn_r, "clear")
         self.erase_btn_r.setFixedSize(35, 35)
         self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
         self.erase_btn_r.setToolTip("Clear selection on right slice")
@@ -3282,7 +3292,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 QMessageBox.critical(
                     self,
                     "Invalid CSV Format",
-                    "❌ Couldn't load any lines from this file.\n\n"
+                    "Could not load any lines from this file.\n\n"
                     "The CSV MUST have columns named 'wavelength' (µm) and 'species' "
                     "(case-sensitive), with both filled in for every row you want loaded."
                 )
@@ -3306,7 +3316,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             if len(distinct_species) > 1:
                 QMessageBox.critical(
                     self, "Multiple Species Found",
-                    "❌ This file has more than one species within the current wavelength "
+                    "This file has more than one species within the current wavelength "
                     f"range: {', '.join(distinct_species)}.\n\n"
                     "Detection lines must be a single species at a time -- the multi-Gaussian "
                     "fit's velocity-shift estimate is pooled across every selected detection "
@@ -3481,7 +3491,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.information(
                 self,
                 "Success",
-                f"✓ Loaded {len(in_range)} of {total_loaded} contaminating lines "
+                f"Loaded {len(in_range)} of {total_loaded} contaminating lines "
                 f"(within {wavelength_min:.6f}-{wavelength_max:.6f} µm)\n\n"
                 f"Wavelength range: {min_wave:.6f} - {max_wave:.6f} μm\n\n"
                 + (f"Kept {len(manual_rows)} manually-marked contaminant(s) from before.\n\n" if len(manual_rows) else "")
