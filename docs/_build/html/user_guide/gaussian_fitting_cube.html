@@ -180,7 +180,11 @@ converged. Click <strong>Show Statistics</strong> for the full breakdown:</p>
 <ul class="simple">
 <li><p><strong>Successfully fit</strong> — how many pixels converged</p></li>
 <li><p><strong>Detections</strong> — pixels that converged and passed the 3σ test (see
-<a class="reference internal" href="#detection-caveat"><span class="std std-ref">the detection note</span></a>)</p></li>
+<a class="reference internal" href="#detection-caveat"><span class="std std-ref">the detection note</span></a>). The next line counts the detections whose
+line center sits at the end of the allowed range, for example “6.9826 to 6.9873 µm”. The
+fit does not let a pixel’s center go outside that range around the center of the summed
+spectrum. A center at the end was set by this limit, not measured freely. These pixels stay in
+the maps</p></li>
 <li><p><strong>Upper limits</strong> — pixels that failed the test. If some fits never ran (too few finite
 samples, or an error inside the fit), the window says how many</p></li>
 <li><p><strong>No data</strong> — pixels with no valid spectrum, for example outside the field of view</p></li>
@@ -233,7 +237,9 @@ unlike Area, this is <em>not</em> CGS-converted</p></td>
 <tr class="row-even"><td><p><strong>Velocity</strong></p></td>
 <td><p>Doppler velocity of the fitted center, in km/s. Zero velocity is the center of the fit
 to the summed spectrum (shown in <strong>Show Statistics</strong>). If that fit did not converge,
-the window says that the map is unavailable</p></td>
+the window says that the map is unavailable. A pixel whose center is at the limit of
+the allowed range shows the same velocity at that end (for example +99 km/s or −99
+km/s). <strong>Show Statistics</strong> counts these pixels</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Sigma</strong></p></td>
 <td><p>Gaussian σ, in the spectral axis unit</p></td>
@@ -387,6 +393,7 @@ equivalent is <code class="docutils literal notranslate"><span class="pre">expor
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_detection&#39;</span><span class="p">]</span>      <span class="c1"># Boolean: converged and amplitude &gt;= fac_above_stdres * noise</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;is_upper_limit&#39;</span><span class="p">]</span>    <span class="c1"># Boolean: area is an upper limit (may still be NaN)</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;fit_failed&#39;</span><span class="p">]</span>        <span class="c1"># Boolean: the part of is_upper_limit whose fit never ran</span>
+<span class="n">maps</span><span class="p">[</span><span class="s1">&#39;center_limits&#39;</span><span class="p">]</span>     <span class="c1"># (lowest, highest) center a pixel fit may use, in the wavelength unit</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;residuals_cube&#39;</span><span class="p">]</span>    <span class="c1"># 3D residuals cached during fitting</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;fac_above_stdres&#39;</span><span class="p">]</span>  <span class="c1"># The threshold that was used</span>
 <span class="n">maps</span><span class="p">[</span><span class="s1">&#39;wavelength_unit&#39;</span><span class="p">]</span>   <span class="c1"># Spectral axis unit string</span>

@@ -58,7 +58,9 @@ The color range sets which intensity values map to the ends of the color bar. Ch
 
 - **Absolute**: type a lower and an upper value. A blank box uses the minimum or the
   maximum of the image
-- **Percentile**: use percentiles of the image pixels, for example to ignore a few very bright pixels
+- **Percentile**: use percentiles of the image pixels, for example to ignore a few very bright pixels.
+  The bar then runs from 0 to 100. Drag the two handles, or type the lower and upper
+  percentile. The vmin and vmax boxes show the resulting values and you cannot edit them
 
 To use the same scale and range on the other slice, click the **Copy** icon and choose
 **Copy Scale/Range**.

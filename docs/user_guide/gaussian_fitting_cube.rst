@@ -65,7 +65,11 @@ converged. Click **Show Statistics** for the full breakdown:
 
 - **Successfully fit** — how many pixels converged
 - **Detections** — pixels that converged and passed the 3σ test (see
-  :ref:`the detection note <detection-caveat>`)
+  :ref:`the detection note <detection-caveat>`). The next line counts the detections whose
+  line center sits at the end of the allowed range, for example "6.9826 to 6.9873 µm". The
+  fit does not let a pixel's center go outside that range around the center of the summed
+  spectrum. A center at the end was set by this limit, not measured freely. These pixels stay in
+  the maps
 - **Upper limits** — pixels that failed the test. If some fits never ran (too few finite
   samples, or an error inside the fit), the window says how many
 - **No data** — pixels with no valid spectrum, for example outside the field of view
@@ -111,7 +115,9 @@ Available in the dropdown:
    * - **Velocity**
      - Doppler velocity of the fitted center, in km/s. Zero velocity is the center of the fit
        to the summed spectrum (shown in **Show Statistics**). If that fit did not converge,
-       the window says that the map is unavailable
+       the window says that the map is unavailable. A pixel whose center is at the limit of
+       the allowed range shows the same velocity at that end (for example +99 km/s or −99
+       km/s). **Show Statistics** counts these pixels
    * - **Sigma**
      - Gaussian σ, in the spectral axis unit
    * - **FWHM**
@@ -257,6 +263,7 @@ Using the API
     maps['is_detection']      # Boolean: converged and amplitude >= fac_above_stdres * noise
     maps['is_upper_limit']    # Boolean: area is an upper limit (may still be NaN)
     maps['fit_failed']        # Boolean: the part of is_upper_limit whose fit never ran
+    maps['center_limits']     # (lowest, highest) center a pixel fit may use, in the wavelength unit
     maps['residuals_cube']    # 3D residuals cached during fitting
     maps['fac_above_stdres']  # The threshold that was used
     maps['wavelength_unit']   # Spectral axis unit string

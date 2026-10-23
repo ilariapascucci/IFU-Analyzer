@@ -212,6 +212,7 @@ class RangeSliderWidget(QWidget):
     """
 
     rangeChanged = pyqtSignal(float, float)
+    dragFinished = pyqtSignal(float, float)
     HANDLE_RADIUS = 7
     TRACK_MARGIN = 12
 
@@ -243,7 +244,32 @@ class RangeSliderWidget(QWidget):
         self._scale_type = scale_type
         self._gamma = float(gamma)
         self._dragging = None  # 'min', 'max', or None
+        self._step = None  # Drag snap size. None means no snapping.
         self.setMouseTracking(True)
+
+    def set_domain(self, data_min, data_max, scale_type, gamma, vmin, vmax, step=None):
+        """Change the selectable range, the layout transform, and both handles.
+
+        Args:
+            data_min (float): New lower bound of the selectable range.
+            data_max (float): New upper bound of the selectable range.
+            scale_type (str): New layout transform ('Linear', 'Log', or 'Power').
+            gamma (float): Exponent for the Power layout. Must be above 0.
+            vmin (float): New lower handle value.
+            vmax (float): New upper handle value.
+            step (float): Snap size of a drag, which also keeps the handles one
+                step apart. None means no snapping.
+
+        Returns:
+            None
+        """
+        self._data_min = float(data_min)
+        self._data_max = float(data_max) if data_max > data_min else float(data_min) + 1.0
+        self._scale_type = scale_type
+        self._gamma = float(gamma)
+        self._vmin, self._vmax = float(vmin), float(vmax)
+        self._step = step
+        self.update()
 
     def set_scale(self, scale_type, gamma):
         """Switch the layout transform and re-lay-out the handles (values
@@ -422,7 +448,10 @@ class RangeSliderWidget(QWidget):
         Returns:
             None
         """
+        was_dragging = self._dragging is not None
         self._dragging = None
+        if was_dragging:
+            self.dragFinished.emit(self._vmin, self._vmax)
 
     def _drag_to(self, x):
         """Move the currently-grabbed handle to pixel position x, clamped so
@@ -437,10 +466,14 @@ class RangeSliderWidget(QWidget):
         x0, x1 = self._track_x_bounds()
         frac = 0.0 if x1 <= x0 else (x - x0) / (x1 - x0)
         value = self._frac_to_value(frac)
+        gap = 0.0
+        if self._step:
+            value = round(value / self._step) * self._step
+            gap = self._step
         if self._dragging == 'min':
-            self._vmin = min(value, self._vmax)
+            self._vmin = min(value, self._vmax - gap)
         else:
-            self._vmax = max(value, self._vmin)
+            self._vmax = max(value, self._vmin + gap)
         self.update()
         self.rangeChanged.emit(self._vmin, self._vmax)
 
@@ -478,7 +511,8 @@ class ScaleDialog(QDialog):
         layout = QVBoxLayout()
         info = QLabel("Choose the intensity scaling and the color range. The range is "
                       "either absolute (drag the slider or type vmin/vmax, blank = Auto) "
-                      "or relative (lower and upper percentile of this image).")
+                      "or relative (drag the slider from 0 to 100 or type the lower and "
+                      "upper percentile of this image).")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -521,7 +555,8 @@ class ScaleDialog(QDialog):
         self.slider = RangeSliderWidget(self.auto_vmin, self.auto_vmax, settings.scale,
                                         gamma=settings.gamma,
                                         vmin=settings.vmin, vmax=settings.vmax)
-        self.slider.rangeChanged.connect(self._on_slider_changed)
+        self.slider.rangeChanged.connect(self._on_slider_moved)
+        self.slider.dragFinished.connect(self._on_slider_released)
         layout.addWidget(self.slider)
 
         form2 = QFormLayout()
@@ -562,8 +597,7 @@ class ScaleDialog(QDialog):
 
         self.setLayout(layout)
         self._update_visibility()
-        if settings.range_mode == RANGE_PERCENTILE:
-            self._refresh_percentile_range()
+        self._configure_slider_for_mode()
 
     def _is_percentile_mode(self):
         """Tell whether the Percentile color range is selected.
@@ -594,8 +628,28 @@ class ScaleDialog(QDialog):
             widget.setVisible(is_pct)
         self.min_edit.setReadOnly(is_pct)
         self.max_edit.setReadOnly(is_pct)
-        self.slider.setEnabled(not is_pct)
         self.reset_btn.setText("Reset to Auto (Absolute)" if is_pct else "Reset to Auto")
+
+    def _configure_slider_for_mode(self):
+        """Set up the slider for the selected color range. Absolute uses the
+        image values. Percentile uses a 0 to 100 track, with 0.1 steps.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if self._is_percentile_mode():
+            pair = self._percentiles_from_fields() or DEFAULT_PERCENTILES
+            self.slider.set_domain(0.0, 100.0, "Linear", 1.0, pair[0], pair[1], step=0.1)
+            self.slider.setToolTip("Drag a handle to set the lower and upper percentile (0 to 100).")
+            self._refresh_percentile_range()
+        else:
+            self.slider.set_domain(self.auto_vmin, self.auto_vmax, self.scale_combo.currentText(),
+                                   self._current_gamma(), self.auto_vmin, self.auto_vmax)
+            self.slider.setToolTip("Drag a handle to set vmin and vmax.")
+            self._sync_slider_from_fields()
 
     def _current_gamma(self):
         """Read the gamma box. Return the stored gamma if the box is not valid.
@@ -624,9 +678,10 @@ class ScaleDialog(QDialog):
             None
         """
         self._update_visibility()
+        if self._is_percentile_mode():
+            return  # The percentile track is always linear.
         self.slider.set_scale(self.scale_combo.currentText(), self._current_gamma())
-        if not self._is_percentile_mode():
-            self._on_slider_changed(*self.slider.value_range())
+        self._on_slider_changed(*self.slider.value_range())
 
     def _on_range_mode_changed(self, _index):
         """Switch between Absolute and Percentile. Leaving Percentile keeps
@@ -639,8 +694,7 @@ class ScaleDialog(QDialog):
             None
         """
         self._update_visibility()
-        if self._is_percentile_mode():
-            self._refresh_percentile_range()
+        self._configure_slider_for_mode()
 
     def _percentiles_from_fields(self):
         """Read the two percentile boxes.
@@ -661,12 +715,14 @@ class ScaleDialog(QDialog):
             return None
         return p_lo, p_hi
 
-    def _refresh_percentile_range(self):
+    def _refresh_percentile_range(self, move_slider=True):
         """Write the percentile values of this image into the vmin and vmax
-        boxes and move the slider to match. Do nothing for an invalid pair.
+        boxes. Move the slider handles to the percentiles. Do nothing for an
+        invalid pair.
 
         Args:
-            None
+            move_slider (bool): False when the slider moved first, so its
+                handles already show the percentiles.
 
         Returns:
             None
@@ -676,11 +732,43 @@ class ScaleDialog(QDialog):
             return
         trial = ScaleSettings(range_mode=RANGE_PERCENTILE, p_lo=pair[0], p_hi=pair[1])
         vmin, vmax = resolve_range(self.image, trial, self.mask)
-        self.slider.set_range(vmin, vmax)
+        if move_slider:
+            self.slider.set_range(pair[0], pair[1])
         self._on_slider_changed(vmin, vmax)
 
+    def _on_slider_moved(self, low, high):
+        """Show a slider drag in the boxes. Absolute mode writes vmin and vmax.
+        Percentile mode writes the two percentile boxes only.
+
+        Args:
+            low (float): Lower handle value, in image units or percent.
+            high (float): Upper handle value, in image units or percent.
+
+        Returns:
+            None
+        """
+        if self._is_percentile_mode():
+            self.p_lo_edit.setText(f"{low:.1f}")
+            self.p_hi_edit.setText(f"{high:.1f}")
+        else:
+            self._on_slider_changed(low, high)
+
+    def _on_slider_released(self, _low, _high):
+        """Update the vmin and vmax boxes after a percentile drag. This waits
+        for the release because each update reads every pixel of the image.
+
+        Args:
+            _low (float): Unused lower handle value.
+            _high (float): Unused upper handle value.
+
+        Returns:
+            None
+        """
+        if self._is_percentile_mode():
+            self._refresh_percentile_range(move_slider=False)
+
     def _on_slider_changed(self, vmin, vmax):
-        """Mirror a slider drag into the Min/Max text fields.
+        """Write the vmin and vmax values into the Min/Max text fields.
 
         Args:
             vmin (float): New lower handle value.
@@ -703,6 +791,8 @@ class ScaleDialog(QDialog):
         Returns:
             None
         """
+        if self._is_percentile_mode():
+            return  # The slider shows percentiles here, not the vmin and vmax values.
         min_text = self.min_edit.text().strip()
         max_text = self.max_edit.text().strip()
         try:

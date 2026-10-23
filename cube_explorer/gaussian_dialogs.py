@@ -350,6 +350,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             "Area (AUC)", "Area Error", "Amplitude", "Center", "Velocity", "Sigma",
             "FWHM", "chi2 (fit quality)", "Fit Status", "Success Mask", "Residuals"
         ])
+        self.param_combo.setMaxVisibleItems(self.param_combo.count())  # Show the whole list, no scrolling
         param_layout.addWidget(self.param_combo)
         
         # Colormap selector
@@ -359,6 +360,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             "Default", "viridis", "plasma", "inferno", "magma", "cividis",
             "coolwarm", "RdYlBu", "RdYlGn", "seismic", "twilight", "jet"
         ])
+        self.cmap_combo.setMaxVisibleItems(self.cmap_combo.count())  # Show the whole list, no scrolling
         param_layout.addWidget(self.cmap_combo)
         
         # Scale selector
@@ -629,11 +631,23 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         if n_failed:
             upper_text += f" ({n_failed:,} from fits that never ran)"
 
+        # A center at the end of the allowed range was set by that limit, not measured freely.
+        limit_lines = []
+        limits = self.results.get('center_limits')
+        if limits is not None:
+            detection = np.asarray(self.results['is_detection'], dtype=bool)
+            center = np.asarray(self.results['center'], dtype=float)
+            tolerance = 0.01 * (limits[1] - limits[0])
+            at_limit = detection & ((center <= limits[0] + tolerance) | (center >= limits[1] - tolerance))
+            limit_lines.append(f"    of which line center at the fit limit "
+                               f"({limits[0]:.4f} to {limits[1]:.4f} {self.wave_unit}): {int(at_limit.sum()):,}")
+
         lines = [
             f"{param_name.upper()} STATISTICS", "=" * 50, "",
             "PIXEL TYPES:",
             f"  Successfully fit: {n_success:,} / {n_total:,} ({100*n_success/n_total:.1f}%)",
             f"  Detections:       {n_detections:,}",
+            *limit_lines,
             f"  {upper_text}",
             f"  No data:          {n_total - n_detections - n_upper_limits:,}",
             "",

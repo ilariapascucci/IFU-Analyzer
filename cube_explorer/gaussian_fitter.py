@@ -908,6 +908,28 @@ def fit_status_map(results: dict) -> np.ndarray:
     return status
 
 
+def _center_limits(x_data, global_guess):
+    """Return the lowest and highest line center that a pixel fit may use.
+
+    The limits are three average wavelength steps either side of the summed-spectrum
+    center, inside the fit window. Without a summed-spectrum fit, they are the window edges.
+
+    Args:
+        x_data (numpy.ndarray): Wavelengths of the fit window.
+        global_guess (tuple): (amplitude, center, sigma) of the summed-spectrum fit, or None.
+
+    Returns:
+        limits (tuple): (lowest, highest) center wavelength, in the unit of x_data.
+    """
+    x1 = x_data[0]
+    x2 = x_data[-1]
+    if global_guess is None:
+        return x1, x2
+    x_space = (x2 - x1) / len(x_data)  # Average wavelength spacing
+    center_global = global_guess[1]
+    return max(x1, center_global - 3 * x_space), min(x2, center_global + 3 * x_space)
+
+
 def _upper_limit_sigma(header, unit, global_guess, lambda_0, x1, x2):
     """
     Pick the Gaussian width that every upper limit in a Gaussian map uses.
@@ -1106,16 +1128,12 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
         # center/sigma bounds refine below using the global fit when available.
         sigma_lower = 0
         sigma_upper = 2 * x_range
-        center_lower = x1
-        center_upper = x2
-        x_space = x_range / len(x_data)  # Average wavelength spacing
+        center_lower, center_upper = _center_limits(x_data, global_guess)
         if global_guess is not None:
             # Refine bounds based on global fit sigma estimate
             _, center_global, sigma_global = global_guess
             sigma_lower = max(sigma_lower, 0.25 * sigma_global)
             sigma_upper = min(sigma_upper, 4.0 * sigma_global)
-            center_lower = max(x1, center_global - 3 * x_space)
-            center_upper = min(x2, center_global + 3 * x_space)
 
         # STEP 3a: local_max <= 0 in this (possibly narrowed) window is the same
         # genuine non-detection STEP 2d already checks, just found later.
@@ -1277,6 +1295,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'residuals_cube': Normalized (residual / std) residuals, cached during fitting
             'fac_above_stdres': The detection threshold that was used
             'wavelength_unit': Unit string, from the Quantity if wavelength was one, else wave_unit
+            'center_limits': (lowest, highest) line center a pixel fit may use, in the wavelength
+                unit. A center at either end is stuck at the limit, not freely measured
             'global_fit': dict with the global 1D fit used to seed initial guesses
                 (also carries area/area_error/r_squared and the x_data/y_data/
                 baseline it was fit from, for the Area (AUC) export), or None
@@ -1435,6 +1455,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     
     # One width for every upper limit, chosen once here so no pixel has its own guess.
     ul_sigma = _upper_limit_sigma(header, unit, global_guess, lambda_0_orig, x1, x2)
+    center_limits = tuple(float(c) for c in _center_limits(x_data, global_guess))
 
     # ========== MAIN PER-PIXEL FITTING LOOP ==========
     # Everything a row needs besides its own spectra, as one picklable dict for the workers.
@@ -1577,5 +1598,6 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         # Reporting 'unknown' while wave_unit was supplied is just dropping information.
         'wavelength_unit': (wavelength.unit.to_string() if isinstance(wavelength, Quantity)
                             else (wave_unit or 'unknown')),
-        'global_fit': global_fit_info  # Global 1D fit used for initial guesses
+        'global_fit': global_fit_info,  # Global 1D fit used for initial guesses
+        'center_limits': center_limits  # Lowest and highest center a pixel fit may use
     }
