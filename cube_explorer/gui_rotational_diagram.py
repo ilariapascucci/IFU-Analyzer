@@ -43,7 +43,7 @@ from .import_map_dialog import _peek_header, _has_real_error
 from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker, SelectCubeRegionDialog,
-    attach_rot_diagram_hover,
+    attach_rot_diagram_hover, save_fit_csv, input_lines,
 )
 from .fits_export import build_line_map_header, write_fits_product
 from .scale_dialog import ScaleSettings, build_norm
@@ -3876,6 +3876,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if radius_and_distance is None:
             return
         radius_au, distance_pc = radius_and_distance
+        self._fit_inputs = radius_and_distance  # shown in the results window
 
         fit_2t = self.fit_mode.currentText() == "2T"
         fit_opr = self.fit_opr_check.isChecked()
@@ -5202,6 +5203,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         results_text = "\n" + "="*50 + "\n"
         results_text += "ROTATIONAL DIAGRAM ANALYSIS RESULTS\n"
         results_text += "="*50 + "\n\n"
+        results_text += input_lines(*self._fit_inputs)
+        if "OPR" not in results:
+            results_text += "\n"
 
         if "OPR" in results:
             if "OPR_err" in results:
@@ -5270,7 +5274,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         text_widget = QTextEdit()
         text_widget.setText(results_text)
         text_widget.setReadOnly(True)
-        layout.addWidget(text_widget, 1)
+        text_box = QWidget()
+        text_layout = QVBoxLayout(text_box)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.addWidget(text_widget)
+        layout.addWidget(text_box, 1)
+        if "_plot_data" in results:
+            save_btn = QPushButton("Save Fit")
+            save_btn.setToolTip("Save these results and the plotted points to a CSV file.")
+            save_btn.clicked.connect(lambda: save_fit_csv(
+                dialog, results_text, results["_plot_data"],
+                f"{self.current_molecule}_rotational_diagram_fit.csv"))
+            text_layout.addWidget(save_btn)
 
         # Right side: plot with toolbar
         if "_plot_data" in results:

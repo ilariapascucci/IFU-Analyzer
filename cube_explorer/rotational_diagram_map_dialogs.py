@@ -5,6 +5,7 @@ RotDiagMapWorker runs create_rotational_diagram_map off the GUI thread.
 RotDiagMapResultsDialog shows the maps and re-fits a pixel's diagram on click.
 """
 
+import csv
 import html
 import traceback
 from types import SimpleNamespace
@@ -363,6 +364,21 @@ class CombineMapsWorker(QThread):
         self.cancelled = True
 
 
+def input_lines(r_au, dist_pc):
+    """
+    The emitting radius and distance lines of a results text, the Run Fit wording.
+
+    Args:
+        r_au (float): Emitting radius in au, or None if the user left it empty
+        dist_pc (float): Distance in pc
+
+    Returns:
+        lines (str): "Emitting radius = ... au" and "Distance = ... pc", one per line
+    """
+    radius = "not set" if r_au is None else f"{r_au:g} au"
+    return f"Emitting radius = {radius}{chr(10)}Distance = {dist_pc:g} pc{chr(10)}"
+
+
 def _opr_line(results):
     """
     One text line describing the OPR the fit used, the Run Fit wording.
@@ -380,18 +396,20 @@ def _opr_line(results):
     return f"OPR = {results['OPR']:.2f} (fixed)\n"
 
 
-def _fit_block(results):
+def _fit_block(results, r_au, dist_pc):
     """
     The "--- 1T FIT ---" or "--- 2T FIT ---" block, formatted like Run Fit's
     show_results -- whichever of '1T'/'2T' is present in `results`.
 
     Args:
         results (dict): A rotational_diagram result dict with a '1T' or '2T' entry
+        r_au (float): Emitting radius in au, or None
+        dist_pc (float): Distance in pc
 
     Returns:
-        text (str): The OPR line plus the fit's temperature(s) and column density(s)
+        text (str): The radius, distance and OPR lines plus the fit's temperature(s) and column density(s)
     """
-    text = _opr_line(results)
+    text = input_lines(r_au, dist_pc) + _opr_line(results)
     if "1T" in results:
         r1 = results["1T"]
         text += (
@@ -411,12 +429,14 @@ def _fit_block(results):
     return text
 
 
-def region_result_text(region):
+def region_result_text(region, r_au, dist_pc):
     """
     Run-Fit-style block for the whole-cube summed spectrum.
 
     Args:
         region (dict): create_rotational_diagram_map's 'region_fit' entry, or None
+        r_au (float): Emitting radius in au, or None
+        dist_pc (float): Distance in pc
 
     Returns:
         text (str): The header, 1T block, and spaxel count, or a short note
@@ -430,10 +450,10 @@ def region_result_text(region):
     tail = f"\nSpaxels summed: {region.get('n_pixels', 0)}"
     if region.get("n_cubes"):
         tail += f" (across {region['n_cubes']} cubes)"
-    return head + _fit_block(region["results"]) + tail + f"\n{bar}\n"
+    return head + _fit_block(region["results"], r_au, dist_pc) + tail + f"\n{bar}\n"
 
 
-def pixel_result_text(x, y, out):
+def pixel_result_text(x, y, out, r_au, dist_pc):
     """
     Format one pixel's fit like the Run Fit results panel.
 
@@ -441,6 +461,8 @@ def pixel_result_text(x, y, out):
         x (int): Spatial x index
         y (int): Spatial y index
         out (dict): fit_pixel output
+        r_au (float): Emitting radius in au, or None
+        dist_pc (float): Distance in pc
 
     Returns:
         text (str): Multi-line summary
@@ -449,7 +471,7 @@ def pixel_result_text(x, y, out):
     head = f"{bar}\nROTATIONAL DIAGRAM ANALYSIS RESULTS -- PIXEL ({x}, {y})\n{bar}\n\n"
     if out.get("status") != STATUS_OK:
         return head + f"No fit: {out.get('reason', 'n/a')}\nLines used: {out.get('n_lines', 0)}\n{bar}\n"
-    return head + _fit_block(out["results"]) + f"\nLines used: {out['n_lines']}\n{bar}\n"
+    return head + _fit_block(out["results"], r_au, dist_pc) + f"\nLines used: {out['n_lines']}\n{bar}\n"
 
 
 def pixel_result_html(text, highlight=None):
@@ -614,6 +636,45 @@ def attach_rot_diagram_hover(canvas, ax, plot_data, hit_radius_pt=5):
         canvas.draw_idle()
 
     canvas.mpl_connect("motion_notify_event", _on_move)
+
+
+def save_fit_csv(parent, text, plot_data, default_name):
+    """
+    Save a fit to a CSV file: the results text as "#" lines, then one row per plotted point.
+    The text is what the results window shows. The points are what the diagram shows.
+
+    Args:
+        parent (QWidget): Parent of the file dialog and of the message boxes
+        text (str): The results text that the window shows
+        plot_data (dict): The fitter's '_plot_data' (E_arr, y_arr, y_err, is_ul_mask, wave_arr)
+        default_name (str): File name that the save dialog suggests
+
+    Returns:
+        None
+    """
+    path, _ = QFileDialog.getSaveFileName(parent, "Save Fit", default_name, "CSV files (*.csv)")
+    if not path:
+        return
+    ln10 = np.log(10)
+    e_arr = np.asarray(plot_data["E_arr"], dtype=float)
+    y_log = np.asarray(plot_data["y_arr"], dtype=float) / ln10
+    y_err = np.asarray(plot_data["y_err"], dtype=float) / ln10
+    is_ul = np.asarray(plot_data.get("is_ul_mask", np.zeros(len(e_arr), dtype=bool)), dtype=bool)
+    wave_arr = plot_data.get("wave_arr")
+    try:
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            for line in text.strip("\n").splitlines():
+                f.write(f"# {line}".rstrip() + "\n")
+            writer = csv.writer(f)
+            writer.writerow(["wavelength_um", "E_u_K", "log10_Nu_over_gu",
+                             "log10_Nu_over_gu_error", "upper_limit"])
+            for i in range(len(e_arr)):
+                writer.writerow([
+                    "" if wave_arr is None else f"{float(wave_arr[i]):.6f}",
+                    f"{e_arr[i]:.1f}", f"{y_log[i]:.4f}",
+                    "" if is_ul[i] else f"{y_err[i]:.4f}", int(is_ul[i])])
+    except OSError as exc:
+        QMessageBox.critical(parent, "Save Failed", f"Could not save the fit:\n{exc}")
 
 
 class RotDiagMapResultsDialog(QDialog):
@@ -953,10 +1014,21 @@ class RotDiagMapResultsDialog(QDialog):
 
         text = QTextEdit()
         text.setReadOnly(True)
-        text.setHtml(pixel_result_html(pixel_result_text(x, y, out), highlight))
-        lay.addWidget(text, 1)
+        plain_text = pixel_result_text(x, y, out, self.fit_kwargs["r_au"], self.fit_kwargs["dist_pc"])
+        text.setHtml(pixel_result_html(plain_text, highlight))
+        text_box = QWidget()
+        text_lay = QVBoxLayout(text_box)
+        text_lay.setContentsMargins(0, 0, 0, 0)
+        text_lay.addWidget(text)
+        lay.addWidget(text_box, 1)
 
         if out["status"] == STATUS_OK and "_plot_data" in out["results"]:
+            save_btn = QPushButton("Save Fit")
+            save_btn.setToolTip("Save these results and the plotted points to a CSV file.")
+            save_btn.clicked.connect(lambda: save_fit_csv(
+                dlg, plain_text, out["results"]["_plot_data"],
+                f"{self.result.get('molecule', 'H2')}_pixel_{x}_{y}_fit.csv"))
+            text_lay.addWidget(save_btn)
             fig = Figure(figsize=(6.5, 5), dpi=100)
             ax = fig.add_subplot(111)
             plot_rot_diagram(ax, out["results"]["_plot_data"], highlight=highlight)
@@ -989,7 +1061,8 @@ class RotDiagMapResultsDialog(QDialog):
         t_cap = self.result.get("t_cap", 3000.0)
 
         # Region fit first, Run-Fit style, then the per-pixel spread.
-        lines = region_result_text(self.result.get("region_fit")).splitlines() + [""]
+        lines = region_result_text(self.result.get("region_fit"), self.fit_kwargs["r_au"],
+                                   self.fit_kwargs["dist_pc"]).splitlines() + [""]
         lines += ["PER-PIXEL SPREAD", "=" * 50, ""]
 
         def _block(name, arr, fmt):
