@@ -10,7 +10,7 @@ from .line_catalog import get_available_molecules
 # The shared fit engine lives next to the models and PyMC code it calls.
 # This module only supplies Q(T) for any HITRAN molecule.
 from .rotational_diagram_h2_fitter import (
-    pc, T_CAP, require_fit_selected, build_excitation_dataset, fit_excitation_diagram,
+    T_CAP, require_fit_selected, build_excitation_dataset, fit_excitation_diagram,
 )
 
 # Molecular data for the line set being fit (populated per-call from molecular_data)
@@ -64,11 +64,12 @@ def partition_function_err(T, T_err, molecule='CO', isotopologue=1):
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit2T=False,
-                        R=None, dist=140*pc, upper_limits=None, progress_callback=None,
+                        R=None, dist=140, upper_limits=None, progress_callback=None,
                         molecule='CO', isotopologue=1):
     """
     Fit a rotational diagram (1T and/or 2T) to a set of line fluxes, for any
     non-H2 molecule. No OPR here -- see rotational_diagram_h2_fitter for H2.
+    R is optional. Without R, N is a total molecule count instead of a column density.
 
     Args:
         fluxes (dict): {J: flux_value}, J is the upper rotational level
@@ -76,8 +77,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         molecular_data (dict): 'wavelengths', 'Aul', 'Eu', 'gu' keys, each {J: value}
         fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
         fit2T (bool): Perform the 2T fit
-        R (float): Emitting radius (AU or cm)
-        dist (float): Distance (pc or cm)
+        R (float): Emitting radius (AU), or None
+        dist (float): Distance (pc)
         upper_limits (dict): {J: True} for measurements marked as upper limits
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
         molecule (str): Species being fit, per get_available_molecules()

@@ -276,8 +276,8 @@ class RotationalFitWorker(QThread):
             fit_opr (bool): Whether to fit the ortho/para ratio (H2 only).
             opr_grid (numpy.ndarray): OPR grid to search when fit_opr is set.
             fit2T (bool): Whether to run the two-temperature fit.
-            R (float): Source radius in cm, for flux-to-column conversion.
-            dist (float): Source distance in cm.
+            R (float): Emitting radius in au, or None, for flux-to-column conversion.
+            dist (float): Source distance in pc.
             upper_limits (dict): Upper-limit flags keyed by line identifier.
             fit1T (bool): Whether to report the one-temperature fit.
             molecule (str): Molecule to fit ('H2' or a general-fitter name).
@@ -575,20 +575,16 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Bottom: Physical parameters + buttons
         bottom_layout = QHBoxLayout()
         
-        bottom_layout.addWidget(QLabel("R (au):"))
+        bottom_layout.addWidget(QLabel("Emitting Radius (au):"))
         self.radius_input = QLineEdit()
-        self.radius_input.setPlaceholderText("required")
-        self.radius_input.setToolTip("Radius of the emitting region, in au.")
+        self.radius_input.setPlaceholderText("optional")
+        self.radius_input.setToolTip(
+            "Radius of the emitting region, in au. With a radius, N_u is a column density "
+            "(cm^-2). Without it, N_u is a total molecule count (for example, to compare "
+            "against PDRTPy)."
+        )
         self.radius_input.setMaximumWidth(100)
         bottom_layout.addWidget(self.radius_input)
-
-        self.radius_unknown_check = QCheckBox("Unknown R")
-        self.radius_unknown_check.setToolTip(
-            "Leave R unspecified: Nu is computed as a total molecule count instead of "
-            "a per-cm^2 column density (e.g. for comparing against PDRTPy)."
-        )
-        self.radius_unknown_check.stateChanged.connect(self.on_radius_unknown_toggled)
-        bottom_layout.addWidget(self.radius_unknown_check)
 
         bottom_layout.addWidget(QLabel("Distance (pc):"))
         self.distance_input = QLineEdit()
@@ -993,16 +989,37 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             min_iso, _max_iso = mol_data['range']
             self.current_isotopologue = min_iso
     
-    def on_radius_unknown_toggled(self):
-        """Disable the R field when R is marked unknown (R=None is passed to the fitter).
+    def _read_radius_and_distance(self):
+        """Read the emitting radius (optional) and distance (required) fields.
+        A blank radius gives None. A blank distance is not valid.
 
         Args:
             None
 
         Returns:
-            None
+            values (tuple): (radius_au, distance_pc). radius_au is a float or None,
+                distance_pc is a float. None for the whole result if a field was
+                invalid -- a warning was already shown in that case.
         """
-        self.radius_input.setEnabled(not self.radius_unknown_check.isChecked())
+        values = []
+        for field, name, unit, optional in ((self.radius_input, "emitting radius", "au", True),
+                                            (self.distance_input, "distance", "pc", False)):
+            text = field.text().strip()
+            if not text and optional:
+                values.append(None)
+                continue
+            try:
+                value = float(text)
+            except ValueError:
+                hint = " Or leave it blank." if optional else ""
+                QMessageBox.warning(self, "Error", f"Enter a number for the {name}, in {unit}.{hint}")
+                return None
+            if value <= 0:
+                QMessageBox.warning(self, "Error", f"The {name} must be greater than 0 {unit}.")
+                return None
+            values.append(value)
+
+        return tuple(values)
 
     def on_fit_opr_toggled(self):
         """Enable the Advanced button only when Fit OPR is checked; collapse it otherwise.
@@ -3509,30 +3526,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             else:
                 molecular_data['gu'][key] = line.get('Gp', 1)
         
-        # Check that R and distance are provided (R can be left unknown on purpose)
-        if self.radius_unknown_check.isChecked():
-            radius_au = None
-        else:
-            try:
-                radius_au = float(self.radius_input.text().strip())
-            except ValueError:
-                QMessageBox.warning(self, "Error", "Enter a number for the radius (R), in au. Or check Unknown R.")
-                return
-
-            if radius_au <= 0:
-                QMessageBox.warning(self, "Error", "Radius (R) must be greater than 0 AU")
-                return
-
-        try:
-            distance_pc = float(self.distance_input.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Enter a number for the distance, in pc.")
+        radius_and_distance = self._read_radius_and_distance()
+        if radius_and_distance is None:
             return
+        radius_au, distance_pc = radius_and_distance
 
-        if distance_pc <= 0:
-            QMessageBox.warning(self, "Error", "Distance must be greater than 0 pc")
-            return
-        
         fit_2t = self.fit_mode.currentText() == "2T"
         fit_opr = self.fit_opr_check.isChecked()
 
@@ -4440,19 +4438,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             n_sigma = self._rot_map_gather_n_sigma()
             if n_sigma is None:
                 return None
-        try:
-            dist_pc = float(self.distance_input.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Distance", "Enter a valid distance (pc).")
+        radius_and_distance = self._read_radius_and_distance()
+        if radius_and_distance is None:
             return None
-        if self.radius_unknown_check.isChecked():
-            r_au = None
-        else:
-            try:
-                r_au = float(self.radius_input.text().strip())
-            except ValueError:
-                QMessageBox.warning(self, "Radius", "Enter a radius (AU), or check Unknown R.")
-                return None
+        r_au, dist_pc = radius_and_distance
 
         fit_opr = self.fit_opr_check.isChecked()
         opr_grid = None

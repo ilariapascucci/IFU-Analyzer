@@ -637,7 +637,7 @@ python main.py
    - Fetch line data with "Fetch from HITRAN", or import a custom CSV with "Import from CSV".
    - Select the lines to include. Enter the measured flux and the flux error for each line.
    - For a non-detection, mark the line as an upper limit. Use "Load Cubes" and "Calculate Fluxes" to derive the flux or the limit from the cube.
-   - Enter the emitting radius ("R (au)") and the distance ("Distance (pc)"). Both fields start empty, and both are required. You can check "Unknown R" instead of a radius. Then choose a 1T or a 2T fit in "Fit".
+   - Enter the distance ("Distance (pc)"), which is required. Optionally enter the emitting radius ("Emitting Radius (au)"). Both fields start empty. Without a radius, N is a total molecule count instead of a column density. Then choose a 1T or a 2T fit in "Fit".
    - Click "Run Fit". If any line is an upper limit, the fit switches to PyMC Bayesian censored regression instead of ordinary least squares.
    - Read the fitted temperature or temperatures and the column densities in the results dialog.
    - Click "Save Fluxes" to save the fluxes as a CSV file. "Import from CSV" reads the file back.

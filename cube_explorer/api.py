@@ -745,17 +745,18 @@ def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_p
 
 # --- Rotational Diagram API ---
 
-from .rotational_diagram_h2_fitter import rotational_diagram as _rotational_diagram_h2, pc as _rot_diag_pc
+from .rotational_diagram_h2_fitter import rotational_diagram as _rotational_diagram_h2
 from .rotational_diagram_general_fitter import rotational_diagram as _rotational_diagram_general
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit1T=True, fit2T=False, R=None, dist=140*_rot_diag_pc, upper_limits=None,
+                        fit1T=True, fit2T=False, R=None, dist=140, upper_limits=None,
                         progress_callback=None, molecule='H2', isotopologue=1):
     """
     Fit a rotational diagram (1T and/or 2T) to a set of line fluxes. Dispatches to the
     H2-specific fitter (hardcoded partition function, OPR support) or the general
     HITRAN-based fitter (any molecule, e.g. CO) depending on `molecule`.
+    R is optional. Without R, N is a total molecule count instead of a column density.
 
     Args:
         fluxes (dict): {J: flux_value}, J is the upper rotational level
@@ -766,8 +767,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         opr_grid (array): OPR values to search (H2 only). Defaults to np.linspace(0.1, 5.0, 200)
         fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
         fit2T (bool): Perform the 2T fit
-        R (float): Emitting radius (AU or cm)
-        dist (float): Distance (pc or cm)
+        R (float): Emitting radius (AU), or None
+        dist (float): Distance (pc)
         upper_limits (dict): {J: True} for measurements marked as upper limits
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
         molecule (str): Species being fit, per get_available_molecules()

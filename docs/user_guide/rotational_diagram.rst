@@ -142,11 +142,11 @@ still override the checkbox by hand afterward.
 
 **Step 3: Set Physical Parameters and Fit Options**
 
-- **R (au)**: emitting region radius. Check **Unknown R** to skip it entirely; N\ :sub:`u`
-  is then reported as a total molecule count rather than a column density.
-- **Distance (pc)**
-- **R (au)** and **Distance (pc)** start empty. Enter a number in both, or check **Unknown R**.
-  Without them, **Run Fit** stops and shows a message.
+- **Emitting Radius (au)**: optional. With a radius, N\ :sub:`u` is a column density. Without
+  it, N\ :sub:`u` is a total molecule count.
+- **Distance (pc)**: required.
+- Both fields start empty. A blank radius means "not provided". A blank distance, or a value
+  that is not a number, stops **Run Fit** and shows a message.
 - **Fit**: **1T** or **2T**
 - **Fit OPR**: grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
   fixed equilibrium value **OPR = 3**. Only affects H2 S-branch lines. Click **▸ Advanced**

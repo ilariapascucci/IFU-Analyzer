@@ -99,16 +99,17 @@ def get_gu(SJ):
 def compute_Nu(F, lam, A, R=None, dist=None):
     """
     Compute column density from flux.
+    With R, the result is a column density. Without R, it is a total molecule count.
 
     Args:
         F (float): Flux
         lam (float): Wavelength (micron)
         A (float): Einstein coefficient (s^-1)
-        R (float): Emitting radius (cm), optional
-        dist (float): Distance (cm), optional
+        R (float): Emitting radius (AU), optional
+        dist (float): Distance (pc)
 
     Returns:
-        Nu (float): Column density
+        Nu (float): Column density, or total molecule count if R is None
     """
     lam_cm = lam * 1e-4  # micron to cm
     Nu_col = (4*np.pi * F * lam_cm) / (hplanck * clight * A)
@@ -574,8 +575,8 @@ def build_excitation_dataset(fluxes, flux_errors, wave, Aul, Eu, gu, upper_limit
         Eu (dict): {J: upper-level energy in K}
         gu (dict): {J: upper-level degeneracy}
         upper_limits (dict): {J: True} for upper limits, or None
-        R (float): Emitting radius (AU or cm)
-        dist (float): Distance (pc or cm)
+        R (float): Emitting radius (AU), or None
+        dist (float): Distance (pc)
         nu_correction (callable): (Nu, J) -> corrected Nu, or None for no correction
 
     Returns:
@@ -948,9 +949,10 @@ def fit_excitation_diagram(E_arr, y_arr, y_err, is_ul_mask, dropped_detections, 
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit1T=True, fit2T=False, R=None, dist=140*pc, upper_limits=None, progress_callback=None):
+                        fit1T=True, fit2T=False, R=None, dist=140, upper_limits=None, progress_callback=None):
     """
     Fit an H2 rotational diagram (1T and/or 2T) to a set of line fluxes.
+    R is optional. Without R, N is a total molecule count instead of a column density.
 
     Args:
         fluxes (dict): {J: flux_value}, J is the upper rotational level
@@ -961,8 +963,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         opr_grid (array): OPR values to search. Defaults to np.linspace(0.1, 5.0, 200)
         fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
         fit2T (bool): Perform the 2T fit
-        R (float): Emitting radius (AU or cm)
-        dist (float): Distance (pc or cm)
+        R (float): Emitting radius (AU), or None
+        dist (float): Distance (pc)
         upper_limits (dict): {J: True} for measurements marked as upper limits
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
 
