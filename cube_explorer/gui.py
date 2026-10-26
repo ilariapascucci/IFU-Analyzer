@@ -3649,12 +3649,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         try:
             from .gui_rotational_diagram import RotationalDiagramWindow
 
+            # The window keeps itself alive while open (gui_rotational_diagram._OPEN_WINDOWS)
             rot_diag_window = RotationalDiagramWindow(parent_gui=self)
             rot_diag_window.show()
-
-            if not hasattr(self, "child_windows") or self.child_windows is None:
-                self.child_windows = []
-            self.child_windows.append(rot_diag_window)
 
         except Exception as e:
             QMessageBox.warning(self, "Rotational Diagram Error", f"Could not open rotational diagram window:\n{e}")

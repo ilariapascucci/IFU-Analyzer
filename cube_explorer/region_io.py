@@ -163,7 +163,8 @@ def write_region_wcs_txt(path, shape, source_desc, pixel_points, sky_points,
         source_desc (str): Free-text note (e.g. source FITS filename) for
             the file's header comment; purely informational.
         pixel_points (numpy.ndarray): (N,2) source-pixel coordinates, kept
-            for reference only -- never read back for reconstruction.
+            for reference only -- never read back for reconstruction. None
+            writes nan for the pixel columns, for a region that has no pixel grid.
         sky_points (astropy.coordinates.SkyCoord): (N,) boundary sky coordinates.
         sky_center, sky_axis_x, sky_axis_y (SkyCoord, optional): Axis
             markers; omitted for point/polygon shapes.
@@ -171,6 +172,8 @@ def write_region_wcs_txt(path, shape, source_desc, pixel_points, sky_points,
     Returns:
         None: Writes `path` as a side effect.
     """
+    if pixel_points is None:
+        pixel_points = np.full((len(sky_points), 2), np.nan)
     lines = [
         "# IFU Analyzer - Region Export (WCS)\n",
         f"# shape: {SHAPE_NAMES[shape]}\n",

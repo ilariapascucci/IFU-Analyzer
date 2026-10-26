@@ -157,12 +157,15 @@ Bring several images to one resolution in a single step.
   - A separate analyzer window for rotational-temperature diagrams (1T and 2T fits), for H2 and CO
   - Fetch line data from HITRAN, or import a custom CSV of transitions.
   - Select or clear individual lines. Enter the flux and the flux error for each line, or calculate them from loaded cubes.
+  - Type the flux error or the error percentage. The other value updates automatically.
+  - A flux that "Calculate Fluxes" made is read-only. If you edit its error, the cell turns yellow.
   - Mark a non-detection as an upper limit. "Calculate Fluxes" computes the limit directly from a FITS cube.
   - Automatic method selection: ordinary least squares (`scipy.curve_fit`) when all points are detections; PyMC Bayesian censored regression when one or more upper limits are present.
   - Ortho-to-para ratio (OPR) fit for H2
-  - Emitting-radius and distance inputs (au and pc) for the column-density normalisation
+  - A distance input (pc), which is required, and an emitting-radius input (au), which is optional. With a radius, N is a column density. Without a radius, N is a total molecule count.
   - The results dialog reports the fitted temperature or temperatures and the column densities.
-  - Restrict "Calculate Fluxes" and "Run Fit" to a region. Draw the region on a flux map, or import a saved region.
+  - Restrict "Calculate Fluxes" and "Run Fit" to a region. Draw the region on a flux map, or import a saved region. Save the region to reuse it.
+  - Read the FITS header of each loaded cube with "Header". Open a second analyzer window with the new-window button, for example to compare two sets of cubes.
   - **Pixel-by-pixel temperature maps:** "Calculate Maps" makes a flux map for each line. "Convolve Maps" puts the maps on one grid at the coarsest resolution. "Run Map" fits the rotational diagram at every pixel. "Load Maps" adds flux maps that you made in another tool.
 
 ### Data Processing
@@ -633,14 +636,22 @@ python main.py
 ### Rotational-Diagram Analysis
 
 8. Fit the rotational temperatures.
-   - Click "Rotational Diagram" to open the analyzer window. The molecule (H2 or CO) shows above the table.
+   - Click "Rotational Diagram" to open the analyzer window. The molecule shows in the top row. It shows "--" until you fetch or import lines.
    - Fetch line data with "Fetch from HITRAN", or import a custom CSV with "Import from CSV".
-   - Select the lines to include. Enter the measured flux and the flux error for each line.
+   - Select the lines to include. Click a check box or drag down the column. "Select All" and "Deselect All" change every line.
+   - Enter the measured flux for each line. Enter the flux error or the error percentage. The other value updates when you change one.
    - For a non-detection, mark the line as an upper limit. Use "Load Cubes" and "Calculate Fluxes" to derive the flux or the limit from the cube.
+   - The flux from "Calculate Fluxes" is read-only. You can still edit its error. The error cell then turns yellow, and its tooltip shows the value from the fit.
+   - Click "Header" to read the FITS header of a loaded cube.
    - Enter the distance ("Distance (pc)"), which is required. Optionally enter the emitting radius ("Emitting Radius (au)"). Both fields start empty. Without a radius, N is a total molecule count instead of a column density. Then choose a 1T or a 2T fit in "Fit".
    - Click "Run Fit". If any line is an upper limit, the fit switches to PyMC Bayesian censored regression instead of ordinary least squares.
    - Read the fitted temperature or temperatures and the column densities in the results dialog.
    - Click "Save Fluxes" to save the fluxes as a CSV file. "Import from CSV" reads the file back.
+
+   **Start again:**
+   - Click "Clear Cubes" to remove the loaded cubes. This also removes the region, the calculated fluxes, and the calculated maps. The window asks first. Fluxes that you typed stay.
+   - When you fetch or import a new line list and cubes are loaded, the window asks if it must clear the cubes.
+   - To keep the first analysis, click the new-window button. The new window starts empty.
 
    **Temperature map (every pixel):**
    - Load the cubes with "Load Cubes". To add a flux map that you made in another tool, use "Load Maps".
@@ -651,7 +662,9 @@ python main.py
 
    **Region (optional):**
    - Click "Draw Region" to draw a region on the flux map of a line. It needs "Calculate Maps" first. Or click "Import Region" to load a region that you saved with "Save Region" in the main window or in the 2D viewer.
+   - Click "Save Region" to save the region as a text file. The main window and the 2D viewer can read it.
    - "Calculate Fluxes" and "Run Fit" then use only that region. "Delete Region" goes back to the whole cube.
+   - A region change clears the calculated fluxes, because they belong to the old region. Fluxes that you typed stay.
    - "Calculate Maps", "Convolve Maps", and "Run Map" always use the whole cube.
 
 ### Data Export

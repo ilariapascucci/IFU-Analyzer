@@ -15,7 +15,8 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QSpinBox,
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit, QHeaderView, QInputDialog
+    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit, QHeaderView, QInputDialog,
+    QStyledItemDelegate
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
@@ -49,6 +50,11 @@ from .scale_dialog import ScaleSettings, build_norm
 from .visualization import draw_map
 from .convolve_reproject import convolve_reproject_maps, convolution_plan
 from .utils import psf_fwhm_arcsec, make_2d_wcs, get_pixel_size_arcsec
+from .icon_loader import set_button_icon
+
+# Every open window registers here, so Python keeps it alive while it is open.
+# A closed window leaves, so its loaded cubes can be freed.
+_OPEN_WINDOWS = set()
 
 
 # Constants
@@ -440,6 +446,122 @@ class BatchFluxWorker(QThread):
             self.error.emit(str(e))
 
 
+class LoadedHeadersDialog(QDialog):
+    """Show the FITS header of any HDU of any loaded cube."""
+
+    def __init__(self, cubes, paths, parent=None):
+        """Build the cube and HDU pickers and show the first header.
+
+        Args:
+            cubes (list): Loaded CubeData objects, each with an open `hdul`.
+            paths (list): File path of each cube, in the same order.
+            parent (QWidget): Owner window.
+
+        Returns:
+            None
+        """
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setWindowTitle("FITS Headers")
+        self.setMinimumSize(700, 500)
+        self.cubes = list(cubes)
+
+        layout = QVBoxLayout(self)
+        pickers = QHBoxLayout()
+        pickers.addWidget(QLabel("Cube:"))
+        self.cube_combo = QComboBox()
+        self.cube_combo.addItems([os.path.basename(p) for p in paths])
+        self.cube_combo.currentIndexChanged.connect(self._fill_hdu_combo)
+        pickers.addWidget(self.cube_combo, 1)
+        pickers.addWidget(QLabel("HDU:"))
+        self.hdu_combo = QComboBox()
+        self.hdu_combo.currentIndexChanged.connect(self._show_header)
+        pickers.addWidget(self.hdu_combo, 1)
+        layout.addLayout(pickers)
+
+        self.text = QTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setFontFamily("Courier New")
+        layout.addWidget(self.text)
+        self._fill_hdu_combo()
+
+    def _fill_hdu_combo(self):
+        """List the HDUs of the selected cube, then show the first header.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.hdu_combo.blockSignals(True)
+        self.hdu_combo.clear()
+        hdul = getattr(self.cubes[self.cube_combo.currentIndex()], "hdul", None)
+        for i, hdu in enumerate(hdul or []):
+            name = (getattr(hdu, "name", "") or "").strip()
+            label = f"HDU {i}: {name}" if name else f"HDU {i}:"
+            self.hdu_combo.addItem(f"{label} ({type(hdu).__name__})")
+        self.hdu_combo.blockSignals(False)
+        self._show_header()
+
+    def _show_header(self):
+        """Show the header of the selected cube and HDU.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        hdul = getattr(self.cubes[self.cube_combo.currentIndex()], "hdul", None)
+        hdu_index = self.hdu_combo.currentIndex()
+        if hdul is None or hdu_index < 0:
+            self.text.setPlainText("No header available for this cube.")
+            return
+        header = hdul[hdu_index].header
+        self.text.setPlainText("\n".join(
+            f"{k:8} = {v!r} / {header.comments[k]}" if k in header.comments else f"{k:8} = {v!r}"
+            for k, v in header.items()
+        ))
+
+
+class CellEditDelegate(QStyledItemDelegate):
+    """Edit delegate that makes a table cell's editor cover exactly that cell.
+    The editor has an opaque background, so the old value does not show through.
+    """
+
+    def createEditor(self, parent, option, index):
+        """Create the line editor for a cell, with an opaque background.
+
+        Args:
+            parent (QWidget): Parent widget for the editor.
+            option (QStyleOptionViewItem): Style options of the cell.
+            index (QModelIndex): Index of the cell to edit.
+
+        Returns:
+            editor (QWidget): The editor widget.
+        """
+        editor = super().createEditor(parent, option, index)
+        if isinstance(editor, QLineEdit):
+            editor.setStyleSheet(
+                "QLineEdit { padding: 0px 6px; margin: 0px; background: palette(base); "
+                "border: 1px solid palette(highlight); }")
+        return editor
+
+    def updateEditorGeometry(self, editor, option, index):
+        """Fit the editor to the cell rectangle, ignoring the cell padding.
+
+        Args:
+            editor (QWidget): The editor to place.
+            option (QStyleOptionViewItem): Style options of the cell, with its rectangle.
+            index (QModelIndex): Index of the cell being edited.
+
+        Returns:
+            None
+        """
+        editor.setGeometry(option.rect)
+
+
 class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
     """Main window for rotational diagram analysis"""
     
@@ -453,9 +575,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None
         """
         super().__init__()
+        _OPEN_WINDOWS.add(self)
         self.current_molecule = 'H2'  # Default molecule
         self.current_isotopologue = 1  # Set by Fetch from HITRAN; read by Run Fit/Run Map
-        self.setWindowTitle(f"{self.current_molecule} Rotational Diagram Analyzer")
+        self.setWindowTitle("Rotational Diagram Analyzer")
         screen_width = QApplication.primaryScreen().availableGeometry().width()
         self.setGeometry(100, 100, min(1650, int(screen_width * 0.95)), 800)
         
@@ -476,6 +599,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Loaded once and reused to calculate fluxes
         self.loaded_batch_fits_paths = []
         self.loaded_batch_cubes = []
+        self._headers_dialog = None
         self.contam_lines = None
         # Sky-coordinate region imported via "Import Region", restricting
         # Calculate Fluxes/Calculate Maps/Run Map/Run Fit to one region --
@@ -489,40 +613,63 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         main_widget = QWidget()
         main_layout = QVBoxLayout()
         
-        # HITRAN parameters section
-        main_layout.addWidget(self.create_hitran_section())
-        
-        # Lines table
-        label_row = QHBoxLayout()
-        self.molecule_label = QLabel(f"Molecule: {self.current_molecule}")
+        # Header row: same Header / New Window pair and info label as the main window's top bar
+        header_row = QHBoxLayout()
+        self.header_btn = QPushButton("Header")
+        self.header_btn.setToolTip("Show the FITS header of the loaded cubes.")
+        self.header_btn.clicked.connect(self.show_loaded_headers)
+        header_row.addWidget(self.header_btn)
+
+        self.new_window_btn = QPushButton()
+        set_button_icon(self.new_window_btn, "new_window")
+        self.new_window_btn.setToolTip(
+            "Open another rotational diagram window with nothing loaded, for example "
+            "to compare two sets of cubes or lines.")
+        self.new_window_btn.clicked.connect(self._open_new_window)
+        header_row.addWidget(self.new_window_btn)
+
+        def separator():
+            """Build a thin vertical line that splits the header row's groups.
+
+            Args:
+                None
+
+            Returns:
+                line (QFrame): The vertical separator line.
+            """
+            line = QFrame()
+            line.setFixedWidth(1)
+            line.setStyleSheet("background-color: palette(mid);")
+            return line
+
+        header_row.addWidget(separator())
+
+        self.molecule_label = QLabel("Molecule: --")
         self.molecule_label.setStyleSheet("font-weight: bold;")
-        label_row.addWidget(self.molecule_label)
-        label_row.addWidget(QLabel("Select lines and enter flux data:"))
-        label_row.addStretch()
-        main_layout.addLayout(label_row)
-        
-        # Error input mode toggle
-        toggle_layout = QHBoxLayout()
-        toggle_layout.addWidget(QLabel("Error input:"))
-        self.error_mode = QComboBox()
-        self.error_mode.addItems(["Flux Error", "Error %"])
-        self.error_mode.currentTextChanged.connect(self.on_error_mode_changed)
-        toggle_layout.addWidget(self.error_mode)
-        
-        # Select All / Deselect All buttons
+        header_row.addWidget(self.molecule_label)
+        header_row.addWidget(separator())
+
+        lines_label = QLabel("Lines:")
+        lines_label.setStyleSheet("font-weight: bold;")
+        header_row.addWidget(lines_label)
+
         self.select_all_btn = QPushButton("Select All")
         self.select_all_btn.clicked.connect(self.select_all_lines)
         self.select_all_btn.setMaximumWidth(100)
-        toggle_layout.addWidget(self.select_all_btn)
-        
+        header_row.addWidget(self.select_all_btn)
+
         self.deselect_all_btn = QPushButton("Deselect All")
         self.deselect_all_btn.clicked.connect(self.deselect_all_lines)
         self.deselect_all_btn.setMaximumWidth(100)
-        toggle_layout.addWidget(self.deselect_all_btn)
-        
-        toggle_layout.addStretch()
-        main_layout.addLayout(toggle_layout)
-        
+        header_row.addWidget(self.deselect_all_btn)
+        header_row.addStretch()
+        main_layout.addLayout(header_row)
+
+        # HITRAN parameters section
+        main_layout.addWidget(self.create_hitran_section())
+
+        # Lines table
+
         self.lines_table = QTableWidget()
         self.lines_table.setColumnCount(17)
         self.lines_table.setHorizontalHeaderLabels(
@@ -552,6 +699,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             "QTableWidget::item { padding: 2px 6px; } "
             "QHeaderView::section { padding: 2px 6px; }"
         )
+        self.lines_table.setItemDelegate(CellEditDelegate(self.lines_table))
         main_layout.addWidget(self.lines_table)
 
         # Click-to-sort for wavelength/A_ul/E_u/g_u/Flux/Flux Error/Error %/UL Flux/Fit R^2.
@@ -722,6 +870,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.load_fits_btn.clicked.connect(self.load_batch_fits_files)
         self.load_fits_btn.setEnabled(False)  # Blocked until lines are loaded
 
+        self.clear_fits_btn = QPushButton("Clear Cubes")
+        self.clear_fits_btn.setToolTip(
+            "Remove the loaded cubes, the region, and everything calculated from the cubes "
+            "(fluxes, fits, cached maps). The line list and manually entered fluxes stay, "
+            "so you can load new cubes for the same lines."
+        )
+        self.clear_fits_btn.clicked.connect(self.clear_loaded_cubes)
+        self.clear_fits_btn.setEnabled(False)  # Blocked until cubes are loaded
+
         self.load_contam_btn = QPushButton("Load Contaminating Lines")
         self.load_contam_btn.setToolTip(
             "Optional: a catalog of nearby non-target lines, so Calculate Fluxes can keep "
@@ -792,6 +949,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.import_map_region_btn.clicked.connect(self.import_rot_map_region)
         self.import_map_region_btn.setEnabled(False)  # Blocked until lines are loaded
 
+        self.save_map_region_btn = QPushButton("Save Region")
+        self.save_map_region_btn.setToolTip(
+            "Save the region as a WCS text file. Import Region here, in the main window, "
+            "or in the 2D viewer can read it back."
+        )
+        self.save_map_region_btn.clicked.connect(self.save_rot_map_region)
+        self.save_map_region_btn.setEnabled(False)  # Blocked until a region is set
+
         self.clear_map_region_btn = QPushButton("Delete Region")
         self.clear_map_region_btn.setToolTip(
             "Delete the region. Calculate Fluxes and Run Fit then use the whole cube."
@@ -810,6 +975,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self.source_group = CollapsibleButtonGroup("Source")
         self.source_group.add_button(self.load_fits_btn)
+        self.source_group.add_button(self.clear_fits_btn)
         self.source_group.add_button(self.import_map_btn)
         self.source_group.add_button(self.load_contam_btn)
         collapsible_layout.addWidget(self.source_group)
@@ -828,6 +994,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.region_group = CollapsibleButtonGroup("Region")
         self.region_group.add_button(self.select_map_region_btn)
         self.region_group.add_button(self.import_map_region_btn)
+        self.region_group.add_button(self.save_map_region_btn)
         self.region_group.add_button(self.clear_map_region_btn)
         collapsible_layout.addWidget(self.region_group)
 
@@ -835,8 +1002,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         layout.addLayout(collapsible_layout)
 
         status_layout = QHBoxLayout()
-        self.fits_status_label = QLabel("")  # Only ever shows text once something is actually loaded
-        status_layout.addWidget(self.fits_status_label)
         self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
         status_layout.addWidget(self.contam_status_label)
         status_layout.addStretch()
@@ -864,8 +1029,78 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     CollapsibleButtonGroup._all_groups.remove(_g)
             except Exception:
                 pass
+        # A running worker needs this window and its cubes until it finishes.
+        if not self._has_running_worker():
+            self._free_loaded_cubes()
+            _OPEN_WINDOWS.discard(self)
         event.accept()
-    
+
+    def _has_running_worker(self):
+        """Report whether any background thread of this window is still running.
+
+        Args:
+            None
+
+        Returns:
+            running (bool): True if a QThread attribute of this window is running.
+        """
+        return any(isinstance(v, QThread) and v.isRunning() for v in vars(self).values())
+
+    def _free_loaded_cubes(self):
+        """Close the loaded cubes' FITS files and free their arrays.
+        With a worker running, the cubes are only dropped, since freeing them would break it.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        cubes = self.loaded_batch_cubes
+        self.loaded_batch_cubes = []
+        self.loaded_batch_fits_paths = []
+        if self._headers_dialog is not None:
+            self._headers_dialog.close()
+        if not self._has_running_worker():
+            for cube in cubes:
+                cube.free_memory()
+
+    def show_loaded_headers(self):
+        """Open the FITS header viewer for the loaded cubes.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if not self.loaded_batch_cubes:
+            QMessageBox.warning(self, "No cubes loaded", "Load a cube first (Source > Load Cubes).")
+            return
+        if self._headers_dialog is not None:
+            self._headers_dialog.close()
+        dlg = LoadedHeadersDialog(self.loaded_batch_cubes, self.loaded_batch_fits_paths, parent=self)
+        dlg.destroyed.connect(lambda *_: setattr(self, "_headers_dialog", None))
+        self._headers_dialog = dlg
+        dlg.show()
+
+    def _open_new_window(self):
+        """Open another rotational diagram window, with nothing loaded.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        try:
+            new_win = RotationalDiagramWindow()
+            new_win.resize(self.size())
+            new_win.move(self.x() + 30, self.y() + 30)
+            new_win.show()
+        except Exception as e:
+            QMessageBox.warning(self, "New Window Error", f"Could not open a new window:\n{e}")
+
     def on_molecule_changed(self, molecule):
         """Update UI when the molecule changes (Fetch from HITRAN's own dialog).
 
@@ -893,7 +1128,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None
         """
         self.current_molecule = molecule
-        self.setWindowTitle(f"{molecule} Rotational Diagram Analyzer")
         self.molecule_label.setText(f"Molecule: {molecule}")
         self.update_isotopologue_range()
 
@@ -904,9 +1138,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.fit_opr_check.setEnabled(is_h2)
 
     def _clear_loaded_lines(self):
-        """Discard fetched/imported lines and drop the FITS cubes/contaminant
-        catalog loaded for the previous molecule -- a molecule switch is a
-        new workflow, not more files for the old one.
+        """Discard fetched/imported lines and the contaminant catalog loaded
+        for the previous molecule. The loaded cubes stay. Fetch and Import ask
+        whether to clear them once the new lines arrive.
 
         Args:
             None
@@ -927,18 +1161,36 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_maps_btn.setEnabled(False)
         self.select_map_region_btn.setEnabled(False)
         self.import_map_region_btn.setEnabled(False)
+        self.save_map_region_btn.setEnabled(False)
         self.clear_map_region_btn.setEnabled(False)
 
-        self.loaded_batch_fits_paths = []
-        self.loaded_batch_cubes = []
-        self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
-        self.fits_status_label.setText("")
         self.contam_lines = None
         self._rot_map_region_sky = None
         self.contam_status_label.setText("")
 
-    def _reset_batch_cubes(self):
-        """Drop cubes loaded for Calculate Fluxes / Run Map: a new line list is a fresh slate.
+    def _count_manual_fluxes(self):
+        """Count the fluxes in the table that were not calculated from the cubes.
+        These are values typed in, imported from a CSV, or taken from a loaded map.
+
+        Args:
+            None
+
+        Returns:
+            count (int): Rows with a flux and "Calculated?" not checked.
+        """
+        count = 0
+        for row in range(self.lines_table.rowCount()):
+            flux_item = self.lines_table.item(row, 6)
+            calc_item = self.lines_table.item(row, 11)
+            calculated = calc_item is not None and calc_item.checkState() == Qt.Checked
+            if flux_item and flux_item.text().strip() and not calculated:
+                count += 1
+        return count
+
+    def _drop_loaded_cubes(self):
+        """Remove the loaded cubes, the region, and everything calculated from the cubes.
+        This covers the calculated fluxes, the Fit links, and the cached native and
+        convolved maps. The line list and manually entered fluxes stay.
 
         Args:
             None
@@ -946,13 +1198,69 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        # Loading files again with the same lines still appends (load_batch_fits_files).
-        if getattr(self, "loaded_batch_cubes", None):
-            print(f"[rot diag] {len(self.loaded_batch_cubes)} loaded cube(s) cleared: line list changed")
-        self.loaded_batch_fits_paths = []
-        self.loaded_batch_cubes = []
+        self._free_loaded_cubes()
         self.load_fits_btn.setToolTip("Select the source FITS cube(s) for Calculate Fluxes.")
-        self.fits_status_label.setText("")
+        self.clear_fits_btn.setEnabled(False)
+
+        self.clear_rot_map_region()
+        self._rot_map_native_cache = None
+        for row in list(self._line_map_plot_data):
+            del self._line_map_plot_data[row]
+            stale_item = self.lines_table.item(row, 15)
+            if stale_item:
+                self._clear_view_link(stale_item)
+        self._clear_all_convolved_maps()
+
+    def clear_loaded_cubes(self):
+        """Ask for confirmation, then remove the loaded cubes and all results from them.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        n_cubes = len(self.loaded_batch_cubes)
+        if not n_cubes:
+            return
+        n_manual = self._count_manual_fluxes()
+        reply = QMessageBox.question(
+            self, "Clear Cubes",
+            f"Clear the {n_cubes} loaded cube(s)?\n\n"
+            "This also clears:\n"
+            "  - the region\n"
+            "  - the fluxes and fits calculated from the cubes\n"
+            "  - the cached maps (Map and Convolved Map)\n\n"
+            f"The line list stays. {n_manual} manually entered or imported flux(es) stay.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            print(f"[rot diag] {n_cubes} loaded cube(s) cleared")
+            self._drop_loaded_cubes()
+
+    def _ask_clear_cubes_for_new_lines(self):
+        """Ask whether to clear the loaded cubes when a new line list replaces the old one.
+        With no cubes loaded, this does nothing.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        n_cubes = len(self.loaded_batch_cubes)
+        if not n_cubes:
+            return
+        reply = QMessageBox.question(
+            self, "Clear Cubes",
+            f"The line list is changing. Clear the {n_cubes} loaded cube(s)?\n\n"
+            "Yes: clear the cubes, the region, and the cached maps.\n"
+            "No: keep the cubes.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            print(f"[rot diag] {n_cubes} loaded cube(s) cleared: line list changed")
+            self._drop_loaded_cubes()
 
     def _reveal_line_workflow_buttons(self):
         """Enable the line-workflow buttons once the table has at least one
@@ -1091,56 +1399,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if checked:
             self.opr_steps_input.setText("400")
     
-    def on_error_mode_changed(self, mode):
-        """Update table edit/read-only based on error input mode.
-
-        Args:
-            mode (str): New error-input mode label from the combo box.
-
-        Returns:
-            None
-        """
-        self.update_error_columns()
-    
-    def update_error_columns(self):
-        """Update which columns are editable based on error mode, for every row.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        for row in range(self.lines_table.rowCount()):
-            self._update_error_columns_for_row(row)
-
-    def _update_error_columns_for_row(self, row):
-        """Same as update_error_columns() but for one row -- avoids an O(n) sweep
-        when only one row actually changed (see sync_flux_error_flag).
-
-        Args:
-            row (int): Table row index to update.
-
-        Returns:
-            None
-        """
-        ul_item = self.lines_table.item(row, 9)
-        if ul_item and ul_item.checkState() == Qt.Checked:
-            return
-
-        flux_error_item = self.lines_table.item(row, 7)
-        error_pct_item = self.lines_table.item(row, 8)
-        if not (flux_error_item and error_pct_item):
-            return
-
-        is_value_mode = self.error_mode.currentIndex() == 0
-        if is_value_mode:
-            flux_error_item.setFlags(flux_error_item.flags() | Qt.ItemIsEditable)
-            error_pct_item.setFlags(error_pct_item.flags() & ~Qt.ItemIsEditable)
-        else:
-            flux_error_item.setFlags(flux_error_item.flags() & ~Qt.ItemIsEditable)
-            error_pct_item.setFlags(error_pct_item.flags() | Qt.ItemIsEditable)
-    
     def on_table_item_changed(self, item):
         """Auto-calculate flux error or percentage; sync manually-entered A_ul/E_u/g_u.
 
@@ -1203,8 +1461,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.updating_error_columns = True
 
         try:
-            # Columns 7 and 8 are flux error and error %
-            if col not in (7, 8):
+            # Columns 6, 7 and 8 are flux, flux error and error %
+            if col not in (6, 7, 8):
                 return
             
             flux_error_item = self.lines_table.item(row, 7)
@@ -1212,7 +1470,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             
             if not flux_error_item or not error_pct_item:
                 return
-            
+
+            # Remember which error column was typed last, for the Flux branch below
+            if col in (7, 8):
+                self.lines_table.blockSignals(True)
+                error_pct_item.setData(Qt.UserRole + 1, col == 8)
+                self.lines_table.blockSignals(False)
+
             # Get flux value
             flux_item = self.lines_table.item(row, 6)
             if not flux_item:
@@ -1225,7 +1489,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             
             # Get current text from the item that changed
             current_text = item.text().strip() if item.text() else ""
-            
+
+            if col == 6:  # Flux changed: keep the error typed last, recompute the other
+                ul_item = self.lines_table.item(row, 9)
+                is_imported = row < len(self.hitran_lines) and bool(self.hitran_lines[row].get('imported_map'))
+                if not (is_imported or (ul_item and ul_item.checkState() == Qt.Checked)):
+                    self._recompute_other_error(row, flux)
+                return
+
             if col == 7:  # Flux Error column changed
                 if current_text == "":
                     # User cleared flux error - also clear error %
@@ -1253,6 +1524,69 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                         pass
         finally:
             self.updating_error_columns = False
+            if col in (7, 8):
+                self._update_error_edit_mark(row)
+
+    def _update_error_edit_mark(self, row):
+        """Color the Flux Error cell of a calculated row when its value differs
+        from the fitted one. The tooltip then shows the fitted value.
+
+        Args:
+            row (int): Table row index.
+
+        Returns:
+            None
+        """
+        error_item = self.lines_table.item(row, 7)
+        calc_item = self.lines_table.item(row, 11)
+        ul_item = self.lines_table.item(row, 9)
+        if not (error_item and calc_item and calc_item.checkState() == Qt.Checked):
+            return
+        if ul_item and ul_item.checkState() == Qt.Checked:
+            return
+        fitted = error_item.data(Qt.UserRole + 2)
+        if not fitted or not error_item.text().strip():
+            return
+        try:
+            edited = float(error_item.text()) != float(fitted)
+        except ValueError:
+            return
+        was_blocked = self.lines_table.blockSignals(True)
+        if edited:
+            error_item.setBackground(QColor(255, 244, 179))
+            error_item.setToolTip(f"Edited by hand. The fit gave {fitted}.")
+        else:
+            error_item.setBackground(QBrush())
+            error_item.setToolTip("")
+        self.lines_table.blockSignals(was_blocked)
+
+    def _recompute_other_error(self, row, flux):
+        """Recompute the error column the user did not type last, from the one they did.
+        Does nothing if the flux is zero or the typed error is blank or invalid.
+
+        Args:
+            row (int): Table row index.
+            flux (float): The row's flux.
+
+        Returns:
+            None
+        """
+        if flux == 0:
+            return
+        flux_error_item = self.lines_table.item(row, 7)
+        error_pct_item = self.lines_table.item(row, 8)
+        if error_pct_item.data(Qt.UserRole + 1):
+            source_text, other_item = error_pct_item.text().strip(), flux_error_item
+        else:
+            source_text, other_item = flux_error_item.text().strip(), error_pct_item
+        try:
+            source = float(source_text)
+        except ValueError:
+            return
+        if other_item is flux_error_item:
+            other_item.setText(f"{flux * (source / 100.0):.4e}")
+        else:
+            other_item.setText(f"{(source / flux) * 100:.1f}")
 
     def sync_manual_line_stats(self, row):
         """For a row with no HITRAN match, write manually-typed A_ul/E_u/g_u.
@@ -1385,6 +1719,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if self.updating_flux_error_flag:
             return
         self.updating_flux_error_flag = True
+        # Tooltip, color, and flag changes also fire itemChanged. Left on, the Error %
+        # cell's own handler would rebuild Flux Error from the rounded percent.
+        was_blocked = self.lines_table.blockSignals(True)
         try:
             error_item = self.lines_table.item(row, 7)
             pct_item = self.lines_table.item(row, 8)
@@ -1408,12 +1745,21 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 return
 
             # Not an upper limit: restore whatever was stashed (if anything).
+            was_upper_limit = False
             for item in (error_item, pct_item):
                 stashed = item.data(Qt.UserRole)
                 if stashed:
                     item.setText(stashed)
                     item.setData(Qt.UserRole, None)
+                    was_upper_limit = True
                 item.setToolTip("")
+
+            # Flux may have changed while the row was an upper limit
+            if was_upper_limit:
+                try:
+                    self._recompute_other_error(row, float(self.lines_table.item(row, 6).text()))
+                except ValueError:
+                    pass
 
             # An imported row never feeds the point-fit pipeline this flag is
             # about -- a blank Flux Error there is normal, not a problem.
@@ -1427,8 +1773,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     "the fit unless you enter one or mark it as an Upper Limit."
                 )
 
-            self._update_error_columns_for_row(row)
+            for item in (error_item, pct_item):
+                item.setFlags(item.flags() | Qt.ItemIsEditable)
+            self._update_error_edit_mark(row)
         finally:
+            self.lines_table.blockSignals(was_blocked)
             self.updating_flux_error_flag = False
 
     def fetch_hitran_lines(self):
@@ -1449,6 +1798,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         if molecule != self.current_molecule:
             self.on_molecule_changed(molecule)
+        self.molecule_label.setText(f"Molecule: {molecule}")
         self.current_isotopologue = isotopologue
 
         self.fetch_btn.setEnabled(False)
@@ -1482,7 +1832,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.workflow_mode = 'hitran'
         self._reveal_line_workflow_buttons()
 
-        self._reset_batch_cubes()
+        self._ask_clear_cubes_for_new_lines()
         self.hitran_lines = data
         self.populate_lines_table()
 
@@ -1612,10 +1962,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             # A CSV that's entirely one molecule -- switch the Molecule dropdown to
             # match instead of silently fitting it as whatever molecule was already
             # selected (H2's j_lower keying breaks on non-H2 P/R-branch data).
-            if len(species_list) == 1 and species_list[0] != self.current_molecule \
-                    and species_list[0] in MOLECULE_ISOTOPOLOGUES:
+            if len(species_list) == 1 and species_list[0] in MOLECULE_ISOTOPOLOGUES:
                 new_molecule = species_list[0]
-                self._apply_molecule_change(new_molecule)
+                if new_molecule != self.current_molecule:
+                    self._apply_molecule_change(new_molecule)
+                self.molecule_label.setText(f"Molecule: {new_molecule}")
 
             # Get wavelength ranges to fetch
             all_wavelengths = [row['wavelength'] for row in csv_data]
@@ -1702,7 +2053,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
                 rows.append(row_data)
 
-            self._reset_batch_cubes()
+            self._ask_clear_cubes_for_new_lines()
             self.hitran_lines = rows
             self.populate_lines_table()
 
@@ -1857,9 +2208,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                           f"until they're entered manually.")
             line_data['imported_map'] = payload
 
-            if not self.hitran_lines and species in MOLECULE_ISOTOPOLOGUES \
-                    and species != self.current_molecule:
-                self._apply_molecule_change(species)
+            if not self.hitran_lines and species in MOLECULE_ISOTOPOLOGUES:
+                if species != self.current_molecule:
+                    self._apply_molecule_change(species)
+                self.molecule_label.setText(f"Molecule: {species}")
 
             self._append_line_row(line_data)
             imported.append((basename, wavelength, best_match is not None))
@@ -1891,26 +2243,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if row < len(self.hitran_lines):
                 line_data = self.hitran_lines[row]
                 if 'flux_error' in line_data:
-                    # Determine which column to fill based on error mode
-                    is_value_mode = self.error_mode.currentIndex() == 0
-
-                    if is_value_mode:
-                        # Column 7: Flux Error (absolute value)
-                        error_item = self.lines_table.item(row, 7)
-                        if error_item:
-                            error_item.setText(f"{line_data['flux_error']:.4e}")
-
-                        # Calculate percentage for column 8
-                        flux_text = self.lines_table.item(row, 6).text()
-                        if flux_text:
-                            try:
-                                flux_val = float(flux_text)
-                                pct = (line_data['flux_error'] / flux_val) * 100 if flux_val != 0 else 0
-                                pct_item = self.lines_table.item(row, 8)
-                                if pct_item:
-                                    pct_item.setText(f"{pct:.1f}")
-                            except ValueError:
-                                pass
+                    # Column 7: Flux Error (absolute value); editing it fills column 8
+                    error_item = self.lines_table.item(row, 7)
+                    if error_item:
+                        error_item.setText(f"{line_data['flux_error']:.4e}")
 
                 # Must run after the error/pct text above is set, so the stash
                 # below has the real value to hide, not a blank cell.
@@ -1956,10 +2292,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         # Tooltip lists everything loaded so far, not just this batch
         names = "\n".join(os.path.basename(p) for p in self.loaded_batch_fits_paths)
+        self.clear_fits_btn.setEnabled(bool(self.loaded_batch_cubes))
         self.load_fits_btn.setToolTip(names if names else "Select the source FITS cube(s) for Calculate Fluxes.")
-        if self.loaded_batch_fits_paths:
-            self.fits_status_label.setText(f"{len(self.loaded_batch_fits_paths)} FITS file(s) loaded")
-            self.fits_status_label.setToolTip(names)
 
         if failed:
             failed_msg = "\n".join(f"  {os.path.basename(p)}: {err}" for p, err in failed)
@@ -2361,6 +2695,19 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             source_item = self.lines_table.item(row, 12)
             if source_item:
                 source_item.setText(f"{instrument} [{filename}]")
+
+            # Flux is read-only now. The fitted error is kept to show later edits.
+            was_blocked = self.lines_table.blockSignals(True)
+            if flux_item:
+                flux_item.setFlags(flux_item.flags() & ~Qt.ItemIsEditable)
+                flux_item.setBackground(QBrush())
+                flux_item.setToolTip(
+                    "Calculated by Calculate Fluxes, so it cannot be edited. Clear Cubes, "
+                    "or a region change, clears the calculated fluxes.")
+            if error_item:
+                error_item.setData(Qt.UserRole + 2, f"{flux_error:.4e}" if flux_error is not None else "")
+            self.lines_table.blockSignals(was_blocked)
+            self._update_error_edit_mark(row)
 
             # Fit quality (R^2 of the Gaussian fit this flux came from)
             r2_item = self.lines_table.item(row, 13)
@@ -2977,8 +3324,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         for row, line in enumerate(self.hitran_lines):
             self._populate_lines_table_row(row, line)
 
-        # Set initial edit/read-only status based on current mode
-        self.update_error_columns()
         # Rows just defaulted to checked -- reflect that in the Run Fit button.
         self.on_line_selected()
 
@@ -2996,7 +3341,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.hitran_lines.append(line)
         self.lines_table.setRowCount(row + 1)
         self._populate_lines_table_row(row, line)
-        self.update_error_columns()
         self.on_line_selected()
         return row
 
@@ -3110,8 +3454,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                      "(via Calculate Fluxes). You can check/uncheck this yourself either way."))
         self.lines_table.setItem(row, 9, ul_item)
 
-        # UL Flux (editable)
-        self.lines_table.setItem(row, 10, QTableWidgetItem(""))
+        # UL Flux (read-only) -- filled in by Calculate Fluxes
+        ul_flux_item = QTableWidgetItem("")
+        ul_flux_item.setFlags(ul_flux_item.flags() & ~Qt.ItemIsEditable)
+        self.lines_table.setItem(row, 10, ul_flux_item)
 
         # Calculated? (read-only)
         calc_item = self._make_checkable_item(enabled=False, tooltip=(
@@ -3907,13 +4253,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 flux_item = self.lines_table.item(row, 6)
                 if flux_item:
                     flux_item.setText("")
+                    flux_item.setFlags(flux_item.flags() | Qt.ItemIsEditable)
                     flux_item.setBackground(QColor(255, 214, 214))
                     flux_item.setToolTip("Flux is required for the fit -- enter it manually or use Calculate Fluxes.")
+                error_item = self.lines_table.item(row, 7)
+                if error_item:
+                    error_item.setData(Qt.UserRole + 2, None)
                 for col in (7, 8, 10, 12):
                     cell = self.lines_table.item(row, col)
                     if cell:
                         cell.setText("")
-                        cell.setFlags(cell.flags() | Qt.ItemIsEditable)
+                        if col in (7, 8):
+                            cell.setFlags(cell.flags() | Qt.ItemIsEditable)
                         cell.setBackground(QBrush())
                         cell.setToolTip("")
                 r2_item = self.lines_table.item(row, 13)
@@ -3955,6 +4306,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
 
         self._rot_map_region_sky = dlg.result_region
+        self.save_map_region_btn.setEnabled(True)
         self.clear_map_region_btn.setEnabled(True)
         self._reset_region_dependent_results()
         shape_name = region_io.SHAPE_NAMES.get(dlg.result_region["shape"], dlg.result_region["shape"])
@@ -4023,6 +4375,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
 
         self._rot_map_region_sky = saved
+        self.save_map_region_btn.setEnabled(True)
         self.clear_map_region_btn.setEnabled(True)
         self._reset_region_dependent_results()
         QMessageBox.information(
@@ -4045,8 +4398,36 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None
         """
         self._rot_map_region_sky = None
+        self.save_map_region_btn.setEnabled(False)
         self.clear_map_region_btn.setEnabled(False)
         self._reset_region_dependent_results()
+
+    def save_rot_map_region(self):
+        """Save the active region as a WCS text file. Import Region here, in
+        the main window, or in the 2D viewer reads the same file back.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        region = self._rot_map_region_sky
+        if region is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
+        if not path:
+            return
+        try:
+            region_io.write_region_wcs_txt(
+                path, region["shape"], "Rotational Diagram window",
+                region.get("pixel_points"), region["sky_points"],
+                sky_center=region.get("sky_center"), sky_axis_x=region.get("sky_axis_x"),
+                sky_axis_y=region.get("sky_axis_y"))
+        except Exception as e:
+            QMessageBox.warning(self, "Save Failed", str(e))
+            return
+        QMessageBox.information(self, "Region Saved", f"Saved the region to:\n{path}")
 
     def _rot_map_region_mask_for_cube(self, cube):
         """Convert the active sky region (if any -- from Select or Import) to
