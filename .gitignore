@@ -6,6 +6,7 @@
 *.ipynb
 *.txt
 !requirements.txt
+!requirements-lock.txt
 # nirspec_disp/ is committed: the JWST NIRSpec resolving-power tables get_spectral_resolution reads.
 !/nirspec_disp/*.fits
 

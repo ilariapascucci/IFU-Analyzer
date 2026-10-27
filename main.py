@@ -12,12 +12,13 @@ Click Open FITS to load a FITS data cube.
 
 import sys
 
-# The versions in requirements.txt are tested on this Python version only.
-TESTED_PYTHON = (3, 12)
+# The versions in requirements.txt are tested on these Python versions only.
+TESTED_PYTHONS = ((3, 12), (3, 13))
+TESTED_PYTHONS_TEXT = " or ".join(f"{major}.{minor}" for major, minor in TESTED_PYTHONS)
 
 
 def warn_if_untested_python():
-    """Print a warning when the Python version is not the tested one.
+    """Print a warning when the Python version is not a tested one.
 
     Args:
         None
@@ -25,9 +26,9 @@ def warn_if_untested_python():
     Returns:
         None
     """
-    if sys.version_info[:2] != TESTED_PYTHON:
+    if sys.version_info[:2] not in TESTED_PYTHONS:
         found = f"{sys.version_info[0]}.{sys.version_info[1]}"
-        print(f"[WARNING] IFU Analyzer is tested on Python {TESTED_PYTHON[0]}.{TESTED_PYTHON[1]}. "
+        print(f"[WARNING] IFU Analyzer is tested on Python {TESTED_PYTHONS_TEXT}. "
               f"You have Python {found}.")
         print("          The libraries may not install, or results may differ. "
               "See the Installation page of the documentation.")
@@ -45,7 +46,7 @@ if __name__ == "__main__":
     except ImportError as exc:
         print(f"[ERROR] A required library is missing or has the wrong version: {exc}")
         print("        Install the libraries with: pip install -r requirements.txt")
-        print(f"        These versions need Python {TESTED_PYTHON[0]}.{TESTED_PYTHON[1]}.")
+        print(f"        These versions need Python {TESTED_PYTHONS_TEXT}.")
         sys.exit(1)
 
     # Scaling window

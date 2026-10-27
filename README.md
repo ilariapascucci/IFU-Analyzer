@@ -451,7 +451,7 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 
 ### Prerequisites
 
-- Python 3.12 only. The pinned versions in `requirements.txt` are tested on 3.12.x. Python 3.11 and 3.13 fail at the install step. If you do not have 3.12, use conda (see Setup).
+- Python 3.12 or 3.13. The pinned versions in `requirements.txt` are tested on 3.12.x and 3.13.x. Python 3.11 fails at the install step, and other versions are not tested. If you do not have 3.12 or 3.13, use conda (see Setup). For an exact copy of the tested environment, install `requirements-lock.txt` instead of `requirements.txt`.
 - pip (the Python package installer)
 
 ### Setup
@@ -467,14 +467,14 @@ cd IFU-Analyzer
 
    Without Git: open https://github.com/ilariapascucci/IFU-Analyzer, click **Code**, then **Download ZIP**. Extract the ZIP file and open a terminal in the extracted folder.
 
-2. Create an environment with Python 3.12 (recommended). With conda, which installs Python 3.12 for you:
+2. Create an environment with Python 3.13 (recommended) or 3.12. With conda, which installs Python for you:
 
 ```bash
-conda create -n ifu-analyzer python=3.12
+conda create -n ifu-analyzer python=3.13
 conda activate ifu-analyzer
 ```
 
-   Without conda, use `venv`. Python 3.12 must already be installed:
+   Without conda, use `venv`. Python 3.12 or 3.13 must already be installed:
 
 ```bash
 python -m venv venv

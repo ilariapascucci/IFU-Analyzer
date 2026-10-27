@@ -3,7 +3,8 @@
 # ============================================================================
 # Complete list of all dependencies for IFU Analyzer
 # Install with: pip install -r requirements.txt
-# Pinned to the versions validated on Python 3.12 (3.12.6); use Python 3.12.x.
+# Pinned to the versions validated on Python 3.12 (3.12.6) and 3.13 (3.13.15); use one of them.
+# For an exact copy of the tested environment, install requirements-lock.txt instead.
 # To upgrade a package, change its pin on purpose and re-test.
 # ============================================================================
 
@@ -20,7 +21,7 @@ matplotlib-inline==0.1.7   # Inline plotting for Jupyter/IPython
 # SCIENTIFIC COMPUTING & DATA PROCESSING
 # ============================================================================
 numpy==2.2.6              # Numerical array computing and linear algebra
-scipy==1.13.1               # Scientific computing (optimization, interpolation, signal processing)
+scipy==1.18.1               # Scientific computing (optimization, interpolation, signal processing)
 pandas==2.3.2              # Data manipulation and analysis
 psutil==7.1.0               # Available-memory check, caps ProcessPoolExecutor worker count
                             # (see safe_worker_count in utils.py)
