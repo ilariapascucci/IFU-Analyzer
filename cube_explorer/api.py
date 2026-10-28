@@ -687,9 +687,10 @@ def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_p
     Returns:
         dict: Map data containing:
             - 'flux_map': 2D array of flux per pixel, in erg/s/cm2 if cube_data.header
-              supports the conversion (see 'flux_unit'), else the cube's native flux unit
+              supports the conversion (see 'flux_unit'), else the cube's native flux unit.
+              A pixel with no detected line is NaN
             - 'contam_flux_map': 2D array of contaminating-line flux per pixel, same units
-              as 'flux_map'
+              as 'flux_map'. A pixel with no detected contaminating line is NaN
             - 'detection_map': 2D array with number of detected target lines per pixel
             - 'contam_detection_map': 2D array with number of detected contaminating lines
               per pixel

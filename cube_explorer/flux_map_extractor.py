@@ -1501,7 +1501,8 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
 
     Returns:
         result (dict): 'flux_map', 'contam_flux_map' (2D arrays, erg/s/cm2 if cube_data.header
-            supports the conversion, else native units), 'detection_map'/'contam_detection_map'
+            supports the conversion, else native units; NaN where no line was detected),
+            'detection_map'/'contam_detection_map'
             (2D line-count arrays), 'wavelength', 'header', 'wave_range' (actually used),
             'flux_unit' ('erg/s/cm2' if the conversion succeeded)
     """
@@ -1702,14 +1703,9 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
                     ]
 
                 if result is not None:
-                    # Check if flux value is actually valid
-                    flux_val = result['flux']
-
                     # Step 3: Store results in maps
-                    row_fluxes[x_idx] = flux_val
-                    row_contam_fluxes[x_idx] = result['contam_flux']
                     row_wavelengths[x_idx] = result.get('mean_detected_wavelength', np.nan)  # Store wavelength for conversion
-                    
+
                     # Count detected target lines
                     n_detected = len(result['detected_lines'][result['detected_lines']['disposition'] == 1])
                     row_detections[x_idx] = n_detected
@@ -1718,6 +1714,13 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
                     n_contam_detected = len(result['detected_contam'][result['detected_contam']['disposition'] == 1]) \
                         if len(result['detected_contam']) > 0 else 0
                     row_contam_detections[x_idx] = n_contam_detected
+
+                    # A pixel with no accepted line has no measured flux. It stays NaN,
+                    # because a 0.0 would count as a real value in the statistics and the display.
+                    if n_detected > 0:
+                        row_fluxes[x_idx] = result['flux']
+                    if n_contam_detected > 0:
+                        row_contam_fluxes[x_idx] = result['contam_flux']
 
                     num_success += 1
                 else:
@@ -1785,10 +1788,17 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
     end_time = time.time()
     print(f"\n>>> Flux map creation complete ({end_time - start_time:.1f}s)")
     print(f"    Valid pixels: {np.sum(~np.isnan(flux_map))}/{n_y * n_x}")
-    print(f"    Mean flux: {np.nanmean(flux_map):.4e}")
-    print(f"    Max flux: {np.nanmax(flux_map):.4e}")
-    print(f"    Mean contam flux: {np.nanmean(contam_flux_map):.4e}")
-    print(f"    Max contam flux: {np.nanmax(contam_flux_map):.4e}")
+    # A map with no detection is all NaN, and nanmean or nanmax would warn about it.
+    if np.any(~np.isnan(flux_map)):
+        print(f"    Mean flux: {np.nanmean(flux_map):.4e}")
+        print(f"    Max flux: {np.nanmax(flux_map):.4e}")
+    else:
+        print("    Mean flux: none (no pixel has a detected line)")
+    if np.any(~np.isnan(contam_flux_map)):
+        print(f"    Mean contam flux: {np.nanmean(contam_flux_map):.4e}")
+        print(f"    Max contam flux: {np.nanmax(contam_flux_map):.4e}")
+    else:
+        print("    Mean contam flux: none (no pixel has a detected contaminating line)")
     print(f"    Total contam flux (sum over valid pixels): {np.nansum(contam_flux_map):.4e}")
     print(f"    Pixels with a contam detection: {np.sum(contam_detection_map > 0)}/{n_y * n_x}")
     

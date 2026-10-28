@@ -633,6 +633,7 @@ python main.py
    - Optionally, click "Contam. Lines" to exclude contaminating lines from the fit.
    - Click "Flux Map". The continuum subtraction always runs automatically before the detection, with the default or the custom parameters.
    - View the flux maps, the SNR statistics, and the detection quality.
+   - A pixel with no detected line is NaN (empty) in the flux map, not 0. The statistics count the detected pixels only.
    - Export the results with the integrated flux estimates.
 
 ### Rotational-Diagram Analysis

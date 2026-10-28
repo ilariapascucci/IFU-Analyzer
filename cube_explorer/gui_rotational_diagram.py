@@ -3934,10 +3934,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             label = f"Running {phase} fit"
 
         if total <= 0:
-            # upper_limit_1T/2T send (0, 0) before the ~20-50s nutpie compile
-            # step, which has no sub-progress hook -- show a busy bar instead.
+            # upper_limit_1T/2T send (0, 0) before the library load and the ~20-50s nutpie
+            # compile step, which have no sub-progress hook -- show a busy bar instead.
             dlg.setRange(0, 0)
-            dlg.setLabelText(f"{label}: compiling model (nutpie)...")
+            dlg.setLabelText(f"{label}: loading libraries and compiling model (nutpie)...")
             return
 
         dlg.setRange(0, 100)

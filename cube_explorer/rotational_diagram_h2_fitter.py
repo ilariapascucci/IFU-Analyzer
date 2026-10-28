@@ -14,13 +14,37 @@ from scipy.optimize import curve_fit
 logging.getLogger("pytensor.configdefaults").addFilter(
     lambda record: "g++" not in record.getMessage())
 
-import pymc as pm
-import nutpie
-import arviz as az
-
 from .unit_converter import integrated_flux_to_cgs
 from .flux_map_extractor import fit_auto_continuum, fit_hitran_lines_collective
 from .gaussian_fitter import gaussian_flux_upper_limit
+
+# pymc, nutpie, and arviz take about 4 s to import, and only the upper-limit fits use them.
+# _load_mcmc_libraries() fills these names on the first fit, so the Rotational Diagram opens fast.
+pm = None
+nutpie = None
+az = None
+
+
+def _load_mcmc_libraries():
+    """Import pymc, nutpie, and arviz on the first call. Later calls do nothing.
+
+    The first call takes about 4 s. Python keeps the modules, so the next fits
+    start at once.
+
+    Args:
+        None
+
+    Returns:
+        None
+
+    Raises:
+        ImportError: if pymc, nutpie, or arviz is not installed.
+    """
+    global pm, nutpie, az
+    if pm is None:
+        import pymc as pm
+        import nutpie
+        import arviz as az
 
 '''
 CONSTANTS
@@ -409,6 +433,10 @@ def upper_limit_1T(E, y, yerr, is_ul, progress_callback=None, t_cap=T_CAP):
         result (dict): "a"/"da"/"T"/"dT" (posterior mean/std), plus PyMC diagnostics
             "n_divergences"/"max_r_hat"
     """
+    if progress_callback is not None:
+        progress_callback(0, 0)  # busy bar while the libraries load, which can take several seconds
+    _load_mcmc_libraries()
+
     is_ul = np.asarray(is_ul, dtype=bool)
     # mask = True for detections, False for upper limits
     mask = ~is_ul
@@ -473,6 +501,10 @@ def upper_limit_2T(E, y, yerr, is_ul, a1_init, T1_init, progress_callback=None, 
         result (dict): "popt"/"errs" ([a1,T1,a2,T2] posterior mean/std), plus
             PyMC diagnostics "n_divergences"/"max_r_hat"
     """
+    if progress_callback is not None:
+        progress_callback(0, 0)  # busy bar while the libraries load, which can take several seconds
+    _load_mcmc_libraries()
+
     is_ul = np.asarray(is_ul, dtype=bool)
     # mask = True for detections, False for upper limits
     mask = ~is_ul
