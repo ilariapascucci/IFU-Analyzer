@@ -12,8 +12,8 @@ Click Open FITS to load a FITS data cube.
 
 import sys
 
-# The versions in requirements.txt are tested on these Python versions only.
-TESTED_PYTHONS = ((3, 12), (3, 13))
+# The versions in requirements.txt are tested on this Python version only.
+TESTED_PYTHONS = ((3, 13),)
 TESTED_PYTHONS_TEXT = " or ".join(f"{major}.{minor}" for major, minor in TESTED_PYTHONS)
 
 

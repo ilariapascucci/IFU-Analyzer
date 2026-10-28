@@ -451,8 +451,9 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 
 ### Prerequisites
 
-- Python 3.12 or 3.13. The pinned versions in `requirements.txt` are tested on 3.12.x and 3.13.x. Python 3.11 fails at the install step, and other versions are not tested. If you do not have 3.12 or 3.13, use conda (see Setup). For an exact copy of the tested environment, install `requirements-lock.txt` instead of `requirements.txt`.
+- Python 3.13. The pinned versions in `requirements.txt` are tested on 3.13 only. Python 3.12 also works, but it is not tested. Python 3.11 fails at the install step. If you do not have 3.13, use conda (see Setup). For an exact copy of the tested environment, install `requirements-lock.txt` instead of `requirements.txt`.
 - pip (the Python package installer)
+- A 64-bit computer with Windows, Linux (Intel or AMD processor), or macOS (Intel or Apple Silicon). Linux on an ARM processor is not supported, because PyQt5 has no files for it.
 
 ### Setup
 
@@ -467,14 +468,14 @@ cd IFU-Analyzer
 
    Without Git: open https://github.com/ilariapascucci/IFU-Analyzer, click **Code**, then **Download ZIP**. Extract the ZIP file and open a terminal in the extracted folder.
 
-2. Create an environment with Python 3.13 (recommended) or 3.12. With conda, which installs Python for you:
+2. Create an environment with Python 3.13. With conda, which installs Python for you:
 
 ```bash
 conda create -n ifu-analyzer python=3.13
 conda activate ifu-analyzer
 ```
 
-   Without conda, use `venv`. Python 3.12 or 3.13 must already be installed:
+   Without conda, use `venv`. Python 3.13 must already be installed:
 
 ```bash
 python -m venv venv
@@ -798,6 +799,12 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
    - Run `clip.py` from the project root, not from inside `cube_explorer/`.
    - If you see `ImportError: Could not import CubeData`, move `clip.py` up one directory level.
    - The `--params` flag for `auto-continuum` needs all seven values in order: `window sigma width distance exclusion iters smoothing`.
+
+10. **Installation problems:**
+   - A "Failed building wheel for llvmlite" or "numba" message means that pip tried to build a package from source code. Run `python -m pip install --upgrade pip`. Then confirm that `python --version` shows 3.13, and run `pip install -r requirements.txt` again.
+   - On an Intel Mac, pip installs older versions of `llvmlite` and `numba`, because the newest versions have no files for Intel Macs. This is expected.
+   - A "No matching distribution found for PyQt5" message on Linux means that the computer has an ARM processor. PyQt5 has no files for it, so Linux on ARM is not supported.
+   - On an Apple Silicon Mac with conda, run `python -c "import platform; print(platform.machine())"`. If it prints `x86_64`, conda runs under Rosetta. The program works, but a conda for Apple Silicon (for example Miniforge) is faster.
 
 ## Credits
 
