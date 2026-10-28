@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure, SubplotParams
 
+from .gui_sizing import fit_to_screen
 from .rotational_diagram_map import (
     create_rotational_diagram_map, create_rotational_diagram_map_multi,
     create_rotational_diagram_map_mixed, save_rotational_diagram_map_fits,
@@ -715,9 +716,9 @@ class RotDiagMapResultsDialog(QDialog):
         self.setWindowTitle(f"{result.get('molecule', 'H2')} Rotational Diagram Map")
         # Wider when 2T needs two side-by-side panels (T1/T2).
         if self.fit2t:
-            self.resize(1550, 700)
+            fit_to_screen(self, 1550, 700)
         else:
-            self.resize(1150, 680)
+            fit_to_screen(self, 1150, 680)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1009,7 +1010,7 @@ class RotDiagMapResultsDialog(QDialog):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Pixel ({x}, {y}) rotational diagram")
-        dlg.resize(1050, 520)
+        fit_to_screen(dlg, 1050, 520)
         lay = QHBoxLayout(dlg)
 
         text = QTextEdit()
@@ -1197,7 +1198,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.slice1_scale = ScaleSettings()
 
         self.setWindowTitle("Select Region")
-        self.resize(900, 650)
+        fit_to_screen(self, 900, 650)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1763,7 +1764,7 @@ class LineFluxMapDialog(QDialog):
         self.scale_store = scale_store if scale_store is not None else {}
         self.scale_settings = self.scale_store.get("scale_settings") or ScaleSettings()
         self.setWindowTitle(f"{molecule} Flux Map @ {wavelength:.6f} μm")
-        self.resize(750, 620)
+        fit_to_screen(self, 750, 620)
         self._setup_ui()
 
     def _setup_ui(self):

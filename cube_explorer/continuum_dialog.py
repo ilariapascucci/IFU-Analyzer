@@ -9,6 +9,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import threading
 
+from .gui_sizing import fit_to_screen
+
 
 class ContinuumCubeWorker(QThread):
     """Background worker thread for saving the continuum and continuum-subtracted cubes"""
@@ -90,7 +92,8 @@ class ContinuumParametersDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("Continuum Fitting Parameters")
-        self.setMinimumSize(650, 600)
+        self.setMinimumSize(480, 400)
+        fit_to_screen(self, 650, 600)
         
         # Default values from current implementation
         self.params = {

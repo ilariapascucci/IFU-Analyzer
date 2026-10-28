@@ -8,6 +8,7 @@ to keep the main GUI file cleaner and more maintainable.
 import numpy as np
 import os
 import threading
+from .gui_sizing import fit_to_screen
 from .unit_converter import gaussian_map_unit_labels, wavelength_to_doppler_velocity
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
 from .fits_export import build_line_map_header, write_fits_product, _ascii_safe
@@ -251,7 +252,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.flux_unit = self._get_flux_unit()
         
         self.setWindowTitle("Gaussian Parameter Maps")
-        self.resize(800, 700)
+        fit_to_screen(self, 800, 700)
         
         self._setup_ui()
     

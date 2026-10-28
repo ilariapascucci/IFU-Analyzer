@@ -7,6 +7,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
+from .gui_sizing import fit_to_screen
 from .flux_map_dialogs import FluxMapWorker, FluxMapResultsDialog
 from .flux_map_extractor import fit_auto_continuum
 from .continuum_dialog import ContinuumParametersDialog
@@ -233,7 +234,7 @@ class GuiFluxMapMixin:
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"{species_label} Flux Map Preview")
-        dlg.setGeometry(100, 100, 1000, 600)
+        fit_to_screen(dlg, 1000, 600)
         layout = QVBoxLayout()
 
         title = QLabel(f"<b>{species_label} Flux Map Preview</b><br>Brightest pixel in range: ({pixel_x}, {pixel_y}) | {len(lines)} filtered lines")

@@ -54,6 +54,8 @@ if __name__ == "__main__":
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
+    # Native styles give each OS different widget sizes. Fusion looks the same everywhere.
+    app.setStyle("Fusion")
     w = CubeExplorer()
 
     # Relative over absolute values

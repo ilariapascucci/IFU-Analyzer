@@ -22,7 +22,9 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
+from .gui_sizing import ResponsiveButtonColumn
 from .data_loader import CubeData
+from .flow_layout import FlowLayout, row_of
 from .gui_continuum import GuiContinuumMixin
 from .gui_gaussian import GuiGaussianMixin
 from .gui_flux_map import GuiFluxMapMixin
@@ -41,6 +43,10 @@ from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
 from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity
+
+
+# Qt value for "no maximum size" on a widget.
+_NO_SIZE_LIMIT = 16777215
 
 
 class CollapsibleButtonGroup(QWidget):
@@ -108,21 +114,22 @@ class CollapsibleButtonGroup(QWidget):
         self.toggle_btn.clicked.connect(self.toggle)
         self.main_layout.addWidget(self.toggle_btn)
         
-        # Container for child buttons (collapsible)
-        self.button_container = QFrame()
-        self.button_layout = QHBoxLayout(self.button_container)
-        self.button_layout.setContentsMargins(2, 0, 0, 0)
-        self.button_layout.setSpacing(2)  # Buttons closer together
-        
+        # Panel for child buttons. build_group_bar puts it under the toggle row,
+        # where the buttons wrap onto more lines when the window is narrow.
+        self.button_container = QFrame(self)
+        self.button_layout = FlowLayout(self.button_container, h_spacing=2, v_spacing=2)
+        self.button_layout.setContentsMargins(0, 2, 0, 0)
+
         # Initially hidden
-        self.button_container.setMaximumWidth(0)
+        self.button_container.hide()
+        self.button_container.setMaximumHeight(0)
         self.button_container.setStyleSheet("QFrame { background-color: transparent; }")
-        self.main_layout.addWidget(self.button_container)
-        
+
         # Animation for smooth expand/collapse
-        self.animation = QPropertyAnimation(self.button_container, b"maximumWidth")
+        self.animation = QPropertyAnimation(self.button_container, b"maximumHeight")
         self.animation.setDuration(300)
         self.animation.setEasingCurve(QEasingCurve.InOutQuad)
+        self.animation.finished.connect(self._on_animation_finished)
     
     def add_button(self, button):
         """Add a button to this collapsible group.
@@ -180,25 +187,66 @@ class CollapsibleButtonGroup(QWidget):
             self.is_expanded = True
             self.toggle_btn.setText(self.toggle_btn.text().replace("▸", "▾"))
             
-            # Calculate target width
-            target_width = sum(
-                self.button_layout.itemAt(i).widget().sizeHint().width() 
-                for i in range(self.button_layout.count())
-            )
-            target_width += self.button_layout.spacing() * (self.button_layout.count() - 1)
-            target_width += 4
-            
+            # The panel is as wide as its parent, so the height follows from that width.
+            self.animation.stop()
+            panel_width = self.button_container.parentWidget().width()
+            target_height = self.button_layout.heightForWidth(panel_width)
+            self.button_container.setMaximumHeight(0)
+            self.button_container.show()
             self.animation.setStartValue(0)
-            self.animation.setEndValue(target_width)
+            self.animation.setEndValue(target_height)
             self.animation.start()
         else:
             # Collapse
             self.is_expanded = False
             self.toggle_btn.setText(self.toggle_btn.text().replace("▾", "▸"))
-            
-            self.animation.setStartValue(self.button_container.maximumWidth())
+
+            self.animation.stop()
+            self.animation.setStartValue(self.button_container.height())
             self.animation.setEndValue(0)
             self.animation.start()
+
+    def _on_animation_finished(self):
+        """Release the height limit after an expand and hide the panel after a collapse.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        # With no height limit, the layout keeps the panel right when the window resizes.
+        if self.is_expanded:
+            self.button_container.setMaximumHeight(_NO_SIZE_LIMIT)
+        else:
+            self.button_container.hide()
+
+
+def build_group_bar(groups):
+    """Build a layout with the toggle buttons in one row and each group's panel below.
+
+    Args:
+        groups (list): CollapsibleButtonGroup objects, in the order of the toggle buttons.
+
+    Returns:
+        bar (QVBoxLayout): Layout to add to the window.
+    """
+    bar = QVBoxLayout()
+    bar.setSpacing(0)
+    bar.setContentsMargins(0, 0, 0, 0)
+
+    toggle_row = QHBoxLayout()
+    toggle_row.setSpacing(0)
+    toggle_row.setContentsMargins(0, 0, 0, 0)
+    for group in groups:
+        toggle_row.addWidget(group)
+    toggle_row.addStretch()
+    bar.addLayout(toggle_row)
+
+    for group in groups:
+        bar.addWidget(group.button_container)
+    return bar
+
 
 class CustomNavigationToolbar(NavigationToolbar):
     """
@@ -759,7 +807,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Typing a wavelength (or using the spin arrows) jumps that slice to
         # the closest available value, kept in sync with clicking the plots.
         self.left_wave_input = WavelengthSpinBox()
-        self.left_wave_input.setFixedWidth(100)
         self.left_wave_input.setDecimals(6)
         self.left_wave_input.setKeyboardTracking(False)
         self.left_wave_input.setEnabled(False)
@@ -769,7 +816,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         )
 
         self.right_wave_input = WavelengthSpinBox()
-        self.right_wave_input.setFixedWidth(100)
         self.right_wave_input.setDecimals(6)
         self.right_wave_input.setKeyboardTracking(False)
         self.right_wave_input.setEnabled(False)
@@ -917,15 +963,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # Wavelength range inputs (for line search)
         self.min_wave_input = QDoubleSpinBox(self)
-        self.min_wave_input.setFixedWidth(70)
-        self.min_wave_input.setFixedHeight(28)
         self.min_wave_input.setRange(0.1, 1000)
         self.min_wave_input.setDecimals(6)
         self.min_wave_input.setSingleStep(0.1)
         self.min_wave_input.setToolTip("Min wavelength (λ)")
         self.max_wave_input = QDoubleSpinBox(self)
-        self.max_wave_input.setFixedWidth(70)
-        self.max_wave_input.setFixedHeight(28)
         self.max_wave_input.setRange(0.1, 1000)
         self.max_wave_input.setDecimals(6)
         self.max_wave_input.setSingleStep(0.1)
@@ -1133,18 +1175,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         left_slice_layout.addWidget(self.slice1_toolbar)
 
         # Left sidebar (shape buttons / copy / erase)
-        left_sidebar = QVBoxLayout()
-        left_sidebar.addWidget(self.color_btn_left)
-        left_sidebar.addWidget(self.scale_btn_left)
-        for shape in ["*", "▭", "○", "⬭", "✏"]:
-            left_sidebar.addWidget(self.shape_buttons["left"][shape])
-        left_sidebar.addWidget(self.copy_menu_btn_l)
-        left_sidebar.addWidget(self.edit_shape_btn_l)
-        left_sidebar.addWidget(self.erase_btn_l)
-        left_sidebar.addStretch()
+        left_sidebar = ResponsiveButtonColumn(
+            [self.color_btn_left, self.scale_btn_left]
+            + [self.shape_buttons["left"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.copy_menu_btn_l, self.edit_shape_btn_l, self.erase_btn_l])
 
         left_combined.addLayout(left_slice_layout, 4)
-        left_combined.addLayout(left_sidebar, 1)
+        left_combined.addWidget(left_sidebar, 1)
 
         left_half = QHBoxLayout()
         left_half.addLayout(left_stats_layout, 1)
@@ -1159,22 +1196,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         right_combined = QHBoxLayout()
 
-        right_sidebar = QVBoxLayout()
-        right_sidebar.addWidget(self.color_btn_right)
-        right_sidebar.addWidget(self.scale_btn_right)
-        for shape in ["*", "▭", "○", "⬭", "✏"]:
-            right_sidebar.addWidget(self.shape_buttons["right"][shape])
-        right_sidebar.addWidget(self.copy_menu_btn_r)
-        right_sidebar.addWidget(self.edit_shape_btn_r)
-        right_sidebar.addWidget(self.erase_btn_r)
-        right_sidebar.addStretch()
+        right_sidebar = ResponsiveButtonColumn(
+            [self.color_btn_right, self.scale_btn_right]
+            + [self.shape_buttons["right"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.copy_menu_btn_r, self.edit_shape_btn_r, self.erase_btn_r])
 
         right_slice_layout = QVBoxLayout()
         right_slice_layout.addWidget(self.slice2_canvas)
         right_slice_layout.addWidget(self.slice2_toolbar)
 
         right_combined.addLayout(right_slice_layout, 4)
-        right_combined.addLayout(right_sidebar, 1)
+        right_combined.addWidget(right_sidebar, 1)
 
         right_half = QHBoxLayout()
         right_half.addLayout(right_stats_layout, 1)
@@ -1186,24 +1218,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         main_layout.addLayout(top_layout, 1)
 
         # --- Collapsible button groups ---
-        # Create collapsible button layout
-        collapsible_layout = QHBoxLayout()
-        collapsible_layout.setSpacing(0)
-        collapsible_layout.setContentsMargins(0, 0, 0, 0)
-        
         # Group 1: Region (save or import a region as sky coordinates).
         # Each button asks which panel, left or right, to use.
         self.region_group = CollapsibleButtonGroup("Region")
         self.region_group.add_button(self.region_save_wcs_btn)
         self.region_group.add_button(self.region_import_wcs_btn)
-        collapsible_layout.addWidget(self.region_group)
 
         # Group 2: Export (save a slice or the cube as FITS).
         self.export_group = CollapsibleButtonGroup("Export")
         self.export_group.add_button(self.region_save_slice_btn)
         self.export_group.add_button(self.region_save_slice_masked_btn)
         self.export_group.add_button(self.region_save_cube_btn)
-        collapsible_layout.addWidget(self.export_group)
 
         # Group 3: Gaussian Fit
         self.gaussian_group = CollapsibleButtonGroup("Gaussian Fit")
@@ -1214,14 +1239,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gaussian_group.add_button(self.gauss_noise_right_btn)
         self.gaussian_group.add_button(self.gauss_fit_btn)
         self.gaussian_group.add_button(self.gauss_map_btn)
-        collapsible_layout.addWidget(self.gaussian_group)
 
         # Group 4: Continuum Tools
         self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
         self.continuum_group.add_button(self.auto_continuum_toggle)
         self.continuum_group.add_button(self.custom_continuum_toggle)
         self.continuum_group.add_button(self.save_continuum_cubes_btn)
-        collapsible_layout.addWidget(self.continuum_group)
 
         # Group 5: Lines & Fit (build the line list first, then fit the lines)
         self.hitran_group = CollapsibleButtonGroup("Lines && Fit")
@@ -1236,11 +1259,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_group.add_button(self.mark_contam_btn)
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.flux_map_btn)
-        collapsible_layout.addWidget(self.hitran_group)
 
-        collapsible_layout.addStretch()  # Push all groups to the left
-        
-        main_layout.addLayout(collapsible_layout)
+        main_layout.addLayout(build_group_bar([
+            self.region_group, self.export_group, self.gaussian_group,
+            self.continuum_group, self.hitran_group]))
 
         # These buttons show under the group buttons when a continuum mode is on.
         self.continuum_action_layout = QHBoxLayout()
@@ -1251,32 +1273,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.continuum_action_layout.addStretch()
         main_layout.addLayout(self.continuum_action_layout)
 
-        # Slice selection, spectrum tabs, and shifting share one row here
+        # Slice selection, spectrum tabs, and shifting share one wrapping row here
         # (not the toolbar above) since all three act on the spectrum itself.
-        spec_tab_layout = QHBoxLayout()
-        spec_tab_layout.setContentsMargins(0, 0, 0, 0)
-
-        spec_tab_layout.addWidget(self.set_left_btn)
-        spec_tab_layout.addWidget(self.left_wave_input)
-        spec_tab_layout.addWidget(self.set_right_btn)
-        spec_tab_layout.addWidget(self.right_wave_input)
-
-        spec_tab_layout.addStretch()
-
-        spec_tab_layout.addWidget(QLabel("Spectrum:"))
-        spec_tab_layout.addWidget(self.spec_tab_bar)
-        spec_tab_layout.addWidget(self.normalize_checkbox)
-        spec_tab_layout.addWidget(self.overplot_left_checkbox)
-        spec_tab_layout.addWidget(self.overplot_right_checkbox)
-        spec_tab_layout.addWidget(self.self_normalize_left_checkbox)
-        spec_tab_layout.addWidget(self.self_normalize_right_checkbox)
-
-        spec_tab_layout.addStretch()
-
-        spec_tab_layout.addWidget(self.shift_btn)
-        spec_tab_layout.addWidget(self.apply_shift_btn)
-        spec_tab_layout.addWidget(self.cancel_shift_btn)
-        spec_tab_layout.addWidget(self.revert_shift_btn)
+        spec_tab_layout = FlowLayout(h_spacing=16, v_spacing=4)
+        spec_tab_layout.addWidget(row_of([self.set_left_btn, self.left_wave_input]))
+        spec_tab_layout.addWidget(row_of([self.set_right_btn, self.right_wave_input]))
+        spec_tab_layout.addWidget(row_of([QLabel("Spectrum:"), self.spec_tab_bar]))
+        spec_tab_layout.addWidget(row_of([
+            self.normalize_checkbox, self.overplot_left_checkbox, self.overplot_right_checkbox,
+            self.self_normalize_left_checkbox, self.self_normalize_right_checkbox]))
+        spec_tab_layout.addWidget(row_of([
+            self.shift_btn, self.apply_shift_btn, self.cancel_shift_btn, self.revert_shift_btn]))
 
         main_layout.addLayout(spec_tab_layout)
 
@@ -1486,9 +1493,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 wl = np.asarray(wavelength, dtype=float)
                 for spin in (self.left_wave_input, self.right_wave_input):
                     spin.set_wavelength_grid(wl)
+                    # setRange clamps the old cube's value and would jump the slices, so block first.
+                    spin.blockSignals(True)
                     spin.setRange(float(np.min(wl)), float(np.max(wl)))
                     spin.setSuffix(f" {self.cube_data.wave_unit}")
-                    spin.blockSignals(True)
                     spin.setValue(float(wl[0]))
                     spin.blockSignals(False)
                     spin.setEnabled(True)

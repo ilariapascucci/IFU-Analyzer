@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QDialog, QVBoxLayout, 
 from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
+from .gui_sizing import fit_to_screen
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .species_dialog import SpeciesDialog
@@ -936,7 +937,8 @@ STATUS: {result.message}
         dlg.setWindowTitle("Multi-Gaussian Fit Results")
         # Extra headroom for the 4 added rows per line (catalog wavelength,
         # transition, A coeff, E_upper), to avoid scrolling for 5-10 lines.
-        dlg.setMinimumSize(750, 750)
+        dlg.setMinimumSize(600, 500)
+        fit_to_screen(dlg, 750, 750)
         layout = QVBoxLayout()
         text_display = QTextEdit()
         text_display.setPlainText(results_text)

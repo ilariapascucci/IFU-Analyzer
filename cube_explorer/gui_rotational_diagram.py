@@ -24,7 +24,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from .gui import CollapsibleButtonGroup
+from .gui_sizing import fit_to_screen, screen_limited_width
+from .gui import CollapsibleButtonGroup, build_group_bar
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog, match_nearest_hitran_line
 from .table_drag_select import SortableCheckboxTableMixin
@@ -579,8 +580,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.current_molecule = 'H2'  # Default molecule
         self.current_isotopologue = 1  # Set by Fetch from HITRAN; read by Run Fit/Run Map
         self.setWindowTitle("Rotational Diagram Analyzer")
-        screen_width = QApplication.primaryScreen().availableGeometry().width()
-        self.setGeometry(100, 100, min(1650, int(screen_width * 0.95)), 800)
+        fit_to_screen(self, 1650, 800, fraction=0.95)
         
         self.hitran_lines = []
         self.fetch_thread = None
@@ -655,12 +655,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self.select_all_btn = QPushButton("Select All")
         self.select_all_btn.clicked.connect(self.select_all_lines)
-        self.select_all_btn.setMaximumWidth(100)
         header_row.addWidget(self.select_all_btn)
 
         self.deselect_all_btn = QPushButton("Deselect All")
         self.deselect_all_btn.clicked.connect(self.deselect_all_lines)
-        self.deselect_all_btn.setMaximumWidth(100)
         header_row.addWidget(self.deselect_all_btn)
         header_row.addStretch()
         main_layout.addLayout(header_row)
@@ -758,7 +756,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         self.opr_advanced_btn = QPushButton("▸ Advanced")
         self.opr_advanced_btn.setCheckable(True)
-        self.opr_advanced_btn.setMaximumWidth(90)
         self.opr_advanced_btn.setEnabled(False)
         self.opr_advanced_btn.clicked.connect(self.on_opr_advanced_toggled)
         bottom_layout.addWidget(self.opr_advanced_btn)
@@ -964,42 +961,34 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.clear_map_region_btn.clicked.connect(self.clear_rot_map_region)
         self.clear_map_region_btn.setEnabled(False)  # Blocked until a region is imported
 
-        collapsible_layout = QHBoxLayout()
-        collapsible_layout.setSpacing(0)
-        collapsible_layout.setContentsMargins(0, 0, 0, 0)
-
         self.lines_group = CollapsibleButtonGroup("Lines")
         self.lines_group.add_button(self.fetch_btn)
         self.lines_group.add_button(self.import_csv_btn)
-        collapsible_layout.addWidget(self.lines_group)
 
         self.source_group = CollapsibleButtonGroup("Source")
         self.source_group.add_button(self.load_fits_btn)
         self.source_group.add_button(self.clear_fits_btn)
         self.source_group.add_button(self.import_map_btn)
         self.source_group.add_button(self.load_contam_btn)
-        collapsible_layout.addWidget(self.source_group)
 
         self.flux_group = CollapsibleButtonGroup("Flux")
         self.flux_group.add_button(self.calculate_fluxes_btn)
         self.flux_group.add_button(self.save_fluxes_btn)
-        collapsible_layout.addWidget(self.flux_group)
 
         self.maps_group = CollapsibleButtonGroup("Maps")
         self.maps_group.add_button(self.calculate_maps_btn)
         self.maps_group.add_button(self.convolve_maps_btn)
         self.maps_group.add_button(self.save_maps_btn)
-        collapsible_layout.addWidget(self.maps_group)
 
         self.region_group = CollapsibleButtonGroup("Region")
         self.region_group.add_button(self.select_map_region_btn)
         self.region_group.add_button(self.import_map_region_btn)
         self.region_group.add_button(self.save_map_region_btn)
         self.region_group.add_button(self.clear_map_region_btn)
-        collapsible_layout.addWidget(self.region_group)
 
-        collapsible_layout.addStretch()
-        layout.addLayout(collapsible_layout)
+        layout.addLayout(build_group_bar([
+            self.lines_group, self.source_group, self.flux_group,
+            self.maps_group, self.region_group]))
 
         status_layout = QHBoxLayout()
         self.contam_status_label = QLabel("")  # Only ever shows text once something is actually loaded
@@ -2789,7 +2778,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Line Fit @ {data['wavelength']:.6f} μm")
-        dlg.resize(800, 550)
+        fit_to_screen(dlg, 800, 550)
         layout = QVBoxLayout()
 
         info_parts = [f"<b>λ = {data['wavelength']:.6f} μm</b>"]
@@ -4939,7 +4928,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(window_title)
-        dlg.resize(980, 480)
+        fit_to_screen(dlg, 980, 480)
         lay = QVBoxLayout(dlg)
 
         header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px {grid_note}")
@@ -5050,7 +5039,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         table.horizontalHeader().setStretchLastSection(True)
         frame_overhead = (table.verticalHeader().width() + 2 * table.frameWidth()
                          + table.style().pixelMetric(table.style().PM_ScrollBarExtent) + 40)
-        dlg.resize(min(max(dlg.width(), natural_width + frame_overhead), 1600), dlg.height())
+        dlg.resize(min(max(dlg.width(), natural_width + frame_overhead), screen_limited_width(1600)), dlg.height())
 
         footer_label = QLabel(
             "Every pixel outside a cube's own reprojected footprint is NaN "
@@ -5266,7 +5255,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Create results dialog with plot
         dialog = QDialog(self)
         dialog.setWindowTitle("Rotational Diagram Results")
-        dialog.setGeometry(100, 100, 1200, 600)
+        fit_to_screen(dialog, 1200, 600)
 
         layout = QHBoxLayout(dialog)
 

@@ -15,6 +15,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationTool
 from matplotlib.figure import Figure
 from astropy import units as u
 
+from .gui_sizing import fit_to_screen
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
 from .visualization import draw_map
@@ -230,7 +231,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
                 self.flux_unit = self.flux_unit_base * u.um
         
         self.setWindowTitle(f"{self.species_label} Flux Map Results")
-        self.resize(1200, 700)
+        fit_to_screen(self, 1200, 700)
         self._setup_ui()
     
     def _setup_ui(self):
@@ -407,7 +408,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
                 # Create inspection dialog
                 dlg = QDialog(self)
                 dlg.setWindowTitle(f"Pixel ({x}, {y}) Spectrum")
-                dlg.resize(1000, 600)
+                fit_to_screen(dlg, 1000, 600)
                 
                 layout = QVBoxLayout()
                 

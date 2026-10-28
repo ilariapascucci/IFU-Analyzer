@@ -11,6 +11,7 @@ shows is exactly what the maps contain.
 """
 
 import numpy as np
+from .gui_sizing import fit_to_screen
 from .unit_converter import extract_value_from_quantity
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -103,7 +104,7 @@ class PixelFitDialog(QDialog):
                     self.noise_std = None
 
         self.setWindowTitle(f"Pixel ({self.col}, {self.row}) Gaussian Fit")
-        self.resize(1150, 640)
+        fit_to_screen(self, 1150, 640)
 
         self._setup_ui()
         self._plot_pixel()

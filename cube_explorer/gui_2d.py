@@ -33,11 +33,12 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 from matplotlib.colors import Normalize  # used by: Superimpose overlay
 from PyQt5.QtCore import Qt
+from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_text
 from .region_selector import RegionSelector
-from .gui import CollapsibleButtonGroup
+from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
 from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
@@ -547,7 +548,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.setWindowTitle("2D FITS Dual Viewer")
 
         self.setWindowFlags(Qt.Window)
-        self.setMinimumSize(1200, 600)
+        fit_to_screen(self, 1200, 600)
 
         self.image_left = None
         self.header_left = None
@@ -1703,7 +1704,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         
         left_stats_widget = QWidget()
         left_stats_widget.setLayout(left_stats_layout)
-        left_stats_widget.setFixedWidth(180)
+        left_stats_widget.setFixedWidth(max(180, left_stats_widget.sizeHint().width()))
 
         # Left Canvas allowed to freely resize
         left_slice_layout = QVBoxLayout()
@@ -1714,19 +1715,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         left_slice_widget.setLayout(left_slice_layout)
 
         # Left Sidebar strictly bounded
-        left_sidebar = QVBoxLayout()
-        left_sidebar.addWidget(self.color_btn_left)
-        left_sidebar.addWidget(self.scale_btn_left)
-        for shape in ["*", "▭", "○", "⬭", "✏"]:
-            left_sidebar.addWidget(self.shape_buttons["left"][shape])
-        left_sidebar.addWidget(self.copy_menu_btn_l)
-        left_sidebar.addWidget(self.edit_shape_btn_l)
-        left_sidebar.addWidget(self.erase_btn_l)
-        left_sidebar.addStretch()
-
-        left_sidebar_widget = QWidget()
-        left_sidebar_widget.setLayout(left_sidebar)
-        left_sidebar_widget.setFixedWidth(120)
+        left_sidebar_widget = ResponsiveButtonColumn(
+            [self.color_btn_left, self.scale_btn_left]
+            + [self.shape_buttons["left"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.copy_menu_btn_l, self.edit_shape_btn_l, self.erase_btn_l])
 
         left_half.addWidget(left_stats_widget, 0)
         left_half.addWidget(left_slice_widget, 1)
@@ -1759,7 +1751,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         
         right_stats_widget = QWidget()
         right_stats_widget.setLayout(right_stats_layout)
-        right_stats_widget.setFixedWidth(180)
+        right_stats_widget.setFixedWidth(max(180, right_stats_widget.sizeHint().width()))
 
         # Right Canvas allowed to freely resize
         right_slice_layout = QVBoxLayout()
@@ -1770,19 +1762,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         right_slice_widget.setLayout(right_slice_layout)
 
         # Right Sidebar strictly bounded
-        right_sidebar = QVBoxLayout()
-        right_sidebar.addWidget(self.color_btn_right)
-        right_sidebar.addWidget(self.scale_btn_right)
-        for shape in ["*", "▭", "○", "⬭", "✏"]:
-            right_sidebar.addWidget(self.shape_buttons["right"][shape])
-        right_sidebar.addWidget(self.copy_menu_btn_r)
-        right_sidebar.addWidget(self.edit_shape_btn_r)
-        right_sidebar.addWidget(self.erase_btn_r)
-        right_sidebar.addStretch()
-
-        right_sidebar_widget = QWidget()
-        right_sidebar_widget.setLayout(right_sidebar)
-        right_sidebar_widget.setFixedWidth(120)
+        right_sidebar_widget = ResponsiveButtonColumn(
+            [self.color_btn_right, self.scale_btn_right]
+            + [self.shape_buttons["right"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.copy_menu_btn_r, self.edit_shape_btn_r, self.erase_btn_r])
 
         right_half.addWidget(right_stats_widget, 0)
         right_half.addWidget(right_slice_widget, 1)
@@ -1810,12 +1793,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         for _b in (self.match_res_btn, self.batch_match_btn):
             self.convolution_group.add_button(_b)
 
-        tier1 = QHBoxLayout()
-        tier1.setContentsMargins(0, 0, 0, 0)
-        tier1.addWidget(self.region_group)
-        tier1.addWidget(self.contour_group)
-        tier1.addWidget(self.convolution_group)
-        tier1.addStretch(1)
+        tier1 = build_group_bar([self.region_group, self.contour_group, self.convolution_group])
 
         # Tier 2 (downstairs): rotation cluster on the left, Superimpose on the right.
         rotate_widget = QWidget()
