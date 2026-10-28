@@ -2205,6 +2205,21 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self._set_slice_index(idx, self.active_target)
 
+    def _reset_scale_range(self, target):
+        """Set a panel's absolute vmin and vmax back to Auto. The scale type,
+        gamma, and percentiles stay. A range typed for one slice has no
+        meaning for another slice.
+
+        Args:
+            target (str): Panel to reset, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        settings = self.slice1_scale if target == "left" else self.slice2_scale
+        settings.clear_absolute_range()
+        self._store_scale_settings(target, settings)
+
     def _set_slice_index(self, idx, target):
         """Set the left/right slice to wavelength index `idx` and sync every
         linked UI element. The single point spectrum clicks, slice clicks,
@@ -2217,6 +2232,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
+        previous = self.last_idx_left if target == "left" else self.last_idx_right
+        if idx != previous:
+            self._reset_scale_range(target)
         if target == "left":
             self.last_idx_left = idx
         else:
@@ -2861,6 +2879,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return
 
         # Reset state variables
+        self._reset_scale_range("left")
+        self._reset_scale_range("right")
         self.last_idx_left = 0
         self.last_idx_right = 0
         self.last_selection_left = None

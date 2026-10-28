@@ -6,6 +6,7 @@ norm built from them, and the Scale dialog (slider plus typed values) that edits
 """
 
 import dataclasses
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -857,13 +858,20 @@ class ScaleDialog(QDialog):
             try:
                 vmin = float(min_text) if min_text else None
                 vmax = float(max_text) if max_text else None
+                if not all(v is None or math.isfinite(v) for v in (vmin, vmax)):
+                    raise ValueError("vmin/vmax must be finite")
             except ValueError:
                 QMessageBox.warning(self, "Invalid Value",
-                                    "vmin/vmax must be numbers (e.g. 1.5e-16), or left blank for Auto.")
+                                    "vmin/vmax must be finite numbers (e.g. 1.5e-16), or left blank for Auto.")
                 return
             if vmin is not None and vmax is not None and vmin >= vmax:
                 QMessageBox.warning(self, "Invalid Range", "vmin must be less than vmax.")
                 return
+            # A value outside this image moves to the nearest end of the image range.
+            if vmin is not None:
+                vmin = min(max(vmin, self.auto_vmin), self.auto_vmax)
+            if vmax is not None:
+                vmax = min(max(vmax, self.auto_vmin), self.auto_vmax)
             new.range_mode = RANGE_ABSOLUTE
             new.vmin, new.vmax = vmin, vmax
 
