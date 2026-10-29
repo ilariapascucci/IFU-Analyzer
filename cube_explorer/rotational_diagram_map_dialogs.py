@@ -1,7 +1,7 @@
 """
 Worker and result dialog for the pixel-by-pixel rotational diagram map.
 
-RotDiagMapWorker runs create_rotational_diagram_map off the GUI thread.
+CalculateNativeMapsWorker and CombineMapsWorker run Run Map's stages off the GUI thread.
 RotDiagMapResultsDialog shows the maps and re-fits a pixel's diagram on click.
 """
 
@@ -21,8 +21,7 @@ from matplotlib.figure import Figure, SubplotParams
 
 from .gui_sizing import fit_to_screen
 from .rotational_diagram_map import (
-    create_rotational_diagram_map, create_rotational_diagram_map_multi,
-    create_rotational_diagram_map_mixed, save_rotational_diagram_map_fits,
+    save_rotational_diagram_map_fits,
     fit_pixel, fit_pixel_multi, compute_native_line_maps, combine_line_maps,
     fit_region_multi, fit_region_mixed,
     STATUS_OK, STATUS_NO_DATA, STATUS_TOO_FEW_LINES, STATUS_FIT_FAILED,
@@ -53,117 +52,6 @@ _PARAMS = [
 ]
 # Parameters that count or flag pixels instead of measuring a quantity.
 _CATEGORICAL_KEYS = {"n_lines", "status"}
-
-
-class RotDiagMapWorker(QThread):
-    """
-    Background thread that builds the rotational diagram map.
-
-    Args:
-        cube_or_list (CubeData): One cube, for the single-cube path.
-            None when cubes_and_lines is given instead
-        line_table (list): Line dicts for the fit. None when cubes_and_lines
-            is given instead
-        cubes_and_lines (list): (CubeData, line_dict) pairs, one per line, for
-            two or more cubes -- always routes to the convolve+reproject path,
-            even if the cubes already look aligned. None for the single-cube path
-        kwargs (dict): Passed through to whichever create_rotational_diagram_map*
-            function is used
-
-    Returns:
-        None
-    """
-
-    progress = pyqtSignal(int, int)
-    finished = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(self, cube_or_list=None, line_table=None, cubes_and_lines=None,
-                imported_lines=None, **kwargs):
-        """Store the fit inputs for run() to consume on the worker thread.
-
-        Args:
-            cube_or_list (CubeData): One cube, for the single-cube path.
-            line_table (list): Line dicts for the fit.
-            cubes_and_lines (list): (CubeData, line_dict) pairs for two or more cubes.
-            imported_lines (list): Line dicts with an 'imported_map' payload,
-                or None/empty -- routes to create_rotational_diagram_map_mixed
-                instead of _multi when non-empty.
-            kwargs (dict): Passed through to whichever create_rotational_diagram_map* function is used.
-
-        Returns:
-            None
-        """
-        super().__init__()
-        self.cube_or_list = cube_or_list
-        self.line_table = line_table
-        self.cubes_and_lines = cubes_and_lines
-        self.imported_lines = imported_lines
-        self.kwargs = kwargs
-        self.cancelled = False
-
-    def run(self):
-        """
-        Run the map and emit finished/error.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        try:
-            if self.imported_lines:
-                result = create_rotational_diagram_map_mixed(
-                    self.cubes_and_lines or [], self.imported_lines,
-                    progress_callback=self._emit_progress, cancel_flag=self,
-                    **self.kwargs,
-                )
-            elif self.cubes_and_lines is not None:
-                result = create_rotational_diagram_map_multi(
-                    self.cubes_and_lines,
-                    progress_callback=self._emit_progress, cancel_flag=self,
-                    **self.kwargs,
-                )
-            else:
-                result = create_rotational_diagram_map(
-                    self.cube_or_list, self.line_table,
-                    progress_callback=self._emit_progress, cancel_flag=self,
-                    **self.kwargs,
-                )
-            if self.cancelled:
-                self.error.emit("Rotational diagram map cancelled by user")
-            elif result is None:
-                self.error.emit("No cube data loaded")
-            else:
-                self.finished.emit(result)
-        except Exception as exc:
-            self.error.emit(f"{exc}\n{traceback.format_exc()}")
-
-    def _emit_progress(self, current, total):
-        """
-        Forward progress to the GUI.
-
-        Args:
-            current (int): Pixels done
-            total (int): Pixels total
-
-        Returns:
-            None
-        """
-        self.progress.emit(current, total)
-
-    def request_cancel(self):
-        """
-        Ask the run to stop at the next row.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.cancelled = True
 
 
 class CalculateNativeMapsWorker(QThread):

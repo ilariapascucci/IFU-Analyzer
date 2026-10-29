@@ -663,9 +663,10 @@ python main.py
 
    **Temperature map (every pixel):**
    - Load the cubes with "Load Cubes". To add a flux map that you made in another tool, use "Load Maps".
-   - Click "Calculate Maps". The tool asks for the detection threshold (3σ is the default) and makes one flux map for each checked line. Double-click "View" in the "Map" column to see a map.
+   - Click "Calculate Maps". The tool asks for the detection threshold (3σ is the default) and makes one flux map for each checked line. If you check another line later, it makes only the map of the new line. It keeps the other maps, unless you change the threshold, the contaminating lines, or the cubes. Double-click "View" in the "Map" column to see a map.
    - Click "Convolve Maps" to put all maps on one grid at the coarsest resolution. It needs two or more lines. It shows its plan first. Double-click "View" in the "Convolved Map" column to see a map.
    - Click "Run Map". It needs at least 3 lines (5 lines for a 2T fit). The results window shows the temperature map, and a click on a pixel refits the diagram of that pixel.
+   - Uncheck and check lines without a new calculation. The flux maps stay, and the "Map" and "Convolved Map" links stay. "Run Map" works at once if all checked lines are in the last convolution and the coarsest checked line is the reference line of that convolution. If you uncheck the coarsest line, or check a line that is not in the last convolution, "Run Map" is off until you click "Convolve Maps" again. "Convolve Maps" uses the flux maps that you already have. It does not fit them again.
    - Click "Save Maps" to save the maps as FITS and PNG files in one zip file.
 
    **Region (optional):**

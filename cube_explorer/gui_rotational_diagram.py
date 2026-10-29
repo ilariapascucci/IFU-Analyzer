@@ -42,7 +42,7 @@ from .rotational_diagram_map import (
 )
 from .import_map_dialog import _peek_header, _has_real_error
 from .rotational_diagram_map_dialogs import (
-    RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
+    RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker, SelectCubeRegionDialog,
     attach_rot_diagram_hover, save_fit_csv, input_lines, column_unit,
 )
@@ -50,7 +50,7 @@ from .fits_export import build_line_map_header, write_fits_product
 from .scale_dialog import ScaleSettings, build_norm
 from .visualization import draw_map
 from .convolve_reproject import convolve_reproject_maps, convolution_plan
-from .utils import psf_fwhm_arcsec, make_2d_wcs, get_pixel_size_arcsec
+from .utils import psf_fwhm_arcsec, make_2d_wcs
 from .icon_loader import set_button_icon
 
 # Every open window registers here, so Python keeps it alive while it is open.
@@ -3045,7 +3045,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 self._clear_view_link(stale_item)
         self.on_line_selected()  # re-sync Convolve Maps/Run Map against the new cache state
 
-    def _populate_map_column(self, result):
+    def _populate_map_column(self, result, prune=True):
         """Turn each mapped line's "Map" cell into a "View" link, using the
         native (pre-convolution) map when available -- Calculate Maps'
         native_result, or a full Run Map result, both carry it; a plain
@@ -3058,6 +3058,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Args:
             result (dict): Output of compute_native_line_maps,
                 create_rotational_diagram_map, or create_rotational_diagram_map_multi.
+            prune (bool): True resets the rows that are not in result. False
+                keeps them, for a run that only used some of the lines.
 
         Returns:
             None
@@ -3073,7 +3075,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         kept_rows = {self._row_for_wavelength(l.get("wavelength")) for l in kept_lines}
         for row in list(self._line_map_plot_data):
-            if row not in kept_rows:
+            if prune and row not in kept_rows:
                 del self._line_map_plot_data[row]
                 stale_item = self.lines_table.item(row, 15)
                 if stale_item:
@@ -3105,7 +3107,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if map_item:
                 self._set_view_link(map_item, "Double-click to view this line's flux map")
 
-    def _populate_convolved_map_column(self, result):
+    def _populate_convolved_map_column(self, result, prune=True):
         """Turn each mapped line's "Convolved Map" cell into a "View" link,
         using result['kept_lines']/['line_flux_maps'] (post-convolution,
         common-grid arrays). Multi-cube only -- a single-cube result has no
@@ -3118,6 +3120,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Args:
             result (dict): Output of convolve_reproject_maps or
                 create_rotational_diagram_map_multi.
+            prune (bool): True resets the rows that are not in result. False
+                keeps them, for a run that only used some of the lines.
 
         Returns:
             None
@@ -3143,7 +3147,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
 
         kept_rows = {self._row_for_wavelength(l.get("wavelength")) for l in kept_lines}
         for row in list(self._line_convolved_map_plot_data):
-            if row not in kept_rows:
+            if prune and row not in kept_rows:
                 del self._line_convolved_map_plot_data[row]
                 stale_item = self.lines_table.item(row, 16)
                 if stale_item:
@@ -3649,7 +3653,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         checked_count, fit_data_ready = self._checked_lines_ready_for_fit()
         native_ready = getattr(self, "_rot_map_native_cache", None) is not None
-        convolved_ready = getattr(self, "_rot_map_convolved_cache", None) is not None
+        convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
+        convolved_ready = convolved_cache is not None
+        convolved_covers = convolved_ready and self._rot_map_subset_convolved_result(
+            convolved_cache["result"], self._rot_map_checked_wavelengths()) is not None
 
         self.run_fit_btn.setEnabled(checked_count >= 2 and fit_data_ready)
         if checked_count < 2:
@@ -3664,13 +3671,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # fewer total checked lines than that can never reach the threshold.
         fit2t = self.fit_mode.currentText() == "2T"
         min_lines_needed = 5 if fit2t else 3
-        self.run_map_btn.setEnabled(checked_count >= min_lines_needed and convolved_ready)
+        self.run_map_btn.setEnabled(checked_count >= min_lines_needed and convolved_covers)
         if checked_count < min_lines_needed:
             self._set_gated_tooltip(
                 self.run_map_btn,
                 f"Select at least {min_lines_needed} lines for a per-pixel {'2T' if fit2t else '1T'} map.")
         elif not convolved_ready:
             self._set_gated_tooltip(self.run_map_btn, "Run Calculate Maps, then Convolve Maps, first.")
+        elif not convolved_covers:
+            self._set_gated_tooltip(
+                self.run_map_btn,
+                "A checked line is not convolved, or the coarsest line changed. "
+                "Run Convolve Maps again.")
         else:
             self._set_gated_tooltip(self.run_map_btn, "")
         # Calculate Maps doesn't need a T-fit -- "need a loaded cube" is
@@ -4064,123 +4076,35 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 return
 
         # Run Map is only enabled once a convolved cache exists (on_line_selected),
-        # so its threshold is already fixed -- asking again here would let a
-        # different answer silently invalidate it and trigger a full native
-        # refit, with no indication that's what just happened.
+        # so its threshold is already fixed and is not asked again here.
         convolved_cache = getattr(self, "_rot_map_convolved_cache", None)
         cached_n_sigma = convolved_cache["key"][2] if convolved_cache is not None else None
         fit_kwargs = self._rot_map_gather_settings(n_sigma=cached_n_sigma)
         if fit_kwargs is None:
             return
 
-        # Fast path: skip straight to the cheap final combination if Calculate
-        # Maps/Convolve Maps already ran for this same geometry/threshold.
-        geometry_key = self._rot_map_geometry_key(
-            cubes_and_lines, fit_kwargs["n_sigma"], imported_lines=imported_rows)
-        if convolved_cache is not None and convolved_cache["key"] == geometry_key:
-            self._run_map_fast_combine(cubes, cubes_and_lines, convolved_cache["result"],
-                                       fit_kwargs, imported_lines=imported_rows)
-            return
-
-        # Reuse a cached result if the same cubes/lines/settings produced one.
-        cache = getattr(self, "_rot_map_cache", None)
-        cache_key = self._rot_map_cache_key(cubes, line_table, True, fit_kwargs)
-        self._rot_map_pending_cache_key = cache_key
-        if cache is not None and cache["key"] == cache_key:
-            reply = QMessageBox.question(
-                self, "Cached Results Available",
-                "A map with these same cubes, lines, and settings is already "
-                "cached.\n\n"
-                "Click 'Yes' to reopen the cached results (instant)\n"
-                "Click 'No' to recompute",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-            if reply == QMessageBox.Yes:
-                self._rot_map_multi_mode = cache["multi_mode"]
-                self._rot_map_cube_arg = cache["cube_arg"]
-                self._rot_map_line_table = cache["line_table"]
-                self._rot_map_fit_kwargs = cache["fit_kwargs"]
-                self._populate_map_column(cache["result"])
-                self._populate_convolved_map_column(cache["result"])
-                self._show_rot_map_results(cache["result"])
+        # Every checked line must be in the convolved result: then only the
+        # cheap per-pixel fit is left, and nothing is convolved again.
+        if convolved_cache is not None:
+            subset = self._rot_map_subset_convolved_result(
+                convolved_cache["result"], [line["wavelength"] for line in line_table])
+            if subset is not None:
+                self._run_map_fast_combine(cubes_and_lines, subset,
+                                           fit_kwargs, imported_lines=imported_rows)
                 return
 
-        # Confirm before the run: cheap, fit-free, and always the real plan
-        # even for one line -- the real region-fit cross-check runs in the worker.
-        try:
-            peek = self._rot_map_plan_peek(cubes_and_lines, imported_rows)
-            plan = convolution_plan(peek)
-        except Exception as exc:
-            QMessageBox.critical(self, "Plan Failed", str(exc))
-            return
-        if not self._show_convolution_plan_confirm(plan):
-            return
+        QMessageBox.warning(
+            self, "Run Map",
+            "The checked lines do not match the last Convolve Maps. "
+            "Run Convolve Maps again.")
 
-        self._rot_map_multi_mode = True
-        self._rot_map_cube_arg = None
-        self._rot_map_line_table = None
-        self._rot_map_fit_kwargs = fit_kwargs
-
-        self.rot_map_progress = QProgressDialog(
-            "Fitting rotational diagram per pixel...", "Cancel", 0, 0, self)
-        self.rot_map_progress.setWindowTitle("Rotational Diagram Map")
-        self.rot_map_progress.setWindowModality(Qt.WindowModal)
-        self.rot_map_progress.setAutoClose(False)
-        self.rot_map_progress.setAutoReset(False)
-        self.rot_map_progress.canceled.connect(self._cancel_rot_map)
-        self.rot_map_progress.show()
-        self._rot_map_progress_label = "Fitting rotational diagram"
-
-        self.run_fit_btn.setEnabled(False)
-        self.run_map_btn.setEnabled(False)
-
-        self.rot_map_worker = RotDiagMapWorker(
-            cubes_and_lines=cubes_and_lines, imported_lines=imported_rows, **fit_kwargs)
-        self.rot_map_worker.progress.connect(self._on_rot_map_progress)
-        self.rot_map_worker.finished.connect(self._on_rot_map_complete)
-        self.rot_map_worker.error.connect(self._on_rot_map_error)
-        self.rot_map_worker.start()
-
-    def _rot_map_plan_peek(self, cubes_and_lines, imported_lines):
-        """Cheap, fit-free native_result-shaped peek for a plan preview -- no
-        flux arrays, just the header/WCS fields convolution_plan needs.
-
-        Args:
-            cubes_and_lines (list): (CubeData, line_dict) pairs, cube-backed only
-            imported_lines (list): Line dicts with an 'imported_map' payload
-
-        Returns:
-            peek (dict): Just the keys convolution_plan reads
-        """
-        lines, wcses, shapes, scales, files, instruments = [], [], [], [], [], []
-        for cube, line in cubes_and_lines:
-            lines.append(line)
-            wcses.append(make_2d_wcs(cube.header))
-            shapes.append((cube.cube.shape[1], cube.cube.shape[2]))
-            scales.append(get_pixel_size_arcsec(cube.header))
-            files.append(getattr(cube, "filename", None))
-            instruments.append(cube.instrument)
-        for line in imported_lines:
-            imp = line["imported_map"]
-            lines.append(line)
-            wcses.append(imp["wcs"])
-            shapes.append(imp["shape"])
-            scales.append(imp["pix_arcsec"])
-            files.append(imp["filename"])
-            instruments.append(imp["instrument"])
-        return {
-            "kept_lines": lines, "native_wcs": wcses, "native_shapes": shapes,
-            "native_pix_arcsec": scales, "cube_filenames": files,
-            "native_instrument": instruments, "dropped_lines": [],
-        }
-
-    def _run_map_fast_combine(self, cubes, cubes_and_lines, convolved_result, fit_kwargs,
+    def _run_map_fast_combine(self, cubes_and_lines, convolved_result, fit_kwargs,
                               imported_lines=None):
         """Run Map's fast path: recombine an already-convolved result into a
         temperature map, skipping native extraction and convolution entirely
         -- just the cheap final per-pixel combination.
 
         Args:
-            cubes (list): Currently loaded CubeData objects, for the final cache key
             cubes_and_lines (list): (CubeData, line_dict) pairs matching convolved_result
             convolved_result (dict): Output of convolve_reproject_maps
             fit_kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/dist_pc/r_au/min_lines
@@ -4190,8 +4114,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        line_table = [line for _, line in cubes_and_lines] + list(imported_lines or [])
-
         self.rot_map_progress = QProgressDialog(
             "Fitting rotational diagram per pixel (reusing calculated maps)...",
             "Cancel", 0, 0, self)
@@ -4210,7 +4132,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self._rot_map_cube_arg = None
         self._rot_map_line_table = None
         self._rot_map_fit_kwargs = fit_kwargs
-        self._rot_map_pending_cache_key = self._rot_map_cache_key(cubes, line_table, True, fit_kwargs)
 
         # Reuses _on_rot_map_complete/_on_rot_map_error as-is -- they only
         # care that the result dict matches create_rotational_diagram_map_multi's
@@ -4511,13 +4432,23 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if not cube_rows:
             merged = merge_native_results(None, imported_rows)
             geometry_key = self._rot_map_geometry_key([], n_sigma, imported_lines=imported_rows)
-            self._rot_map_native_cache = {"key": geometry_key, "result": merged}
+            self._rot_map_native_cache = {"key": geometry_key, "result": merged,
+                                          "contam_lines": self.contam_lines}
             self._clear_all_convolved_maps()
             self._populate_map_column(merged)
             QMessageBox.information(
                 self, "Calculate Maps",
                 "Imported map(s) ready. View them in the Map column, or click "
                 "Convolve Maps to put them on a common grid.")
+            return
+
+        cached_part, to_fit = self._rot_map_split_cached_pairs(cubes_and_lines, n_sigma)
+        self._calc_maps_cubes_and_lines = cubes_and_lines
+        self._calc_maps_n_sigma = n_sigma
+        self._calc_maps_imported_rows = imported_rows
+        self._calc_maps_cached_part = cached_part
+        if not to_fit:
+            self._on_calculate_maps_multi_complete(None)
             return
 
         threshold_note = (
@@ -4527,6 +4458,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         )
         if imported_rows:
             threshold_note += "(Applies to the cube-fit lines only -- imported maps are used as-is.)\n\n"
+        if cached_part is not None:
+            threshold_note += (
+                f"{len(cubes_and_lines) - len(to_fit)} line(s) already have maps and are kept. "
+                f"{len(to_fit)} new line(s) are calculated.\n\n")
         proceed = QMessageBox.question(
             self, "Calculate Maps", threshold_note + "Continue?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
@@ -4548,22 +4483,20 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.calculate_maps_btn.setEnabled(False)
         self.convolve_maps_btn.setEnabled(False)
 
-        self._calc_maps_cubes_and_lines = cubes_and_lines
-        self._calc_maps_n_sigma = n_sigma
-        self._calc_maps_imported_rows = imported_rows
         self.rot_map_worker = CalculateNativeMapsWorker(
-            cubes_and_lines, contam_lines=self.contam_lines, n_sigma=n_sigma)
+            to_fit, contam_lines=self.contam_lines, n_sigma=n_sigma)
         self.rot_map_worker.progress.connect(self._on_rot_map_progress)
         self.rot_map_worker.finished.connect(self._on_calculate_maps_multi_complete)
         self.rot_map_worker.error.connect(self._on_calculate_maps_error)
         self.rot_map_worker.start()
 
     def _on_calculate_maps_multi_complete(self, result):
-        """Merge in any imported rows, cache the combined native-resolution
-        result, and populate the Map column.
+        """Join the new maps with the kept maps, merge in any imported rows, cache
+        the combined native-resolution result, and populate the Map column.
 
         Args:
-            result: Computed compute_native_line_maps result.
+            result (dict): Computed compute_native_line_maps result, or None if
+                every checked line already had a map.
 
         Returns:
             None
@@ -4573,10 +4506,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             dlg.close()
         self.on_line_selected()
         imported_rows = getattr(self, "_calc_maps_imported_rows", [])
-        merged = merge_native_results(result, imported_rows) if imported_rows else result
+        cached_part = getattr(self, "_calc_maps_cached_part", None)
+        if cached_part is not None:
+            result = self._rot_map_join_native_results(cached_part, result)
+        merged = merge_native_results(result, imported_rows) if (imported_rows or cached_part is not None) else result
         geometry_key = self._rot_map_geometry_key(
             self._calc_maps_cubes_and_lines, self._calc_maps_n_sigma, imported_lines=imported_rows)
-        self._rot_map_native_cache = {"key": geometry_key, "result": merged}
+        self._rot_map_native_cache = {"key": geometry_key, "result": merged,
+                                      "contam_lines": self.contam_lines}
         self._clear_all_convolved_maps()
         self._populate_map_column(merged)
         QMessageBox.information(
@@ -4902,6 +4839,118 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         subset["dropped_lines"] = native_result["dropped_lines"]
         return subset, []
 
+    def _rot_map_split_cached_pairs(self, cubes_and_lines, n_sigma, tol_um=1e-9):
+        """Split the checked (cube, line) pairs into pairs that the cached Calculate
+        Maps result already holds and pairs that still need a fit. A cached map only
+        counts when the cube, the wavelength, the detection threshold and the
+        contaminating lines are the same.
+
+        Args:
+            cubes_and_lines (list): (CubeData, line_dict) pairs currently checked.
+            n_sigma (float): Detection threshold of the new run.
+            tol_um (float): Wavelength match tolerance in microns. Tight on purpose,
+                because a map fitted at another wavelength is another map.
+
+        Returns:
+            result (tuple): (cached_part, to_fit). cached_part has the cached maps of
+                the pairs found, in the shape compute_native_line_maps returns, or None
+                if no pair was found. to_fit lists the pairs that need a fit.
+        """
+        cache = getattr(self, "_rot_map_native_cache", None)
+        if (cache is None or cache["key"][2] != n_sigma
+                or cache.get("contam_lines") is not self.contam_lines):
+            return None, list(cubes_and_lines)
+        result = cache["result"]
+        cached = list(zip(result["cube_filenames"],
+                          [line["wavelength"] for line in result["kept_lines"]]))
+        found, to_fit = [], []
+        for cube, line in cubes_and_lines:
+            fname, wl = getattr(cube, "filename", None), line["wavelength"]
+            if any(cf == fname and abs(cwl - wl) <= tol_um for cf, cwl in cached):
+                found.append((cube, line))
+            else:
+                to_fit.append((cube, line))
+        if not found:
+            return None, to_fit
+        cached_part, _ = self._rot_map_subset_native_result(result, found, dedup_tol_um=tol_um)
+        return cached_part, to_fit
+
+    @staticmethod
+    def _rot_map_join_native_results(cached_part, new_result):
+        """Join cached native maps with the maps of a new fit into one result. The
+        order is not sorted here, because merge_native_results sorts it afterwards.
+
+        Args:
+            cached_part (dict): Cached maps, from _rot_map_split_cached_pairs.
+            new_result (dict): Output of compute_native_line_maps, or None if
+                every checked line was already cached.
+
+        Returns:
+            joined (dict): Same shape as compute_native_line_maps returns.
+        """
+        if new_result is None:
+            new_result = {key: [] for key in cached_part}
+        joined = {key: list(cached_part[key]) + list(new_result[key])
+                  for key in cached_part if key != "dropped_lines"}
+        joined["dropped_lines"] = list(new_result["dropped_lines"])
+        return joined
+
+    def _rot_map_checked_wavelengths(self):
+        """List the wavelengths of the checked lines that the map uses.
+        Lines marked Upper Limit are left out, as the map does not use them.
+
+        Args:
+            None
+
+        Returns:
+            wavelengths (list): Wavelength in um of each checked, non-upper-limit line.
+        """
+        wavelengths = []
+        for row in range(self.lines_table.rowCount()):
+            select_item = self.lines_table.item(row, 0)
+            ul_item = self.lines_table.item(row, 9)
+            if not (select_item and select_item.checkState() == Qt.Checked):
+                continue
+            if ul_item and ul_item.checkState() == Qt.Checked:
+                continue
+            wavelengths.append(self.hitran_lines[row]["wavelength"])
+        return wavelengths
+
+    def _rot_map_subset_convolved_result(self, convolved_result, wavelengths, tol_um=1e-5):
+        """Pick the given lines out of an already-convolved result. A convolved
+        map depends only on its own native map and the reference line, so a
+        subset that keeps the reference line needs no new convolution.
+
+        Args:
+            convolved_result (dict): Output of convolve_reproject_maps.
+            wavelengths (list): Wavelength in um of each line to keep.
+            tol_um (float): Matching tolerance in um.
+
+        Returns:
+            subset (dict or None): The result limited to those lines, in the
+                order of convolved_result. None if a line is not in it, or if
+                the coarsest of the lines is not its reference line.
+        """
+        cached = [line["wavelength"] for line in convolved_result["kept_lines"]]
+        indices = set()
+        for wl in wavelengths:
+            idx = next((i for i, cwl in enumerate(cached) if abs(cwl - wl) <= tol_um), None)
+            if idx is None:
+                return None
+            indices.add(idx)
+        if not indices:
+            return None
+        coarsest = max(cached[i] for i in indices)
+        if abs(coarsest - convolved_result["reference_wavelength"]) > tol_um:
+            return None
+        order = sorted(indices)
+        subset = dict(convolved_result)
+        for key in ("kept_lines", "line_flux_maps", "line_flux_error_maps",
+                    "native_flux_maps", "native_flux_error_maps", "native_wcs",
+                    "native_shapes", "native_pix_arcsec", "cube_filenames"):
+            subset[key] = [convolved_result[key][i] for i in order]
+        return subset
+
     def _show_convolution_plan_confirm(self, plan, window_title="Run Map -- convolution plan",
                                        question="Run the fit at every pixel of the common grid?",
                                        accept_label="Run Map",
@@ -5076,36 +5125,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         label = getattr(self, "_rot_map_progress_label", "Fitting rotational diagram")
         dlg.setLabelText(f"{label}: {current}/{total} pixels")
 
-    def _rot_map_cache_key(self, cubes, line_table, multi_mode, fit_kwargs):
-        """Snapshot of everything that determines Run Map's output, so a
-        repeat click with identical inputs can reuse a cached result instead
-        of recomputing.
-
-        Args:
-            cubes (list): Currently loaded CubeData objects
-            line_table (list): Line dicts Run Map would use
-            multi_mode (bool): Whether cubes need convolution/reprojection
-            fit_kwargs (dict): molecule/isotopologue/opr/fit_opr/opr_grid/
-                dist_pc/r_au/min_lines, as built in run_rotational_map
-
-        Returns:
-            key (tuple): Hashable, comparable snapshot
-        """
-        filenames = tuple(getattr(c, "filename", None) for c in cubes)
-        # (wavelength, imported-file-or-None) so re-importing a different
-        # file at the same wavelength correctly invalidates the cache.
-        wavelengths = tuple(sorted(
-            (round(l["wavelength"], 6), (l.get("imported_map") or {}).get("filename"))
-            for l in line_table
-        ))
-        kwargs_items = []
-        for k in sorted(fit_kwargs):
-            v = fit_kwargs[k]
-            if isinstance(v, np.ndarray):
-                v = tuple(np.round(v, 6).tolist())
-            kwargs_items.append((k, v))
-        return (multi_mode, filenames, wavelengths, tuple(kwargs_items))
-
     def _show_rot_map_results(self, result):
         """Build and show the map results dialog for an already-computed result.
 
@@ -5121,8 +5140,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         ).exec_()
 
     def _on_rot_map_complete(self, result):
-        """Close progress, re-enable the buttons, cache the result so closing
-        the results window doesn't force a recompute, and show it.
+        """Close progress, re-enable the buttons, and show the result.
 
         Args:
             result: Computed rotational-diagram map result.
@@ -5134,16 +5152,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         if dlg is not None:
             dlg.close()
         self.on_line_selected()
-        self._rot_map_cache = {
-            "key": self._rot_map_pending_cache_key,
-            "result": result,
-            "multi_mode": self._rot_map_multi_mode,
-            "cube_arg": self._rot_map_cube_arg,
-            "line_table": self._rot_map_line_table,
-            "fit_kwargs": self._rot_map_fit_kwargs,
-        }
-        self._populate_map_column(result)
-        self._populate_convolved_map_column(result)
+        self._populate_map_column(result, prune=False)
+        self._populate_convolved_map_column(result, prune=False)
         self._show_rot_map_results(result)
 
     def _on_rot_map_error(self, message):
