@@ -15,6 +15,8 @@
 # hitran_local/ is committed: the offline HITRAN starter pack, built by
 # warm_hitran_cache.py. Only on-demand fetches (in hitran_cache/) are ignored.
 /hitran_cache/
+# lst_local/ is committed: the LST line catalog the rest-line picker reads, with its ReadMe.
+!/lst_local/*.txt
 /CO/
 /cube_explorer/__pycache__/
 

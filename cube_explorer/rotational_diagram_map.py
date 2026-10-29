@@ -386,12 +386,12 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
     n_x = spectra_row.shape[1]
     t_row = np.full(n_x, np.nan, dtype=np.float32)
     dt_row = np.full(n_x, np.nan, dtype=np.float32)
-    n_row = np.full(n_x, np.nan, dtype=np.float32)
-    dn_row = np.full(n_x, np.nan, dtype=np.float32)
+    n_row = np.full(n_x, np.nan, dtype=np.float64)
+    dn_row = np.full(n_x, np.nan, dtype=np.float64)
     t2_row = np.full(n_x, np.nan, dtype=np.float32)
     dt2_row = np.full(n_x, np.nan, dtype=np.float32)
-    n2_row = np.full(n_x, np.nan, dtype=np.float32)
-    dn2_row = np.full(n_x, np.nan, dtype=np.float32)
+    n2_row = np.full(n_x, np.nan, dtype=np.float64)
+    dn2_row = np.full(n_x, np.nan, dtype=np.float64)
     nl_row = np.zeros(n_x, dtype=np.int16)
     st_row = np.full(n_x, STATUS_NO_DATA, dtype=np.int16)
     line_flux_row = np.full((n_lines_total, n_x), np.nan, dtype=np.float32)
@@ -554,9 +554,9 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
-            1 -- 1T's only component, or 2T's T1), 'T2', 'T2_err',
-            'Ncol2', 'Ncol2_err' (2D float32, 2T's T2 component, all-NaN
+        result (dict): 'T', 'T_err' (2D float32), 'Ncol', 'Ncol_err' (2D float64, component
+            1 -- 1T's only component, or 2T's T1), 'T2', 'T2_err' (2D float32),
+            'Ncol2', 'Ncol2_err' (2D float64, 2T's T2 component, all-NaN
             when fit2t is False), 'fit2t', 'n_lines', 'status' (2D int), plus
             'header', 'wave_range', 'molecule', 'dist_pc', 'r_au', 'opr',
             'kept_lines', 'dropped_lines', 'line_flux_maps',
@@ -588,12 +588,12 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
 
     t_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     dt_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
-    n_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
-    dn_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    n_map = np.full((n_y, n_x), np.nan, dtype=np.float64)
+    dn_map = np.full((n_y, n_x), np.nan, dtype=np.float64)
     t2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
     dt2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
-    n2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
-    dn2_map = np.full((n_y, n_x), np.nan, dtype=np.float32)
+    n2_map = np.full((n_y, n_x), np.nan, dtype=np.float64)
+    dn2_map = np.full((n_y, n_x), np.nan, dtype=np.float64)
     nlines_map = np.zeros((n_y, n_x), dtype=np.int16)
     status_map = np.full((n_y, n_x), STATUS_NO_DATA, dtype=np.int16)
     # Per-line flux/error maps: each line's own AUC at every pixel, the same
@@ -1344,8 +1344,8 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
         fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
-            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's T2
+        result (dict): 'T', 'T_err' (2D float32), 'Ncol', 'Ncol_err' (2D float64, component
+            1), 'T2', 'T2_err' (2D float32), 'Ncol2', 'Ncol2_err' (2D float64, 2T's T2
             component, all-NaN when fit2t is False), 'fit2t', 'n_lines',
             'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
             'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
@@ -1362,12 +1362,12 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
 
     t_map = np.full(dst_shape, np.nan, dtype=np.float32)
     dt_map = np.full(dst_shape, np.nan, dtype=np.float32)
-    n_map = np.full(dst_shape, np.nan, dtype=np.float32)
-    dn_map = np.full(dst_shape, np.nan, dtype=np.float32)
+    n_map = np.full(dst_shape, np.nan, dtype=np.float64)
+    dn_map = np.full(dst_shape, np.nan, dtype=np.float64)
     t2_map = np.full(dst_shape, np.nan, dtype=np.float32)
     dt2_map = np.full(dst_shape, np.nan, dtype=np.float32)
-    n2_map = np.full(dst_shape, np.nan, dtype=np.float32)
-    dn2_map = np.full(dst_shape, np.nan, dtype=np.float32)
+    n2_map = np.full(dst_shape, np.nan, dtype=np.float64)
+    dn2_map = np.full(dst_shape, np.nan, dtype=np.float64)
     nlines_map = np.zeros(dst_shape, dtype=np.int16)
     status_map = np.full(dst_shape, STATUS_NO_DATA, dtype=np.int16)
 
@@ -1492,8 +1492,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        result (dict): 'T', 'T_err', 'Ncol', 'Ncol_err' (2D float32, component
-            1), 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2D float32, 2T's T2
+        result (dict): 'T', 'T_err' (2D float32), 'Ncol', 'Ncol_err' (2D float64, component
+            1), 'T2', 'T2_err' (2D float32), 'Ncol2', 'Ncol2_err' (2D float64, 2T's T2
             component, all-NaN when fit2t is False), 'fit2t', 'n_lines',
             'status' (2D int), plus 'dst_wcs', 'molecule', 'dist_pc', 'r_au',
             'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
@@ -1773,7 +1773,9 @@ def save_rotational_diagram_map_fits(result, output_path):
         primary_header["PIXSCALE"] = (result["worst_pix_arcsec"], "arcsec/pixel, worst input")
 
     # Only the two temperature/column keys get BUNIT, not their _err counterparts -- matches before
-    bunit_by_key = {"T": "K", "Ncol": "cm-2", "T2": "K", "Ncol2": "cm-2"}
+    # Without a radius, N is a total molecule count, not a column density
+    n_unit = "molecules" if result.get("r_au") is None else "cm-2"
+    bunit_by_key = {"T": "K", "Ncol": n_unit, "T2": "K", "Ncol2": n_unit}
     keys = ("T", "T_err", "Ncol", "Ncol_err")
     if result.get("fit2t"):
         keys += ("T2", "T2_err", "Ncol2", "Ncol2_err")

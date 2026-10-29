@@ -1,12 +1,36 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QLabel
+    QTableWidgetItem, QLabel, QAbstractItemView, QApplication, QFileDialog, QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
 from .table_drag_select import SortableCheckboxTableMixin
-from .line_catalog import dedupe_colocated_lines
+from .line_catalog import dedupe_colocated_lines, load_line_list
+from .unit_converter import SPEED_OF_LIGHT_KMS
+
+
+def source_tint(row):
+    """Give the faint background color for the source of a line row.
+    The Lines table and the rest-line picker both use it, so one source has one color.
+
+    Args:
+        row (dict): A line row, as used throughout this module.
+
+    Returns:
+        color (QColor): The color for the row's source, or None for an unknown source.
+    """
+    source = row.get('source') or ''
+    if source == 'HITRAN':
+        return QColor(255, 200, 200, 80)  # Faint red, matches the darkred/orange marker
+    if source == 'Contaminant':
+        return QColor(190, 190, 190, 80)  # Faint grey, matches the black/dimgray marker
+    if source == 'LST':
+        return QColor(200, 215, 255, 110)
+    if source == 'Custom' or source.startswith('File'):
+        return QColor(255, 220, 120, 170)
+    return None
+
 
 class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
     """
@@ -241,20 +265,15 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
 
     @staticmethod
     def _row_tint(row):
-        """Faint background tint by source, or None for an untinted (Custom) row.
+        """Faint background tint by source, from the shared source_tint function.
 
         Args:
             row (dict): A line row, as used throughout this dialog.
 
         Returns:
-            color (QColor): Faint tint color, or None for an untinted row.
+            color (QColor): Faint tint color, or None for an unknown source.
         """
-        source = row.get('source')
-        if source == 'HITRAN':
-            return QColor(255, 200, 200, 80)  # Faint red, matches the darkred/orange marker
-        if source == 'Contaminant':
-            return QColor(190, 190, 190, 80)  # Faint grey, matches the black/dimgray marker
-        return None
+        return source_tint(row)
 
     def get_selected_rows(self):
         """Return the rows currently checked in the table.
@@ -373,3 +392,263 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
             None: Reassigns self.rows in place.
         """
         self.rows = [self.rows[old_row] for old_row in order]
+
+
+class _NumericItem(QTableWidgetItem):
+    """Table cell that sorts by a number and not by its text."""
+
+    def __lt__(self, other):
+        """Compare the stored numbers of two cells.
+
+        Args:
+            other (QTableWidgetItem): The cell to compare with.
+
+        Returns:
+            is_less (bool): True if this cell has the smaller number.
+        """
+        return self.data(Qt.UserRole) < other.data(Qt.UserRole)
+
+
+class RestLineDialog(QDialog):
+    """Table where the user picks the line that sets zero velocity.
+    It lists the lines of one molecule from HITRAN and LST, and from files the user loads.
+    """
+
+    MAX_ROWS = 2000
+    _COLUMNS = ["Source", "λ vacuum (µm)", "Offset from peak (km/s)", "Species",
+                "Transition", "A-coeff (s⁻¹)", "E_upper (K)"]
+
+    def __init__(self, rows, molecule, window_um, peak_um, notes, parent=None):
+        """Build the line picker and select the most likely line.
+
+        Args:
+            rows (list): Line dicts with 'wavelength' in um (vacuum) and a 'source'.
+            molecule (str): Molecule or atom name the user chose.
+            window_um (tuple): (lower, upper) end of the fit window, in um (vacuum).
+            peak_um (float): Wavelength of the fitted peak, in um (vacuum).
+            notes (list): Sentences that say which line source failed or is missing.
+            parent (QWidget): Parent widget, or None for a top-level dialog.
+
+        Returns:
+            None
+        """
+        super().__init__(parent)
+        self.setWindowTitle(f"Rest Line for Zero Velocity ({molecule})")
+        self.setMinimumSize(760, 420)
+        self.molecule = molecule
+        self.window_um = window_um
+        self.peak_um = peak_um
+        self._rows = list(rows)
+        self._notes = list(notes)
+
+        layout = QVBoxLayout(self)
+        self.summary_label = QLabel()
+        self.summary_label.setWordWrap(True)
+        layout.addWidget(self.summary_label)
+        self.notes_label = QLabel()
+        self.notes_label.setWordWrap(True)
+        layout.addWidget(self.notes_label)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(self._COLUMNS))
+        self.table.setHorizontalHeaderLabels(self._COLUMNS)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.itemSelectionChanged.connect(self._update_ok_button)
+        self.table.itemDoubleClicked.connect(lambda _item: self.accept())
+        layout.addWidget(self.table)
+
+        button_row = QHBoxLayout()
+        self.load_btn = QPushButton("Load line list file...")
+        self.load_btn.setToolTip("Add lines from a CSV, a HITRAN-format .par file (for example HITEMP), or an LST .lst file.")
+        self.load_btn.clicked.connect(self._load_file)
+        self.ok_btn = QPushButton("OK")
+        self.ok_btn.clicked.connect(self.accept)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(self.load_btn)
+        button_row.addStretch()
+        button_row.addWidget(self.ok_btn)
+        button_row.addWidget(self.cancel_btn)
+        layout.addLayout(button_row)
+
+        self._refresh()
+
+    @staticmethod
+    def _source_rank(row):
+        """Rank a line source for the default selection. A lower number wins.
+
+        Args:
+            row (dict): A line row with a 'source'.
+
+        Returns:
+            rank (int): 0 for a loaded file, 1 for HITRAN, 2 for any other source.
+        """
+        source = row.get('source') or ''
+        if source.startswith('File'):
+            return 0
+        return 1 if source == 'HITRAN' else 2
+
+    def _offset_kms(self, row):
+        """Give the Doppler velocity of a line relative to the fitted peak.
+
+        Args:
+            row (dict): A line row with a 'wavelength' in um (vacuum).
+
+        Returns:
+            offset (float): Velocity in km/s. Positive means the line is redward of the peak.
+        """
+        return SPEED_OF_LIGHT_KMS * (row['wavelength'] - self.peak_um) / self.peak_um
+
+    def _refresh(self):
+        """Fill the table from the stored rows and select the best default line.
+        Only the MAX_ROWS lines nearest the peak show, and the summary says so.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        ordered = sorted(range(len(self._rows)), key=lambda k: abs(self._rows[k]['wavelength'] - self.peak_um))
+        shown = ordered[:self.MAX_ROWS]
+        summary = (f"{len(self._rows):,} {self.molecule} line(s) between {self.window_um[0]:.5f} and "
+                   f"{self.window_um[1]:.5f} um (vacuum). The fitted peak is at {self.peak_um:.5f} um. "
+                   "Select the line that this peak shows.")
+        if len(self._rows) > len(shown):
+            summary += (f" The table shows the {len(shown):,} lines nearest the peak. "
+                        "Use a narrower fit window to see the others.")
+        if not self._rows:
+            summary = (f"No built-in source lists a {self.molecule} line between {self.window_um[0]:.5f} and "
+                       f"{self.window_um[1]:.5f} um (vacuum). Use \"Load line list file...\" to add lines "
+                       "from a CSV, a HITRAN-format .par file, or an LST .lst file.")
+        self.summary_label.setText(summary)
+        self.notes_label.setText("\n".join(self._notes))
+        self.notes_label.setVisible(bool(self._notes))
+
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(shown))
+        for i, row_index in enumerate(shown):
+            row = self._rows[row_index]
+            source = row.get('source') or ''
+            if source == 'LST' and row.get('lst_model'):
+                source = f"LST ({row['lst_model']})"
+            species = row.get('species', '')
+            if row.get('isotopologue_name'):
+                species = f"{species} ({row['isotopologue_name']})"
+            cells = [
+                QTableWidgetItem(source),
+                self._numeric_cell(row['wavelength'], f"{row['wavelength']:.6f}"),
+                self._numeric_cell(self._offset_kms(row), f"{self._offset_kms(row):+.1f}"),
+                QTableWidgetItem(species),
+                QTableWidgetItem(row.get('transition') or "N/A"),
+                self._numeric_cell(row.get('a_coeff'), f"{row['a_coeff']:.2e}" if row.get('a_coeff') is not None else "N/A"),
+                self._numeric_cell(row.get('e_upper'), f"{row['e_upper']:.2f}" if row.get('e_upper') is not None else "N/A"),
+            ]
+            cells[0].setData(Qt.UserRole + 1, row_index)
+            tint = source_tint(row)
+            for column, cell in enumerate(cells):
+                if tint is not None:
+                    cell.setBackground(tint)
+                self.table.setItem(i, column, cell)
+        self.table.setSortingEnabled(True)
+        self.table.sortItems(1, Qt.AscendingOrder)
+        self._select_best(shown)
+        self._update_ok_button()
+
+    @staticmethod
+    def _numeric_cell(value, text):
+        """Make a table cell that shows text and sorts by value.
+
+        Args:
+            value (float): Number to sort by. None sorts first.
+            text (str): Text to show.
+
+        Returns:
+            cell (_NumericItem): The new table cell.
+        """
+        cell = _NumericItem(text)
+        cell.setData(Qt.UserRole, float('-inf') if value is None else float(value))
+        return cell
+
+    def _select_best(self, shown):
+        """Select the line nearest the peak from the highest-ranked source.
+
+        Args:
+            shown (list): Indices into self._rows of the lines now in the table.
+
+        Returns:
+            None
+        """
+        if not shown:
+            return
+        best_index = min(shown, key=lambda k: (self._source_rank(self._rows[k]),
+                                               abs(self._rows[k]['wavelength'] - self.peak_um)))
+        for row_number in range(self.table.rowCount()):
+            if self.table.item(row_number, 0).data(Qt.UserRole + 1) == best_index:
+                self.table.selectRow(row_number)
+                self.table.scrollToItem(self.table.item(row_number, 0))
+                return
+
+    def _update_ok_button(self):
+        """Turn the OK button on only when a line is selected.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.ok_btn.setEnabled(self.selected_row() is not None)
+
+    def _load_file(self):
+        """Ask for a line list file and add its lines of this molecule to the table.
+        A file that cannot be read shows a message, and the table stays as it was.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Line List", "", "Line lists (*.csv *.par *.lst);;All Files (*.*)")
+        if not path:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            new_rows = load_line_list(path, self.window_um[0], self.window_um[1], self.molecule)
+            error = None
+        except (ValueError, OSError) as exc:
+            new_rows, error = None, exc
+        finally:
+            QApplication.restoreOverrideCursor()
+        if error is not None:
+            QMessageBox.warning(self, "Line List Not Loaded", str(error))
+            return
+        if not new_rows:
+            QMessageBox.information(
+                self, "No Lines In Range",
+                f"The file has no {self.molecule} line between {self.window_um[0]:.5f} and "
+                f"{self.window_um[1]:.5f} um.")
+            return
+        loaded_source = new_rows[0]['source']
+        self._rows = [r for r in self._rows if r.get('source') != loaded_source] + new_rows
+        self._refresh()
+
+    def selected_row(self):
+        """Give the line row the user selected.
+
+        Args:
+            None
+
+        Returns:
+            row (dict): The selected line row, or None if no row is selected.
+        """
+        selected = self.table.selectionModel().selectedRows()
+        if not selected:
+            return None
+        item = self.table.item(selected[0].row(), 0)
+        return self._rows[item.data(Qt.UserRole + 1)]

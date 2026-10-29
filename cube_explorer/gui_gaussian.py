@@ -1,13 +1,19 @@
 import numpy as np
-from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import (
+    QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton,
+    QApplication, QInputDialog,
+)
 from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
 from .gui_sizing import fit_to_screen
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
-from .species_dialog import SpeciesDialog
-from .unit_converter import clean_flux_unit, clean_wave_unit
+from .line_catalog import available_rest_line_species, collect_rest_line_candidates
+from .species_dialog import SpeciesDialog, RestLineDialog
+from .unit_converter import (
+    clean_flux_unit, clean_wave_unit, spectral_axis_medium, cube_wavelength_to_vacuum_um,
+)
 from .utils import take_resolution_notes
 from .flux_map_extractor import (
     fit_auto_continuum, DISPLAY_CROP_SIGMA_MULTIPLIER,
@@ -969,6 +975,11 @@ STATUS: {result.message}
             QMessageBox.warning(self, "Missing Boundaries", "Set Fit Left and Fit Right first.")
             return
 
+        if self.gauss_peak_x is None:
+            QMessageBox.warning(self, "Peak Selection Required",
+                                "Set Peak first. Click Peak, then click the spectrum at the line peak.")
+            return
+
         if not hasattr(self, 'cube_data') or self.cube_data is None:
             return
 
@@ -1164,6 +1175,56 @@ STATUS: {result.message}
         self.gauss_progress.close()
         QMessageBox.critical(self, "Error", f"Gaussian map fitting error:\n{error_msg}")
 
+    def _choose_rest_line(self, parent=None):
+        """Ask the user for the line that sets zero velocity on the velocity map.
+        The user picks a molecule, then picks one of its lines in the fit window.
+
+        Args:
+            parent (QWidget): Window that owns the prompts, or None for the main window.
+
+        Returns:
+            result (tuple): (line, reason). line is the chosen line row, or None.
+                reason is a sentence that says why there is no line, or None.
+        """
+        if parent is None:
+            parent = self
+        if self.gauss_left_x is None or self.gauss_right_x is None:
+            return None, "The fit window is not set."
+        if self.gauss_peak_x is None:
+            return None, "The peak is not set."
+        wave_unit = self.cube_data.wave_unit
+        medium = spectral_axis_medium(self.cube_data.header)
+        if medium is None:
+            return None, ("The cube header does not say if its wavelengths are in air or in vacuum "
+                          "(CTYPE3 must be WAVE or AWAV), so a rest wavelength cannot be compared.")
+        lam_min = min(self.gauss_left_x, self.gauss_right_x)
+        lam_max = max(self.gauss_left_x, self.gauss_right_x)
+        try:
+            window_um = tuple(float(cube_wavelength_to_vacuum_um(x, wave_unit, medium)) for x in (lam_min, lam_max))
+            peak_um = float(cube_wavelength_to_vacuum_um(self.gauss_peak_x, wave_unit, medium))
+        except ValueError as exc:
+            return None, str(exc)
+
+        names, _notes = available_rest_line_species()
+        last = getattr(self, '_rest_molecule', None)
+        molecule, ok = QInputDialog.getItem(
+            parent, "Velocity Map: Rest Line",
+            "Molecule or atom of the line that sets zero velocity:",
+            names, names.index(last) if last in names else 0, False)
+        if not ok:
+            return None, "No molecule was chosen, so no rest wavelength sets zero velocity."
+        self._rest_molecule = molecule
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            rows, notes = collect_rest_line_candidates(molecule, window_um[0], window_um[1])
+        finally:
+            QApplication.restoreOverrideCursor()
+        picker = RestLineDialog(rows, molecule, window_um, peak_um, notes, parent=parent)
+        if picker.exec_() != QDialog.Accepted:
+            return None, "No rest line was chosen."
+        return picker.selected_row(), None
+
     def _show_gaussian_map_results(self, results: dict, tab=None):
         """Open the Gaussian map results dialog for a tab's completed fit.
 
@@ -1187,5 +1248,6 @@ STATUS: {result.message}
             noise_min=getattr(self, 'gauss_cache_noise_min', None),
             noise_max=getattr(self, 'gauss_cache_noise_max', None),
             gauss_peak_x=getattr(self, 'gauss_peak_x', None),
+            rest_line_chooser=self._choose_rest_line,
         )
         dlg.exec_()

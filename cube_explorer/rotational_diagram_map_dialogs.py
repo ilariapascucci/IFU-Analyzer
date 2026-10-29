@@ -42,11 +42,12 @@ from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_
 
 # Display combo: label -> (1T/T1 key, T2 key or None, colour-bar label).
 # 2T draws T1/T2 as two side-by-side panels; a None hot_key stays single.
+# {unit} is filled in by column_unit(): cm⁻² with a radius, molecules without.
 _PARAMS = [
     ("Temperature", "T", "T2", "T (K)"),
     ("Temperature error", "T_err", "T2_err", "dT (K)"),
-    ("Column density", "Ncol", "Ncol2", "N_u (cm⁻²)"),
-    ("Column density error", "Ncol_err", "Ncol2_err", "dN_u (cm⁻²)"),
+    ("Column density", "Ncol", "Ncol2", "N_u ({unit})"),
+    ("Column density error", "Ncol_err", "Ncol2_err", "dN_u ({unit})"),
     ("Lines used", "n_lines", None, "detections"),
     ("Fit mask", "status", None, "1 = fitted"),
 ]
@@ -365,6 +366,19 @@ class CombineMapsWorker(QThread):
         self.cancelled = True
 
 
+def column_unit(r_au):
+    """
+    The unit of N: cm⁻² with an emitting radius, molecules without one.
+
+    Args:
+        r_au (float): Emitting radius in au, or None if the user left it empty
+
+    Returns:
+        unit (str): "cm⁻²" or "molecules"
+    """
+    return "molecules" if r_au is None else "cm⁻²"
+
+
 def input_lines(r_au, dist_pc):
     """
     The emitting radius and distance lines of a results text, the Run Fit wording.
@@ -410,13 +424,14 @@ def _fit_block(results, r_au, dist_pc):
     Returns:
         text (str): The radius, distance and OPR lines plus the fit's temperature(s) and column density(s)
     """
+    unit = column_unit(r_au)
     text = input_lines(r_au, dist_pc) + _opr_line(results)
     if "1T" in results:
         r1 = results["1T"]
         text += (
             "\n--- 1T FIT ---\n"
             + f"T = {r1['T']:.1f} ± {r1['dT']:.1f} K\n"
-            + f"Ncol = {r1['Ncol']:.2e} ± {r1['dNcol']:.2e} cm⁻²\n"
+            + f"Ncol = {r1['Ncol']:.2e} ± {r1['dNcol']:.2e} {unit}\n"
         )
     if "2T" in results:
         r2 = results["2T"]
@@ -424,8 +439,8 @@ def _fit_block(results, r_au, dist_pc):
             "\n--- 2T FIT ---\n"
             + f"T1 = {r2['T1']:.1f} ± {r2.get('dT1', float('nan')):.1f} K\n"
             + f"T2 = {r2['T2']:.1f} ± {r2.get('dT2', float('nan')):.1f} K\n"
-            + f"Ncol1 = {r2['Ncol1']:.2e} ± {r2.get('dNcol1', float('nan')):.2e} cm⁻²\n"
-            + f"Ncol2 = {r2['Ncol2']:.2e} ± {r2.get('dNcol2', float('nan')):.2e} cm⁻²\n"
+            + f"Ncol1 = {r2['Ncol1']:.2e} ± {r2.get('dNcol1', float('nan')):.2e} {unit}\n"
+            + f"Ncol2 = {r2['Ncol2']:.2e} ± {r2.get('dNcol2', float('nan')):.2e} {unit}\n"
         )
     return text
 
@@ -825,6 +840,7 @@ class RotDiagMapResultsDialog(QDialog):
             None
         """
         label, key, hot_key, cbar_label = _PARAMS[self.param_combo.currentIndex()]
+        cbar_label = cbar_label.format(unit=column_unit(self.fit_kwargs["r_au"]))
         self.fig.clear()
         # clear() drops the axes but not tight_layout()'s last spacing fix,
         # so repeated redraws keep tightening further -- reset it each time.
@@ -1092,12 +1108,13 @@ class RotDiagMapResultsDialog(QDialog):
             ]
 
         t1_label = "TEMPERATURE T1 (K)" if self.fit2t else "TEMPERATURE (K)"
-        ncol1_label = "COLUMN DENSITY N_u T1 (cm⁻²)" if self.fit2t else "COLUMN DENSITY N_u (cm⁻²)"
+        unit = column_unit(self.fit_kwargs["r_au"])
+        ncol1_label = f"COLUMN DENSITY N_u T1 ({unit})" if self.fit2t else f"COLUMN DENSITY N_u ({unit})"
         lines += _block(t1_label, self.result["T"], ".1f")
         lines += _block(ncol1_label, self.result["Ncol"], ".3e")
         if self.fit2t:
             lines += _block("TEMPERATURE T2 (K)", self.result["T2"], ".1f")
-            lines += _block("COLUMN DENSITY N_u T2 (cm⁻²)", self.result["Ncol2"], ".3e")
+            lines += _block(f"COLUMN DENSITY N_u T2 ({unit})", self.result["Ncol2"], ".3e")
         lines += _block("LINES USED PER FITTED PIXEL", self.result["n_lines"].astype(float), ".1f")
 
         n_ceiling = int(np.sum(ok & (self.result["T"] >= 0.99 * t_cap)))

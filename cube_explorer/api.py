@@ -552,6 +552,73 @@ def create_gaussian_map(cube_data, lam_min=None, lam_max=None, n_jobs=None, **kw
     )
 
 
+from .line_catalog import (
+    collect_rest_line_candidates as _collect_rest_line_candidates,
+    load_line_list as _load_line_list,
+)
+from .unit_converter import (
+    spectral_axis_medium as _spectral_axis_medium,
+    vacuum_um_to_cube_wavelength as _vacuum_um_to_cube_wavelength,
+    wavelength_to_doppler_velocity as _wavelength_to_doppler_velocity,
+)
+
+
+def find_rest_lines(molecule, lam_min, lam_max, line_list_path=None):
+    """
+    List the lines of one molecule that can set zero velocity, in a wavelength window.
+    It reads HITRAN and the LST catalog, and every line stays in the list.
+    Pass the 'wavelength' of the line you pick to create_velocity_map().
+
+    Args:
+        molecule (str): Molecule or atom name, for example 'CO', 'H2' or 'He I'
+        lam_min (float): Lower end of the window, in um (vacuum)
+        lam_max (float): Upper end of the window, in um (vacuum)
+        line_list_path (str, optional): CSV file, HITRAN-format .par file (for example
+            HITEMP), or LST .lst file with more lines of this molecule. Its lines have a
+            'source' that starts with 'File'.
+
+    Returns:
+        list: Line dicts sorted by wavelength. 'wavelength' is in um (vacuum), and 'source'
+            is 'HITRAN', 'LST' or 'File: <name>'.
+
+    Raises:
+        ValueError: if the window is not 0 < lam_min < lam_max, or line_list_path is not
+            a readable line list of this molecule
+    """
+    rows, notes = _collect_rest_line_candidates(molecule, lam_min, lam_max)
+    for note in notes:
+        print(f"[WARN] {note}")
+    if line_list_path is not None:
+        rows = rows + _load_line_list(line_list_path, lam_min, lam_max, molecule)
+    return sorted(rows, key=lambda row: row['wavelength'])
+
+
+def create_velocity_map(cube_data, maps, rest_wavelength):
+    """
+    Make a Doppler velocity map from Gaussian map line centers and a rest wavelength.
+    Zero velocity is the rest wavelength, in um (vacuum), as find_rest_lines() gives it.
+    The function converts it to the air or vacuum wavelengths that the cube uses.
+
+    Args:
+        cube_data (CubeData): Loaded cube from load_cube()
+        maps (dict): Result of create_gaussian_map()
+        rest_wavelength (float): Rest wavelength of the line, in um (vacuum)
+
+    Returns:
+        numpy.ndarray: Velocity map in km/s. A pixel without a fitted center is NaN.
+
+    Raises:
+        ValueError: if the cube header does not say if wavelengths are in air or in vacuum,
+            or the spectral axis is not a wavelength
+    """
+    medium = _spectral_axis_medium(cube_data.header)
+    if medium is None:
+        raise ValueError("The cube header does not say if its wavelengths are in air or in vacuum "
+                         "(CTYPE3 must be WAVE or AWAV), so a rest wavelength cannot be compared.")
+    rest = float(_vacuum_um_to_cube_wavelength(rest_wavelength, cube_data.wave_unit, medium))
+    return _wavelength_to_doppler_velocity(maps['center'], rest, cube_data.wave_unit)
+
+
 def export_residual_cube(cube_data, out_path="residual_cube.fits", lam_min=None,
                           lam_max=None, n_jobs=None, return_cube=False):
     """
@@ -914,7 +981,7 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
         fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel
 
     Returns:
-        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2) --
+        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float64, cm^-2, or molecules if r_au is None) --
             component 1 (1T's only component, or 2T's T1); 'T2', 'T2_err',
             'Ncol2', 'Ncol2_err' (2T's T2 component, all-NaN when fit2t is False);
             'fit2t', 'n_lines' (2D int, lines used per pixel), 'status' (2D int, one
@@ -992,7 +1059,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
             to 'region_fit', whose whole-cube sum keeps the 3-sigma rule
 
     Returns:
-        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float32, cm^-2) --
+        dict: 'T', 'T_err' (2D float32, K), 'Ncol', 'Ncol_err' (2D float64, cm^-2, or molecules if r_au is None) --
             component 1; 'T2', 'T2_err', 'Ncol2', 'Ncol2_err' (2T's T2 component,
             all-NaN when fit2t is False); 'fit2t', 'n_lines' (2D int), 'status' (2D
             int, see create_rotational_diagram_map), 'region_fit' (the whole-cube-
@@ -1084,6 +1151,8 @@ __all__ = [
     'fit_hitran_lines',
     'measure_equivalent_width',
     'create_gaussian_map',
+    'find_rest_lines',
+    'create_velocity_map',
     'export_residual_cube',
     # Flux
     'extract_flux',

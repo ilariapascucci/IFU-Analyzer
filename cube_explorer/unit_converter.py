@@ -149,6 +149,148 @@ def doppler_velocity_to_wavelength_factor(velocity):
     return 1 / (1 + velocity / SPEED_OF_LIGHT_KMS)
 
 
+def _angstrom_per_unit(wave_unit):
+    """
+    Give the number of angstrom in one wave_unit.
+
+    Args:
+        wave_unit (str): Unit of length, for example 'um' or 'Angstrom'
+
+    Returns:
+        scale (float): Angstrom per wave_unit
+
+    Raises:
+        ValueError: if wave_unit is not a unit of length
+    """
+    unit_obj = _string_to_astropy_unit(wave_unit)
+    if unit_obj is None or unit_obj.physical_type != 'length':
+        raise ValueError(f"Air and vacuum wavelengths need a wavelength axis, but the spectral unit is '{wave_unit}'")
+    return float(unit_obj.to(u.AA))
+
+
+def _air_refraction_index(vacuum_angstrom):
+    """
+    Give the refractive index of air for a vacuum wavelength in angstrom.
+    Uses the IAU standard formula (Morton 1991), valid above 2000 angstrom.
+
+    Args:
+        vacuum_angstrom (float/array): Vacuum wavelength or wavelengths, in angstrom
+
+    Returns:
+        index (float/array): Refractive index of air, same shape as the input
+    """
+    sigma_squared = (1e4 / vacuum_angstrom) ** 2
+    return 1 + 6.4328e-5 + 2.94981e-2 / (146 - sigma_squared) + 2.5540e-4 / (41 - sigma_squared)
+
+
+def vacuum_to_air_wavelength(wavelength, wave_unit):
+    """
+    Convert vacuum wavelengths to air wavelengths with the IAU standard formula.
+    The result has the same shape and the same unit as the input.
+
+    Args:
+        wavelength (float/array): Vacuum wavelength or wavelengths, in wave_unit
+        wave_unit (str): Unit of wavelength, for example 'um' or 'Angstrom'
+
+    Returns:
+        air_wavelength (float/array): Air wavelength or wavelengths, in wave_unit
+
+    Raises:
+        ValueError: if wave_unit is not a unit of length
+    """
+    vacuum = np.asarray(wavelength, dtype=float)
+    return vacuum / _air_refraction_index(vacuum * _angstrom_per_unit(wave_unit))
+
+
+def air_to_vacuum_wavelength(wavelength, wave_unit):
+    """
+    Convert air wavelengths to vacuum wavelengths with the IAU standard formula.
+    This inverts vacuum_to_air_wavelength by fixed-point iteration.
+
+    Args:
+        wavelength (float/array): Air wavelength or wavelengths, in wave_unit
+        wave_unit (str): Unit of wavelength, for example 'um' or 'Angstrom'
+
+    Returns:
+        vacuum_wavelength (float/array): Vacuum wavelength or wavelengths, in wave_unit
+
+    Raises:
+        ValueError: if wave_unit is not a unit of length
+    """
+    air = np.asarray(wavelength, dtype=float)
+    scale = _angstrom_per_unit(wave_unit)
+    vacuum = air
+    for _ in range(3):
+        vacuum = air * _air_refraction_index(vacuum * scale)
+    return vacuum
+
+
+def spectral_axis_medium(header):
+    """
+    Tell if a cube measures wavelengths in air or in vacuum.
+    The FITS axis type decides: 'AWAV' means air and 'WAVE' means vacuum.
+
+    Args:
+        header (astropy.io.fits.Header): Cube header, or None
+
+    Returns:
+        medium (str): 'air' or 'vacuum', or None if no axis type states it
+    """
+    if header is None:
+        return None
+    for axis in range(1, 5):
+        axis_type = str(header.get(f'CTYPE{axis}', '')).strip().upper()
+        if axis_type.startswith('AWAV'):
+            return 'air'
+        if axis_type.startswith('WAVE'):
+            return 'vacuum'
+    return None
+
+
+def cube_wavelength_to_vacuum_um(wavelength, wave_unit, medium):
+    """
+    Convert wavelengths as a cube measures them to vacuum wavelengths in um.
+    Line lists give vacuum wavelengths in um, so this puts cube values on the same scale.
+
+    Args:
+        wavelength (float/array): Wavelength or wavelengths, in wave_unit
+        wave_unit (str): Unit of wavelength, for example 'um' or 'Angstrom'
+        medium (str): 'air' or 'vacuum', as spectral_axis_medium gives it
+
+    Returns:
+        vacuum_um (float/array): Vacuum wavelength or wavelengths, in um
+
+    Raises:
+        ValueError: if wave_unit is not a unit of length, or medium is not valid
+    """
+    if medium not in ('air', 'vacuum'):
+        raise ValueError(f"Medium must be 'air' or 'vacuum', got {medium!r}")
+    micron = convert_wavelength(wavelength, wave_unit, 'um')
+    return air_to_vacuum_wavelength(micron, 'um') if medium == 'air' else np.asarray(micron, dtype=float)
+
+
+def vacuum_um_to_cube_wavelength(vacuum_um, wave_unit, medium):
+    """
+    Convert vacuum wavelengths in um to wavelengths as a cube measures them.
+    This inverts cube_wavelength_to_vacuum_um.
+
+    Args:
+        vacuum_um (float/array): Vacuum wavelength or wavelengths, in um
+        wave_unit (str): Unit the cube uses, for example 'um' or 'Angstrom'
+        medium (str): 'air' or 'vacuum', as spectral_axis_medium gives it
+
+    Returns:
+        wavelength (float/array): Wavelength or wavelengths, in wave_unit
+
+    Raises:
+        ValueError: if wave_unit is not a unit of length, or medium is not valid
+    """
+    if medium not in ('air', 'vacuum'):
+        raise ValueError(f"Medium must be 'air' or 'vacuum', got {medium!r}")
+    micron = vacuum_to_air_wavelength(vacuum_um, 'um') if medium == 'air' else np.asarray(vacuum_um, dtype=float)
+    return convert_wavelength(micron, 'um', wave_unit)
+
+
 def are_units_compatible(unit1, unit2):
     """
     Check if two units are compatible, for example both wavelength or both velocity.

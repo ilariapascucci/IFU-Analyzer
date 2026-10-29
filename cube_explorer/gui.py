@@ -952,7 +952,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         )
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
         self.gauss_map_btn.setToolTip(
-            "Fit a Gaussian at every pixel. This uses Fit Left, Fit Right, Noise Left, and Noise Right.")
+            "Fit a Gaussian at every pixel. This uses Fit Left, Peak, Fit Right, Noise Left, and Noise Right.")
         self.multi_gauss_fit_btn.setToolTip("Fit Gaussians to all selected HITRAN lines using current continuum")
         self.gauss_noise_left_btn.setToolTip("Click the spectrum to set the left edge of a line-free noise region.")
         self.gauss_noise_right_btn.setToolTip("Click the spectrum to set the right edge of a line-free noise region.")

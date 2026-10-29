@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import time
 from astropy.io import ascii
-from .unit_converter import wavelength_to_doppler_velocity, extract_value_from_quantity
+from .unit_converter import wavelength_to_doppler_velocity, extract_value_from_quantity, convert_wavelength
 
 # -------------------- Helper Functions --------------------
 # Shared by CSV import, Import Map, and Gaussian Map's export identity lookup.
@@ -838,3 +838,396 @@ def load_custom_line_catalog(filepath):
     except Exception as e:
         print(f"Error loading custom line catalog: {e}")
         return None
+
+
+# -------------------- Rest-Line Candidates (velocity map) --------------------
+LST_CATALOG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'lst_local', 'publis20240406.lst')
+
+# HITRAN writes isotopologue numbers 10, 11 and 12 as one character.
+_PAR_ISOTOPOLOGUE_CODES = {'0': 10, 'A': 11, 'B': 12}
+_PAR_RECORD_LENGTH = 160
+
+
+def _lst_records(path):
+    """Read the records of an LST catalog file (.lst) one at a time.
+    The header line and any line that is not a record are skipped.
+
+    Args:
+        path (str): Path to the .lst file.
+
+    Returns:
+        records (generator): One line dict per record, as _parse_lst_record gives it.
+    """
+    with open(path, 'r', encoding='utf-8', errors='replace') as handle:
+        for line in handle:
+            row = _parse_lst_record(line.rstrip('\r\n'))
+            if row is not None:
+                yield row
+
+
+def available_rest_line_species():
+    """List the molecules and atoms that have rest-line data in this app.
+
+    Args:
+        None
+
+    Returns:
+        result (tuple): (names, notes). names is a sorted list of species names.
+            notes is a list of sentences that say which source is missing.
+    """
+    names = set(get_available_molecules())
+    notes = []
+    if not os.path.exists(LST_CATALOG_PATH):
+        notes.append(f"The LST catalog is not at {LST_CATALOG_PATH}, so its lines are not available.")
+    else:
+        try:
+            names.update(row['species'] for row in _lst_records(LST_CATALOG_PATH))
+        except OSError as exc:
+            notes.append(f"The LST catalog cannot be read: {exc}")
+    return sorted(names, key=str.lower), notes
+
+
+def _lst_lines(species, wavelength_min, wavelength_max):
+    """Select the LST catalog lines of one species in a wavelength range.
+
+    Args:
+        species (str): Species name as the catalog writes it, for example 'H2' or 'He I'.
+        wavelength_min (float): Lower end of the range, in um (vacuum).
+        wavelength_max (float): Upper end of the range, in um (vacuum).
+
+    Returns:
+        rows (list): Line dicts in the fetch_hitran_data row format, tagged 'LST'.
+            None if the catalog file does not exist.
+
+    Raises:
+        OSError: if the catalog file cannot be read.
+    """
+    if not os.path.exists(LST_CATALOG_PATH):
+        return None
+    rows = []
+    for row in _lst_records(LST_CATALOG_PATH):
+        if row['species'] == species and wavelength_min <= row['wavelength'] <= wavelength_max:
+            row['model'] = 'LST'
+            row['source'] = 'LST'
+            rows.append(row)
+    rows.sort(key=lambda r: r['wavelength'])
+    return rows
+
+
+def _check_window(wavelength_min, wavelength_max):
+    """Check that a wavelength window is above zero and in order.
+
+    Args:
+        wavelength_min (float): Lower end of the window, in um.
+        wavelength_max (float): Upper end of the window, in um.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if the lower end is not above 0, or is not below the upper end.
+    """
+    if not 0 < wavelength_min < wavelength_max:
+        raise ValueError(f"The wavelength window must have 0 < lower < upper, "
+                         f"but it is {wavelength_min} to {wavelength_max} um.")
+
+
+def _par_transition(record):
+    """Write the quantum numbers of one .par record as upper -> lower text.
+
+    Args:
+        record (str): One 160-character HITRAN-format line.
+
+    Returns:
+        label (str): Global quanta, a bar, then local quanta. A blank field shows as '-'.
+    """
+    def field(start, stop):
+        """Return one quanta field with its spaces collapsed.
+
+        Args:
+            start (int): First character of the field.
+            stop (int): End of the field, not included.
+
+        Returns:
+            text (str): The field text, or '-' if the field is blank.
+        """
+        return ' '.join(record[start:stop].split()) or '-'
+
+    return f"{field(67, 82)} -> {field(82, 97)} | {field(97, 112)} -> {field(112, 127)}"
+
+
+def read_par_lines(path, wavelength_min, wavelength_max, molecule):
+    """Read the lines of one molecule from a HITRAN-format .par file.
+    HITEMP files use this format. The file is read one record at a time,
+    so a file of many gigabytes does not fill the memory.
+
+    Args:
+        path (str): Path to the .par file.
+        wavelength_min (float): Lower end of the range, in um (vacuum).
+        wavelength_max (float): Upper end of the range, in um (vacuum).
+        molecule (str): Molecule name, per get_available_molecules().
+
+    Returns:
+        rows (list): Line dicts in the fetch_hitran_data row format, sorted by wavelength.
+            The source is 'File: <file name>'. The list is empty if no line is in range.
+
+    Raises:
+        ValueError: if the window is not 0 < lower < upper, the molecule has no HITRAN ID,
+            the file is not in .par format, or the file holds other molecules only.
+    """
+    _check_window(wavelength_min, wavelength_max)
+    molecule_id = get_available_molecules().get(molecule)
+    if molecule_id is None:
+        raise ValueError(f"{molecule} has no HITRAN molecule ID, so a .par file cannot hold its lines.")
+    try:
+        from hapi import ISO
+    except ImportError:
+        ISO = {}
+
+    wavenumber_min = 1e4 / wavelength_max
+    wavenumber_max = 1e4 / wavelength_min
+    source = f"File: {os.path.basename(path)}"
+    ids_found = set()
+    n_records = 0
+    n_bad = 0
+    rows = []
+    with open(path, 'r', encoding='ascii', errors='replace') as handle:
+        for record in handle:
+            record = record.rstrip('\r\n')
+            try:
+                if len(record) < _PAR_RECORD_LENGTH:
+                    raise ValueError("record is too short")
+                line_id = int(record[0:2])
+                wavenumber = float(record[3:15])
+            except ValueError:
+                n_bad += 1
+                continue
+            n_records += 1
+            ids_found.add(line_id)
+            if line_id != molecule_id or not wavenumber_min <= wavenumber <= wavenumber_max:
+                continue
+            try:
+                isotopologue = _PAR_ISOTOPOLOGUE_CODES.get(record[2])
+                if isotopologue is None:
+                    isotopologue = int(record[2])
+                a_coeff = float(record[25:35])
+                e_lower = float(record[45:55])
+                g_text = record[146:153].strip()
+            except ValueError:
+                n_bad += 1
+                continue
+            iso_entry = ISO.get((molecule_id, isotopologue))
+            rows.append({
+                'model': 'File',
+                'source': source,
+                'wavelength': 1e4 / wavenumber,
+                'wavenumber': wavenumber,
+                'species': molecule,
+                'transition': _par_transition(record),
+                'a_coeff': a_coeff,
+                'e_upper': (e_lower + wavenumber) * 1.44,
+                'Gp': float(g_text) if g_text else None,
+                'isotopologue': isotopologue,
+                'isotopologue_name': format_isotopologue_name(iso_entry[1]) if iso_entry else None,
+            })
+    if n_records == 0:
+        raise ValueError("The file has no 160-character HITRAN records, so it is not a .par file.")
+    if molecule_id not in ids_found:
+        found = ', '.join(str(i) for i in sorted(ids_found))
+        raise ValueError(f"The file holds molecule ID {found}, but {molecule} has ID {molecule_id}.")
+    if n_bad:
+        print(f"[WARN] Skipped {n_bad} record(s) that could not be read in {os.path.basename(path)}")
+    rows.sort(key=lambda r: r['wavelength'])
+    return rows
+
+
+def _read_csv_line_list(path, wavelength_min, wavelength_max, molecule):
+    """Read the lines of one molecule from a user CSV, in a wavelength range.
+
+    Args:
+        path (str): Path to the CSV file. It needs 'wavelength' and 'species' columns.
+        wavelength_min (float): Lower end of the range, in um (vacuum).
+        wavelength_max (float): Upper end of the range, in um (vacuum).
+        molecule (str): Species name to keep. The match ignores case.
+
+    Returns:
+        rows (list): Line dicts, wavelengths in um, source 'File: <file name>'.
+            The list is empty if no line is in range.
+
+    Raises:
+        ValueError: if the CSV has no usable row, no row of this species, or an unknown unit.
+    """
+    rows = load_custom_line_catalog(path)
+    if not rows:
+        raise ValueError("The CSV has no usable row. Each row needs a 'wavelength' and a 'species'.")
+    same_species = [r for r in rows if r['species'].lower() == molecule.lower()]
+    if not same_species:
+        found = ', '.join(sorted({r['species'] for r in rows}))
+        raise ValueError(f"The CSV has no {molecule} line. It holds: {found}.")
+    source = f"File: {os.path.basename(path)}"
+    kept = []
+    for row in same_species:
+        row['wavelength'] = float(convert_wavelength(row['wavelength'], row['wavelength_unit'], 'um'))
+        row['wavelength_unit'] = 'µm'
+        row['source'] = source
+        if wavelength_min <= row['wavelength'] <= wavelength_max:
+            kept.append(row)
+    kept.sort(key=lambda r: r['wavelength'])
+    return kept
+
+
+def _parse_lst_record(record):
+    """Read one data line of an LST catalog file (.lst).
+    The fixed columns are in the readme of the catalog. A ':' after the wavelength means it is uncertain.
+
+    Args:
+        record (str): One line of the file, without the line ending.
+
+    Returns:
+        row (dict): Line dict in the fetch_hitran_data row format, wavelength in um (vacuum).
+            None if the line is a header or is not an LST record.
+    """
+    try:
+        wavelength = float(record[7:24].replace(':', ' '))
+    except ValueError:
+        return None
+    model = record[0:6].strip()
+    species = record[25:34].strip()
+    if not model.isalpha() or not species:
+        return None
+    row = {
+        'model': 'File',
+        'lst_model': model,
+        'wavelength': wavelength,
+        'wavelength_unit': 'µm',
+        'species': species,
+        'transition': record[34:74].strip() or None,
+        'uncertain_wavelength': ':' in record[7:24],
+    }
+    for key, start, stop in (('a_coeff', 75, 84), ('e_upper', 85, 96)):
+        text = record[start:stop].strip()
+        if text:
+            try:
+                row[key] = float(text)
+            except ValueError:
+                return None
+    return row
+
+
+def read_lst_lines(path, wavelength_min, wavelength_max, species):
+    """Read the lines of one species from an LST catalog file (.lst), in a wavelength range.
+
+    Args:
+        path (str): Path to the .lst file.
+        wavelength_min (float): Lower end of the range, in um (vacuum).
+        wavelength_max (float): Upper end of the range, in um (vacuum).
+        species (str): Species name as the catalog writes it, for example 'H2'. The match ignores case.
+
+    Returns:
+        rows (list): Line dicts sorted by wavelength, source 'File: <file name>'.
+            The list is empty if no line is in range.
+
+    Raises:
+        ValueError: if the file has no LST record, or no record of this species.
+    """
+    source = f"File: {os.path.basename(path)}"
+    wanted = species.lower()
+    species_found = set()
+    rows = []
+    for row in _lst_records(path):
+        species_found.add(row['species'])
+        if row['species'].lower() == wanted and wavelength_min <= row['wavelength'] <= wavelength_max:
+            row['source'] = source
+            rows.append(row)
+    if not species_found:
+        raise ValueError("The file has no LST records, so it is not an LST .lst file.")
+    if wanted not in {s.lower() for s in species_found}:
+        names = sorted(species_found)
+        shown = ', '.join(names[:12]) + (f" and {len(names) - 12} more" if len(names) > 12 else '')
+        raise ValueError(f"The file has no {species} line. It holds: {shown}.")
+    rows.sort(key=lambda r: r['wavelength'])
+    return rows
+
+
+def load_line_list(path, wavelength_min, wavelength_max, molecule):
+    """Read the lines of one molecule from a user file, in a wavelength range.
+    The first line decides the format: a CSV header, a HITRAN .par record, or an LST .lst record.
+    The file name and the extension do not matter.
+
+    Args:
+        path (str): Path to the line list file.
+        wavelength_min (float): Lower end of the range, in um (vacuum).
+        wavelength_max (float): Upper end of the range, in um (vacuum).
+        molecule (str): Molecule or species name.
+
+    Returns:
+        rows (list): Line dicts sorted by wavelength. The list is empty if no line is in range.
+
+    Raises:
+        ValueError: if the window is not 0 < lower < upper, or the file is empty,
+            has an unknown format, or lacks this molecule.
+        OSError: if the file cannot be opened.
+    """
+    _check_window(wavelength_min, wavelength_max)
+    first = ''
+    with open(path, 'r', encoding='utf-8-sig', errors='replace') as handle:
+        for line in handle:
+            if line.strip():
+                first = line.rstrip('\r\n')
+                break
+    if not first:
+        raise ValueError("The file is empty.")
+    if first.startswith('|MODEL|'):
+        return read_lst_lines(path, wavelength_min, wavelength_max, molecule)
+    if ',' in first and 'wavelength' in first.lower():
+        return _read_csv_line_list(path, wavelength_min, wavelength_max, molecule)
+    try:
+        is_par = len(first) >= _PAR_RECORD_LENGTH and int(first[0:2]) > 0 and float(first[3:15]) >= 0
+    except ValueError:
+        is_par = False
+    if is_par:
+        return read_par_lines(path, wavelength_min, wavelength_max, molecule)
+    if _parse_lst_record(first) is not None:
+        return read_lst_lines(path, wavelength_min, wavelength_max, molecule)
+    raise ValueError("IFU Analyzer cannot read this file. Use a CSV with 'wavelength' and "
+                     "'species' columns, a HITRAN-format .par file, or an LST .lst file.")
+
+
+def collect_rest_line_candidates(molecule, wavelength_min, wavelength_max):
+    """Collect the built-in lines of one species in a wavelength range.
+    The sources are HITRAN (local pack, cache, or online) and the LST catalog.
+    Every line stays in the list. Nothing is merged or hidden.
+
+    Args:
+        molecule (str): Molecule or atom name, per available_rest_line_species().
+        wavelength_min (float): Lower end of the range, in um (vacuum).
+        wavelength_max (float): Upper end of the range, in um (vacuum).
+
+    Returns:
+        result (tuple): (rows, notes). rows is a list of line dicts, each tagged
+            with its 'source'. notes is a list of sentences that say which source failed.
+
+    Raises:
+        ValueError: if the window is not 0 < lower < upper.
+    """
+    _check_window(wavelength_min, wavelength_max)
+    rows = []
+    notes = []
+    if molecule in get_available_molecules():
+        hitran_rows, meta = hitran_gui_interface(wavelength_min, wavelength_max, molecule, None, False)
+        for row in hitran_rows:
+            row['source'] = 'HITRAN'
+        rows.extend(hitran_rows)
+        if meta.get('error'):
+            notes.append(f"HITRAN gave no {molecule} data: {meta.get('message', 'unknown error')}")
+    try:
+        lst_rows = _lst_lines(molecule, wavelength_min, wavelength_max)
+        if lst_rows is None:
+            notes.append(f"The LST catalog is not at {LST_CATALOG_PATH}, so its lines are not listed.")
+        else:
+            rows.extend(lst_rows)
+    except OSError as exc:
+        notes.append(f"The LST catalog cannot be read: {exc}")
+    rows.sort(key=lambda r: r['wavelength'])
+    return rows, notes

@@ -9,7 +9,10 @@ import numpy as np
 import os
 import threading
 from .gui_sizing import fit_to_screen
-from .unit_converter import gaussian_map_unit_labels, wavelength_to_doppler_velocity
+from .unit_converter import (
+    gaussian_map_unit_labels, wavelength_to_doppler_velocity, spectral_axis_medium,
+    vacuum_um_to_cube_wavelength,
+)
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
 from .fits_export import build_line_map_header, write_fits_product, _ascii_safe
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
@@ -214,7 +217,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
     """
     
     def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None,
-                 noise_min=None, noise_max=None, gauss_peak_x=None):
+                 noise_min=None, noise_max=None, gauss_peak_x=None, rest_line_chooser=None):
         """Build the Gaussian map results dialog and its parameter maps.
 
         Args:
@@ -227,6 +230,8 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             noise_min (float): Noise region lower bound the fit used, or None.
             noise_max (float): Noise region upper bound the fit used, or None.
             gauss_peak_x (float): User-picked peak wavelength that seeded the fit.
+            rest_line_chooser (callable): Takes a parent widget and returns (line, reason). The dialog
+                calls it when the user selects Velocity and no rest line is chosen. None turns this off.
 
         Returns:
             None
@@ -238,6 +243,9 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.gauss_left_x = gauss_left_x
         self.gauss_right_x = gauss_right_x
         self.gauss_peak_x = gauss_peak_x
+        self.rest_line = None
+        self.rest_reason = None
+        self.rest_line_chooser = rest_line_chooser
         self.wavelength = wavelength
         # The noise region the fit used, so a single-pixel view can draw the same
         # detection threshold the map was decided with.
@@ -371,6 +379,12 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.scale_btn.clicked.connect(self._open_scale_dialog)
         param_layout.addWidget(self.scale_btn)
 
+        self.rest_line_btn = QPushButton("Change rest line…")
+        self.rest_line_btn.setToolTip("Pick another line to set zero velocity.")
+        self.rest_line_btn.clicked.connect(self._change_rest_line)
+        self.rest_line_btn.setVisible(False)
+        param_layout.addWidget(self.rest_line_btn)
+
         param_layout.addStretch()
         layout.addLayout(param_layout)
 
@@ -500,7 +514,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                         transform=ax.transAxes, wrap=True)
                 self.canvas.draw()
                 return
-            title = f"Velocity vs. Summed-Spectrum Fit {wave_range}"
+            title = f"Velocity vs. {self.rest_line['species']} Rest Line {wave_range}"
             unit_label, default_cmap = param_units['Velocity']
         elif param_name == "Sigma":
             data = self.results['sigma']
@@ -544,10 +558,84 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.fig.tight_layout()
         self.canvas.draw()
 
+    def _on_param_changed(self):
+        """
+        Ask for the rest line when the user selects Velocity and no line is chosen yet.
+        Show the Change rest line button for Velocity only. Then redraw as for any other parameter.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        is_velocity = self.param_combo.currentText() == "Velocity"
+        self.rest_line_btn.setVisible(is_velocity and self.rest_line_chooser is not None)
+        if is_velocity and self.rest_line is None and self.rest_line_chooser is not None:
+            self.rest_line, self.rest_reason = self.rest_line_chooser(self)
+        super()._on_param_changed()
+
+    def _change_rest_line(self):
+        """
+        Ask for another rest line and redraw the Velocity map with it.
+        If the user cancels, the line stays as it was.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        line, _reason = self.rest_line_chooser(self)
+        if line is None:
+            return
+        self.rest_line, self.rest_reason = line, None
+        self.scale_settings.clear_absolute_range()
+        self._update_plot()
+
+    def _rest_wavelength(self):
+        """
+        Give the wavelength of the rest line as the cube measures it. A line list gives
+        a vacuum wavelength in um. The cube can use air wavelengths and another unit.
+
+        Args:
+            None
+
+        Returns:
+            result (tuple): (wavelength, reason). wavelength is a float in the cube's wave
+                unit, or None. reason is None, or a sentence that says why there is none.
+        """
+        if self.rest_line is None:
+            return None, self.rest_reason or "No rest line was chosen."
+        medium = spectral_axis_medium(getattr(self.cube_data, 'header', None))
+        if medium is None:
+            return None, ("The cube header does not say if its wavelengths are in air or in vacuum "
+                          "(CTYPE3 must be WAVE or AWAV), so a rest wavelength cannot be compared.")
+        try:
+            return float(vacuum_um_to_cube_wavelength(self.rest_line['wavelength'], self.wave_unit, medium)), None
+        except ValueError as e:
+            return None, str(e)
+
+    def _rest_line_label(self):
+        """
+        Describe the rest line in one short text for statistics and FITS headers.
+
+        Args:
+            None
+
+        Returns:
+            label (str): Species, transition, vacuum wavelength and source. Empty if no rest line.
+        """
+        line = self.rest_line
+        if line is None:
+            return ""
+        return (f"{line.get('species', '')} {line.get('transition') or 'N/A'}, "
+                f"{line['wavelength']:.6f} um vacuum, {line.get('source', '')}")
+
     def _velocity_map(self):
         """
         Build the Doppler velocity map of the fitted line centers, in km/s. Zero velocity
-        is the center of the Gaussian fitted to the summed spectrum of the whole cube.
+        is the rest wavelength of the line the user chose.
         Pixels without a detection stay NaN, because their center was never fitted.
 
         Args:
@@ -557,14 +645,11 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             result (tuple): (velocity, reason). velocity is a 2D numpy.ndarray, or None
                 when it cannot be made. reason is None, or a sentence that says why not.
         """
-        global_fit = self.results.get('global_fit')
-        if not global_fit or global_fit.get('center') is None:
-            return None, "The summed-spectrum fit that sets zero velocity was not computed."
-        if not global_fit.get('success'):
-            return None, "The summed-spectrum fit did not converge, so it cannot set zero velocity."
+        rest, reason = self._rest_wavelength()
+        if rest is None:
+            return None, reason
         try:
-            velocity = wavelength_to_doppler_velocity(
-                self.results['center'], global_fit['center'], self.wave_unit)
+            velocity = wavelength_to_doppler_velocity(self.results['center'], rest, self.wave_unit)
         except ValueError as e:
             return None, str(e)
         return velocity, None
@@ -664,10 +749,9 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         lines.append(f"{param_name.upper()} VALUES:")
         lines.append(f"  Units:   {units}")
         if param_name == "Velocity":
-            global_fit = self.results.get('global_fit')
-            if global_fit and global_fit.get('center') is not None:
-                lines.append(f"  Zero velocity: {global_fit['center']:.6f} {self.wave_unit} "
-                             "(summed-spectrum fit center)")
+            rest, _reason = self._rest_wavelength()
+            if rest is not None:
+                lines.append(f"  Zero velocity: {rest:.6f} {self.wave_unit} ({self._rest_line_label()})")
         if data is None:
             lines.append("  (not available for this fit)" if param_name != "Velocity"
                          else f"  ({self._velocity_map()[1]})")
@@ -977,9 +1061,10 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                 'NTOTAL': (int(self.results['success'].size), "Total number of pixels"),
             }
             if param_name == "Velocity":
-                extra['VREFWAV'] = (float(self.results['global_fit']['center']),
-                                    "Zero-velocity wavelength (summed-spectrum fit)")
+                extra['VREFWAV'] = (self._rest_wavelength()[0], "Rest wavelength that sets zero velocity")
                 extra['VREFUNIT'] = (_ascii_safe(str(self.wave_unit)), "Unit of VREFWAV")
+                extra['VREFMED'] = (spectral_axis_medium(source_header), "Medium of VREFWAV: air or vacuum")
+                extra['VREFLINE'] = (_ascii_safe(self._rest_line_label())[:68], "Rest line")
             is_area = param_name == "Area (AUC)"
             if is_area and species_text:
                 try:

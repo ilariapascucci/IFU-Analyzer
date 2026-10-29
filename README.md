@@ -546,10 +546,14 @@ python main.py
    - Read the fit results: the centre, the amplitude, the width, the area, the baseline, and R².
 
    **Full-cube mapping:**
-   - Mark "Fit Left" and "Fit Right" as above. The map fit also needs the noise region ("Noise Left" and "Noise Right").
+   - Mark "Fit Left", "Peak", and "Fit Right" as above. The map fit also needs the noise region ("Noise Left" and "Noise Right").
    - Click "Fit Gaussian Map" to fit every pixel.
    - Wait for the background processing (10 to 30 seconds is typical).
    - View the parameter maps (Area, Amplitude, Centre, Velocity, FWHM, and so on).
+   - The Velocity map needs a rest line. When you select "Velocity" in the parameter list, choose the molecule or atom of the line in the fit window. A table lists the lines of that species from HITRAN and the LST catalog. Select the line that the peak shows. Its vacuum wavelength is zero velocity. If you cancel, the Velocity map is not made, and the results window gives the reason. To use another line, click "Change rest line..." next to the parameter list. The map redraws with the new line.
+   - To add lines (for example from HITEMP), click "Load line list file..." in the table. Use a CSV with the columns `wavelength` and `species`, a HITRAN-format `.par` file, or an LST catalog `.lst` file. Give vacuum wavelengths in a CSV. Unzip a HITEMP file before you load it. Lines from a file show in amber.
+   - The LST catalog starts at 0.70 µm, and HITRAN has no atomic lines. For a MUSE line such as H-alpha, you must load a file.
+   - MUSE cubes use air wavelengths (axis type `AWAV`). The app converts the rest line to air before it makes the map. A cube header that gives no `AWAV` or `WAVE` axis type has no Velocity map.
    - With "Pixel Select: ON" in the results window, click a pixel on the map to see its fit.
    - Export the residuals cube as FITS if it is necessary.
 
@@ -739,6 +743,7 @@ IFU-Analyzer/
 │   ├── icon_loader.py                        # Loads the SVG button icons
 │   └── icons/                                # SVG button icons (Calcite Sharp Line Icons, MIT License)
 ├── hitran_local/                             # Offline HITRAN starter pack
+├── lst_local/                                # LST line catalog (.lst) and its ReadMe, for the Velocity map rest-line table
 ├── nirspec_disp/                             # JWST NIRSpec resolving-power tables
 ├── docs/                                     # Sphinx documentation sources
 └── data/                                     # Local sample FITS files (not tracked)

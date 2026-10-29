@@ -44,7 +44,7 @@ from .import_map_dialog import _peek_header, _has_real_error
 from .rotational_diagram_map_dialogs import (
     RotDiagMapWorker, RotDiagMapResultsDialog, LineFluxMapDialog,
     CalculateNativeMapsWorker, CombineMapsWorker, SelectCubeRegionDialog,
-    attach_rot_diagram_hover, save_fit_csv, input_lines,
+    attach_rot_diagram_hover, save_fit_csv, input_lines, column_unit,
 )
 from .fits_export import build_line_map_header, write_fits_product
 from .scale_dialog import ScaleSettings, build_norm
@@ -5193,6 +5193,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         results_text += "ROTATIONAL DIAGRAM ANALYSIS RESULTS\n"
         results_text += "="*50 + "\n\n"
         results_text += input_lines(*self._fit_inputs)
+        unit = column_unit(self._fit_inputs[0])
         if "OPR" not in results:
             results_text += "\n"
 
@@ -5226,7 +5227,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             r1t = results["1T"]
             results_text += "--- 1T FIT ---\n"
             results_text += f"T = {r1t['T']:.1f} ± {r1t['dT']:.1f} K\n"
-            results_text += f"Ncol = {r1t['Ncol']:.2e} ± {r1t['dNcol']:.2e} cm⁻²\n"
+            results_text += f"Ncol = {r1t['Ncol']:.2e} ± {r1t['dNcol']:.2e} {unit}\n"
             results_text += _convergence_note(r1t)
             results_text += "\n"
 
@@ -5235,8 +5236,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             results_text += "--- 2T FIT ---\n"
             results_text += f"T1 = {r2t['T1']:.1f} ± {r2t.get('dT1', float('nan')):.1f} K\n"
             results_text += f"T2 = {r2t['T2']:.1f} ± {r2t.get('dT2', float('nan')):.1f} K\n"
-            results_text += f"N1 = {r2t['Ncol1']:.2e} ± {r2t.get('dNcol1', float('nan')):.2e} cm⁻²\n"
-            results_text += f"N2 = {r2t['Ncol2']:.2e} ± {r2t.get('dNcol2', float('nan')):.2e} cm⁻²\n"
+            results_text += f"N1 = {r2t['Ncol1']:.2e} ± {r2t.get('dNcol1', float('nan')):.2e} {unit}\n"
+            results_text += f"N2 = {r2t['Ncol2']:.2e} ± {r2t.get('dNcol2', float('nan')):.2e} {unit}\n"
             results_text += _convergence_note(r2t)
 
         results_text += "="*50 + "\n"
