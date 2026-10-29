@@ -1229,6 +1229,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.export_group.add_button(self.region_save_slice_btn)
         self.export_group.add_button(self.region_save_slice_masked_btn)
         self.export_group.add_button(self.region_save_cube_btn)
+        self.export_group.add_button(self.save_results_btn)
 
         # Group 3: Gaussian Fit
         self.gaussian_group = CollapsibleButtonGroup("Gaussian Fit")
@@ -1290,13 +1291,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Add spectrum at bottom with expanded vertical space
         main_layout.addWidget(self.spec_canvas, 2)
         main_layout.addWidget(self.spec_toolbar)
-        
-        # Save Spectrum stays under the spectrum plot, always visible.
-        save_layout = QHBoxLayout()
-        save_layout.addStretch()
-        save_layout.addWidget(self.save_results_btn)
-        save_layout.addStretch()
-        main_layout.addLayout(save_layout)
 
         self.setLayout(main_layout)
 

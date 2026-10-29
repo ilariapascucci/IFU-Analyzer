@@ -679,7 +679,7 @@ python main.py
 ### Data Export
 
 9. Export the results:
-   - **Spectrum:** click "Save Spectrum" below the spectrum plot.
+   - **Spectrum:** click "Save Spectrum" in the "Export" group.
    - **Continuum:** click "Save Points" to export the anchor points, or "Save Spectrum" for the full four-column file.
 
 ### Additional Features
