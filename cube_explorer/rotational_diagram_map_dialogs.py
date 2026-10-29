@@ -542,15 +542,44 @@ def attach_rot_diagram_hover(canvas, ax, plot_data, hit_radius_pt=5):
     canvas.mpl_connect("motion_notify_event", _on_move)
 
 
+def fit_line_table(plot_data):
+    """
+    The fit line of a diagram, on the same 200 energies that plot_rot_diagram draws.
+    A 1T fit has one model column. A 2T fit has the two components and the combined model.
+
+    Args:
+        plot_data (dict): The fitter's '_plot_data' (E_arr, popt1, popt2)
+
+    Returns:
+        table (tuple): (header, columns). header lists the column names, and columns
+            lists one array per name. None if the diagram has no line to draw.
+    """
+    e_arr = np.asarray(plot_data["E_arr"], dtype=float)
+    popt1 = plot_data.get("popt1")
+    popt2 = plot_data.get("popt2")
+    if len(e_arr) < 2 or (popt1 is None and popt2 is None):
+        return None
+    ln10 = np.log(10)
+    e_fit = np.linspace(np.min(e_arr), np.max(e_arr), 200)
+    if popt2 is not None:
+        a1, t1, a2, t2 = popt2
+        return (["E_u_K", "log10_T1_component", "log10_T2_component", "log10_2T_model"],
+                [e_fit, (a1 - e_fit / t1) / ln10, (a2 - e_fit / t2) / ln10,
+                 model_2T(e_fit, *popt2) / ln10])
+    return ["E_u_K", "log10_1T_model"], [e_fit, model_1T(e_fit, *popt1) / ln10]
+
+
 def save_fit_csv(parent, text, plot_data, default_name):
     """
-    Save a fit to a CSV file: the results text as "#" lines, then one row per plotted point.
-    The text is what the results window shows. The points are what the diagram shows.
+    Save a fit to a CSV file: the results text as "#" lines, one row per plotted point,
+    and then the fit line. The text is what the results window shows. The points and
+    the line are what the diagram shows.
 
     Args:
         parent (QWidget): Parent of the file dialog and of the message boxes
         text (str): The results text that the window shows
-        plot_data (dict): The fitter's '_plot_data' (E_arr, y_arr, y_err, is_ul_mask, wave_arr)
+        plot_data (dict): The fitter's '_plot_data' (E_arr, y_arr, y_err, is_ul_mask,
+            wave_arr, popt1, popt2)
         default_name (str): File name that the save dialog suggests
 
     Returns:
@@ -577,6 +606,12 @@ def save_fit_csv(parent, text, plot_data, default_name):
                     "" if wave_arr is None else f"{float(wave_arr[i]):.6f}",
                     f"{e_arr[i]:.1f}", f"{y_log[i]:.4f}",
                     "" if is_ul[i] else f"{y_err[i]:.4f}", int(is_ul[i])])
+            line_table = fit_line_table(plot_data)
+            if line_table is not None:
+                f.write("\n# Fit line, as plotted: 200 energies from the lowest to the highest E_u\n")
+                writer.writerow(line_table[0])
+                for row in zip(*line_table[1]):
+                    writer.writerow([f"{row[0]:.1f}"] + [f"{value:.4f}" for value in row[1:]])
     except OSError as exc:
         QMessageBox.critical(parent, "Save Failed", f"Could not save the fit:\n{exc}")
 

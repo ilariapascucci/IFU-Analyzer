@@ -864,14 +864,19 @@ class ScaleDialog(QDialog):
                 QMessageBox.warning(self, "Invalid Value",
                                     "vmin/vmax must be finite numbers (e.g. 1.5e-16), or left blank for Auto.")
                 return
-            if vmin is not None and vmax is not None and vmin >= vmax:
+            for name, value in (("vmin", vmin), ("vmax", vmax)):
+                if value is not None and not self.auto_vmin <= value <= self.auto_vmax:
+                    QMessageBox.warning(
+                        self, "Invalid Range",
+                        f"{name} must be inside the range of this image: "
+                        f"{self.auto_vmin:.3e} to {self.auto_vmax:.3e}.")
+                    return
+            # A blank value stands for the image minimum or maximum.
+            low = self.auto_vmin if vmin is None else vmin
+            high = self.auto_vmax if vmax is None else vmax
+            if (vmin is not None or vmax is not None) and low >= high:
                 QMessageBox.warning(self, "Invalid Range", "vmin must be less than vmax.")
                 return
-            # A value outside this image moves to the nearest end of the image range.
-            if vmin is not None:
-                vmin = min(max(vmin, self.auto_vmin), self.auto_vmax)
-            if vmax is not None:
-                vmax = min(max(vmax, self.auto_vmin), self.auto_vmax)
             new.range_mode = RANGE_ABSOLUTE
             new.vmin, new.vmax = vmin, vmax
 

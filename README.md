@@ -164,7 +164,7 @@ Bring several images to one resolution in a single step.
   - Ortho-to-para ratio (OPR) fit for H2
   - A distance input (pc), which is required, and an emitting-radius input (au), which is optional. With a radius, N is a column density. Without a radius, N is a total molecule count.
   - The results dialog reports the emitting radius, the distance, the OPR, the fitted temperature or temperatures, and the column densities.
-  - "Save Fit" in the results dialog, and in the dialog of a pixel in the temperature map, saves the results and the plotted points to a CSV file.
+  - "Save Fit" in the results dialog, and in the dialog of a pixel in the temperature map, saves the results, the plotted points, and the fit line to a CSV file.
   - Restrict "Calculate Fluxes" and "Run Fit" to a region. Draw the region on a flux map, or import a saved region. Save the region to reuse it.
   - Read the FITS header of each loaded cube with "Header". Open a second analyzer window with the new-window button, for example to compare two sets of cubes.
   - **Pixel-by-pixel temperature maps:** "Calculate Maps" makes a flux map for each line. "Convolve Maps" puts the maps on one grid at the coarsest resolution. "Run Map" fits the rotational diagram at every pixel. "Load Maps" adds flux maps that you made in another tool.
@@ -653,7 +653,7 @@ python main.py
    - Enter the distance ("Distance (pc)"), which is required. Optionally enter the emitting radius ("Emitting Radius (au)"). Both fields start empty. Without a radius, N is a total molecule count instead of a column density. Then choose a 1T or a 2T fit in "Fit".
    - Click "Run Fit". If any line is an upper limit, the fit switches to PyMC Bayesian censored regression instead of ordinary least squares.
    - Read the fitted temperature or temperatures and the column densities in the results dialog. The dialog also shows the radius and the distance that the fit used.
-   - Click "Save Fit" to save the results to a CSV file. The results are the lines that start with "#". Below them is one row for each plotted point: the wavelength, E_u, log10(N_u/g_u), its error, and the upper-limit flag. The file does not contain the flux values. "Save Fluxes" saves those.
+   - Click "Save Fit" to save the results to a CSV file. The results are the lines that start with "#". Below them is one row for each plotted point: the wavelength, E_u, log10(N_u/g_u), its error, and the upper-limit flag. After a blank line comes the fit line, as plotted: 200 values of E_u and the model log10(N_u/g_u). A 2T fit has a column for each component and one for the combined model. The file does not contain the flux values. "Save Fluxes" saves those.
    - Click "Save Fluxes" to save the fluxes as a CSV file. "Import from CSV" reads the file back.
 
    **Start again:**

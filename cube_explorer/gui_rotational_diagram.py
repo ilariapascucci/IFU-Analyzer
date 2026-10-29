@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit, QHeaderView, QInputDialog,
     QStyledItemDelegate
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -1018,11 +1018,24 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     CollapsibleButtonGroup._all_groups.remove(_g)
             except Exception:
                 pass
-        # A running worker needs this window and its cubes until it finishes.
-        if not self._has_running_worker():
-            self._free_loaded_cubes()
-            _OPEN_WINDOWS.discard(self)
+        self._release_when_idle()
         event.accept()
+
+    def _release_when_idle(self):
+        """Free the loaded cubes and let go of this closed window. A running worker
+        needs the window and the cubes, so the check repeats each second until it ends.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if self._has_running_worker():
+            QTimer.singleShot(1000, self._release_when_idle)
+            return
+        self._free_loaded_cubes()
+        _OPEN_WINDOWS.discard(self)
 
     def _has_running_worker(self):
         """Report whether any background thread of this window is still running.
@@ -4507,6 +4520,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.on_line_selected()
         imported_rows = getattr(self, "_calc_maps_imported_rows", [])
         cached_part = getattr(self, "_calc_maps_cached_part", None)
+        nothing_changed = result is None and not imported_rows
         if cached_part is not None:
             result = self._rot_map_join_native_results(cached_part, result)
         merged = merge_native_results(result, imported_rows) if (imported_rows or cached_part is not None) else result
@@ -4514,8 +4528,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self._calc_maps_cubes_and_lines, self._calc_maps_n_sigma, imported_lines=imported_rows)
         self._rot_map_native_cache = {"key": geometry_key, "result": merged,
                                       "contam_lines": self.contam_lines}
-        self._clear_all_convolved_maps()
+        if nothing_changed:
+            # No map changed, so the convolved maps still match the native maps.
+            self.on_line_selected()
+        else:
+            self._clear_all_convolved_maps()
         self._populate_map_column(merged)
+        if nothing_changed:
+            QMessageBox.information(
+                self, "Calculate Maps",
+                "All checked lines already have maps, so nothing was calculated. The "
+                "convolved maps stay.")
+            return
         QMessageBox.information(
             self, "Calculate Maps",
             "Native-resolution flux maps calculated. View them in the Map column, "
