@@ -715,7 +715,6 @@ def fit_gaussian_to_line(x1: float, x2: float,
         sigma_guess = local_width / 2.0  # Half of the local window width
     else:
         sigma_guess = (x2 - x1) / 20.0  # Fallback: very narrow
-    print(f"[DEBUG] Peak at lambda={peak_x:.4f}: amp={amp_guess:.4e}, sigma={sigma_guess:.4e}")
 
     # STEP 2b: Validate that a positive peak exists for fitting
     # Check if there's a meaningful peak

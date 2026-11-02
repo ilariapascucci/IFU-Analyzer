@@ -10,7 +10,7 @@ import multiprocessing
 import os
 import sys
 import time
-import traceback
+import warnings
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from threading import Lock
 
@@ -256,7 +256,6 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
                               isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
                               fit2t=fit2t)
     except Exception as exc:
-        traceback.print_exc()
         return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc), "per_line": per_line}
 
     return {"status": STATUS_OK, "n_lines": len(fluxes), "results": results, "per_line": per_line}
@@ -566,12 +565,11 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
 
     Raises:
         ValueError: if more than one cube is given -- use
-            create_rotational_diagram_map_multi instead
+            create_rotational_diagram_map_multi instead, or if the cube has no data loaded
     """
     cube = _resolve_cube(cube_or_list)
     if cube.cube is None:
-        print("[ERROR] No cube data loaded")
-        return None
+        raise ValueError("No cube loaded")
 
     _n_wave, n_y, n_x = cube.cube.shape
     wavelength, _unit = extract_units(cube.wavelength)
@@ -660,6 +658,10 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         t_lo, t_hi = np.nanmin(t_map), np.nanmax(t_map)
     print(f">>> Done ({time.time() - start:.1f}s). Fitted {ok}/{total} pixels; "
           f"T range {t_lo:.1f}-{t_hi:.1f} K")
+    n_failed = int(np.sum(status_map == STATUS_FIT_FAILED))
+    if n_failed:
+        warnings.warn(f"{n_failed} of {total} pixels failed to fit (status {STATUS_FIT_FAILED}). "
+                      f"Run fit_pixel at one of them to see the error.")
 
     # Whole-cube/region anchor fit, same mask as the per-pixel maps above, so
     # it stays "same as Run Fit" either way. Reused if the caller already ran it.
@@ -789,6 +791,8 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
     status_map = np.full((n_y, n_x), NATIVE_PX_NONE, dtype=np.uint8)
     total = n_y * n_x
     completed = 0
+    rows_done = 0
+    start = time.time()
 
     # Same reasoning as create_rotational_diagram_map: threads gave no
     # speedup for this per-pixel curve_fit work, so this uses processes too.
@@ -817,8 +821,12 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
                 flux_map[y], err_map[y] = flux_row, err_row
                 fit_map[y], status_map[y], ceiling_map[y] = fit_row, status_row, ceiling_row
                 completed += n_x
+                rows_done += 1
                 if progress_callback is not None:
                     progress_callback(completed, total)
+                print(f"    line {line_wavelength:.4f} um: row {rows_done}/{n_y} "
+                      f"({completed}/{total} px, {time.time() - start:.1f}s)")
+                sys.stdout.flush()
 
             if cancel_flag is not None and cancel_flag.cancelled:
                 cancelled = True
@@ -828,7 +836,7 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
         if own_executor:
             executor.shutdown()
     print(f"    line {line_wavelength:.4f} um: native map done "
-          f"({int(np.sum(np.isfinite(flux_map)))}/{total} px fit)")
+          f"({int(np.sum(np.isfinite(flux_map)))}/{total} px fit, {time.time() - start:.1f}s)")
     return flux_map, err_map, fit_map, status_map, ceiling_map
 
 
@@ -1079,7 +1087,8 @@ def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup
     _pin_worker_math_threads()
     n_jobs = safe_worker_count(n_jobs)
     with ProcessPoolExecutor(max_workers=n_jobs, mp_context=multiprocessing.get_context("spawn")) as executor:
-        for cube, line in zip(cubes, kept_lines):
+        for line_number, (cube, line) in enumerate(zip(cubes, kept_lines), start=1):
+            print(f">>> Line {line_number}/{len(kept_lines)}: {line['wavelength']:.4f} um")
             seen = {"n": 0}
 
             def _line_progress(cur, _tot, _seen=seen):
@@ -1373,6 +1382,7 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
 
     total = n_y * n_x
     done = 0
+    first_fit_error = None
     for y in range(n_y):
         if cancel_flag is not None and cancel_flag.cancelled:
             break
@@ -1411,9 +1421,10 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
                         n_map[y, x] = float(one_t["Ncol"])
                         dn_map[y, x] = float(one_t["dNcol"])
                     status_map[y, x] = STATUS_OK
-                except Exception:
-                    traceback.print_exc()
+                except Exception as exc:
                     status_map[y, x] = STATUS_FIT_FAILED
+                    if first_fit_error is None:
+                        first_fit_error = f"pixel ({x}, {y}): {type(exc).__name__}: {exc}"
                 nlines_map[y, x] = len(fluxes)
             done += 1
             if progress_callback is not None:
@@ -1421,6 +1432,9 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
 
     ok = int(np.sum(status_map == STATUS_OK))
     print(f">>> Done. Fitted {ok}/{n_y * n_x} pixels on the common grid.")
+    n_failed = int(np.sum(status_map == STATUS_FIT_FAILED))
+    if n_failed:
+        warnings.warn(f"{n_failed} of {n_y * n_x} pixels failed to fit. First failure at {first_fit_error}")
 
     return {
         "T": t_map, "T_err": dt_map, "Ncol": n_map, "Ncol_err": dn_map,

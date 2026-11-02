@@ -3,6 +3,8 @@ HITRAN/Local Spectral Line Data Extractor
 Extracts molecular spectroscopy data from HITRAN database or local line lists
 """
 
+import contextlib
+import io
 import re
 import os
 import numpy as np
@@ -149,7 +151,9 @@ def _load_one_hitran_table(table_name):
         for d in HITRAN_DIRS:
             if os.path.exists(os.path.join(d, f'{table_name}.data')):
                 hapi.VARIABLES['BACKEND_DATABASE_NAME'] = d
-                hapi.storage2cache(table_name)
+                # HAPI prints "Lines parsed" for every table it loads
+                with contextlib.redirect_stdout(io.StringIO()):
+                    hapi.storage2cache(table_name)
                 return table_name in hapi.LOCAL_TABLE_CACHE
         return False
     except Exception:
@@ -234,6 +238,9 @@ def delete_cache_properly(table_name):
 
     Returns:
         None
+
+    Raises:
+        RuntimeError: if a cache file exists but cannot be deleted
     """
     # hapi >= 1.3.0.0 replaced purgeCache with dropTable. dropTable only clears
     # the in-memory cache (on-disk delete is a TODO), so this also removes files.
@@ -252,8 +259,8 @@ def delete_cache_properly(table_name):
                 print(f"Removed {path}")
         if not removed:
             print(f"No cache files found for {table_name} in {USER_HITRAN_DIR}/")
-    except Exception as e:
-        print(f"Could not delete cache files: {e}")
+    except OSError as e:
+        raise RuntimeError(f"Could not delete cache files for {table_name}: {e}") from e
 
 def get_cache_age(table_name):
     """
@@ -404,13 +411,13 @@ def fetch_hitran_data(wavelength_min, wavelength_max, molecule, isotopologue=1, 
 
     Returns:
         result (tuple): (rows, meta) -- list of line-data dicts, and a meta
-            dict with 'error'/'message' set when the fetch failed.
+            dict. meta has 'error' and 'message' when the fetch failed, and
+            only 'message' when HITRAN does not know the molecule.
     """
     if isotopologue is None:
         iso_list = get_available_isotopologues(molecule)
         if not iso_list:
-            print(f"Molecule '{molecule}' not found in HITRAN")
-            return [], {}
+            return [], {'message': f"Molecule '{molecule}' not found in HITRAN"}
         combined_rows = []
         errors = []
         for iso_num in iso_list:
@@ -450,19 +457,17 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
 
     Returns:
         result (tuple): (rows, meta) -- list of line-data dicts, and a meta
-            dict with 'error'/'message' set when the fetch failed.
+            dict. meta has 'error' and 'message' when the fetch failed, and
+            only 'message' when HITRAN does not know the molecule.
     """
     try:
         from hapi import fetch, getColumns, ISO
     except ImportError:
-        print("Error: HAPI not installed!")
-        print("Install with: pip install hitran-api")
-        return [], {'error': True, 'message': 'HAPI (hitran-api) is not installed'}
+        return [], {'error': True, 'message': 'HAPI (hitran-api) is not installed. Install it with: pip install hitran-api'}
 
     mol_numbers = get_available_molecules()
     if molecule not in mol_numbers:
-        print(f"Molecule '{molecule}' not found in HITRAN")
-        return [], {}
+        return [], {'message': f"Molecule '{molecule}' not found in HITRAN"}
 
     M = mol_numbers[molecule]
     I = isotopologue
@@ -627,7 +632,6 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
     except Exception as e:
         # Distinguish this from a real "zero lines in range" result, so callers
         # don't report a failed offline/network fetch as if HITRAN had nothing.
-        print(f"[ERROR] {str(e)}")
         return [], {'error': True, 'message': str(e)}
 
 def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None):
@@ -656,7 +660,6 @@ def hitran_gui_interface(wavelength_min, wavelength_max, molecule, isotopologue=
         )
         return results, meta
     except Exception as e:
-        print(f"Error in HITRAN GUI interface: {e}")
         return [], {'error': True, 'message': str(e)}
 
 # Example GUI integration point (to be connected to the main GUI application):
@@ -672,17 +675,19 @@ def load_CO_line_catalog(filepath):
     Returns:
         CO_lines (pandas.DataFrame): Columns trans_id, species, line_wave_um,
             a, transition, eupper(K), highv, highj, lowv, lowj, gp, nu-err,
-            nu-ref; None if the file is missing or fails to load.
+            nu-ref.
+
+    Raises:
+        FileNotFoundError: if the file does not exist.
+        RuntimeError: if the file cannot be read as ECSV.
     """
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Line catalog '{filepath}' not found")
     try:
-        if not os.path.exists(filepath):
-            return None
         
-        CO_lines = ascii.read(filepath)
-        CO_lines = CO_lines.to_pandas()
-        return CO_lines
+        return ascii.read(filepath).to_pandas()
     except Exception as e:
-        return None
+        raise RuntimeError(f"Could not read the line catalog '{filepath}': {e}") from e
 
 def load_contaminating_lines_catalog(filepath):
     """Load contaminating lines catalog from CSV format. 'wavelength' and
@@ -695,16 +700,17 @@ def load_contaminating_lines_catalog(filepath):
     Returns:
         contam_lines (pandas.DataFrame): line_wave_um (renamed from
             'wavelength'), species, and any other CSV columns. Rows missing
-            wavelength or species are dropped individually. None if the file
-            is missing, empty, or every row is dropped.
+            wavelength or species are dropped individually.
 
     Raises:
-        ValueError: if the CSV lacks a 'wavelength' or 'species' column.
+        FileNotFoundError: if the file does not exist.
+        ValueError: if the CSV lacks a 'wavelength' or 'species' column, or
+            every row is dropped.
+        RuntimeError: if the CSV cannot be read.
     """
     try:
         if not os.path.exists(filepath):
-            print(f"Error: File '{filepath}' not found.")
-            return None
+            raise FileNotFoundError(f"File '{filepath}' not found")
 
         print(f">>> Loading contaminating lines catalog from {filepath}...")
         contam_lines = pd.read_csv(filepath)
@@ -716,7 +722,6 @@ def load_contaminating_lines_catalog(filepath):
                 f"CSV file is missing required column(s): {', '.join(missing_cols)}.\n"
                 f"Columns found: {', '.join(contam_lines.columns.tolist())}"
             )
-            print(error_msg)
             raise ValueError(error_msg)
 
         # Drop rows missing either value: unlike other columns, these two
@@ -729,18 +734,16 @@ def load_contaminating_lines_catalog(filepath):
             print(f"[WARN] Skipped {skipped} row(s) missing 'wavelength' or 'species'")
 
         if len(contam_lines) == 0:
-            print("No valid rows (all missing 'wavelength' and/or 'species').")
-            return None
+            raise ValueError("No valid rows (all missing 'wavelength' and/or 'species').")
 
         # Rename 'wavelength' column to 'line_wave_um' for consistency with CO catalog
         contam_lines = contam_lines.rename(columns={'wavelength': 'line_wave_um'}).reset_index(drop=True)
         print(f"Loaded {len(contam_lines)} contaminating lines")
         return contam_lines
-    except ValueError:
+    except (ValueError, FileNotFoundError):
         raise
     except Exception as e:
-        print(f"Error loading contaminating lines catalog: {e}")
-        return None
+        raise RuntimeError(f"Could not read the contaminating lines catalog '{filepath}': {e}") from e
 
 
 def load_custom_line_catalog(filepath):
@@ -752,17 +755,18 @@ def load_custom_line_catalog(filepath):
         filepath (str): Path to the CSV file.
 
     Returns:
-        rows (list): One dict per row, tagged 'source': 'Custom'. None if
-            the file is missing, empty, or lacks 'wavelength'/'species'.
+        rows (list): One dict per row, tagged 'source': 'Custom'.
             Rows missing either value are skipped individually.
 
     Raises:
-        ValueError: if the CSV lacks a 'wavelength' or 'species' column.
+        FileNotFoundError: if the file does not exist.
+        ValueError: if the CSV lacks a 'wavelength' or 'species' column, or
+            no row has both values.
+        RuntimeError: if the CSV cannot be read.
     """
     try:
         if not os.path.exists(filepath):
-            print(f"Error: File '{filepath}' not found.")
-            return None
+            raise FileNotFoundError(f"File '{filepath}' not found")
 
         print(f">>> Loading custom line list from {filepath}...")
         df = pd.read_csv(filepath)
@@ -773,7 +777,6 @@ def load_custom_line_catalog(filepath):
                 f"CSV file is missing required column(s): {', '.join(missing_cols)}.\n"
                 f"Columns found: {', '.join(df.columns.tolist())}"
             )
-            print(error_msg)
             raise ValueError(error_msg)
 
         def _clean(value):
@@ -831,16 +834,14 @@ def load_custom_line_catalog(filepath):
             print(f"[WARN] Skipped {skipped} row(s) missing 'wavelength' or 'species'")
 
         if not rows:
-            print("No valid rows (all missing 'wavelength' and/or 'species').")
-            return None
+            raise ValueError("No valid rows (all missing 'wavelength' and/or 'species').")
 
         print(f"[OK] Loaded {len(rows)} custom lines")
         return rows
-    except ValueError:
+    except (ValueError, FileNotFoundError):
         raise
     except Exception as e:
-        print(f"Error loading custom line catalog: {e}")
-        return None
+        raise RuntimeError(f"Could not read the custom line catalog '{filepath}': {e}") from e
 
 
 # -------------------- Rest-Line Candidates (velocity map) --------------------
@@ -1062,8 +1063,6 @@ def _read_csv_line_list(path, wavelength_min, wavelength_max, molecule):
         ValueError: if the CSV has no usable row, no row of this species, or an unknown unit.
     """
     rows = load_custom_line_catalog(path)
-    if not rows:
-        raise ValueError("The CSV has no usable row. Each row needs a 'wavelength' and a 'species'.")
     same_species = [r for r in rows if r['species'].lower() == molecule.lower()]
     if not same_species:
         found = ', '.join(sorted({r['species'] for r in rows}))

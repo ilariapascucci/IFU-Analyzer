@@ -364,7 +364,6 @@ class InteractivePatch:
         # Store handle positions for distance-based click detection
         self.handle_positions = positions
         
-        print(f"[DEBUG] Creating {len(positions)} handles: {positions}")
         
         # Extract X and Y coordinates separately for scatter
         xs = [p[0] for p in positions]
@@ -379,7 +378,6 @@ class InteractivePatch:
             scatter_collection._is_handle_collection = True
             scatter_collection._associated_patch = self.patch
             self.handles = [scatter_collection]
-            print(f"[DEBUG] Successfully created scatter collection with {len(positions)} points")
         except Exception as e:
             print(f"[DEBUG] Error creating scatter handles: {e}")
             self.handles = []
@@ -397,7 +395,6 @@ class InteractivePatch:
         if event.inaxes != self.ax or event.button != 1 or event.xdata is None or event.ydata is None:
             return
         
-        print(f"[DEBUG] on_press called: event at ({event.xdata:.1f}, {event.ydata:.1f}), shape type: {self.shape_type}")
         
         # Check if clicking on a handle (using screen-pixel distance, so the hit
         # radius is consistent regardless of the image's data pixel scale or zoom)
@@ -413,7 +410,6 @@ class InteractivePatch:
                     'ypress': event.ydata,
                     'coords': self.coords
                 }
-                print(f"[DEBUG] Clicked on handle {i} at distance {distance}")
                 return
         
         # Check if clicking on the patch itself (to move entire shape)
@@ -427,7 +423,6 @@ class InteractivePatch:
                     'ypress': event.ydata,
                     'coords': self.coords
                 }
-                print(f"[DEBUG] Clicked inside rectangle to move at ({click_x:.1f}, {click_y:.1f}). Coords: {self.coords}")
                 return
         
         # For circles, check distance from center
@@ -443,7 +438,6 @@ class InteractivePatch:
                     'ypress': event.ydata,
                     'coords': self.coords
                 }
-                print(f"[DEBUG] Clicked inside circle to move at distance {distance} from center")
                 return
         
         # For ellipses, check if within bounding box (simplified)
@@ -456,7 +450,6 @@ class InteractivePatch:
                     'ypress': event.ydata,
                     'coords': self.coords
                 }
-                print(f"[DEBUG] Clicked inside ellipse to move")
                 return
         
         # For polygons, check if within bounding box
@@ -472,10 +465,8 @@ class InteractivePatch:
                     # tick applies total displacement, not compounding drift.
                     'verts': np.asarray(self.patch.lasso_verts).copy()
                 }
-                print(f"[DEBUG] Clicked inside polygon to move")
                 return
         
-        print(f"[DEBUG] Click not on patch or handles. Coords: {self.coords}")
 
     
     def on_release(self, event):
@@ -637,7 +628,6 @@ class InteractivePatch:
         self.ax.figure.canvas.draw_idle()
         
         # Call callback with new coordinates
-        print(f"[DEBUG] Calling on_change_callback with coords: {new_coords}")
         self.on_change_callback(new_coords)
     
     def _update_handles(self):
@@ -696,10 +686,8 @@ class InteractivePatch:
         Returns:
             None
         """
-        print(f"[DEBUG] Disconnecting InteractivePatch for {self.shape_type}")
         self.disconnect_handlers()
         self.patch = None
-        print(f"[DEBUG] InteractivePatch disconnect complete")
 
 class RegionSelector:
     """
@@ -853,12 +841,10 @@ class RegionSelector:
                 None
             """
             new_mask, _, _ = self._generate_mask_from_coords(new_coords, shape_type)
-            print(f"[DEBUG] Patch changed to coords: {new_coords}, regenerated mask shape: {new_mask.shape}")
             self.on_select_callback(new_mask, patch, new_coords)
 
         # Disconnect previous interactive patch if any
         if self.interactive_patch is not None:
-            print(f"[DEBUG] Disconnecting previous interactive patch")
             try:
                 self.interactive_patch.disconnect()
             except Exception as e:
@@ -964,7 +950,6 @@ class RegionSelector:
         
         # Disconnect previous interactive patch if any
         if self.interactive_patch is not None:
-            print(f"[DEBUG] Disconnecting previous interactive patch (lasso)")
             try:
                 self.interactive_patch.disconnect()
             except Exception as e:

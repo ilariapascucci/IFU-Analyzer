@@ -807,8 +807,9 @@ class GuiContinuumMixin:
                 # User wants to keep editing - redraw the clean tab with points still visible
                 self._refresh_active_spectrum_tab()
 
-        except Exception:
+        except Exception as e:
             traceback.print_exc()
+            QMessageBox.critical(self, "Custom Continuum Error", f"Could not preview the custom continuum:\n{e}")
 
 
     def _save_custom_points(self):

@@ -126,10 +126,7 @@ class CustomContinuumSelector:
                 f"Method: Cubic spline with smoothness constraints\n"
                 f"Result: I_subtracted(λ) = I_observed(λ) - I_continuum(λ)"
             )
-        
-        print("[DEBUG] Custom continuum selector activated")
-        print("[DEBUG] Click on spectrum - points will snap to data")
-        
+
     def deactivate(self):
         """Deactivate the custom continuum selector.
 
@@ -155,8 +152,6 @@ class CustomContinuumSelector:
         if self.key_cid:
             self.canvas.mpl_disconnect(self.key_cid)
             self.key_cid = None
-            
-        print("[DEBUG] Custom continuum selector deactivated")
 
     def set_delete_mode(self, state):
         """Toggle left-click delete mode.
@@ -168,11 +163,7 @@ class CustomContinuumSelector:
             None
         """
         self.delete_mode = state
-        if state:
-            print("[DEBUG] Custom continuum: Delete mode ON (left-click to remove)")
-        else:
-            print("[DEBUG] Custom continuum: Delete mode OFF (left-click to add)")
-            
+
     def on_key_press(self, event):
         """Handle keyboard events.
 
@@ -182,11 +173,7 @@ class CustomContinuumSelector:
         Returns:
             None
         """
-        print(f"[DEBUG] Key pressed: {event.key}")
-        print(f"[DEBUG] Current points: {len(self.continuum_points)}")
-        
         if event.key in ['enter', 'return']:
-            print("[DEBUG] ENTER pressed - fitting continuum...")
             if self.parent_widget is not None:
                 if hasattr(self.parent_widget, '_finalize_custom_continuum'):
                     self.parent_widget._finalize_custom_continuum()
@@ -196,7 +183,6 @@ class CustomContinuumSelector:
                 print("[DEBUG] ERROR: parent_widget is None!")
         
         elif event.key == 'escape':
-            print("[DEBUG] ESCAPE pressed - cancelling...")
             if self.parent_widget is not None:
                 if hasattr(self.parent_widget, '_cancel_custom_continuum'):
                     self.parent_widget._cancel_custom_continuum()
@@ -240,7 +226,6 @@ class CustomContinuumSelector:
         
         # Check if point is valid (not NaN or Inf)
         if not np.isfinite(y_snap):
-            print(f"[DEBUG] Invalid point at index {idx}, skipping")
             return
             
         self._add_point(x_snap, y_snap)
@@ -276,7 +261,6 @@ class CustomContinuumSelector:
         # Check if point already exists at this x location
         for existing_x, existing_y in self.continuum_points:
             if np.abs(existing_x - x) < 1e-10:
-                print(f"[DEBUG] Point already exists at x={x:.3f}, skipping")
                 return
         
         # Store current axis limits BEFORE adding the point
@@ -307,15 +291,7 @@ class CustomContinuumSelector:
         
         # Update plot without changing view
         self.canvas.draw_idle()
-        
-        print(f"[DEBUG] Added point at ({x:.3f}, {y:.3e}). Total: {len(self.continuum_points)}")
-        
-        if len(self.continuum_points) == self.min_points:
-            print(f"[DEBUG] [OK] Minimum points reached ({self.min_points})")
-        elif len(self.continuum_points) == self.recommended_points:
-            print(f"[DEBUG] [OK] Recommended points reached ({self.recommended_points})")
 
-            
     def _remove_point(self, artist):
         """Remove a continuum point.
 
@@ -346,9 +322,7 @@ class CustomContinuumSelector:
             
             # Update plot
             self.canvas.draw_idle()
-            
-            print(f"[DEBUG] Removed point. Remaining: {len(self.continuum_points)}")
-            
+
         except (ValueError, IndexError) as e:
             print(f"[DEBUG] Error removing point: {e}")
 
@@ -380,8 +354,7 @@ class CustomContinuumSelector:
             
         self.fitted_continuum = None
         self.canvas.draw_idle()
-        print("[DEBUG] All points cleared")
-        
+
     def fit_continuum(self):
         """Fit a cubic spline through the selected continuum points. The
         OK-button caller already enforces the minimum-points check and its
@@ -402,20 +375,12 @@ class CustomContinuumSelector:
             sort_indices = np.argsort(points_array[:, 0])
             x_points = points_array[sort_indices, 0]
             y_points = points_array[sort_indices, 1]
-            
-            print(f"[DEBUG] Fitting cubic spline through {len(x_points)} points...")
-            print(f"[DEBUG] X range: {x_points.min():.2f} to {x_points.max():.2f}")
-            print(f"[DEBUG] Y range: {y_points.min():.3e} to {y_points.max():.3e}")
-            
+
             spline_model = CubicSpline(x_points, y_points, bc_type='natural')
             continuum = spline_model(self.wavelength)
             
             self.fitted_continuum = continuum
-            
-            print(f"[DEBUG] [OK] Cubic spline fitted successfully")
-            print(f"[DEBUG] Continuum range: {np.nanmin(continuum):.3e} to {np.nanmax(continuum):.3e}")
-            print(f"[DEBUG] Ready for subtraction: I_subtracted(lambda) = I_observed(lambda) - I_continuum(lambda)")
-            
+
             return continuum
             
         except Exception as e:
@@ -426,7 +391,6 @@ class CustomContinuumSelector:
                     f"Error fitting continuum:\n{str(e)}\n\n"
                     f"Make sure your points are well-distributed across the spectrum."
                 )
-            print(f"[DEBUG] Spline fitting error: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -441,7 +405,6 @@ class CustomContinuumSelector:
             None
         """
         self._clear_points()
-        print("[DEBUG] Custom continuum selection cleared")
 
     def load_points(self, points):
         """Take a list of (x, y) tuples from a saved file, clear the
@@ -456,5 +419,3 @@ class CustomContinuumSelector:
         self._clear_points()
         for x, y in points:
             self._add_point(x, y)
-            
-        print(f"[DEBUG] Loaded and drew {len(points)} custom points")

@@ -316,14 +316,6 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
         # flux_map_extractor._to_result, same number every consumer gets, not redone here.
         flux_error = fit_result.area_error
 
-        print(f"[BATCH_FLUX] Line @ {wl:.6f} um (collective):")
-        print(f"  flux = {flux_integrated:.4e} erg/s/cm^2")
-        print(f"  error = {'N/A (upper limit or unavailable)' if flux_error is None else f'{flux_error:.4e} erg/s/cm^2'}")
-        print(f"  noise (native) = {fit_result.noise_std:.4e} MJy/sr")
-        print(f"  catalog sigma = {fit_result.catalog_sigma:.4e} um")
-        print(f"  F_ul (CGS) = {F_ul_cgs:.4e} erg/s/cm^2")
-        print(f"  is_upper_limit = {is_upper_limit}")
-
         results.append({
             "success": True,
             "message": fit_result.message,

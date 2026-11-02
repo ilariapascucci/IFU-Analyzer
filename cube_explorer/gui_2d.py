@@ -1917,7 +1917,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             wcs_obj = WCS(ch, naxis=2)
 
             wcs_for_projection = wcs_obj.celestial if wcs_obj.has_celestial else wcs_obj
-            print(f"DEBUG rebuild_axes [{target}]: WCS parsed OK -> {wcs_for_projection}")
 
         except Exception as e:
             print(f"DEBUG rebuild_axes [{target}]: WCS parse FAILED -> {e}")
@@ -1934,7 +1933,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             if wcs_for_projection is None:
                 raise ValueError("No valid WCS available for projection")
             plotter.ax = plotter.fig.add_axes(ax_rect, projection=wcs_for_projection)
-            print(f"DEBUG rebuild_axes [{target}]: WCSAxes created OK")
         except Exception as e:
             print(f"DEBUG rebuild_axes [{target}]: WCSAxes FAILED, using plain axes -> {e}")
             plotter.ax = plotter.fig.add_axes(ax_rect)
@@ -2342,13 +2340,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     ra.set_axislabel('RA',  color='black', size=8)
                     dec.set_axislabel('Dec', color='black', size=8)
 
-                    print(f"DEBUG WCS grid: {step:g} arcsec step on both axes")
 
                 except Exception as e:
                     QMessageBox.warning(self, "Grid Error", f"Failed to draw WCS grid:\n{str(e)}")
                     traceback.print_exc()
-                print(f"DEBUG coords type: {type(ax.coords)}")
-                print(f"DEBUG ax position: {ax.get_position()}")
 
         # 4. Colorbar Management
         if not hasattr(plotter, 'cbar_ax') or plotter.cbar_ax is None:

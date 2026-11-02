@@ -464,22 +464,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
-        print("=== CLEAR ALL DISPLAYS START ===")
         
         # Disconnect interactive patches before clearing axes
         if hasattr(self, 'region_selector_left') and self.region_selector_left.interactive_patch is not None:
-            print("[DEBUG] Disconnecting left interactive patch")
             self.region_selector_left.interactive_patch.disconnect()
             self.region_selector_left.interactive_patch = None
         
         if hasattr(self, 'region_selector_right') and self.region_selector_right.interactive_patch is not None:
-            print("[DEBUG] Disconnecting right interactive patch")
             self.region_selector_right.interactive_patch.disconnect()
             self.region_selector_right.interactive_patch = None
 
         # --- Slice 1 ---
         if hasattr(self, 'slice1_plotter'):
-            print(f"[DEBUG] Clearing slice1_plotter, ax exists: {hasattr(self.slice1_plotter, 'ax')}")
             ax1 = self.slice1_plotter.ax
             if ax1:
                 ax1.clear()
@@ -500,11 +496,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 ax1.relim()
                 ax1.autoscale()
                 self.slice1_canvas.draw()
-                print("[DEBUG] Slice1 canvas redrawn")
 
         # --- Slice 2 ---
         if hasattr(self, 'slice2_plotter'):
-            print(f"[DEBUG] Clearing slice2_plotter, ax exists: {hasattr(self.slice2_plotter, 'ax')}")
             ax2 = self.slice2_plotter.ax
             if ax2:
                 ax2.clear()
@@ -523,11 +517,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 ax2.relim()
                 ax2.autoscale()
                 self.slice2_canvas.draw()
-                print("[DEBUG] Slice2 canvas redrawn")
 
         # --- Spectrum plot ---
         if hasattr(self, 'spec_plotter') and hasattr(self.spec_plotter, 'ax'):
-            print(f"[DEBUG] Clearing spec_plotter, ax exists: True")
             ax_spec = self.spec_plotter.ax
             ax_spec.clear()
             ax_spec.set_xlabel("")
@@ -539,12 +531,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             ax_spec.relim()
             ax_spec.autoscale()
             self.spec_canvas.draw()
-            print("[DEBUG] Spectrum canvas redrawn")
 
         # --- Reset stats labels ---
         self.stats1_label.setText("Slice 1 Stats:\n-")
         self.stats2_label.setText("Slice 2 Stats:\n-")
-        print("[DEBUG] Resetting stats labels")
 
         # --- Reset selections ---
         self.last_selection_left = None
@@ -555,9 +545,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                     self.region_save_wcs_btn, self.region_import_wcs_btn):
             btn.setEnabled(False)
         self.original_spectrum = None
-        print("[DEBUG] Resetting selections")
 
-        print("[DEBUG] Clearing continuum-related data...")
 
         if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
             self.custom_continuum_selector.clear_all()
@@ -600,7 +588,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if hasattr(self, 'hide_all_action_buttons'):
             self.hide_all_action_buttons()
 
-        print("[DEBUG] Continuum data cleared successfully")
 
         # --- Uncheck buttons ---
         for side in ["left", "right"]:
@@ -636,16 +623,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if hasattr(self, 'revert_shift_btn'):
             self.revert_shift_btn.setEnabled(False)
         
-        print("[DEBUG] Unchecking all buttons")
 
         # --- Reset labels ---
         self.instrument_label.setText("Instrument: -")
-        print("[DEBUG] Resetting instrument label")
 
         # --- Force garbage collection ---
         gc.collect()
 
-        print("=== CLEAR ALL DISPLAYS END ===")
 
     def _init_ui(self):
         """Build every UI section in order and set up initial state.
@@ -1319,7 +1303,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "Cancelled",
             "Custom continuum selection cancelled."
         )
-        print("[DEBUG] Custom continuum cancelled")
 
     def _init_state(self):
         """Initialize state variables.
@@ -1510,7 +1493,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 "Not enough memory to load this file. Try closing other applications or using a smaller file.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading file: {str(e)}")
-            print(f"Detailed error: {e}")  # For debugging
 
     def _fill_wave_range_inputs(self):
         """Set the Min/Max wavelength boxes to the loaded cube's full range, in micron.
@@ -2280,7 +2262,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # tab's own trace, applies Normalize, and enables the shift buttons.
         self._refresh_active_spectrum_tab()
 
-        print(f"[DEBUG] Previewing Doppler shift on '{active_tab}': v={velocity} km/s (cumulative factor={new_factor:.6f})")
 
     def _apply_shift(self):
         """Commit whichever tab's pending shift preview is active. Each
@@ -2348,7 +2329,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             f"Shift applied to the {tab_label} spectrum."
         )
 
-        print(f"[DEBUG] Shift applied to '{active_tab}': cumulative factor={new_factor:.6f}")
 
     def _cancel_shift_preview(self):
         """Cancel whichever tab's pending shift preview is active, without
@@ -2366,7 +2346,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return
         self.spectrum_shift_preview[active_tab] = None
         self._refresh_active_spectrum_tab()
-        print(f"[DEBUG] Cancelled shift preview on '{active_tab}'")
 
     def _revert_shift(self):
         """Revert whichever tab is active back to its original (unshifted)
@@ -2403,7 +2382,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._fit_xlim_to(self._get_tab_wavelength(active_tab))
 
         self._refresh_active_spectrum_tab()
-        print(f"[DEBUG] Reverted shift on '{active_tab}'")
 
     def _open_colormap_dialog(self, target):
         """Open the colormap picker and apply the chosen map to a slice.
@@ -2658,7 +2636,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             try:
                 if cube_unit != source_unit and are_units_compatible(source_unit, cube_unit):
                     λ_converted = convert_wavelength(λ, source_unit, cube_unit)
-                    print(f"[DEBUG] Converted line {row.get('species', 'Unknown')}: {λ:.6f} {source_unit} -> {λ_converted:.6f} {cube_unit}")
                     λ = λ_converted
             except Exception as e:
                 print(f"[DEBUG] Unit conversion failed for {row.get('species', 'Unknown')}: {e}")
@@ -2779,10 +2756,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
-        print("[DEBUG] === REFRESH VIEW: Complete Reset ===")
         
         if not hasattr(self, 'cube_data') or self.cube_data is None:
-            print("[DEBUG] No cube data loaded")
             return
 
         reply = QMessageBox.question(
@@ -2991,7 +2966,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             for side in ["left", "right"]:
                 self._set_region_state(side, "idle")
 
-        print("[DEBUG] Refresh complete - all displays reset to initial state")
 
     def _current_wavelength_range(self):
         """Read and validate the Min/Max wavelength (micron) fields shared
@@ -3488,7 +3462,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
-        print("[DEBUG] Spectrum home button clicked - restoring original spectrum")
         
         # Restore original spectrum if the active tab has a continuum subtracted
         if self.continuum_subtracted.get(self.active_spectrum_tab, False):

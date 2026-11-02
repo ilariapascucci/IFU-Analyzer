@@ -5,6 +5,7 @@ Data loading and processing functions for different telescopes
 import tempfile
 import gc
 import os
+import warnings
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -93,7 +94,6 @@ class CubeData:
                     "For 2D FITS images, for example parameter or moment maps, use the 2D viewer instead."
                 )
                 
-            print(f"Data shape after processing: {data.shape}")  # Debug info
 
             # Convert to float32 to save memory, but keep as memmap
             if not isinstance(data, np.ndarray) or not data.flags.writeable:                
@@ -144,6 +144,14 @@ class CubeData:
                 self.wavelength = self.wavelength[::-1]
                 self.spectrum = self.spectrum[::-1]
 
+            n_wave, n_y, n_x = self.cube.shape
+            summary = (f"[OK] Loaded {os.path.basename(filename)}: {self.instrument}, {n_wave} wavelength points, "
+                       f"{n_x} pixels wide by {n_y} pixels high")
+            if self.wavelength is not None:
+                wave_values = np.asarray(getattr(self.wavelength, 'value', self.wavelength), dtype=float)
+                summary += f", {np.nanmin(wave_values):.4f} to {np.nanmax(wave_values):.4f} {self.wave_unit}"
+            print(summary)
+
             return True
 
         except Exception as e:
@@ -158,7 +166,10 @@ class CubeData:
             None
 
         Returns:
-            spectrum (array): 1D summed spectrum. All zeros if the computation fails
+            spectrum (array): 1D summed spectrum. All zeros if every value is NaN
+
+        Raises:
+            RuntimeError: if the sum over the spatial axes fails
         """
 
         if self.cube is None:
@@ -170,7 +181,8 @@ class CubeData:
         chunk_size = 100  # Adjust based on available memory
         n_spectral = self.cube.shape[self.spec_axis]
         spectrum = np.zeros(n_spectral, dtype='float32')
-        
+        has_data = False
+
         try:
             for i in range(0, n_spectral, chunk_size):
                 end = min(i + chunk_size, n_spectral)
@@ -180,21 +192,20 @@ class CubeData:
                     slicing = [slice(None)] * self.cube.ndim
                     slicing[self.spec_axis] = slice(i, end)
                     chunk = self.cube[tuple(slicing)]
-                
+
                 # Handle potential memory mapping issues
                 chunk = np.array(chunk)  # Ensure we have a regular array
+                has_data = has_data or bool(np.isfinite(chunk).any())
                 spectrum[i:end] = np.nansum(chunk, axis=axes)
-            
-            # Verify the spectrum is valid
-            if np.all(np.isnan(spectrum)):
-                print("Warning: Spectrum contains all NaN values")
-                return np.zeros_like(spectrum)
-            
+
+            # nansum turns an all-NaN chunk into 0, so the sum cannot show missing data
+            if not has_data:
+                warnings.warn("The cube contains only NaN values. The summed spectrum is all zeros.")
+
             return spectrum
             
         except Exception as e:
-            print(f"Error computing spectrum: {e}")
-            return np.zeros(n_spectral, dtype='float32')
+            raise RuntimeError(f"Could not compute the total spectrum: {e}") from e
 
 
     def get_slice(self, idx):
@@ -205,19 +216,21 @@ class CubeData:
             idx (int): Index along the spectral axis to extract
 
         Returns:
-            slice_data (numpy.ndarray): 2D array, dtype float32, or None if extraction fails
-        """
+            slice_data (numpy.ndarray): 2D array, dtype float32
 
-        try:
-            if self.spec_axis == 0:
-                return np.array(self.cube[idx], dtype=np.float32)  # float32 for consistency
-            else:
-                slicing = [slice(None)] * self.cube.ndim
-                slicing[self.spec_axis] = idx
-                return np.array(self.cube[tuple(slicing)], dtype=np.float32)
-        except Exception as e:
-            print(f"Error getting slice: {e}")
-            return None
+        Raises:
+            ValueError: if no cube is loaded
+            IndexError: if idx is outside the spectral axis
+        """
+        if self.cube is None:
+            raise ValueError("No cube loaded")
+
+        if self.spec_axis == 0:
+            return np.array(self.cube[idx], dtype=np.float32)  # float32 for consistency
+        else:
+            slicing = [slice(None)] * self.cube.ndim
+            slicing[self.spec_axis] = idx
+            return np.array(self.cube[tuple(slicing)], dtype=np.float32)
 
 
     def compute_region_spectrum(self, mask):
@@ -230,10 +243,11 @@ class CubeData:
 
         Returns:
             spectrum (array): 1D mean spectrum of the masked region. All zeros if the
-                computation fails or the mask has no True pixels
+                mask has no True pixels
 
         Raises:
             ValueError: if mask is not a 2D array
+            RuntimeError: if the mean over the masked pixels fails
         """
 
         # Expect spectral axis to be first (0). If not, move it temporarily.
@@ -277,8 +291,7 @@ class CubeData:
 
             return spectrum
         except Exception as e:
-            print(f"Error computing region spectrum: {e}")
-            return np.zeros(n_spectral, dtype='float32')
+            raise RuntimeError(f"Could not compute the region spectrum: {e}") from e
 
 
     def export_slice_fits(self, idx, output_path, mask=None):
@@ -298,15 +311,13 @@ class CubeData:
             None: Writes output_path as a side effect.
 
         Raises:
-            ValueError: no cube is loaded, the slice could not be extracted,
-                or mask's shape doesn't match the slice.
+            ValueError: no cube is loaded, or mask's shape doesn't match the slice.
+            IndexError: if idx is outside the spectral axis.
         """
         if self.cube is None:
             raise ValueError("No cube loaded")
 
         image = self.get_slice(idx)
-        if image is None:
-            raise ValueError(f"Could not extract slice {idx}")
 
         if mask is not None:
             mask = np.asarray(mask, dtype=bool)
@@ -339,28 +350,27 @@ class CubeData:
             y (int): Y pixel coordinate (0-based)
 
         Returns:
-            spectrum (array): 1D pixel spectrum, dtype float32, or None if extraction fails
+            spectrum (array): 1D pixel spectrum, dtype float32, or None if no cube is loaded
+
+        Raises:
+            IndexError: if (x, y) is outside the image
         """
 
         if self.cube is None:
             return None
 
-        try:
-            if self.spec_axis == 0:
-                # cube shape (nspec, ny, nx)
+        if self.spec_axis == 0:
+            # cube shape (nspec, ny, nx)
+            return np.array(self.cube[:, int(y), int(x)], dtype='float32')
+        else:
+            # The spectral axis is not first here. Try the common (spec, y, x)
+            # layout first, and fall back to moving the axis if that fails.
+            try:
                 return np.array(self.cube[:, int(y), int(x)], dtype='float32')
-            else:
-                # The spectral axis is not first here. Try the common (spec, y, x)
-                # layout first, and fall back to moving the axis if that fails.
-                try:
-                    return np.array(self.cube[:, int(y), int(x)], dtype='float32')
-                except Exception:
-                    # Fallback: move the spectral axis to the front, then index.
-                    tmp = np.moveaxis(self.cube, self.spec_axis, 0)
-                    return np.array(tmp[:, int(y), int(x)], dtype='float32')
-        except Exception as e:
-            print(f"Error getting pixel spectrum: {e}")
-            return None
+            except Exception:
+                # Fallback: move the spectral axis to the front, then index.
+                tmp = np.moveaxis(self.cube, self.spec_axis, 0)
+                return np.array(tmp[:, int(y), int(x)], dtype='float32')
 
 
     def free_memory(self):

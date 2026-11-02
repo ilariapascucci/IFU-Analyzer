@@ -289,7 +289,6 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
             item = self.table.item(i, 0)
             if item and item.checkState() == Qt.Checked:
                 selected.append(self.rows[i])
-        print("DEBUG selected rows:", [r.get('lambda_micron') or r.get('wavelength') for r in selected])
         return selected
 
     @staticmethod

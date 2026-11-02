@@ -79,6 +79,9 @@ Unit conversion (using astropy):
     >>> print(f"Frequency: {frequency}")
 """
 
+import time
+import warnings
+
 import numpy as np
 
 
@@ -392,6 +395,9 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             - success: Whether fit succeeded
             - message: Status message
 
+    Raises:
+        RuntimeError: if the HITRAN fetch fails, or HITRAN does not know the molecule
+
     Example:
         >>> # Fit CO v=1->0 lines only
         >>> results = fit_hitran_lines(
@@ -418,7 +424,7 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         wavelength_max = float(np.nanmax(wl))
 
     # Fetch HITRAN data for this molecule
-    hitran_lines, _ = fetch_hitran_data(
+    hitran_lines, fetch_meta = fetch_hitran_data(
         wavelength_min, wavelength_max,
         molecule, isotopologue,
         refresh_cache=refresh_cache,
@@ -426,8 +432,11 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         v_lower=v_lower
     )
 
+    if not hitran_lines and fetch_meta.get('message'):
+        raise RuntimeError(f"Could not get {molecule} lines from HITRAN: {fetch_meta['message']}")
     if not hitran_lines:
-        print(f"Warning: No HITRAN lines found for {molecule} in range {wavelength_min:.6f}-{wavelength_max:.6f} um")
+        warnings.warn(
+            f"No HITRAN lines found for {molecule} in range {wavelength_min:.6f}-{wavelength_max:.6f} um")
         return []
 
     if continuum is None:
@@ -437,10 +446,15 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
 
     # Contaminant fits (if given) aren't surfaced; they only keep requested
     # lines' amplitudes honest. Center/sigma are free within a bound, not fixed.
+    start_time = time.time()
     fit_pairs, _contam_pairs, _ = _fit_hitran_lines_internal(
         wl, sp, hitran_lines, continuum_arr,
         header=header, wave_unit=wave_unit,
         contam_lines=contam_catalog)
+
+    n_fitted = sum(1 for _line, result in fit_pairs if result.success)
+    print(f"[OK] Fitted {n_fitted} of {len(fit_pairs)} {molecule} lines between "
+          f"{wavelength_min:.6f} and {wavelength_max:.6f} um in {time.time() - start_time:.1f} s")
 
     return [
         {
@@ -721,7 +735,7 @@ def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalo
         contam_catalog = load_contaminating_lines_catalog(contamination_catalog_path)
 
     # Call internal function
-    return _extract_flux_internal(
+    result = _extract_flux_internal(
         wavelength, spectrum,
         target_catalog, contam_catalog,
         do_duplicate_removal=True,
@@ -729,6 +743,12 @@ def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalo
         continuum_params=continuum_params,
         header=header, wave_unit=wave_unit,
     )
+
+    lines = result['detected_lines']
+    n_detected = int((lines['disposition'] == 1).sum()) if len(lines) else 0
+    print(f"[OK] Extracted flux {result['flux']:.4e} {result['flux_unit']} from {n_detected} detected line(s), "
+          f"contaminating flux {result['contam_flux']:.4e} {result['flux_unit']}")
+    return result
 
 
 def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_path=None, n_jobs=8,
@@ -766,6 +786,11 @@ def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_p
             - 'wave_range': (wavelength_min, wavelength_max) actually used for the fit
             - 'flux_unit': unit of 'flux_map'/'contam_flux_map'
 
+    Raises:
+        RuntimeError: if the CO line list for the cube's wavelength range cannot be
+            fetched from HITRAN
+        ValueError: if cube_data has no cube loaded
+
     Example:
         >>> cube = load_cube("data.fits")
         >>> flux_map_result = create_flux_map(cube, n_jobs=4)
@@ -784,14 +809,15 @@ def create_flux_map(cube_data, target_catalog_path=None, contamination_catalog_p
         wavelength_min = float(np.nanmin(wl)) if wavelength_min is None else wavelength_min
         wavelength_max = float(np.nanmax(wl)) if wavelength_max is None else wavelength_max
 
-        hitran_lines, _ = fetch_hitran_data(
+        hitran_lines, fetch_meta = fetch_hitran_data(
             wavelength_min, wavelength_max,
             'CO', isotopologue=1,
             refresh_cache=False
         )
         if not hitran_lines:
-            print("  ERROR: Could not fetch CO data from HITRAN")
-            return None
+            reason = fetch_meta.get('message') or 'HITRAN has no CO line in this range'
+            raise RuntimeError(
+                f"Could not get CO lines from HITRAN for {wavelength_min:.6f}-{wavelength_max:.6f} um: {reason}")
         # flux_map_extractor expects a DataFrame with a 'line_wave_um' column;
         # fetch_hitran_data returns a list of dicts with 'wavelength' instead
         target_catalog = pd.DataFrame(hitran_lines).rename(columns={'wavelength': 'line_wave_um'})

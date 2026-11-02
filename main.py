@@ -11,6 +11,7 @@ Click Open FITS to load a FITS data cube.
 """
 
 import sys
+import traceback
 
 # The versions in requirements.txt are tested on this Python version only.
 TESTED_PYTHONS = ((3, 13),)
@@ -40,8 +41,8 @@ if __name__ == "__main__":
     # Spawn reruns this file per worker with __name__ != "__main__". Imports
     # here stay out of workers, instead of loading the GUI stack 8x over.
     try:
-        from PyQt5.QtCore import Qt
-        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import Qt, QThread
+        from PyQt5.QtWidgets import QApplication, QMessageBox
         from cube_explorer.gui import CubeExplorer
     except ImportError as exc:
         print(f"[ERROR] A required library is missing or has the wrong version: {exc}")
@@ -56,6 +57,29 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     # Native styles give each OS different widget sizes. Fusion looks the same everywhere.
     app.setStyle("Fusion")
+
+    def report_unhandled_exception(exc_type, exc_value, exc_traceback):
+        """Show an error dialog for an exception no code caught, instead of letting PyQt5 abort.
+
+        Args:
+            exc_type (type): Exception class.
+            exc_value (BaseException): Exception instance.
+            exc_traceback (traceback): Traceback of the exception.
+
+        Returns:
+            None
+        """
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        traceback.print_exception(exc_type, exc_value, exc_traceback)
+        # A dialog from a worker thread is not safe. Only the GUI thread shows one.
+        if QThread.currentThread() is app.thread():
+            QMessageBox.critical(
+                None, "Unexpected error",
+                f"{exc_type.__name__}: {exc_value}\n\nThe console has the full traceback.")
+
+    sys.excepthook = report_unhandled_exception
     w = CubeExplorer()
 
     # Relative over absolute values

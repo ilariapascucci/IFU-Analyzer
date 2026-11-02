@@ -6,7 +6,6 @@ Single unified interface for selecting molecules, lines, and entering flux data
 import os
 import csv
 import io
-import time
 import zipfile
 import numpy as np
 from astropy.stats import gaussian_sigma_to_fwhm
@@ -407,7 +406,6 @@ class BatchFluxWorker(QThread):
         Returns:
             None
         """
-        print(f"[TIMING] BatchFluxWorker.run() started at {time.time():.2f}")
         try:
             groups = []
             total = len(self.rows_by_cube_idx)
@@ -424,12 +422,14 @@ class BatchFluxWorker(QThread):
                         spectrum = spectrum[::-1]
 
                     line_wls = [self.line_wavelengths[row] for row in rows]
-                    t0 = time.time()
                     group_results = compute_line_fluxes_collective(
                         wavelength, spectrum, line_wls, header,
                         contam_lines=self.contam_lines,
                     )
-                    print(f"[TIMING] fit for {len(rows)} line(s): {time.time()-t0:.2f}s")
+                    n_upper = sum(1 for r in group_results if r.get("success") and r.get("is_upper_limit"))
+                    n_failed = sum(1 for r in group_results if not r.get("success"))
+                    print(f"[OK] {os.path.basename(cube_data.filename)}: {len(group_results) - n_failed - n_upper} "
+                          f"detection(s), {n_upper} upper limit(s), {n_failed} failed line(s)")
                     groups.append({
                         "success": True, "rows": rows, "results": group_results,
                         "wavelength": wavelength, "spectrum": spectrum,
@@ -441,7 +441,6 @@ class BatchFluxWorker(QThread):
                     # same recovery as the old inline per-group try/except.
                     groups.append({"success": False, "cube_idx": cube_idx, "error": str(e)})
             self.progress.emit(total, total)
-            print(f"[TIMING] BatchFluxWorker emitting finished at {time.time():.2f}")
             self.finished.emit(groups)
         except Exception as e:
             self.error.emit(str(e))
@@ -2550,7 +2549,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.batch_flux_worker.finished.connect(self._on_batch_flux_complete)
         self.batch_flux_worker.error.connect(self._on_batch_flux_error)
         self.batch_flux_worker.progress.connect(self._on_batch_flux_progress)
-        print(f"[TIMING] starting BatchFluxWorker at {time.time():.2f}")
         self.batch_flux_worker.start()
 
     def _on_batch_flux_progress(self, current, total):
@@ -2582,13 +2580,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        print(f"[TIMING] _on_batch_flux_complete entered at {time.time():.2f}")
         dlg = getattr(self, 'batch_flux_progress', None)
         if dlg is not None:
             dlg.close()
         self.calculate_fluxes_btn.setEnabled(True)
 
-        t0 = time.time()
         self.lines_table.setUpdatesEnabled(False)
         try:
             for group in groups:
@@ -2598,12 +2594,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     QMessageBox.critical(self, "Calculation Error",
                                           f"Error processing lines from FITS file:\n{group['error']}")
                     continue
-                t1 = time.time()
                 self._apply_batch_flux_group_results(group)
-                print(f"[TIMING] _apply_batch_flux_group_results for {len(group['rows'])} row(s): {time.time()-t1:.2f}s")
         finally:
             self.lines_table.setUpdatesEnabled(True)
-        print(f"[TIMING] full table-update loop: {time.time()-t0:.2f}s")
 
         skipped_rows = getattr(self, '_batch_flux_skipped_rows', None)
         msg = "Flux calculation complete!"
@@ -2651,6 +2644,14 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             if not result["success"]:
                 print(f"Warning: {result['message']} for line {wl:.6f}")
                 continue
+
+            # An Upper Limit stash from an earlier run would overwrite this fit when the row is a detection
+            was_blocked = self.lines_table.blockSignals(True)
+            for stash_col in (7, 8):
+                stash_item = self.lines_table.item(row, stash_col)
+                if stash_item:
+                    stash_item.setData(Qt.UserRole, None)
+            self.lines_table.blockSignals(was_blocked)
 
             flux_integrated = result["flux_cgs"]
             flux_error = result["flux_error_cgs"]
@@ -2708,6 +2709,13 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                     "or a region change, clears the calculated fluxes.")
             if error_item:
                 error_item.setData(Qt.UserRole + 2, f"{flux_error:.4e}" if flux_error is not None else "")
+            # Restoring an Upper Limit stash can rebuild the error from the rounded percent.
+            # A detection always shows the real fit value, so write it back.
+            if error_item and pct_item and not is_upper_limit:
+                error_item.setText(f"{flux_error:.4e}" if flux_error is not None else "")
+                pct_item.setText(f"{(flux_error / flux_integrated) * 100:.1f}"
+                                 if flux_error is not None and flux_integrated > 0 else "")
+                pct_item.setData(Qt.UserRole + 1, False)
             self.lines_table.blockSignals(was_blocked)
             self._update_error_edit_mark(row)
 
@@ -4189,6 +4197,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                         cell.setText("")
                         if col in (7, 8):
                             cell.setFlags(cell.flags() | Qt.ItemIsEditable)
+                            # Drop the Upper Limit stash too, or the next calculation restores it
+                            cell.setData(Qt.UserRole, None)
                         cell.setBackground(QBrush())
                         cell.setToolTip("")
                 r2_item = self.lines_table.item(row, 13)

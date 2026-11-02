@@ -85,8 +85,6 @@ class SpectrumPlotter:
             ax (matplotlib.axes.Axes): The axes the spectrum was plotted on.
         """
 
-        print("DEBUG plot_spectrum called")
-        print("Existing lines on axis before clear:", len(self.ax.lines))
 
         if spectrum is None:
             print("Warning: Cannot plot spectrum - data is None")
@@ -97,7 +95,6 @@ class SpectrumPlotter:
         self.ax.set_xlim(auto=True)
         self.ax.set_ylim(auto=True)
 
-        print("DEBUG plot_spectrum cleared axis, lines now:", len(self.ax.lines))
 
         try:
             # X-axis values - extract from Quantity if needed
@@ -113,7 +110,6 @@ class SpectrumPlotter:
             # Use raw spectrum data (no automatic normalization)
             # Normalization is now controlled by user via Normalize button
             y = np.asarray(spectrum).astype(np.float32)
-            print(f"Global spectrum plotted (no auto-normalization)")
 
             # Plot main spectrum as steps (discrete wavelength bins)
             self.global_line, = self.ax.step(x, y, where='mid', color='blue', label='Total Spectrum', zorder=1)
@@ -188,7 +184,6 @@ class SpectrumPlotter:
                 fit_median = np.nanmedian(result.y_data[np.isfinite(result.y_data)])
                 if fit_median > 0:
                     norm_factor = fit_median
-                    print(f"[DEBUG] Normalizing Gaussian fit by factor {norm_factor:.3e}")
                 else:
                     norm_factor = 1.0
             else:
@@ -200,12 +195,6 @@ class SpectrumPlotter:
         baseline_norm = result.baseline / norm_factor
         y_fit_norm = result.y_fit / norm_factor
         
-        print(f"[DEBUG] Gaussian fit plotting:")
-        print(f"  x_data range: {result.x_data.min():.4f} to {result.x_data.max():.4f}")
-        print(f"  baseline range: {baseline_norm.min():.4e} to {baseline_norm.max():.4e}")
-        print(f"  y_fit range: {y_fit_norm.min():.4e} to {y_fit_norm.max():.4e}")
-        print(f"  total range: {(baseline_norm + y_fit_norm).min():.4e} to {(baseline_norm + y_fit_norm).max():.4e}")
-        print(f"  Current ax ylim: {self.ax.get_ylim()}")
         
         # Plot baseline as smooth curve (mathematical function, not discrete data)
         baseline_line, = self.ax.plot(
@@ -253,7 +242,6 @@ class SpectrumPlotter:
         # Update legend
         self.ax.legend(loc='upper right', fontsize=8)
         
-        print(f"[DEBUG] Gaussian fit plotted, total lines now: {len(self.ax.lines)}")
 
     def update_slice_indicator(self, wavelength_idx, target="left"):
         """Move the vertical line showing the current slice position for
@@ -349,11 +337,9 @@ class SpectrumPlotter:
                     # This is a vertical line (both x coordinates are the same)
                     shifted_x = xdata[0] * shift_factor
                     line.set_xdata([shifted_x, shifted_x])
-                    print(f"[DEBUG] Shifted vertical line from {xdata[0]:.4f} to {shifted_x:.4f}")
         except Exception as e:
             print(f"[DEBUG] Could not process lines on axis: {e}")
         
-        print(f"[DEBUG] Shifted all plot elements by factor {shift_factor}")
 
 
 
