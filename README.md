@@ -190,7 +190,7 @@ Bring several images to one resolution in a single step.
 - **Residuals cube (FITS):** export of the 3D normalised residuals cube with full header metadata
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
-- **Slice or region (FITS):** a single 2D slice, or the full cube masked to a selected region, from the main window's "Export" tool group
+- **Slice (FITS):** the "Save" button in each slice's side column saves that slice as a 2D FITS file. If a region or pixel is selected on that slice, only the pixels inside it are saved and all other pixels are `NaN`. The 2D viewer has the same button.
 - **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position
 - **Rotated image (FITS):** save of the rotated image with the updated WCS header
 - **Convolved image (FITS):** save of the resolution-matched image (the "Pair" output) with the 2-HDU layout (image and `COVERAGE`)
@@ -679,7 +679,8 @@ python main.py
 ### Data Export
 
 9. Export the results:
-   - **Spectrum:** click "Save Spectrum" in the "Export" group.
+   - **Spectrum:** click "Save Spectrum" at the end of the row with the "Shift" buttons.
+   - **Slice:** click the "Save" button in the side column of the slice.
    - **Continuum:** click "Save Points" to export the anchor points, or "Save Spectrum" for the full four-column file.
 
 ### Additional Features

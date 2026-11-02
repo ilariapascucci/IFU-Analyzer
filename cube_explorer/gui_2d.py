@@ -895,15 +895,28 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.edit_shape_btn_r.setEnabled(False)
         self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
 
-        # Region save/import actions live in the "Region" collapsible group
+        # Save image: the region only if one is drawn, else the whole image.
+        self.save_slice_btn_l = QPushButton()
+        set_button_icon(self.save_slice_btn_l, "save")
+        self.save_slice_btn_l.setFixedSize(35, 35)
+        self.save_slice_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.save_slice_btn_l.setToolTip(
+            "Save the left image as a 2D FITS (only the region, if one is drawn)")
+        self.save_slice_btn_l.clicked.connect(lambda: self._region_save_slice("left"))
+        self.save_slice_btn_l.setEnabled(False)
+
+        self.save_slice_btn_r = QPushButton()
+        set_button_icon(self.save_slice_btn_r, "save")
+        self.save_slice_btn_r.setFixedSize(35, 35)
+        self.save_slice_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
+        self.save_slice_btn_r.setToolTip(
+            "Save the right image as a 2D FITS (only the region, if one is drawn)")
+        self.save_slice_btn_r.clicked.connect(lambda: self._region_save_slice("right"))
+        self.save_slice_btn_r.setEnabled(False)
+
+        # Save/import region actions live in the "Region" collapsible group
         # (_setup_main_layout) -- each asks which panel (left/right) to use,
         # same as the 3D window's own Region group.
-        self.region_save_slice_masked_btn = QPushButton("Save Slice (Masked)")
-        self.region_save_slice_masked_btn.setToolTip(
-            "Save one panel's image as a 2D FITS, with everything outside its region set to NaN")
-        self.region_save_slice_masked_btn.clicked.connect(self._region_save_slice_masked)
-        self.region_save_slice_masked_btn.setEnabled(False)
-
         self.region_save_wcs_btn = QPushButton("Save Region")
         self.region_save_wcs_btn.setToolTip(
             "Save one panel's region as RA/Dec sky coordinates, so it can be reconstructed on a different image")
@@ -1718,7 +1731,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         left_sidebar_widget = ResponsiveButtonColumn(
             [self.color_btn_left, self.scale_btn_left]
             + [self.shape_buttons["left"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
-            + [self.copy_menu_btn_l, self.edit_shape_btn_l, self.erase_btn_l])
+            + [self.copy_menu_btn_l, self.edit_shape_btn_l, self.erase_btn_l, self.save_slice_btn_l])
 
         left_half.addWidget(left_stats_widget, 0)
         left_half.addWidget(left_slice_widget, 1)
@@ -1765,7 +1778,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         right_sidebar_widget = ResponsiveButtonColumn(
             [self.color_btn_right, self.scale_btn_right]
             + [self.shape_buttons["right"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
-            + [self.copy_menu_btn_r, self.edit_shape_btn_r, self.erase_btn_r])
+            + [self.copy_menu_btn_r, self.edit_shape_btn_r, self.erase_btn_r, self.save_slice_btn_r])
 
         right_half.addWidget(right_stats_widget, 0)
         right_half.addWidget(right_slice_widget, 1)
@@ -1776,12 +1789,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         # ===== BOTTOM CONTROLS: two tiers packed right under the slice panels =====
         # Tier 1 (upstairs): the collapsible groups, nothing else.
-        # Region save/import for a panel's currently loaded image -- no "Save
-        # Cube (Masked)"/plain "Save Slice" here, unlike the 3D window: there
-        # is no cube, and a loaded 2D image is already a standalone file.
+        # Region save/import for a panel's currently loaded image, same as
+        # the 3D window's own Region group.
         self.region_group = CollapsibleButtonGroup("Region")
-        for _b in (self.region_save_slice_masked_btn, self.region_save_wcs_btn,
-                   self.region_import_wcs_btn):
+        for _b in (self.region_save_wcs_btn, self.region_import_wcs_btn):
             self.region_group.add_button(_b)
 
         self.contour_group = CollapsibleButtonGroup("Contour")
@@ -2064,8 +2075,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 self.rebuild_axes(target, header)
                 self.display_image(target, title=filename)
 
-                for _b in (self.region_save_slice_masked_btn, self.region_save_wcs_btn,
-                           self.region_import_wcs_btn):
+                save_slice_btn = self.save_slice_btn_l if target == "left" else self.save_slice_btn_r
+                for _b in (save_slice_btn, self.region_save_wcs_btn, self.region_import_wcs_btn):
                     _b.setEnabled(True)
 
         except Exception as e:
@@ -2538,47 +2549,45 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return mask
         return sel["mask"]
 
-    def _region_save_slice_masked(self):
-        """Save one panel's currently loaded image as a standalone 2D FITS,
-        with pixels outside that panel's region set to NaN.
+    def _region_save_slice(self, target):
+        """Save one panel's currently loaded image as a standalone 2D FITS.
+        If the panel has a region or a pixel selected, pixels outside it
+        are set to NaN. Without a selection, the whole image is saved.
 
         Args:
-            None
+            target (str): Panel to save, 'left' or 'right'.
 
         Returns:
             None
         """
-        target = self._ask_target_panel("Save Slice (Masked)", "Which panel's region would you like to save?")
-        if target is None:
-            return
         image = self._region_image(target)
         if image is None:
             QMessageBox.warning(self, "No Image Loaded", f"Load an image into the {target.capitalize()} panel first.")
             return
         sel = self.last_selection_left if target == "left" else self.last_selection_right
-        if not sel:
-            QMessageBox.warning(
-                self, "Region Selection Required",
-                f"Select a region or pixel on the {target.capitalize()} side first.")
-            return
-        mask = self._region_selection_to_mask(target, sel)
+        mask = self._region_selection_to_mask(target, sel) if sel else None
         header = self.header_left if target == "left" else self.header_right
 
-        path, _ = QFileDialog.getSaveFileName(self, "Save Slice (Masked) as 2D FITS", "", "FITS files (*.fits)")
+        path, _ = QFileDialog.getSaveFileName(self, "Save Slice as 2D FITS", "", "FITS files (*.fits)")
         if not path:
             return
         if not path.lower().endswith(".fits"):
             path += ".fits"
 
-        masked = np.asarray(image, dtype=np.float32).copy()
-        masked[~mask] = np.nan
+        # Keep a floating-point image at its own precision; NaN needs a float type.
+        image = np.asarray(image)
+        out_dtype = image.dtype if np.issubdtype(image.dtype, np.floating) else np.float32
+        out_image = image.astype(out_dtype, copy=True)
+        if mask is not None:
+            out_image[~mask] = np.nan
         try:
-            out_header = build_2d_export_header(header, masked.shape)
-            write_fits_product(path, masked, out_header)
+            out_header = build_2d_export_header(header, out_image.shape)
+            write_fits_product(path, out_image, out_header)
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Could not export slice:\n{e}")
             return
-        QMessageBox.information(self, "Export Complete", f"Masked slice saved to:\n{path}")
+        kind = "Slice" if mask is None else "Slice (region only)"
+        QMessageBox.information(self, "Export Complete", f"{kind} saved to:\n{path}")
 
     def _region_save_wcs_text(self):
         """Save one panel's region as RA/Dec sky coordinates in a text
