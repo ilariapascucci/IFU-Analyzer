@@ -38,7 +38,10 @@ from .region_selector import RegionSelector
 from .utils import make_2d_wcs
 from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
 from . import region_io
-from .line_catalog import get_available_molecules, hitran_gui_interface, load_contaminating_lines_catalog, load_custom_line_catalog
+from .line_catalog import (
+    get_available_molecules, hitran_gui_interface, line_list_format, line_list_species,
+    load_contaminating_lines_catalog, load_custom_line_catalog, load_line_list,
+)
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
@@ -980,8 +983,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self.load_custom_lines_btn = QPushButton("Import Lines")
         self.load_custom_lines_btn.setToolTip(
-            "Load your own line list CSV (wavelength + species required) "
-            "when HITRAN isn't reachable"
+            "Load your own line list when HITRAN is not reachable, or for more lines "
+            "(for example HITEMP). Use a CSV with 'wavelength' and 'species' columns, "
+            "a HITRAN-format .par file, or an LST .lst file."
         )
         self.load_custom_lines_btn.clicked.connect(self._load_custom_lines_dialog)
 
@@ -3280,10 +3284,29 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while fetching HITRAN lines:\n{e}")
 
+    def _choose_line_list_species(self, file_path):
+        """Give the species to read from a .par or .lst line list file.
+        A file with one species needs no question. A file with more asks the user.
+
+        Args:
+            file_path (str): Path to the .par or .lst file.
+
+        Returns:
+            species (str): The species name, or None if the user cancels.
+        """
+        names = line_list_species(file_path)
+        if len(names) == 1:
+            return names[0]
+        name, ok = QInputDialog.getItem(
+            self, "Choose Species", "This file holds more than one species. Choose one:",
+            names, 0, False)
+        return name if ok else None
+
     def _load_custom_lines_dialog(self):
-        """Load a user CSV as a stand-in for a live HITRAN fetch (offline
-        use). Requires 'wavelength' and 'species'; feeds the same Lines
-        table as fetch_hitran_lines(), replacing whatever was loaded before.
+        """Load a user line list as a stand-in for a live HITRAN fetch (offline
+        use). The file is a CSV with 'wavelength' and 'species', a HITRAN .par
+        file, or an LST .lst file. It feeds the same Lines table as
+        fetch_hitran_lines(), replacing whatever was loaded before.
 
         Args:
             None
@@ -3301,24 +3324,42 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Load Custom Line List CSV",
+            "Load Custom Line List",
             default_path,
-            "CSV Files (*.csv);;All Files (*.*)"
+            "Line lists (*.csv *.par *.lst);;All Files (*.*)"
         )
         if not file_path:
             return  # User cancelled
 
         try:
-            rows = load_custom_line_catalog(file_path)
-            if not rows:
-                QMessageBox.critical(
-                    self,
-                    "Invalid CSV Format",
-                    "Could not load any lines from this file.\n\n"
-                    "The CSV MUST have columns named 'wavelength' (µm) and 'species' "
-                    "(case-sensitive), with both filled in for every row you want loaded."
-                )
-                return
+            try:
+                kind = line_list_format(file_path)
+            except ValueError:
+                kind = 'csv'  # The CSV loader gives its own message for a bad file.
+
+            if kind != 'csv':
+                species = self._choose_line_list_species(file_path)
+                if species is None:
+                    return
+                rows = load_line_list(file_path, wavelength_min, wavelength_max, species)
+                if not rows:
+                    QMessageBox.information(
+                        self, "No Lines In Range",
+                        f"The file has no {species} line within the current range "
+                        f"({wavelength_min:.6f}-{wavelength_max:.6f} µm)."
+                    )
+                    return
+            else:
+                rows = load_custom_line_catalog(file_path)
+                if not rows:
+                    QMessageBox.critical(
+                        self,
+                        "Invalid CSV Format",
+                        "Could not load any lines from this file.\n\n"
+                        "The CSV MUST have columns named 'wavelength' (µm) and 'species' "
+                        "(case-sensitive), with both filled in for every row you want loaded."
+                    )
+                    return
 
             total_loaded = len(rows)
             # Kept exactly to the typed range, no edge padding -- unlike

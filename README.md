@@ -686,7 +686,7 @@ python main.py
 
 10. Other tools:
    - **Header viewer:** open "Header" to inspect the FITS header of a selected HDU.
-   - **Line catalog:** "Import Lines" loads a custom spectral-line catalog (LST format).
+   - **Line catalog:** "Import Lines" loads a custom spectral-line list: a CSV with `wavelength` and `species` columns, a HITRAN-format `.par` file (for example HITEMP), or an LST `.lst` file. The program finds the format from the first line of the file. A `.par` file gives its molecule from its first record. An LST file with more than one species asks which species to load. Unzip a HITEMP file before you load it.
    - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Show Lines" lists the loaded lines and lets you choose which ones to plot.
    - **Normalize spectrum:** the "Normalize" checkbox divides every spectrum by the peak of the full spectrum. "Show Left" and "Show Right" overlay a region's spectrum on the "Full" tab. "Self-Normalize Left" and "Self-Normalize Right" divide a region's spectrum by its own peak.
    - **Doppler shift:** "Shift" applies a multiplicative wavelength correction (km/s). Use "Apply Shift", "Cancel Preview", and "Revert Shift" to control it.

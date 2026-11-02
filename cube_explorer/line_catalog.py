@@ -16,6 +16,9 @@ from .unit_converter import wavelength_to_doppler_velocity, extract_value_from_q
 # 50 km/s covers real source/systemic velocities the old flat 1e-4 um cutoff missed.
 LINE_MATCH_VELOCITY_TOL_KMS = 50.0
 
+# Second radiation constant hc/k, in cm K. It turns an energy in cm-1 into K.
+SECOND_RADIATION_CONSTANT_CM_K = 1.438776877
+
 
 def match_nearest_hitran_line(hitran_lines, wavelength, velocity_tol_kms=LINE_MATCH_VELOCITY_TOL_KMS):
     """Find the HITRAN line nearest to wavelength, within a velocity window.
@@ -541,8 +544,8 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
         A = convert_to_numpy(A)
         elower = convert_to_numpy(elower)
         wavelength = 1e4 / nu  # Convert wavenumber to wavelength (already dimensionless)
-        # Calculate upper energy level: E_upper = (E_lower + nu) * 1.44 [K]
-        eupper = (elower + nu) * 1.44
+        # Calculate upper energy level: E_upper = (E_lower + nu) * hc/k [K]
+        eupper = (elower + nu) * SECOND_RADIATION_CONSTANT_CM_K
         species_name = molecule
 
         for i in range(len(nu)):
@@ -1026,7 +1029,7 @@ def read_par_lines(path, wavelength_min, wavelength_max, molecule):
                 'species': molecule,
                 'transition': _par_transition(record),
                 'a_coeff': a_coeff,
-                'e_upper': (e_lower + wavenumber) * 1.44,
+                'e_upper': (e_lower + wavenumber) * SECOND_RADIATION_CONSTANT_CM_K,
                 'Gp': float(g_text) if g_text else None,
                 'isotopologue': isotopologue,
                 'isotopologue_name': format_isotopologue_name(iso_entry[1]) if iso_entry else None,
@@ -1150,6 +1153,45 @@ def read_lst_lines(path, wavelength_min, wavelength_max, species):
     return rows
 
 
+def line_list_format(path):
+    """Tell the format of a user line list file.
+    The first line decides the format: a CSV header, a HITRAN .par record, or an LST .lst record.
+    The file name and the extension do not matter.
+
+    Args:
+        path (str): Path to the line list file.
+
+    Returns:
+        kind (str): 'csv', 'par' or 'lst'.
+
+    Raises:
+        ValueError: if the file is empty or has an unknown format.
+        OSError: if the file cannot be opened.
+    """
+    first = ''
+    with open(path, 'r', encoding='utf-8-sig', errors='replace') as handle:
+        for line in handle:
+            if line.strip():
+                first = line.rstrip('\r\n')
+                break
+    if not first:
+        raise ValueError("The file is empty.")
+    if first.startswith('|MODEL|'):
+        return 'lst'
+    if ',' in first and 'wavelength' in first.lower():
+        return 'csv'
+    try:
+        is_par = len(first) >= _PAR_RECORD_LENGTH and int(first[0:2]) > 0 and float(first[3:15]) >= 0
+    except ValueError:
+        is_par = False
+    if is_par:
+        return 'par'
+    if _parse_lst_record(first) is not None:
+        return 'lst'
+    raise ValueError("IFU Analyzer cannot read this file. Use a CSV with 'wavelength' and "
+                     "'species' columns, a HITRAN-format .par file, or an LST .lst file.")
+
+
 def load_line_list(path, wavelength_min, wavelength_max, molecule):
     """Read the lines of one molecule from a user file, in a wavelength range.
     The first line decides the format: a CSV header, a HITRAN .par record, or an LST .lst record.
@@ -1170,28 +1212,36 @@ def load_line_list(path, wavelength_min, wavelength_max, molecule):
         OSError: if the file cannot be opened.
     """
     _check_window(wavelength_min, wavelength_max)
-    first = ''
-    with open(path, 'r', encoding='utf-8-sig', errors='replace') as handle:
-        for line in handle:
-            if line.strip():
-                first = line.rstrip('\r\n')
-                break
-    if not first:
-        raise ValueError("The file is empty.")
-    if first.startswith('|MODEL|'):
-        return read_lst_lines(path, wavelength_min, wavelength_max, molecule)
-    if ',' in first and 'wavelength' in first.lower():
-        return _read_csv_line_list(path, wavelength_min, wavelength_max, molecule)
-    try:
-        is_par = len(first) >= _PAR_RECORD_LENGTH and int(first[0:2]) > 0 and float(first[3:15]) >= 0
-    except ValueError:
-        is_par = False
-    if is_par:
-        return read_par_lines(path, wavelength_min, wavelength_max, molecule)
-    if _parse_lst_record(first) is not None:
-        return read_lst_lines(path, wavelength_min, wavelength_max, molecule)
-    raise ValueError("IFU Analyzer cannot read this file. Use a CSV with 'wavelength' and "
-                     "'species' columns, a HITRAN-format .par file, or an LST .lst file.")
+    readers = {'lst': read_lst_lines, 'csv': _read_csv_line_list, 'par': read_par_lines}
+    return readers[line_list_format(path)](path, wavelength_min, wavelength_max, molecule)
+
+
+def line_list_species(path):
+    """List the molecules or species that a .par or .lst line list file holds.
+    A .par file gives the molecule of its first record. A HITEMP file holds one molecule.
+
+    Args:
+        path (str): Path to the .par or .lst file.
+
+    Returns:
+        names (list): Sorted molecule or species names, in the spelling that load_line_list() takes.
+
+    Raises:
+        ValueError: if the file is a CSV, is empty, has an unknown format, or its first
+            .par molecule is not one that this app knows.
+        OSError: if the file cannot be opened.
+    """
+    kind = line_list_format(path)
+    if kind == 'lst':
+        return sorted({row['species'] for row in _lst_records(path)})
+    if kind == 'csv':
+        raise ValueError("A CSV file gives its species in the 'species' column.")
+    with open(path, 'r', encoding='ascii', errors='replace') as handle:
+        molecule_id = int(next(line for line in handle if line.strip())[0:2])
+    names = [name for name, hitran_id in get_available_molecules().items() if hitran_id == molecule_id]
+    if not names:
+        raise ValueError(f"The file holds HITRAN molecule ID {molecule_id}, which this app does not know.")
+    return names
 
 
 def collect_rest_line_candidates(molecule, wavelength_min, wavelength_max):
