@@ -21,6 +21,94 @@ from .unit_converter import get_wave_unit, convert_area_to_cgs, extract_value_fr
 from .utils import safe_worker_count, detect_instrument_from_header, get_spectral_resolution
 
 
+def build_multi_gaussian_fit_curve(wavelength, results):
+    """Build the multi-Gaussian fit on the full wavelength grid.
+
+    Each fitted chunk gives its continuum plus all of its Gaussians. Wavelengths that
+    no chunk covers are NaN. Where two chunks overlap, the chunk with the nearest line wins.
+
+    Args:
+        wavelength (numpy.ndarray): Wavelength grid that the lines were fitted on.
+        results (list): GaussianFitResult objects (detection and contaminant lines).
+
+    Returns:
+        fit (numpy.ndarray): Fit flux on `wavelength`, NaN outside every chunk.
+
+    Raises:
+        ValueError: If a result's x_data is not a subset of `wavelength`.
+    """
+    wavelength = np.asarray(wavelength, dtype=float)
+    fit = np.full(len(wavelength), np.nan)
+    nearest_line = np.full(len(wavelength), np.inf)
+
+    # Lines in one chunk share one joint model, so group them by chunk extent.
+    chunks = {}
+    for result in results:
+        if not result.success:
+            continue
+        extent = (round(float(result.x_data[0]), 6), round(float(result.x_data[-1]), 6))
+        chunks.setdefault(extent, []).append(result)
+
+    for chunk_results in chunks.values():
+        first = chunk_results[0]
+        idx = np.flatnonzero(np.isin(wavelength, first.x_data))
+        if len(idx) != len(first.x_data):
+            raise ValueError(
+                "A fitted chunk does not match the wavelength grid. "
+                "Use the same wavelength array that was used for the fit."
+            )
+        centers = np.array([r.center for r in chunk_results], dtype=float)
+        distance = np.min(np.abs(wavelength[idx][:, None] - centers[None, :]), axis=1)
+        closer = distance < nearest_line[idx]
+        fit[idx[closer]] = (np.asarray(first.y_fit) + np.asarray(first.baseline))[closer]
+        nearest_line[idx[closer]] = distance[closer]
+    return fit
+
+
+def save_multi_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_unit=None,
+                            header_lines=()):
+    """Save the original spectrum and the multi-Gaussian fit to an ASCII file.
+
+    The columns are wavelength, original spectrum and fit, separated by tabs. The fit
+    column is NaN where no chunk was fitted.
+
+    Args:
+        path (str): Output file path.
+        wavelength (numpy.ndarray): Wavelength grid that the lines were fitted on.
+        spectrum (numpy.ndarray): Original spectrum on the same grid.
+        results (list): GaussianFitResult objects (detection and contaminant lines).
+        wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
+        flux_unit (str): Flux unit for the file header, or None for "Unknown".
+        header_lines (list): Extra comment lines (str) to write below the title.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If no result succeeded, or the arrays differ in length.
+    """
+    wavelength = np.asarray(wavelength, dtype=float)
+    spectrum = np.asarray(spectrum, dtype=float)
+    if len(wavelength) != len(spectrum):
+        raise ValueError("wavelength and spectrum must have the same length.")
+    if not any(r.success for r in results):
+        raise ValueError("No successful fit to save.")
+
+    fit = build_multi_gaussian_fit_curve(wavelength, results)
+    wave_text = wave_unit or "Unknown"
+    with open(path, 'w') as f:
+        f.write("# Multi-Gaussian fit export from IFU Analyzer\n")
+        for line in header_lines:
+            f.write(f"# {line}\n")
+        f.write(f"# Wavelength unit: {wave_text}\n")
+        f.write(f"# Flux unit: {flux_unit or 'Unknown'}\n")
+        f.write("# Fit is NaN where no line was fitted.\n")
+        f.write("#\n")
+        f.write(f"# Wavelength ({wave_text})\tOriginal\tFit\n")
+        for w, o, m in zip(wavelength, spectrum, fit):
+            f.write(f"{w:.6e}\t{o:.6e}\t{m:.6e}\n")
+
+
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
     """
     Fit a Gaussian to every pixel and write a cube of normalized residuals, (y_corrected - y_fit) / std, to FITS.

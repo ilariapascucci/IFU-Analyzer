@@ -267,6 +267,7 @@ from .gaussian_fitter import (
     calculate_equivalent_width,
     fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
     export_residual_cube_fits as _export_residual_cube_fits_internal,
+    save_multi_gaussian_fit as _save_multi_gaussian_fit_internal,
 )
 from .flux_map_extractor import fit_hitran_lines_collective as _fit_hitran_lines_internal
 from .line_catalog import fetch_hitran_data
@@ -348,7 +349,8 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
 
 def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None,
                      isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None,
-                     header=None, wave_unit=None, continuum=None, contam_catalog=None):
+                     header=None, wave_unit=None, continuum=None, contam_catalog=None,
+                     save_path=None):
     """Fit HITRAN spectral lines automatically using database lookup. Same
     algorithm as the GUI's Multi-Gaussian Fit: every requested line and any
     contaminant sharing its chunk fit simultaneously, so they don't double-claim flux.
@@ -378,6 +380,11 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             own component in the fit so they don't distort a nearby requested line's
             amplitude -- the same optional catalog ``extract_flux``/Flux Map
             already supports. None (default) skips this.
+        save_path (str, optional): If given, write a tab-separated text file with
+            the columns wavelength, original spectrum and fit (the GUI's "Save Fit"
+            file). The fit includes the contaminant lines and is NaN where no line
+            was fitted. Nothing is written, and a warning is raised, if no line fit
+            succeeded.
 
     Returns:
         list: List of dicts with fit results for each line:
@@ -447,7 +454,7 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     # Contaminant fits (if given) aren't surfaced; they only keep requested
     # lines' amplitudes honest. Center/sigma are free within a bound, not fixed.
     start_time = time.time()
-    fit_pairs, _contam_pairs, _ = _fit_hitran_lines_internal(
+    fit_pairs, contam_pairs, _ = _fit_hitran_lines_internal(
         wl, sp, hitran_lines, continuum_arr,
         header=header, wave_unit=wave_unit,
         contam_lines=contam_catalog)
@@ -455,6 +462,17 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     n_fitted = sum(1 for _line, result in fit_pairs if result.success)
     print(f"[OK] Fitted {n_fitted} of {len(fit_pairs)} {molecule} lines between "
           f"{wavelength_min:.6f} and {wavelength_max:.6f} um in {time.time() - start_time:.1f} s")
+
+    if save_path is not None:
+        if n_fitted == 0:
+            warnings.warn(f"No {molecule} line fit succeeded, so {save_path} was not written")
+        else:
+            _save_multi_gaussian_fit_internal(
+                save_path, wl, sp,
+                [result for _line, result in fit_pairs + contam_pairs],
+                wave_unit=wave_unit,
+                flux_unit=header.get('BUNIT') if header is not None else None)
+            print(f"[OK] Saved the fit to {save_path}")
 
     return [
         {

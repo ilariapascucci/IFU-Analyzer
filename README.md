@@ -121,6 +121,7 @@ Bring several images to one resolution in a single step.
   - Single-pixel interactive fitting with a visual overlay
   - Full-cube parallel fitting with parameter maps
   - Multi-Gaussian fitting for a complex line profile
+  - Save the multi-Gaussian fit to a text file (wavelength, original spectrum, and fit; the fit is NaN where no line was fitted)
   - Automatic baseline subtraction
   - Quality metrics (R², χ², FWHM, and area under the curve)
   - Background processing, so the GUI does not block

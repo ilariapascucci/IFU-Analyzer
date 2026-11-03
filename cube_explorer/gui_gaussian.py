@@ -1,13 +1,13 @@
 import numpy as np
 from PyQt5.QtWidgets import (
     QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton,
-    QApplication, QInputDialog,
+    QApplication, QInputDialog, QFileDialog,
 )
 from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
 from .gui_sizing import fit_to_screen
-from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult
+from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, save_multi_gaussian_fit
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .line_catalog import available_rest_line_species, collect_rest_line_candidates
 from .species_dialog import SpeciesDialog, RestLineDialog
@@ -656,6 +656,9 @@ STATUS: {result.message}
         self.multi_gauss_contam_results = contam_results
         self.multi_gauss_result_cache = (fit_results, contam_results)
         self.multi_gauss_cache_key = getattr(self, '_multi_gauss_cache_key_pending', None)
+        # Keep the exact arrays that were fitted, so Save Fit still matches them
+        # after a wavelength shift.
+        self.multi_gauss_fit_input = (self.multi_gauss_worker.spectrum_x, self.multi_gauss_worker.spectrum_y)
         self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
         self._show_multi_gaussian_results(fit_results, contam_results, None, failed_results=failed_results)
 
@@ -954,13 +957,53 @@ STATUS: {result.message}
         layout.addWidget(text_display)
         
         btn_layout = QHBoxLayout()
+        save_btn = QPushButton("Save Fit...")
+        save_btn.setToolTip("Save wavelength, original spectrum and fit to a text file")
+        save_btn.clicked.connect(lambda: self._save_multi_gaussian_fit(dlg, fit_results, contam_results))
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
         btn_layout.addStretch()
+        btn_layout.addWidget(save_btn)
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
         dlg.setLayout(layout)
         dlg.exec_()
+
+    def _save_multi_gaussian_fit(self, parent, fit_results, contam_results):
+        """Save the original spectrum and the multi-Gaussian fit to a text file.
+
+        Args:
+            parent (QWidget): Dialog that owns the file and message boxes.
+            fit_results (list): {'line', 'result'} dicts for detection lines.
+            contam_results (list): {'line', 'result'} dicts for contaminants.
+
+        Returns:
+            None
+        """
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Save Multi-Gaussian Fit", "multi_gaussian_fit.txt",
+            "Text files (*.txt);;CSV files (*.csv);;All files (*)"
+        )
+        if not path:
+            return
+
+        wavelength, spectrum = self.multi_gauss_fit_input
+        results = [info['result'] for info in fit_results + list(contam_results or [])]
+        header = getattr(self.cube_data, 'header', None)
+        try:
+            save_multi_gaussian_fit(
+                path, wavelength, spectrum, results,
+                wave_unit=clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm')),
+                flux_unit=header.get('BUNIT') if header is not None else None,
+                header_lines=[
+                    f"Instrument: {getattr(self.cube_data, 'instrument', 'Unknown')}",
+                    f"Spectrum tab: {self.active_spectrum_tab}",
+                ],
+            )
+        except Exception as e:
+            QMessageBox.critical(parent, "Error", f"Failed to save the fit:\n{e}")
+            return
+        QMessageBox.information(parent, "Success", f"Fit saved to:\n{path}")
 
     def _fit_gaussian_map(self):
         """Fit a Gaussian at every pixel of the cube (or a region on Left/Right).
