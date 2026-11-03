@@ -830,10 +830,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         
         self.auto_continuum_toggle = QPushButton("Automatic Continuum")
         self.custom_continuum_toggle = QPushButton("Custom Continuum")
-        self.save_continuum_cubes_btn = QPushButton("Save Continuum Cubes")
-        self.save_continuum_cubes_btn.setToolTip(
-            "Fit the continuum at every pixel, then save the continuum cube and the continuum-subtracted cube")
-        self.save_continuum_cubes_btn.clicked.connect(self._save_continuum_cubes)
+        self.continuum_spectrum_btn = QPushButton("Integrated Spectrum")
+        self.continuum_spectrum_btn.setToolTip("Open the tools that fit the continuum of the integrated spectrum")
+        self.continuum_spectrum_btn.clicked.connect(self._open_spectrum_continuum_popup)
+        self.continuum_pixel_btn = QPushButton("Pixel-by-Pixel")
+        self.continuum_pixel_btn.setToolTip(
+            "Open the tools that fit the continuum at every pixel and save the continuum cubes")
+        self.continuum_pixel_btn.clicked.connect(self._open_pixel_continuum_popup)
 
         self.auto_continuum_toggle.setCheckable(True)
         self.custom_continuum_toggle.setCheckable(True)
@@ -1227,9 +1230,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         # Group 3: Continuum Tools
         self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
-        self.continuum_group.add_button(self.auto_continuum_toggle)
-        self.continuum_group.add_button(self.custom_continuum_toggle)
-        self.continuum_group.add_button(self.save_continuum_cubes_btn)
+        self.continuum_group.add_button(self.continuum_spectrum_btn)
+        self.continuum_group.add_button(self.continuum_pixel_btn)
 
         # Group 4: Lines & Fit (build the line list first, then fit the lines)
         self.hitran_group = CollapsibleButtonGroup("Lines && Fit")
@@ -1249,14 +1251,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.region_group, self.gaussian_group,
             self.continuum_group, self.hitran_group]))
 
-        # These buttons show under the group buttons when a continuum mode is on.
-        self.continuum_action_layout = QHBoxLayout()
-        for btn in (self.continuum_line_btn, self.subtract_continuum_btn, self.custom_subtract_btn,
-                    self.custom_delete_btn, self.custom_save_pts_btn, self.custom_load_pts_btn,
-                    self.custom_ok_btn):
-            self.continuum_action_layout.addWidget(btn)
-        self.continuum_action_layout.addStretch()
-        main_layout.addLayout(self.continuum_action_layout)
+        # The continuum buttons live in two pop-ups that the Continuum Tools buttons open.
+        self._build_continuum_popups()
 
         # Slice selection, spectrum tabs, shifting, and saving share one wrapping row
         # here (not the toolbar above) since all of them act on the spectrum itself.

@@ -559,17 +559,19 @@ python main.py
 
 ### Continuum Fitting
 
-5. Subtract the continuum. Open the "Continuum Tools" group.
+5. Subtract the continuum. Open the "Continuum Tools" group. It has two buttons. "Integrated Spectrum" opens a window to fit the integrated spectrum. "Pixel-by-Pixel" opens a window to fit every pixel and save the continuum cubes. The windows stay open while you click on the spectrum. Drag a window if it covers the plot.
+
+   **Integrated spectrum.** Click "Integrated Spectrum".
 
    **Automatic method:**
-   - Click "Automatic Continuum".
+   - Click "Automatic".
    - Click "Fit Continuum" to open the parameter dialog.
    - Set the window size, the sigma threshold, the peak-exclusion width, the iterations, and the smoothing factor.
    - The fitted continuum shows in orange over the original spectrum.
    - Click "Subtract Continuum". The full subtracted spectrum is shown.
 
    **Custom interactive method:**
-   - Click "Custom Continuum".
+   - Click "Custom".
    - Click "Custom Subtract" to enter point-placement mode.
    - Click on the spectrum to place an anchor point. The point snaps to the data.
    - Use "Delete Point" mode to remove a point. A minimum of 3 points is necessary.
@@ -577,6 +579,10 @@ python main.py
    - Confirm the subtraction in the dialog. "No" returns to editing mode.
    - The full subtracted spectrum is shown after the confirmation.
    - Save the result with "Save Points" or "Save Spectrum".
+
+   **Pixel-by-Pixel.** Click "Pixel-by-Pixel". The tool fits the continuum at every pixel. It saves the continuum cube and the continuum-subtracted cube as two FITS files.
+   - Automatic: click "Automatic", then "Set Parameters and Save". Set the fit parameters, then choose the base file name.
+   - Custom: click "Custom", then "Select Points". Click the continuum points on the spectrum. Each pixel gets a cubic spline through its own flux at those wavelengths. "Delete Point", "Save Points", and "Load Points" work as in the Integrated Spectrum window. A minimum of 3 points is necessary. Click "Save Cubes" (or press ENTER), then choose the base file name.
 
 ### 2D Image Viewer
 

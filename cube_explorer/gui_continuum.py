@@ -1,13 +1,89 @@
 import os
 import numpy as np
 import traceback
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QApplication, QFileDialog, QProgressDialog
+from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtWidgets import (QMessageBox, QApplication, QFileDialog, QProgressDialog, QPushButton, QButtonGroup,
+                             QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLayout)
 
 from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
 from .flux_map_extractor import fit_auto_continuum
 from .utils import take_resolution_notes
+
+
+class ContinuumPopup(QWidget):
+    """
+    A small tool window that holds the continuum buttons for one fitting mode.
+    It does not block the main window, so the user can click the spectrum while it is open.
+    """
+
+    def __init__(self, title, parent=None):
+        """Build an empty pop-up that closes with its window button.
+
+        Args:
+            title (str): Text shown in the title bar of the pop-up.
+            parent (QWidget): Main window that the pop-up stays on top of.
+
+        Returns:
+            None
+        """
+        # A plain QWidget (not a QDialog), so Enter does not press a default button.
+        super().__init__(parent, Qt.Tool | Qt.WindowCloseButtonHint)
+        self.setWindowTitle(title)
+        self._layout = QVBoxLayout(self)
+        # The window follows its content when a row is shown or hidden.
+        self._layout.setSizeConstraint(QLayout.SetFixedSize)
+        self._placed = False
+
+    def add_text(self, text):
+        """Add a line of wrapped text to the pop-up.
+
+        Args:
+            text (str): Text of the label.
+
+        Returns:
+            label (QLabel): The label that was added.
+        """
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setMaximumWidth(420)
+        self._layout.addWidget(label)
+        return label
+
+    def add_row(self, widgets):
+        """Add a horizontal row of widgets to the pop-up.
+
+        Args:
+            widgets (list): Widgets to place in the row, left to right.
+
+        Returns:
+            row (QWidget): The row. Show or hide it to show or hide all its widgets.
+        """
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        for widget in widgets:
+            row_layout.addWidget(widget)
+        row_layout.addStretch()
+        self._layout.addWidget(row)
+        return row
+
+    def show_below(self, anchor):
+        """Show the pop-up and raise it. The first time, put it under the anchor widget.
+
+        Args:
+            anchor (QWidget): Widget that opens the pop-up.
+
+        Returns:
+            None
+        """
+        if not self._placed:
+            self.move(anchor.mapToGlobal(QPoint(0, anchor.height())))
+            self._placed = True
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
 
 class GuiContinuumMixin:
     """
@@ -296,48 +372,127 @@ class GuiContinuumMixin:
         self.continuum_mode_applied[tab] = None
         self._refresh_active_spectrum_tab()
 
-    def _save_continuum_cubes(self):
-        """Fit the continuum at every pixel and save the continuum cube and the
-        continuum-subtracted cube. Asks for the method (automatic or custom) and one base file name.
+    def _build_continuum_popups(self):
+        """Build the two continuum pop-ups and move the continuum buttons into them.
+        The Spectrum pop-up holds the buttons that fit the integrated spectrum.
+        The Pixel-by-Pixel pop-up holds the buttons that save the continuum cubes.
 
         Args:
             None
 
         Returns:
             None
+        """
+        self.spectrum_continuum_popup = ContinuumPopup("Continuum: Integrated Spectrum", self)
+        self.spectrum_continuum_popup.add_text(
+            "Fit the continuum of the integrated spectrum and subtract it from the spectrum.")
+        self.spectrum_continuum_popup.add_row([self.auto_continuum_toggle, self.custom_continuum_toggle])
+        self.spectrum_continuum_popup.add_row([
+            self.continuum_line_btn, self.subtract_continuum_btn, self.custom_subtract_btn,
+            self.custom_delete_btn, self.custom_save_pts_btn, self.custom_load_pts_btn, self.custom_ok_btn])
+
+        self.pixel_continuum_popup = ContinuumPopup("Continuum: Pixel-by-Pixel", self)
+        self.pixel_continuum_popup.add_text(
+            "Fit the continuum at every pixel. Then save the continuum cube and the "
+            "continuum-subtracted cube.")
+        self.pixel_auto_view_btn = QPushButton("Automatic")
+        self.pixel_custom_view_btn = QPushButton("Custom")
+        for btn in (self.pixel_auto_view_btn, self.pixel_custom_view_btn):
+            btn.setCheckable(True)
+        # These two buttons only choose which row is shown. They do not start a fit.
+        view_group = QButtonGroup(self.pixel_continuum_popup)
+        view_group.addButton(self.pixel_auto_view_btn)
+        view_group.addButton(self.pixel_custom_view_btn)
+        self.pixel_continuum_popup.add_row([self.pixel_auto_view_btn, self.pixel_custom_view_btn])
+
+        self.pixel_auto_save_btn = QPushButton("Set Parameters and Save")
+        self.pixel_auto_save_btn.setToolTip(
+            "Set the automatic fit parameters, choose the file name, and save the continuum cubes")
+        self.pixel_auto_save_btn.clicked.connect(self._save_continuum_cubes_automatic)
+        self.pixel_auto_row = self.pixel_continuum_popup.add_row([self.pixel_auto_save_btn])
+
+        self.pixel_points_btn = QPushButton("Select Points")
+        self.pixel_points_btn.setToolTip(
+            "Click continuum points on the spectrum. Each pixel gets a spline through its own flux at those wavelengths.")
+        self.pixel_points_btn.clicked.connect(self._start_custom_points_for_cubes)
+        self.pixel_delete_btn = QPushButton("Delete Point")
+        self.pixel_delete_btn.setCheckable(True)
+        self.pixel_delete_btn.setToolTip(self.custom_delete_btn.toolTip())
+        # Delete Point keeps one state: this button follows the one in the Spectrum pop-up.
+        self.pixel_delete_btn.clicked.connect(self.custom_delete_btn.click)
+        self.custom_delete_btn.toggled.connect(self.pixel_delete_btn.setChecked)
+        self.pixel_save_pts_btn = QPushButton("Save Points")
+        self.pixel_save_pts_btn.setToolTip(self.custom_save_pts_btn.toolTip())
+        self.pixel_save_pts_btn.clicked.connect(self._save_custom_points)
+        self.pixel_load_pts_btn = QPushButton("Load Points")
+        self.pixel_load_pts_btn.setToolTip(self.custom_load_pts_btn.toolTip())
+        self.pixel_load_pts_btn.clicked.connect(self._load_custom_points)
+        self.pixel_save_cubes_btn = QPushButton("Save Cubes")
+        self.pixel_save_cubes_btn.setToolTip("Choose the file name and save the continuum cubes")
+        self.pixel_save_cubes_btn.clicked.connect(self._on_pixel_save_cubes_clicked)
+        self.pixel_custom_row = self.pixel_continuum_popup.add_row([
+            self.pixel_points_btn, self.pixel_delete_btn, self.pixel_save_pts_btn,
+            self.pixel_load_pts_btn, self.pixel_save_cubes_btn])
+
+        self.pixel_auto_row.hide()
+        self.pixel_custom_row.hide()
+        self.pixel_auto_view_btn.toggled.connect(self.pixel_auto_row.setVisible)
+        self.pixel_custom_view_btn.toggled.connect(self.pixel_custom_row.setVisible)
+
+    def _open_spectrum_continuum_popup(self):
+        """Open the Spectrum continuum pop-up. A Custom session for the cubes would
+        change what the OK button does, so it must end first.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        selector = self.custom_continuum_selector
+        if selector is not None and selector.is_active and selector.for_cubes:
+            reply = QMessageBox.question(
+                self, "Cancel Pixel-by-Pixel Points?",
+                "The points for the continuum cubes are still open. Opening the Integrated Spectrum tools will clear them. Continue?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+            self.clear_custom_progress()
+            self.custom_continuum_toggle.setChecked(False)
+            self.hide_all_action_buttons()
+        self.spectrum_continuum_popup.show_below(self.continuum_spectrum_btn)
+
+    def _open_pixel_continuum_popup(self):
+        """Open the Pixel-by-Pixel continuum pop-up.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.pixel_continuum_popup.show_below(self.continuum_pixel_btn)
+
+    def _continuum_cubes_ready(self):
+        """Check that a cube is loaded and that no continuum cube save is running.
+
+        Args:
+            None
+
+        Returns:
+            ready (bool): True if a continuum cube save can start. A message tells the user why if not.
         """
         if getattr(self, 'cube_data', None) is None or self.cube_data.cube is None:
             QMessageBox.warning(self, "No Data", "Load a data cube first.")
-            return
+            return False
         worker = getattr(self, 'continuum_cube_worker', None)
         if worker is not None and worker.isRunning():
             QMessageBox.information(self, "Already Running", "A continuum cube save is already running.")
-            return
+            return False
+        return True
 
-        choice = QMessageBox(self)
-        choice.setWindowTitle("Save Continuum Cubes")
-        choice.setText("Which continuum should be fitted at every pixel?")
-        choice.setInformativeText(
-            "Automatic: the automatic fit, with parameters you set next.\n"
-            "Custom: you click the continuum points on the spectrum next. Each pixel gets "
-            "a spline through its own flux at those wavelengths.")
-        automatic_btn = choice.addButton("Automatic", QMessageBox.AcceptRole)
-        custom_btn = choice.addButton("Custom", QMessageBox.AcceptRole)
-        choice.addButton(QMessageBox.Cancel)
-        choice.exec_()
-        clicked = choice.clickedButton()
-
-        if clicked is automatic_btn:
-            dialog = ContinuumParametersDialog(self)
-            if dialog.exec_() != dialog.Accepted:
-                return
-            self._start_continuum_cube_save(dialog.get_parameters(), None)
-        elif clicked is custom_btn:
-            self._start_custom_points_for_cubes()
-
-    def _start_custom_points_for_cubes(self):
-        """Open the Custom Continuum tool so the user can place the points for the cubes.
-        Points already in a running session stay. The save starts when the user presses OK.
+    def _save_continuum_cubes_automatic(self):
+        """Ask for the automatic fit parameters, then save the continuum cubes.
 
         Args:
             None
@@ -345,6 +500,44 @@ class GuiContinuumMixin:
         Returns:
             None
         """
+        if not self._continuum_cubes_ready():
+            return
+        dialog = ContinuumParametersDialog(self)
+        if dialog.exec_() != dialog.Accepted:
+            return
+        self._start_continuum_cube_save(dialog.get_parameters(), None)
+
+    def _on_pixel_save_cubes_clicked(self):
+        """Handle Save Cubes in the Pixel-by-Pixel pop-up for the Custom fit.
+        The points must be open first, because OK only saves the cubes for those points.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        selector = self.custom_continuum_selector
+        if selector is None or not selector.is_active or not selector.for_cubes:
+            QMessageBox.information(
+                self, "Select Points First",
+                "Click Select Points and place at least 3 continuum points on the spectrum. Then click Save Cubes.")
+            return
+        self.on_custom_ok_clicked()
+
+    def _start_custom_points_for_cubes(self):
+        """Open the Custom Continuum tool so the user can place the points for the cubes.
+        Points already in a running session stay. The save starts when the user presses Save Cubes.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if not self._continuum_cubes_ready():
+            return
+
         # Turn the Custom Continuum tool on first. This can ask to clear Automatic progress.
         if not self.custom_continuum_toggle.isChecked():
             self.custom_continuum_toggle.setChecked(True)
@@ -357,7 +550,7 @@ class GuiContinuumMixin:
             selector.for_cubes = True
             QMessageBox.information(
                 self, "Custom Continuum for the Cubes",
-                "Your points stay. Add or remove points, then press OK or ENTER to choose the file name.")
+                "Your points stay. Add or remove points, then press Save Cubes or ENTER to choose the file name.")
             return
 
         # A custom subtraction that is already applied would only be undone by the button.
@@ -822,7 +1015,7 @@ class GuiContinuumMixin:
             None
         """
         if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
-            QMessageBox.warning(self, "Not Active", "Start a custom continuum session first by clicking 'Custom Subtract'.")
+            QMessageBox.warning(self, "Not Active", "Start a custom continuum session first. Click 'Custom Subtract' or 'Select Points'.")
             return
 
         points = getattr(self.custom_continuum_selector, 'continuum_points', [])
@@ -853,7 +1046,7 @@ class GuiContinuumMixin:
             None
         """
         if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
-            QMessageBox.warning(self, "Not Active", "Please click 'Custom Subtract' to start a session before loading points.")
+            QMessageBox.warning(self, "Not Active", "Click 'Custom Subtract' or 'Select Points' to start a session before loading points.")
             return
 
         fname, _ = QFileDialog.getOpenFileName(self, "Load Continuum Points", filter="Text files (*.txt *.csv)")

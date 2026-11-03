@@ -95,7 +95,7 @@ class CustomContinuumSelector:
                 f"• Select regions WITHOUT emission/absorption lines\n"
                 f"• Right-click on a black marker to remove it\n"
                 f"• Load Points adds points from a saved file\n"
-                f"• Press OK or ENTER when done, then choose the file name\n"
+                f"• Press Save Cubes or ENTER when done, then choose the file name\n"
                 f"• Press ESC to cancel\n"
                 f"\n"
                 f"Click on the spectrum plot first if keys don't work\n"
