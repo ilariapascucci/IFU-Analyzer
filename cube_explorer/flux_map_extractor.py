@@ -35,7 +35,7 @@ from .gaussian_fitter import (
 from .utils import get_spectral_resolution
 from .unit_converter import (
     integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs,
-    extract_units, extract_value_from_quantity,
+    extract_units, extract_value_from_quantity, cgs_flux_label, CGS_FLUX_NAME,
 )
 
 # fit_glines' actual curve_fit bounds on fitted sigma, x instrumental sigma.
@@ -354,7 +354,7 @@ def cont_fit_ransac(x, y, pdeg, return_params=False, exclude_wavelength_ranges=N
 
 # ================== Multi-Gaussian Fitting ====================
 
-def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lines, sigma,
+def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminating_lines, sigma,
                 progress_callback=None, flux_unit_label=None, wave_unit_label=None, header=None,
                 list_wboundaries_extent=None, half_width_sigma=DEFAULT_SIGMA_MULTIPLIER):
     """
@@ -368,7 +368,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         list_wboundaries (array): Flat, sorted chunk boundaries: elements [2*i, 2*i+1] make
             chunk i's own (lo, hi). This array sets which lines belong to which chunk; each
             line belongs to exactly one chunk
-        detco_lines (pd.DataFrame): Detected CO lines with 'line'/'disposition'/'max_amplitude',
+        det_target_lines (pd.DataFrame): Detected target lines with 'line'/'disposition'/'max_amplitude',
             plus an optional per-line 'sigma' (falls back to the shared `sigma` if absent)
         detcontaminating_lines (pd.DataFrame): Same columns, for contaminating lines
         sigma (float): Shared fallback Gaussian sigma, used only where a line has no own 'sigma'
@@ -386,14 +386,14 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             function uses it only to find "borrowed" lines (see below), not to rebuild boundaries
 
     Returns:
-        result (tuple): (sum_CO_area, sum_contaminating_area, mean_cont, df_residual,
+        result (tuple): (sum_target_area, sum_contaminating_area, mean_cont, df_residual,
             df_continuum, per_line_fits, per_contam_fits), all in native units. per_line_fits
             and per_contam_fits are lists of per-line dicts (amplitude, center, sigma, area,
             x/y/fit data). A caller that needs per-line detail, for example
             fit_hitran_lines_collective, uses them. A caller that needs only the total, for
             example extract_flux_from_spectrum, can ignore them.
     """
-    sum_CO_area, sum_contaminating_area, mean_cont = 0, 0, 0
+    sum_target_area, sum_contaminating_area, mean_cont = 0, 0, 0
     df_residual = pd.DataFrame({
         'wave': xwave,
         'residual': np.zeros(len(xwave))
@@ -407,7 +407,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
     # Every known line. Used below to find lines a chunk must borrow: not owned, but close
     # enough to bias the continuum if left unfit. Built once, then filtered per chunk.
-    all_lines_pool = pd.concat([detco_lines, detcontaminating_lines], ignore_index=True)
+    all_lines_pool = pd.concat([det_target_lines, detcontaminating_lines], ignore_index=True)
     pool_wave = all_lines_pool['line'].astype(float).values
     pool_disp = all_lines_pool['disposition'].values
     pool_sigma = (all_lines_pool['sigma'].astype(float).values if 'sigma' in all_lines_pool.columns
@@ -481,11 +481,11 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         # samples don't throw out the whole chunk; everything below only ever sees finite data.
         idx_xwave = (xwave >= ext_min) & (xwave <= ext_max) & np.isfinite(xwave) & np.isfinite(yflux)
 
-        # Filtering the DataFrame based on the disposition and the wavelength range: CO and contaminating lines
-        filtered_colines = detco_lines[
-            (detco_lines['disposition'] == 1) &
-            (detco_lines['line'] >= xwave_min) &
-            (detco_lines['line'] <= xwave_max)
+        # Filtering the DataFrame based on the disposition and the wavelength range: target and contaminating lines
+        filtered_target_lines = det_target_lines[
+            (det_target_lines['disposition'] == 1) &
+            (det_target_lines['line'] >= xwave_min) &
+            (det_target_lines['line'] <= xwave_max)
         ]
         filtered_contaminatinglines = detcontaminating_lines[
             (detcontaminating_lines['disposition'] == 1) &
@@ -495,7 +495,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
         # Find number of contaminating lines for Gauss fit and store
         ncont_lines = filtered_contaminatinglines.shape[0]
-        n_co = len(filtered_colines)
+        n_target = len(filtered_target_lines)
 
         cache_key = (round(float(ext_min), 9), round(float(ext_max), 9))
         cached = extent_fit_cache.get(cache_key)
@@ -522,10 +522,10 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                 sig_err_i = float(np.sqrt(np.abs(cov[2 + 3 * k + 2, 2 + 3 * k + 2])))
                 return amp_i, cen_i, sig_i, amp_err_i, sig_err_i
 
-            current_sum_CO = 0.0
-            for _, coline in filtered_colines.iterrows():
+            current_sum_target = 0.0
+            for _, coline in filtered_target_lines.iterrows():
                 amp_i, cen_i, sig_i, amp_err_i, sig_err_i = _cached_slice(float(coline['line']))
-                current_sum_CO += amp_i * sig_i * np.sqrt(2 * np.pi)
+                current_sum_target += amp_i * sig_i * np.sqrt(2 * np.pi)
                 catalog_sigma_i = coline['sigma'] if 'sigma' in coline else sigma
                 per_line_fits.append(_fit_record(
                     cen_i, amp_i, sig_i, coline['line'], amp_err_i, sig_err_i, catalog_sigma_i,
@@ -539,7 +539,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                     cen_j, amp_j, sig_j, contam_line['line'], amp_err_j, sig_err_j, catalog_sigma_j,
                     a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
 
-            sum_CO_area = sum_CO_area + current_sum_CO
+            sum_target_area = sum_target_area + current_sum_target
             sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
             mean_cont = mean_cont + a
             if progress_callback is not None:
@@ -552,8 +552,8 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         overlaps_extent = (pool_nat_lo < ext_max) & (pool_nat_hi > ext_min)
         borrowed_lines = all_lines_pool[not_owned & overlaps_extent & (pool_disp == 1)]
 
-        # Append contaminating lines, then any borrowed lines, at the end of the CO lines
-        filtered_lines = pd.concat([filtered_colines, filtered_contaminatinglines, borrowed_lines], ignore_index=True)
+        # Append contaminating lines, then any borrowed lines, at the end of the target lines
+        filtered_lines = pd.concat([filtered_target_lines, filtered_contaminatinglines, borrowed_lines], ignore_index=True)
 
         if len(filtered_lines) == 0:
             continue
@@ -565,7 +565,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
         if n_finite <= n_params_needed:
             print(f'  [DATA WARN] Only {n_finite} finite points for {n_params_needed} parameters '
                   f'in this chunk -- skipping (not enough data to fit)')
-            for _, coline in filtered_colines.iterrows():
+            for _, coline in filtered_target_lines.iterrows():
                 per_line_fits.append({
                     'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
                     'sigma': 0.0, 'area': 0.0, 'amplitude_error': None, 'sigma_error': None,
@@ -654,23 +654,23 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
             # Owned params only. This code still fits borrowed lines and subtracts them from
             # the residual, but never sums them here, so n_owned_params excludes them.
-            n_owned_params = 3 * (n_co + ncont_lines)
+            n_owned_params = 3 * (n_target + ncont_lines)
             if ncont_lines > 0:
-                current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
-                                    for jj in range(0, 3 * n_co, 3))
+                current_sum_target = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
+                                    for jj in range(0, 3 * n_target, 3))
                 current_sum_contaminating = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
-                                               for jj in range(3 * n_co, n_owned_params, 3))
+                                               for jj in range(3 * n_target, n_owned_params, 3))
             else:
                 current_sum_contaminating = 0  # there are no contaminating lines in this wave range!
-                current_sum_CO = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
+                current_sum_target = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
                                     for jj in range(0, n_owned_params, 3))
 
-            if current_sum_CO < 0:
-                print(f'  [FLUX WARN] Negative CO flux detected! intensities ({flux_unit_label}): '
+            if current_sum_target < 0:
+                print(f'  [FLUX WARN] Negative target flux detected! intensities ({flux_unit_label}): '
                       f'{[par[jj] for jj in range(0, len(par) - 3 * ncont_lines, 3)]}')
 
-            # filtered_lines holds CO lines, then contaminating lines. `par` follows the same
-            # order in 3-param groups: filtered_colines.iloc[i] maps to par[3*i:3*i+3].
+            # filtered_lines holds target lines, then contaminating lines. `par` follows the same
+            # order in 3-param groups: filtered_target_lines.iloc[i] maps to par[3*i:3*i+3].
             min_freq_chunk = np.nanmin(xwave[idx_xwave])
             x_local, y_local = xwave[idx_xwave], yflux[idx_xwave]
             extent_fit_cache[cache_key] = {
@@ -679,19 +679,19 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                 'min_freq_chunk': min_freq_chunk, 'noise_std_chunk': noise_std_chunk,
             }
 
-            for i, (_, coline) in enumerate(filtered_colines.iterrows()):
+            for i, (_, coline) in enumerate(filtered_target_lines.iterrows()):
                 amp_err_i = float(np.sqrt(np.abs(cov[2 + 3 * i, 2 + 3 * i])))
                 sig_err_i = float(np.sqrt(np.abs(cov[2 + 3 * i + 2, 2 + 3 * i + 2])))
                 per_line_fits.append(_fit_record(
                     par[3 * i + 1], par[3 * i], par[3 * i + 2], coline['line'], amp_err_i, sig_err_i,
                     line_sigmas[i], a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
             for j, (_, contam_line) in enumerate(filtered_contaminatinglines.iterrows()):
-                jj = 3 * (n_co + j)
+                jj = 3 * (n_target + j)
                 amp_err_j = float(np.sqrt(np.abs(cov[2 + jj, 2 + jj])))
                 sig_err_j = float(np.sqrt(np.abs(cov[2 + jj + 2, 2 + jj + 2])))
                 per_contam_fits.append(_fit_record(
                     par[jj + 1], par[jj], par[jj + 2], contam_line['line'], amp_err_j, sig_err_j,
-                    line_sigmas[n_co + j], a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
+                    line_sigmas[n_target + j], a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
 
         except RuntimeError as e:
             print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
@@ -703,10 +703,10 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
             # broadcast (Flux Map), but the real per-line width when it varies (fit_hitran_lines_collective).
             fallback_sigma = np.median(line_sigmas)
             current_sum_contaminating = 3 * np.median(std_residuals) * fallback_sigma * np.sqrt(2 * np.pi)
-            current_sum_CO = 3 * np.median(std_residuals) * fallback_sigma * np.sqrt(2 * np.pi)
+            current_sum_target = 3 * np.median(std_residuals) * fallback_sigma * np.sqrt(2 * np.pi)
             a = np.nanmedian(continuum)
             df_continuum.loc[idx_xwave, 'continuum'] = continuum
-            for i, (_, coline) in enumerate(filtered_colines.iterrows()):
+            for i, (_, coline) in enumerate(filtered_target_lines.iterrows()):
                 per_line_fits.append({
                     'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
                     'sigma': 0.0, 'area': 0.0, 'amplitude_error': None, 'sigma_error': None,
@@ -719,13 +719,13 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
                 per_contam_fits.append({
                     'wavelength': contam_line['line'], 'amplitude': 0.0, 'center': contam_line['line'],
                     'sigma': 0.0, 'area': 0.0, 'amplitude_error': None, 'sigma_error': None,
-                    'catalog_sigma': line_sigmas[n_co + j], 'noise_std': None,
+                    'catalog_sigma': line_sigmas[n_target + j], 'noise_std': None,
                     'x_data': xwave[idx_xwave], 'y_data': yflux[idx_xwave],
                     'y_fit': np.zeros(np.count_nonzero(idx_xwave)),
                     'success': False, 'message': f"Chunk fit failed: {e}",
                 })
 
-        sum_CO_area = sum_CO_area + current_sum_CO
+        sum_target_area = sum_target_area + current_sum_target
         sum_contaminating_area = sum_contaminating_area + current_sum_contaminating
         mean_cont = mean_cont + a
 
@@ -734,7 +734,7 @@ def fit_glines(xwave, yflux, list_wboundaries, detco_lines, detcontaminating_lin
 
     mean_cont = mean_cont / n_chunks
 
-    return sum_CO_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits, per_contam_fits
+    return sum_target_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits, per_contam_fits
 
 
 def _line_sigma(wl, header):
@@ -978,7 +978,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
 
     # Per-line sigma from the instrument's own resolution (_line_sigma), not one shared
     # guess. A single estimate over the whole spectrum cannot know each line's real width.
-    detco_lines = pd.DataFrame({
+    det_target_lines = pd.DataFrame({
         'line': [d[1] for d in lines_data],
         'disposition': [1] * len(lines_data),
         'max_amplitude': [d[3] for d in lines_data],
@@ -1013,19 +1013,19 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             "the estimate is missing, zero, negative, or not finite."
         )
 
-    all_centers = list(detco_lines['line']) + list(detcontaminating_lines['line'])
-    all_sigmas = list(detco_lines['sigma']) + list(detcontaminating_lines['sigma'])
+    all_centers = list(det_target_lines['line']) + list(detcontaminating_lines['line'])
+    all_sigmas = list(det_target_lines['sigma']) + list(detcontaminating_lines['sigma'])
     wave_boundaries, wave_boundaries_extent = _merged_wave_boundaries(
         all_centers, all_sigmas, spectrum_x, y_corrected, noise_std, half_width_sigma=sigma_multiplier)
 
     # This is only fit_glines' scalar fallback, for the RuntimeError path. The per-line
     # 'sigma' column above drives the real fit.
-    sigma = float(np.median(detco_lines['sigma']))
+    sigma = float(np.median(det_target_lines['sigma']))
 
     # This code has no fallback string. MIRI, NIRSpec, and MUSE headers always carry BUNIT.
     # None here means the header is missing something real, and the debug prints must show it.
     _, _, _, _, _, per_line_fits, per_contam_fits = fit_glines(
-        spectrum_x, y_corrected, wave_boundaries, detco_lines, detcontaminating_lines, sigma,
+        spectrum_x, y_corrected, wave_boundaries, det_target_lines, detcontaminating_lines, sigma,
         progress_callback=progress_callback,
         flux_unit_label=header.get('BUNIT') if header is not None else None,
         wave_unit_label=get_wave_unit(header, wave_unit),
@@ -1065,7 +1065,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         area_cgs = (convert_area_to_cgs(fit['amplitude'], fit['sigma'], fit['center'], header, unit)
                     if header is not None else None)
         if area_cgs is not None:
-            area, area_unit = area_cgs, "erg/s/cm²"
+            area, area_unit = area_cgs, cgs_flux_label()
         else:
             area = area_native
             # This code has no fallback string. A missing BUNIT here means the header is
@@ -1322,7 +1322,7 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
     # example, ALMA's Jy/beam never is). This sets one label for flux/contam_flux below.
     flux_unit_label = spectrum_flux_unit or resolved_flux_unit or 'UNKNOWN'
     if _to_cgs(1.0, (wave_min + wave_max) / 2.0) is not None:
-        flux_unit_label = 'erg/s/cm2'
+        flux_unit_label = CGS_FLUX_NAME
     
     # If wave_boundaries is not given, this code builds it further down, after it
     # detects this pixel's own lines. See the comment there for why.
@@ -1777,7 +1777,7 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
     if header is not None:
         test_cgs = integrated_flux_to_cgs(1.0, resolved_flux_unit, wavelength=(wave_min + wave_max) / 2.0,
                                            header=header, wave_unit=resolved_wave_unit)
-    flux_unit_output = 'erg/s/cm2' if test_cgs is not None else (resolved_flux_unit or 'UNKNOWN')
+    flux_unit_output = CGS_FLUX_NAME if test_cgs is not None else (resolved_flux_unit or 'UNKNOWN')
     print(f"    Flux map units: {flux_unit_output}")
 
     return {

@@ -8,7 +8,6 @@ import csv
 import io
 import zipfile
 import numpy as np
-from astropy.stats import gaussian_sigma_to_fwhm
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
@@ -23,7 +22,10 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from .gui_sizing import fit_to_screen, screen_limited_width
+from .convolution_plan_dialog import confirm_convolution_plan
+from .gui_mixins import make_selectable
+from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
+from .gui_sizing import fit_to_screen
 from .gui import CollapsibleButtonGroup, build_group_bar
 from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog, match_nearest_hitran_line
@@ -50,7 +52,7 @@ from .fits_export import build_line_map_header, write_fits_product
 from .scale_dialog import ScaleSettings, build_norm
 from .visualization import draw_map
 from .convolve_reproject import convolve_reproject_maps, convolution_plan
-from .utils import psf_fwhm_arcsec, make_2d_wcs
+from .utils import make_2d_wcs
 from .icon_loader import set_button_icon
 
 # Every open window registers here, so Python keeps it alive while it is open.
@@ -450,13 +452,14 @@ class BatchFluxWorker(QThread):
 class LoadedHeadersDialog(QDialog):
     """Show the FITS header of any HDU of any loaded cube."""
 
-    def __init__(self, cubes, paths, parent=None):
+    def __init__(self, cubes, paths, parent=None, start_index=0):
         """Build the cube and HDU pickers and show the first header.
 
         Args:
             cubes (list): Loaded CubeData objects, each with an open `hdul`.
             paths (list): File path of each cube, in the same order.
             parent (QWidget): Owner window.
+            start_index (int): Index of the cube whose header shows first.
 
         Returns:
             None
@@ -472,6 +475,7 @@ class LoadedHeadersDialog(QDialog):
         pickers.addWidget(QLabel("Cube:"))
         self.cube_combo = QComboBox()
         self.cube_combo.addItems([os.path.basename(p) for p in paths])
+        self.cube_combo.setCurrentIndex(start_index)
         self.cube_combo.currentIndexChanged.connect(self._fill_hdu_combo)
         pickers.addWidget(self.cube_combo, 1)
         pickers.addWidget(QLabel("HDU:"))
@@ -617,7 +621,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         header_row = QHBoxLayout()
         self.header_btn = QPushButton("Header")
         self.header_btn.setToolTip("Show the FITS header of the loaded cubes.")
-        self.header_btn.clicked.connect(self.show_loaded_headers)
+        self.header_btn.clicked.connect(lambda: self.show_loaded_headers())
         header_row.addWidget(self.header_btn)
 
         self.new_window_btn = QPushButton()
@@ -678,9 +682,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Flux/Flux Error's own tooltip is set after _init_sortable_checkbox_table instead,
         # which would otherwise overwrite it (see below).
         self.lines_table.horizontalHeaderItem(15).setToolTip(
-            "Always computed on the full cube, regardless of any active region.")
+            "Always computed on the full cube. Hidden while a region is active.")
         self.lines_table.horizontalHeaderItem(16).setToolTip(
-            "Always computed on the full cube, regardless of any active region.")
+            "Always computed on the full cube. Hidden while a region is active.")
         # row -> plot data dict (x_data, y_data, baseline, y_fit, center, fwhm, r_squared,
         # wavelength) for the "Fit" column's link, populated by calculate_fluxes_batch.
         self._line_fit_plot_data = {}
@@ -1067,11 +1071,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             for cube in cubes:
                 cube.free_memory()
 
-    def show_loaded_headers(self):
+    def show_loaded_headers(self, start_index=0):
         """Open the FITS header viewer for the loaded cubes.
 
         Args:
-            None
+            start_index (int): Index of the cube whose header shows first.
 
         Returns:
             None
@@ -1081,7 +1085,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             return
         if self._headers_dialog is not None:
             self._headers_dialog.close()
-        dlg = LoadedHeadersDialog(self.loaded_batch_cubes, self.loaded_batch_fits_paths, parent=self)
+        dlg = LoadedHeadersDialog(self.loaded_batch_cubes, self.loaded_batch_fits_paths,
+                                  parent=self, start_index=start_index)
         dlg.destroyed.connect(lambda *_: setattr(self, "_headers_dialog", None))
         self._headers_dialog = dlg
         dlg.show()
@@ -1280,8 +1285,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.load_fits_btn.setEnabled(True)
         self.load_contam_btn.setEnabled(True)
         self.save_fluxes_btn.setEnabled(True)
-        self.calculate_maps_btn.setEnabled(True)
-        self.convolve_maps_btn.setEnabled(True)
+        self.calculate_maps_btn.setEnabled(self._rot_map_region_sky is None)
+        self.convolve_maps_btn.setEnabled(self._rot_map_region_sky is None)
         self.save_maps_btn.setEnabled(True)
         self.import_map_region_btn.setEnabled(True)
 
@@ -1707,7 +1712,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             calc_item.setCheckState(Qt.Unchecked)
         source_item = self.lines_table.item(row, 12)
         if source_item:
-            source_item.setText("")
+            self._clear_source_link(source_item)
 
     def sync_flux_error_flag(self, row):
         """Flag the Flux Error cell red when blank and the line isn't marked as an Upper Limit.
@@ -2698,7 +2703,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 calc_item.setCheckState(Qt.Checked)
             source_item = self.lines_table.item(row, 12)
             if source_item:
-                source_item.setText(f"{instrument} [{filename}]")
+                self._set_source_link(source_item, instrument, filename)
 
             # Flux is read-only now. The fitted error is kept to show later edits.
             was_blocked = self.lines_table.blockSignals(True)
@@ -2776,7 +2781,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None: Opens show_line_fit's, show_line_map's, or
                 show_line_convolved_map's dialog as a side effect, if applicable.
         """
-        if item.column() == 14:
+        if item.column() == 12:
+            self.show_source_header(item.row())
+        elif item.column() == 14:
             self.show_line_fit(item.row())
         elif item.column() == 15:
             self.show_line_map(item.row())
@@ -2809,7 +2816,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             flux_str = f"Flux = {data['flux_cgs']:.3e}"
             if data.get('flux_error_cgs') is not None:
                 flux_str += f" ± {data['flux_error_cgs']:.3e}"
-            flux_str += " erg/s/cm²"
+            flux_str += f" {cgs_flux_label()}"
             if data.get('is_upper_limit'):
                 flux_str += " (upper limit)"
             info_parts.append(flux_str)
@@ -2822,6 +2829,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             info_parts.append(f"FWHM = {data['fwhm']:.4g} μm")
         info = QLabel(" | ".join(info_parts))
         info.setStyleSheet("background-color: #f0f0f0; padding: 4px; border-radius: 3px;")
+        make_selectable(info)
         layout.addWidget(info)
 
         fig = Figure(figsize=(8, 5))
@@ -2952,7 +2960,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 flux_line = f"Flux: {data['flux_cgs']:.3e}"
                 if data.get('flux_error_cgs') is not None:
                     flux_line += f" +/- {data['flux_error_cgs']:.3e}"
-                header.append(flux_line + " erg/s/cm2" + (" (upper limit)" if data.get('is_upper_limit') else ""))
+                header.append(flux_line + f" {cgs_flux_label()}" + (" (upper limit)" if data.get('is_upper_limit') else ""))
             if data.get('r_squared') is not None:
                 header.append(f"R2: {data['r_squared']:.4f}")
             if data.get('fwhm') is not None:
@@ -2996,7 +3004,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None
         """
         data = self._line_map_plot_data.get(row)
-        if data is None:
+        if data is None or self._rot_map_region_sky is not None:
             return
         LineFluxMapDialog(
             data['wavelength'], data['flux_map'], data.get('header'),
@@ -3016,7 +3024,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None
         """
         data = self._line_convolved_map_plot_data.get(row)
-        if data is None:
+        if data is None or self._rot_map_region_sky is not None:
             return
         LineFluxMapDialog(
             data['wavelength'], data['flux_map'], data.get('header'),
@@ -3051,11 +3059,64 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None
         """
         item.setText("View")
+        item.setTextAlignment(Qt.AlignCenter)
         item.setForeground(QColor(0, 0, 238))
         font = item.font()
         font.setUnderline(True)
         item.setFont(font)
         item.setToolTip(tooltip)
+
+    def _set_source_link(self, item, instrument, filename):
+        """Make a Source cell a "View" link that opens the header of its cube.
+        The tooltip says which instrument and file the value came from.
+
+        Args:
+            item (QTableWidgetItem): Source cell to style.
+            instrument (str): Instrument name of the cube.
+            filename (str): File name of the cube.
+
+        Returns:
+            None
+        """
+        self._set_view_link(item, f"{instrument} [{filename}]. Double-click to see the FITS header.")
+        item.setData(Qt.UserRole, filename)
+
+    def _clear_source_link(self, item):
+        """Undo _set_source_link: leave a Source cell empty and plain.
+
+        Args:
+            item (QTableWidgetItem): Source cell to reset.
+
+        Returns:
+            None
+        """
+        item.setText("")
+        item.setData(Qt.ForegroundRole, None)
+        item.setData(Qt.FontRole, None)
+        item.setData(Qt.UserRole, None)
+        item.setToolTip("")
+
+    def show_source_header(self, row):
+        """Show the FITS header of the cube that a row's flux came from.
+        The cube must still be loaded, because the header is read from the open file.
+
+        Args:
+            row (int): Table row whose source to show.
+
+        Returns:
+            None
+        """
+        item = self.lines_table.item(row, 12)
+        filename = item.data(Qt.UserRole) if item else None
+        if not filename:
+            return
+        names = [os.path.basename(path) for path in self.loaded_batch_fits_paths]
+        if filename not in names:
+            QMessageBox.information(
+                self, "Cube Not Loaded",
+                f"The cube {filename} is not loaded. Load it with Source > Load Cubes to see its header.")
+            return
+        self.show_loaded_headers(names.index(filename))
 
     def _clear_view_link(self, item):
         """Undo _set_view_link: reset a cell back to its default "—" placeholder.
@@ -3291,7 +3352,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             entry.get("header"), flux_map.shape, wavelength=entry["wavelength"],
             molecule=entry.get("molecule", "H2"), flux_map=flux_map, error_map=err_map,
             src_filename=entry.get("source_filename") or "UNKNOWN", fit_method="Multi-Gaussian fit",
-            identity_header=entry.get("identity_header"), extra={"BUNIT": "erg/s/cm2"},
+            identity_header=entry.get("identity_header"), extra={"BUNIT": CGS_FLUX_NAME},
         )
         buf = io.BytesIO()
         write_fits_product(buf, np.asarray(flux_map, dtype=np.float32), header, extensions=extensions)
@@ -3312,7 +3373,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         norm, shown = build_norm(np.asarray(entry["flux_map"], dtype=float),
                                  entry.get("scale_settings") or ScaleSettings())
         draw_map(fig, ax, shown, norm, entry.get("cmap") or "inferno",
-                 f"Flux @ {entry['wavelength']:.6f} um", "Flux (erg/s/cm2)")
+                 f"Flux @ {entry['wavelength']:.6f} um", f"Flux ({cgs_flux_label()})")
         fig.tight_layout()
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=150)
@@ -3504,12 +3565,11 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         ))
         self.lines_table.setItem(row, 11, calc_item)
 
-        # Source (read-only) -- same "{instrument} [{filename}]" convention
-        # Calculate Fluxes already uses, sourced from the import instead.
-        source_item = QTableWidgetItem(
-            f"{imported['instrument'] or 'UNKNOWN'} [{imported['filename']}]"
-            if (imported and global_fit) else "")
+        # Source (read-only) -- a "View" link, as Calculate Fluxes makes, sourced from the import instead.
+        source_item = QTableWidgetItem("")
         source_item.setFlags(source_item.flags() & ~Qt.ItemIsEditable)
+        if imported and global_fit:
+            self._set_source_link(source_item, imported['instrument'] or 'UNKNOWN', imported['filename'])
         self.lines_table.setItem(row, 12, source_item)
 
         # Fit R^2 (read-only; filled in by Calculate Fluxes, or an imported
@@ -3703,6 +3763,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         convolved_covers = convolved_ready and self._rot_map_subset_convolved_result(
             convolved_cache["result"], self._rot_map_checked_wavelengths()) is not None
 
+        # The maps always use the whole cube, so they do not match a fit that uses a region.
+        region_active = self._rot_map_region_sky is not None
+        region_reason = "Not available while a region is active. Click Delete Region to use the maps."
+
         self.run_fit_btn.setEnabled(checked_count >= 2 and fit_data_ready)
         if checked_count < 2:
             self._set_gated_tooltip(self.run_fit_btn, "Select at least 2 lines -- a line fit needs 2+ points.")
@@ -3716,8 +3780,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # fewer total checked lines than that can never reach the threshold.
         fit2t = self.fit_mode.currentText() == "2T"
         min_lines_needed = 5 if fit2t else 3
-        self.run_map_btn.setEnabled(checked_count >= min_lines_needed and convolved_covers)
-        if checked_count < min_lines_needed:
+        self.run_map_btn.setEnabled(checked_count >= min_lines_needed and convolved_covers and not region_active)
+        if region_active:
+            self._set_gated_tooltip(self.run_map_btn, region_reason)
+        elif checked_count < min_lines_needed:
             self._set_gated_tooltip(
                 self.run_map_btn,
                 f"Select at least {min_lines_needed} lines for a per-pixel {'2T' if fit2t else '1T'} map.")
@@ -3732,13 +3798,18 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             self._set_gated_tooltip(self.run_map_btn, "")
         # Calculate Maps doesn't need a T-fit -- "need a loaded cube" is
         # checked at click time instead, same as Run Map's own "No Cube" check.
-        self.calculate_maps_btn.setEnabled(checked_count >= 1)
-        self._set_gated_tooltip(
-            self.calculate_maps_btn, "" if checked_count >= 1 else "Select at least 1 line.")
+        self.calculate_maps_btn.setEnabled(checked_count >= 1 and not region_active)
+        if region_active:
+            self._set_gated_tooltip(self.calculate_maps_btn, region_reason)
+        else:
+            self._set_gated_tooltip(
+                self.calculate_maps_btn, "" if checked_count >= 1 else "Select at least 1 line.")
         # Needs 2+ lines (cube-fit or imported) -- with only one, there is
         # only one resolution and nothing to convolve.
-        self.convolve_maps_btn.setEnabled(checked_count >= 2 and native_ready)
-        if checked_count < 2:
+        self.convolve_maps_btn.setEnabled(checked_count >= 2 and native_ready and not region_active)
+        if region_active:
+            self._set_gated_tooltip(self.convolve_maps_btn, region_reason)
+        elif checked_count < 2:
             self._set_gated_tooltip(
                 self.convolve_maps_btn, "Select at least 2 lines -- nothing to convolve with only one.")
         elif not native_ready:
@@ -3751,6 +3822,32 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self._set_gated_tooltip(
             self.select_map_region_btn,
             "" if can_select_region else "Run Calculate Maps on at least one cube-fit line first.")
+        self._sync_map_links()
+
+    def _sync_map_links(self):
+        """Hide the Map and Convolved Map links while a region is active, and show them again
+        when it is deleted. The maps stay in memory, so nothing is calculated again.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        hidden = self._rot_map_region_sky is not None
+        for column, plot_data in ((15, self._line_map_plot_data), (16, self._line_convolved_map_plot_data)):
+            for row in plot_data:
+                item = self.lines_table.item(row, column)
+                if item is None:
+                    continue
+                if hidden and item.text() == "View":
+                    # The tooltip of the link is kept in the cell, to put it back later.
+                    item.setData(Qt.UserRole, item.toolTip())
+                    self._clear_view_link(item)
+                    item.setToolTip("Hidden while a region is active. Click Delete Region to see the map.")
+                elif not hidden and item.data(Qt.UserRole) is not None:
+                    self._set_view_link(item, item.data(Qt.UserRole))
+                    item.setData(Qt.UserRole, None)
 
     def _set_gated_tooltip(self, button, reason):
         """Show a button's own description, then the reason it is disabled.
@@ -4223,6 +4320,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                             cell.setFlags(cell.flags() | Qt.ItemIsEditable)
                             # Drop the Upper Limit stash too, or the next calculation restores it
                             cell.setData(Qt.UserRole, None)
+                        if col == 12:
+                            self._clear_source_link(cell)
                         cell.setBackground(QBrush())
                         cell.setToolTip("")
                 r2_item = self.lines_table.item(row, 13)
@@ -4267,13 +4366,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_map_region_btn.setEnabled(True)
         self.clear_map_region_btn.setEnabled(True)
         self._reset_region_dependent_results()
+        self.on_line_selected()
         shape_name = region_io.SHAPE_NAMES.get(dlg.result_region["shape"], dlg.result_region["shape"])
         QMessageBox.information(
             self, "Region Selected",
             f"Region selected ({shape_name}). Calculate Fluxes and Run Fit will now only use "
             "pixels inside it, on every loaded cube. Any previously computed fluxes were "
-            "cleared since they no longer reflect this region. Calculate Maps/Convolve Maps/"
-            "Run Map are unaffected -- they always use the whole cube.")
+            "cleared since they no longer reflect this region. The maps always use the whole cube, "
+            "so they are hidden, and Calculate Maps, Convolve Maps and Run Map are disabled, "
+            "until you click Delete Region.")
 
     def _rot_map_region_entries(self):
         """Per-line data Draw Region draws on, taken from the cached
@@ -4336,14 +4437,15 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_map_region_btn.setEnabled(True)
         self.clear_map_region_btn.setEnabled(True)
         self._reset_region_dependent_results()
+        self.on_line_selected()
         QMessageBox.information(
             self, "Region Imported",
             f"Region imported ({region_io.SHAPE_NAMES.get(saved['shape'], saved['shape'])}). "
             "Calculate Fluxes and Run Fit will now only use pixels inside it, on every loaded "
             "cube. Any previously computed fluxes were cleared since they no longer reflect "
-            "this region. Calculate Maps/Convolve Maps/Run Map are unaffected -- they always "
-            "use the whole cube. Import a different region to replace it. Or click Delete Region "
-            "to fit the whole cube again.")
+            "this region. The maps always use the whole cube, so they are hidden, and Calculate "
+            "Maps, Convolve Maps and Run Map are disabled. Import a different region to replace "
+            "it. Or click Delete Region to fit the whole cube again.")
 
     def clear_rot_map_region(self):
         """Drop the active region -- Calculate Fluxes/Run Fit go back to
@@ -4359,6 +4461,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.save_map_region_btn.setEnabled(False)
         self.clear_map_region_btn.setEnabled(False)
         self._reset_region_dependent_results()
+        self.on_line_selected()
 
     def save_rot_map_region(self):
         """Save the active region as a WCS text file. Import Region here, in
@@ -5031,139 +5134,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         ny, nx = plan["dst_shape"]
         worst = plan["worst_pix_arcsec"]
-        rows = list(plan["per_cube"])
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle(window_title)
-        fit_to_screen(dlg, 980, 480)
-        lay = QVBoxLayout(dlg)
-
-        header_label = QLabel(f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px {grid_note}")
-        lay.addWidget(header_label)
-
-        headers = ["Line (um)", "File", "Pixel Scale (\"/px)",
-                   "Native PSF (FWHM, \")", "PSF Matching Kernel (FWHM, \")"]
-        table = QTableWidget(len(rows), len(headers), dlg)
-        table.setHorizontalHeaderLabels(headers)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionMode(QTableWidget.NoSelection)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        # File names (JWST ones especially) can run long enough to blow the
-        # dialog out to an unreasonable width -- cap this one column and
-        # show the full name as a tooltip instead of forcing it to fit.
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
-        table.setColumnWidth(1, 260)
-        table.horizontalHeader().setStretchLastSection(True)
-
-        def _native_psf_arcsec(c):
-            """This line's own native angular resolution (its instrument's PSF
-            formula), before any convolution -- the reference row's value is the
-            common resolution every other row is being PSF-matched to."""
-            return psf_fwhm_arcsec(c["wavelength"], c["instrument"])
-
-        def _blur_text(c):
-            """
-            FWHM of the Gaussian kernel applied to raise this line's own
-            native PSF up to the reference line's native PSF (0 for the
-            reference line itself -- it needs no PSF matching).
-
-            Args:
-                c (dict): One convolution_plan()['per_cube'] entry.
-
-            Returns:
-                text (str): FWHM of the PSF-matching kernel, in arcsec and
-                    native pixels.
-            """
-            fwhm_arcsec = c["sigma_arcsec"] * gaussian_sigma_to_fwhm
-            fwhm_pix = c["sigma_pix"] * gaussian_sigma_to_fwhm
-            return f"{fwhm_arcsec:.4f}\" ({fwhm_pix:.2f} px)"
-
-        def _fill():
-            """
-            Redraw every row of `rows` into `table`, in its current order.
-
-            Args: None
-
-            Returns:
-                None
-            """
-            for r, c in enumerate(rows):
-                fname = os.path.basename(c["filename"]) if c["filename"] else "cube"
-                if c["sigma_pix"] <= 1e-6:
-                    fname += "  (reference)"
-                texts = (f"{c['wavelength']:.4f}", fname,
-                        f"{c['native_pix_arcsec']:.4f}",
-                        f"{_native_psf_arcsec(c):.4f}\"", _blur_text(c))
-                for col, text in enumerate(texts):
-                    item = QTableWidgetItem(text)
-                    item.setTextAlignment(Qt.AlignCenter if col != 1 else Qt.AlignVCenter | Qt.AlignLeft)
-                    if col == 1:
-                        item.setToolTip(fname)
-                    table.setItem(r, col, item)
-
-        _fill()
-
-        sort_key = {
-            0: lambda c: c["wavelength"],
-            1: lambda c: (os.path.basename(c["filename"]) if c["filename"] else "cube").lower(),
-            2: lambda c: c["native_pix_arcsec"],
-            3: lambda c: _native_psf_arcsec(c),
-            4: lambda c: c["sigma_pix"],
-        }
-        sort_state = {"column": None, "order": Qt.AscendingOrder}
-
-        def _on_header_clicked(column):
-            """
-            Sort `rows` by the clicked column, toggling direction on a repeat click.
-
-            Args:
-                column (int): Table column index the user clicked.
-
-            Returns:
-                None
-            """
-            if sort_state["column"] == column and sort_state["order"] == Qt.AscendingOrder:
-                sort_state["order"] = Qt.DescendingOrder
-            else:
-                sort_state["order"] = Qt.AscendingOrder
-            sort_state["column"] = column
-            rows.sort(key=sort_key[column], reverse=(sort_state["order"] == Qt.DescendingOrder))
-            _fill()
-            table.horizontalHeader().setSortIndicator(column, sort_state["order"])
-
-        header = table.horizontalHeader()
-        header.setSectionsClickable(True)
-        header.setSortIndicatorShown(True)
-        header.sectionClicked.connect(_on_header_clicked)
-        lay.addWidget(table)
-
-        # Size the dialog to fit every column's actual content. Measured with
-        # stretch-last-section off so it reflects true natural widths, not
-        # whatever the last column happens to be stretched to at its old size.
-        table.horizontalHeader().setStretchLastSection(False)
-        natural_width = table.horizontalHeader().length()
-        table.horizontalHeader().setStretchLastSection(True)
-        frame_overhead = (table.verticalHeader().width() + 2 * table.frameWidth()
-                         + table.style().pixelMetric(table.style().PM_ScrollBarExtent) + 40)
-        dlg.resize(min(max(dlg.width(), natural_width + frame_overhead), screen_limited_width(1600)), dlg.height())
-
-        footer_label = QLabel(
+        return confirm_convolution_plan(
+            self, plan["per_cube"], f"Common grid: {ny} x {nx} px @ {worst:.4f}\"/px {grid_note}",
             "Every pixel outside a cube's own reprojected footprint is NaN "
-            f"for that line.\n\n{question}")
-        footer_label.setWordWrap(True)
-        lay.addWidget(footer_label)
-
-        btns = QHBoxLayout()
-        accept_btn = QPushButton(accept_label)
-        cancel_btn = QPushButton("Cancel")
-        accept_btn.clicked.connect(dlg.accept)
-        cancel_btn.clicked.connect(dlg.reject)
-        btns.addStretch()
-        btns.addWidget(accept_btn)
-        btns.addWidget(cancel_btn)
-        lay.addLayout(btns)
-        return dlg.exec_() == QDialog.Accepted
+            f"for that line.\n\n{question}", window_title, accept_label)
 
     def _on_rot_map_progress(self, current, total):
         """Update the map progress dialog.
@@ -5410,6 +5384,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             ax.set_ylabel('log(N_u / g_u)', fontsize=12, fontweight='bold')
             ax.grid(True, alpha=0.3, linestyle='--')
             ax.legend(fontsize=10, loc='upper right')
+            # The margins follow the tick labels and the window size, so no label is cut off.
+            fig.set_layout_engine("tight")
 
             plot_widget = QWidget()
             plot_layout = QVBoxLayout(plot_widget)

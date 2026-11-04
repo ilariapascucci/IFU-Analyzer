@@ -70,6 +70,19 @@ class ScaleSettings:
         self.vmin = None
         self.vmax = None
 
+    def reset(self):
+        """Set every value back to its default: Linear, Auto range, and the default
+        gamma and percentiles. The object stays the same, so holders of it see the change.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        for field in dataclasses.fields(self):
+            setattr(self, field.name, field.default)
+
     def scale_label(self):
         """Return the scale name for a label, with gamma for Power.
 
@@ -820,6 +833,23 @@ class ScaleDialog(QDialog):
         self.max_edit.clear()
         self.slider.set_range(self.auto_vmin, self.auto_vmax)
 
+    def _snap_to_image_range(self, value):
+        """Move a value that is only a rounding error outside the image range onto its edge.
+
+        Args:
+            value (float): Typed vmin or vmax, or None.
+
+        Returns:
+            value (float): The edge of the image range if value is within 0.1% (relative)
+                of it, else the value unchanged. None stays None.
+        """
+        if value is None:
+            return None
+        for edge in (self.auto_vmin, self.auto_vmax):
+            if abs(value - edge) <= 1e-3 * abs(edge):
+                return edge
+        return value
+
     def accept(self):
         """Validate every box, then store the new settings in result_settings.
         Show a warning and keep the dialog open if a value is not valid.
@@ -864,6 +894,9 @@ class ScaleDialog(QDialog):
                 QMessageBox.warning(self, "Invalid Value",
                                     "vmin/vmax must be finite numbers (e.g. 1.5e-16), or left blank for Auto.")
                 return
+            # The stats panel shows 4 digits, so a value copied from it can lie a little outside
+            # the range. A value this close to the image minimum or maximum is that minimum or maximum.
+            vmin, vmax = self._snap_to_image_range(vmin), self._snap_to_image_range(vmax)
             for name, value in (("vmin", vmin), ("vmax", vmax)):
                 if value is not None and not self.auto_vmin <= value <= self.auto_vmax:
                     QMessageBox.warning(

@@ -13,6 +13,7 @@ shows is exactly what the maps contain.
 import os
 
 import numpy as np
+from .gui_mixins import make_selectable
 from .gui_sizing import fit_to_screen
 from .unit_converter import extract_value_from_quantity
 from PyQt5.QtCore import Qt
@@ -125,8 +126,7 @@ class PixelFitDialog(QDialog):
         self.status_label = QLabel()
         self.status_label.setStyleSheet(
             "background-color: #f0f0f0; padding: 6px; border-radius: 3px; font-weight: bold;")
-        self.status_label.setTextInteractionFlags(
-            Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(self.status_label)
         layout.addWidget(self.status_label)
 
         # Plot on the left, numbers on the right -- the stats are a tall narrow block,
@@ -145,8 +145,7 @@ class PixelFitDialog(QDialog):
         self.info_label = QLabel()
         self.info_label.setStyleSheet("font-family: monospace; white-space: pre;")
         self.info_label.setAlignment(Qt.AlignTop)
-        self.info_label.setTextInteractionFlags(
-            Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(self.info_label)
         body.addWidget(self.info_label, stretch=1)
 
         layout.addLayout(body)

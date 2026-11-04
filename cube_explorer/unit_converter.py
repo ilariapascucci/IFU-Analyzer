@@ -321,6 +321,21 @@ def are_units_compatible(unit1, unit2):
 
 # Unit of CGS Flux
 CGS_FLUX = u.erg / u.s / u.cm ** 2
+# ASCII name of the CGS flux unit, for result dicts and FITS headers. Windows show cgs_flux_label().
+CGS_FLUX_NAME = 'erg/s/cm2'
+
+
+def cgs_flux_label():
+    """
+    Give the CGS flux unit as the text that every window and file shows to the user.
+
+    Args:
+        None
+
+    Returns:
+        label (str): The unit in unicode notation, for example "erg s⁻¹ cm⁻²"
+    """
+    return CGS_FLUX.to_string('unicode')
 
 
 def pixel_solid_angle(header):
@@ -509,7 +524,7 @@ def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None)
             # An amplitude is a flux density, so it keeps a per-wavelength unit. An
             # area has integrated over the spectral axis, so it is a plain flux.
             'amplitude': (CGS_FLUX / wave_astropy_unit).to_string('unicode'),
-            'area': CGS_FLUX.to_string('unicode'),
+            'area': cgs_flux_label(),
         }
 
     # Not convertible, for example Jy/beam, or a missing header. Reports the cube's own units.

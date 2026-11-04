@@ -12,7 +12,7 @@ from .flux_map_dialogs import FluxMapWorker, FluxMapResultsDialog
 from .flux_map_extractor import fit_auto_continuum
 from .continuum_dialog import ContinuumParametersDialog
 from .species_dialog import SpeciesDialog
-from .unit_converter import extract_units
+from .unit_converter import extract_units, clean_flux_unit
 from .utils import take_resolution_notes
 
 class GuiFluxMapMixin:
@@ -258,7 +258,8 @@ class GuiFluxMapMixin:
                 ax.axvline(float(wave), color='red', alpha=0.3, linewidth=1)
         
         ax.set_xlabel('Wavelength (μm)')
-        ax.set_ylabel('Flux')
+        flux_unit = clean_flux_unit(self.cube_data.flux_unit) if self.cube_data.flux_unit else ''
+        ax.set_ylabel(f'Flux ({flux_unit})' if flux_unit else 'Flux')
         ax.set_title(f'{species_label} Line Positions ({len(lines)} lines)')
         ax.grid(True, alpha=0.3)
         ax.legend()

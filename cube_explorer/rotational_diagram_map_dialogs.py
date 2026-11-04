@@ -11,7 +11,7 @@ import traceback
 from types import SimpleNamespace
 
 import numpy as np
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox,
     QWidget, QFileDialog, QMessageBox, QTextEdit,
@@ -19,6 +19,8 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure, SubplotParams
 
+from .gui_mixins import make_selectable
+from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
 from .rotational_diagram_map import (
     save_rotational_diagram_map_fits,
@@ -652,11 +654,11 @@ class RotDiagMapResultsDialog(QDialog):
         self.fit2t = result.get("fit2t", False)
         self.pixel_select_enabled = True
         self.setWindowTitle(f"{result.get('molecule', 'H2')} Rotational Diagram Map")
-        # Wider when 2T needs two side-by-side panels (T1/T2).
+        # One square map is nearly square; 2T needs two side-by-side panels (T1/T2).
         if self.fit2t:
-            fit_to_screen(self, 1550, 700)
+            fit_to_screen(self, 1400, 720)
         else:
-            fit_to_screen(self, 1150, 680)
+            fit_to_screen(self, 780, 800)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -706,14 +708,14 @@ class RotDiagMapResultsDialog(QDialog):
         self.pixel_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
         self.pixel_btn.clicked.connect(self._toggle_pixel_select)
         ctrl.addWidget(self.pixel_btn)
-        ctrl.addWidget(QLabel("(click a pixel for its diagram; turn OFF to zoom/pan)"))
         ctrl.addStretch()
         layout.addLayout(ctrl)
 
-        self.fig = Figure(figsize=(15, 5) if self.fit2t else (11, 5))
+        self.fig = Figure(figsize=(12, 6) if self.fit2t else (7, 6))
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect("button_press_event", self._on_canvas_click)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        # The toolbar has its own row, so it has room to show the value under the cursor.
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas)
 
@@ -724,6 +726,7 @@ class RotDiagMapResultsDialog(QDialog):
         stats_btn = QPushButton("Show Statistics")
         stats_btn.clicked.connect(self._show_statistics)
         btns.addWidget(stats_btn)
+        btns.addWidget(QLabel("  Click a pixel for its diagram. Turn Pixel Select OFF to zoom or pan."))
         btns.addStretch()
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
@@ -790,8 +793,8 @@ class RotDiagMapResultsDialog(QDialog):
 
     def _on_param_changed(self):
         """
-        Reset both panels' absolute vmin/vmax to Auto, then redraw. A range
-        typed for one parameter has no meaning for another.
+        Reset both panels' scale to Linear with an Auto range, then redraw. A scale
+        chosen for one parameter does not suit another.
 
         Args:
             None
@@ -799,8 +802,8 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             None
         """
-        self.scale_t1.clear_absolute_range()
-        self.scale_t2.clear_absolute_range()
+        self.scale_t1.reset()
+        self.scale_t2.reset()
         self._update_plot()
 
     def _update_scale_buttons(self, key, hot_key):
@@ -972,7 +975,8 @@ class RotDiagMapResultsDialog(QDialog):
             fig = Figure(figsize=(6.5, 5), dpi=100)
             ax = fig.add_subplot(111)
             plot_rot_diagram(ax, out["results"]["_plot_data"], highlight=highlight)
-            fig.tight_layout()
+            # The tight layout runs again each time the window changes size, so no label is cut off.
+            fig.set_layout_engine("tight")
             canvas = FigureCanvasQTAgg(fig)
             attach_rot_diagram_hover(canvas, ax, out["results"]["_plot_data"])
             box = QWidget()
@@ -1056,7 +1060,7 @@ class RotDiagMapResultsDialog(QDialog):
         v = QVBoxLayout(dlg)
         body = QLabel("\n".join(lines))
         body.setStyleSheet("font-family: monospace; white-space: pre;")
-        body.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(body)
         v.addWidget(body)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
@@ -1330,7 +1334,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         """
         if target != "left" or self.current_entry is None:
             return ""
-        return "erg/s/cm2"
+        return cgs_flux_label()
 
     def _map_stats_text(self):
         """Whole-map stats in the same layout as the 3D window's slice stats: the
@@ -1593,8 +1597,8 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
 
         self.current_entry = entry
         self.file_label.setText(f"File: {entry['file']}")
-        # Another line's flux is on another scale, so a manual range from the last one is void.
-        self.slice1_scale.clear_absolute_range()
+        # Another line's flux is on another scale, so the scale of the last one is void.
+        self.slice1_scale.reset()
         image = self._region_image("left")
         self._draw_map()
 
@@ -1704,7 +1708,7 @@ class LineFluxMapDialog(QDialog):
         self.scale_store = scale_store if scale_store is not None else {}
         self.scale_settings = self.scale_store.get("scale_settings") or ScaleSettings()
         self.setWindowTitle(f"{molecule} Flux Map @ {wavelength:.6f} μm")
-        fit_to_screen(self, 750, 620)
+        fit_to_screen(self, 720, 760)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1771,7 +1775,7 @@ class LineFluxMapDialog(QDialog):
         cmap = self.cmap_combo.currentText()
         self.scale_store["cmap"] = cmap
         draw_map(self.fig, ax, shown, norm, cmap,
-                 f"Flux @ {self.wavelength:.6f} um", "Flux (erg/s/cm2)")
+                 f"Flux @ {self.wavelength:.6f} um", f"Flux ({cgs_flux_label()})")
         self.fig.tight_layout()
         self.canvas.draw()
 
@@ -1815,7 +1819,7 @@ class LineFluxMapDialog(QDialog):
         pct = 100 * finite.size / data.size if data.size else 0.0
         stats = f"{self.molecule.upper()} FLUX @ {self.wavelength:.6f} um\n" + "=" * 45 + "\n\n"
         if finite.size > 0:
-            stats += f"FLUX (erg/s/cm2):\n"
+            stats += f"FLUX ({cgs_flux_label()}):\n"
             stats += f"  Count: {finite.size:,}/{data.size:,} ({pct:.1f}%)\n"
             stats += f"  Sum:   {np.sum(finite):.4e}\n"
             stats += f"  Mean:  {np.mean(finite):.4e}\n"
@@ -1826,7 +1830,7 @@ class LineFluxMapDialog(QDialog):
 
         label = QLabel(stats)
         label.setStyleSheet("font-family: monospace; white-space: pre;")
-        label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(label)
         layout.addWidget(label)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
@@ -1854,7 +1858,7 @@ class LineFluxMapDialog(QDialog):
                 self.source_header, self.flux_map.shape, wavelength=self.wavelength,
                 molecule=self.molecule, flux_map=self.flux_map, error_map=self.error_map,
                 src_filename=self.src_filename, fit_method="Multi-Gaussian fit",
-                identity_header=self.identity_header, extra={"BUNIT": "erg/s/cm2"},
+                identity_header=self.identity_header, extra={"BUNIT": CGS_FLUX_NAME},
             )
             write_fits_product(path, np.asarray(self.flux_map, dtype=np.float32), header,
                                extensions=extensions)

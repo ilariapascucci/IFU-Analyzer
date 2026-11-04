@@ -6,7 +6,7 @@ Simplified: no parameter dialog, automatic processing of entire spectrum.
 """
 
 import numpy as np
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFileDialog, QMessageBox, QComboBox, QTabWidget, QWidget
@@ -19,7 +19,8 @@ from .gui_sizing import fit_to_screen
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
 from .visualization import draw_map
-from .gui_mixins import MapResultsDialogMixin
+from .gui_mixins import MapResultsDialogMixin, make_selectable
+from .unit_converter import CGS_FLUX_NAME, clean_flux_unit
 
 
 class FluxMapWorker(QThread):
@@ -191,9 +192,9 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         try:
             # If flux_unit_output was provided (from conversion), use that directly
             if self.flux_unit_output and self.flux_unit_output != 'MJy/sr um':
-                if self.flux_unit_output == 'erg/s/cm2':
-                    self.flux_unit_str = "erg/s/cm2"
-                    self.bunit_str = "erg/s/cm2"
+                if self.flux_unit_output == CGS_FLUX_NAME:
+                    self.flux_unit_str = CGS_FLUX_NAME
+                    self.bunit_str = CGS_FLUX_NAME
                     self.flux_unit_base = u.erg / (u.s * u.cm**2)
                     self.flux_unit = self.flux_unit_base
                 else:
@@ -223,15 +224,21 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
             # Fallback if header parsing fails
             self.flux_unit_str = self.flux_unit_output if self.flux_unit_output else "MJy/sr um"
             self.bunit_str = self.flux_unit_output if self.flux_unit_output else "MJy/sr"
-            if self.flux_unit_output == 'erg/s/cm2':
+            if self.flux_unit_output == CGS_FLUX_NAME:
                 self.flux_unit_base = u.erg / (u.s * u.cm**2)
                 self.flux_unit = self.flux_unit_base
             else:
                 self.flux_unit_base = u.MJy / u.sr
                 self.flux_unit = self.flux_unit_base * u.um
-        
+
+        # FITS files keep the ASCII names above. The window shows the same unicode units as the maps.
+        flux_unit = getattr(self, 'flux_unit', None)
+        self.flux_unit_label = (flux_unit.to_string('unicode') if isinstance(flux_unit, u.UnitBase)
+                                else str(self.flux_unit_str))
+        self.bunit_label = clean_flux_unit(str(self.bunit_str))
+
         self.setWindowTitle(f"{self.species_label} Flux Map Results")
-        fit_to_screen(self, 1200, 700)
+        fit_to_screen(self, 780, 840)
         self._setup_ui()
     
     def _setup_ui(self):
@@ -269,9 +276,10 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
             info_text += f" | Contam detections: {n_contam_pixels:,} px"
         info_label = QLabel(info_text)
         info_label.setStyleSheet("background-color: #f0f0f0; padding: 6px; border-radius: 3px;")
-        info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        info_label.setWordWrap(True)
+        make_selectable(info_label)
         layout.addWidget(info_label)
-        
+
         # Create tabs for different views
         tabs = QTabWidget()
         
@@ -311,16 +319,16 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.pixel_select_btn.setStyleSheet("background-color: #90EE90; font-weight: bold;")
         self.pixel_select_btn.clicked.connect(self._toggle_pixel_selection)
         ctrl_layout.addWidget(self.pixel_select_btn)
-        ctrl_layout.addWidget(QLabel("  (Turn OFF to zoom/pan freely)"))
-        
+
         ctrl_layout.addStretch()
         map_layout.addLayout(ctrl_layout)
-        
+
         # Plot area for map
-        self.fig = Figure(figsize=(12, 6))
+        self.fig = Figure(figsize=(7, 6))
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect('button_press_event', self._on_canvas_click)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        # The toolbar has its own row, so it has room to show the value under the cursor.
         map_layout.addWidget(self.toolbar)
         map_layout.addWidget(self.canvas)
         map_widget.setLayout(map_layout)
@@ -338,6 +346,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         stats_btn = QPushButton("Show Statistics")
         stats_btn.clicked.connect(self._show_statistics)
         btn_layout.addWidget(stats_btn)
+        btn_layout.addWidget(QLabel("  Click a pixel for its spectrum. Turn Pixel Select OFF to zoom or pan."))
         
         btn_layout.addStretch()
         
@@ -417,10 +426,11 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
                 n_lines = self.detection_map[y, x] if 0 <= x < self.detection_map.shape[1] and 0 <= y < self.detection_map.shape[0] else 0
                 info = QLabel(
                     f"<b>Pixel ({x}, {y})</b> | "
-                    f"{self.species_label} Flux: {flux_val:.4e} {self.flux_unit_str} | "
+                    f"{self.species_label} Flux: {flux_val:.4e} {self.flux_unit_label} | "
                     f"Lines Detected: {n_lines}"
                 )
                 info.setStyleSheet("background-color: #f0f0f0; padding: 4px; border-radius: 3px;")
+                make_selectable(info)
                 layout.addWidget(info)
                 
                 # Plot spectrum with fit
@@ -479,7 +489,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
                         ax.set_ylim(ylo - ypad, yhi + ypad)
 
                 ax.set_xlabel('Wavelength (μm)')
-                ax.set_ylabel(f'Flux ({self.bunit_str})')
+                ax.set_ylabel(f'Flux ({self.bunit_label})')
                 ax.set_title(f'Pixel ({x}, {y}) Spectrum', fontweight='bold')
                 ax.grid(True, alpha=0.3)
                 ax.legend()
@@ -519,11 +529,11 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         """
         param = self.param_combo.currentText()
         if param == f"{self.species_label} Flux":
-            return (self.flux_map, f"{self.species_label} Rovibrational Flux",
-                    f"Integrated {self.species_label} Flux ({self.flux_unit_str})", True)
+            return (self.flux_map, f"{self.species_label} Flux",
+                    f"Integrated {self.species_label} Flux ({self.flux_unit_label})", True)
         if param == "Contam Flux":
             return (self.contam_flux_map, "Contaminating-Line Flux",
-                    f"Integrated Contam Flux ({self.flux_unit_str})", True)
+                    f"Integrated Contam Flux ({self.flux_unit_label})", True)
         if param == "Contam Detection Count":
             return (self.contam_detection_map.astype(float), "Contaminating Lines Detected",
                     "Number of Lines", False)
@@ -673,7 +683,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         # Flux statistics with correct units
         flux_valid = self.flux_map[~np.isnan(self.flux_map)]
         if len(flux_valid) > 0:
-            stats += f"{self.species_label.upper()} FLUX ({self.flux_unit_str}):\n"
+            stats += f"{self.species_label.upper()} FLUX ({self.flux_unit_label}):\n"
             stats += f"  Count: {len(flux_valid):,}\n"
             stats += f"  Sum:   {np.sum(flux_valid):.4e}\n"
             stats += f"  Mean:  {np.mean(flux_valid):.4e}\n"
@@ -693,7 +703,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         if self.contam_flux_map is not None:
             contam_valid = self.contam_flux_map[~np.isnan(self.contam_flux_map)]
             if len(contam_valid) > 0:
-                stats += f"CONTAM FLUX ({self.flux_unit_str}):\n"
+                stats += f"CONTAM FLUX ({self.flux_unit_label}):\n"
                 stats += f"  Count: {len(contam_valid):,}\n"
                 stats += f"  Sum:   {np.sum(contam_valid):.4e}\n"
                 stats += f"  Mean:  {np.mean(contam_valid):.4e}\n"
@@ -712,7 +722,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
 
         label = QLabel(stats)
         label.setStyleSheet("font-family: monospace; white-space: pre;")
-        label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(label)
         layout.addWidget(label)
         
         close_btn = QPushButton("Close")

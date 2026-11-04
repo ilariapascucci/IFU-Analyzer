@@ -30,9 +30,12 @@ from PyQt5.QtWidgets import (
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import Normalize  # used by: Superimpose overlay
 from PyQt5.QtCore import Qt
+from .convolution_plan_dialog import confirm_convolution_plan
 from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
 from .visualization import SlicePlotter
 from .colormap_dialog import ColorMapDialog
@@ -126,6 +129,31 @@ def _unsupported_files(infos):
         if inst not in ("MIRI", "NIRSpec"):
             bad.append((filename, inst or "unknown"))
     return bad
+
+
+def _convolution_plan_row(filename, header, wavelength, pix_arcsec, ref_wavelength, ref_header):
+    """Describe one image for the convolution plan table.
+    The kernel is the Gaussian that raises the PSF of the image to the PSF of the reference.
+
+    Args:
+        filename (str): File name of the image, or None.
+        header (astropy.io.fits.Header): Header of the image.
+        wavelength (float): Line wavelength of the image, in um.
+        pix_arcsec (float): Pixel scale of the image, in arcsec per pixel.
+        ref_wavelength (float): Line wavelength of the reference image, in um.
+        ref_header (astropy.io.fits.Header): Header of the reference image.
+
+    Returns:
+        row (dict): The keys that confirm_convolution_plan needs.
+    """
+    instrument = detect_instrument_from_header(header)
+    fwhm_in = psf_fwhm_arcsec(wavelength, instrument)
+    fwhm_target = psf_fwhm_arcsec(ref_wavelength, detect_instrument_from_header(ref_header))
+    sigma_arcsec = max(0.0, (fwhm_target / gaussian_sigma_to_fwhm) ** 2
+                       - (fwhm_in / gaussian_sigma_to_fwhm) ** 2) ** 0.5
+    return {"wavelength": wavelength, "instrument": instrument, "filename": filename,
+            "native_pix_arcsec": pix_arcsec, "sigma_arcsec": sigma_arcsec,
+            "sigma_pix": sigma_arcsec / pix_arcsec}
 
 
 def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
@@ -449,6 +477,21 @@ class BatchMatchResolutionDialog(QDialog):
             ref_header['NAXIS1'] = ref_info['shape'][1]
             ref_header['NAXIS2'] = ref_info['shape'][0]
 
+            # ---- 5b. Show the plan, and ask before the slow part ---------
+            QApplication.restoreOverrideCursor()
+            rows = [_convolution_plan_row(info['filename'], info['header'], info['wavelength_um'],
+                                          info['pix_scale'], ref_info['wavelength_um'], ref_header)
+                    for info in images_data]
+            header_text = (f"Every image is convolved to the PSF of {ref_info['filename']} "
+                           f"({ref_info['wavelength_um']:.4f} \u00b5m), and reprojected onto the grid of that "
+                           f"image ({ref_info['shape'][1]} x {ref_info['shape'][0]} px).")
+            footer_text = ("Every pixel outside the footprint of an image is NaN for that image.\n\n"
+                           "Convolve all images and save the ZIP file?")
+            if not confirm_convolution_plan(self, rows, header_text, footer_text,
+                                            "Batch Convolution -- plan", "Convolve"):
+                return
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+
             # ---- 6. Convolve + reproject every other file onto the -------
             #         reference's own native grid.
             flux_audit = []
@@ -548,7 +591,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.setWindowTitle("2D FITS Dual Viewer")
 
         self.setWindowFlags(Qt.Window)
-        fit_to_screen(self, 1200, 600)
+        fit_to_screen(self, 1600, 680)
 
         self.image_left = None
         self.header_left = None
@@ -1882,8 +1925,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         canvas  = self.slice1_canvas  if target == 'left' else self.slice2_canvas
 
         plotter.fig.clf()
-        ax_rect   = [0.25, 0.20, 0.50, 0.66]
-        cbar_rect = [0.80, 0.20, 0.03, 0.66]
+        # Same share of the figure as the 3D slices, so a map fills the panel the same way.
+        ax_rect = [0.13, 0.10, 0.70, 0.80]
 
         wcs_for_projection = None
 
@@ -1937,8 +1980,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             print(f"DEBUG rebuild_axes [{target}]: WCSAxes FAILED, using plain axes -> {e}")
             plotter.ax = plotter.fig.add_axes(ax_rect)
 
-        plotter.cbar_ax = plotter.fig.add_axes(cbar_rect)
-        plotter.cbar_ax.set_visible(False)
+        plotter.cbar_ax = None
 
         # The figure is clear, so the old contours are gone. Drop their records.
         plotter.contours = []
@@ -2345,20 +2387,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     QMessageBox.warning(self, "Grid Error", f"Failed to draw WCS grid:\n{str(e)}")
                     traceback.print_exc()
 
-        # 4. Colorbar Management
-        if not hasattr(plotter, 'cbar_ax') or plotter.cbar_ax is None:
-            # Defined placement: [left, bottom, width, height] in figure coordinates
-            plotter.cbar_ax = plotter.fig.add_axes([0.84, 0.10, 0.04, 0.82])
-
-        plotter.cbar_ax.cla()
-        plotter.cbar_ax.set_visible(True)
-
+        # 4. Colorbar Management -- as in the 3D slices: it takes its place from the
+        # image axes, so it is as tall as the image and has the same label.
+        if plotter.cbar_ax is not None:
+            plotter.cbar_ax.remove()
+        plotter.cbar_ax = make_axes_locatable(ax).append_axes(
+            "right", size="5%", pad=0.05, axes_class=Axes)
         cbar = plotter.fig.colorbar(im, cax=plotter.cbar_ax)
-        cbar.ax.tick_params(labelsize=7)
-
-        if header is not None and 'BUNIT' in header:
-            cbar.set_label(header['BUNIT'], size=9, weight='bold', labelpad=5)
-            
+        unit_text = clean_flux_unit(header['BUNIT']) if header is not None and 'BUNIT' in header else ""
+        cbar.set_label(f"Flux / Intensity\n[{unit_text}]" if unit_text else "Flux / Intensity")
         plotter.cbar = cbar
 
         # 5. Update Statistics Panel
@@ -2800,25 +2837,20 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     "Please load a matching pair of images of the same field.")
                 return
 
-        fwhm_in = psf_fwhm_arcsec(conv_wl, detect_instrument_from_header(fine_header))
-        fwhm_target = psf_fwhm_arcsec(ref_wl, detect_instrument_from_header(ref_header))
-        sigma_arcsec = ((fwhm_target / gaussian_sigma_to_fwhm) ** 2 - (fwhm_in / gaussian_sigma_to_fwhm) ** 2) ** 0.5
-
         bunit = fine_header.get('BUNIT', '') if fine_header is not None else ''
 
-        info = (
-            f"<b>Convolve: {conv_side.capitalize()} ({conv_wl:.4f} &micro;m) &rarr; "
-            f"{ref_side} ({ref_wl:.4f} &micro;m) PSF</b><br>"
-            f"FWHM({conv_wl:.4f} &micro;m) = {fwhm_in:.4f}\"<br>"
-            f"FWHM({ref_wl:.4f} &micro;m) = {fwhm_target:.4f}\"<br>"
-            f"Smoothing &sigma; : {sigma_arcsec:.4f}\"<br>"
-            f"Output grid    : {ref_side}'s own native grid "
-            f"({ref_img.shape[1]} &times; {ref_img.shape[0]} px)<br>"
-            f"BUNIT          : {bunit} &rarr; flux mode<br><br>"
-            "Algorithm: gaussian_convolve_match/reproject_flux_maps "
-            "(MIRI and NIRSpec PSF formulas). Proceed?"
-        )
-        if QMessageBox.question(self, "Convolve", info) != QMessageBox.Yes:
+        rows = [
+            _convolution_plan_row(self.filename_left if conv_side == "left" else self.filename_right,
+                                  fine_header, conv_wl, fine_pix, ref_wl, ref_header),
+            _convolution_plan_row(self.filename_left if ref_side == "left" else self.filename_right,
+                                  ref_header, ref_wl, pix_l if ref_side == "left" else pix_r, ref_wl, ref_header),
+        ]
+        header_text = (f"Convolve the {conv_side} image ({conv_wl:.4f} µm) to the PSF of the {ref_side} image "
+                       f"({ref_wl:.4f} µm). Output grid: the {ref_side} image's own grid "
+                       f"({ref_img.shape[1]} x {ref_img.shape[0]} px).")
+        footer_text = (f"BUNIT: {bunit} (flux mode). Algorithm: gaussian_convolve_match and reproject_flux_maps "
+                       "(MIRI and NIRSpec PSF formulas).\n\nProceed?")
+        if not confirm_convolution_plan(self, rows, header_text, footer_text, "Convolve", "Convolve"):
             return
 
         try:

@@ -5,9 +5,24 @@ DualPanelViewMixin serves the 3D and 2D dual-panel windows. MapResultsDialogMixi
 serves the Flux Map and Gaussian Map results dialogs.
 """
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QPushButton, QMenu
 
 from .icon_loader import set_button_icon
+
+
+def make_selectable(label):
+    """Let the user select the text of a label with the mouse or the keyboard.
+    A double-click then selects a word, and Ctrl+C copies the selection.
+
+    Args:
+        label (QLabel): Label to change.
+
+    Returns:
+        label (QLabel): The same label, so a call can be used inside an expression.
+    """
+    label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+    return label
 
 
 class DualPanelViewMixin:
@@ -102,8 +117,8 @@ class MapResultsDialogMixin:
             self.pixel_select_btn.setStyleSheet("background-color: #FFB6C6; font-weight: bold;")
 
     def _on_param_changed(self):
-        """Reset the absolute vmin/vmax to Auto, then redraw. A range typed
-        for one map has no meaning for another.
+        """Reset the scale to Linear with an Auto range, then redraw. A scale
+        chosen for one map does not suit another.
 
         Args:
             None
@@ -111,5 +126,5 @@ class MapResultsDialogMixin:
         Returns:
             None
         """
-        self.scale_settings.clear_absolute_range()
+        self.scale_settings.reset()
         self._update_plot()

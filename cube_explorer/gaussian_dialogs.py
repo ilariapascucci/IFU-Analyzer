@@ -18,7 +18,7 @@ from .fits_export import build_line_map_header, write_fits_product, _ascii_safe
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
 from .visualization import draw_map
-from .gui_mixins import MapResultsDialogMixin
+from .gui_mixins import MapResultsDialogMixin, make_selectable
 
 # Parameters that flag pixels instead of measuring a quantity.
 _CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
@@ -26,7 +26,7 @@ _CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
 STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QFileDialog, QMessageBox, QInputDialog
@@ -260,7 +260,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.flux_unit = self._get_flux_unit()
         
         self.setWindowTitle("Gaussian Parameter Maps")
-        fit_to_screen(self, 800, 700)
+        fit_to_screen(self, 800, 840)
         
         self._setup_ui()
     
@@ -348,11 +348,11 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         info_label = QLabel(
             f"Successfully fit {n_success:,} / {n_total:,} pixels ({100*n_success/n_total:.1f}%)"
         )
-        info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(info_label)
         layout.addWidget(info_label)
         # Each pixel has its own baseline, because only the integrated spectrum has a fitted continuum.
         baseline_label = QLabel("Baseline: for each pixel, a straight line between the two edges of the fit window.")
-        baseline_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(baseline_label)
         layout.addWidget(baseline_label)
 
         # Parameter selector
@@ -500,7 +500,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             unit_label, default_cmap = param_units['Area (AUC)']
         elif param_name == "Area Error":
             data = self.results['area_error']
-            title = f"Area Uncertainty (1-sigma) {wave_range}"
+            title = f"Area Error {wave_range}"
             unit_label, default_cmap = param_units['Area Error']
         elif param_name == "Amplitude":
             data = self.results['amplitude']
@@ -789,7 +789,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         layout = QVBoxLayout()
         body = QLabel("\n".join(lines))
         body.setStyleSheet("font-family: monospace; white-space: pre;")
-        body.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        make_selectable(body)
         layout.addWidget(body)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)

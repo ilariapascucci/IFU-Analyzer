@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
+from .gui_sizing import fit_dialog_to_table
 from .table_drag_select import SortableCheckboxTableMixin
 from .line_catalog import dedupe_colocated_lines, load_line_list
 from .unit_converter import SPEED_OF_LIGHT_KMS
@@ -136,6 +137,10 @@ class SpeciesDialog(QDialog, SortableCheckboxTableMixin):
         btn_layout.addWidget(self.cancel_btn)
 
         layout.addLayout(btn_layout)
+
+        # Wide enough that every column shows in full, without a horizontal scroll bar.
+        self.table.resizeColumnsToContents()
+        fit_dialog_to_table(self, self.table)
 
     @staticmethod
     def _row_key(row):

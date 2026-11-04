@@ -37,6 +37,30 @@ def screen_limited_width(width, fraction=0.9):
     return min(width, int(area.width() * fraction))
 
 
+def fit_dialog_to_table(dialog, table, max_width=1600):
+    """Widen a dialog so that every column of its table shows in full.
+    The width is the natural width of the columns, limited to part of the screen.
+    The height of the dialog does not change.
+
+    Args:
+        dialog (QWidget): Dialog that holds the table.
+        table (QTableWidget): Table that sets the width.
+        max_width (int): Largest width in pixels, before the screen limit.
+
+    Returns:
+        None
+    """
+    # The last column is not stretched while we measure, so it shows its own width.
+    header = table.horizontalHeader()
+    header.setStretchLastSection(False)
+    natural_width = header.length()
+    header.setStretchLastSection(True)
+    frame_overhead = (table.verticalHeader().width() + 2 * table.frameWidth()
+                      + table.style().pixelMetric(table.style().PM_ScrollBarExtent) + 40)
+    dialog.resize(min(max(dialog.width(), natural_width + frame_overhead),
+                      screen_limited_width(max_width)), dialog.height())
+
+
 class ResponsiveButtonColumn(QWidget):
     """Stack buttons in one column, or in two columns when the height is short.
 

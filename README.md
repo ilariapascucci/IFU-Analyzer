@@ -90,7 +90,7 @@ Match two images of one field to the same spatial resolution. This is the standa
 
 - **Input:** two MIRI or NIRSpec images in a flux-per-pixel unit, one in each panel. The images must overlap on the sky. A surface-brightness unit such as MJy/sr is rejected.
 - Each image needs its line wavelength. The tool reads it from the `LINEWAVE` header key (written by the rotational-diagram "Save Maps"), or from the middle of `LAMMIN` and `LAMMAX` (written by the Gaussian-map export). If the header has neither, the tool asks for the wavelength.
-- Click **Pair** to open the confirmation dialog. It shows the two PSF widths, the kernel width, and the output grid.
+- Click **Pair** to open the confirmation table. It has one row for each image: the line wavelength, the file, the pixel scale, the native PSF, and the kernel width. The reference image is marked. The line above the table gives the output grid. It is the same table that Run Map and Convolve Maps show in the rotational diagram window.
 - The image with the **longer wavelength** is the reference, because its PSF is wider. The tool convolves the other image with a Gaussian kernel up to the reference PSF.
 - Kernel width: `σ = √(σ_ref² − σ_image²)`. Each σ comes from the PSF FWHM of the instrument at the line wavelength. MIRI: `FWHM(") = 0.033 × λ(µm) + 0.106`. NIRSpec: an approximate quadratic fit.
 - The tool then reprojects the convolved image onto the **native pixel grid of the reference image**, and it conserves the flux.
@@ -106,7 +106,7 @@ Bring several images to one resolution in a single step.
 - Click **+ Add FITS Files** to add two or more 2D FITS files. The requirements are the same as for Pair: MIRI or NIRSpec, a flux-per-pixel unit, and an overlap on the sky.
 - The tool reads or asks for the line wavelength of each file, as in Pair.
 - The file with the **longest wavelength** is the reference. The tool convolves every other file to the PSF of the reference and reprojects it onto the native grid of the reference. The reference file is not smoothed.
-- Click **Process & Download ZIP** and choose a save path. The `.zip` file has one `matched_<name>.fits` file for each input. All files are on the same grid, ready for a pixel-by-pixel comparison.
+- Click **Process & Download ZIP**, choose a save path, and check the confirmation table (the same table as for Pair, with one row for each file). Click **Convolve** to start. The `.zip` file has one `matched_<name>.fits` file for each input. All files are on the same grid, ready for a pixel-by-pixel comparison.
 - Each output FITS file includes the `COVERAGE` extension.
 - The completion dialog shows the flux audit (the output total divided by the input total) for each file.
 
@@ -630,15 +630,15 @@ python main.py
    **Pair (resolution matching, two images).** Open the "Convolution" group.
    - Load two MIRI or NIRSpec flux-per-pixel images of the same field into the left panel and the right panel.
    - Click "Pair". If a header has no `LINEWAVE` key, enter the line wavelength (in µm) when the tool asks.
-   - The confirmation dialog shows which image is convolved, the two PSF widths, the kernel σ, and the output grid size. The image with the longer wavelength is the reference.
-   - Click "Yes" to run, then choose a save path. The output FITS file has a 2-HDU layout (image and `COVERAGE`).
+   - The confirmation table shows each image with its line wavelength, pixel scale, native PSF, and kernel width, and the output grid size above it. The image with the longer wavelength is the reference.
+   - Click "Convolve" to run, then choose a save path. The output FITS file has a 2-HDU layout (image and `COVERAGE`).
    - The success dialog shows the flux audit: the input total, the output total, and `Ratio out/in`.
    - If both panels have the same wavelength, a message explains that there is nothing to convolve.
 
    **Batch (resolution matching, several files):**
    - Click "Batch".
    - Click "+ Add FITS Files" and select two or more 2D FITS files (MIRI or NIRSpec, flux-per-pixel units, the same field).
-   - Click "Process & Download ZIP" and choose a save path for the output `.zip` file.
+   - Click "Process & Download ZIP", choose a save path for the output `.zip` file, and check the confirmation table.
    - The file with the longest wavelength is the reference. All outputs are on its pixel grid, ready for a comparison.
 
 ### Rovibrational Flux Mapping
@@ -665,6 +665,7 @@ python main.py
    - Click "Run Fit". If any line is an upper limit, the fit switches to PyMC Bayesian censored regression instead of ordinary least squares.
    - Read the fitted temperature or temperatures and the column densities in the results dialog. The dialog also shows the radius and the distance that the fit used.
    - Click "Save Fit" to save the results to a CSV file. The results are the lines that start with "#". Below them is one row for each plotted point: the wavelength, E_u, log10(N_u/g_u), its error, and the upper-limit flag. After a blank line comes the fit line, as plotted: 200 values of E_u and the model log10(N_u/g_u). A 2T fit has a column for each component and one for the combined model. The file does not contain the flux values. "Save Fluxes" saves those.
+   - Double-click "View" in the Source column to read the FITS header of the cube that a flux came from. The cube must be loaded. The tooltip of the cell names the instrument and the file.
    - Double-click "View" in the Fit column to see the Gaussian fit of a line. Click "Save Fit..." there to save the spectrum and the fit curve to a text file. The curve is the Gaussian of that line alone, within 3 sigma of its center, the same curve that the window draws. A line that was imported from a Gaussian map has no full spectrum, so its file has only the fit window.
    - Click "Save Fluxes" to save the fluxes as a CSV file. "Import from CSV" reads the file back.
 
@@ -685,6 +686,7 @@ python main.py
    - Click "Draw Region" to draw a region on the flux map of a line. It needs "Calculate Maps" first. Or click "Import Region" to load a region that you saved with "Save Region" in the main window or in the 2D viewer.
    - Click "Save Region" to save the region as a text file. The main window and the 2D viewer can read it.
    - "Calculate Fluxes" and "Run Fit" then use only that region. "Delete Region" goes back to the whole cube.
+   - The maps always use the whole cube, so they do not match a fit that uses a region. While a region is active, the "Map" and "Convolved Map" links are hidden, and "Calculate Maps", "Convolve Maps", and "Run Map" are disabled. The maps stay in memory. When you click "Delete Region", the links come back and the buttons work again.
    - A region change clears the calculated fluxes, because they belong to the old region. Fluxes that you typed stay.
    - "Calculate Maps", "Convolve Maps", and "Run Map" always use the whole cube.
 

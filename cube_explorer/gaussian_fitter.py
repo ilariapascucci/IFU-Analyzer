@@ -17,7 +17,8 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 import numpy as np
 from scipy.optimize import curve_fit
 
-from .unit_converter import get_wave_unit, convert_area_to_cgs, extract_value_from_quantity, convert_wavelength
+from .unit_converter import (get_wave_unit, convert_area_to_cgs, extract_value_from_quantity,
+                             convert_wavelength, cgs_flux_label)
 from .utils import safe_worker_count, detect_instrument_from_header, get_spectral_resolution
 
 
@@ -930,7 +931,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit) if header is not None else None
         if area_cgs is not None:
             area = area_cgs
-            area_unit = "erg/s/cm²"
+            area_unit = cgs_flux_label()
         else:
             # Conversion unavailable (no header, or flux is not MJy/sr). Reports the
             # native area, labeled with its real units, instead of assuming MJy/sr.
