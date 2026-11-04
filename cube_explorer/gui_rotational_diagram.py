@@ -36,6 +36,7 @@ from .rotational_diagram_h2_fitter import (
 )
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .flux_map_extractor import DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
+from .gaussian_fitter import save_spectrum_and_fit
 from .rotational_diagram_map import (
     _line_keys, build_imported_map_payload, merge_native_results,
 )
@@ -2823,14 +2824,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         info.setStyleSheet("background-color: #f0f0f0; padding: 4px; border-radius: 3px;")
         layout.addWidget(info)
 
-        chunkwide_checkbox = QCheckBox("Chunk-wide fit curve")
-        chunkwide_checkbox.setChecked(True)
-        chunkwide_checkbox.setToolTip(
-            "Checked: draw the real joint fit curve, shared by every line in the same chunk. "
-            "Unchecked: draw this line's own Gaussian alone, cropped to its own peak."
-        )
-        layout.addWidget(chunkwide_checkbox)
-
         fig = Figure(figsize=(8, 5))
         ax = fig.add_subplot(111)
         canvas = FigureCanvas(fig)
@@ -2864,47 +2857,6 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             own_gaussian_curve = gaussian(x_curve, data['amplitude'], data['center'], data['sigma'])
             return x_curve, baseline_curve, baseline_curve + own_gaussian_curve
 
-        def _chunk_curve():
-            """
-            The real joint fit's own chunk: continuum plus every Gaussian curve_fit
-            solved for at once, not just this line's own component.
-
-            Args:
-                None
-
-            Returns:
-                curve (tuple): (x_curve, baseline_curve, y_fit_curve) arrays
-            """
-            y_fit = np.asarray(data['y_fit']) + global_continuum
-            return x, global_continuum, y_fit
-
-        fit_artists = []
-
-        def _draw_fit(chunk_wide):
-            """Redraw the fit curve/shaded area, wide or line-only.
-
-            Args:
-                chunk_wide (bool): True to show the fit's full fit chunk;
-                    False to show just the line region.
-
-            Returns:
-                None
-            """
-            for artist in fit_artists:
-                try: artist.remove()
-                except Exception: pass
-            fit_artists.clear()
-            x_curve, baseline_curve, y_fit_curve = _chunk_curve() if chunk_wide else _own_curve()
-            b_line, = ax.plot(x_curve, baseline_curve, 'k--', linewidth=2, alpha=0.7,
-                               label='Baseline', zorder=9)
-            g_line, = ax.plot(x_curve, y_fit_curve, 'r-', linewidth=3, alpha=0.9,
-                               label='Gaussian Fit', zorder=10)
-            fill = ax.fill_between(x_curve, baseline_curve, y_fit_curve, color='red',
-                                    alpha=0.2, label='Integrated Area', zorder=7)
-            fit_artists.extend([b_line, g_line, fill])
-            ax.legend(loc='upper right', fontsize=8)
-            canvas.draw_idle()
-
         # Pad by the spectrum's own sample spacing, not a fixed wavelength
         # range, so this scales across instruments (MIRI vs. NIRSpec differ a lot).
         full_wave = data.get('full_wavelength')
@@ -2929,8 +2881,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # show several lines' peaks at once (same as the main window's markers).
         ax.axvline(center, color='darkred', linestyle='--', linewidth=1.5, alpha=0.8, zorder=8)
 
-        _draw_fit(chunkwide_checkbox.isChecked())
-        chunkwide_checkbox.toggled.connect(_draw_fit)
+        x_curve, baseline_curve, y_fit_curve = _own_curve()
+        ax.plot(x_curve, baseline_curve, 'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=9)
+        ax.plot(x_curve, y_fit_curve, 'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=10)
+        ax.fill_between(x_curve, baseline_curve, y_fit_curve, color='red', alpha=0.2,
+                        label='Integrated Area', zorder=7)
+        ax.legend(loc='upper right', fontsize=8)
 
         # Disable matplotlib's "+1.703e1"-style offset notation -- otherwise a
         # narrow x-range shows "0.000"-like ticks that look like they start at 0.
@@ -2952,9 +2908,77 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         plot_widget.setLayout(plot_layout)
         layout.addWidget(plot_widget)
 
+        def _save_fit():
+            """Save the spectrum and the drawn fit curve to a tab-separated text file.
+
+            The fit is this line's own Gaussian, as the window draws it, cropped to
+            DISPLAY_CROP_SIGMA_MULTIPLIER sigma. It is NaN where the window draws no curve.
+
+            Args:
+                None
+
+            Returns:
+                None
+            """
+            y_fit_own = data.get('y_fit_own')
+            model = data['y_fit'] if y_fit_own is None else y_fit_own
+            y_fit = np.asarray(model, dtype=float) + global_continuum
+            crop_half_width = DISPLAY_CROP_SIGMA_MULTIPLIER * abs(data['sigma'])
+            lo = max(float(x.min()), data['center'] - crop_half_width)
+            hi = min(float(x.max()), data['center'] + crop_half_width)
+
+            if full_wave is not None and full_spec is not None:
+                wavelength = np.asarray(full_wave, dtype=float)
+                spectrum = np.asarray(full_spec, dtype=float)
+                fit = np.full(len(wavelength), np.nan)
+                inside = (wavelength >= lo) & (wavelength <= hi)
+                fit[inside] = np.interp(wavelength[inside], x, y_fit)
+                coverage = "Full spectrum. The fit is NaN outside its own window."
+            else:
+                wavelength = x
+                spectrum = np.asarray(data['y_data'], dtype=float)
+                fit = np.where((x >= lo) & (x <= hi), y_fit, np.nan)
+                coverage = "Fit window only. This line has no full spectrum."
+
+            path, _ = QFileDialog.getSaveFileName(
+                dlg, "Save Fit", f"line_{data['wavelength']:.4f}_fit.txt", "Text files (*.txt)")
+            if not path:
+                return
+            if not os.path.splitext(path)[1]:
+                path += ".txt"
+
+            header = [f"Line: {data['wavelength']:.6f} um"]
+            if data.get('flux_cgs') is not None:
+                flux_line = f"Flux: {data['flux_cgs']:.3e}"
+                if data.get('flux_error_cgs') is not None:
+                    flux_line += f" +/- {data['flux_error_cgs']:.3e}"
+                header.append(flux_line + " erg/s/cm2" + (" (upper limit)" if data.get('is_upper_limit') else ""))
+            if data.get('r_squared') is not None:
+                header.append(f"R2: {data['r_squared']:.4f}")
+            if data.get('fwhm') is not None:
+                header.append(f"FWHM: {data['fwhm']:.4g} um")
+            header.append(f"Curve: this line's own Gaussian, within {DISPLAY_CROP_SIGMA_MULTIPLIER:g} sigma of its center")
+            header.append(coverage)
+            try:
+                save_spectrum_and_fit(
+                    path, wavelength, spectrum, fit,
+                    "Line fit export from IFU Analyzer (Calculate Fluxes)",
+                    wave_unit="um", flux_unit=data.get('bunit'), header_lines=header)
+            except Exception as e:
+                QMessageBox.critical(dlg, "Error", f"Failed to save the file:\n{e}")
+                return
+            QMessageBox.information(dlg, "Success", f"Saved to:\n{path}")
+
+        save_btn = QPushButton("Save Fit...")
+        save_btn.setToolTip("Save wavelength, original spectrum and the drawn fit curve to a text file")
+        save_btn.clicked.connect(_save_fit)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
-        layout.addWidget(close_btn)
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(save_btn)
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
 
         dlg.setLayout(layout)
         dlg.exec_()

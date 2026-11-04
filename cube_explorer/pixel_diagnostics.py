@@ -10,12 +10,14 @@ This dialog only ever displays one pixel and never re-fits anything, so what it
 shows is exactly what the maps contain.
 """
 
+import os
+
 import numpy as np
 from .gui_sizing import fit_to_screen
 from .unit_converter import extract_value_from_quantity
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QFileDialog, QMessageBox
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
@@ -23,7 +25,7 @@ from matplotlib.figure import Figure
 
 from .gaussian_fitter import (
     gaussian, calculate_baseline, compute_line_free_noise_std, pixel_fit_status,
-    STATUS_DETECTION, STATUS_UPPER_LIMIT,
+    save_spectrum_and_fit, STATUS_DETECTION, STATUS_UPPER_LIMIT,
 )
 
 # How much spectrum to show on either side of the fit window, as a fraction of the
@@ -149,11 +151,51 @@ class PixelFitDialog(QDialog):
 
         layout.addLayout(body)
 
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("Save Fit...")
+        save_btn.setToolTip("Save wavelength, original spectrum and fit of this pixel to a text file")
+        save_btn.clicked.connect(self._save_fit)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
 
         self.setLayout(layout)
+
+    def _save_fit(self):
+        """Save this pixel's original spectrum and fit to a text file.
+
+        The file covers the full wavelength range. The fit is NaN outside the fit
+        window, and everywhere if this pixel has no fitted Gaussian.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Fit", f"pixel_{self.col}_{self.row}_fit.txt", "Text files (*.txt)")
+        if not path:
+            return
+        if not os.path.splitext(path)[1]:
+            path += ".txt"
+
+        fit = np.full(len(self.wavelength), np.nan)
+        fit[self.wave_mask] = self.saved_fit
+        try:
+            save_spectrum_and_fit(
+                path, self.wavelength, self.cube[:, self.row, self.col], fit,
+                "Pixel Gaussian fit export from IFU Analyzer",
+                wave_unit=self.wave_unit, flux_unit=self.flux_unit,
+                header_lines=[f"Pixel: x={self.col}, y={self.row}",
+                              f"Fit window: {self.lam_min:.6f} - {self.lam_max:.6f}"])
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save the file:\n{e}")
+            return
+        QMessageBox.information(self, "Success", f"Saved to:\n{path}")
 
     def _plot_pixel(self):
         """Plot the stored spectrum, baseline, and fitted Gaussian for this pixel.
@@ -189,6 +231,8 @@ class PixelFitDialog(QDialog):
         else:
             y_fit = np.full_like(self.x_data, np.nan, dtype=float)
             residuals = np.full_like(self.x_data, np.nan, dtype=float)
+        # What Save Fit writes: the same curve as the red line, NaN if there is none.
+        self.saved_fit = baseline + y_fit
 
         self.fig.clear()
         ax_data = self.fig.add_subplot(1, 1, 1)

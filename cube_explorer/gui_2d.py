@@ -1431,7 +1431,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         fname, _ = QFileDialog.getSaveFileName(
             self, f"Save Contour ({target.capitalize()})",
-            filter="Text files (*.txt);;CSV files (*.csv)")
+            filter="Text files (*.txt)")
         if not fname:
             return
         if not (fname.endswith('.txt') or fname.endswith('.csv')):

@@ -267,13 +267,17 @@ from .gaussian_fitter import (
     calculate_equivalent_width,
     fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
     export_residual_cube_fits as _export_residual_cube_fits_internal,
-    save_multi_gaussian_fit as _save_multi_gaussian_fit_internal,
+    save_gaussian_fit as _save_gaussian_fit_internal,
 )
-from .flux_map_extractor import fit_hitran_lines_collective as _fit_hitran_lines_internal
+from .flux_map_extractor import (
+    fit_hitran_lines_collective as _fit_hitran_lines_internal,
+    save_gaussian_parameters as _save_gaussian_parameters_internal,
+)
 from .line_catalog import fetch_hitran_data
 
 def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
-             header=None, wave_unit=None):
+             header=None, wave_unit=None, save_path=None, parameters_path=None,
+             continuum=None):
     """Fit a Gaussian to an emission line in a spectrum. The fitter needs a
     starting guess for the line center; here it defaults to the brightest
     sample between x1 and x2, or pass peak_x explicitly.
@@ -291,6 +295,18 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
         header (optional): FITS header used for unit conversion. Pass
             ``cube.header`` to match what the GUI produces.
         wave_unit (str, optional): Spectral axis unit, e.g. ``cube.wave_unit``.
+        save_path (str, optional): If given, write a tab-separated text file with
+            the columns wavelength, original spectrum and fit (the GUI's "Save Fit"
+            file). The fit is NaN outside ``x1`` to ``x2``. Nothing is written, and a
+            warning is raised, if the fit failed.
+        parameters_path (str, optional): If given, write a tab-separated text file
+            with the fitted parameters (the GUI's "Save Parameters" file). The same
+            rule applies if the fit failed.
+        continuum (array-like, optional): Pre-fitted continuum, same length as
+            ``wavelength``. When given, it is the baseline of the fit, as in the GUI
+            when a continuum is fitted for the spectrum. If None (default), the
+            baseline is the straight line between the flux values at ``x1`` and ``x2``.
+            The fit fails if the continuum has no value where the flux has data.
 
     Returns:
         GaussianFitResult: Object with ``amplitude``, ``center``, ``sigma``,
@@ -343,14 +359,34 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
             )
         peak_x = float(wl[in_window][np.nanargmax(window_flux)])
 
-    return fit_gaussian_to_line(x1, x2, wl, fl, peak_x=peak_x,
-                                header=header, wave_unit=wave_unit)
+    result = fit_gaussian_to_line(x1, x2, wl, fl, peak_x=peak_x,
+                                  header=header, wave_unit=wave_unit,
+                                  continuum=None if continuum is None else _as_float_array(continuum))
+
+    if save_path is not None or parameters_path is not None:
+        if not result.success:
+            warnings.warn(f"The fit failed ({result.message}), so no file was written")
+        else:
+            flux_unit = header.get('BUNIT') if header is not None else None
+            baseline_text = ("fitted continuum" if continuum is not None
+                             else "straight line between the window edges")
+            header_lines = [f"Fit window: {x1:.6f} - {x2:.6f}", f"Baseline: {baseline_text}"]
+            if save_path is not None:
+                _save_gaussian_fit_internal(save_path, wl, fl, [result], wave_unit=wave_unit,
+                                            flux_unit=flux_unit, header_lines=header_lines)
+                print(f"[OK] Saved the fit to {save_path}")
+            if parameters_path is not None:
+                _save_gaussian_parameters_internal(
+                    parameters_path, [{'kind': 'line', 'line': {}, 'result': result}],
+                    wave_unit=wave_unit, flux_unit=flux_unit, header_lines=header_lines)
+                print(f"[OK] Saved the parameters to {parameters_path}")
+    return result
 
 
 def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavelength_max=None,
                      isotopologue=1, refresh_cache=False, v_upper=None, v_lower=None,
                      header=None, wave_unit=None, continuum=None, contam_catalog=None,
-                     save_path=None):
+                     save_path=None, parameters_path=None):
     """Fit HITRAN spectral lines automatically using database lookup. Same
     algorithm as the GUI's Multi-Gaussian Fit: every requested line and any
     contaminant sharing its chunk fit simultaneously, so they don't double-claim flux.
@@ -385,6 +421,11 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             file). The fit includes the contaminant lines and is NaN where no line
             was fitted. Nothing is written, and a warning is raised, if no line fit
             succeeded.
+        parameters_path (str, optional): If given, write a tab-separated text file
+            with one row for each line: the fitted parameters, the catalog data, and
+            a flag for an unreliable area error (the GUI's "Save Parameters" file).
+            Lines that could not be fit are listed as ``skipped`` with the reason.
+            The same rule applies if no line fit succeeded.
 
     Returns:
         list: List of dicts with fit results for each line:
@@ -463,16 +504,30 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
     print(f"[OK] Fitted {n_fitted} of {len(fit_pairs)} {molecule} lines between "
           f"{wavelength_min:.6f} and {wavelength_max:.6f} um in {time.time() - start_time:.1f} s")
 
-    if save_path is not None:
+    if save_path is not None or parameters_path is not None:
         if n_fitted == 0:
-            warnings.warn(f"No {molecule} line fit succeeded, so {save_path} was not written")
+            warnings.warn(f"No {molecule} line fit succeeded, so no file was written")
         else:
-            _save_multi_gaussian_fit_internal(
-                save_path, wl, sp,
-                [result for _line, result in fit_pairs + contam_pairs],
-                wave_unit=wave_unit,
-                flux_unit=header.get('BUNIT') if header is not None else None)
-            print(f"[OK] Saved the fit to {save_path}")
+            flux_unit = header.get('BUNIT') if header is not None else None
+            if save_path is not None:
+                _save_gaussian_fit_internal(
+                    save_path, wl, sp,
+                    [result for _line, result in fit_pairs + contam_pairs],
+                    wave_unit=wave_unit, flux_unit=flux_unit)
+                print(f"[OK] Saved the fit to {save_path}")
+            if parameters_path is not None:
+                entries = (
+                    [{'kind': 'line', 'line': line, 'result': result}
+                     for line, result in fit_pairs if result.success]
+                    + [{'kind': 'contaminant', 'line': line, 'result': result}
+                       for line, result in contam_pairs]
+                )
+                entries.sort(key=lambda entry: entry['result'].center)
+                entries += [{'kind': 'skipped', 'line': line, 'result': result}
+                            for line, result in fit_pairs if not result.success]
+                _save_gaussian_parameters_internal(
+                    parameters_path, entries, wave_unit=wave_unit, flux_unit=flux_unit)
+                print(f"[OK] Saved the parameters to {parameters_path}")
 
     return [
         {

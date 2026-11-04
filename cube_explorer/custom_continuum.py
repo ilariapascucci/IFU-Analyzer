@@ -50,7 +50,7 @@ class CustomContinuumSelector:
         # Active state
         self.is_active = False
         self.delete_mode = False
-        # True while the points are for Save Continuum Cubes, so OK saves the cubes.
+        # True while the points are for Save Continuum Cubes, so Fit Continuum saves the cubes.
         self.for_cubes = False
 
         # Point requirements
@@ -62,7 +62,7 @@ class CustomContinuumSelector:
 
         Args:
             for_cubes (bool): True when the points are for Save Continuum Cubes.
-                The instructions then say that OK asks for the file name.
+                The instructions then say that Fit Continuum asks for the file name.
 
         Returns:
             None
@@ -115,7 +115,9 @@ class CustomContinuumSelector:
                 f"• Points will SNAP to the nearest spectrum data point\n"
                 f"• Select regions WITHOUT emission/absorption lines\n"
                 f"• Right-click on a black marker to remove it\n"
-                f"• Press ENTER when done to fit and subtract\n"
+                f"• Click Fit Continuum (or press ENTER) to fit and show the curve\n"
+                f"• Add or remove points and fit again as often as needed\n"
+                f"• Click Subtract Continuum when the curve is right\n"
                 f"• Press ESC to cancel\n"
                 f"\n"
                 f"Click on the spectrum plot first if keys don't work\n"
@@ -357,8 +359,8 @@ class CustomContinuumSelector:
 
     def fit_continuum(self):
         """Fit a cubic spline through the selected continuum points. The
-        OK-button caller already enforces the minimum-points check and its
-        own preview dialog; this only does the math, with no dialogs of its own.
+        Fit Continuum caller already enforces the minimum-points check;
+        this only does the math, with no dialogs of its own.
 
         Args:
             None

@@ -258,12 +258,13 @@ class GuiContinuumMixin:
             self.subtract_continuum_btn.setChecked(False)
 
     def _activate_custom_continuum_subtraction(self, _checked=False, for_cubes=False):
-        """Handle the Custom Subtract toggle for the active tab.
+        """Handle the Select Points toggle: start or end the point-placing session.
+        Ending it removes the points and drops a custom continuum that is not subtracted.
 
         Args:
             _checked (bool): Checked state that the button click passes. Not used.
             for_cubes (bool): True when Save Continuum Cubes starts the session, so the
-                points are for the cubes and OK asks for the file name.
+                points are for the cubes and Fit Continuum asks for the file name.
 
         Returns:
             None
@@ -275,10 +276,9 @@ class GuiContinuumMixin:
         tab = self.active_spectrum_tab
 
         if self.custom_subtract_btn.isChecked():
-            if self.continuum_subtracted.get(tab, False) and self.continuum_mode_applied.get(tab) == 'custom':
-                self._restore_from_custom_subtract()
-                self.custom_subtract_btn.setChecked(False)
-                return
+            # A new session starts from nothing: drop the last custom continuum, subtracted or not.
+            if self.continuum_mode_applied.get(tab) == 'custom':
+                self._discard_custom_continuum(tab)
 
             if self.continuum_subtracted.get(tab, False):
                 # An auto subtraction is active for this tab - drop it before starting a custom session.
@@ -311,16 +311,78 @@ class GuiContinuumMixin:
 
             self.custom_continuum_selector.activate(for_cubes)
             self.custom_continuum_active = True
+            self._custom_fit_points = None
             self.custom_delete_btn.setChecked(False)
             self.custom_continuum_selector.set_delete_mode(False)
 
         else:
+            if self.custom_continuum_selector is not None:
+                self.custom_continuum_selector.clear_all()
+                self.custom_continuum_selector.deactivate()
+            self.custom_delete_btn.setChecked(False)
+            self.custom_continuum_active = False
+            session_tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else tab
+            if self.continuum_mode_applied.get(session_tab) == 'custom':
+                self._discard_custom_continuum(session_tab)
+
+    def _discard_custom_continuum(self, tab):
+        """Remove a tab's custom continuum: the curve, the subtraction and the stored fit.
+
+        Args:
+            tab (str): 'full', 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        self.continuum_fitted[tab] = None
+        self.continuum_subtracted[tab] = False
+        self.continuum_mode_applied[tab] = None
+        self.custom_contsub_btn.setChecked(False)
+        self._refresh_active_spectrum_tab()
+
+    def _on_custom_contsub_clicked(self, checked):
+        """Handle the Subtract Continuum toggle of the custom method. Pressing it subtracts
+        the fitted curve and ends the point session. Pressing it again undoes the subtraction.
+
+        Args:
+            checked (bool): New checked state of the toggle.
+
+        Returns:
+            None
+        """
+        tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
+        if not checked:
             if self.continuum_subtracted.get(tab, False) and self.continuum_mode_applied.get(tab) == 'custom':
-                self._restore_from_custom_subtract()
-            else:
-                if self.custom_continuum_selector is not None:
-                    self.custom_continuum_selector.deactivate()
-                self.custom_continuum_active = False
+                self.continuum_subtracted[tab] = False
+                self._refresh_active_spectrum_tab()
+            return
+
+        selector = self.custom_continuum_selector
+        in_session = selector is not None and selector.is_active and self.custom_continuum_active
+        if in_session and selector.for_cubes:
+            QMessageBox.warning(self, "Points for the Cubes",
+                                "These points are for the continuum cubes. Use Save Cubes in the Pixel-by-Pixel tools.")
+            self.custom_contsub_btn.setChecked(False)
+            return
+        has_fit = self.continuum_mode_applied.get(tab) == 'custom' and self.continuum_fitted.get(tab) is not None
+        if not has_fit:
+            QMessageBox.warning(self, "No Continuum",
+                                "Click Select Points, place at least 3 points, and click Fit Continuum first.")
+            self.custom_contsub_btn.setChecked(False)
+            return
+        if in_session and list(selector.continuum_points) != getattr(self, '_custom_fit_points', None):
+            QMessageBox.warning(self, "Points Changed",
+                                "The points changed after the last fit. Click Fit Continuum again.")
+            self.custom_contsub_btn.setChecked(False)
+            return
+
+        self._perform_custom_subtraction(self.continuum_fitted[tab])
+        if in_session:
+            selector.clear_all()
+            selector.deactivate()
+            self.custom_continuum_active = False
+            self.custom_delete_btn.setChecked(False)
+            self.custom_subtract_btn.setChecked(False)
 
     def _restore_from_custom_subtract(self):
         """Undo a custom continuum subtraction for its owning tab.
@@ -389,7 +451,8 @@ class GuiContinuumMixin:
         self.spectrum_continuum_popup.add_row([self.auto_continuum_toggle, self.custom_continuum_toggle])
         self.spectrum_continuum_popup.add_row([
             self.continuum_line_btn, self.subtract_continuum_btn, self.custom_subtract_btn,
-            self.custom_delete_btn, self.custom_save_pts_btn, self.custom_load_pts_btn, self.custom_ok_btn])
+            self.custom_delete_btn, self.custom_save_pts_btn, self.custom_load_pts_btn, self.custom_ok_btn,
+            self.custom_contsub_btn])
 
         self.pixel_continuum_popup = ContinuumPopup("Continuum: Pixel-by-Pixel", self)
         self.pixel_continuum_popup.add_text(
@@ -441,7 +504,7 @@ class GuiContinuumMixin:
 
     def _open_spectrum_continuum_popup(self):
         """Open the Spectrum continuum pop-up. A Custom session for the cubes would
-        change what the OK button does, so it must end first.
+        change what the Fit Continuum button does, so it must end first.
 
         Args:
             None
@@ -509,7 +572,7 @@ class GuiContinuumMixin:
 
     def _on_pixel_save_cubes_clicked(self):
         """Handle Save Cubes in the Pixel-by-Pixel pop-up for the Custom fit.
-        The points must be open first, because OK only saves the cubes for those points.
+        The points must be open first, because Save Cubes only saves the cubes for those points.
 
         Args:
             None
@@ -561,7 +624,7 @@ class GuiContinuumMixin:
         self._activate_custom_continuum_subtraction(for_cubes=True)
 
     def _finish_custom_points_for_cubes(self):
-        """Use the points on the spectrum for the cubes, after the user pressed OK.
+        """Use the points on the spectrum for the cubes, after the user pressed Save Cubes.
         If the user cancels the file name, the points stay and the user can keep editing.
 
         Args:
@@ -816,6 +879,7 @@ class GuiContinuumMixin:
         self.custom_save_pts_btn.show()
         self.custom_load_pts_btn.show()
         self.custom_ok_btn.show()
+        self.custom_contsub_btn.show()
 
     def hide_all_action_buttons(self):
         """Hide every continuum action button.
@@ -833,6 +897,7 @@ class GuiContinuumMixin:
         self.custom_save_pts_btn.hide()
         self.custom_load_pts_btn.hide()
         self.custom_ok_btn.hide()
+        self.custom_contsub_btn.hide()
 
     def has_automatic_progress(self):
         """Check whether the active tab has automatic-continuum progress.
@@ -899,7 +964,8 @@ class GuiContinuumMixin:
                 self.custom_continuum_selector.deactivate()
             tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
             if self.continuum_mode_applied.get(tab) == 'custom':
-                self._restore_from_custom_subtract()
+                self._discard_custom_continuum(tab)
+            self.custom_contsub_btn.setChecked(False)
             self.custom_continuum_active = False
         except Exception: pass
 
@@ -916,7 +982,7 @@ class GuiContinuumMixin:
             self.custom_continuum_selector.set_delete_mode(checked)
 
     def _finalize_custom_continuum(self):
-        """Keyboard ENTER alternative to clicking the OK button; delegates
+        """Keyboard ENTER alternative to clicking the Fit Continuum button; delegates
         to the same handler so both paths behave identically.
 
         Args:
@@ -928,9 +994,10 @@ class GuiContinuumMixin:
         self.on_custom_ok_clicked()
 
     def on_custom_ok_clicked(self):
-        """Preview the custom-fitted continuum and confirm before subtracting.
-        When the points are for Save Continuum Cubes, OK does not subtract.
-        It asks for the file name and saves the cubes.
+        """Fit the custom continuum through the points and show it in orange.
+        The points stay, so the user can edit them and fit again. The Subtract Continuum
+        button subtracts the curve. When the points are for Save Continuum Cubes, this
+        asks for the file name and saves the cubes instead.
 
         Args:
             None
@@ -944,7 +1011,7 @@ class GuiContinuumMixin:
         num_points = len(getattr(self.custom_continuum_selector, 'continuum_points', []))
         if num_points < 3:
             QMessageBox.warning(self, "Too Few Points",
-                                "Place at least 3 continuum points before confirming.")
+                                "Place at least 3 continuum points before fitting.")
             return
 
         if self.custom_continuum_selector.for_cubes:
@@ -957,52 +1024,15 @@ class GuiContinuumMixin:
                 return
 
             tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
-            wavelength = self._get_tab_wavelength(tab)
-            ax = self.spec_plotter.ax
-
-            # --- Remove any stale preview line from a previous OK click ---
-            if hasattr(self, '_custom_preview_line') and self._custom_preview_line is not None:
-                try:
-                    self._custom_preview_line.remove()
-                except Exception:
-                    pass
-                self._custom_preview_line = None
-
-            # --- Draw the fitted continuum over the original spectrum ---
-            self._custom_preview_line = ax.plot(
-                wavelength, continuum,
-                color='orange', linewidth=2, linestyle='-',
-                label='Custom Continuum (preview)', zorder=10
-            )[0]
-            ax.legend(loc='upper right', fontsize=8)
-            self.spec_canvas.draw()
-            QApplication.processEvents()
-
-            # --- Ask for confirmation ---
-            reply = QMessageBox.question(
-                self, "Confirm Subtraction",
-                "The fitted continuum is shown in orange.\n\nSubtract it from the spectrum?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
-            )
-
-            # Always remove the preview line before doing anything next
-            try:
-                self._custom_preview_line.remove()
-            except Exception:
-                pass
-            self._custom_preview_line = None
-
-            if reply == QMessageBox.Yes:
-                self._perform_custom_subtraction(continuum)
-                self.custom_continuum_selector.deactivate()
-                self.custom_continuum_active = False
-            else:
-                # User wants to keep editing - redraw the clean tab with points still visible
-                self._refresh_active_spectrum_tab()
+            self.continuum_fitted[tab] = continuum
+            self.continuum_mode_applied[tab] = 'custom'
+            # Subtract Continuum compares the points with these, so it never uses an old fit.
+            self._custom_fit_points = list(self.custom_continuum_selector.continuum_points)
+            self._refresh_active_spectrum_tab()
 
         except Exception as e:
             traceback.print_exc()
-            QMessageBox.critical(self, "Custom Continuum Error", f"Could not preview the custom continuum:\n{e}")
+            QMessageBox.critical(self, "Custom Continuum Error", f"Could not fit the custom continuum:\n{e}")
 
 
     def _save_custom_points(self):
@@ -1023,9 +1053,11 @@ class GuiContinuumMixin:
             QMessageBox.warning(self, "No Points", "There are no points on the graph to save.")
             return
 
-        fname, _ = QFileDialog.getSaveFileName(self, "Save Continuum Points", filter="Text files (*.txt);;CSV files (*.csv)")
+        fname, _ = QFileDialog.getSaveFileName(self, "Save Continuum Points", filter="Text files (*.txt)")
         if not fname:
             return
+        if not os.path.splitext(fname)[1]:
+            fname += ".txt"
 
         try:
             with open(fname, 'w') as f:

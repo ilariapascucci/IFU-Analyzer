@@ -618,11 +618,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self._shift_preview_line = None
         if hasattr(self, 'apply_shift_btn'):
             self.apply_shift_btn.setEnabled(False)
-        if hasattr(self, 'cancel_shift_btn'):
-            self.cancel_shift_btn.setEnabled(False)
-        if hasattr(self, 'revert_shift_btn'):
-            self.revert_shift_btn.setEnabled(False)
-        
+            self.apply_shift_btn.setChecked(False)
+        if hasattr(self, 'shift_btn'):
+            self.shift_btn.setChecked(False)
+
 
         # --- Reset labels ---
         self.instrument_label.setText("Instrument: -")
@@ -811,10 +810,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "to the closest available value"
         )
 
-        self.shift_btn = QPushButton("Shift")
+        # Two toggles, like the continuum buttons: the pressed state shows what the active
+        # tab has. Preview Shift = a preview is pending. Apply Shift = a shift is applied.
+        self.shift_btn = QPushButton("Preview Shift")
         self.apply_shift_btn = QPushButton("Apply Shift")
-        self.cancel_shift_btn = QPushButton("Cancel Preview")
-        self.revert_shift_btn = QPushButton("Revert Shift")
+        self.shift_btn.setCheckable(True)
+        self.apply_shift_btn.setCheckable(True)
 
 
         # Gaussian fitting buttons
@@ -844,9 +845,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Action buttons (initially hidden)
         self.continuum_line_btn = QPushButton("Fit Continuum")
         self.subtract_continuum_btn = QPushButton("Subtract Continuum")
-        self.custom_subtract_btn = QPushButton("Custom Subtract")
+        self.custom_subtract_btn = QPushButton("Select Points")
         self.custom_delete_btn = QPushButton("Delete Point")
-        self.custom_ok_btn = QPushButton("OK")
+        self.custom_ok_btn = QPushButton("Fit Continuum")
+        self.custom_contsub_btn = QPushButton("Subtract Continuum")
 
         self.custom_save_pts_btn = QPushButton("Save Points")
         self.custom_load_pts_btn = QPushButton("Load Points")
@@ -861,6 +863,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.subtract_continuum_btn.setCheckable(True)
         self.custom_subtract_btn.setCheckable(True)
         self.custom_delete_btn.setCheckable(True)
+        self.custom_contsub_btn.setCheckable(True)
 
         # Connect toggle buttons
         self.auto_continuum_toggle.clicked.connect(self.on_auto_continuum_toggle)
@@ -871,6 +874,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
         self.custom_delete_btn.clicked.connect(self._on_custom_delete_toggled)
         self.custom_ok_btn.clicked.connect(self.on_custom_ok_clicked)
+        self.custom_contsub_btn.clicked.connect(self._on_custom_contsub_clicked)
         self.custom_save_pts_btn.clicked.connect(self._save_custom_points)
         self.custom_load_pts_btn.clicked.connect(self._load_custom_points)
 
@@ -879,6 +883,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
         self.custom_ok_btn.hide()
+        self.custom_contsub_btn.hide()
         self.custom_save_pts_btn.hide()
         self.custom_load_pts_btn.hide()
         self.custom_delete_btn.hide()
@@ -887,8 +892,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.auto_continuum_toggle.setToolTip("Toggle automatic continuum fitting mode")
         self.custom_continuum_toggle.setToolTip("Toggle custom continuum point selection mode")
         self.continuum_line_btn.setToolTip("Fit and display continuum line")
-        self.custom_subtract_btn.setToolTip("Manually select continuum points and fit")
-        self.custom_ok_btn.setToolTip("Calculate and apply custom continuum")
+        self.custom_subtract_btn.setToolTip("Click the spectrum to place the continuum points")
+        self.custom_ok_btn.setToolTip(
+            "Fit a cubic spline through the points and show it in orange. "
+            "Add or remove points and fit again as often as needed."
+        )
+        self.custom_contsub_btn.setToolTip(
+            "Subtract the fitted continuum from the spectrum and remove the points. "
+            "Click again to undo the subtraction."
+        )
         self.custom_delete_btn.setToolTip("Toggle to delete points with left-click")
 
         self.subtract_continuum_btn.setCheckable(True)
@@ -906,16 +918,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.set_right_btn.clicked.connect(lambda: self._select_target("right"))
         self.left_wave_input.valueChanged.connect(lambda _v: self._on_wave_input_changed("left"))
         self.right_wave_input.valueChanged.connect(lambda _v: self._on_wave_input_changed("right"))
-        self.shift_btn.clicked.connect(self.apply_doppler_shift)
-        self.apply_shift_btn.clicked.connect(self._apply_shift)
+        self.shift_btn.clicked.connect(self._on_preview_shift_clicked)
+        self.apply_shift_btn.clicked.connect(self._on_apply_shift_clicked)
         self.apply_shift_btn.setEnabled(False)
-        self.apply_shift_btn.setToolTip("Apply the previewed shift to the active tab's spectrum")
-        self.cancel_shift_btn.clicked.connect(self._cancel_shift_preview)
-        self.cancel_shift_btn.setEnabled(False)
-        self.cancel_shift_btn.setToolTip("Cancel the pending shift preview without applying it")
-        self.revert_shift_btn.clicked.connect(self._revert_shift)
-        self.revert_shift_btn.setEnabled(False)
-        self.revert_shift_btn.setToolTip("Revert the active tab back to its original (unshifted) wavelength")
+        self.apply_shift_btn.setToolTip(
+            "Apply the previewed shift to the active tab's spectrum. With no preview, "
+            "click again to revert an applied shift to the original wavelength."
+        )
         self.gauss_left_btn.clicked.connect(self._activate_gaussian_left)
         self.gauss_peak_btn.clicked.connect(self._activate_gaussian_peak)
         self.gauss_right_btn.clicked.connect(self._activate_gaussian_right)
@@ -931,14 +940,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Set tooltips for all buttons
         self.set_left_btn.setToolTip("Click on the left slice to set the wavelength from that pixel")
         self.set_right_btn.setToolTip("Click on the right slice to set the wavelength from that pixel")
-        self.shift_btn.setToolTip("Preview a Doppler shift for the active tab's spectrum")
+        self.shift_btn.setToolTip(
+            "Preview a Doppler shift for the active tab's spectrum. Click again to cancel the preview."
+        )
         self.gauss_left_btn.setToolTip("Click the spectrum to set the left edge of the Gaussian fit.")
         self.gauss_peak_btn.setToolTip("Click the spectrum to set the peak of the Gaussian fit.")
         self.gauss_right_btn.setToolTip("Click the spectrum to set the right edge of the Gaussian fit.")
         self.gauss_fit_btn.setToolTip("Fit a Gaussian to the selected line")
         self.save_results_btn.setToolTip(
-            "Save wavelength, original spectrum, fitted continuum, "
-            "and continuum-subtracted spectrum to a single ASCII file."
+            "Save the spectrum of the tab that is showing (Full, Left or Right) to an ASCII file. "
+            "The columns are wavelength, original spectrum, fitted continuum, continuum-subtracted "
+            "spectrum, and the spectrum as the plot shows it."
         )
         self.subtract_continuum_btn.setToolTip("Subtract the fitted continuum from the spectrum")
         self.gauss_map_btn.setToolTip(
@@ -1263,11 +1275,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         spec_tab_layout.addWidget(row_of([
             self.normalize_checkbox, self.overplot_left_checkbox, self.overplot_right_checkbox,
             self.self_normalize_left_checkbox, self.self_normalize_right_checkbox]))
-        shift_save_row = row_of([
-            self.shift_btn, self.apply_shift_btn, self.cancel_shift_btn, self.revert_shift_btn,
-            self.save_results_btn])
+        shift_save_row = row_of([self.shift_btn, self.apply_shift_btn, self.save_results_btn])
         # Extra gap before Save Spectrum, so it reads as separate from the shift buttons.
-        shift_save_row.layout().insertSpacing(4, 16)
+        shift_save_row.layout().insertSpacing(2, 16)
         spec_tab_layout.addWidget(shift_save_row)
 
         main_layout.addLayout(spec_tab_layout)
@@ -1293,6 +1303,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self.custom_subtract_btn.setChecked(False)
         self.custom_continuum_active = False
+        tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
+        if self.continuum_mode_applied.get(tab) == 'custom':
+            self._discard_custom_continuum(tab)
 
         QMessageBox.information(
             self,
@@ -1352,7 +1365,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Per-tab Gaussian boundary state, saved/restored by
         # _swap_gaussian_boundaries_for_tab whenever the active tab changes.
         self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
-        
+        # Each tab keeps its own last Gaussian fits, in raw flux. The plot draws only the
+        # active tab's fits, from these (see _redraw_fit_overlays).
+        self.single_fit_by_tab = {"full": None, "left": None, "right": None}
+        self.multi_fit_by_tab = {"full": None, "left": None, "right": None}
+        self.multi_gauss_cache = {}  # tab -> last multi-Gaussian fit, to reopen its results window
+
         # Continuum subtraction state is independent per tab: each tab derives
         # its own raw flux via _get_tab_raw_flux, so there is no shared backup.
         self.continuum_fitted = {"full": None, "left": None, "right": None}
@@ -2060,16 +2078,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                     # Replot spectrum without this line
                     self.plot_selected_lines(self.plotted_lines)
                     
-                    # Remove its Gaussian fit if present
-                    if hasattr(self, 'multi_gauss_results'):
-                        self.multi_gauss_results = [
-                            fit_info for fit_info in self.multi_gauss_results
+                    # Remove its Gaussian fit from the active tab's multi-Gaussian fit, if present
+                    multi = self.multi_fit_by_tab.get(self.active_spectrum_tab)
+                    if multi is not None:
+                        multi['fit_results'] = [
+                            fit_info for fit_info in multi['fit_results']
                             if abs(SpeciesDialog.get_row_wavelength(fit_info['line']) - line_wave) > 1e-6
                         ]
-                        # Replot remaining Gaussian fits
-                        if self.multi_gauss_results:
-                            self._plot_multi_gaussian_on_spectrum(self.multi_gauss_results)
-                    
+                        if not multi['fit_results']:
+                            self.multi_fit_by_tab[self.active_spectrum_tab] = None
+                        self._refresh_active_spectrum_tab()
+
                     return
 
         if hasattr(self, 'subtract_mode') and self.subtract_mode == 'selecting' and event.xdata:
@@ -2259,6 +2278,65 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self._refresh_active_spectrum_tab()
 
 
+    def _on_preview_shift_clicked(self):
+        """Preview Shift toggle: start a preview, or cancel the pending one.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        if self.spectrum_shift_preview.get(self.active_spectrum_tab):
+            self._cancel_shift_preview()
+        else:
+            self.apply_doppler_shift()
+        # A cancelled dialog leaves the button toggled by the click, so reset it to the real state.
+        self._sync_shift_buttons()
+
+    def _on_apply_shift_clicked(self):
+        """Apply Shift toggle: apply the pending preview, or revert an applied shift.
+        With a preview pending, it applies the preview. To revert, cancel the preview first.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        tab = self.active_spectrum_tab
+        if self.spectrum_shift_preview.get(tab):
+            self._apply_shift()
+        elif self.spectrum_shift_factor.get(tab, 1.0) != 1.0:
+            self._revert_shift()
+        # Answering No in the question leaves the button toggled by the click, so reset it.
+        self._sync_shift_buttons()
+
+    def _fits_cleared_note(self, tab):
+        """Give the sentence for a shift question when the tab has Gaussian fits.
+
+        Args:
+            tab (str): 'full', 'left' or 'right'.
+
+        Returns:
+            note (str): The sentence, or an empty string if the tab has no fits.
+        """
+        if self.single_fit_by_tab.get(tab) is None and self.multi_fit_by_tab.get(tab) is None:
+            return ""
+        return "\n\nThe Gaussian fits of this spectrum are cleared, because they were made on the old wavelengths."
+
+    def _clear_tab_fits(self, tab):
+        """Remove a tab's Gaussian fits. The refresh after the shift removes them from the plot.
+
+        Args:
+            tab (str): 'full', 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        self.single_fit_by_tab[tab] = None
+        self.multi_fit_by_tab[tab] = None
+
     def _apply_shift(self):
         """Commit whichever tab's pending shift preview is active. Each
         tab's shift is independent; the trace keeps its own color (orange
@@ -2285,7 +2363,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self,
             "Apply Shift",
             f"Apply this Doppler shift to the {tab_label} spectrum (v={preview['velocity']:.1f} km/s)?\n\n"
-            "This will be permanent until reverted.",
+            "This will be permanent until reverted." + self._fits_cleared_note(active_tab),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -2293,13 +2371,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return
 
         # Incremental factor from this shift, needed by shift_plot_elements,
-        # which moves Gaussian fit artists by a relative amount.
+        # which moves the slice indicators by a relative amount.
         old_factor = self.spectrum_shift_factor.get(active_tab, 1.0)
         new_factor = preview["factor"]
         incremental_factor = new_factor / old_factor if old_factor else new_factor
 
         self.spectrum_shift_factor[active_tab] = new_factor
         self.spectrum_shift_preview[active_tab] = None
+        self._clear_tab_fits(active_tab)
 
         # cube_data.wavelength must stay synced for Full: fitting, continuum,
         # HITRAN, and CO-flux code still read it directly, not per tab.
@@ -2361,7 +2440,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         reply = QMessageBox.question(
             self,
             "Revert Shift",
-            f"Revert the {tab_label} spectrum back to its original (unshifted) wavelength?",
+            f"Revert the {tab_label} spectrum back to its original (unshifted) wavelength?"
+            + self._fits_cleared_note(active_tab),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -2370,6 +2450,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self.spectrum_shift_factor[active_tab] = 1.0
         self.spectrum_shift_preview[active_tab] = None
+        self._clear_tab_fits(active_tab)
 
         if active_tab == "full":
             self.cube_data.wavelength = np.asarray(self.base_wavelength, dtype=float).copy()
@@ -2811,6 +2892,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Reset per-tab Gaussian boundary state and the map-fit cache: a new
         # cube invalidates both, so a cached tab key can't wrongly look current.
         self.gauss_boundaries = {"full": {}, "left": {}, "right": {}}
+        self.single_fit_by_tab = {"full": None, "left": None, "right": None}
+        self.multi_fit_by_tab = {"full": None, "left": None, "right": None}
+        self.multi_gauss_cache = {}
         self.gauss_cache = None
         self.gauss_cache_tab = None
         self.gauss_cache_lam_min = None
@@ -3450,7 +3534,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             )  # self.contam_lines is untouched -- a failed import isn't destructive.
 
     def _spectrum_home_reset(self):
-        """Custom home action for spectrum: show original spectrum and clear overlays.
+        """Custom home action for spectrum: show the original spectrum and clear overlays.
+        It clears the continuum: custom points, fitted continuum, and subtraction.
 
         Args:
             None
@@ -3458,11 +3543,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
-        
-        # Restore original spectrum if the active tab has a continuum subtracted
-        if self.continuum_subtracted.get(self.active_spectrum_tab, False):
-            self._restore_original_spectrum()
-        
+        # Check before clearing: the custom points stay on the plot after OK.
+        selector = getattr(self, 'custom_continuum_selector', None)
+        if (bool(getattr(selector, 'continuum_points', None))
+                or self.has_custom_progress() or self.has_automatic_progress()):
+            self.clear_custom_progress()
+            self.clear_automatic_progress()
+
         # Call the original NavigationToolbar home method to reset zoom
         # Temporarily unset the custom action to avoid recursion
         saved_action = self.spec_toolbar.custom_home_action
@@ -3484,10 +3571,62 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.plotted_lines = []
             self.spec_canvas.draw()
 
+    def _spectrum_tab_description(self, tab):
+        """Describe the spaxels that one spectrum tab sums over.
+
+        Args:
+            tab (str): Tab to describe, 'full', 'left', or 'right'.
+
+        Returns:
+            text (str): The description, or None if Left or Right has no selection.
+        """
+        if tab == 'full':
+            cube_data = self.cube_data
+            n_y, n_x = [n for i, n in enumerate(cube_data.cube.shape) if i != cube_data.spec_axis]
+            return f"sum over all {n_y} x {n_x} spaxels"
+        sel = self.last_selection_left if tab == 'left' else self.last_selection_right
+        if not sel:
+            return None
+        if sel.get("shape") == "*":
+            x, y = sel["coords"]
+            return f"single pixel (x={int(x)}, y={int(y)})"
+        mask = sel.get("mask")
+        if mask is None:
+            return None
+        return f"sum over {int(np.count_nonzero(mask))} spaxels in the selected region"
+
+    def _plotted_spectrum(self, tab, original):
+        """Build the spectrum that the plot shows for a tab, and say how it was made.
+        The steps are the plot's own: subtract the continuum if subtraction is on,
+        then divide by the normalization number.
+
+        Args:
+            tab (str): 'full', 'left' or 'right'.
+            original (numpy.ndarray): The raw spectrum of the tab.
+
+        Returns:
+            result (tuple): (plotted, text, divisor). plotted is the array that the plot shows.
+                text describes the steps, for the file header. divisor is 1.0 if not normalized.
+        """
+        trace = self._apply_continuum(tab, original)
+        divisor = self._normalization_divisor(tab, trace)
+        self_normalize = {"left": self.self_normalize_left, "right": self.self_normalize_right}.get(tab, False)
+        steps = []
+        # _apply_continuum gives back the same array when nothing is subtracted.
+        if trace is not original:
+            steps.append("continuum subtracted")
+        if divisor != 1.0:
+            source = "this spectrum, Self-Normalize" if self_normalize else "the Full spectrum"
+            steps.append(f"divided by {divisor:.6e} (peak of {source})")
+        elif self_normalize or self.spectrum_normalized:
+            steps.append("normalization is on, but the peak is not a positive number, so the plot is not normalized")
+        text = "; ".join(steps) if steps else "same as Original (no subtraction, no normalization)"
+        return np.asarray(trace, dtype=float) / divisor, text, divisor
+
     def _save_results_ascii(self):
-        """Save the active tab's continuum-subtraction result to an ASCII
-        file. Columns: wavelength, original_spectrum, fitted_continuum,
-        subtracted. Missing values are written as NaN.
+        """Save the active tab's spectrum to an ASCII file. Columns: wavelength,
+        original_spectrum, fitted_continuum, subtracted, plotted. The first four are raw
+        flux. Plotted is what the plot shows. Missing values are written as NaN.
 
         Args:
             None
@@ -3505,11 +3644,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.warning(self, "No Data", "No wavelength data available.")
             return
 
-        # Original spectrum = the active tab's own raw (pre-subtraction) flux.
+        # Original spectrum = the chosen tab's own raw (pre-subtraction) flux.
         original = self._get_tab_raw_flux(tab)
 
         if original is None:
-            QMessageBox.warning(self, "No Data", "No spectrum to save for the active tab.")
+            QMessageBox.warning(self, "No Data", "No spectrum to save for that tab.")
             return
 
         # The continuum is absent if the user never fitted one for this tab.
@@ -3523,14 +3662,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             np.isfinite(continuum), original - continuum, np.nan
         )
 
+        plotted, plotted_text, divisor = self._plotted_spectrum(tab, original)
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Spectrum as ASCII",
-            "results.txt",
-            "Text files (*.txt);;CSV files (*.csv);;All files (*)"
+            f"spectrum_{tab}.txt",
+            "Text files (*.txt)"
         )
         if not file_path:
             return
+        if not os.path.splitext(file_path)[1]:
+            file_path += ".txt"
 
         try:
             wave_unit = self.cube_data.wave_unit if hasattr(self.cube_data, 'wave_unit') else "Unknown"
@@ -3542,13 +3685,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 f.write("# Results Export from Cube Explorer\n")
                 f.write(f"# Instrument: {instrument}\n")
                 f.write(f"# Spectrum tab: {tab}\n")
+                f.write(f"# Spaxels: {self._spectrum_tab_description(tab)}\n")
                 f.write("# Type: full_results\n")
                 f.write(f"# Wavelength unit: {wave_unit}\n")
-                f.write(f"# Flux unit: {flux_unit}\n")
+                f.write(f"# Flux unit: {flux_unit} (Original, Continuum, Subtracted: raw flux)\n")
+                f.write(f"# Plotted: {plotted_text}\n")
+                if divisor != 1.0:
+                    f.write("# Plotted is dimensionless because it is normalized.\n")
                 f.write("#\n")
-                f.write(f"# Wavelength ({wave_unit})\tOriginal\tContinuum\tSubtracted\n")
-                for w, o, c, s in zip(wavelength, original, continuum, subtracted):
-                    f.write(f"{w:.6e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\n")
+                f.write(f"# Wavelength ({wave_unit})\tOriginal\tContinuum\tSubtracted\tPlotted\n")
+                for w, o, c, s, p in zip(wavelength, original, continuum, subtracted, plotted):
+                    f.write(f"{w:.6e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\t{p:.6e}\n")
 
             QMessageBox.information(self, "Success", f"Spectrum saved to:\n{file_path}")
             print(f"Spectrum saved to {file_path}")

@@ -121,13 +121,16 @@ Bring several images to one resolution in a single step.
   - Single-pixel interactive fitting with a visual overlay
   - Full-cube parallel fitting with parameter maps
   - Multi-Gaussian fitting for a complex line profile
-  - Save the multi-Gaussian fit to a text file (wavelength, original spectrum, and fit; the fit is NaN where no line was fitted)
-  - Automatic baseline subtraction
+  - Save a fit to a text file: the single-line fit, the multi-Gaussian fit, and the pixel fit of a Gaussian map. The columns are wavelength, original spectrum, and fit (the fit is NaN where no line was fitted)
+  - Save the fitted parameters of the single-line and multi-Gaussian fits to a text file (one row for each line)
+  - Automatic baseline subtraction. The single-line fit uses the fitted continuum of the spectrum if there is one. If not, it uses a straight line between the two window edges. The results window shows which one was used.
+  - Each spectrum (Full, Left, Right) keeps its own fit curves. The plot shows only the fits of the spectrum you are looking at, in the units of the plotted spectrum (also when the continuum is subtracted or the spectrum is normalized). Applying or reverting a wavelength shift clears the fits of that spectrum, because they were made on the old wavelengths. The multi-Gaussian window can be reopened without a new fit only if the lines, the spectrum, the wavelengths and the continuum have not changed.
   - Quality metrics (R², χ², FWHM, and area under the curve)
   - Background processing, so the GUI does not block
   - Pixel-level diagnostics with a fit plot
 
 - **Parameter maps:**
+  - Each pixel has its own baseline: a straight line between the two edges of the fit window. The fitted continuum is not used, because it belongs to the integrated spectrum. The map window says this.
   - Integrated area (intensity map) and its error
   - Peak amplitude
   - Line centre and velocity (kinematics)
@@ -166,6 +169,7 @@ Bring several images to one resolution in a single step.
   - A distance input (pc), which is required, and an emitting-radius input (au), which is optional. With a radius, N is a column density. Without a radius, N is a total molecule count.
   - The results dialog reports the emitting radius, the distance, the OPR, the fitted temperature or temperatures, and the column densities.
   - "Save Fit" in the results dialog, and in the dialog of a pixel in the temperature map, saves the results, the plotted points, and the fit line to a CSV file.
+  - "Save Fit..." in the Line Fit window of a line (double-click "View" in the Fit column) saves the wavelength, the original spectrum, and the fit curve that the window shows to a text file. The fit is NaN outside its window.
   - Restrict "Calculate Fluxes" and "Run Fit" to a region. Draw the region on a flux map, or import a saved region. Save the region to reuse it.
   - Read the FITS header of each loaded cube with "Header". Open a second analyzer window with the new-window button, for example to compare two sets of cubes.
   - **Pixel-by-pixel temperature maps:** "Calculate Maps" makes a flux map for each line. "Convolve Maps" puts the maps on one grid at the coarsest resolution. "Run Map" fits the rotational diagram at every pixel. "Load Maps" adds flux maps that you made in another tool.
@@ -187,7 +191,7 @@ Bring several images to one resolution in a single step.
 
 ### Export Capabilities
 
-- **Continuum results (ASCII):** the "Save Spectrum" button writes a four-column file (wavelength, original spectrum, fitted continuum, and continuum-subtracted spectrum) in tab-delimited format. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The `# Type: full_results` header line identifies the file format.
+- **Continuum results (ASCII):** the "Save Spectrum" button saves the spectrum of the tab that is showing (Full, Left, or Right). To save a different spectrum, click its tab first. The file is tab-delimited and has five columns: wavelength, original spectrum, fitted continuum, continuum-subtracted spectrum, and "Plotted". The first four are raw flux. "Plotted" is the spectrum as the plot shows it: with the continuum subtracted if subtraction is on, and divided by the normalization number if Normalize or Self-Normalize is on. The `# Plotted` header line gives the steps and the number. The `# Spaxels` header line gives the number of spaxels in the sum. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The `# Type: full_results` header line identifies the file format.
 - **Residuals cube (FITS):** export of the 3D normalised residuals cube with full header metadata
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
@@ -573,13 +577,13 @@ python main.py
 
    **Custom interactive method:**
    - Click "Custom".
-   - Click "Custom Subtract" to enter point-placement mode.
+   - Click "Select Points" to enter point-placement mode.
    - Click on the spectrum to place an anchor point. The point snaps to the data.
    - Use "Delete Point" mode to remove a point. A minimum of 3 points is necessary.
-   - Click "OK". The fitted cubic-spline continuum is shown in orange as a preview.
-   - Confirm the subtraction in the dialog. "No" returns to editing mode.
-   - The full subtracted spectrum is shown after the confirmation.
-   - Save the result with "Save Points" or "Save Spectrum".
+   - Click "Fit Continuum" (or press ENTER). The fitted cubic-spline continuum is shown in orange. The points stay, so you can add or remove points and fit again.
+   - Click "Subtract Continuum" when the curve is right. The full subtracted spectrum is shown and the points are removed. Click "Subtract Continuum" again to undo the subtraction. The orange curve then shows again. If you changed the points after the last fit, the button asks you to fit again first.
+   - Click "Select Points" again to start over. Unpressing it, pressing ESC, or clicking Home removes the points and the custom continuum.
+   - Save the points with "Save Points" before you subtract, and save the result with "Save Spectrum".
 
    **Pixel-by-Pixel.** Click "Pixel-by-Pixel". The tool fits the continuum at every pixel. It saves the continuum cube and the continuum-subtracted cube as two FITS files.
    - Automatic: click "Automatic", then "Set Parameters and Save". Set the fit parameters, then choose the base file name.
@@ -661,6 +665,7 @@ python main.py
    - Click "Run Fit". If any line is an upper limit, the fit switches to PyMC Bayesian censored regression instead of ordinary least squares.
    - Read the fitted temperature or temperatures and the column densities in the results dialog. The dialog also shows the radius and the distance that the fit used.
    - Click "Save Fit" to save the results to a CSV file. The results are the lines that start with "#". Below them is one row for each plotted point: the wavelength, E_u, log10(N_u/g_u), its error, and the upper-limit flag. After a blank line comes the fit line, as plotted: 200 values of E_u and the model log10(N_u/g_u). A 2T fit has a column for each component and one for the combined model. The file does not contain the flux values. "Save Fluxes" saves those.
+   - Double-click "View" in the Fit column to see the Gaussian fit of a line. Click "Save Fit..." there to save the spectrum and the fit curve to a text file. The curve is the Gaussian of that line alone, within 3 sigma of its center, the same curve that the window draws. A line that was imported from a Gaussian map has no full spectrum, so its file has only the fit window.
    - Click "Save Fluxes" to save the fluxes as a CSV file. "Import from CSV" reads the file back.
 
    **Start again:**
@@ -686,9 +691,9 @@ python main.py
 ### Data Export
 
 9. Export the results:
-   - **Spectrum:** click "Save Spectrum" at the end of the row with the "Shift" buttons.
+   - **Spectrum:** click "Save Spectrum" at the end of the row with the shift buttons.
    - **Slice:** click the "Save" button in the side column of the slice.
-   - **Continuum:** click "Save Points" to export the anchor points, or "Save Spectrum" for the full four-column file.
+   - **Continuum:** click "Save Points" to export the anchor points, or "Save Spectrum" for the full five-column file.
 
 ### Additional Features
 
@@ -697,7 +702,7 @@ python main.py
    - **Line catalog:** "Import Lines" loads a custom spectral-line list: a CSV with `wavelength` and `species` columns, a HITRAN-format `.par` file (for example HITEMP), or an LST `.lst` file. The program finds the format from the first line of the file. A `.par` file gives its molecule from its first record. An LST file with more than one species asks which species to load. Unzip a HITEMP file before you load it.
    - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Show Lines" lists the loaded lines and lets you choose which ones to plot.
    - **Normalize spectrum:** the "Normalize" checkbox divides every spectrum by the peak of the full spectrum. "Show Left" and "Show Right" overlay a region's spectrum on the "Full" tab. "Self-Normalize Left" and "Self-Normalize Right" divide a region's spectrum by its own peak.
-   - **Doppler shift:** "Shift" applies a multiplicative wavelength correction (km/s). Use "Apply Shift", "Cancel Preview", and "Revert Shift" to control it.
+   - **Doppler shift:** two buttons control a multiplicative wavelength correction (km/s). "Preview Shift" asks for the velocity and shows the shifted spectrum in orange. Click it again to cancel the preview. "Apply Shift" applies the preview. When no preview is pending, click "Apply Shift" again to revert the spectrum to its original wavelength. A button is pressed while its state is active for the spectrum you are looking at. Applying or reverting a shift clears the Gaussian fits of that spectrum.
    - **Wavelength range:** the "λ min" and "λ max" boxes (in µm) in the "Lines & Fit" group set the range for "Fetch HITRAN", "Import Lines", "Contam. Lines", and "Flux Map". They fill from the cube when you load it.
    - **New window:** the new-window button opens an independent application window for a multi-file comparison.
 

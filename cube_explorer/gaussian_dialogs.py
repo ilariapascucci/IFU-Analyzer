@@ -350,7 +350,11 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         )
         info_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         layout.addWidget(info_label)
-        
+        # Each pixel has its own baseline, because only the integrated spectrum has a fitted continuum.
+        baseline_label = QLabel("Baseline: for each pixel, a straight line between the two edges of the fit window.")
+        baseline_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        layout.addWidget(baseline_label)
+
         # Parameter selector
         param_layout = QHBoxLayout()
         param_layout.addWidget(QLabel("Parameter:"))

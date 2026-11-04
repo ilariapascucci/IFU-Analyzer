@@ -1135,6 +1135,110 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
 
 # ================== High-Level Extraction ==================
 
+def unreliable_area_error_reason(result):
+    """Find the known cause of an unreliable area error, if there is one.
+
+    The area error is unreliable when it is larger than the area. Then there are two
+    causes: the fitted sigma sits at its fit bound, or two close lines are blended.
+
+    Args:
+        result (GaussianFitResult): One line's fit result.
+
+    Returns:
+        reason (str): 'bound' if the fitted sigma sits at a curve_fit bound, 'blend' if
+            the error is larger than the area for another reason, or None if reliable.
+    """
+    if (result.area_error is None
+            or abs(result.area_error) <= AREA_ERROR_SANITY_RATIO * abs(result.area)):
+        return None
+    if result.catalog_sigma:
+        lower = SIGMA_BOUND_LOWER_MULTIPLIER * result.catalog_sigma
+        upper = SIGMA_BOUND_UPPER_MULTIPLIER * result.catalog_sigma
+        if abs(result.sigma - lower) < 0.01 * lower or abs(result.sigma - upper) < 0.01 * upper:
+            return 'bound'
+    return 'blend'
+
+
+PARAMETER_COLUMNS = (
+    'kind', 'species', 'catalog_wavelength', 'transition', 'a_coeff', 'e_upper',
+    'center', 'amplitude', 'sigma', 'fwhm', 'area', 'area_error', 'area_unit',
+    'r_squared', 'flag', 'note',
+)
+
+
+def save_gaussian_parameters(path, entries, wave_unit=None, flux_unit=None, header_lines=()):
+    """Save the fitted line parameters of a Gaussian fit to an ASCII file.
+
+    The file has one row for each line. The columns are separated by tabs, and the comment
+    lines at the top start with "#". A number that is not available is written as nan.
+
+    Args:
+        path (str): Output file path.
+        entries (list): Dicts with 'kind' ('line', 'contaminant' or 'skipped'), 'line'
+            (the catalog dict of the line, may be empty) and 'result' (GaussianFitResult).
+        wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
+        flux_unit (str): Flux unit for the file header, or None for "Unknown".
+        header_lines (list): Extra comment lines (str) to write below the title.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If entries is empty.
+    """
+    if not entries:
+        raise ValueError("No fitted lines to save.")
+
+    def _num(value, spec=".6e"):
+        """Format a number, or return "nan" if it is missing or not finite.
+
+        Args:
+            value (float): Number to format.
+            spec (str): Format spec to apply.
+
+        Returns:
+            text (str): Formatted number, or "nan".
+        """
+        if value is None or not np.isfinite(value):
+            return "nan"
+        return format(value, spec)
+
+    wave_text = wave_unit or "Unknown"
+    flags = {'bound': 'sigma_at_bound', 'blend': 'error_exceeds_area'}
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write("# Gaussian fit parameters export from IFU Analyzer\n")
+        for line in header_lines:
+            f.write(f"# {line}\n")
+        f.write(f"# Wavelength unit: {wave_text} (catalog_wavelength, center, sigma, fwhm)\n")
+        f.write(f"# Flux unit: {flux_unit or 'Unknown'} (amplitude)\n")
+        f.write("# The unit of area and area_error is in the area_unit column.\n")
+        f.write("# flag: ok, or the reason that area_error is not reliable.\n")
+        f.write("#\n")
+        f.write("\t".join(PARAMETER_COLUMNS) + "\n")
+        for entry in entries:
+            line, result = entry['line'], entry['result']
+            kind = entry['kind']
+            if not result.success:
+                kind, note = 'skipped', result.message
+                numbers = ["nan"] * 6
+                area_unit, flag = "N/A", "N/A"
+            else:
+                note = "-"
+                numbers = [_num(result.center, ".6f"), _num(result.amplitude), _num(result.sigma, ".6g"),
+                           _num(result.fwhm, ".6g"), _num(result.area), _num(result.area_error)]
+                area_unit = result.area_unit or "N/A"
+                flag = flags.get(unreliable_area_error_reason(result), 'ok')
+            r_squared = _num(result.r_squared, ".4f") if result.success else "nan"
+            row = [
+                kind, str(line.get('species', 'N/A')),
+                _num(line.get('lambda_micron', line.get('wavelength')), ".6f"),
+                str(line.get('transition') or 'N/A'),
+                _num(line.get('a_coeff')), _num(line.get('e_upper'), ".2f"),
+                *numbers, area_unit, r_squared, flag, note,
+            ]
+            f.write("\t".join(row) + "\n")
+
+
 def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
                                    excluded_wavelengths=None,

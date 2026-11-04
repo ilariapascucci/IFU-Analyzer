@@ -153,6 +153,31 @@ class GuiSpectrumMixin:
             return None
         return float(finite.max())
 
+    def _normalization_divisor(self, tab, y):
+        """Find the number that the plot divides a tab's trace by. This is the
+        one rule for the plotted spectrum and for the fit curves drawn on it.
+
+        Args:
+            tab (str): 'full', 'left' or 'right'.
+            y (numpy.ndarray): The trace before normalization. Only Self-Normalize reads it.
+
+        Returns:
+            divisor (float): Full's peak, the trace's own peak, or 1.0 if no normalization.
+        """
+        # A non-positive peak means degenerate data; dividing by it would
+        # flip every sign, so fall back to raw values instead.
+        self_normalize = {"left": self.self_normalize_left, "right": self.self_normalize_right}.get(tab, False)
+        if self_normalize and y is not None:
+            arr = np.asarray(y, dtype=float)
+            finite = arr[np.isfinite(arr)]
+            if finite.size == 0 or finite.max() <= 0:
+                return 1.0
+            return float(finite.max())
+        if not self.spectrum_normalized:
+            return 1.0
+        peak = self._full_spectrum_peak()
+        return peak if peak and peak > 0 else 1.0
+
     def _maybe_normalize(self, y):
         """Divide by Full's peak if Normalize is on; otherwise return as-is.
         The one shared rule: applied to Full it's self-normalization,
@@ -164,14 +189,8 @@ class GuiSpectrumMixin:
         Returns:
             y (numpy.ndarray): Normalized (or unchanged) flux array.
         """
-        if not self.spectrum_normalized:
-            return y
-        peak = self._full_spectrum_peak()
-        # A non-positive peak means degenerate data; dividing by it would
-        # flip every sign, so fall back to raw values instead.
-        if not peak or peak <= 0:
-            return y
-        return np.asarray(y, dtype=float) / peak
+        divisor = self._normalization_divisor("full", y)
+        return y if divisor == 1.0 else np.asarray(y, dtype=float) / divisor
 
     def _maybe_normalize_side(self, side, y):
         """Normalize Left/Right's data, honoring that side's Self-Normalize
@@ -185,19 +204,45 @@ class GuiSpectrumMixin:
         Returns:
             y (numpy.ndarray): Normalized (or unchanged) flux array.
         """
-        self_normalize = self.self_normalize_left if side == "left" else self.self_normalize_right
-        if not self_normalize or y is None:
-            return self._maybe_normalize(y)
+        divisor = self._normalization_divisor(side, y)
+        return y if divisor == 1.0 else np.asarray(y, dtype=float) / divisor
 
-        arr = np.asarray(y, dtype=float)
-        finite = arr[np.isfinite(arr)]
-        if finite.size == 0:
-            return y
-        own_peak = float(finite.max())
-        # Same degenerate-data guard as _maybe_normalize.
-        if own_peak <= 0:
-            return y
-        return arr / own_peak
+    def _overlay_converter(self):
+        """Build a function that converts raw-flux curves to what the active tab's plot
+        shows. The steps are the plot's own: subtract the continuum if subtraction is on,
+        then normalize. Build it once for each plot, because it can read the whole spectrum.
+
+        Args:
+            None
+
+        Returns:
+            convert (callable): Function (x, y) that returns y in the units of the plot.
+        """
+        tab = self.active_spectrum_tab
+        grid = self._get_tab_wavelength(tab)
+        continuum = self.continuum_fitted.get(tab) if self.continuum_subtracted.get(tab, False) else None
+        if continuum is not None and len(continuum) != len(grid):
+            continuum = None
+        # Self-Normalize divides by the peak of the whole trace, so only it needs the trace.
+        self_normalize = {"left": self.self_normalize_left, "right": self.self_normalize_right}.get(tab, False)
+        trace = self._apply_continuum(tab, self._get_tab_raw_flux(tab)) if self_normalize else None
+        divisor = self._normalization_divisor(tab, trace)
+
+        def convert(x, y):
+            """Convert one raw-flux curve to the units of the plotted spectrum.
+
+            Args:
+                x (numpy.ndarray): Wavelengths of the curve, on the tab's wavelength axis.
+                y (numpy.ndarray): Raw flux values of the curve.
+
+            Returns:
+                y (numpy.ndarray): The curve in the units of the plotted spectrum.
+            """
+            y = np.asarray(y, dtype=float)
+            if continuum is not None:
+                y = y - np.interp(x, grid, continuum)
+            return y / divisor
+        return convert
 
     def _mark_slice_indicator_set(self, target):
         """Record that the user explicitly picked a wavelength for this side
@@ -491,10 +536,15 @@ class GuiSpectrumMixin:
                     continue
             line.set_visible(False)
 
-        # Continuum-fit preview: only the ACTIVE tab's own fitted continuum
-        # ever shows, and only while the "Fit Continuum" toggle is on.
+        # Continuum-fit preview: only the ACTIVE tab's own fitted continuum ever shows. The
+        # automatic one shows while its "Fit Continuum" toggle is on; a custom one, once fitted.
         continuum_fit = self.continuum_fitted.get(tab)
-        if getattr(self, 'continuum_line_btn', None) is not None and self.continuum_line_btn.isChecked() and continuum_fit is not None:
+        line_btn = getattr(self, 'continuum_line_btn', None)
+        # Once subtracted, the continuum is the zero line, so its own curve is hidden.
+        continuum_shown = (((line_btn is not None and line_btn.isChecked())
+                            or self.continuum_mode_applied.get(tab) == 'custom')
+                           and not self.continuum_subtracted.get(tab, False))
+        if continuum_shown and continuum_fit is not None:
             x_t = tab_x(tab)
             if len(continuum_fit) == len(x_t):
                 self._continuum_line_artist.set_data(x_t, np.asarray(continuum_fit, dtype=float))
@@ -529,16 +579,7 @@ class GuiSpectrumMixin:
         else:
             self._shift_preview_line.set_visible(False)
 
-        # Shift button enablement follows whichever tab is active - a
-        # preview/applied-shift on one tab has no bearing on the others.
-        has_preview = bool(preview)
-        has_shift = self.spectrum_shift_factor.get(tab, 1.0) != 1.0
-        if hasattr(self, 'apply_shift_btn'):
-            self.apply_shift_btn.setEnabled(has_preview)
-        if hasattr(self, 'cancel_shift_btn'):
-            self.cancel_shift_btn.setEnabled(has_preview)
-        if hasattr(self, 'revert_shift_btn'):
-            self.revert_shift_btn.setEnabled(has_shift)
+        self._sync_shift_buttons()
 
         indicator_set = getattr(self, '_slice_indicator_set', {"left": False, "right": False})
         vline_left = getattr(self.spec_plotter, 'vline_left', None)
@@ -559,6 +600,10 @@ class GuiSpectrumMixin:
                               self._continuum_line_artist, self._continuum_zero_line)
             if line is not None and line.get_visible()
         ]
+        # Gaussian fits belong to their tab: draw the active tab's, remove the others.
+        if hasattr(self, '_redraw_fit_overlays'):
+            self._redraw_fit_overlays()
+            visible += self._fit_overlay_handles()
         try:
             ax.legend(handles=visible, loc='upper right', fontsize=8)
         except Exception:
@@ -568,6 +613,25 @@ class GuiSpectrumMixin:
             self.spec_canvas.draw()
         except Exception:
             pass
+
+    def _sync_shift_buttons(self):
+        """Set the two shift buttons from the active tab's state. A preview or an applied
+        shift on one tab has no bearing on the others.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        tab = self.active_spectrum_tab
+        has_preview = bool(self.spectrum_shift_preview.get(tab))
+        has_shift = self.spectrum_shift_factor.get(tab, 1.0) != 1.0
+        if hasattr(self, 'shift_btn'):
+            self.shift_btn.setChecked(has_preview)
+        if hasattr(self, 'apply_shift_btn'):
+            self.apply_shift_btn.setChecked(has_shift)
+            self.apply_shift_btn.setEnabled(has_preview or has_shift)
 
     def _fit_xlim_to(self, x_array):
         """Set the spectrum plot's x-limits to span x_array with ~5% padding,

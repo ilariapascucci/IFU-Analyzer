@@ -152,11 +152,13 @@ class SpectrumPlotter:
 
         return self.ax
 
-    def plot_gaussian_fit(self, result):
+    def plot_gaussian_fit(self, result, to_display=None):
         """Plot Gaussian fit results on the spectrum.
 
         Args:
             result: GaussianFitResult object containing fit parameters and data.
+            to_display (callable): Function (x, y) that converts a raw-flux curve to the
+                units of the plotted spectrum. None draws the curve in raw flux.
 
         Returns:
             None
@@ -172,47 +174,30 @@ class SpectrumPlotter:
                 pass
         self.gauss_fit_artists = []
         
-        # Get normalization factor from global spectrum if it was normalized
-        if hasattr(self, 'global_line') and self.global_line is not None:
-            # Check if spectrum was normalized (median is then ~1)
-            global_y = self.global_line.get_ydata()
-            global_median = np.nanmedian(global_y[np.isfinite(global_y)])
-            
-            # If normalized (median close to 1), we need to normalize the fit too
-            if 0.5 < global_median < 2.0:
-                # Calculate normalization factor from the fit region
-                fit_median = np.nanmedian(result.y_data[np.isfinite(result.y_data)])
-                if fit_median > 0:
-                    norm_factor = fit_median
-                else:
-                    norm_factor = 1.0
-            else:
-                norm_factor = 1.0
-        else:
-            norm_factor = 1.0
-        
-        # Normalize baseline and fit
-        baseline_norm = result.baseline / norm_factor
-        y_fit_norm = result.y_fit / norm_factor
-        
-        
+        # The fit is in raw flux. Draw it in the units of the plotted spectrum.
+        if to_display is None:
+            to_display = lambda x, y: np.asarray(y, dtype=float)
+        x_shown = result.x_data
+        baseline_shown = to_display(x_shown, result.baseline)
+        fit_shown = to_display(x_shown, result.baseline + result.y_fit)
+
         # Plot baseline as smooth curve (mathematical function, not discrete data)
         baseline_line, = self.ax.plot(
-            result.x_data, baseline_norm,
+            x_shown, baseline_shown,
             'k--', linewidth=2, alpha=0.7, label='Baseline', zorder=10
         )
         self.gauss_fit_artists.append(baseline_line)
-        
+
         # Plot fitted Gaussian as smooth curve (mathematical function, not discrete data)
         gauss_line, = self.ax.plot(
-            result.x_data, baseline_norm + y_fit_norm,
+            x_shown, fit_shown,
             'r-', linewidth=3, alpha=0.9, label='Gaussian Fit', zorder=11
         )
         self.gauss_fit_artists.append(gauss_line)
-        
+
         # Fill area under the Gaussian (above baseline)
         fill = self.ax.fill_between(
-            result.x_data, baseline_norm, baseline_norm + y_fit_norm,
+            x_shown, baseline_shown, fit_shown,
             color='red', alpha=0.2, label='Integrated Area', zorder=9
         )
         self.gauss_fit_artists.append(fill)

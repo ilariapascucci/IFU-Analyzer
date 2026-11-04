@@ -1,3 +1,6 @@
+import hashlib
+import os
+
 import numpy as np
 from PyQt5.QtWidgets import (
     QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton,
@@ -7,7 +10,7 @@ from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
 from .gui_sizing import fit_to_screen
-from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, save_multi_gaussian_fit
+from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, save_gaussian_fit
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .line_catalog import available_rest_line_species, collect_rest_line_candidates
 from .species_dialog import SpeciesDialog, RestLineDialog
@@ -17,7 +20,7 @@ from .unit_converter import (
 from .utils import take_resolution_notes
 from .flux_map_extractor import (
     fit_auto_continuum, DISPLAY_CROP_SIGMA_MULTIPLIER,
-    AREA_ERROR_SANITY_RATIO, SIGMA_BOUND_LOWER_MULTIPLIER, SIGMA_BOUND_UPPER_MULTIPLIER, gaussian,
+    unreliable_area_error_reason, save_gaussian_parameters, gaussian,
 )
 
 # Same floor fit_gaussians_per_pixel uses for the per-pixel map: below this many finite
@@ -319,28 +322,38 @@ class GuiGaussianMixin:
 
         self.lambda_0 = self._find_nearest_line_in_range(lam_min, lam_max) if hasattr(self, 'hitran_lines') else None
 
+        # The tab's fitted continuum is the baseline if there is one, as in the multi-Gaussian fit.
+        continuum = self.continuum_fitted.get(self.active_spectrum_tab)
+        baseline_source = "fitted continuum" if continuum is not None else "straight line between the window edges"
+
         try:
             result = fit_gaussian_to_line(
                 self.gauss_left_x, self.gauss_right_x, spectrum_x, spectrum_y,
                 peak_x=self.gauss_peak_x, noise_min=noise_min, noise_max=noise_max,
-                header=self.cube_data.header, wave_unit=self.cube_data.wave_unit
+                header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
+                continuum=continuum
             )
             if not result.success:
                 QMessageBox.warning(self, "Fit Failed", result.message)
                 return
-            
-            self._display_gaussian_results(result)
-            self.spec_plotter.plot_gaussian_fit(result)
-            self.spec_canvas.draw_idle()
-            
+
+            # Keep the exact arrays that were fitted, so Save Fit still matches them
+            # after a wavelength shift.
+            self.gauss_fit_input = (spectrum_x, spectrum_y)
+            # The tab keeps its own fit. A shift of the tab clears it (see _apply_shift).
+            self.single_fit_by_tab[self.active_spectrum_tab] = result
+            self._display_gaussian_results(result, baseline_source)
+            self._refresh_active_spectrum_tab()
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Gaussian fitting error:\n{str(e)}")
 
-    def _display_gaussian_results(self, result: GaussianFitResult):
+    def _display_gaussian_results(self, result: GaussianFitResult, baseline_source: str):
         """Show a single Gaussian fit's inputs and fitted results in a dialog.
 
         Args:
             result (GaussianFitResult): Completed fit result to display.
+            baseline_source (str): What the baseline of the fit was, for the report.
 
         Returns:
             None
@@ -408,6 +421,7 @@ INTEGRATED QUANTITIES:
   Equivalent Width:      {result.area_native/np.mean(result.baseline):.4e} {wave_unit}
 
 BASELINE:
+  Source:                {baseline_source}
   Slope:                 {result.baseline_slope:.4e} {slope_unit}
   Left endpoint:         {result.baseline_intercept:.4e} {flux_unit}
 
@@ -429,14 +443,32 @@ STATUS: {result.message}
         text_edit.setReadOnly(True)
         text_edit.setFontFamily("Courier")
         layout.addWidget(text_edit)
+
+        window_line = f"Fit window: {result.x_data[0]:.6f} - {result.x_data[-1]:.6f}"
+        baseline_line = f"Baseline: {baseline_source}"
+        save_fit_btn = QPushButton("Save Fit...")
+        save_fit_btn.setToolTip("Save wavelength, original spectrum and fit to a text file")
+        save_fit_btn.clicked.connect(lambda: self._save_gaussian_fit_curve(
+            dlg, [result], self.gauss_fit_input, "gaussian_fit.txt", [window_line, baseline_line]))
+        save_params_btn = QPushButton("Save Parameters...")
+        save_params_btn.setToolTip("Save the fitted parameters to a text file")
+        save_params_btn.clicked.connect(lambda: self._save_gaussian_parameters_table(
+            dlg, [{'kind': 'line', 'line': {}, 'result': result}], "gaussian_parameters.txt",
+            [window_line, baseline_line]))
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
-        layout.addWidget(close_btn)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(save_fit_btn)
+        btn_layout.addWidget(save_params_btn)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
         dlg.setLayout(layout)
         dlg.exec_()
 
     def clear_gaussian_fit(self):
-        """Clear all Gaussian fit/boundary markers and reset fit state.
+        """Clear the active tab's Gaussian fits and boundary markers and reset fit state.
+        The fits of the other tabs stay.
 
         Args:
             None
@@ -445,6 +477,8 @@ STATUS: {result.message}
             None
         """
         try:
+            self.single_fit_by_tab[self.active_spectrum_tab] = None
+            self.multi_fit_by_tab[self.active_spectrum_tab] = None
             if hasattr(self.spec_plotter, 'gauss_fit_artists'):
                 for artist in self.spec_plotter.gauss_fit_artists:
                     try: artist.remove()
@@ -475,11 +509,9 @@ STATUS: {result.message}
                     try: artist.remove()
                     except Exception: pass
                 self.multi_gauss_artists = []
-            
-            self.multi_gauss_results = None
-            self.spec_plotter.ax.legend(loc='upper right', fontsize=8)
-            self.spec_canvas.draw()
-            
+
+            self._refresh_active_spectrum_tab()
+
         except Exception as e:
             print(f"[DEBUG] Error clearing Gaussian fit: {e}")
 
@@ -544,30 +576,6 @@ STATUS: {result.message}
 
         contam_lines = self._active_contam_lines()
 
-        # Cache key: lines/contaminants/tab being fit. If unchanged since the
-        # last run, offer cached results instead of re-running the slow fit.
-        cache_key = (
-            tuple(sorted(round(float(r.get('wavelength', 0)), 6) for r in detection_lines)),
-            tuple(sorted(round(float(w), 6) for w in contam_lines['line_wave_um']))
-                if contam_lines is not None and len(contam_lines) else (),
-            self.active_spectrum_tab,
-        )
-        if hasattr(self, 'multi_gauss_result_cache') and getattr(self, 'multi_gauss_cache_key', None) == cache_key:
-            reply = QMessageBox.question(
-                self, "Cached Results Available",
-                "Results from the last fit with these same lines are cached.\n\n"
-                "Click 'Yes' to reopen the cached results (instant)\n"
-                "Click 'No' to re-fit with current data",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
-            )
-            if reply == QMessageBox.Yes:
-                fit_results, contam_results = self.multi_gauss_result_cache
-                self.multi_gauss_results = fit_results
-                self.multi_gauss_contam_results = contam_results
-                self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
-                self._show_multi_gaussian_results(fit_results, contam_results, None)
-                return
-
         # continuum_fitted is always a dict, never None; check this tab's own
         # entry (not the dict) so an unfit tab is correctly detected.
         if not hasattr(self, 'continuum_fitted') or self.continuum_fitted.get(self.active_spectrum_tab) is None:
@@ -579,7 +587,42 @@ STATUS: {result.message}
         else:
             continuum_y = self.continuum_fitted[self.active_spectrum_tab]
 
+        # Cache key: the lines, and the exact arrays the fit uses (wavelength, spectrum, continuum).
+        # A shift, a new region or a new continuum gives another key. Each tab caches its own fit.
+        inputs = hashlib.sha1()
+        for array in (spectrum_x, spectrum_y, continuum_y):
+            inputs.update(np.ascontiguousarray(array, dtype=float).tobytes())
+        cache_key = (
+            tuple(sorted(round(float(r.get('wavelength', 0)), 6) for r in detection_lines)),
+            tuple(sorted(round(float(w), 6) for w in contam_lines['line_wave_um']))
+                if contam_lines is not None and len(contam_lines) else (),
+            inputs.hexdigest(),
+        )
+        tab = self.active_spectrum_tab
+        cached = self.multi_gauss_cache.get(tab)
+        if cached is not None and cached['key'] == cache_key:
+            reply = QMessageBox.question(
+                self, "Cached Results Available",
+                "Results from the last fit of this spectrum are cached. The lines, the spectrum, "
+                "the wavelengths and the continuum have not changed.\n\n"
+                "Click 'Yes' to reopen the cached results (instant)\n"
+                "Click 'No' to re-fit with current data",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self.multi_gauss_contam_results = cached['contam_results']
+                self.multi_gauss_fit_input = cached['fit_input']
+                self.multi_fit_by_tab[tab] = {'fit_results': cached['fit_results'],
+                                              'contam_results': cached['contam_results']}
+                self._refresh_active_spectrum_tab()
+                self._show_multi_gaussian_results(cached['fit_results'], cached['contam_results'], None,
+                                                  failed_results=cached['failed_results'])
+                return
+
         self._multi_gauss_cache_key_pending = cache_key
+        # The fit runs in a thread. The user may switch tabs before it ends, but the fit
+        # belongs to the tab where it started.
+        self._multi_gauss_tab_pending = self.active_spectrum_tab
 
         self.multi_gauss_worker = MultiGaussianFitWorker(
             spectrum_x, spectrum_y, detection_lines, continuum_y,
@@ -652,22 +695,70 @@ STATUS: {result.message}
                                  "Could not fit any HITRAN lines." + (f"\n\n{detail}" if detail else ""))
             return
 
-        self.multi_gauss_results = fit_results
         self.multi_gauss_contam_results = contam_results
-        self.multi_gauss_result_cache = (fit_results, contam_results)
-        self.multi_gauss_cache_key = getattr(self, '_multi_gauss_cache_key_pending', None)
         # Keep the exact arrays that were fitted, so Save Fit still matches them
         # after a wavelength shift.
         self.multi_gauss_fit_input = (self.multi_gauss_worker.spectrum_x, self.multi_gauss_worker.spectrum_y)
-        self._plot_multi_gaussian_on_spectrum(fit_results, contam_results)
+        tab = self._multi_gauss_tab_pending
+        self.multi_fit_by_tab[tab] = {'fit_results': fit_results, 'contam_results': contam_results}
+        # The cache holds everything the results window needs, one entry for each tab.
+        self.multi_gauss_cache[tab] = {
+            'key': self._multi_gauss_cache_key_pending, 'fit_results': fit_results,
+            'contam_results': contam_results, 'failed_results': failed_results,
+            'fit_input': self.multi_gauss_fit_input,
+        }
+        self._refresh_active_spectrum_tab()
         self._show_multi_gaussian_results(fit_results, contam_results, None, failed_results=failed_results)
 
-    def _plot_multi_gaussian_on_spectrum(self, fit_results, contam_results=None):
+    def _redraw_fit_overlays(self):
+        """Draw the active tab's Gaussian fits and remove the fits of the other tabs.
+        The stored fits are in raw flux, so each redraw uses the current plot settings.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        plotter = self.spec_plotter
+        tab = self.active_spectrum_tab
+        # Clear both overlays first, so a tab without a fit shows none.
+        for artist in list(getattr(plotter, 'gauss_fit_artists', [])) + list(getattr(self, 'multi_gauss_artists', [])):
+            try: artist.remove()
+            except Exception: pass
+        plotter.gauss_fit_artists = []
+        self.multi_gauss_artists = []
+
+        single, multi = self.single_fit_by_tab.get(tab), self.multi_fit_by_tab.get(tab)
+        if single is None and multi is None:
+            return
+        to_display = self._overlay_converter()
+        if single is not None:
+            plotter.plot_gaussian_fit(single, to_display=to_display)
+        if multi is not None:
+            self._plot_multi_gaussian_on_spectrum(
+                multi['fit_results'], multi['contam_results'], to_display=to_display)
+
+    def _fit_overlay_handles(self):
+        """List the legend entries of the Gaussian fits that are drawn.
+
+        Args:
+            None
+
+        Returns:
+            handles (list): Artists that have a label for the legend.
+        """
+        artists = list(getattr(self.spec_plotter, 'gauss_fit_artists', [])) + list(getattr(self, 'multi_gauss_artists', []))
+        return [a for a in artists if a.get_label() and not a.get_label().startswith('_')]
+
+    def _plot_multi_gaussian_on_spectrum(self, fit_results, contam_results=None, to_display=None):
         """Draw every fitted line's baseline/Gaussian curve on the spectrum.
 
         Args:
             fit_results (list): {'line', 'result'} dicts for detection lines.
             contam_results (list): {'line', 'result'} dicts for contaminants.
+            to_display (callable): Function (x, y) that converts a raw-flux curve to the
+                units of the plotted spectrum. None builds it for the active tab.
 
         Returns:
             None
@@ -679,19 +770,10 @@ STATUS: {result.message}
             except Exception: pass
         self.multi_gauss_artists = []
         
-        # Use whichever line the active tab shows; global_line is stale
-        # whenever a non-Full tab is active.
-        norm_factor = 1.0
-        active_line = self._get_active_tab_line() if hasattr(self, '_get_active_tab_line') else getattr(self.spec_plotter, 'global_line', None)
-        if active_line is not None:
-            active_y = np.asarray(active_line.get_ydata(), dtype=float)
-            active_y = active_y[np.isfinite(active_y)]
-            if len(active_y):
-                active_median = np.nanmedian(active_y)
-                if 0.5 < active_median < 2.0:
-                    fit_median = np.nanmedian(np.concatenate([fit['result'].y_data for fit in fit_results]))
-                    norm_factor = fit_median if fit_median > 0 else 1.0
-        
+        # The fits are in raw flux. Draw them in the units of the plotted spectrum.
+        if to_display is None:
+            to_display = self._overlay_converter()
+
         # Own Gaussian only (not the chunk sum, so neighbors don't bleed in), on
         # a fine grid, cropped to DISPLAY_CROP_SIGMA_MULTIPLIER.
         def _own_curve(result):
@@ -705,18 +787,18 @@ STATUS: {result.message}
             """
             x_data = result.x_data
             model = result.y_fit_own if result.y_fit_own is not None else result.y_fit
-            y_abs = (np.asarray(model) + result.baseline) / norm_factor
+            y_abs = np.asarray(model) + result.baseline
             own_gaussian = gaussian(x_data, result.amplitude, result.center, result.sigma)
-            base_abs = y_abs - own_gaussian / norm_factor
+            base_abs = y_abs - own_gaussian
             half_width = DISPLAY_CROP_SIGMA_MULTIPLIER * abs(result.sigma)
             lo = max(x_data.min(), result.center - half_width)
             hi = min(x_data.max(), result.center + half_width)
             if hi <= lo:
-                return x_data, base_abs, y_abs
+                return x_data, to_display(x_data, base_abs), to_display(x_data, y_abs)
             x_fine = np.linspace(lo, hi, 150)
             base_fine = np.interp(x_fine, x_data, base_abs)
-            fit_fine = base_fine + gaussian(x_fine, result.amplitude, result.center, result.sigma) / norm_factor
-            return x_fine, base_fine, fit_fine
+            fit_fine = base_fine + gaussian(x_fine, result.amplitude, result.center, result.sigma)
+            return x_fine, to_display(x_fine, base_fine), to_display(x_fine, fit_fine)
 
         # Continuum plus every Gaussian curve_fit solved for at once, not just this
         # line's own. Lines sharing an extent give the same curve -- draw it once.
@@ -730,9 +812,9 @@ STATUS: {result.message}
                 curve (tuple): (x_data, base_abs, fit_abs) arrays.
             """
             x_data = result.x_data
-            fit_abs = (np.asarray(result.y_fit) + result.baseline) / norm_factor
-            base_abs = np.asarray(result.baseline) / norm_factor
-            return x_data, base_abs, fit_abs
+            fit_abs = np.asarray(result.y_fit) + result.baseline
+            base_abs = np.asarray(result.baseline)
+            return x_data, to_display(x_data, base_abs), to_display(x_data, fit_abs)
 
         # Always the real joint chunk curve here (never the per-line crop) -- lines
         # sharing an extent are deduped so the same curve isn't drawn/stacked twice.
@@ -808,30 +890,6 @@ STATUS: {result.message}
 
         results_text += f"\nFITTED LINES (target and contaminant, by wavelength):\n{'='*70}\n"
 
-        def _unreliable_reason(result):
-            """
-            Which known mechanism makes this line's area_error unreliable, if any.
-
-            Args:
-                result (GaussianFitResult): One line's fit result
-
-            Returns:
-                reason (str): 'bound' if fitted sigma is pinned at its curve_fit
-                    bound (an optimizer-boundary artifact, not real flux ambiguity),
-                    'blend' if area_error exceeds AREA_ERROR_SANITY_RATIO times the
-                    area for any other reason (usually a genuine close blend), or
-                    None if the line is reliable
-            """
-            if (result.area_error is None
-                    or abs(result.area_error) <= AREA_ERROR_SANITY_RATIO * abs(result.area)):
-                return None
-            if result.catalog_sigma:
-                lower = SIGMA_BOUND_LOWER_MULTIPLIER * result.catalog_sigma
-                upper = SIGMA_BOUND_UPPER_MULTIPLIER * result.catalog_sigma
-                if abs(result.sigma - lower) < 0.01 * lower or abs(result.sigma - upper) < 0.01 * upper:
-                    return 'bound'
-            return 'blend'
-
         # Interleaved by wavelength so the listing matches spectrum order;
         # Line N / Contam N number within their own kind, not globally.
         merged_entries = (
@@ -843,7 +901,7 @@ STATUS: {result.message}
         for kind, idx, info in merged_entries:
             result, line = info['result'], info['line']
             area_err_text = f" ± {result.area_error:.4e}" if result.area_error is not None else ""
-            reason = _unreliable_reason(result)
+            reason = unreliable_area_error_reason(result)
             if reason == 'bound':
                 reliability_tag = "  [FLAG: sigma pinned at fit bound]"
             elif reason == 'blend':
@@ -910,7 +968,7 @@ STATUS: {result.message}
 
         # Quadrature sum over reliable lines' area_error only; an unreliable
         # line's area still counts in total_flux, just not its error.
-        reliable_fits = [fit_info for fit_info in fit_results if _unreliable_reason(fit_info['result']) is None]
+        reliable_fits = [fit_info for fit_info in fit_results if unreliable_area_error_reason(fit_info['result']) is None]
         area_errors = [fit_info['result'].area_error for fit_info in reliable_fits]
         total_flux_error = (float(np.sqrt(sum(e ** 2 for e in area_errors)))
                              if total_flux is not None and area_errors and all(e is not None for e in area_errors)
@@ -957,53 +1015,109 @@ STATUS: {result.message}
         layout.addWidget(text_display)
         
         btn_layout = QHBoxLayout()
-        save_btn = QPushButton("Save Fit...")
-        save_btn.setToolTip("Save wavelength, original spectrum and fit to a text file")
-        save_btn.clicked.connect(lambda: self._save_multi_gaussian_fit(dlg, fit_results, contam_results))
+        save_fit_btn = QPushButton("Save Fit...")
+        save_fit_btn.setToolTip("Save wavelength, original spectrum and fit to a text file")
+        save_fit_btn.clicked.connect(lambda: self._save_gaussian_fit_curve(
+            dlg, [info['result'] for info in fit_results + list(contam_results or [])],
+            self.multi_gauss_fit_input, "multi_gaussian_fit.txt"))
+        # Fitted lines in spectrum order, then the lines that could not be fit.
+        fitted = ([dict(info, kind='line') for info in fit_results]
+                  + [dict(info, kind='contaminant') for info in (contam_results or [])])
+        fitted.sort(key=lambda entry: entry['result'].center)
+        entries = fitted + [dict(info, kind='skipped') for info in failed_results]
+        save_params_btn = QPushButton("Save Parameters...")
+        save_params_btn.setToolTip("Save the fitted parameters of every line to a text file")
+        save_params_btn.clicked.connect(lambda: self._save_gaussian_parameters_table(
+            dlg, entries, "multi_gaussian_parameters.txt"))
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
         btn_layout.addStretch()
-        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(save_fit_btn)
+        btn_layout.addWidget(save_params_btn)
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
         dlg.setLayout(layout)
         dlg.exec_()
 
-    def _save_multi_gaussian_fit(self, parent, fit_results, contam_results):
-        """Save the original spectrum and the multi-Gaussian fit to a text file.
+    def _save_gaussian_text(self, parent, dialog_title, default_name, write):
+        """Ask for a file name, run the writer, and report the result.
 
         Args:
             parent (QWidget): Dialog that owns the file and message boxes.
-            fit_results (list): {'line', 'result'} dicts for detection lines.
-            contam_results (list): {'line', 'result'} dicts for contaminants.
+            dialog_title (str): Title of the file dialog.
+            default_name (str): File name that the dialog suggests.
+            write (callable): Function that takes the output path and writes the file.
 
         Returns:
             None
         """
-        path, _ = QFileDialog.getSaveFileName(
-            parent, "Save Multi-Gaussian Fit", "multi_gaussian_fit.txt",
-            "Text files (*.txt);;CSV files (*.csv);;All files (*)"
-        )
+        path, _ = QFileDialog.getSaveFileName(parent, dialog_title, default_name, "Text files (*.txt)")
         if not path:
             return
-
-        wavelength, spectrum = self.multi_gauss_fit_input
-        results = [info['result'] for info in fit_results + list(contam_results or [])]
-        header = getattr(self.cube_data, 'header', None)
+        if not os.path.splitext(path)[1]:
+            path += ".txt"
         try:
-            save_multi_gaussian_fit(
-                path, wavelength, spectrum, results,
-                wave_unit=clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm')),
-                flux_unit=header.get('BUNIT') if header is not None else None,
-                header_lines=[
-                    f"Instrument: {getattr(self.cube_data, 'instrument', 'Unknown')}",
-                    f"Spectrum tab: {self.active_spectrum_tab}",
-                ],
-            )
+            write(path)
         except Exception as e:
-            QMessageBox.critical(parent, "Error", f"Failed to save the fit:\n{e}")
+            QMessageBox.critical(parent, "Error", f"Failed to save the file:\n{e}")
             return
-        QMessageBox.information(parent, "Success", f"Fit saved to:\n{path}")
+        QMessageBox.information(parent, "Success", f"Saved to:\n{path}")
+
+    def _gaussian_export_header(self, extra_lines=()):
+        """Build the units and comment lines that every Gaussian text file shares.
+
+        Args:
+            extra_lines (list): Extra comment lines (str) to add after the standard ones.
+
+        Returns:
+            header (dict): Keyword arguments wave_unit, flux_unit and header_lines.
+        """
+        header = getattr(self.cube_data, 'header', None)
+        return {
+            'wave_unit': clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm')),
+            'flux_unit': header.get('BUNIT') if header is not None else None,
+            'header_lines': [
+                f"Instrument: {getattr(self.cube_data, 'instrument', 'Unknown')}",
+                f"Spectrum tab: {self.active_spectrum_tab}",
+                *extra_lines,
+            ],
+        }
+
+    def _save_gaussian_fit_curve(self, parent, results, fit_input, default_name, extra_lines=()):
+        """Save the original spectrum and a Gaussian fit to a text file.
+
+        Args:
+            parent (QWidget): Dialog that owns the file and message boxes.
+            results (list): GaussianFitResult objects to draw the fit from.
+            fit_input (tuple): (wavelength, spectrum) arrays that were fitted.
+            default_name (str): File name that the file dialog suggests.
+            extra_lines (list): Extra comment lines (str) for the file header.
+
+        Returns:
+            None
+        """
+        wavelength, spectrum = fit_input
+        self._save_gaussian_text(
+            parent, "Save Fit", default_name,
+            lambda path: save_gaussian_fit(path, wavelength, spectrum, results,
+                                           **self._gaussian_export_header(extra_lines)))
+
+    def _save_gaussian_parameters_table(self, parent, entries, default_name, extra_lines=()):
+        """Save the fitted line parameters to a text file.
+
+        Args:
+            parent (QWidget): Dialog that owns the file and message boxes.
+            entries (list): Dicts with 'kind', 'line' and 'result' for each line.
+            default_name (str): File name that the file dialog suggests.
+            extra_lines (list): Extra comment lines (str) for the file header.
+
+        Returns:
+            None
+        """
+        self._save_gaussian_text(
+            parent, "Save Parameters", default_name,
+            lambda path: save_gaussian_parameters(path, entries,
+                                                  **self._gaussian_export_header(extra_lines)))
 
     def _fit_gaussian_map(self):
         """Fit a Gaussian at every pixel of the cube (or a region on Left/Right).

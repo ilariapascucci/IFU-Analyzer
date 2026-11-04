@@ -21,15 +21,16 @@ from .unit_converter import get_wave_unit, convert_area_to_cgs, extract_value_fr
 from .utils import safe_worker_count, detect_instrument_from_header, get_spectral_resolution
 
 
-def build_multi_gaussian_fit_curve(wavelength, results):
-    """Build the multi-Gaussian fit on the full wavelength grid.
+def build_gaussian_fit_curve(wavelength, results):
+    """Build the Gaussian fit on the full wavelength grid.
 
-    Each fitted chunk gives its continuum plus all of its Gaussians. Wavelengths that
+    Each fitted chunk gives its baseline plus all of its Gaussians. Wavelengths that
     no chunk covers are NaN. Where two chunks overlap, the chunk with the nearest line wins.
 
     Args:
         wavelength (numpy.ndarray): Wavelength grid that the lines were fitted on.
-        results (list): GaussianFitResult objects (detection and contaminant lines).
+        results (list): GaussianFitResult objects (a single fit, or the detection and
+            contaminant lines of a multi-Gaussian fit).
 
     Returns:
         fit (numpy.ndarray): Fit flux on `wavelength`, NaN outside every chunk.
@@ -65,18 +66,62 @@ def build_multi_gaussian_fit_curve(wavelength, results):
     return fit
 
 
-def save_multi_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_unit=None,
-                            header_lines=()):
-    """Save the original spectrum and the multi-Gaussian fit to an ASCII file.
+def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None, flux_unit=None,
+                          header_lines=()):
+    """Save the wavelength, original spectrum and fit columns to an ASCII file.
 
-    The columns are wavelength, original spectrum and fit, separated by tabs. The fit
-    column is NaN where no chunk was fitted.
+    The columns are separated by tabs. The comment lines at the top start with "#".
+    NaN in the fit column means that no fit was made at that wavelength.
+
+    Args:
+        path (str): Output file path.
+        wavelength (numpy.ndarray): Wavelength grid.
+        spectrum (numpy.ndarray): Original spectrum on the same grid.
+        fit (numpy.ndarray): Fit on the same grid, NaN where there is no fit.
+        title (str): First comment line of the file.
+        wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
+        flux_unit (str): Flux unit for the file header, or None for "Unknown".
+        header_lines (list): Extra comment lines (str) to write below the title.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If the three arrays differ in length.
+    """
+    wavelength = np.asarray(wavelength, dtype=float)
+    spectrum = np.asarray(spectrum, dtype=float)
+    fit = np.asarray(fit, dtype=float)
+    if not len(wavelength) == len(spectrum) == len(fit):
+        raise ValueError("wavelength, spectrum and fit must have the same length.")
+
+    wave_text = wave_unit or "Unknown"
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(f"# {title}\n")
+        for line in header_lines:
+            f.write(f"# {line}\n")
+        f.write(f"# Wavelength unit: {wave_text}\n")
+        f.write(f"# Flux unit: {flux_unit or 'Unknown'}\n")
+        f.write("# Fit is NaN where no fit was made.\n")
+        f.write("#\n")
+        f.write(f"# Wavelength ({wave_text})\tOriginal\tFit\n")
+        for w, o, m in zip(wavelength, spectrum, fit):
+            f.write(f"{w:.6e}\t{o:.6e}\t{m:.6e}\n")
+
+
+def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_unit=None,
+                      header_lines=()):
+    """Save the original spectrum and a Gaussian fit to an ASCII file.
+
+    Use this for a single fit or a multi-Gaussian fit. The columns are wavelength,
+    original spectrum and fit. The fit is NaN where no chunk was fitted.
 
     Args:
         path (str): Output file path.
         wavelength (numpy.ndarray): Wavelength grid that the lines were fitted on.
         spectrum (numpy.ndarray): Original spectrum on the same grid.
-        results (list): GaussianFitResult objects (detection and contaminant lines).
+        results (list): GaussianFitResult objects (a single fit, or the detection and
+            contaminant lines of a multi-Gaussian fit).
         wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
         flux_unit (str): Flux unit for the file header, or None for "Unknown".
         header_lines (list): Extra comment lines (str) to write below the title.
@@ -87,26 +132,11 @@ def save_multi_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None,
     Raises:
         ValueError: If no result succeeded, or the arrays differ in length.
     """
-    wavelength = np.asarray(wavelength, dtype=float)
-    spectrum = np.asarray(spectrum, dtype=float)
-    if len(wavelength) != len(spectrum):
-        raise ValueError("wavelength and spectrum must have the same length.")
     if not any(r.success for r in results):
         raise ValueError("No successful fit to save.")
-
-    fit = build_multi_gaussian_fit_curve(wavelength, results)
-    wave_text = wave_unit or "Unknown"
-    with open(path, 'w') as f:
-        f.write("# Multi-Gaussian fit export from IFU Analyzer\n")
-        for line in header_lines:
-            f.write(f"# {line}\n")
-        f.write(f"# Wavelength unit: {wave_text}\n")
-        f.write(f"# Flux unit: {flux_unit or 'Unknown'}\n")
-        f.write("# Fit is NaN where no line was fitted.\n")
-        f.write("#\n")
-        f.write(f"# Wavelength ({wave_text})\tOriginal\tFit\n")
-        for w, o, m in zip(wavelength, spectrum, fit):
-            f.write(f"{w:.6e}\t{o:.6e}\t{m:.6e}\n")
+    fit = build_gaussian_fit_curve(wavelength, results)
+    save_spectrum_and_fit(path, wavelength, spectrum, fit, "Gaussian fit export from IFU Analyzer",
+                          wave_unit=wave_unit, flux_unit=flux_unit, header_lines=header_lines)
 
 
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
@@ -705,9 +735,12 @@ def fit_gaussian_to_line(x1: float, x2: float,
                          noise_min: Optional[float] = None,
                          noise_max: Optional[float] = None,
                          header: Optional[object] = None,
-                         wave_unit: Optional[str] = None) -> GaussianFitResult:
+                         wave_unit: Optional[str] = None,
+                         continuum: Optional[np.ndarray] = None) -> GaussianFitResult:
     """
     Fit a Gaussian to a spectral line between two selected points.
+    The baseline is the fitted continuum if one is given. If not, it is the straight
+    line between the flux values at the two window edges.
 
     Args:
         x1 (float): Left boundary wavelength (scalar or Quantity)
@@ -719,6 +752,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
         noise_max (float): Optional right boundary of a line-free noise region
         header (astropy.io.fits.Header): Optional FITS header for unit conversion (reads CDELT1, CDELT2)
         wave_unit (str): Wavelength unit string, used for the area's CGS conversion
+        continuum (array): Optional fitted continuum, same length as spectrum_y. When given, it
+            is the baseline. A continuum with no value where the flux has data fails the fit
 
     Returns:
         fit (GaussianFitResult): Fit result; on failure, success is False and message explains why
@@ -763,15 +798,38 @@ def fit_gaussian_to_line(x1: float, x2: float,
             f"Left/Right boundaries."
         )
 
-    # Get boundary flux values for baseline
-    y1 = y_data[0]
-    y2 = y_data[-1]
-    
-    # STEP 1a: Linear baseline (y1 + slope*(x-x1)) isolates the line by
-    # removing the continuum.
-    baseline = calculate_baseline(x1, y1, x2, y2, x_data, y_data)
-    baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
-    
+    if continuum is not None:
+        # STEP 1a: The fitted continuum is the baseline. Slope and start are read from its
+        # first and last valid values in the window.
+        continuum = np.asarray(extract_value_from_quantity(continuum), dtype=float)
+        if continuum.shape != spectrum_y.shape:
+            return _invalid_selection(
+                x_data, y_data,
+                "Error: The fitted continuum and the spectrum have different lengths. "
+                "Fit the continuum again."
+            )
+        baseline = continuum[mask]
+        has_baseline = np.isfinite(baseline)
+        if np.any(np.isfinite(y_data) & ~has_baseline) or np.count_nonzero(has_baseline) < 2:
+            return _invalid_selection(
+                x_data, y_data,
+                "Error: The fitted continuum has no value at some wavelengths of the fit window. "
+                "Fit the continuum again, or clear it."
+            )
+        x_base, y_base = x_data[has_baseline], baseline[has_baseline]
+        baseline_slope = (y_base[-1] - y_base[0]) / (x_base[-1] - x_base[0])
+        baseline_start = y_base[0]
+    else:
+        # Get boundary flux values for baseline
+        y1 = y_data[0]
+        y2 = y_data[-1]
+
+        # STEP 1a: Linear baseline (y1 + slope*(x-x1)) isolates the line by
+        # removing the continuum.
+        baseline = calculate_baseline(x1, y1, x2, y2, x_data, y_data)
+        baseline_slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
+        baseline_start = y1
+
     # STEP 1b: Subtract baseline to isolate the spectral line
     # y_corrected = y_data - baseline, ready for Gaussian fitting
     y_corrected = y_data - baseline
@@ -809,7 +867,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
     if np.nanmax(y_corrected) <= 0:
         return GaussianFitResult(
             amplitude=0, center=np.mean(x_data), sigma=0, fwhm=0, area=0,
-            baseline_slope=baseline_slope, baseline_intercept=y1,
+            baseline_slope=baseline_slope, baseline_intercept=baseline_start,
             x_data=x_data, y_data=y_data,
             baseline=baseline, y_corrected=y_corrected,
             y_fit=np.zeros_like(x_data), residuals=y_corrected,
@@ -898,7 +956,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         return GaussianFitResult(
             amplitude=amplitude, center=center, sigma=sigma,
             fwhm=fwhm, area=area, area_unit=area_unit, area_native=area_native,
-            baseline_slope=baseline_slope, baseline_intercept=y1,
+            baseline_slope=baseline_slope, baseline_intercept=baseline_start,
             x_data=x_data, y_data=y_data,
             baseline=baseline, y_corrected=y_corrected,
             y_fit=y_fit, residuals=residuals,
@@ -912,7 +970,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
         return GaussianFitResult(
             amplitude=0, center=center_guess, sigma=sigma_guess,
             fwhm=0, area=0,
-            baseline_slope=baseline_slope, baseline_intercept=y1,
+            baseline_slope=baseline_slope, baseline_intercept=baseline_start,
             x_data=x_data, y_data=y_data,
             baseline=baseline, y_corrected=y_corrected,
             y_fit=np.zeros_like(x_data), residuals=y_corrected,
