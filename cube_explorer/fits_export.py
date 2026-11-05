@@ -10,6 +10,7 @@ original header kept intact, not reduced to a clean 2D WCS, so those stay
 separate rather than being forced through this module.
 """
 
+import os
 from datetime import datetime, timezone
 
 import numpy as np
@@ -134,6 +135,7 @@ def build_line_map_header(source_header, shape, wavelength=None, molecule=None, 
         error_map (array): Per-pixel error, for SUMFERR and the ERR
             extension -- None skips both.
         src_filename (str): Originating file, for SRCFILE -- None skips it.
+            Only the file name is written, never the folder path.
         fit_method (str): Free-text method label, for FITMETHD -- None skips it.
         identity_header: Real cube/source header to pull INSTRUME/TARGNAME/etc
             from when source_header is a bare common-grid WCS with no
@@ -151,7 +153,7 @@ def build_line_map_header(source_header, shape, wavelength=None, molecule=None, 
     if molecule is not None:
         fields["MOLECULE"] = molecule
     if src_filename is not None:
-        fields["SRCFILE"] = src_filename
+        fields["SRCFILE"] = os.path.basename(src_filename)
     if fit_method is not None:
         fields["FITMETHD"] = fit_method
     if flux_map is not None:
