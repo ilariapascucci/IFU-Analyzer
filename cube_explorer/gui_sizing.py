@@ -157,6 +157,17 @@ class ResponsiveButtonColumn(QWidget):
         """
         return self._size_for(2)
 
+    def single_column_height(self):
+        """Give the height at which the buttons switch to one column.
+
+        Args:
+            None
+
+        Returns:
+            height (int): Smallest height that holds all the buttons in one column.
+        """
+        return self._size_for(1).height()
+
     def resizeEvent(self, event):
         """Use one column when the height allows it, and two columns when it does not.
 

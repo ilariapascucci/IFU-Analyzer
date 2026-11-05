@@ -196,7 +196,7 @@ Bring several images to one resolution in a single step.
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
 - **Slice (FITS):** the "Save" button in each slice's side column saves that slice as a 2D FITS file. If a region or pixel is selected on that slice, only the pixels inside it are saved and all other pixels are `NaN`. The 2D viewer has the same button.
-- **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position
+- **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position. In the main window, use the "Region" button (the dashed box with a cursor) in the side column of a slice: "Save Region..." saves the region of that slice, and "Import Region..." places a saved region on that slice.
 - **Rotated image (FITS):** save of the rotated image with the updated WCS header
 - **Convolved image (FITS):** save of the resolution-matched image (the "Pair" output) with the 2-HDU layout (image and `COVERAGE`)
 - **Batch ZIP:** a zip archive of all resolution-matched FITS files on a common WCS grid
@@ -537,6 +537,7 @@ python main.py
    - The statistics update automatically.
    - The extracted spectrum shows in the bottom panel, on the "Left Region" or "Right Region" tab.
    - Use the copy button to copy a selection, a colormap, or a colour scale to the other panel.
+   - Use the "Region" button (the dashed box with a cursor) to save the region as sky coordinates, or to import a saved region onto that slice.
 
 ### Gaussian Fitting
 
@@ -683,7 +684,7 @@ python main.py
    - Click "Save Maps" to save the maps as FITS and PNG files in one zip file.
 
    **Region (optional):**
-   - Click "Draw Region" to draw a region on the flux map of a line. It needs "Calculate Maps" first. Or click "Import Region" to load a region that you saved with "Save Region" in the main window or in the 2D viewer.
+   - Click "Draw Region" to draw a region on the flux map of a line. It needs "Calculate Maps" first. Or click "Import Region" to load a region that you saved with the "Region" button in the main window or with "Save Region" in the 2D viewer.
    - Click "Save Region" to save the region as a text file. The main window and the 2D viewer can read it.
    - "Calculate Fluxes" and "Run Fit" then use only that region. "Delete Region" goes back to the whole cube.
    - The maps always use the whole cube, so they do not match a fit that uses a region. While a region is active, the "Map" and "Convolved Map" links are hidden, and "Calculate Maps", "Convolve Maps", and "Run Map" are disabled. The maps stay in memory. When you click "Delete Region", the links come back and the buttons work again.
@@ -706,7 +707,7 @@ python main.py
    - **Normalize spectrum:** the "Normalize" checkbox divides every spectrum by the peak of the full spectrum. "Show Left" and "Show Right" overlay a region's spectrum on the "Full" tab. "Self-Normalize Left" and "Self-Normalize Right" divide a region's spectrum by its own peak.
    - **Doppler shift:** two buttons control a multiplicative wavelength correction (km/s). "Preview Shift" asks for the velocity and shows the shifted spectrum in orange. Click it again to cancel the preview. "Apply Shift" applies the preview. When no preview is pending, click "Apply Shift" again to revert the spectrum to its original wavelength. A button is pressed while its state is active for the spectrum you are looking at. Applying or reverting a shift clears the Gaussian fits of that spectrum.
    - **Spectrum legend:** the "Legend" button, next to "Save Spectrum", opens a list of legend groups: Continuum, Slice markers, Fit markers, Noise region, Gaussian fits, Contaminants, and Shift preview. Clear the check mark of a group to remove its entries from the legend. The spectrum itself always stays in the legend. The "Gaussian fits" group also shows or hides the box with the center, FWHM, and R² of a single Gaussian fit. The Gaussian map pixel-fit window and the rotational-diagram fit windows have a "Legend" check box in the toolbar row of the plot. Clear it to hide the legend of that plot.
-   - **Spectrum height:** drag the divider between the slices and the menu groups up or down. The spectrum and its buttons are below the divider. The plots change size while you drag.
+   - **Spectrum height:** drag the divider between the slices and the menu groups up or down. The spectrum and its buttons are below the divider. The plots change size while you drag. Double-click the divider to put it back at its start position. The window starts with the slices as tall as they can be while the slice buttons still use two columns. The divider stops when the stats and the cursor info of the slices would no longer fit.
    - **Wavelength range:** the "λ min" and "λ max" boxes (in µm) in the "Lines & Fit" group set the range for "Fetch HITRAN", "Import Lines", "Contam. Lines", and "Flux Map". They fill from the cube when you load it.
    - **New window:** the new-window button opens an independent application window for a multi-file comparison.
 

@@ -15,10 +15,10 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QInputDialog, QDialog, QToolTip,
     QListWidget, QListWidgetItem, QFrame, QDoubleSpinBox,
-    QSizePolicy, QSplitter, QSplitterHandle
+    QSizePolicy, QSplitter, QSplitterHandle, QMenu
 )
-from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QPainter, QColor
+from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal
+from PyQt5.QtGui import QPainter, QColor, QFont, QFontMetrics
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -51,6 +51,11 @@ from .unit_converter import convert_wavelength, are_units_compatible, clean_flux
 
 # Qt value for "no maximum size" on a widget.
 _NO_SIZE_LIMIT = 16777215
+
+# The most lines the slice info labels show: a region's stats with the slice scaling lines
+# (7 + blank + 3), and a cursor readout whose value line wraps (3 + 1).
+_STATS_MAX_LINES = 11
+_HOVER_MAX_LINES = 4
 
 
 class CollapsibleButtonGroup(QWidget):
@@ -287,9 +292,26 @@ class GripSplitterHandle(QSplitterHandle):
         painter.fillRect(cx - 18, cy - 3, 36, 2, grip)
         painter.fillRect(cx - 18, cy + 1, 36, 2, grip)
 
+    def mouseDoubleClickEvent(self, event):
+        """Tell the splitter that the user double-clicked this divider.
+
+        Args:
+            event (QMouseEvent): The mouse event.
+
+        Returns:
+            None
+        """
+        self.splitter().doubleClicked.emit()
+
 
 class GripSplitter(QSplitter):
-    """Splitter whose dividers are GripSplitterHandle objects."""
+    """Splitter whose dividers are GripSplitterHandle objects.
+
+    Signals:
+        doubleClicked: A divider was double-clicked.
+    """
+
+    doubleClicked = pyqtSignal()
 
     def createHandle(self):
         """Make one divider for the splitter.
@@ -594,7 +616,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.last_idx_left = 0
         self.last_idx_right = 0
         for btn in (self.save_slice_btn_l, self.save_slice_btn_r,
-                    self.region_save_wcs_btn, self.region_import_wcs_btn):
+                    self.region_menu_btn_l, self.region_menu_btn_r):
             btn.setEnabled(False)
         self.original_spectrum = None
 
@@ -838,6 +860,19 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hover2_label.setMinimumWidth(150)
         self.hover2_label.setWordWrap(True)
         self.hover2_label.setStyleSheet("font-size: 10pt; color: #333;")
+
+        # Each info label keeps the height of its longest text, with the text at the top.
+        # Then a changing text never changes the slice height or moves the divider.
+        stats_font, hover_font = QFont(), QFont()
+        stats_font.setPointSize(10)
+        stats_font.setBold(True)
+        hover_font.setPointSize(10)
+        for label in (self.stats1_label, self.stats2_label):
+            label.setMinimumHeight(_STATS_MAX_LINES * QFontMetrics(stats_font).lineSpacing())
+            label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        for label in (self.hover1_label, self.hover2_label):
+            label.setMinimumHeight(_HOVER_MAX_LINES * QFontMetrics(hover_font).lineSpacing())
+            label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
         # Slice selection buttons
         self.set_left_btn = QPushButton("Set Left Slice")
@@ -1185,21 +1220,34 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "Save the right slice as a 2D FITS (only the region, if one is drawn)")
         self.save_slice_btn_r.clicked.connect(lambda: self._region_save_slice("right"))
 
-        # Save/import region actions live in the "Region" group
-        # (_setup_main_layout) -- each one asks which panel (left/right) to use.
-        self.region_save_wcs_btn = QPushButton("Save Region")
-        self.region_save_wcs_btn.setToolTip(
-            "Save one panel's region as RA/Dec sky coordinates, so it can be reconstructed on a different cube")
-        self.region_save_wcs_btn.clicked.connect(self._region_save_wcs_text)
-
-        self.region_import_wcs_btn = QPushButton("Import Region")
-        self.region_import_wcs_btn.setToolTip(
-            "Load a region previously saved as WCS text onto one panel, at the same sky position")
-        self.region_import_wcs_btn.clicked.connect(self._region_import_wcs_text)
+        # Save/import region: one menu button in each slice sidebar, so the panel is known.
+        self.region_menu_btn_l = self._make_region_button("left")
+        self.region_menu_btn_r = self._make_region_button("right")
 
         for btn in (self.save_slice_btn_l, self.save_slice_btn_r,
-                    self.region_save_wcs_btn, self.region_import_wcs_btn):
+                    self.region_menu_btn_l, self.region_menu_btn_r):
             btn.setEnabled(False)
+
+    def _make_region_button(self, target):
+        """Build a square button that opens a menu to save or import the region of one panel.
+
+        Args:
+            target (str): Panel the button applies to ('left' or 'right').
+
+        Returns:
+            btn (QPushButton): The configured button.
+        """
+        btn = QPushButton()
+        set_button_icon(btn, "region")
+        btn.setFixedSize(35, 35)
+        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+        menu = QMenu(btn)
+        menu.addAction("Save Region...", lambda: self._region_save_wcs_text(target))
+        menu.addAction("Import Region...", lambda: self._region_import_wcs_text(target))
+        btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
+        btn.setToolTip(
+            f"Save the {target} region as sky coordinates, or import a saved region onto the {target} slice")
+        return btn
 
     def _setup_main_layout(self):
         """Set up the main application layout.
@@ -1234,11 +1282,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         left_slice_layout.addWidget(self.slice1_canvas)
         left_slice_layout.addWidget(self.slice1_toolbar)
 
-        # Left sidebar (shape buttons / copy / erase)
-        left_sidebar = ResponsiveButtonColumn(
-            [self.color_btn_left, self.scale_btn_left]
-            + [self.shape_buttons["left"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
-            + [self.copy_menu_btn_l, self.edit_shape_btn_l, self.erase_btn_l, self.save_slice_btn_l])
+        # Left sidebar. In two columns, the first six buttons (the region tools) fill the first
+        # column and the other six (the slice buttons) fill the second.
+        self._slice_sidebar = left_sidebar = ResponsiveButtonColumn(
+            [self.shape_buttons["left"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.edit_shape_btn_l, self.color_btn_left, self.scale_btn_left, self.copy_menu_btn_l,
+               self.region_menu_btn_l, self.erase_btn_l, self.save_slice_btn_l])
 
         left_combined.addLayout(left_slice_layout, 4)
         left_combined.addWidget(left_sidebar, 1)
@@ -1257,9 +1306,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         right_combined = QHBoxLayout()
 
         right_sidebar = ResponsiveButtonColumn(
-            [self.color_btn_right, self.scale_btn_right]
-            + [self.shape_buttons["right"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
-            + [self.copy_menu_btn_r, self.edit_shape_btn_r, self.erase_btn_r, self.save_slice_btn_r])
+            [self.shape_buttons["right"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.edit_shape_btn_r, self.color_btn_right, self.scale_btn_right, self.copy_menu_btn_r,
+               self.region_menu_btn_r, self.erase_btn_r, self.save_slice_btn_r])
 
         right_slice_layout = QVBoxLayout()
         right_slice_layout.addWidget(self.slice2_canvas)
@@ -1284,13 +1333,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         bottom_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- Collapsible button groups ---
-        # Group 1: Region (save or import a region as sky coordinates).
-        # Each button asks which panel, left or right, to use.
-        self.region_group = CollapsibleButtonGroup("Region")
-        self.region_group.add_button(self.region_save_wcs_btn)
-        self.region_group.add_button(self.region_import_wcs_btn)
-
-        # Group 2: Gaussian Fit
+        # Group 1: Gaussian Fit
         self.gaussian_group = CollapsibleButtonGroup("Gaussian Fit")
         self.gaussian_group.add_button(self.gauss_left_btn)
         self.gaussian_group.add_button(self.gauss_peak_btn)
@@ -1300,12 +1343,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gaussian_group.add_button(self.gauss_fit_btn)
         self.gaussian_group.add_button(self.gauss_map_btn)
 
-        # Group 3: Continuum Tools
+        # Group 2: Continuum Tools
         self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
         self.continuum_group.add_button(self.continuum_spectrum_btn)
         self.continuum_group.add_button(self.continuum_pixel_btn)
 
-        # Group 4: Lines & Fit (build the line list first, then fit the lines)
+        # Group 3: Lines & Fit (build the line list first, then fit the lines)
         self.hitran_group = CollapsibleButtonGroup("Lines && Fit")
         self.hitran_group.add_button(QLabel("λ min (µm):"))
         self.hitran_group.add_button(self.min_wave_input)
@@ -1320,8 +1363,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_group.add_button(self.flux_map_btn)
 
         bottom_layout.addLayout(build_group_bar([
-            self.region_group, self.gaussian_group,
-            self.continuum_group, self.hitran_group]))
+            self.gaussian_group, self.continuum_group, self.hitran_group]))
 
         # The continuum buttons live in two pop-ups that the Continuum Tools buttons open.
         self._build_continuum_popups()
@@ -1352,15 +1394,35 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.main_splitter.addWidget(bottom_pane)
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setOpaqueResize(True)
-        # Start with equal panes: the slices keep about their old height and the spectrum gets
-        # more. A taller window gives the extra height to the spectrum.
+        # The real start position is set once the window is shown (_apply_default_split).
+        # After that, a taller window gives the extra height to the spectrum.
         self.main_splitter.setSizes([1, 1])
+        QTimer.singleShot(0, self._apply_default_split)
+        self.main_splitter.doubleClicked.connect(self._apply_default_split)
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 2)
         self.main_splitter.setHandleWidth(8)
         main_layout.addWidget(self.main_splitter, 1)
 
         self.setLayout(main_layout)
+
+    def _apply_default_split(self):
+        """Put the divider where the slices are as tall as they can be while the slice
+        buttons still use two columns. A window too short for that gives the spectrum
+        its own minimum height first.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        splitter = self.main_splitter
+        total = sum(splitter.sizes())
+        wanted = self._slice_sidebar.single_column_height() - 1
+        top = max(splitter.widget(0).minimumSizeHint().height(),
+                  min(wanted, total - splitter.widget(1).minimumSizeHint().height()))
+        splitter.setSizes([top, total - top])
 
     def _cancel_custom_continuum(self):
         """Cancel custom continuum selection.
@@ -1578,7 +1640,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self._fill_wave_range_inputs()
 
             for btn in (self.save_slice_btn_l, self.save_slice_btn_r,
-                        self.region_save_wcs_btn, self.region_import_wcs_btn):
+                        self.region_menu_btn_l, self.region_menu_btn_r):
                 btn.setEnabled(True)
 
         except MemoryError:
@@ -1932,21 +1994,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         kind = "Slice" if mask is None else "Slice (region only)"
         QMessageBox.information(self, "Export Complete", f"{kind} saved to:\n{path}")
 
-    def _region_save_wcs_text(self):
+    def _region_save_wcs_text(self, target):
         """Save one panel's region as RA/Dec sky coordinates in a text
         file, so it can be placed on a different cube later.
 
         Args:
-            None
+            target (str): Panel whose region to save, 'left' or 'right'.
 
         Returns:
             None
         """
         if getattr(self.cube_data, "cube", None) is None:
             QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
-            return
-        target = self._ask_target_panel("Save Region as WCS Text", "Which panel's region would you like to save?")
-        if target is None:
             return
         sel = self.last_selection_left if target == "left" else self.last_selection_right
         if not sel:
@@ -1986,21 +2045,18 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return
         QMessageBox.information(self, "Export Complete", f"Region saved to:\n{path}")
 
-    def _region_import_wcs_text(self):
+    def _region_import_wcs_text(self, target):
         """Load a region saved as WCS text and place it on one panel,
         using this cube's own WCS to match the same sky position.
 
         Args:
-            None
+            target (str): Panel to place the imported region on, 'left' or 'right'.
 
         Returns:
             None
         """
         if getattr(self.cube_data, "cube", None) is None:
             QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
-            return
-        target = self._ask_target_panel("Import Region", "Which panel should the imported region be placed on?")
-        if target is None:
             return
 
         wcs2d = make_2d_wcs(self.cube_data.header)
