@@ -15,9 +15,10 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QInputDialog, QDialog, QToolTip,
     QListWidget, QListWidgetItem, QFrame, QDoubleSpinBox,
-    QSizePolicy
+    QSizePolicy, QSplitter, QSplitterHandle
 )
-from PyQt5.QtCore import QPoint, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve
+from PyQt5.QtGui import QPainter, QColor
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -249,6 +250,57 @@ def build_group_bar(groups):
     for group in groups:
         bar.addWidget(group.button_container)
     return bar
+
+
+class GripSplitterHandle(QSplitterHandle):
+    """Divider of a vertical splitter. It shows two short bars in its middle as a grip,
+    and a shaded band while the mouse is over it.
+    """
+
+    def __init__(self, orientation, parent):
+        """Make the handle and ask for mouse-over events.
+
+        Args:
+            orientation (Qt.Orientation): Orientation of the splitter.
+            parent (QSplitter): The splitter that owns this handle.
+
+        Returns:
+            None
+        """
+        super().__init__(orientation, parent)
+        self.setAttribute(Qt.WA_Hover, True)
+
+    def paintEvent(self, event):
+        """Draw the mouse-over band and the grip.
+
+        Args:
+            event (QPaintEvent): The paint event.
+
+        Returns:
+            None
+        """
+        painter = QPainter(self)
+        if self.underMouse():
+            painter.fillRect(self.rect(), QColor(128, 128, 128, 70))
+        grip = QColor(120, 120, 120)
+        cx, cy = self.width() // 2, self.height() // 2
+        painter.fillRect(cx - 18, cy - 3, 36, 2, grip)
+        painter.fillRect(cx - 18, cy + 1, 36, 2, grip)
+
+
+class GripSplitter(QSplitter):
+    """Splitter whose dividers are GripSplitterHandle objects."""
+
+    def createHandle(self):
+        """Make one divider for the splitter.
+
+        Args:
+            None
+
+        Returns:
+            handle (GripSplitterHandle): The new divider.
+        """
+        return GripSplitterHandle(self.orientation(), self)
 
 
 class CustomNavigationToolbar(NavigationToolbar):
@@ -1223,7 +1275,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         top_layout.addLayout(left_half, 1)
         top_layout.addLayout(right_half, 1)
 
-        main_layout.addLayout(top_layout, 1)
+        # The slices and the spectrum share a splitter, so a drag of its divider gives the
+        # spectrum more or less height. Everything that acts on the spectrum is in the lower pane.
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_pane = QWidget()
+        top_pane.setLayout(top_layout)
+        bottom_layout = QVBoxLayout()
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- Collapsible button groups ---
         # Group 1: Region (save or import a region as sky coordinates).
@@ -1261,7 +1319,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.hitran_group.add_button(self.multi_gauss_fit_btn)
         self.hitran_group.add_button(self.flux_map_btn)
 
-        main_layout.addLayout(build_group_bar([
+        bottom_layout.addLayout(build_group_bar([
             self.region_group, self.gaussian_group,
             self.continuum_group, self.hitran_group]))
 
@@ -1283,11 +1341,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         shift_save_row.layout().insertSpacing(2, 16)
         spec_tab_layout.addWidget(shift_save_row)
 
-        main_layout.addLayout(spec_tab_layout)
+        bottom_layout.addLayout(spec_tab_layout)
+        bottom_layout.addWidget(self.spec_canvas, 1)
+        bottom_layout.addWidget(self.spec_toolbar)
+        bottom_pane = QWidget()
+        bottom_pane.setLayout(bottom_layout)
 
-        # Add spectrum at bottom with expanded vertical space
-        main_layout.addWidget(self.spec_canvas, 2)
-        main_layout.addWidget(self.spec_toolbar)
+        self.main_splitter = GripSplitter(Qt.Vertical)
+        self.main_splitter.addWidget(top_pane)
+        self.main_splitter.addWidget(bottom_pane)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setOpaqueResize(True)
+        # Start with equal panes: the slices keep about their old height and the spectrum gets
+        # more. A taller window gives the extra height to the spectrum.
+        self.main_splitter.setSizes([1, 1])
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 2)
+        self.main_splitter.setHandleWidth(8)
+        main_layout.addWidget(self.main_splitter, 1)
 
         self.setLayout(main_layout)
 
