@@ -309,9 +309,23 @@ class GripSplitter(QSplitter):
 
     Signals:
         doubleClicked: A divider was double-clicked.
+        resized: The splitter got a new size.
     """
 
     doubleClicked = pyqtSignal()
+    resized = pyqtSignal()
+
+    def resizeEvent(self, event):
+        """Resize as usual, then tell the window, so it can keep the divider position.
+
+        Args:
+            event (QResizeEvent): The resize event.
+
+        Returns:
+            None
+        """
+        super().resizeEvent(event)
+        self.resized.emit()
 
     def createHandle(self):
         """Make one divider for the splitter.
@@ -1389,22 +1403,87 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         bottom_pane = QWidget()
         bottom_pane.setLayout(bottom_layout)
 
+        self._bottom_pane = bottom_pane
+        self._menu_groups = (self.gaussian_group, self.continuum_group, self.hitran_group)
+        # True once the user drags the divider. Until then the divider stays at the default
+        # position, also while the window gets its first size and when it is resized.
+        self._split_touched = False
+
         self.main_splitter = GripSplitter(Qt.Vertical)
         self.main_splitter.addWidget(top_pane)
         self.main_splitter.addWidget(bottom_pane)
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setOpaqueResize(True)
-        # The real start position is set once the window is shown (_apply_default_split).
-        # After that, a taller window gives the extra height to the spectrum.
         self.main_splitter.setSizes([1, 1])
-        QTimer.singleShot(0, self._apply_default_split)
-        self.main_splitter.doubleClicked.connect(self._apply_default_split)
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 2)
         self.main_splitter.setHandleWidth(8)
+        self.main_splitter.resized.connect(self._on_splitter_resized)
+        self.main_splitter.splitterMoved.connect(self._on_split_moved)
+        self.main_splitter.doubleClicked.connect(self._reset_split)
+        for group in self._menu_groups:
+            group.animation.finished.connect(self._reserve_menu_room)
+        QTimer.singleShot(0, self._on_splitter_resized)
         main_layout.addWidget(self.main_splitter, 1)
 
         self.setLayout(main_layout)
+
+    def _reserve_menu_room(self):
+        """Set the lowest height of the spectrum pane so that opening a menu never takes
+        height from the slices. The pane keeps room for its tallest menu panel. The rows of
+        buttons wrap onto more lines in a narrow window, so this runs again after each resize.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        pane = self._bottom_pane
+        # An open panel is already in the pane's own minimum, and the room is set already.
+        if any(group.is_expanded for group in self._menu_groups) or pane.width() < 300:
+            return
+        tallest = max(group.button_layout.heightForWidth(pane.width()) for group in self._menu_groups)
+        # The splitter does not know that the button rows wrap, so use the height they need.
+        needed = pane.layout().minimumHeightForWidth(pane.width())
+        pane.setMinimumHeight(needed + tallest)
+
+    def _on_splitter_resized(self):
+        """Keep the menu room, and keep the default divider position until the user moves it.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._reserve_menu_room()
+        if not self._split_touched:
+            self._apply_default_split()
+
+    def _on_split_moved(self, pos, index):
+        """Remember that the user moved the divider, so a resize does not undo it.
+
+        Args:
+            pos (int): New position of the divider, in pixels.
+            index (int): Index of the divider.
+
+        Returns:
+            None
+        """
+        self._split_touched = True
+
+    def _reset_split(self):
+        """Put the divider back at the default position and keep it there.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._split_touched = False
+        self._apply_default_split()
 
     def _apply_default_split(self):
         """Put the divider where the slices are as tall as they can be while the slice
@@ -1420,8 +1499,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         splitter = self.main_splitter
         total = sum(splitter.sizes())
         wanted = self._slice_sidebar.single_column_height() - 1
-        top = max(splitter.widget(0).minimumSizeHint().height(),
-                  min(wanted, total - splitter.widget(1).minimumSizeHint().height()))
+        top_low = splitter.widget(0).minimumSizeHint().height()
+        bottom_low = max(splitter.widget(1).minimumHeight(), splitter.widget(1).minimumSizeHint().height())
+        top = max(top_low, min(wanted, total - bottom_low))
         splitter.setSizes([top, total - top])
 
     def _cancel_custom_continuum(self):
