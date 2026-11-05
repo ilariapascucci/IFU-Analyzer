@@ -595,6 +595,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 btn.setChecked(False)
         self.set_left_btn.setChecked(False)
         self.set_right_btn.setChecked(False)
+        self.slice_target = None
 
         # Reset region-selection state so shape/Edit-Shape buttons don't stay
         # disabled from a stale "drawing"/"placed"/"editing" state.
@@ -857,6 +858,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_load_pts_btn.setToolTip("Load custom continuum points from a .txt file")
 
         self.save_results_btn = QPushButton("Save Spectrum")
+        self._init_legend_button()
 
         # Make action buttons checkable
         self.continuum_line_btn.setCheckable(True)
@@ -1275,7 +1277,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         spec_tab_layout.addWidget(row_of([
             self.normalize_checkbox, self.overplot_left_checkbox, self.overplot_right_checkbox,
             self.self_normalize_left_checkbox, self.self_normalize_right_checkbox]))
-        shift_save_row = row_of([self.shift_btn, self.apply_shift_btn, self.save_results_btn])
+        shift_save_row = row_of([self.shift_btn, self.apply_shift_btn, self.save_results_btn,
+                                 self.legend_btn])
         # Extra gap before Save Spectrum, so it reads as separate from the shift buttons.
         shift_save_row.layout().insertSpacing(2, 16)
         spec_tab_layout.addWidget(shift_save_row)
@@ -1324,6 +1327,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         """
         self.active_shape = None
         self.active_target = None
+        # Which panel a click on the spectrum sets the slice for (None = Set Slice is off).
+        # Region drawing has its own active_target, so the two modes do not overwrite each other.
+        self.slice_target = None
         self.last_idx_left = 0
         self.last_idx_right = 0
         self.last_selection_left = None
@@ -2100,9 +2106,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self._mark_gaussian_boundary(event.xdata)
             return
             
-        if not self.active_target:
+        if not self.slice_target:
             return
-            
+
         if not hasattr(self, 'cube_data') or not hasattr(self.cube_data, 'wavelength'):
             return
 
@@ -2117,7 +2123,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         else:
             idx = (np.abs(wavelength - click_x)).argmin()
 
-        self._set_slice_index(idx, self.active_target)
+        self._set_slice_index(idx, self.slice_target)
 
     def _reset_scale_range(self, target):
         """Set a panel's absolute vmin and vmax back to Auto. The scale type,
@@ -2223,10 +2229,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         """
         if target == "left":
             self.set_right_btn.setChecked(False)
-            self.active_target = "left" if self.set_left_btn.isChecked() else None
+            self.slice_target = "left" if self.set_left_btn.isChecked() else None
         else:
             self.set_left_btn.setChecked(False)
-            self.active_target = "right" if self.set_right_btn.isChecked() else None
+            self.slice_target = "right" if self.set_right_btn.isChecked() else None
 
     def apply_doppler_shift(self):
         """Preview a multiplicative Doppler shift for the active spectrum
@@ -2856,7 +2862,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.last_selection_right = None
         self.active_shape = None
         self.active_target = None
-        
+        self.slice_target = None
+
         # Reset Gaussian fitting state
         self.gauss_left_x = None
         self.gauss_peak_x = None

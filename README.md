@@ -693,7 +693,7 @@ python main.py
 ### Data Export
 
 9. Export the results:
-   - **Spectrum:** click "Save Spectrum" at the end of the row with the shift buttons.
+   - **Spectrum:** click "Save Spectrum" in the row with the shift buttons.
    - **Slice:** click the "Save" button in the side column of the slice.
    - **Continuum:** click "Save Points" to export the anchor points, or "Save Spectrum" for the full five-column file.
 
@@ -705,6 +705,7 @@ python main.py
    - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Show Lines" lists the loaded lines and lets you choose which ones to plot.
    - **Normalize spectrum:** the "Normalize" checkbox divides every spectrum by the peak of the full spectrum. "Show Left" and "Show Right" overlay a region's spectrum on the "Full" tab. "Self-Normalize Left" and "Self-Normalize Right" divide a region's spectrum by its own peak.
    - **Doppler shift:** two buttons control a multiplicative wavelength correction (km/s). "Preview Shift" asks for the velocity and shows the shifted spectrum in orange. Click it again to cancel the preview. "Apply Shift" applies the preview. When no preview is pending, click "Apply Shift" again to revert the spectrum to its original wavelength. A button is pressed while its state is active for the spectrum you are looking at. Applying or reverting a shift clears the Gaussian fits of that spectrum.
+   - **Spectrum legend:** the "Legend" button, next to "Save Spectrum", opens a list of legend groups: Continuum, Slice markers, Fit markers, Noise region, Gaussian fits, Contaminants, and Shift preview. Clear the check mark of a group to remove its entries from the legend. The spectrum itself always stays in the legend. The "Gaussian fits" group also shows or hides the box with the center, FWHM, and R² of a single Gaussian fit. The Gaussian map pixel-fit window and the rotational-diagram fit windows have a "Legend" check box in the toolbar row of the plot. Clear it to hide the legend of that plot.
    - **Wavelength range:** the "λ min" and "λ max" boxes (in µm) in the "Lines & Fit" group set the range for "Fetch HITRAN", "Import Lines", "Contam. Lines", and "Flux Map". They fill from the cube when you load it.
    - **New window:** the new-window button opens an independent application window for a multi-file comparison.
 

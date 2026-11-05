@@ -3,7 +3,10 @@ Spectrum tab bar (Full / Left / Right) for the CubeExplorer main window.
 """
 
 import numpy as np
-from PyQt5.QtWidgets import QTabBar, QCheckBox
+from matplotlib.text import Text
+from PyQt5.QtWidgets import QTabBar, QCheckBox, QPushButton, QMenu
+
+from .visualization import HIDDEN_LEGEND_GROUPS, LEGEND_GROUPS, draw_spectrum_legend
 
 
 class GuiSpectrumMixin:
@@ -591,28 +594,87 @@ class GuiSpectrumMixin:
 
         self._apply_shared_y_scale()
 
-        # Rebuild the legend from only the currently-visible lines, so hidden
-        # traces/indicators don't leave a stale entry behind.
-        ax = self.spec_plotter.ax
-        visible = [
-            line for line in (global_line, self._spec_tab_line_left, self._spec_tab_line_right,
-                              vline_left, vline_right, self._shift_preview_line,
-                              self._continuum_line_artist, self._continuum_zero_line)
-            if line is not None and line.get_visible()
-        ]
         # Gaussian fits belong to their tab: draw the active tab's, remove the others.
         if hasattr(self, '_redraw_fit_overlays'):
             self._redraw_fit_overlays()
-            visible += self._fit_overlay_handles()
-        try:
-            ax.legend(handles=visible, loc='upper right', fontsize=8)
-        except Exception:
-            pass
+        self._rebuild_spectrum_legend()
 
         try:
             self.spec_canvas.draw()
         except Exception:
             pass
+
+    def _rebuild_spectrum_legend(self):
+        """Draw the legend from the artists that are visible now, without the hidden groups.
+        A hidden trace or marker leaves no stale entry behind.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        plotter = self.spec_plotter
+        if plotter is None or getattr(plotter, 'global_line', None) is None:
+            return
+        # The spectrum is first in the legend. Some of the other artists are made later,
+        # so a missing one is skipped.
+        candidates = [
+            plotter.global_line, getattr(self, '_spec_tab_line_left', None),
+            getattr(self, '_spec_tab_line_right', None), plotter.vline_left, plotter.vline_right]
+        candidates += [getattr(self, name, None) for name in (
+            '_shift_preview_line', '_continuum_line_artist', '_continuum_zero_line',
+            'gauss_left_marker', 'gauss_peak_marker', 'gauss_right_marker',
+            'gauss_noise_left_marker', 'gauss_noise_right_marker')]
+        # A removed artist has no axes, so a stale marker gets no entry.
+        handles = [a for a in candidates if a is not None and a.axes is not None]
+        if hasattr(self, '_fit_overlay_handles'):
+            handles += self._fit_overlay_handles()
+        # The box with Center, FWHM and R² follows the "Gaussian fits" group.
+        show_box = "Gaussian fits" not in HIDDEN_LEGEND_GROUPS
+        for artist in getattr(plotter, 'gauss_fit_artists', []):
+            if isinstance(artist, Text):
+                artist.set_visible(show_box)
+        try:
+            draw_spectrum_legend(plotter.ax, handles)
+        except Exception:
+            pass
+
+    def _init_legend_button(self):
+        """Create the Legend button. Its menu has one checkbox for each group of legend entries.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.legend_btn = QPushButton("Legend")
+        self.legend_btn.setToolTip("Choose which entries the spectrum legend shows")
+        menu = QMenu(self.legend_btn)
+        for group in LEGEND_GROUPS:
+            action = menu.addAction(group)
+            action.setCheckable(True)
+            action.setChecked(group not in HIDDEN_LEGEND_GROUPS)
+            action.toggled.connect(lambda checked, name=group: self._on_legend_group_toggled(name, checked))
+        self.legend_btn.setMenu(menu)
+
+    def _on_legend_group_toggled(self, group, checked):
+        """Show or hide one group of legend entries, then draw the legend again.
+
+        Args:
+            group (str): Name of the group, a key of LEGEND_GROUPS.
+            checked (bool): True to show the group, False to hide it.
+
+        Returns:
+            None
+        """
+        if checked:
+            HIDDEN_LEGEND_GROUPS.discard(group)
+        else:
+            HIDDEN_LEGEND_GROUPS.add(group)
+        self._rebuild_spectrum_legend()
+        self.spec_canvas.draw_idle()
 
     def _sync_shift_buttons(self):
         """Set the two shift buttons from the active tab's state. A preview or an applied

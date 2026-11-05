@@ -13,7 +13,7 @@ shows is exactly what the maps contain.
 import os
 
 import numpy as np
-from .gui_mixins import make_selectable
+from .gui_mixins import make_selectable, make_legend_checkbox
 from .gui_sizing import fit_to_screen
 from .unit_converter import extract_value_from_quantity
 from PyQt5.QtCore import Qt
@@ -136,7 +136,10 @@ class PixelFitDialog(QDialog):
         self.fig = Figure(figsize=(8, 6))
         self.canvas = FigureCanvas(self.fig)
         plot_layout = QVBoxLayout()
-        plot_layout.addWidget(NavigationToolbar2QT(self.canvas, self))
+        toolbar_row = QHBoxLayout()
+        toolbar_row.addWidget(NavigationToolbar2QT(self.canvas, self), 1)
+        toolbar_row.addWidget(make_legend_checkbox(self.canvas))
+        plot_layout.addLayout(toolbar_row)
         plot_layout.addWidget(self.canvas)
         plot_widget = QWidget()
         plot_widget.setLayout(plot_layout)

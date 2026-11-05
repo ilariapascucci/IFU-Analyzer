@@ -31,6 +31,64 @@ def _extract_wavelength_values(wavelength):
         return wavelength
 
 
+# The legend entries the user can hide, by group. The spectrum has no group, so it always stays.
+# An entry is in a group when its label starts with one of the group's texts.
+LEGEND_GROUPS = {
+    "Continuum": ("Continuum", "Zero Level"),
+    "Slice markers": ("Left slice", "Right slice"),
+    "Fit markers": ("Fit Left", "Peak", "Fit Right"),
+    "Noise region": ("Noise Left", "Noise Right"),
+    "Gaussian fits": ("Baseline", "Gaussian Fit", "Integrated Area"),
+    "Contaminants": ("Contaminant",),
+    "Shift preview": ("Preview",),
+}
+
+# The groups the user hid. Every spectrum legend reads this one set.
+HIDDEN_LEGEND_GROUPS = set()
+
+
+def legend_group_of(label):
+    """Give the legend group of one legend entry.
+
+    Args:
+        label (str): The label of the plotted artist.
+
+    Returns:
+        group (str): The group name, or None if the entry is in no group.
+    """
+    for group, prefixes in LEGEND_GROUPS.items():
+        if label.startswith(prefixes):
+            return group
+    return None
+
+
+def draw_spectrum_legend(ax, handles=None):
+    """Draw the spectrum legend. An artist that is not visible, or is in a hidden group, gets no entry.
+    With no handles, every labelled artist on the axes is a candidate.
+
+    Args:
+        ax (matplotlib.axes.Axes): The spectrum axes.
+        handles (list): The artists to list. None uses every labelled artist on ax.
+
+    Returns:
+        None
+    """
+    if handles is None:
+        handles = ax.get_legend_handles_labels()[0]
+    shown = []
+    for artist in handles:
+        label = artist.get_label()
+        if not label or label.startswith('_') or not artist.get_visible():
+            continue
+        if legend_group_of(label) in HIDDEN_LEGEND_GROUPS:
+            continue
+        shown.append(artist)
+    if shown:
+        ax.legend(handles=shown, loc='upper right', fontsize=8)
+    elif ax.get_legend() is not None:
+        ax.get_legend().remove()
+
+
 class SpectrumPlotter:
     """
     Handles plotting and updating of spectral data visualization.
@@ -143,7 +201,7 @@ class SpectrumPlotter:
             self.ax.set_ylim(ymin, ymax)
 
             # Finalize legend
-            self.ax.legend(loc='upper right', fontsize=8)
+            draw_spectrum_legend(self.ax)
         except Exception as e:
             print(f"Error plotting spectrum: {e}")
             # Create an empty plot as fallback
@@ -222,10 +280,12 @@ class SpectrumPlotter:
             fontsize=9,
             zorder=12
         )
+        # The box follows the "Gaussian fits" legend group, so that group's check box shows or hides it.
+        text_obj.set_visible("Gaussian fits" not in HIDDEN_LEGEND_GROUPS)
         self.gauss_fit_artists.append(text_obj)
         
         # Update legend
-        self.ax.legend(loc='upper right', fontsize=8)
+        draw_spectrum_legend(self.ax)
         
 
     def update_slice_indicator(self, wavelength_idx, target="left"):

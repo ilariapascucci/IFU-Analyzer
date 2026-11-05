@@ -18,6 +18,7 @@ from .unit_converter import (
     clean_flux_unit, clean_wave_unit, spectral_axis_medium, cube_wavelength_to_vacuum_um,
 )
 from .utils import take_resolution_notes
+from .visualization import draw_spectrum_legend
 from .flux_map_extractor import (
     fit_auto_continuum, DISPLAY_CROP_SIGMA_MULTIPLIER,
     unreliable_area_error_reason, save_gaussian_parameters, gaussian,
@@ -188,6 +189,8 @@ class GuiGaussianMixin:
             self.gauss_noise_right_btn.setChecked(False)
             self.gauss_mode = None
         
+        # The new marker gets its legend entry now, not at the next full refresh.
+        self._rebuild_spectrum_legend()
         self.spec_canvas.draw()
 
     def _swap_gaussian_boundaries_for_tab(self, old_tab, new_tab):
@@ -848,7 +851,7 @@ STATUS: {result.message}
             contam_line, = ax.plot(x_local, fit_local, color='dimgray', linewidth=2, alpha=1.0, label=label, zorder=12)
             self.multi_gauss_artists.append(contam_line)
 
-        ax.legend(loc='upper right', fontsize=8)
+        draw_spectrum_legend(ax)
         self.spec_canvas.draw_idle()
 
     def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None,

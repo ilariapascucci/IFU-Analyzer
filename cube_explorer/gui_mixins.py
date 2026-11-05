@@ -6,9 +6,34 @@ serves the Flux Map and Gaussian Map results dialogs.
 """
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QPushButton, QMenu
+from PyQt5.QtWidgets import QPushButton, QMenu, QCheckBox
 
 from .icon_loader import set_button_icon
+
+
+def make_legend_checkbox(canvas):
+    """Make a "Legend" check box that shows or hides the legends of a plot.
+    The legend starts visible. The window keeps the plot, so the box needs no other state.
+
+    Args:
+        canvas (FigureCanvasQTAgg): Canvas of the plot. The box reads its figure at each toggle.
+
+    Returns:
+        box (QCheckBox): The check box, checked. The caller puts it in a layout.
+    """
+    box = QCheckBox("Legend")
+    box.setChecked(True)
+    box.setToolTip("Show or hide the legend")
+
+    def _toggle(checked):
+        for ax in canvas.figure.axes:
+            legend = ax.get_legend()
+            if legend is not None:
+                legend.set_visible(checked)
+        canvas.draw_idle()
+
+    box.toggled.connect(_toggle)
+    return box
 
 
 def make_selectable(label):

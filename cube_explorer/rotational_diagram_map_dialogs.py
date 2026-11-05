@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure, SubplotParams
 
-from .gui_mixins import make_selectable
+from .gui_mixins import make_selectable, make_legend_checkbox
 from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
 from .rotational_diagram_map import (
@@ -952,7 +952,7 @@ class RotDiagMapResultsDialog(QDialog):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Pixel ({x}, {y}) rotational diagram")
-        fit_to_screen(dlg, 1050, 520)
+        fit_to_screen(dlg, 1300, 520)
         lay = QHBoxLayout(dlg)
 
         text = QTextEdit()
@@ -981,7 +981,10 @@ class RotDiagMapResultsDialog(QDialog):
             attach_rot_diagram_hover(canvas, ax, out["results"]["_plot_data"])
             box = QWidget()
             box_lay = QVBoxLayout(box)
-            box_lay.addWidget(NavigationToolbar2QT(canvas, dlg))
+            toolbar_row = QHBoxLayout()
+            toolbar_row.addWidget(NavigationToolbar2QT(canvas, dlg), 1)
+            toolbar_row.addWidget(make_legend_checkbox(canvas))
+            box_lay.addLayout(toolbar_row)
             box_lay.addWidget(canvas)
             lay.addWidget(box, 1)
 

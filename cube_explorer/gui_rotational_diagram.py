@@ -23,7 +23,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 from .convolution_plan_dialog import confirm_convolution_plan
-from .gui_mixins import make_selectable
+from .gui_mixins import make_selectable, make_legend_checkbox
 from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
 from .gui import CollapsibleButtonGroup, build_group_bar
@@ -5298,7 +5298,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         # Create results dialog with plot
         dialog = QDialog(self)
         dialog.setWindowTitle("Rotational Diagram Results")
-        fit_to_screen(dialog, 1200, 600)
+        fit_to_screen(dialog, 1400, 600)
 
         layout = QHBoxLayout(dialog)
 
@@ -5394,7 +5394,10 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             attach_rot_diagram_hover(canvas, ax, plot_data)
             toolbar = NavigationToolbar(canvas, dialog)
 
-            plot_layout.addWidget(toolbar)
+            toolbar_row = QHBoxLayout()
+            toolbar_row.addWidget(toolbar, 1)
+            toolbar_row.addWidget(make_legend_checkbox(canvas))
+            plot_layout.addLayout(toolbar_row)
             plot_layout.addWidget(canvas)
             layout.addWidget(plot_widget, 1)
 
