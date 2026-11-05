@@ -763,7 +763,16 @@ class GuiSpectrumMixin:
         ymin, ymax = ymin - pad, ymax + pad
 
         ax = self.spec_plotter.ax
-        ax.set_ylim(ymin, ymax)
+        # Keep the y-range the user zoomed to while the data range is the same as last time.
+        # A new data range (Normalize, continuum, another cube) shows the full range again.
+        applied = getattr(self, '_shared_y_applied', None)
+        same_range = (applied is not None and applied[0] is ax
+                      and np.allclose(applied[1:], (ymin, ymax), rtol=1e-9, atol=0))
+        if same_range and not np.allclose(ax.get_ylim(), (ymin, ymax), rtol=1e-9, atol=0):
+            ymin, ymax = ax.get_ylim()
+        else:
+            ax.set_ylim(ymin, ymax)
+            self._shared_y_applied = (ax, ymin, ymax)
 
         for vline in (self.spec_plotter.vline_left, self.spec_plotter.vline_right):
             if vline is not None:

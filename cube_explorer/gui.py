@@ -1470,6 +1470,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             try:
                 # Plot the spectrum
                 self.spec_plotter.plot_spectrum(self.cube_data.spectrum)
+                # Record the full y-range now, so a zoom made before the first redraw is kept.
+                self._apply_shared_y_scale()
                 try:
                     self.spec_canvas.draw()
                 except Exception:
@@ -3563,7 +3565,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.spec_toolbar.custom_home_action = None
         self.spec_toolbar.home()
         self.spec_toolbar.custom_home_action = saved_action
-        
+        # Home means the full y-range, so the next redraw must not keep a zoom.
+        self._shared_y_applied = None
+
         # Also clear Gaussian fit visualization
         self.clear_gaussian_fit()
 
