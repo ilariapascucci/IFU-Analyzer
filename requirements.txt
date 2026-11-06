@@ -21,6 +21,7 @@ PyQt5-sip==12.17.1          # SIP module for PyQt5
 
 matplotlib==3.9.2          # 2D/3D plotting and visualization
 matplotlib-inline==0.1.7   # Inline plotting for Jupyter/IPython
+pyparsing==3.2.5          # Matplotlib 3.9.2 calls names that pyparsing 3.3 deprecates; 3.3 prints warnings
 
 # ============================================================================
 # SCIENTIFIC COMPUTING & DATA PROCESSING

@@ -60,7 +60,7 @@ PyAVM==0.9.9
 pyerfa==2.0.1.5
 Pygments==2.21.0
 pymc==5.28.4
-pyparsing==3.3.3
+pyparsing==3.2.5
 PyQt5==5.15.11
 PyQt5_sip==12.17.1
 pytensor==2.38.3
