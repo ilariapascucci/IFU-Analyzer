@@ -17,6 +17,9 @@
 /hitran_cache/
 # lst_local/ is committed: the LST line catalog the rest-line picker reads, with its ReadMe.
 !/lst_local/*.txt
+# docs_data/ is committed: the sample cubes, maps and line lists that let users reproduce the docs.
+!/docs_data/**/*.fits
+!/docs_data/**/*.csv
 /CO/
 /cube_explorer/__pycache__/
 
