@@ -2978,7 +2978,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             QMessageBox.information(dlg, "Success", f"Saved to:\n{path}")
 
         save_btn = QPushButton("Save Fit...")
-        save_btn.setToolTip("Save wavelength, original spectrum and the drawn fit curve to a text file")
+        save_btn.setToolTip("Save wavelength, original spectrum, the drawn fit curve and original minus fit to a text file")
         save_btn.clicked.connect(_save_fit)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)

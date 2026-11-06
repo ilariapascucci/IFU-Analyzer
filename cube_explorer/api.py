@@ -296,9 +296,11 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
             ``cube.header`` to match what the GUI produces.
         wave_unit (str, optional): Spectral axis unit, e.g. ``cube.wave_unit``.
         save_path (str, optional): If given, write a tab-separated text file with
-            the columns wavelength, original spectrum and fit (the GUI's "Save Fit"
-            file). The fit is NaN outside ``x1`` to ``x2``. Nothing is written, and a
-            warning is raised, if the fit failed.
+            the columns wavelength, original spectrum, fit and original minus fit (the GUI's "Save Fit"
+            file). The fit is NaN outside ``x1`` to ``x2``. With ``header``, a surface
+            brightness such as MJy/sr is written in Jy, as the GUI does (the spectrum is
+            treated as a sum over spaxels, like ``cube.spectrum``). Nothing is written,
+            and a warning is raised, if the fit failed.
         parameters_path (str, optional): If given, write a tab-separated text file
             with the fitted parameters (the GUI's "Save Parameters" file). The same
             rule applies if the fit failed.
@@ -373,7 +375,8 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
             header_lines = [f"Fit window: {x1:.6f} - {x2:.6f}", f"Baseline: {baseline_text}"]
             if save_path is not None:
                 _save_gaussian_fit_internal(save_path, wl, fl, [result], wave_unit=wave_unit,
-                                            flux_unit=flux_unit, header_lines=header_lines)
+                                            flux_unit=flux_unit, header_lines=header_lines,
+                                            cube_header=header)
                 print(f"[OK] Saved the fit to {save_path}")
             if parameters_path is not None:
                 _save_gaussian_parameters_internal(
@@ -417,10 +420,12 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             amplitude -- the same optional catalog ``extract_flux``/Flux Map
             already supports. None (default) skips this.
         save_path (str, optional): If given, write a tab-separated text file with
-            the columns wavelength, original spectrum and fit (the GUI's "Save Fit"
+            the columns wavelength, original spectrum, fit and original minus fit (the GUI's "Save Fit"
             file). The fit includes the contaminant lines and is NaN where no line
-            was fitted. Nothing is written, and a warning is raised, if no line fit
-            succeeded.
+            was fitted. With ``header``, a surface brightness such as MJy/sr is written
+            in Jy, as the GUI does (the spectrum is treated as a sum over spaxels, like
+            ``cube.spectrum``). Nothing is written, and a warning is raised, if no line
+            fit succeeded.
         parameters_path (str, optional): If given, write a tab-separated text file
             with one row for each line: the fitted parameters, the catalog data, and
             a flag for an unreliable area error (the GUI's "Save Parameters" file).
@@ -513,7 +518,7 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
                 _save_gaussian_fit_internal(
                     save_path, wl, sp,
                     [result for _line, result in fit_pairs + contam_pairs],
-                    wave_unit=wave_unit, flux_unit=flux_unit)
+                    wave_unit=wave_unit, flux_unit=flux_unit, cube_header=header)
                 print(f"[OK] Saved the fit to {save_path}")
             if parameters_path is not None:
                 entries = (

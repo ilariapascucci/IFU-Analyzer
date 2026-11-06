@@ -9,7 +9,10 @@ unit strings for backward compatibility.
 import numpy as np
 import astropy.units as u
 from astropy import constants as const
+from astropy.io import fits
 from astropy.units import Quantity
+from astropy.wcs import WCS
+from astropy.wcs.utils import proj_plane_pixel_area
 from functools import lru_cache
 from typing import Optional
 
@@ -338,28 +341,93 @@ def cgs_flux_label():
     return CGS_FLUX.to_string('unicode')
 
 
+# Header keywords that set the area of one pixel. Equal values give an equal area.
+_PIXEL_AREA_KEYS = ('PIXAR_SR', 'CDELT1', 'CDELT2', 'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2',
+                    'PC1_1', 'PC1_2', 'PC2_1', 'PC2_2')
+
+
+@lru_cache(maxsize=32)
+def _pixel_area_sr(values):
+    """
+    Work out the solid angle of one pixel from the header keywords that give it.
+    The WCS gives the area from the pixel scale, the rotation and any CD matrix. The
+    pipeline value PIXAR_SR is more exact, so it wins unless it disagrees with the WCS by more
+    than 1%. A header that was changed to another grid can keep an old PIXAR_SR.
+
+    Args:
+        values (tuple): Header values in the order of _PIXEL_AREA_KEYS. None for a missing key.
+
+    Returns:
+        area (float): Solid angle of one pixel in steradians, or None if the header gives none.
+    """
+    keys = dict(zip(_PIXEL_AREA_KEYS, values))
+    pixar = keys['PIXAR_SR']
+    try:
+        pixar = float(pixar) if pixar is not None and float(pixar) > 0 else None
+    except (TypeError, ValueError):
+        pixar = None
+
+    wcs_area = None
+    has_cd = any(keys[k] is not None for k in ('CD1_1', 'CD1_2', 'CD2_1', 'CD2_2'))
+    if has_cd or (keys['CDELT1'] is not None and keys['CDELT2'] is not None):
+        minimal = fits.Header()
+        minimal['NAXIS'] = 2
+        minimal['CTYPE1'], minimal['CTYPE2'] = 'RA---TAN', 'DEC--TAN'
+        minimal['CRPIX1'], minimal['CRPIX2'] = 1.0, 1.0
+        minimal['CRVAL1'], minimal['CRVAL2'] = 0.0, 0.0
+        for key, value in keys.items():
+            if key != 'PIXAR_SR' and value is not None:
+                minimal[key] = value
+        try:
+            wcs_area = float((proj_plane_pixel_area(WCS(minimal)) * u.deg ** 2).to(u.sr).value)
+        except Exception:
+            wcs_area = None
+
+    if pixar is not None and (wcs_area is None or abs(pixar - wcs_area) <= 0.01 * wcs_area):
+        return pixar
+    return wcs_area
+
+
 def pixel_solid_angle(header):
     """
     Solid angle subtended by one spatial pixel, in steradians.
 
     Args:
-        header (astropy.io.fits.Header): FITS header with CDELT1 and CDELT2 in degrees
+        header (astropy.io.fits.Header): FITS header with the pixel scale: PIXAR_SR, or
+            CDELT1 and CDELT2 in degrees, or a CD matrix in degrees
 
     Returns:
         area (Quantity): Area of one pixel in steradians, or None if the header lacks the pixel scales
     """
-
     if header is None:
         return None
-    cdelt1 = header.get('CDELT1', None)
-    cdelt2 = header.get('CDELT2', None)
-    if cdelt1 is None or cdelt2 is None:
-        return None
-    try:
-        area_deg2 = abs(float(cdelt1)) * abs(float(cdelt2)) * u.deg ** 2
-        return area_deg2.to(u.sr)
-    except Exception:
-        return None
+    area = _pixel_area_sr(tuple(header.get(k) for k in _PIXEL_AREA_KEYS))
+    return None if area is None else area * u.sr
+
+
+def sum_to_jy_factor(flux_unit, header):
+    """
+    Give the factor that turns a spectrum summed over spaxels into Jy.
+    Each spaxel holds a surface brightness, for example in MJy/sr. The sum of those values
+    times the solid angle of one pixel is the total flux density of the summed region.
+
+    Args:
+        flux_unit (str): Flux unit of the cube, typically the BUNIT header keyword
+        header (astropy.io.fits.Header): FITS header with the pixel scale for the pixel solid angle
+
+    Returns:
+        result (tuple): (factor, note). factor is the number to multiply the values by, or None
+            if the unit is not a surface brightness or the header has no pixel scale. note is a
+            sentence that says why a surface brightness could not convert, or None.
+    """
+    unit = _string_to_astropy_unit(flux_unit)
+    if unit is None or not unit.is_equivalent(u.MJy / u.sr):
+        return None, None
+    omega = pixel_solid_angle(header)
+    if omega is None:
+        return None, (f"The cube header has no pixel scale (PIXAR_SR, CDELT, or a CD matrix), "
+                      f"so the flux stays in {flux_unit}.")
+    return float((1.0 * unit * omega).to(u.Jy).value), None
 
 
 def _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header):
@@ -371,7 +439,7 @@ def _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header):
         target (Unit): Unit `quantity` must reach
         wavelength (float): Line center wavelength, in `wave_astropy_unit`
         wave_astropy_unit (Unit): Unit of `wavelength`
-        header (astropy.io.fits.Header): FITS header supplying CDELT1/CDELT2 for the pixel solid angle
+        header (astropy.io.fits.Header): FITS header supplying the pixel scale for the pixel solid angle
 
     Returns:
         value (float): `quantity` converted to `target`, or None if no combination of corrections reaches it
@@ -405,7 +473,7 @@ def integrated_flux_to_cgs(value, flux_unit, wavelength=None, header=None, wave_
         value (float): Integrated flux in flux_unit x wave_unit
         flux_unit (str): Flux unit string, typically the BUNIT header keyword
         wavelength (float): Line center, in wave_unit. Required for MJy/sr, not used for MUSE
-        header (astropy.io.fits.Header): FITS header with CDELT1 and CDELT2. Required for MJy/sr
+        header (astropy.io.fits.Header): FITS header with the pixel scale. Required for MJy/sr
         wave_unit (str): Wavelength unit string, for example 'Angstrom' or 'um'
 
     Returns:
@@ -464,7 +532,7 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
         amplitude_mjy_sr (float): Peak amplitude in native flux units
         sigma_val (float): Gaussian sigma in wavelength units (um or Angstrom)
         center_val (float): Line center wavelength in wavelength units (um or Angstrom)
-        header (astropy.io.fits.Header): FITS header to extract CDELT1/CDELT2 for the pixel solid angle
+        header (astropy.io.fits.Header): FITS header to extract the pixel scale for the pixel solid angle
         wave_unit (str): Wavelength unit (Angstrom, um)
         flux_unit_input (str): Flux unit from header, for example 'MJy/sr'. Falls back to the header's BUNIT if None
 
@@ -502,7 +570,7 @@ def gaussian_map_unit_labels(flux_unit, wave_unit, header=None, wavelength=None)
     Args:
         flux_unit (str): Cube flux unit, typically BUNIT (for example, 'MJy/sr')
         wave_unit (str): Spectral axis unit (for example, 'um' or 'Angstrom')
-        header (astropy.io.fits.Header): FITS header with CDELT1 and CDELT2. Required
+        header (astropy.io.fits.Header): FITS header with the pixel scale. Required
             for MJy/sr, not used for MUSE
         wavelength (float): A representative wavelength in wave_unit (for example, the
             fit window's center)

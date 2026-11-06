@@ -7,6 +7,7 @@ equivalent width, and integrated flux.
 """
 
 import os
+import warnings
 from astropy.io import fits
 from dataclasses import dataclass
 from astropy.units import Quantity
@@ -18,7 +19,7 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 from .unit_converter import (get_wave_unit, convert_area_to_cgs, extract_value_from_quantity,
-                             convert_wavelength, cgs_flux_label)
+                             convert_wavelength, cgs_flux_label, sum_to_jy_factor)
 from .utils import safe_worker_count, detect_instrument_from_header, get_spectral_resolution
 
 
@@ -68,11 +69,12 @@ def build_gaussian_fit_curve(wavelength, results):
 
 
 def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None, flux_unit=None,
-                          header_lines=()):
-    """Save the wavelength, original spectrum and fit columns to an ASCII file.
+                          header_lines=(), flux_scale=1.0):
+    """Save the wavelength, original spectrum, fit and residual columns to an ASCII file.
 
     The columns are separated by tabs. The comment lines at the top start with "#".
-    NaN in the fit column means that no fit was made at that wavelength.
+    NaN in the fit column means that no fit was made at that wavelength. The residual
+    is the original spectrum minus the fit, so it is NaN there too.
 
     Args:
         path (str): Output file path.
@@ -83,6 +85,8 @@ def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None
         wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
         flux_unit (str): Flux unit for the file header, or None for "Unknown".
         header_lines (list): Extra comment lines (str) to write below the title.
+        flux_scale (float): Number that multiplies the spectrum and the fit before they are
+            written. The caller gives flux_unit for the scaled values.
 
     Returns:
         None
@@ -91,8 +95,8 @@ def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None
         ValueError: If the three arrays differ in length.
     """
     wavelength = np.asarray(wavelength, dtype=float)
-    spectrum = np.asarray(spectrum, dtype=float)
-    fit = np.asarray(fit, dtype=float)
+    spectrum = np.asarray(spectrum, dtype=float) * flux_scale
+    fit = np.asarray(fit, dtype=float) * flux_scale
     if not len(wavelength) == len(spectrum) == len(fit):
         raise ValueError("wavelength, spectrum and fit must have the same length.")
 
@@ -103,19 +107,21 @@ def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None
             f.write(f"# {line}\n")
         f.write(f"# Wavelength unit: {wave_text}\n")
         f.write(f"# Flux unit: {flux_unit or 'Unknown'}\n")
-        f.write("# Fit is NaN where no fit was made.\n")
+        f.write("# Fit is NaN where no fit was made. Original-Fit is NaN there too.\n")
         f.write("#\n")
-        f.write(f"# Wavelength ({wave_text})\tOriginal\tFit\n")
+        f.write(f"# Wavelength ({wave_text})\tOriginal\tFit\tOriginal-Fit\n")
         for w, o, m in zip(wavelength, spectrum, fit):
-            f.write(f"{w:.6e}\t{o:.6e}\t{m:.6e}\n")
+            f.write(f"{w:.6e}\t{o:.6e}\t{m:.6e}\t{o - m:.6e}\n")
 
 
 def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_unit=None,
-                      header_lines=()):
+                      header_lines=(), cube_header=None):
     """Save the original spectrum and a Gaussian fit to an ASCII file.
 
     Use this for a single fit or a multi-Gaussian fit. The columns are wavelength,
-    original spectrum and fit. The fit is NaN where no chunk was fitted.
+    original spectrum, fit and original minus fit. The fit is NaN where no chunk was fitted.
+    The spectrum is a sum over spaxels. If the cube header is given and the flux is a surface
+    brightness (for example MJy/sr), the values are written in Jy.
 
     Args:
         path (str): Output file path.
@@ -124,8 +130,10 @@ def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_
         results (list): GaussianFitResult objects (a single fit, or the detection and
             contaminant lines of a multi-Gaussian fit).
         wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
-        flux_unit (str): Flux unit for the file header, or None for "Unknown".
+        flux_unit (str): Flux unit of the spectrum (typically BUNIT), or None for "Unknown".
         header_lines (list): Extra comment lines (str) to write below the title.
+        cube_header (astropy.io.fits.Header): Cube header with the pixel scale. With it, a
+            surface-brightness spectrum is converted to Jy. None writes the values unchanged.
 
     Returns:
         None
@@ -135,9 +143,19 @@ def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_
     """
     if not any(r.success for r in results):
         raise ValueError("No successful fit to save.")
+    flux_scale = 1.0
+    if cube_header is not None:
+        factor, note = sum_to_jy_factor(flux_unit, cube_header)
+        if note:
+            warnings.warn(note)
+        if factor is not None:
+            header_lines = [*header_lines, f"Flux converted from {flux_unit} to Jy (sum over spaxels): "
+                                           f"the values are multiplied by {factor:.6e}"]
+            flux_scale, flux_unit = factor, "Jy"
     fit = build_gaussian_fit_curve(wavelength, results)
     save_spectrum_and_fit(path, wavelength, spectrum, fit, "Gaussian fit export from IFU Analyzer",
-                          wave_unit=wave_unit, flux_unit=flux_unit, header_lines=header_lines)
+                          wave_unit=wave_unit, flux_unit=flux_unit, header_lines=header_lines,
+                          flux_scale=flux_scale)
 
 
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):

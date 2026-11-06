@@ -16,6 +16,7 @@ from .line_catalog import available_rest_line_species, collect_rest_line_candida
 from .species_dialog import SpeciesDialog, RestLineDialog
 from .unit_converter import (
     clean_flux_unit, clean_wave_unit, spectral_axis_medium, cube_wavelength_to_vacuum_um,
+    sum_to_jy_factor,
 )
 from .utils import take_resolution_notes
 from .visualization import draw_spectrum_legend
@@ -449,7 +450,7 @@ STATUS: {result.message}
         window_line = f"Fit window: {result.x_data[0]:.6f} - {result.x_data[-1]:.6f}"
         baseline_line = f"Baseline: {baseline_source}"
         save_fit_btn = QPushButton("Save Fit...")
-        save_fit_btn.setToolTip("Save wavelength, original spectrum and fit to a text file")
+        save_fit_btn.setToolTip("Save wavelength, original spectrum, fit and original minus fit to a text file")
         save_fit_btn.clicked.connect(lambda: self._save_gaussian_fit_curve(
             dlg, [result], self.gauss_fit_input, "gaussian_fit.txt", [window_line, baseline_line]))
         save_params_btn = QPushButton("Save Parameters...")
@@ -1018,7 +1019,7 @@ STATUS: {result.message}
         
         btn_layout = QHBoxLayout()
         save_fit_btn = QPushButton("Save Fit...")
-        save_fit_btn.setToolTip("Save wavelength, original spectrum and fit to a text file")
+        save_fit_btn.setToolTip("Save wavelength, original spectrum, fit and original minus fit to a text file")
         save_fit_btn.clicked.connect(lambda: self._save_gaussian_fit_curve(
             dlg, [info['result'] for info in fit_results + list(contam_results or [])],
             self.multi_gauss_fit_input, "multi_gaussian_fit.txt"))
@@ -1099,10 +1100,24 @@ STATUS: {result.message}
             None
         """
         wavelength, spectrum = fit_input
-        self._save_gaussian_text(
-            parent, "Save Fit", default_name,
-            lambda path: save_gaussian_fit(path, wavelength, spectrum, results,
-                                           **self._gaussian_export_header(extra_lines)))
+        header = getattr(self.cube_data, 'header', None)
+        export = self._gaussian_export_header(extra_lines)
+
+        def write(path):
+            """Warn if the flux cannot convert to Jy, then write the fit file.
+
+            Args:
+                path (str): Output file path.
+
+            Returns:
+                None
+            """
+            _, note = sum_to_jy_factor(export['flux_unit'], header)
+            if note:
+                QMessageBox.warning(parent, "Flux Unit", note)
+            save_gaussian_fit(path, wavelength, spectrum, results, cube_header=header, **export)
+
+        self._save_gaussian_text(parent, "Save Fit", default_name, write)
 
     def _save_gaussian_parameters_table(self, parent, entries, default_name, extra_lines=()):
         """Save the fitted line parameters to a text file.

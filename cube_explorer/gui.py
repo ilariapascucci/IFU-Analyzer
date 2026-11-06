@@ -46,7 +46,7 @@ from .line_catalog import (
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
-from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity
+from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity, sum_to_jy_factor
 
 
 # Qt value for "no maximum size" on a widget.
@@ -3899,6 +3899,19 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                          if hasattr(self.cube_data, 'header') else 'Unknown')
             instrument = self.cube_data.instrument if hasattr(self.cube_data, 'instrument') else "Unknown"
 
+            # The spectrum is a sum over spaxels, so a surface brightness is written in Jy.
+            # A normalized Plotted column has no unit, so it stays as it is.
+            factor, note = sum_to_jy_factor(flux_unit, getattr(self.cube_data, 'header', None))
+            if note:
+                QMessageBox.warning(self, "Flux Unit", note)
+            conversion_note = None
+            if factor is not None:
+                conversion_note = f"Flux converted from {flux_unit} to Jy (sum over spaxels): the values are multiplied by {factor:.6e}"
+                original, continuum, subtracted = original * factor, continuum * factor, subtracted * factor
+                if divisor == 1.0:
+                    plotted = plotted * factor
+                flux_unit = "Jy"
+
             with open(file_path, 'w') as f:
                 f.write("# Results Export from Cube Explorer\n")
                 f.write(f"# Instrument: {instrument}\n")
@@ -3907,6 +3920,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 f.write("# Type: full_results\n")
                 f.write(f"# Wavelength unit: {wave_unit}\n")
                 f.write(f"# Flux unit: {flux_unit} (Original, Continuum, Subtracted: raw flux)\n")
+                if conversion_note:
+                    f.write(f"# {conversion_note}\n")
                 f.write(f"# Plotted: {plotted_text}\n")
                 if divisor != 1.0:
                     f.write("# Plotted is dimensionless because it is normalized.\n")
