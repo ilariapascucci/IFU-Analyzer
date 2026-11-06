@@ -485,30 +485,25 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             self._export_map_btn.deleteLater()
             self._export_map_btn = None
         
-        # Format wavelength range for titles
-        lam_min = min(self.gauss_left_x, self.gauss_right_x)
-        lam_max = max(self.gauss_left_x, self.gauss_right_x)
-        wave_range = f"({lam_min:.4f} - {lam_max:.4f})"
-        
         # Get dynamic units for all parameters
         param_units = self._get_parameter_units()
 
         # Select data based on parameter
         if param_name == "Area (AUC)":
             data = self.results['area']
-            title = f"Integrated Area Under Gaussian (AUC) {wave_range}"
+            title = "Integrated Area Under Gaussian (AUC)"
             unit_label, default_cmap = param_units['Area (AUC)']
         elif param_name == "Area Error":
             data = self.results['area_error']
-            title = f"Area Error {wave_range}"
+            title = "Area Error"
             unit_label, default_cmap = param_units['Area Error']
         elif param_name == "Amplitude":
             data = self.results['amplitude']
-            title = f"Gaussian Peak Amplitude {wave_range}"
+            title = "Gaussian Peak Amplitude"
             unit_label, default_cmap = param_units['Amplitude']
         elif param_name == "Center":
             data = self.results['center']
-            title = f"Gaussian Center Position {wave_range}"
+            title = "Gaussian Center Position"
             unit_label, default_cmap = param_units['Center']
         elif param_name == "Velocity":
             data, reason = self._velocity_map()
@@ -518,29 +513,29 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                         transform=ax.transAxes, wrap=True)
                 self.canvas.draw()
                 return
-            title = f"Velocity vs. {self.rest_line['species']} Rest Line {wave_range}"
+            title = f"Velocity vs. {self.rest_line['species']} Rest Line"
             unit_label, default_cmap = param_units['Velocity']
         elif param_name == "Sigma":
             data = self.results['sigma']
-            title = f"Gaussian Width (sigma) {wave_range}"
+            title = "Gaussian Width (sigma)"
             unit_label, default_cmap = param_units['Sigma']
         elif param_name == "FWHM":
             data = self.results['fwhm']
-            title = f"Full Width at Half Maximum {wave_range}"
+            title = "Full Width at Half Maximum"
             unit_label, default_cmap = param_units['FWHM']
         elif param_name == "chi2 (fit quality)":
             data = self.results['r_squared']
-            title = f"Reduced chi^2 (approx 1 is good fit) {wave_range}"
+            title = "Reduced chi^2 (approx 1 is good fit)"
             unit_label, default_cmap = param_units['chi2 (fit quality)']
         elif param_name == "Fit Status":
             # A Left/Right region fit NaNs out everything outside the selection; those
             # pixels were never evaluated, which is the same as having no data here.
             data = np.nan_to_num(fit_status_map(self.results), nan=float(STATUS_NO_DATA))
-            title = f"Fit Status (0=no data, 1=upper limit, 2=detection) {wave_range}"
+            title = "Fit Status (0=no data, 1=upper limit, 2=detection)"
             unit_label, default_cmap = param_units['Fit Status']
         elif param_name == "Success Mask":
             data = self.results['success'].astype(float)
-            title = f"Successful Fits (1=success, 0=failed) {wave_range}"
+            title = "Successful Fits (1=success, 0=failed)"
             unit_label, default_cmap = param_units['Success Mask']
         elif param_name == "Residuals":
             self._handle_residuals_display(ax)
@@ -886,11 +881,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             mid_idx = residual_cube.shape[0] // 2
             data = residual_cube[mid_idx]
             
-            # Format wavelength range
-            lam_min = min(self.gauss_left_x, self.gauss_right_x)
-            lam_max = max(self.gauss_left_x, self.gauss_right_x)
-            wave_range = f"({lam_min:.4f} - {lam_max:.4f})"
-            title = f"Normalized Residuals (Middle Wavelength) {wave_range}"
+            title = "Normalized Residuals (Middle Wavelength)"
             default_cmap = 'seismic'
             
             # Get selected colormap (use default if "Default" selected)

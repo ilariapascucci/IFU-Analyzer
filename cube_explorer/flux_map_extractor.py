@@ -354,9 +354,69 @@ def cont_fit_ransac(x, y, pdeg, return_params=False, exclude_wavelength_ranges=N
 
 # ================== Multi-Gaussian Fitting ====================
 
+# What each issue key means, for the summary that create_flux_map prints.
+ISSUE_DESCRIPTIONS = {
+    'too_few_points': "chunk(s) skipped: not enough finite points to fit",
+    'no_noise_estimate': "chunk(s) without a noise estimate: no degrees of freedom left",
+    'negative_flux': "chunk(s) with a negative target flux",
+    'not_converged': "chunk(s) where curve_fit did not converge (a 3-sigma upper limit was used)",
+    'continuum_nan': "pixel(s) where the continuum fit gave only NaN (the original spectrum was used)",
+    'continuum_failed': "pixel(s) where the continuum fit failed (the original spectrum was used)",
+}
+
+
+class IssueCounter:
+    """Thread-safe counts of the problems that the per-pixel fits meet.
+    A full-cube run would print one line for each problem, so it counts them instead.
+    """
+
+    def __init__(self):
+        """Make an empty counter.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._lock = Lock()
+        self.counts = {}
+
+    def add(self, key):
+        """Count one more problem of one kind.
+
+        Args:
+            key (str): Kind of problem, a key of ISSUE_DESCRIPTIONS.
+
+        Returns:
+            None
+        """
+        with self._lock:
+            self.counts[key] = self.counts.get(key, 0) + 1
+
+
+def _report_issue(issue_counts, key, message):
+    """Count a problem if a counter is given, or else warn about it.
+    A single-spectrum call has few chunks, so each problem gets its own warning.
+
+    Args:
+        issue_counts (IssueCounter): Counter of a full-cube run, or None.
+        key (str): Kind of problem, a key of ISSUE_DESCRIPTIONS.
+        message (str): Text of the warning when there is no counter.
+
+    Returns:
+        None
+    """
+    if issue_counts is None:
+        warnings.warn(message)
+    else:
+        issue_counts.add(key)
+
+
 def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminating_lines, sigma,
                 progress_callback=None, flux_unit_label=None, wave_unit_label=None, header=None,
-                list_wboundaries_extent=None, half_width_sigma=DEFAULT_SIGMA_MULTIPLIER):
+                list_wboundaries_extent=None, half_width_sigma=DEFAULT_SIGMA_MULTIPLIER,
+                issue_counts=None):
     """
     Fit simultaneously many Gaussians and the underlying continuum in each wavelength chunk
     (given in list_wboundaries), via curve_fit on many_gaussians_list.
@@ -384,6 +444,8 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
             capped chunk never cuts off a member line's own window. If None, uses list_wboundaries
         half_width_sigma (float): Must match the value used to build list_wboundaries. This
             function uses it only to find "borrowed" lines (see below), not to rebuild boundaries
+        issue_counts (IssueCounter): Optional. A full-cube run passes one, and this function
+            counts each problem chunk in it. With None, each problem gives a warning.
 
     Returns:
         result (tuple): (sum_target_area, sum_contaminating_area, mean_cont, df_residual,
@@ -563,8 +625,9 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
         n_finite = np.count_nonzero(idx_xwave)
         n_params_needed = 2 + 3 * len(filtered_lines)
         if n_finite <= n_params_needed:
-            print(f'  [DATA WARN] Only {n_finite} finite points for {n_params_needed} parameters '
-                  f'in this chunk -- skipping (not enough data to fit)')
+            _report_issue(issue_counts, 'too_few_points',
+                          f'Only {n_finite} finite points for {n_params_needed} parameters '
+                          f'in a chunk, so the chunk was skipped.')
             for _, coline in filtered_target_lines.iterrows():
                 per_line_fits.append({
                     'wavelength': coline['line'], 'amplitude': 0.0, 'center': coline['line'],
@@ -649,7 +712,8 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
             if dof_chunk > 0:
                 noise_std_chunk = float(np.sqrt(np.sum((yflux[idx_xwave] - bfit) ** 2) / dof_chunk))
             else:
-                print(f'  [NOISE WARN] Chunk {ii}: dof={dof_chunk} <= 0, cannot estimate noise from residuals')
+                _report_issue(issue_counts, 'no_noise_estimate',
+                              f'Chunk {ii}: dof={dof_chunk} <= 0, so the noise cannot be estimated from the residuals.')
                 noise_std_chunk = None
 
             # Owned params only. This code still fits borrowed lines and subtracts them from
@@ -666,8 +730,9 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
                                     for jj in range(0, n_owned_params, 3))
 
             if current_sum_target < 0:
-                print(f'  [FLUX WARN] Negative target flux detected! intensities ({flux_unit_label}): '
-                      f'{[par[jj] for jj in range(0, len(par) - 3 * ncont_lines, 3)]}')
+                _report_issue(issue_counts, 'negative_flux',
+                              f'Negative target flux. Intensities ({flux_unit_label}): '
+                              f'{[par[jj] for jj in range(0, len(par) - 3 * ncont_lines, 3)]}')
 
             # filtered_lines holds target lines, then contaminating lines. `par` follows the same
             # order in 3-param groups: filtered_target_lines.iloc[i] maps to par[3*i:3*i+3].
@@ -694,7 +759,8 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
                     line_sigmas[n_target + j], a, b, par, min_freq_chunk, x_local, y_local, noise_std_chunk))
 
         except RuntimeError as e:
-            print("curve_fit did not converge! Fit a straight line and assign 3sigma upper limit", e)
+            _report_issue(issue_counts, 'not_converged',
+                          f"curve_fit did not converge ({e}), so a 3-sigma upper limit was used.")
             # Cache the failure too -- a later owner sharing this extent gets the same
             # RuntimeError from curve_fit, skipping straight to its own fallback.
             extent_fit_cache[cache_key] = {'success': False}
@@ -1242,7 +1308,8 @@ def save_gaussian_parameters(path, entries, wave_unit=None, flux_unit=None, head
 def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
                                    excluded_wavelengths=None,
-                                   continuum_params=None, snr_threshold=3.0, header=None, wave_unit=None):
+                                   continuum_params=None, snr_threshold=3.0, header=None, wave_unit=None,
+                                   issue_counts=None):
     """
     Extract total flux from a single spectrum by detecting and fitting all target lines.
 
@@ -1264,6 +1331,8 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
             (_line_sigma, MIRI/NIRSpec only). A missing header raises ValueError instead of
             guessing a width
         wave_unit (str): Wavelength unit, for example 'um', used with header for the CGS conversion
+        issue_counts (IssueCounter): Optional. create_flux_map passes one, so that the problems
+            of every pixel are counted. With None, each problem gives a warning.
 
     Returns:
         result (dict): 'flux', 'contam_flux', 'mean_continuum', 'detected_lines', 'residuals',
@@ -1285,9 +1354,11 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         if continuum_model is not None and not np.all(np.isnan(continuum_model)):
             spectrum_flux = spectrum_flux - continuum_model
         else:
-            print(f"  Warning: Continuum fitting returned NaN, using original spectrum")
+            _report_issue(issue_counts, 'continuum_nan',
+                          "The continuum fit gave only NaN, so the original spectrum was used.")
     except Exception as e:
-        print(f"  Warning: Continuum subtraction failed ({e}), using original spectrum")
+        _report_issue(issue_counts, 'continuum_failed',
+                      f"The continuum fit failed ({e}), so the original spectrum was used.")
         continuum_model = None
 
     resolved_wave_unit = get_wave_unit(header, spectrum_wave_unit or wave_unit)
@@ -1427,7 +1498,7 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
             spectrum_wave, spectrum_flux, wave_boundaries,
             detected_target, detected_contam, sigma,
             flux_unit_label=resolved_flux_unit, wave_unit_label=resolved_wave_unit,
-            list_wboundaries_extent=wave_boundaries_extent,
+            list_wboundaries_extent=wave_boundaries_extent, issue_counts=issue_counts,
         )
 
         # Decision 2: each line's own fit-residual noise decides detection now, not the
@@ -1550,8 +1621,6 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
     
     # Strip units from wavelength if it's an astropy Quantity (convert to plain numpy array)
     wavelength, wave_unit = extract_units(wavelength)
-    if wave_unit:
-        print(f"    Wavelength unit: {wave_unit}")
     
     # Calculate wavelength range from target catalog (not full spectrum) for efficiency
     if wave_min is None:
@@ -1559,21 +1628,6 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
     if wave_max is None:
         wave_max = target_catalog['line_wave_um'].max()
 
-    # DIAGNOSTIC: Check line catalogs
-    print(f"    Target catalog: {len(target_catalog)} lines")
-    if len(target_catalog) > 0:
-        print(f"      Wavelength range: {target_catalog['line_wave_um'].min():.4f} - {target_catalog['line_wave_um'].max():.4f}")
-    if contam_catalog is not None:
-        print(f"    Contaminating catalog: {len(contam_catalog)} lines")
-        if len(contam_catalog) > 0 and 'line_wave_um' in contam_catalog.columns:
-            print(f"      Wavelength range: {contam_catalog['line_wave_um'].min():.4f} - {contam_catalog['line_wave_um'].max():.4f}")
-    else:
-        print(f"    Contaminating catalog: None (user did not upload contaminating lines)")
-
-    # DIAGNOSTIC: Check if line wavelengths overlap cube data wavelengths
-    target_overlap = (target_catalog['line_wave_um'] >= wave_min) & (target_catalog['line_wave_um'] <= wave_max)
-    print(f"    Target lines in data wavelength range: {np.sum(target_overlap)}/{len(target_catalog)}")
-    
     sys.stdout.flush()
     
     # Create output maps
@@ -1583,13 +1637,13 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
     contam_detection_map = np.full((n_y, n_x), 0, dtype=np.int32)
     wavelength_map = np.full((n_y, n_x), np.nan, dtype=np.float32)  # Track mean detected wavelength per pixel
     
-    print(f">>> Creating flux map: {n_y}x{n_x} pixels, {n_wave} wavelength elements")
-    print(f"    Wavelength range: {wave_min:.6f} - {wave_max:.6f} um")
-    print(f"    Continuum subtraction: ENABLED")
+    print(f"[OK] Creating flux map: {n_y}x{n_x} pixels, {wave_min:.6f} - {wave_max:.6f} um")
     sys.stdout.flush()
 
     start_time = time.time()
     
+    issue_counts = IssueCounter()
+
     # Thread-safe pixel counter for per-pixel progress updates
     pixel_counter = {'count': 0, 'ok': 0, 'failed': 0, 'first_error': None, 'lock': Lock()}
     total_pixels = n_y * n_x
@@ -1643,7 +1697,8 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
                     do_duplicate_removal=True,
                     excluded_wavelengths=excluded_wavelengths,
                     continuum_params=continuum_params,
-                    header=cube_data.header, wave_unit=cube_data.wave_unit
+                    header=cube_data.header, wave_unit=cube_data.wave_unit,
+                    issue_counts=issue_counts
                 )
                 
                 # Filter detected lines by wavelength range
@@ -1751,6 +1806,9 @@ def create_flux_map(cube_data, target_catalog, contam_catalog, n_jobs=8, progres
         if pixel_counter['ok'] == 0:
             raise RuntimeError(failure_message)
         warnings.warn(failure_message)
+
+    for key, count in issue_counts.counts.items():
+        print(f"[WARN] {count} {ISSUE_DESCRIPTIONS[key]}")
 
     end_time = time.time()
     print(f"\n>>> Flux map creation complete ({end_time - start_time:.1f}s)")
