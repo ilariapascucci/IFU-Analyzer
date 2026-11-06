@@ -1753,6 +1753,21 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
     return {"status": STATUS_OK, "n_lines": len(fluxes), "results": results}
 
 
+# What each extension of the map file shows. The 2D viewer reads this text (DESC) to name a map.
+_MAP_DESCRIPTIONS = {
+    "T": "Rotational diagram: temperature",
+    "T_err": "Rotational diagram: temperature error",
+    "Ncol": "Rotational diagram: column density (molecule count with no radius)",
+    "Ncol_err": "Rotational diagram: column density error",
+    "T2": "Rotational diagram: second temperature (2T fit)",
+    "T2_err": "Rotational diagram: second temperature error (2T fit)",
+    "Ncol2": "Rotational diagram: second column density (2T fit)",
+    "Ncol2_err": "Rotational diagram: second column density error (2T fit)",
+    "n_lines": "Rotational diagram: number of lines in the fit",
+    "status": "Rotational diagram: fit status code",
+}
+
+
 def save_rotational_diagram_map_fits(result, output_path):
     """
     Write the map result to a multi-extension FITS file.
@@ -1797,7 +1812,9 @@ def save_rotational_diagram_map_fits(result, output_path):
 
     extensions = []
     for key in keys:
-        extra = {'BUNIT': bunit_by_key[key]} if key in bunit_by_key else None
+        extra = {'DESC': _MAP_DESCRIPTIONS[key]}
+        if key in bunit_by_key:
+            extra['BUNIT'] = bunit_by_key[key]
         ext_header = build_2d_export_header(source_header, shape, extra=extra)
         extensions.append((key.upper(), np.asarray(result[key]), ext_header))
 

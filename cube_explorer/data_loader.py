@@ -328,11 +328,12 @@ class CubeData:
 
         # A plain PrimaryHDU: this file reloads through gui_2d.py's loader,
         # which scans every HDU.
-        extra = {}
+        extra = {"DESC": "Slice of the cube"}
         if self.header is not None and "BUNIT" in self.header:
             extra["BUNIT"] = self.header["BUNIT"]
         if self.wavelength is not None and 0 <= idx < len(self.wavelength):
             wl_val = self.wavelength[idx]
+            extra["DESC"] = f"Slice at {float(getattr(wl_val, 'value', wl_val)):.5f} {self.wave_unit or ''}".strip()
             # build_2d_export_header ASCII-sanitizes extra values/comments,
             # so wave_unit's "μm" doesn't need handling here too.
             extra["SLICEWL"] = (float(getattr(wl_val, "value", wl_val)), f"Wavelength of this slice ({self.wave_unit or ''})")

@@ -26,7 +26,7 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup, QSizePolicy
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -47,7 +47,7 @@ from .gui_mixins import DualPanelViewMixin
 from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
 from . import region_io
 from .utils import (
-    detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
+    detect_instrument, detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
     is_per_pixel_flux_unit, wcs_footprints_overlap,
 )
 from .unit_converter import clean_flux_unit
@@ -129,6 +129,161 @@ def _unsupported_files(infos):
         if inst not in ("MIRI", "NIRSpec"):
             bad.append((filename, inst or "unknown"))
     return bad
+
+
+def _map_description(header, is_primary):
+    """Name what one HDU shows, from the keywords that IFU Analyzer exports write.
+    DESC wins. A Gaussian map has PARAM, and its other HDUs add their own HDU name.
+    If there is neither, the HDU name is used.
+
+    Args:
+        header (astropy.io.fits.Header): Header of one HDU.
+        is_primary (bool): True if the HDU is the first HDU of the file.
+
+    Returns:
+        description (str): The description, or an empty string if the header has none.
+    """
+    extname = str(header.get('EXTNAME', '')).strip()
+    desc = str(header.get('DESC', '')).strip()
+    if desc:
+        return desc
+    param = str(header.get('PARAM', '')).strip()
+    if param:
+        return param if is_primary or not extname else f"{param}, {extname}"
+    return '' if extname.upper() == 'PRIMARY' else extname
+
+
+def _convolved_description(source_header, ref_wavelength):
+    """Build the DESC text of a convolved image.
+
+    Args:
+        source_header (astropy.io.fits.Header): Header of the image that was convolved.
+        ref_wavelength (float): Wavelength of the reference image, in um.
+
+    Returns:
+        text (str): For example "Convolved to the PSF at 17.0348 um: Area (AUC)".
+    """
+    text = f"Convolved to the PSF at {ref_wavelength:.4f} um"
+    source_desc = _map_description(source_header, True)
+    return f"{text}: {source_desc}" if source_desc else text
+
+
+def _source_label(hdul, hdu_index, filename):
+    """Build the text above a panel: the instrument, what the map shows, and the file.
+
+    Args:
+        hdul (astropy.io.fits.HDUList): Open FITS file.
+        hdu_index (int): Index of the HDU that the panel shows.
+        filename (str): Base name of the file.
+
+    Returns:
+        text (str): For example "MIRI: Area (AUC) [map.fits]".
+    """
+    parts = [part for part in (detect_instrument(hdul), _map_description(hdul[hdu_index].header, hdu_index == 0)) if part]
+    head = ": ".join(parts)
+    return f"{head} [{filename}]" if head else f"[{filename}]"
+
+
+class HduHeaderDialog(QDialog):
+    """Header viewer of one panel, with a list of every HDU in its file.
+    A choice of an HDU that holds a 2D image also shows that image in the panel.
+    """
+
+    def __init__(self, viewer, target, path, loaded_index, parent=None):
+        """Read the headers of the file and show the header of the loaded HDU.
+
+        Args:
+            viewer (Ifu_analyzer_2d_window): The window that owns the panel.
+            target (str): Panel of the file, 'left' or 'right'.
+            path (str): Path of the FITS file in the panel.
+            loaded_index (int): Index of the HDU that the panel shows now.
+            parent (QWidget): Parent widget, or None for a top-level dialog.
+
+        Returns:
+            None
+
+        Raises:
+            OSError: If the file cannot be opened.
+        """
+        super().__init__(parent)
+        self.viewer = viewer
+        self.target = target
+        self.path = path
+        self.loaded_index = loaded_index
+        self.setWindowTitle(f"FITS Header ({target.capitalize()})")
+        self.setMinimumSize(700, 500)
+
+        self._headers = []
+        self._is_image = []
+        self.hdu_combo = QComboBox()
+        with fits.open(path) as hdul:
+            for i, hdu in enumerate(hdul):
+                self._headers.append(hdu.header.copy())
+                is_image = hdu.data is not None and getattr(hdu.data, 'size', 0) > 0 \
+                    and np.squeeze(hdu.data).ndim == 2
+                self._is_image.append(is_image)
+                name = (getattr(hdu, 'name', '') or '').strip()
+                label = f"HDU {i}: {name}" if name else f"HDU {i}:"
+                label += f" ({type(hdu).__name__})"
+                if is_image:
+                    ny, nx = np.squeeze(hdu.data).shape
+                    label += f", image {ny} x {nx}"
+                self.hdu_combo.addItem(label)
+
+        layout = QVBoxLayout(self)
+        picker = QHBoxLayout()
+        picker.addWidget(QLabel("HDU:"))
+        picker.addWidget(self.hdu_combo, 1)
+        layout.addLayout(picker)
+        layout.addWidget(QLabel("An HDU with a 2D image also shows in the panel when you choose it."))
+
+        self.text = QTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setFontFamily("Courier")
+        layout.addWidget(self.text)
+
+        self.hdu_combo.setCurrentIndex(loaded_index)
+        self._show_header()
+        self.hdu_combo.currentIndexChanged.connect(self._on_hdu_changed)
+
+    def _show_header(self):
+        """Show the header of the chosen HDU. The HDU in the panel shows the header
+        that the panel holds now, so a rotation shows in its WCS keywords.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        index = self.hdu_combo.currentIndex()
+        if index == self.loaded_index:
+            header = self.viewer.header_left if self.target == "left" else self.viewer.header_right
+        else:
+            header = self._headers[index]
+        self.text.setPlainText("\n".join(
+            f"{k:8} = {v!r} / {header.comments[k]}" if k in header.comments else f"{k:8} = {v!r}"
+            for k, v in header.items()
+        ))
+
+    def _on_hdu_changed(self, index):
+        """Show the chosen HDU in the panel if it holds a 2D image, then show its header.
+        If the image cannot load, the list goes back to the HDU in the panel.
+
+        Args:
+            index (int): Index of the HDU that the user chose.
+
+        Returns:
+            None
+        """
+        if index != self.loaded_index and self._is_image[index]:
+            if self.viewer._load_panel_image(self.target, self.path, index):
+                self.loaded_index = index
+            else:
+                self.hdu_combo.blockSignals(True)
+                self.hdu_combo.setCurrentIndex(self.loaded_index)
+                self.hdu_combo.blockSignals(False)
+        self._show_header()
 
 
 def _convolution_plan_row(filename, header, wavelength, pix_arcsec, ref_wavelength, ref_header):
@@ -522,6 +677,8 @@ class BatchMatchResolutionDialog(QDialog):
                     out_header = ref_header.copy()
                     if bunit:
                         out_header['BUNIT'] = bunit
+                    # The copy holds the description of the reference image, not of this one.
+                    out_header['DESC'] = _convolved_description(info['header'], ref_info['wavelength_um'])
                     out_header['HISTORY'] = (
                         f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
                         f"reprojected onto {ref_info['filename']}'s native grid "
@@ -600,6 +757,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         # Source file basename per panel, for Save Region's descriptive text.
         self.filename_left = None
         self.filename_right = None
+        # Full path and HDU index per panel, for the header window.
+        self.filepath_left = None
+        self.filepath_right = None
+        self.hdu_index_left = None
+        self.hdu_index_right = None
         # Optional per-pixel coverage fraction (0-1) for reprojected images,
         # saved as a "COVERAGE" HDU; flux sums value*pixel_area*coverage.
         self.coverage_left = None
@@ -1722,6 +1884,21 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         finally:
             QApplication.restoreOverrideCursor()
 
+    def _make_source_label(self):
+        """Make the line above a panel that names its instrument, map and file.
+        The label clips a long text instead of widening the panel.
+
+        Args:
+            None
+
+        Returns:
+            label (QLabel): The label, with the text for an empty panel.
+        """
+        label = QLabel("No image loaded")
+        label.setStyleSheet("font-weight: bold;")
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        return label
+
     def _setup_main_layout(self):
         """Set up the main application layout.
 
@@ -1763,7 +1940,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         left_stats_widget.setFixedWidth(max(180, left_stats_widget.sizeHint().width()))
 
         # Left Canvas allowed to freely resize
+        self.source_label_left = self._make_source_label()
         left_slice_layout = QVBoxLayout()
+        left_slice_layout.addWidget(self.source_label_left)
         left_slice_layout.addWidget(self.slice1_canvas)
         left_slice_layout.addWidget(self.slice1_toolbar)
         
@@ -1810,7 +1989,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         right_stats_widget.setFixedWidth(max(180, right_stats_widget.sizeHint().width()))
 
         # Right Canvas allowed to freely resize
+        self.source_label_right = self._make_source_label()
         right_slice_layout = QVBoxLayout()
+        right_slice_layout.addWidget(self.source_label_right)
         right_slice_layout.addWidget(self.slice2_canvas)
         right_slice_layout.addWidget(self.slice2_toolbar)
         
@@ -1873,7 +2054,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.setLayout(main_layout)
 
     def show_header(self, target):
-        """Display the FITS header text for a panel.
+        """Show the FITS header of a panel, with a list of every HDU in its file.
 
         Args:
             target (str): Panel whose header to show, 'left' or 'right'.
@@ -1887,29 +2068,18 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.warning(self, "No Image", "Please load an image first to view its header.")
             return
 
-        header_text = "\n".join(
-            f"{k:8} = {v!r} / {header.comments[k]}" if k in header.comments else f"{k:8} = {v!r}" 
-            for k, v in header.items()
-        )
-        
-        header_window = QWidget()
-        header_window.setWindowTitle(f"FITS Header ({target.capitalize()})")
-        header_window.setMinimumSize(600, 500)
-        
-        layout = QVBoxLayout()
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
-        text_edit.setFontFamily("Courier")
-        text_edit.setText(header_text)
-        layout.addWidget(text_edit)
-        
-        header_window.setLayout(layout)
+        path = self.filepath_left if target == "left" else self.filepath_right
+        loaded_index = self.hdu_index_left if target == "left" else self.hdu_index_right
+        old_window = getattr(self, f'header_window_{target}', None)
+        if old_window is not None:
+            old_window.close()
+        try:
+            header_window = HduHeaderDialog(self, target, path, loaded_index, parent=self)
+        except Exception as e:
+            QMessageBox.critical(self, "Header Error", f"Could not read the HDUs of the file:\n{e}")
+            return
         header_window.show()
-        
-        if target == "left":
-            self.header_window_left = header_window
-        else:
-            self.header_window_right = header_window
+        setattr(self, f'header_window_{target}', header_window)
 
     def rebuild_axes(self, target, header):
         """Rebuild a panel's matplotlib axes from a FITS header's WCS.
@@ -2027,20 +2197,42 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         if not fname:
             return
 
+        # A new file closes the old header window, which lists the HDUs of the old file.
+        old_window = getattr(self, f'header_window_{target}', None)
+        if old_window is not None:
+            old_window.close()
+        self._load_panel_image(target, fname)
+
+    def _load_panel_image(self, target, fname, hdu_index=None):
+        """Load one 2D image from a FITS file into a panel.
+        Without an HDU index, the first HDU that holds a 2D image loads.
+
+        Args:
+            target (str): Panel to load into, 'left' or 'right'.
+            fname (str): Path of the FITS file.
+            hdu_index (int): Index of the HDU to load, or None for the first 2D image.
+
+        Returns:
+            loaded (bool): True if the image is in the panel, False if the load failed.
+        """
         try:
             self.clear_region(target)
-            
+
             with fits.open(fname) as hdul:
                 data = None
                 header = None
                 coverage = None
+                loaded_index = None
                 # Accurately find the correct 2D extension (fixes JWST empty primary HDUs)
-                for hdu in hdul:
+                for index, hdu in enumerate(hdul):
+                    if hdu_index is not None and index != hdu_index:
+                        continue
                     if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
                         sq_data = np.squeeze(hdu.data)
                         if sq_data.ndim == 2:
                             data = sq_data
                             header = hdu.header.copy()
+                            loaded_index = index
                             break
 
                 # "COVERAGE" extension holds the per-pixel coverage fraction (0-1)
@@ -2076,7 +2268,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     else:
                         QMessageBox.warning(
                             self, "Load Error", "No image data found in FITS file.")
-                    return
+                    return False
 
                 # data is the squeezed 2D array from the loop above (degenerate
                 # axes accepted); true multi-plane cubes are rejected earlier.
@@ -2095,6 +2287,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 # -------------------------------------------------------
 
                 filename = os.path.basename(fname)
+                label_text = _source_label(hdul, loaded_index, filename)
                 if target == "left":
                     self.base_image_left = data.copy()
                     self.base_header_left = header.copy()
@@ -2103,6 +2296,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     self.header_left = header
                     self.coverage_left = coverage
                     self.filename_left = filename
+                    self.filepath_left = fname
+                    self.hdu_index_left = loaded_index
+                    self.source_label_left.setText(label_text)
+                    self.source_label_left.setToolTip(fname)
                 else:
                     self.base_image_right = data.copy()
                     self.base_header_right = header.copy()
@@ -2111,6 +2308,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     self.header_right = header
                     self.coverage_right = coverage
                     self.filename_right = filename
+                    self.filepath_right = fname
+                    self.hdu_index_right = loaded_index
+                    self.source_label_right.setText(label_text)
+                    self.source_label_right.setToolTip(fname)
 
                 self.rebuild_axes(target, header)
                 self.display_image(target, title=filename)
@@ -2118,10 +2319,12 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 save_slice_btn = self.save_slice_btn_l if target == "left" else self.save_slice_btn_r
                 for _b in (save_slice_btn, self.region_save_wcs_btn, self.region_import_wcs_btn):
                     _b.setEnabled(True)
+                return True
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading FITS file:\n{str(e)}")
             traceback.print_exc()
+            return False
 
     def rotate_image(self, target):
         """Rotate a panel's image by the spin box angle and update its WCS.
@@ -2613,7 +2816,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         if mask is not None:
             out_image[~mask] = np.nan
         try:
-            out_header = build_2d_export_header(header, out_image.shape)
+            source_desc = _map_description(header, True)
+            desc = f"Slice of {source_desc}" if source_desc else "Slice"
+            out_header = build_2d_export_header(
+                header, out_image.shape, extra={"DESC": desc + (" (region only)" if mask is not None else "")})
             write_fits_product(path, out_image, out_header)
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Could not export slice:\n{e}")
@@ -2874,6 +3080,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 history=(f"Convolve: sigma={sigma_arcsec:.4f}\"; "
                         f"reprojected onto {ref_side}'s native grid "
                         f"(ref wavelength {ref_wl:.4f} um)"),
+                description=_convolved_description(fine_header, ref_wl),
             )
 
             fname, _ = QFileDialog.getSaveFileName(

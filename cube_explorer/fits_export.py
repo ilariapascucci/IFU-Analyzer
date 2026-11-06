@@ -174,11 +174,16 @@ def build_line_map_header(source_header, shape, wavelength=None, molecule=None, 
 
     extensions = []
     if error_map is not None and np.any(np.isfinite(error_map)):
-        extensions.append(("ERR", np.asarray(error_map, dtype=np.float32), header.copy()))
+        err_header = header.copy()
+        # The copy would repeat the description of the map, so it names the error instead.
+        if 'DESC' in err_header:
+            err_header['DESC'] = _ascii_safe(f"Error of: {err_header['DESC']}")
+        extensions.append(("ERR", np.asarray(error_map, dtype=np.float32), err_header))
     return header, extensions
 
 
-def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, identity_header=None):
+def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, identity_header=None,
+                          description=None):
     """
     Shared header for a resolution-matched (convolved + reprojected) 2D
     output -- the 2D viewer's Pair/Batch convolve exports all route
@@ -194,6 +199,8 @@ def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, id
         identity_header: Real source header to pull INSTRUME/TARGNAME/etc
             from -- None trusts dst_wcs_or_header as-is (it usually won't
             have them, being grid-only).
+        description (str): Text for the DESC keyword, which names the map in the 2D
+            viewer -- None adds none.
 
     Returns:
         header (astropy.io.fits.Header): Ready for the PRIMARY HDU. Pair
@@ -205,6 +212,8 @@ def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, id
     extra = {}
     if bunit is not None:
         extra["BUNIT"] = bunit
+    if description:
+        extra["DESC"] = description
     header = build_2d_export_header(source_header, shape, extra=extra)
     if identity_header is not None:
         for kw in _COMMON_KEYWORDS:

@@ -1861,7 +1861,9 @@ class LineFluxMapDialog(QDialog):
                 self.source_header, self.flux_map.shape, wavelength=self.wavelength,
                 molecule=self.molecule, flux_map=self.flux_map, error_map=self.error_map,
                 src_filename=self.src_filename, fit_method="Multi-Gaussian fit",
-                identity_header=self.identity_header, extra={"BUNIT": CGS_FLUX_NAME},
+                identity_header=self.identity_header,
+                extra={"BUNIT": CGS_FLUX_NAME,
+                       "DESC": f"Flux map: {self.molecule} line at {self.wavelength:.4f} um"},
             )
             write_fits_product(path, np.asarray(self.flux_map, dtype=np.float32), header,
                                extensions=extensions)

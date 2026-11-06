@@ -3352,7 +3352,9 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             entry.get("header"), flux_map.shape, wavelength=entry["wavelength"],
             molecule=entry.get("molecule", "H2"), flux_map=flux_map, error_map=err_map,
             src_filename=entry.get("source_filename") or "UNKNOWN", fit_method="Multi-Gaussian fit",
-            identity_header=entry.get("identity_header"), extra={"BUNIT": CGS_FLUX_NAME},
+            identity_header=entry.get("identity_header"),
+            extra={"BUNIT": CGS_FLUX_NAME,
+                   "DESC": f"Flux map: {entry.get('molecule', 'H2')} line at {entry['wavelength']:.4f} um"},
         )
         buf = io.BytesIO()
         write_fits_product(buf, np.asarray(flux_map, dtype=np.float32), header, extensions=extensions)

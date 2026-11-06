@@ -50,6 +50,8 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 #### Image Display
 
 - Dual-panel layout. Load an independent 2D FITS file into the left panel or the right panel.
+- A label above each panel gives the instrument, what the map shows, and the file name, for example `MIRI: Rotational diagram: temperature [map.fits]`. The text comes from the `DESC` keyword of the HDU, or from `PARAM` (Gaussian maps), or from the HDU name. IFU Analyzer writes `DESC` in its saved slices, convolved images, flux maps, and rotational-diagram maps. Files from older versions, and files from other tools, show only the HDU name.
+- A file with more than one HDU opens its first 2D image. "Header" has a list of all HDUs, and a choice of an HDU with a 2D image shows that image in the panel.
 - Full WCS grid overlay. The RA and Dec tick labels stay in the correct position at any rotation angle.
 - The tick-label format adjusts to the field of view (degrees, then arcmin, then arcsec, then sub-arcsec).
 - Live cursor readout: pixel coordinates, RA (hh:mm:ss), Dec (dd:mm:ss), and flux value
@@ -597,6 +599,7 @@ python main.py
    > Click the `2D` button in the main window to open the viewer.
 
    - Load an image with "Open 2D FITS (Left)" or "Open 2D FITS (Right)".
+   - To see a different HDU of the same file, click "Header" on that panel and choose the HDU in the "HDU" list. An HDU with a 2D image (marked "image") also shows in the panel. For example, choose `NCOL` in a rotational-diagram map file to see the column density instead of the temperature.
    - The WCS grid (RA and Dec) shows automatically if the FITS header has WCS.
 
    **Rotation:**
