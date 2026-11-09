@@ -1,0 +1,68 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it and the paper in the references."
+title: "IFU Analyzer"
+type: software
+abstract: "A desktop application and Python API to view and analyze integral field unit (IFU) data cubes. It is based on scripts developed in Pascucci et al. 2025."
+authors:
+  - family-names: "Campa Morales"
+    given-names: "Jose Santiago"
+    affiliation: "University of Arizona"
+repository-code: "https://github.com/ilariapascucci/IFU-Analyzer"
+keywords:
+  - astronomy
+  - IFU
+  - JWST
+  - MIRI
+  - NIRSpec
+  - MUSE
+references:
+  - type: article
+    authors:
+      - family-names: "Pascucci"
+        given-names: "Ilaria"
+      - family-names: "Beck"
+        given-names: "Tracy L."
+      - family-names: "Cabrit"
+        given-names: "Sylvie"
+      - family-names: "Bajaj"
+        given-names: "Naman S."
+      - family-names: "Edwards"
+        given-names: "Suzan"
+      - family-names: "Louvet"
+        given-names: "Fabien"
+      - family-names: "Najita"
+        given-names: "Joan R."
+      - family-names: "Skinner"
+        given-names: "Bennett N."
+      - family-names: "Gorti"
+        given-names: "Uma"
+      - family-names: "Salyk"
+        given-names: "Colette"
+      - family-names: "Brittain"
+        given-names: "Sean D."
+      - family-names: "Krijt"
+        given-names: "Sebastiaan"
+      - family-names: "Muzerolle Page"
+        given-names: "James"
+      - family-names: "Ruaud"
+        given-names: "Maxime"
+      - family-names: "Schwarz"
+        given-names: "Kamber"
+      - family-names: "Semenov"
+        given-names: "Dmitry"
+      - family-names: "Duchêne"
+        given-names: "Gaspard"
+      - family-names: "Villenave"
+        given-names: "Marion"
+    title: "The nested morphology of disk winds from young stars revealed by JWST/NIRSpec observations"
+    journal: "Nature Astronomy"
+    year: 2025
+    month: 1
+    volume: 9
+    start: 81
+    end: 89
+    doi: "10.1038/s41550-024-02385-7"
+    identifiers:
+      - type: other
+        value: "arXiv:2410.18033"
+        description: "arXiv e-print"

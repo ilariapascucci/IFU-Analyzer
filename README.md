@@ -834,6 +834,31 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
    - A "No matching distribution found for PyQt5" message on Linux means that the computer has an ARM processor. PyQt5 has no files for it, so Linux on ARM is not supported.
    - On an Apple Silicon Mac with conda, run `python -c "import platform; print(platform.machine())"`. If it prints `x86_64`, conda runs under Rosetta. The program works, but a conda for Apple Silicon (for example Miniforge) is faster.
 
+## Citing
+
+IFU Analyzer is based on scripts developed in Pascucci et al. 2025. If you use this software, cite this paper:
+
+```bibtex
+@ARTICLE{2025NatAs...9...81P,
+       author = {{Pascucci}, Ilaria and {Beck}, Tracy L. and {Cabrit}, Sylvie and {Bajaj}, Naman S. and {Edwards}, Suzan and {Louvet}, Fabien and {Najita}, Joan R. and {Skinner}, Bennett N. and {Gorti}, Uma and {Salyk}, Colette and {Brittain}, Sean D. and {Krijt}, Sebastiaan and {Muzerolle Page}, James and {Ruaud}, Maxime and {Schwarz}, Kamber and {Semenov}, Dmitry and {Duch{\^e}ne}, Gaspard and {Villenave}, Marion},
+        title = "{The nested morphology of disk winds from young stars revealed by JWST/NIRSpec observations}",
+      journal = {Nature Astronomy},
+     keywords = {Astrophysics - Earth and Planetary Astrophysics, Astrophysics - Solar and Stellar Astrophysics},
+         year = 2025,
+        month = jan,
+       volume = {9},
+        pages = {81-89},
+          doi = {10.1038/s41550-024-02385-7},
+archivePrefix = {arXiv},
+       eprint = {2410.18033},
+ primaryClass = {astro-ph.EP},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2025NatAs...9...81P},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+}
+```
+
+The file `CITATION.cff` has the same information. GitHub uses it for the "Cite this repository" button.
+
 ## Credits
 
 The button icons in `cube_explorer/icons/` are from the Calcite Sharp Line Icons collection by Esri, used under the MIT License. See `cube_explorer/icons/LICENSE`.
