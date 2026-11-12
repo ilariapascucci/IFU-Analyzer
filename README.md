@@ -578,7 +578,7 @@ python main.py
 
 ### Continuum Fitting
 
-5. Subtract the continuum. Open the "Continuum Tools" group. It has two buttons. "Integrated Spectrum" opens a window to fit the integrated spectrum. "Pixel-by-Pixel" opens a window to fit every pixel and save the continuum cubes. The windows stay open while you click on the spectrum. Drag a window if it covers the plot.
+5. Subtract the continuum. Open the "Continuum Fit" group. It has two buttons. "Integrated Spectrum" opens a window to fit the integrated spectrum. "Pixel-by-Pixel" opens a window to fit every pixel and save the continuum cubes. The windows stay open while you click on the spectrum. Drag a window if it covers the plot.
 
    **Integrated spectrum.** Click "Integrated Spectrum".
 

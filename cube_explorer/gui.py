@@ -104,7 +104,7 @@ class CollapsibleButtonGroup(QWidget):
         # Toggle button (always visible)
         self.toggle_btn = QPushButton(f"▸ {title}")
         self.toggle_btn.setCheckable(True)
-        self.toggle_btn.setFixedWidth(150)  # Wider to fit "Continuum Tools"
+        self.toggle_btn.setFixedWidth(150)  # Wider to fit "Continuum Fit"
         self.toggle_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
@@ -1512,8 +1512,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.gaussian_group.add_button(self.load_fit_btn)
         self.gaussian_group.add_button(self.gauss_map_btn)
 
-        # Group 2: Continuum Tools
-        self.continuum_group = CollapsibleButtonGroup("Continuum Tools")
+        # Group 2: Continuum Fit
+        self.continuum_group = CollapsibleButtonGroup("Continuum Fit")
         self.continuum_group.add_button(self.continuum_spectrum_btn)
         self.continuum_group.add_button(self.continuum_pixel_btn)
 
@@ -1535,7 +1535,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         bottom_layout.addLayout(build_group_bar([
             self.gaussian_group, self.continuum_group, self.hitran_group]))
 
-        # The continuum buttons live in two pop-ups that the Continuum Tools buttons open.
+        # The continuum buttons live in two pop-ups that the Continuum Fit buttons open.
         self._build_continuum_popups()
 
         # Slice selection, spectrum tabs, shifting, and saving share one wrapping row
