@@ -27,7 +27,7 @@ Some tools have a narrower scope:
 - The spectrum updates when you change the selection
 - Region tools: point, rectangle, ellipse, and freehand polygon. To make a circle, use the Edit Shape tool to give an ellipse the same width and height.
 - Draggable region handles for a move or a resize
-- The RA and Dec of the cursor in the Cursor Info of each slice, and a Grid button that draws the RA and Dec grid on the slice. Both need a celestial WCS in the FITS header.
+- The RA and Dec of the cursor in the Cursor Info of each slice, and a Grid button that shows or hides the RA and Dec grid on the slice. The grid is on when a cube loads. Both need a celestial WCS in the FITS header.
 - Colour scales: Linear, Log, and Power (with an adjustable gamma), with an absolute or a percentile colour range
 - Colormap selection through a dialog, with colourblind-friendly options
 - Support for 2D images (intensity maps and Gaussian parameter maps)
@@ -536,7 +536,7 @@ python main.py
    - Click "Set Left Slice" and "Set Right Slice" to set the two slice views.
    - Adjust the colour scale and the colormap.
    - Move the cursor over a slice. The Cursor Info shows the pixel, the RA, the Dec, and the value.
-   - Click the "Grid" button in the side column of a slice to draw the RA and Dec grid on that slice. The button is off when the FITS header has no celestial WCS.
+   - The RA and Dec grid is on when a cube loads. Click the "Grid" button in the side column of a slice to hide or show it. The button is off and not usable when the FITS header has no celestial WCS.
 
 ### Region Analysis
 

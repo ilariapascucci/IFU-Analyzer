@@ -1821,6 +1821,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 self._setup_slice_axes()
                 self._display_slice(0, "left")
                 self._display_slice(0, "right")
+                # The grid starts on. The toggle shows a warning and unchecks the button if it fails.
+                for grid_btn in (self.grid_btn_l, self.grid_btn_r):
+                    if grid_btn.isEnabled():
+                        grid_btn.setChecked(True)
             except Exception as slice_error:
                 QMessageBox.warning(self, "Display Error", f"Error displaying slices: {str(slice_error)}")
 
