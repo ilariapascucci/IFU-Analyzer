@@ -18,7 +18,7 @@ IFU Analyzer is a Python application for the analysis of Integral Field Unit (IF
 Some tools have a narrower scope:
 
 - **Fetch HITRAN, Flux Map, and the rotational diagram** read wavelengths in µm, so use them on MIRI and NIRSpec cubes. The offline HITRAN data in `hitran_local/` covers 1 to 30 µm. For another range, the app fetches the lines from HITRAN online, so it needs an internet connection.
-- **Pair and Batch** (resolution matching) work on MIRI and NIRSpec images only.
+- **Pair Convolution and Batch Convolution** (resolution matching) work on MIRI and NIRSpec images only.
 
 ### Interactive Visualization
 
@@ -63,30 +63,34 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 
 #### Image Rotation
 
-- Rotate an image by any angle. Select "Counter-Clockwise" or "Clockwise", then click "Rotate (Left)" or "Rotate (Right)".
+- Rotate an image by any angle. Click the "Rotate" button (the circular arrow) in the side column of a panel. In the dialog, set the angle and select "Counter-Clockwise" or "Clockwise". The dialog shows the last values that you used.
 - The WCS header is updated on each rotation, so the RA and Dec labels stay correct.
 - The rotation is cumulative. Successive rotations compose correctly.
+- Under the intensity statistics of each panel, a line shows the net rotation of the image, for example "Rotation: 60° CW" or "Rotation: 90° CCW". The line shows the shorter direction, so the angle is never more than 180°. It goes back to "Rotation: 0°" when you load a new image.
 - Save the rotated image as a new FITS file with the updated WCS header.
 
 #### Contour Plotting
+
+The "Contour" button in the side column of each panel opens a menu: "Plot Contour...", "Save Contour...", "Load Contour...", and "Clear Contours". Each item acts on the panel of that button.
 
 - **Background estimation:** Astropy sigma-clipped statistics (automatic), or a value that you supply
 - **Sigma levels:** a comma-separated list of multipliers (for example `3, 5, 10`). Each value N draws a contour line at N × background_std above the background median.
 - **WCS-matched cross-image contours:** Generate the contours from one panel and draw them on the other panel through a full WCS coordinate transformation. This works when the two images have a different pixel scale, array size, or orientation.
 - The contour colour is configurable.
 - You can stack more than one contour set.
-- "Clear" removes all contours from a panel.
+- "Clear Contours" removes all contours from a panel.
 
 #### Contour Export and Import
 
-- **Save (.txt):** writes all contour path vertices as pixel coordinates and RA/Dec (degrees) with the sigma-level labels. The file is human-readable.
-- **Load:** reads a saved contour (`.txt` or `.csv`) and draws it on either panel through the WCS mapping. The contour lines up on an image with a different pixel scale or orientation.
+- **Save Contour (.txt):** writes all contour path vertices as pixel coordinates and RA/Dec (degrees) with the sigma-level labels. The file is human-readable.
+- **Load Contour:** reads a saved contour (`.txt` or `.csv`) and draws it on the panel of the button through the WCS mapping. The contour lines up on an image with a different pixel scale or orientation.
 
 #### WCS Superimpose
 
 - Overlay two images that have a different WCS grid (a different pixel scale, array size, orientation, or pointing) onto one panel.
 - The overlay image is reprojected onto the pixel grid of the background image with `reproject_exact` from the `reproject` package. This method conserves flux.
 - The overlay colormap and the alpha transparency (0.1 to 1.0) are configurable.
+- "Clear Superimpose" removes the overlay from the panels. The button is off when no panel shows an overlay. A new overlay, a rotation, a new color map or scale on the same panel, or a new image also removes the overlay.
 
 #### Resolution Matching: Pair (two images)
 
@@ -94,7 +98,7 @@ Match two images of one field to the same spatial resolution. This is the standa
 
 - **Input:** two MIRI or NIRSpec images in a flux-per-pixel unit, one in each panel. The images must overlap on the sky. A surface-brightness unit such as MJy/sr is rejected.
 - Each image needs its line wavelength. The tool reads it from the `LINEWAVE` header key (written by the rotational-diagram "Save Maps"), or from the middle of `LAMMIN` and `LAMMAX` (written by the Gaussian-map export). If the header has neither, the tool asks for the wavelength.
-- Click **Pair** to open the confirmation table. It has one row for each image: the line wavelength, the file, the pixel scale, the native PSF, and the kernel width. The reference image is marked. The line above the table gives the output grid. It is the same table that Run Map and Convolve Maps show in the rotational diagram window.
+- Click **Pair Convolution** to open the confirmation table. It has one row for each image: the line wavelength, the file, the pixel scale, the native PSF, and the kernel width. The reference image is marked. The line above the table gives the output grid. It is the same table that Run Map and Convolve Maps show in the rotational diagram window.
 - The image with the **longer wavelength** is the reference, because its PSF is wider. The tool convolves the other image with a Gaussian kernel up to the reference PSF.
 - Kernel width: `σ = √(σ_ref² − σ_image²)`. Each σ comes from the PSF FWHM of the instrument at the line wavelength. MIRI: `FWHM(") = 0.033 × λ(µm) + 0.106`. NIRSpec: an approximate quadratic fit.
 - The tool then reprojects the convolved image onto the **native pixel grid of the reference image**, and it conserves the flux.
@@ -106,7 +110,7 @@ Match two images of one field to the same spatial resolution. This is the standa
 
 Bring several images to one resolution in a single step.
 
-- Click **Batch** to open the batch dialog.
+- Click **Batch Convolution** to open the batch dialog.
 - Click **+ Add FITS Files** to add two or more 2D FITS files. The requirements are the same as for Pair: MIRI or NIRSpec, a flux-per-pixel unit, and an overlap on the sky.
 - The tool reads or asks for the line wavelength of each file, as in Pair.
 - The file with the **longest wavelength** is the reference. The tool convolves every other file to the PSF of the reference and reprojects it onto the native grid of the reference. The reference file is not smoothed.
@@ -203,7 +207,7 @@ Bring several images to one resolution in a single step.
 - **Slice (FITS):** the "Save" button in each slice's side column saves that slice as a 2D FITS file. If a region or pixel is selected on that slice, only the pixels inside it are saved and all other pixels are `NaN`. The 2D viewer has the same button.
 - **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position. In the main window and in the 2D viewer, use the "Region" button (the dashed box with a cursor) in the side column of a slice or an image: "Save Region..." saves the region of that panel, and "Import Region..." places a saved region on that panel.
 - **Rotated image (FITS):** save of the rotated image with the updated WCS header
-- **Convolved image (FITS):** save of the resolution-matched image (the "Pair" output) with the 2-HDU layout (image and `COVERAGE`)
+- **Convolved image (FITS):** save of the resolution-matched image (the "Pair Convolution" output) with the 2-HDU layout (image and `COVERAGE`)
 - **Batch ZIP:** a zip archive of all resolution-matched FITS files on a common WCS grid
 - The instrument is detected automatically, and the header is preserved.
 - The exports are unit-aware and support CGS calibration.

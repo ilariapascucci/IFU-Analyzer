@@ -26,7 +26,7 @@ warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
-    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QButtonGroup, QSizePolicy
+    QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QSizePolicy, QMenu
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -41,7 +41,6 @@ from .visualization import SlicePlotter, apply_wcs_grid, hide_wcs_grid
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
 from .region_selector import RegionSelector
-from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
 from .icon_loader import set_button_icon
@@ -713,6 +712,7 @@ class BatchMatchResolutionDialog(QDialog):
 
 class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
     _panel_noun = "image"
+    _REVERT_RESULT = 2  # result code of the Rotate dialog when Revert is clicked
 
     def __init__(self, parent=None):
         """Build the 2D dual-viewer window and initialize its state.
@@ -750,7 +750,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self._init_ui()
 
     def closeEvent(self, event):
-        """Drop this window's collapsible groups and free its images on close.
+        """Free the images of this window on close.
 
         Args:
             event (QCloseEvent): Close event Qt sends to the widget.
@@ -758,16 +758,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
-        # Drop this window's groups from CollapsibleButtonGroup's class-level
-        # registry so cross-window accordion logic never touches a deleted widget.
-        for _g in (getattr(self, 'contour_group', None),
-                   getattr(self, 'convolution_group', None)):
-            try:
-                if _g in CollapsibleButtonGroup._all_groups:
-                    CollapsibleButtonGroup._all_groups.remove(_g)
-            except Exception:
-                pass
-
         self.image_left = None
         self.image_right = None
         self.base_image_left = None
@@ -807,7 +797,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.base_image_right = None
         self.base_header_right = None
         self.cum_angle_right = 0.0
-        
+
+        # Last values of the Rotate dialog, shown again the next time it opens.
+        self.rotate_angle = 90.0
+        self.rotate_clockwise = False
+
+        # Coverage map of each image as loaded. Rotation drops the live one.
+        self.base_coverage_left = None
+        self.base_coverage_right = None
+
         # Contour tracking variables for saving
         self.last_contour_left_img = None
         self.last_contour_left_wcs = None
@@ -836,6 +834,12 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.stats2_label.setMinimumWidth(150)
         self.stats2_label.setWordWrap(True)
         self.stats2_label.setStyleSheet("font-size: 10pt; font-weight: bold;")
+
+        self.rotation1_label = QLabel("Rotation: -")
+        self.rotation1_label.setStyleSheet("font-size: 10pt;")
+
+        self.rotation2_label = QLabel("Rotation: -")
+        self.rotation2_label.setStyleSheet("font-size: 10pt;")
 
         self.hover1_label = QLabel("Cursor Info:\n-")
         self.hover1_label.setMinimumWidth(150)
@@ -1106,61 +1110,32 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.grid_btn_l = self._make_grid_button("left")
         self.grid_btn_r = self._make_grid_button("right")
 
+        # Rotate and Contour: one button per panel, under the other sidebar buttons.
+        # They stay off until an image loads into the panel.
+        self.rotate_btn_l = self._make_rotate_button("left")
+        self.rotate_btn_r = self._make_rotate_button("right")
+        self.contour_btn_l = self._make_contour_button("left")
+        self.contour_btn_r = self._make_contour_button("right")
+
         for btn in (self.region_menu_btn_l, self.region_menu_btn_r,
-                    self.grid_btn_l, self.grid_btn_r):
+                    self.grid_btn_l, self.grid_btn_r,
+                    self.rotate_btn_l, self.rotate_btn_r,
+                    self.contour_btn_l, self.contour_btn_r):
             btn.setEnabled(False)
 
-        # Bottom panel controls: plain default styling, matching the 3D
-        # window and the Open/Header/Save buttons above.
-
-        # ----- ROTATION CONTROLS (per-panel; no "which slice?" prompt) -----
-        self.rot_ccw_radio = QRadioButton("Counter-Clockwise")
-        self.rot_cw_radio = QRadioButton("Clockwise")
-        self.rot_ccw_radio.setToolTip("Rotate counter-clockwise.")
-        self.rot_cw_radio.setToolTip("Rotate clockwise.")
-        self.rot_ccw_radio.setChecked(True)
-        self.rot_dir_group = QButtonGroup(self)
-        self.rot_dir_group.addButton(self.rot_ccw_radio)
-        self.rot_dir_group.addButton(self.rot_cw_radio)
-
-        self.angle_spin = QDoubleSpinBox()
-        self.angle_spin.setRange(0.0, 360.0)
-        self.angle_spin.setValue(90.0)
-        self.angle_spin.setSuffix(" °")
-        self.angle_spin.setMaximumWidth(90)
-        self.angle_spin.setToolTip("Rotation angle, in degrees.")
-
-        self.rotate_left_btn = QPushButton("Rotate (Left)")
-        self.rotate_left_btn.setToolTip("Rotate the left image by the angle and direction set here.")
-        self.rotate_left_btn.clicked.connect(lambda: self.rotate_image("left"))
-
-        self.rotate_right_btn = QPushButton("Rotate (Right)")
-        self.rotate_right_btn.setToolTip("Rotate the right image by the angle and direction set here.")
-        self.rotate_right_btn.clicked.connect(lambda: self.rotate_image("right"))
-
-        # ----- CONTOUR CONTROLS (grouped under the "Contour" collapsible) -----
-        self.contour_btn = QPushButton("Plot")
-        self.contour_btn.setToolTip("Plot sigma-level contours on one panel.")
-        self.contour_btn.clicked.connect(self._prompt_and_contour)
-
+        # Bottom row: plain default styling, matching the 3D window and the
+        # Open/Header/Save buttons above.
         self.superimpose_btn = QPushButton("Superimpose")
         self.superimpose_btn.setToolTip("Blend one image over the other image, matched by sky coordinates.")
         self.superimpose_btn.clicked.connect(self._prompt_and_superimpose)
 
-        self.save_contour_btn = QPushButton("Save")
-        self.save_contour_btn.setToolTip("Save the active contour's coordinates to a text/CSV file")
-        self.save_contour_btn.clicked.connect(self._prompt_and_save_contour)
+        # On only while a panel shows a superimposed image.
+        self.clear_superimpose_btn = QPushButton("Clear Superimpose")
+        self.clear_superimpose_btn.setToolTip("Remove the superimposed image from the panels.")
+        self.clear_superimpose_btn.setEnabled(False)
+        self.clear_superimpose_btn.clicked.connect(self._clear_superimpose)
 
-        self.load_contour_btn = QPushButton("Load")
-        self.load_contour_btn.setToolTip("Overlay a contour saved from this or another image")
-        self.load_contour_btn.clicked.connect(self._prompt_and_load_contour)
-
-        self.clear_contour_btn = QPushButton("Clear")
-        self.clear_contour_btn.setToolTip("Remove all contours from a panel")
-        self.clear_contour_btn.clicked.connect(self._prompt_and_clear_contours)
-
-        # ----- CONVOLUTION CONTROLS (grouped under the "Convolution" collapsible) -----
-        self.batch_match_btn = QPushButton("Batch")
+        self.batch_match_btn = QPushButton("Batch Convolution")
         self.batch_match_btn.setToolTip(
             "Select multiple 2D FITS files. All are convolved to the\n"
             "longest-wavelength file's PSF and reprojected onto its native\n"
@@ -1168,13 +1143,171 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         )
         self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
 
-        self.match_res_btn = QPushButton("Pair")
+        self.match_res_btn = QPushButton("Pair Convolution")
         self.match_res_btn.setToolTip(
             "Convolve the shorter-wavelength panel to match the longer-\n"
             "wavelength panel's PSF, reprojected onto its own native grid.\n"
             "MIRI and NIRSpec only."
         )
         self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
+
+    def _make_rotate_button(self, target):
+        """Build a square button that opens the rotation dialog for one panel.
+
+        Args:
+            target (str): Panel the button applies to, 'left' or 'right'.
+
+        Returns:
+            btn (QPushButton): The configured button.
+        """
+        btn = QPushButton()
+        set_button_icon(btn, "rotate")
+        btn.setFixedSize(35, 35)
+        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+        btn.setToolTip(f"Rotate the {target} image by an angle that you choose.")
+        btn.clicked.connect(lambda: self._open_rotate_dialog(target))
+        return btn
+
+    def _make_contour_button(self, target):
+        """Build a square button that opens a menu of contour actions for one panel.
+
+        Args:
+            target (str): Panel the button applies to, 'left' or 'right'.
+
+        Returns:
+            btn (QPushButton): The configured button.
+        """
+        btn = QPushButton()
+        set_button_icon(btn, "contour")
+        btn.setFixedSize(35, 35)
+        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+        menu = QMenu(btn)
+        menu.addAction("Plot Contour...", lambda: self._prompt_and_contour(target))
+        menu.addAction("Save Contour...", lambda: self._save_contour_txt(target))
+        menu.addAction("Load Contour...", lambda: self._prompt_and_load_contour(target))
+        menu.addAction("Clear Contours", lambda: self.clear_contours(target))
+        btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
+        btn.setToolTip(f"Plot, save, load, or clear contours on the {target} image.")
+        return btn
+
+    def _open_rotate_dialog(self, target):
+        """Ask for an angle and a direction, then rotate one panel.
+
+        Args:
+            target (str): Panel to rotate, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Rotate {target.capitalize()} Image")
+        layout = QVBoxLayout(dialog)
+
+        total = self.cum_angle_left if target == "left" else self.cum_angle_right
+        layout.addWidget(QLabel(self._rotation_text(total)))
+
+        angle_layout = QHBoxLayout()
+        angle_layout.addWidget(QLabel("Angle:"))
+        angle_spin = QDoubleSpinBox()
+        angle_spin.setRange(0.0, 360.0)
+        angle_spin.setValue(self.rotate_angle)
+        angle_spin.setSuffix(" °")
+        angle_spin.setToolTip("Rotation angle, in degrees.")
+        angle_layout.addWidget(angle_spin)
+        layout.addLayout(angle_layout)
+
+        direction_layout = QHBoxLayout()
+        direction_layout.addWidget(QLabel("Direction:"))
+        direction_combo = QComboBox()
+        direction_combo.addItems(["Counter-Clockwise", "Clockwise"])
+        direction_combo.setCurrentIndex(1 if self.rotate_clockwise else 0)
+        direction_layout.addWidget(direction_combo)
+        layout.addLayout(direction_layout)
+
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("Rotate")
+        ok_btn.clicked.connect(dialog.accept)
+        revert_btn = QPushButton("Revert to 0°")
+        revert_btn.setToolTip("Put the image back in the orientation it had when you loaded it.")
+        revert_btn.setEnabled(total != 0)
+        revert_btn.clicked.connect(lambda: dialog.done(self._REVERT_RESULT))
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(revert_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+        result = dialog.exec_()
+        if result == QDialog.Accepted:
+            self.rotate_angle = angle_spin.value()
+            self.rotate_clockwise = direction_combo.currentIndex() == 1
+            self.rotate_image(target, self.rotate_angle, self.rotate_clockwise)
+        elif result == self._REVERT_RESULT:
+            self._revert_rotation(target)
+
+    def _revert_rotation(self, target):
+        """Put a panel back to the image and header it had when it loaded.
+
+        Args:
+            target (str): Panel to revert, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        is_left = target == "left"
+        base_image = self.base_image_left if is_left else self.base_image_right
+        base_header = self.base_header_left if is_left else self.base_header_right
+        if base_image is None or base_header is None:
+            QMessageBox.warning(self, "No Image", f"Please load an image into the {target} panel first.")
+            return
+
+        if is_left:
+            self.cum_angle_left = 0.0
+            self.image_left = base_image.copy()
+            self.header_left = base_header.copy()
+            self.coverage_left = self.base_coverage_left
+        else:
+            self.cum_angle_right = 0.0
+            self.image_right = base_image.copy()
+            self.header_right = base_header.copy()
+            self.coverage_right = self.base_coverage_right
+
+        self.rebuild_axes(target, base_header.copy())
+        self.clear_region(target)
+        self.display_image(target, title=self.filename_left if is_left else self.filename_right)
+        self._update_rotation_label(target)
+
+    @staticmethod
+    def _rotation_text(total_angle):
+        """Write the net rotation of an image as text, in the shorter direction.
+
+        Args:
+            total_angle (float): Net rotation in degrees. A positive value is clockwise.
+
+        Returns:
+            text (str): For example "Rotation: 60° CW", "Rotation: 90° CCW" or "Rotation: 0°".
+        """
+        net = total_angle % 360.0
+        if net > 180.0:
+            net -= 360.0
+        net = round(net, 1)
+        if net == 0:
+            return "Rotation: 0°"
+        return f"Rotation: {abs(net):g}° {'CW' if net > 0 else 'CCW'}"
+
+    def _update_rotation_label(self, target):
+        """Show the net rotation of a panel in its left column.
+
+        Args:
+            target (str): Panel to update, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        label = self.rotation1_label if target == "left" else self.rotation2_label
+        total = self.cum_angle_left if target == "left" else self.cum_angle_right
+        label.setText(self._rotation_text(total))
 
     def _open_batch_match_dialog(self):
         """Open the batch resolution-matching dialog.
@@ -1188,29 +1321,21 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         dialog = BatchMatchResolutionDialog(self)
         dialog.exec_()
 
-    def _prompt_and_contour(self):
-        """Ask for target/source/sigma-levels/color, then plot a WCS contour.
+    def _prompt_and_contour(self, target):
+        """Ask for the source, sigma levels and color, then plot a WCS contour on one panel.
 
         Args:
-            None
+            target (str): Panel to plot the contour on, 'left' or 'right'.
 
         Returns:
             None
         """
         dialog = QDialog(self)
-        dialog.setWindowTitle("Plot WCS Contour")
+        dialog.setWindowTitle(f"Plot WCS Contour ({target.capitalize()} Image)")
         dialog.setMinimumWidth(400)
         layout = QVBoxLayout(dialog)
 
-        # 1. Target Slice
-        target_layout = QHBoxLayout()
-        target_layout.addWidget(QLabel("Plot contour ON:"))
-        target_combo = QComboBox()
-        target_combo.addItems(["Left Image", "Right Image"])
-        target_layout.addWidget(target_combo)
-        layout.addLayout(target_layout)
-
-        # 2. Source Image
+        # 1. Source Image
         source_layout = QHBoxLayout()
         source_layout.addWidget(QLabel("Generate contour FROM:"))
         source_combo = QComboBox()
@@ -1218,7 +1343,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         source_layout.addWidget(source_combo)
         layout.addLayout(source_layout)
 
-        # 3. Background Std - LOCAL variable, not self.sigma_input
+        # 2. Background Std - LOCAL variable, not self.sigma_input
         sigma_layout = QHBoxLayout()
         sigma_layout.addWidget(QLabel("Background Std (blank = Astropy auto):"))
         sigma_input = QLineEdit()          # ← local, not self.
@@ -1227,7 +1352,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         sigma_layout.addWidget(sigma_input)
         layout.addLayout(sigma_layout)
 
-        # 4. Sigma levels - comma-separated multipliers
+        # 3. Sigma levels - comma-separated multipliers
         level_layout = QHBoxLayout()
         level_layout.addWidget(QLabel("Sigma levels (e.g. 3, 5, 10):"))
         level_input = QLineEdit()          # ← local, not self.
@@ -1241,7 +1366,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             "<i>Each level N draws a filled band at N × σ ± 0.05σ above background median.</i>"
         ))
 
-        # 5. Color
+        # 4. Color
         color_layout = QHBoxLayout()
         color_layout.addWidget(QLabel("Contour Color:"))
         color_combo = QComboBox()
@@ -1260,7 +1385,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         layout.addLayout(btn_layout)
 
         if dialog.exec_() == QDialog.Accepted:
-            target      = "left" if target_combo.currentIndex() == 0 else "right"
             source      = "self" if source_combo.currentIndex() == 0 else "other"
             sigma_str   = sigma_input.text().strip()    # ← read from local var
             levels_str  = level_input.text().strip()    # ← read from local var
@@ -1374,46 +1498,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.critical(self, "Contour Error", f"Could not generate contours:\n{str(e)}")
             traceback.print_exc()
 
-    def _contour_target(self, action):
-        """Resolve which panel a contour action applies to. Auto-picks the
-        panel with an active contour; prompts only when both have one, and
-        warns when neither does.
-
-        Args:
-            action (str): Short verb used in the messages ('save', 'clear').
-
-        Returns:
-            side (str): 'left' or 'right', or None if no panel qualifies.
-        """
-        sides = [
-            side for side, plotter in (("left", self.slice1_plotter),
-                                       ("right", self.slice2_plotter))
-            if getattr(plotter, "current_contour", None)
-            or getattr(plotter, "contours", None)
-        ]
-        if not sides:
-            QMessageBox.warning(self, "No Contour",
-                                f"There is no active contour to {action}.")
-            return None
-        if len(sides) == 1:
-            return sides[0]
-
-        return self._ask_target_panel(
-            "Select Panel", f"Both panels have contours. Which one would you like to {action}?")
-
-    def _prompt_and_clear_contours(self):
-        """Ask which panel to clear contours from, then clear them.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        target = self._contour_target("clear")
-        if target:
-            self.clear_contours(target)
-
     def clear_contours(self, target):
         """Remove every contour artist from a panel.
 
@@ -1454,19 +1538,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             self.slice2_canvas.draw()
             self.last_contour_right_img = None
             self.last_contour_right_level = None
-
-    def _prompt_and_save_contour(self):
-        """Ask which panel to save a contour from, then save it.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        target = self._contour_target("save")
-        if target:
-            self._save_contour_txt(target)
 
     def _save_contour_txt(self, target):
         """Write a panel's active contour's coordinates to a text/CSV file.
@@ -1524,20 +1595,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.critical(self, "Error", f"Failed to save contour:\n{str(e)}")
             traceback.print_exc()
 
-    def _prompt_and_load_contour(self):
-        """Prompt user for target slice, mask file, and color to overlay a saved contour.
+    def _prompt_and_load_contour(self, target):
+        """Ask for a saved contour file and a color, then overlay the contour on one panel.
 
         Args:
-            None
+            target (str): Panel that gets the loaded contour, 'left' or 'right'.
 
         Returns:
             None
         """
-        target = self._ask_target_panel(
-            "Load Saved Contour", "Which image gets the loaded contour?")
-        if target is None:
-            return
-
         fname, _ = QFileDialog.getOpenFileName(
             self, "Open Contour Text File", filter="Text files (*.txt *.csv)"
         )
@@ -1726,15 +1792,62 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 return
 
             ov_norm = Normalize(vmin=float(np.nanmin(ov_finite)), vmax=float(np.nanmax(ov_finite)))
-            ax.imshow(reprojected, origin='lower', cmap=overlay_cmap,
+            overlay = ax.imshow(reprojected, origin='lower', cmap=overlay_cmap,
                     norm=ov_norm, alpha=alpha, aspect='auto', interpolation='nearest')
+            overlay._is_superimpose_overlay = True
             canvas.draw()
+            self._update_clear_superimpose_button()
 
         except Exception as e:
             QMessageBox.critical(self, "Superimpose Error", f"Failed to superimpose:\n{str(e)}")
             traceback.print_exc()
         finally:
             QApplication.restoreOverrideCursor()
+
+    def _panels_with_overlay(self):
+        """Find the panels that show a superimposed image on top of their own image.
+
+        Args:
+            None
+
+        Returns:
+            panels (list): Names of the panels, 'left' or 'right', that have an overlay.
+        """
+        return [side for side, plotter in (("left", self.slice1_plotter), ("right", self.slice2_plotter))
+                if plotter.ax is not None
+                and any(getattr(image, "_is_superimpose_overlay", False) for image in plotter.ax.images)]
+
+    def _update_clear_superimpose_button(self):
+        """Turn Clear Superimpose on when a panel shows an overlay, and off when none does.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.clear_superimpose_btn.setEnabled(bool(self._panels_with_overlay()))
+
+    def _clear_superimpose(self):
+        """Remove the superimposed image from every panel that shows one.
+        Only the overlay layer goes. The rotation, region, contours, color map and scale stay.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        for side in self._panels_with_overlay():
+            plotter = self.slice1_plotter if side == "left" else self.slice2_plotter
+            canvas = self.slice1_canvas if side == "left" else self.slice2_canvas
+            for image in list(plotter.ax.images):
+                if getattr(image, "_is_superimpose_overlay", False):
+                    image.remove()
+            # The overlay was drawn with an automatic aspect. Set the image aspect again.
+            plotter.ax.set_aspect('equal')
+            canvas.draw()
+        self._update_clear_superimpose_button()
 
     def _make_source_label(self):
         """Make the line above a panel that names its instrument, map and file.
@@ -1783,7 +1896,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         left_stats_layout.addWidget(self.header_left_btn)
         left_stats_layout.addWidget(self.save_left_btn)
         left_stats_layout.addWidget(self.stats1_label)
-        left_stats_layout.addSpacing(15) 
+        left_stats_layout.addSpacing(8)
+        left_stats_layout.addWidget(self.rotation1_label)
+        left_stats_layout.addSpacing(8)
         left_stats_layout.addWidget(self.hover1_label)
         left_stats_layout.addStretch()
         
@@ -1802,10 +1917,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         left_slice_widget.setLayout(left_slice_layout)
 
         # Left Sidebar strictly bounded
-        left_sidebar_widget = ResponsiveButtonColumn(
+        left_sidebar_widget = self._build_sidebar(
             [self.shape_buttons["left"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
             + [self.edit_shape_btn_l, self.erase_btn_l, self.grid_btn_l, self.color_btn_left,
-               self.scale_btn_left, self.copy_menu_btn_l, self.region_menu_btn_l, self.save_slice_btn_l])
+               self.scale_btn_left, self.copy_menu_btn_l, self.region_menu_btn_l, self.save_slice_btn_l],
+            [self.rotate_btn_l, self.contour_btn_l])
 
         left_half.addWidget(left_stats_widget, 0)
         left_half.addWidget(left_slice_widget, 1)
@@ -1832,7 +1948,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         right_stats_layout.addWidget(self.header_right_btn)
         right_stats_layout.addWidget(self.save_right_btn)
         right_stats_layout.addWidget(self.stats2_label)
-        right_stats_layout.addSpacing(15)
+        right_stats_layout.addSpacing(8)
+        right_stats_layout.addWidget(self.rotation2_label)
+        right_stats_layout.addSpacing(8)
         right_stats_layout.addWidget(self.hover2_label)
         right_stats_layout.addStretch()
         
@@ -1851,10 +1969,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         right_slice_widget.setLayout(right_slice_layout)
 
         # Right Sidebar strictly bounded
-        right_sidebar_widget = ResponsiveButtonColumn(
+        right_sidebar_widget = self._build_sidebar(
             [self.shape_buttons["right"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
             + [self.edit_shape_btn_r, self.erase_btn_r, self.grid_btn_r, self.color_btn_right,
-               self.scale_btn_right, self.copy_menu_btn_r, self.region_menu_btn_r, self.save_slice_btn_r])
+               self.scale_btn_right, self.copy_menu_btn_r, self.region_menu_btn_r, self.save_slice_btn_r],
+            [self.rotate_btn_r, self.contour_btn_r])
 
         right_half.addWidget(right_stats_widget, 0)
         right_half.addWidget(right_slice_widget, 1)
@@ -1863,41 +1982,45 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         top_layout.addLayout(left_half, 1)
         top_layout.addLayout(right_half, 1)
 
-        # ===== BOTTOM CONTROLS: two tiers packed right under the slice panels =====
-        # Tier 1 (upstairs): the collapsible groups, nothing else.
-        self.contour_group = CollapsibleButtonGroup("Contour")
-        for _b in (self.contour_btn, self.save_contour_btn,
-                   self.load_contour_btn, self.clear_contour_btn):
-            self.contour_group.add_button(_b)
-
-        self.convolution_group = CollapsibleButtonGroup("Convolution")
-        for _b in (self.match_res_btn, self.batch_match_btn):
-            self.convolution_group.add_button(_b)
-
-        tier1 = build_group_bar([self.contour_group, self.convolution_group])
-
-        # Tier 2 (downstairs): rotation cluster on the left, Superimpose on the right.
-        rotate_widget = QWidget()
-        rotate_row = QHBoxLayout(rotate_widget)
-        rotate_row.setContentsMargins(0, 0, 0, 0)
-        rotate_row.addWidget(self.rot_ccw_radio)
-        rotate_row.addWidget(self.rot_cw_radio)
-        rotate_row.addWidget(self.angle_spin)
-        rotate_row.addWidget(self.rotate_left_btn)
-        rotate_row.addWidget(self.rotate_right_btn)
-
-        tier2 = QHBoxLayout()
-        tier2.setContentsMargins(0, 0, 0, 0)
-        tier2.addWidget(rotate_widget)
-        tier2.addStretch(1)
-        tier2.addWidget(self.superimpose_btn)
+        # Bottom row: the actions that use both images.
+        bottom_row = QHBoxLayout()
+        bottom_row.addWidget(self.match_res_btn)
+        bottom_row.addWidget(self.batch_match_btn)
+        bottom_row.addWidget(self.superimpose_btn)
+        bottom_row.addWidget(self.clear_superimpose_btn)
+        bottom_row.addStretch(1)
 
         main_layout.addLayout(top_layout, 3)
-        main_layout.addLayout(tier1, 0)
-        main_layout.addLayout(tier2, 0)
+        main_layout.addLayout(bottom_row, 0)
         main_layout.addStretch(2)  # empty space fills the rest (no spectrum here)
 
         self.setLayout(main_layout)
+
+    def _build_sidebar(self, buttons, extra_buttons):
+        """Stack the sidebar buttons of one panel, with a gap before the extra buttons.
+
+        Args:
+            buttons (list): Buttons for the main column, from top to bottom.
+            extra_buttons (list): Buttons for the 2D window only, shown below the gap.
+
+        Returns:
+            sidebar (QWidget): Widget that holds both groups of buttons.
+        """
+        sidebar = QWidget()
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        column = ResponsiveButtonColumn(buttons)
+        # The column sizes its rows from sizeHint, but the buttons are taller.
+        # Add the difference so the last button is not cut off.
+        extra = max(button.height() - button.sizeHint().height() for button in buttons)
+        column.setMinimumHeight(column.single_column_height() + max(0, extra))
+        layout.addWidget(column)
+        layout.addSpacing(12)
+        for button in extra_buttons:
+            layout.addWidget(button, 0, Qt.AlignLeft)
+        layout.addStretch(1)
+        return sidebar
 
     def show_header(self, target):
         """Show the FITS header of a panel, with a list of every HDU in its file.
@@ -2141,6 +2264,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     self.image_left = data
                     self.header_left = header
                     self.coverage_left = coverage
+                    self.base_coverage_left = coverage
                     self.filename_left = filename
                     self.filepath_left = fname
                     self.hdu_index_left = loaded_index
@@ -2153,6 +2277,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     self.image_right = data
                     self.header_right = header
                     self.coverage_right = coverage
+                    self.base_coverage_right = coverage
                     self.filename_right = filename
                     self.filepath_right = fname
                     self.hdu_index_right = loaded_index
@@ -2162,10 +2287,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 self.rebuild_axes(target, header)
                 self._reset_grid_button(target)
                 self.display_image(target, title=filename)
+                self._update_rotation_label(target)
 
-                save_slice_btn = self.save_slice_btn_l if target == "left" else self.save_slice_btn_r
-                region_btn = self.region_menu_btn_l if target == "left" else self.region_menu_btn_r
-                for _b in (save_slice_btn, region_btn):
+                is_left = target == "left"
+                for _b in (self.save_slice_btn_l if is_left else self.save_slice_btn_r,
+                           self.region_menu_btn_l if is_left else self.region_menu_btn_r,
+                           self.rotate_btn_l if is_left else self.rotate_btn_r,
+                           self.contour_btn_l if is_left else self.contour_btn_r):
                     _b.setEnabled(True)
                 return True
 
@@ -2174,11 +2302,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             traceback.print_exc()
             return False
 
-    def rotate_image(self, target):
-        """Rotate a panel's image by the spin box angle and update its WCS.
+    def rotate_image(self, target, angle, clockwise):
+        """Rotate a panel's image by an angle and update its WCS.
 
         Args:
             target (str): Panel to rotate, 'left' or 'right'.
+            angle (float): Rotation angle in degrees.
+            clockwise (bool): True to rotate clockwise, False for counter-clockwise.
 
         Returns:
             None
@@ -2190,12 +2320,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.warning(self, "No Image", f"Please load an image into the {target} panel first.")
             return
             
-        angle = self.angle_spin.value()
         if angle == 0.0:
             return
             
         # A positive angle turns the image clockwise as drawn (origin='lower'), so counter-clockwise is negative.
-        if self.rot_ccw_radio.isChecked():
+        if not clockwise:
             angle = -angle
 
         if target == "left":
@@ -2283,6 +2412,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             
             display_angle = total_angle % 360 if total_angle >= 0 else -(-total_angle % 360)
             self.display_image(target, title=f"Rotated {display_angle:.1f}° Total")
+            self._update_rotation_label(target)
             
         except Exception as e:
             QMessageBox.critical(self, "Rotation Error", f"An error occurred during rotation:\n{str(e)}")
@@ -2405,6 +2535,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             self.slice1_canvas.draw()
         else:
             self.slice2_canvas.draw()
+        # The redraw removed any overlay on this panel.
+        self._update_clear_superimpose_button()
 
     def _apply_grid_state(self, target):
         """Show or hide the RA/Dec grid on a panel, as its grid button says.
