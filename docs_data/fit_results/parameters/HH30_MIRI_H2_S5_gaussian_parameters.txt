@@ -1,0 +1,12 @@
+# Gaussian fit parameters export from IFU Analyzer
+# Instrument: MIRI
+# Spectrum tab: full
+# Fit window: 6.907200 - 6.912800
+# Baseline: straight line between the window edges
+# Wavelength unit: µm (catalog_wavelength, center, sigma, fwhm)
+# Flux unit: MJy/sr (amplitude)
+# The unit of area and area_error is in the area_unit column.
+# flag: ok, or the reason that area_error is not reliable.
+#
+kind	species	catalog_wavelength	transition	a_coeff	e_upper	center	amplitude	sigma	fwhm	area	area_error	area_unit	r_squared	flag	note
+line	N/A	nan	N/A	nan	nan	6.909913	7.264781e+04	0.000830216	0.00195516	3.770577e-15	2.667171e-16	erg s⁻¹ cm⁻²	0.9935	ok	-

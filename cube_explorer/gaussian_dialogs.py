@@ -1044,7 +1044,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                 residual_cube = self.results['residuals_cube']
                 export_residual_cube_fits(
                     self.cube_data.cube, 
-                    self.cube_data.wavelength,
+                    self.wavelength,
                     min(self.gauss_left_x, self.gauss_right_x),
                     max(self.gauss_left_x, self.gauss_right_x),
                     out_path=out_path, 

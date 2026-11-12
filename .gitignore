@@ -20,6 +20,7 @@
 # docs_data/ is committed: the sample cubes, maps and line lists that let users reproduce the docs.
 !/docs_data/**/*.fits
 !/docs_data/**/*.csv
+!/docs_data/**/*.txt
 /CO/
 /cube_explorer/__pycache__/
 
