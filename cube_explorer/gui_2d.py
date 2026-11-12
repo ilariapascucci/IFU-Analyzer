@@ -37,9 +37,9 @@ from matplotlib.colors import Normalize  # used by: Superimpose overlay
 from PyQt5.QtCore import Qt
 from .convolution_plan_dialog import confirm_convolution_plan
 from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
-from .visualization import SlicePlotter, apply_wcs_grid, format_sky_position
+from .visualization import SlicePlotter, apply_wcs_grid, hide_wcs_grid
 from .colormap_dialog import ColorMapDialog
-from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_text
+from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
 from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_region_selection import RegionSelectionMixin
@@ -712,6 +712,8 @@ class BatchMatchResolutionDialog(QDialog):
             QApplication.restoreOverrideCursor()
 
 class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
+    _panel_noun = "image"
+
     def __init__(self, parent=None):
         """Build the 2D dual-viewer window and initialize its state.
 
@@ -863,14 +865,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.slice1_plotter = SlicePlotter(self.slice1_fig)
         self.slice1_toolbar = NavigationToolbar(self.slice1_canvas, self)
         self.slice1_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "left"))
-        self.slice1_canvas.mpl_connect("motion_notify_event", lambda e: self._on_mouse_hover(e, "left"))
+        self.slice1_canvas.mpl_connect("motion_notify_event", lambda e: self._on_slice_hover(e, "left"))
         
         self.slice2_fig = Figure(figsize=(5, 5), dpi=100)
         self.slice2_canvas = FigureCanvas(self.slice2_fig)
         self.slice2_plotter = SlicePlotter(self.slice2_fig)
         self.slice2_toolbar = NavigationToolbar(self.slice2_canvas, self)
         self.slice2_canvas.mpl_connect("button_press_event", lambda e: self._on_slice_click(e, "right"))
-        self.slice2_canvas.mpl_connect("motion_notify_event", lambda e: self._on_mouse_hover(e, "right"))
+        self.slice2_canvas.mpl_connect("motion_notify_event", lambda e: self._on_slice_hover(e, "right"))
 
         self.region_selector_left = RegionSelector(
             self.slice1_plotter.ax,
@@ -1096,20 +1098,17 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.save_slice_btn_r.clicked.connect(lambda: self._region_save_slice("right"))
         self.save_slice_btn_r.setEnabled(False)
 
-        # Save/import region actions live in the "Region" collapsible group
-        # (_setup_main_layout) -- each asks which panel (left/right) to use,
-        # same as the 3D window's own Region group.
-        self.region_save_wcs_btn = QPushButton("Save Region")
-        self.region_save_wcs_btn.setToolTip(
-            "Save one panel's region as RA/Dec sky coordinates, so it can be reconstructed on a different image")
-        self.region_save_wcs_btn.clicked.connect(self._region_save_wcs_text)
-        self.region_save_wcs_btn.setEnabled(False)
+        # Save/import region: one menu button in each sidebar, so the panel is known.
+        self.region_menu_btn_l = self._make_region_button("left")
+        self.region_menu_btn_r = self._make_region_button("right")
 
-        self.region_import_wcs_btn = QPushButton("Import Region")
-        self.region_import_wcs_btn.setToolTip(
-            "Load a region previously saved as WCS text onto one panel, at the same sky position")
-        self.region_import_wcs_btn.clicked.connect(self._region_import_wcs_text)
-        self.region_import_wcs_btn.setEnabled(False)
+        # RA/Dec grid toggle: one button in each sidebar. It is off until an image with a sky WCS loads.
+        self.grid_btn_l = self._make_grid_button("left")
+        self.grid_btn_r = self._make_grid_button("right")
+
+        for btn in (self.region_menu_btn_l, self.region_menu_btn_r,
+                    self.grid_btn_l, self.grid_btn_r):
+            btn.setEnabled(False)
 
         # Bottom panel controls: plain default styling, matching the 3D
         # window and the Open/Header/Save buttons above.
@@ -1176,130 +1175,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             "MIRI and NIRSpec only."
         )
         self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
-
-    def copy_selection(self, source, target):
-        """Copy a region selection onto the other panel, WCS-aware: corners
-        reproject through both panels' WCS (rectangles become polygons
-        under rotation), else falls back to a plain pixel-index copy.
-
-        Args:
-            source (str): Panel to copy from, 'left' or 'right'.
-            target (str): Panel to copy to, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        src_sel = self.last_selection_right if source == "right" else self.last_selection_left
-        if not src_sel:
-            return
-
-        src_wcs = self.wcs_left if source == "left" else self.wcs_right
-        tgt_wcs = self.wcs_left if target == "left" else self.wcs_right
-        tgt_img = self.image_left if target == "left" else self.image_right
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-        shape = src_sel["shape"]
-
-        wcs_ok = (
-            tgt_img is not None
-            and src_wcs is not None and getattr(src_wcs, "has_celestial", False)
-            and tgt_wcs is not None and getattr(tgt_wcs, "has_celestial", False)
-        )
-
-        def _to_target_px(xs, ys):
-            """Reproject source-panel pixel coordinates onto the target panel.
-
-            Args:
-                xs (numpy.ndarray): Source-panel x pixel coordinates.
-                ys (numpy.ndarray): Source-panel y pixel coordinates.
-
-            Returns:
-                coords (tuple): (tx, ty) target-panel pixel coordinates.
-            """
-            sw = src_wcs.celestial if src_wcs.pixel_n_dim > 2 else src_wcs
-            tw = tgt_wcs.celestial if tgt_wcs.pixel_n_dim > 2 else tgt_wcs
-            sky = sw.pixel_to_world(np.asarray(xs, float), np.asarray(ys, float))
-            tx, ty = tw.world_to_pixel(sky)
-            return np.asarray(tx, float), np.asarray(ty, float)
-
-        # ---- pixel ("POINT") ----
-        if shape == "POINT":
-            x, y = src_sel["coords"]
-            if wcs_ok:
-                try:
-                    tx, ty = _to_target_px([x], [y])
-                    if np.isfinite(tx[0]) and np.isfinite(ty[0]):
-                        x, y = float(tx[0]), float(ty[0])
-                except Exception:
-                    pass
-            self._handle_pixel_click(int(round(x)), int(round(y)), target)
-            return
-
-        # ---- lasso (freehand shape) ----
-        if shape == "POLYGON":
-            patch = src_sel.get("patch")
-            if patch is None or not hasattr(patch, "lasso_verts"):
-                return
-            verts = np.asarray(patch.lasso_verts, dtype=float)
-            if wcs_ok:
-                try:
-                    tx, ty = _to_target_px(verts[:, 0], verts[:, 1])
-                    if np.all(np.isfinite(tx)) and np.all(np.isfinite(ty)):
-                        ny, nx = tgt_img.shape
-                        verts = np.column_stack(
-                            [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
-                except Exception:
-                    pass
-            selector.active_shape = "POLYGON"
-            try:
-                selector.on_lasso_select(verts)
-            except Exception:
-                pass
-            return
-
-        # ---- rectangle / circle / ellipse ----
-        xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
-        if wcs_ok:
-            try:
-                cx = [xmin, xmax, xmax, xmin]
-                cy = [ymin, ymin, ymax, ymax]
-                tx, ty = _to_target_px(cx, cy)
-                if not (np.all(np.isfinite(tx)) and np.all(np.isfinite(ty))):
-                    raise ValueError("non-finite reprojected corners")
-                ny, nx = tgt_img.shape
-                axis_aligned = (
-                    abs(tx[0] - tx[3]) < 0.5 and abs(tx[1] - tx[2]) < 0.5 and
-                    abs(ty[0] - ty[1]) < 0.5 and abs(ty[2] - ty[3]) < 0.5
-                )
-                if shape == "RECTANGLE" and not axis_aligned:
-                    verts = np.column_stack(
-                        [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
-                    selector.active_shape = "POLYGON"
-                    try:
-                        selector.on_lasso_select(verts)
-                    except Exception:
-                        pass
-                    return
-                # round (not truncate) so a copy between identical/near-identical
-                # grids is exact instead of drifting a pixel on the TAN round-trip
-                xmin = max(0, min(nx - 1, int(round(float(np.min(tx))))))
-                xmax = max(0, min(nx - 1, int(round(float(np.max(tx))))))
-                ymin = max(0, min(ny - 1, int(round(float(np.min(ty))))))
-                ymax = max(0, min(ny - 1, int(round(float(np.max(ty))))))
-                if xmax - xmin < 1 or ymax - ymin < 1:
-                    QMessageBox.information(
-                        self, "Copy Region",
-                        "The source selection does not overlap the other "
-                        "panel's field of view.")
-                    return
-            except Exception:
-                xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
-
-        selector.active_shape = shape
-        try:
-            selector.create_region((int(round(xmin)), int(round(xmax)),
-                                    int(round(ymin)), int(round(ymax))))
-        except Exception:
-            pass
 
     def _open_batch_match_dialog(self):
         """Open the batch resolution-matching dialog.
@@ -1928,9 +1803,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         # Left Sidebar strictly bounded
         left_sidebar_widget = ResponsiveButtonColumn(
-            [self.color_btn_left, self.scale_btn_left]
-            + [self.shape_buttons["left"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
-            + [self.copy_menu_btn_l, self.edit_shape_btn_l, self.erase_btn_l, self.save_slice_btn_l])
+            [self.shape_buttons["left"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
+            + [self.edit_shape_btn_l, self.erase_btn_l, self.grid_btn_l, self.color_btn_left,
+               self.scale_btn_left, self.copy_menu_btn_l, self.region_menu_btn_l, self.save_slice_btn_l])
 
         left_half.addWidget(left_stats_widget, 0)
         left_half.addWidget(left_slice_widget, 1)
@@ -1977,9 +1852,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         # Right Sidebar strictly bounded
         right_sidebar_widget = ResponsiveButtonColumn(
-            [self.color_btn_right, self.scale_btn_right]
-            + [self.shape_buttons["right"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
-            + [self.copy_menu_btn_r, self.edit_shape_btn_r, self.erase_btn_r, self.save_slice_btn_r])
+            [self.shape_buttons["right"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
+            + [self.edit_shape_btn_r, self.erase_btn_r, self.grid_btn_r, self.color_btn_right,
+               self.scale_btn_right, self.copy_menu_btn_r, self.region_menu_btn_r, self.save_slice_btn_r])
 
         right_half.addWidget(right_stats_widget, 0)
         right_half.addWidget(right_slice_widget, 1)
@@ -1990,12 +1865,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         # ===== BOTTOM CONTROLS: two tiers packed right under the slice panels =====
         # Tier 1 (upstairs): the collapsible groups, nothing else.
-        # Region save/import for a panel's currently loaded image, same as
-        # the 3D window's own Region group.
-        self.region_group = CollapsibleButtonGroup("Region")
-        for _b in (self.region_save_wcs_btn, self.region_import_wcs_btn):
-            self.region_group.add_button(_b)
-
         self.contour_group = CollapsibleButtonGroup("Contour")
         for _b in (self.contour_btn, self.save_contour_btn,
                    self.load_contour_btn, self.clear_contour_btn):
@@ -2005,7 +1874,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         for _b in (self.match_res_btn, self.batch_match_btn):
             self.convolution_group.add_button(_b)
 
-        tier1 = build_group_bar([self.region_group, self.contour_group, self.convolution_group])
+        tier1 = build_group_bar([self.contour_group, self.convolution_group])
 
         # Tier 2 (downstairs): rotation cluster on the left, Superimpose on the right.
         rotate_widget = QWidget()
@@ -2291,10 +2160,12 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     self.source_label_right.setToolTip(fname)
 
                 self.rebuild_axes(target, header)
+                self._reset_grid_button(target)
                 self.display_image(target, title=filename)
 
                 save_slice_btn = self.save_slice_btn_l if target == "left" else self.save_slice_btn_r
-                for _b in (save_slice_btn, self.region_save_wcs_btn, self.region_import_wcs_btn):
+                region_btn = self.region_menu_btn_l if target == "left" else self.region_menu_btn_r
+                for _b in (save_slice_btn, region_btn):
                     _b.setEnabled(True)
                 return True
 
@@ -2513,13 +2384,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             if 'BUNIT' in header:
                 unit_str = f" [{header['BUNIT']}]"
                 
-            # Only attempt grid if the axes was built as a WCSAxes object
-            if hasattr(ax, 'coords'):
-                try:
-                    apply_wcs_grid(ax, image.shape)
-                except Exception as e:
-                    QMessageBox.warning(self, "Grid Error", f"Failed to draw WCS grid:\n{str(e)}")
-                    traceback.print_exc()
+            self._apply_grid_state(target)
 
         # 4. Colorbar Management -- as in the 3D slices: it takes its place from the
         # image axes, so it is as tall as the image and has the same label.
@@ -2541,78 +2406,85 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         else:
             self.slice2_canvas.draw()
 
-    def _whole_image_stats_text(self, target):
-        """Whole-image stats in the same layout as the 3D window's slice stats:
-        the data's own min/max/mean/sum/std, then the color range the plot uses.
-        The unit is on its own line so the narrow stats column doesn't clip it.
+    def _apply_grid_state(self, target):
+        """Show or hide the RA/Dec grid on a panel, as its grid button says.
+        A panel whose axes have no sky coordinates is left as it is.
 
         Args:
-            target (str): Panel to describe, 'left' or 'right'.
-
-        Returns:
-            text (str): Stats label text, or the blank placeholder if no image is loaded.
-        """
-        image = self.image_left if target == 'left' else self.image_right
-        if image is None:
-            return "Intensity:\n-"
-        scale_settings = self.slice1_scale if target == 'left' else self.slice2_scale
-        mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
-        total_sum, std = np.nansum(image), np.nanstd(image)
-        unit = self._region_flux_unit(target)
-        unit_line = f"[{unit}]:\n" if unit else ""
-        return (
-            f"Intensity (data)\n{unit_line}"
-            f"min={mn:.3e}\n"
-            f"max={mx:.3e}\n"
-            f"mean={mean:.3e}\n"
-            f"sum={total_sum:.3e}\n"
-            f"std={std:.3e}\n"
-            f"\n"
-            + scaling_stats_text(image, scale_settings)
-        )
-
-    def _on_mouse_hover(self, event, target):
-        """Handle dynamic updates of mouse coordinate position and value mapping.
-
-        Args:
-            event (matplotlib.backend_bases.MouseEvent): Motion event.
-            target (str): Panel hovered over, 'left' or 'right'.
+            target (str): Panel to update, 'left' or 'right'.
 
         Returns:
             None
         """
         plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
-        image = self.image_left if target == 'left' else self.image_right
-        hover_label = self.hover1_label if target == 'left' else self.hover2_label
-
-        if image is None or event.inaxes != plotter.ax:
+        image = self._region_image(target)
+        btn = self.grid_btn_l if target == 'left' else self.grid_btn_r
+        if image is None or not hasattr(plotter.ax, 'coords'):
             return
+        try:
+            if btn.isChecked():
+                apply_wcs_grid(plotter.ax, image.shape)
+            else:
+                hide_wcs_grid(plotter.ax)
+        except Exception as e:
+            # The grid stays off, so the button must show that.
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.blockSignals(False)
+            hide_wcs_grid(plotter.ax)
+            QMessageBox.warning(self, "Grid Error", f"Failed to draw WCS grid:\n{str(e)}")
+            traceback.print_exc()
 
-        x, y = event.xdata, event.ydata
-        if x is None or y is None:
-            return
+    def _reset_grid_button(self, target):
+        """Set the grid button of a panel for a newly loaded image. It is on and
+        usable when the image has a sky WCS. Otherwise it is off and disabled.
 
-        ix, iy = int(round(x)), int(round(y))
-        
-        # Pull actual intensity level
-        if 0 <= iy < image.shape[0] and 0 <= ix < image.shape[1]:
-            val = float(image[iy, ix])
+        Args:
+            target (str): Panel that got a new image, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        plotter = self.slice1_plotter if target == 'left' else self.slice2_plotter
+        btn = self.grid_btn_l if target == 'left' else self.grid_btn_r
+        wcs = self._region_wcs(target)
+        usable = bool(getattr(wcs, 'has_celestial', False)) and hasattr(plotter.ax, 'coords')
+        btn.blockSignals(True)
+        btn.setChecked(usable)
+        btn.blockSignals(False)
+        btn.setEnabled(usable)
+        if usable:
+            btn.setToolTip(f"Show the RA/Dec grid on the {target} image")
         else:
-            val = float('nan')
+            btn.setToolTip("The RA/Dec grid is not available: this image has no sky WCS")
 
-        # Translate Matplotlib X,Y coordinate to World Coordinate RA/DEC
-        wcs_obj = self.wcs_left if target == 'left' else self.wcs_right
-        wcs_str = format_sky_position(wcs_obj, x, y)
+    def _toggle_grid(self, target, checked):
+        """Show or hide the RA/Dec grid on one panel.
 
-        unit = self._region_flux_unit(target)
-        unit_str = f" [{unit}]" if unit else ""
+        Args:
+            target (str): Panel to change, 'left' or 'right'.
+            checked (bool): True to show the grid, False to hide it.
 
-        # Update the live UI label directly
-        text = f"Cursor Info:\nPixel: {ix}, {iy}\n{wcs_str}Val: {val:.4e}{unit_str}"
-        hover_label.setText(text)
+        Returns:
+            None
+        """
+        self._apply_grid_state(target)
+        canvas = self.slice1_canvas if target == 'left' else self.slice2_canvas
+        canvas.draw_idle()
 
     # ----- Region selection: the shared controller lives in RegionSelectionMixin.
     # ----- These hooks feed it this window's per-panel image + header WCS. ------
+    def _region_wcs(self, target):
+        """Return the sky WCS of the given panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            wcs (astropy.wcs.WCS): The panel's WCS, or None if it has none.
+        """
+        return self.wcs_left if target == "left" else self.wcs_right
+
     def _region_image(self, target):
         """Return the 2D array currently shown in the given panel.
 
@@ -2637,18 +2509,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         if header is not None and "BUNIT" in header:
             return clean_flux_unit(str(header["BUNIT"]))
         return ""
-
-    def _region_stats_placeholder(self, target):
-        """Text the stats label reverts to when a selection is cleared: the
-        whole-image stats, like the 3D window restores its whole-slice stats.
-
-        Args:
-            target (str): Panel to build the text for, 'left' or 'right'.
-
-        Returns:
-            text (str): Stats label text.
-        """
-        return self._whole_image_stats_text(target)
 
     def _region_slice_stat_keep(self, line):
         """Keep the whole-image Scaling/vmin/vmax lines above region stats.
@@ -2683,28 +2543,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         except Exception:
             return None, None
 
-    def _region_selection_to_mask(self, target, sel):
-        """Build a full-image mask from a selection dict, the 2D-viewer
-        analogue of the 3D window's own _selection_to_full_mask (there is no
-        cube here, so the mask is sized to the panel's own loaded image).
-
-        Args:
-            target (str): Panel the selection belongs to, 'left' or 'right'.
-            sel (dict): Selection dict from last_selection_left/right.
-
-        Returns:
-            mask (numpy.ndarray): Boolean mask, same shape as the panel's image.
-        """
-        if sel.get("shape") == "POINT":
-            # Point selections store coords, not a mask -- build a single-pixel one.
-            x, y = sel["coords"]
-            x, y = int(round(x)), int(round(y))
-            image = self._region_image(target)
-            mask = np.zeros(image.shape, dtype=bool)
-            mask[y, x] = True
-            return mask
-        return sel["mask"]
-
     def _region_save_slice(self, target):
         """Save one panel's currently loaded image as a standalone 2D FITS.
         If the panel has a region or a pixel selected, pixels outside it
@@ -2721,7 +2559,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.warning(self, "No Image Loaded", f"Load an image into the {target.capitalize()} panel first.")
             return
         sel = self.last_selection_left if target == "left" else self.last_selection_right
-        mask = self._region_selection_to_mask(target, sel) if sel else None
+        mask = self._selection_to_full_mask(target, sel) if sel else None
         header = self.header_left if target == "left" else self.header_right
 
         path, _ = QFileDialog.getSaveFileName(self, "Save Slice as 2D FITS", "", "FITS files (*.fits)")
@@ -2748,19 +2586,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         kind = "Slice" if mask is None else "Slice (region only)"
         QMessageBox.information(self, "Export Complete", f"{kind} saved to:\n{path}")
 
-    def _region_save_wcs_text(self):
+    def _region_save_wcs_text(self, target):
         """Save one panel's region as RA/Dec sky coordinates in a text
         file, so it can be placed on a different 2D image later.
 
         Args:
-            None
+            target (str): Panel whose region to save, 'left' or 'right'.
 
         Returns:
             None
         """
-        target = self._ask_target_panel("Save Region as WCS Text", "Which panel's region would you like to save?")
-        if target is None:
-            return
         sel = self.last_selection_left if target == "left" else self.last_selection_right
         if not sel:
             QMessageBox.warning(
@@ -2800,20 +2635,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return
         QMessageBox.information(self, "Export Complete", f"Region saved to:\n{path}")
 
-    def _region_import_wcs_text(self):
+    def _region_import_wcs_text(self, target):
         """Load a region saved as WCS text and place it on one panel,
         using that panel's own image WCS to match the same sky position.
 
         Args:
-            None
+            target (str): Panel to place the imported region on, 'left' or 'right'.
 
         Returns:
             None
         """
-        target = self._ask_target_panel("Import Region", "Which panel should the imported region be placed on?")
-        if target is None:
-            return
-
         header = self.header_left if target == "left" else self.header_right
         wcs2d = make_2d_wcs(header)
         if wcs2d is None or not getattr(wcs2d, "has_celestial", False):

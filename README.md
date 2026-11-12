@@ -54,7 +54,7 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 - Dual-panel layout. Load an independent 2D FITS file into the left panel or the right panel.
 - A label above each panel gives the instrument, what the map shows, and the file name, for example `MIRI: Rotational diagram: temperature [map.fits]`. The text comes from the `DESC` keyword of the HDU, or from `PARAM` (Gaussian maps), or from the HDU name. IFU Analyzer writes `DESC` in its saved slices, convolved images, flux maps, and rotational-diagram maps. Files from older versions, and files from other tools, show only the HDU name.
 - A file with more than one HDU opens its first 2D image. "Header" has a list of all HDUs, and a choice of an HDU with a 2D image shows that image in the panel.
-- Full WCS grid overlay. The RA and Dec tick labels stay in the correct position at any rotation angle.
+- RA and Dec grid overlay. The RA and Dec tick labels stay in the correct position at any rotation angle. The "Grid" button in the side column of each panel shows or hides the grid. It is on when an image loads. It is off and not usable when the image has no celestial WCS.
 - The tick-label format adjusts to the field of view (degrees, then arcmin, then arcsec, then sub-arcsec).
 - Live cursor readout: pixel coordinates, RA (hh:mm:ss), Dec (dd:mm:ss), and flux value
 - Intensity statistics panel: minimum, maximum, mean, sum, and standard deviation, plus the colour range in use, with the flux unit from the FITS header
@@ -201,7 +201,7 @@ Bring several images to one resolution in a single step.
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
 - **Slice (FITS):** the "Save" button in each slice's side column saves that slice as a 2D FITS file. If a region or pixel is selected on that slice, only the pixels inside it are saved and all other pixels are `NaN`. The 2D viewer has the same button.
-- **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position. In the main window, use the "Region" button (the dashed box with a cursor) in the side column of a slice: "Save Region..." saves the region of that slice, and "Import Region..." places a saved region on that slice.
+- **Region as sky coordinates (.txt):** a selected region's shape saved as RA/Dec, importable onto a different cube at the same sky position. In the main window and in the 2D viewer, use the "Region" button (the dashed box with a cursor) in the side column of a slice or an image: "Save Region..." saves the region of that panel, and "Import Region..." places a saved region on that panel.
 - **Rotated image (FITS):** save of the rotated image with the updated WCS header
 - **Convolved image (FITS):** save of the resolution-matched image (the "Pair" output) with the 2-HDU layout (image and `COVERAGE`)
 - **Batch ZIP:** a zip archive of all resolution-matched FITS files on a common WCS grid
@@ -611,7 +611,7 @@ python main.py
 
    - Load an image with "Open 2D FITS (Left)" or "Open 2D FITS (Right)".
    - To see a different HDU of the same file, click "Header" on that panel and choose the HDU in the "HDU" list. An HDU with a 2D image (marked "image") also shows in the panel. For example, choose `NCOL` in a rotational-diagram map file to see the column density instead of the temperature.
-   - The WCS grid (RA and Dec) shows automatically if the FITS header has WCS.
+   - The RA and Dec grid shows when an image loads, if the FITS header has a celestial WCS. Click the "Grid" button in the side column of a panel to hide or show it.
 
    **Rotation:**
    - Select "Counter-Clockwise" or "Clockwise", and set the angle.
@@ -698,7 +698,7 @@ python main.py
    - Click "Save Maps" to save the maps as FITS and PNG files in one zip file.
 
    **Region (optional):**
-   - Click "Draw Region" to draw a region on the flux map of a line. It needs "Calculate Maps" first. Or click "Import Region" to load a region that you saved with the "Region" button in the main window or with "Save Region" in the 2D viewer.
+   - Click "Draw Region" to draw a region on the flux map of a line. It needs "Calculate Maps" first. Or click "Import Region" to load a region that you saved with the "Region" button in the main window or with the "Region" button in the 2D viewer.
    - Click "Save Region" to save the region as a text file. The main window and the 2D viewer can read it.
    - "Calculate Fluxes" and "Run Fit" then use only that region. "Delete Region" goes back to the whole cube.
    - The maps always use the whole cube, so they do not match a fit that uses a region. While a region is active, the "Map" and "Convolved Map" links are hidden, and "Calculate Maps", "Convolve Maps", and "Run Map" are disabled. The maps stay in memory. When you click "Delete Region", the links come back and the buttons work again.
@@ -810,6 +810,7 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
    - The 2D viewer reads 2D FITS images directly.
 
 4. **The WCS grid is not visible:**
+   - Confirm that the "Grid" button of the panel is on. It is off and not usable when the image has no celestial WCS.
    - Confirm that the FITS header has `CTYPE1` and `CTYPE2` with an RA/Dec projection.
    - Check the terminal for the `DEBUG rebuild_axes` messages, which report the WCS parse status.
    - A non-celestial WCS falls back to plain pixel axes automatically.

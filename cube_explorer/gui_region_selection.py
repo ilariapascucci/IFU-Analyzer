@@ -25,6 +25,9 @@ is the only one with no usable default).
 import numpy as np
 from PyQt5.QtWidgets import QMessageBox
 
+from .scale_dialog import scaling_stats_text
+from .visualization import format_sky_position
+
 
 class RegionSelectionMixin:
 
@@ -51,6 +54,17 @@ class RegionSelectionMixin:
             unit (str): Flux-unit label; '' by default.
         """
         return ""
+
+    def _region_wcs(self, target):
+        """Sky WCS of panel ``target`` ('left'/'right'), or None.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            wcs (astropy.wcs.WCS): 2D WCS of the panel; None by default.
+        """
+        return None
 
     def _region_pixel_coords(self, target, x, y):
         """(ra_deg, dec_deg) for pixel (x, y) in panel ``target``.
@@ -86,9 +100,9 @@ class RegionSelectionMixin:
             target (str): Panel to build the placeholder for, 'left' or 'right'.
 
         Returns:
-            text (str): Placeholder label text.
+            text (str): Placeholder label text. By default, the whole-image stats.
         """
-        return "Intensity:\n-"
+        return self._whole_image_stats_text(target)
 
     def _region_slice_stat_keep(self, line):
         """True for existing stats-label lines to preserve above region stats.
@@ -117,8 +131,8 @@ class RegionSelectionMixin:
 
     # ------------------------------------------------------------- shared utility
     def _ask_target_panel(self, title, question):
-        """Ask which panel, left or right, an action should use. Shared by
-        both windows' region save/import actions.
+        """Ask which panel, left or right, an action should use. Used by
+        the 2D window's contour and superimpose prompts.
 
         Args:
             title (str): Dialog window title.
@@ -139,6 +153,85 @@ class RegionSelectionMixin:
         if msg.clickedButton() == btn_right:
             return "right"
         return None
+
+    # ------------------------------------------------- panel readouts and masks
+    def _whole_image_stats_text(self, target, image=None):
+        """Whole-image stats for a panel: the data's own min/max/mean/sum/std,
+        then the color range the plot uses. The unit is on its own line so the
+        narrow stats column doesn't clip it.
+
+        Args:
+            target (str): Panel to describe, 'left' or 'right'.
+            image (numpy.ndarray): Image to describe. None reads the panel's current image.
+
+        Returns:
+            text (str): Stats label text, or the blank placeholder if no image is loaded.
+        """
+        if image is None:
+            image = self._region_image(target)
+        if image is None:
+            return "Intensity:\n-"
+        scale_settings = self.slice1_scale if target == 'left' else self.slice2_scale
+        mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
+        total_sum, std = np.nansum(image), np.nanstd(image)
+        unit = self._region_flux_unit(target)
+        unit_line = f"[{unit}]:\n" if unit else ""
+        return (
+            f"Intensity (data)\n{unit_line}"
+            f"min={mn:.3e}\n"
+            f"max={mx:.3e}\n"
+            f"mean={mean:.3e}\n"
+            f"sum={total_sum:.3e}\n"
+            f"std={std:.3e}\n"
+            f"\n"
+            + scaling_stats_text(image, scale_settings)
+        )
+
+    def _on_slice_hover(self, event, target):
+        """Live cursor readout (pixel, RA, Dec and value) as the mouse moves over a panel.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Motion event.
+            target (str): Panel hovered over, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        hover_label = self.hover1_label if target == "left" else self.hover2_label
+        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
+        if event.inaxes != plotter.ax or event.xdata is None or event.ydata is None:
+            hover_label.setText("Cursor Info:\n-")
+            return
+        ix, iy = int(round(event.xdata)), int(round(event.ydata))
+        image = self._region_image(target)
+        if image is None or not (0 <= iy < image.shape[0] and 0 <= ix < image.shape[1]):
+            hover_label.setText("Cursor Info:\n-")
+            return
+        unit = self._region_flux_unit(target)
+        unit_str = f" [{unit}]" if unit else ""
+        sky = format_sky_position(self._region_wcs(target), event.xdata, event.ydata)
+        hover_label.setText(
+            f"Cursor Info:\nPixel: {ix}, {iy}\n{sky}Val: {float(image[iy, ix]):.4e}{unit_str}")
+
+    def _selection_to_full_mask(self, target, sel):
+        """Build a full-image mask from a selection dict.
+
+        Args:
+            target (str): Panel the selection belongs to, 'left' or 'right'.
+            sel (dict): Selection dict from last_selection_left/right.
+
+        Returns:
+            mask (numpy.ndarray): Boolean mask, same shape as the panel's image.
+        """
+        if sel.get("shape") == "POINT":
+            # Point selections store coords, not a mask -- build a single-pixel one.
+            x, y = sel["coords"]
+            x, y = int(round(x)), int(round(y))
+            image = self._region_image(target)
+            mask = np.zeros(image.shape, dtype=bool)
+            mask[y, x] = True
+            return mask
+        return sel["mask"]
 
     # -------------------------------------------------------------- state machine
     def _set_region_state(self, side, new_state):
@@ -380,7 +473,9 @@ class RegionSelectionMixin:
 
     # ---------------------------------------------------------- copy / recreate
     def copy_selection(self, source, target):
-        """Copy the region selection from one panel to the other.
+        """Copy a region selection onto the other panel, WCS-aware: corners
+        reproject through both panels' WCS (rectangles become polygons
+        under rotation), else falls back to a plain pixel-index copy.
 
         Args:
             source (str): Panel to copy from, 'left' or 'right'.
@@ -389,31 +484,117 @@ class RegionSelectionMixin:
         Returns:
             None
         """
-        source_selection = (
-            self.last_selection_right if source == "right" else self.last_selection_left
-        )
-        if not source_selection:
+        src_sel = self.last_selection_right if source == "right" else self.last_selection_left
+        if not src_sel:
             return
 
+        src_wcs = self._region_wcs(source)
+        tgt_wcs = self._region_wcs(target)
+        tgt_img = self._region_image(target)
         selector = self.region_selector_left if target == "left" else self.region_selector_right
+        shape = src_sel["shape"]
 
-        if source_selection["shape"] == "POINT":
-            x, y = source_selection["coords"]
-            self._handle_pixel_click(x, y, target)
+        wcs_ok = (
+            tgt_img is not None
+            and src_wcs is not None and getattr(src_wcs, "has_celestial", False)
+            and tgt_wcs is not None and getattr(tgt_wcs, "has_celestial", False)
+            # One WCS object means one pixel grid, so a pixel copy is exact.
+            and src_wcs is not tgt_wcs
+        )
+
+        def _to_target_px(xs, ys):
+            """Reproject source-panel pixel coordinates onto the target panel.
+
+            Args:
+                xs (numpy.ndarray): Source-panel x pixel coordinates.
+                ys (numpy.ndarray): Source-panel y pixel coordinates.
+
+            Returns:
+                coords (tuple): (tx, ty) target-panel pixel coordinates.
+            """
+            sw = src_wcs.celestial if src_wcs.pixel_n_dim > 2 else src_wcs
+            tw = tgt_wcs.celestial if tgt_wcs.pixel_n_dim > 2 else tgt_wcs
+            sky = sw.pixel_to_world(np.asarray(xs, float), np.asarray(ys, float))
+            tx, ty = tw.world_to_pixel(sky)
+            return np.asarray(tx, float), np.asarray(ty, float)
+
+        # ---- pixel ("POINT") ----
+        if shape == "POINT":
+            x, y = src_sel["coords"]
+            if wcs_ok:
+                try:
+                    tx, ty = _to_target_px([x], [y])
+                    if np.isfinite(tx[0]) and np.isfinite(ty[0]):
+                        x, y = float(tx[0]), float(ty[0])
+                except Exception:
+                    pass
+            self._handle_pixel_click(int(round(x)), int(round(y)), target)
             return
 
-        if source_selection["shape"] == "POLYGON":
-            patch = source_selection.get("patch")
-            if patch is not None and hasattr(patch, "lasso_verts"):
-                selector.active_shape = "POLYGON"
-                selector.on_lasso_select(patch.lasso_verts)
+        # ---- lasso (freehand shape) ----
+        if shape == "POLYGON":
+            patch = src_sel.get("patch")
+            if patch is None or not hasattr(patch, "lasso_verts"):
                 return
-            # No stored vertices - fall through to a bounding-box rectangle.
+            verts = np.asarray(patch.lasso_verts, dtype=float)
+            if wcs_ok:
+                try:
+                    tx, ty = _to_target_px(verts[:, 0], verts[:, 1])
+                    if np.all(np.isfinite(tx)) and np.all(np.isfinite(ty)):
+                        ny, nx = tgt_img.shape
+                        verts = np.column_stack(
+                            [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
+                except Exception:
+                    pass
+            selector.active_shape = "POLYGON"
+            try:
+                selector.on_lasso_select(verts)
+            except Exception:
+                pass
+            return
 
-        selector.active_shape = source_selection["shape"]
+        # ---- rectangle / circle / ellipse ----
+        xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
+        if wcs_ok:
+            try:
+                cx = [xmin, xmax, xmax, xmin]
+                cy = [ymin, ymin, ymax, ymax]
+                tx, ty = _to_target_px(cx, cy)
+                if not (np.all(np.isfinite(tx)) and np.all(np.isfinite(ty))):
+                    raise ValueError("non-finite reprojected corners")
+                ny, nx = tgt_img.shape
+                axis_aligned = (
+                    abs(tx[0] - tx[3]) < 0.5 and abs(tx[1] - tx[2]) < 0.5 and
+                    abs(ty[0] - ty[1]) < 0.5 and abs(ty[2] - ty[3]) < 0.5
+                )
+                if shape == "RECTANGLE" and not axis_aligned:
+                    verts = np.column_stack(
+                        [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
+                    selector.active_shape = "POLYGON"
+                    try:
+                        selector.on_lasso_select(verts)
+                    except Exception:
+                        pass
+                    return
+                # round (not truncate) so a copy between identical/near-identical
+                # grids is exact instead of drifting a pixel on the TAN round-trip
+                xmin = max(0, min(nx - 1, int(round(float(np.min(tx))))))
+                xmax = max(0, min(nx - 1, int(round(float(np.max(tx))))))
+                ymin = max(0, min(ny - 1, int(round(float(np.min(ty))))))
+                ymax = max(0, min(ny - 1, int(round(float(np.max(ty))))))
+                if xmax - xmin < 1 or ymax - ymin < 1:
+                    QMessageBox.information(
+                        self, "Copy Region",
+                        "The source selection does not overlap the other "
+                        "panel's field of view.")
+                    return
+            except Exception:
+                xmin, xmax, ymin, ymax = (float(c) for c in src_sel["coords"])
+
+        selector.active_shape = shape
         try:
-            coords = tuple(int(c) for c in source_selection["coords"])
-            selector.create_region(coords)
+            selector.create_region((int(round(xmin)), int(round(xmax)),
+                                    int(round(ymin)), int(round(ymax))))
         except Exception:
             pass
 

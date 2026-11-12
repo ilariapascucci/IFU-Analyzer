@@ -51,11 +51,15 @@ def make_selectable(label):
 
 
 class DualPanelViewMixin:
-    """Scale-button and copy-button helpers for a window with a left and a right panel.
+    """Sidebar-button helpers for a window with a left and a right panel.
 
     The host class must define slice1_scale, slice2_scale, scale_btn_left,
-    scale_btn_right, _open_scale_dialog, copy_selection, copy_colormap and copy_scale.
+    scale_btn_right, _open_scale_dialog, copy_selection, copy_colormap, copy_scale,
+    _region_save_wcs_text, _region_import_wcs_text and _toggle_grid. It can set
+    _panel_noun to the word its tooltips use for one panel.
     """
+
+    _panel_noun = "slice"
 
     def _store_scale_settings(self, target, settings):
         """Save a panel's scale settings and refresh its Scale button tooltip.
@@ -114,6 +118,46 @@ class DualPanelViewMixin:
         menu.addAction("Copy Scale/Range", lambda: self.copy_scale(other, target))
         btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
         btn.setToolTip(f"Copy selection, colormap, or scale/range from the {other} panel")
+        return btn
+
+    def _make_region_button(self, target):
+        """Build a square button that opens a menu to save or import the region of one panel.
+
+        Args:
+            target (str): Panel the button applies to ('left' or 'right').
+
+        Returns:
+            btn (QPushButton): The configured button.
+        """
+        btn = QPushButton()
+        set_button_icon(btn, "region")
+        btn.setFixedSize(35, 35)
+        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+        menu = QMenu(btn)
+        menu.addAction("Save Region...", lambda: self._region_save_wcs_text(target))
+        menu.addAction("Import Region...", lambda: self._region_import_wcs_text(target))
+        btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
+        btn.setToolTip(
+            f"Save the {target} region as sky coordinates, "
+            f"or import a saved region onto the {target} {self._panel_noun}")
+        return btn
+
+    def _make_grid_button(self, target):
+        """Build a square toggle button that shows the RA/Dec grid on one panel.
+
+        Args:
+            target (str): Panel the button applies to ('left' or 'right').
+
+        Returns:
+            btn (QPushButton): The configured button, not checked.
+        """
+        btn = QPushButton()
+        set_button_icon(btn, "grid")
+        btn.setCheckable(True)
+        btn.setFixedSize(35, 35)
+        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+        btn.setToolTip(f"Show the RA/Dec grid on the {target} {self._panel_noun}")
+        btn.toggled.connect(lambda checked: self._toggle_grid(target, checked))
         return btn
 
 

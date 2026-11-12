@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QLabel, QMessageBox, QTextEdit, QInputDialog, QDialog, QToolTip,
     QListWidget, QListWidgetItem, QFrame, QDoubleSpinBox,
-    QSizePolicy, QSplitter, QSplitterHandle, QMenu
+    QSizePolicy, QSplitter, QSplitterHandle
 )
 from PyQt5.QtCore import Qt, QPoint, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QFont, QFontMetrics
@@ -34,9 +34,9 @@ from .gui_spectrum_file import GuiSpectrumFileMixin
 from .gui_fit_file import GuiFitFileMixin
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
-from .visualization import SpectrumPlotter, SlicePlotter, format_sky_position
+from .visualization import SpectrumPlotter, SlicePlotter
 from .colormap_dialog import ColorMapDialog
-from .scale_dialog import ScaleDialog, ScaleSettings, scaling_stats_text
+from .scale_dialog import ScaleDialog, ScaleSettings
 from .region_selector import RegionSelector
 from .utils import make_2d_wcs
 from .icon_loader import set_button_icon
@@ -1311,24 +1311,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                     self.grid_btn_l, self.grid_btn_r):
             btn.setEnabled(False)
 
-    def _make_grid_button(self, target):
-        """Build a square toggle button that shows the RA/Dec grid on one slice.
-
-        Args:
-            target (str): Panel the button applies to ('left' or 'right').
-
-        Returns:
-            btn (QPushButton): The configured button.
-        """
-        btn = QPushButton()
-        set_button_icon(btn, "grid")
-        btn.setCheckable(True)
-        btn.setFixedSize(35, 35)
-        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-        btn.setToolTip(f"Show the RA/Dec grid on the {target} slice")
-        btn.toggled.connect(lambda checked: self._toggle_grid(target, checked))
-        return btn
-
     def _toggle_grid(self, target, checked):
         """Show or hide the RA/Dec grid on one slice.
 
@@ -1395,27 +1377,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 btn.setToolTip(f"Show the RA/Dec grid on the {target} slice")
             else:
                 btn.setToolTip(f"The RA/Dec grid is not available: {error}")
-
-    def _make_region_button(self, target):
-        """Build a square button that opens a menu to save or import the region of one panel.
-
-        Args:
-            target (str): Panel the button applies to ('left' or 'right').
-
-        Returns:
-            btn (QPushButton): The configured button.
-        """
-        btn = QPushButton()
-        set_button_icon(btn, "region")
-        btn.setFixedSize(35, 35)
-        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-        menu = QMenu(btn)
-        menu.addAction("Save Region...", lambda: self._region_save_wcs_text(target))
-        menu.addAction("Import Region...", lambda: self._region_import_wcs_text(target))
-        btn.clicked.connect(lambda: menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft())))
-        btn.setToolTip(
-            f"Save the {target} region as sky coordinates, or import a saved region onto the {target} slice")
-        return btn
 
     def _setup_main_layout(self):
         """Set up the main application layout.
@@ -2086,24 +2047,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         plotter.plot_slice(image, title, cmap=cmap, settings=scale_settings,
                            flux_unit=flux_unit_clean)
         
-        # Intensity stats with units -- always the data's own true linear
-        # values, regardless of the active display scale/range (see Scaling below).
-        mn, mx, mean = np.nanmin(image), np.nanmax(image), np.nanmean(image)
-        total_sum, std = np.nansum(image), np.nanstd(image)
-        unit_raw = getattr(self.cube_data, "flux_unit", "arbitrary units")  # fallback if flux_unit missing
-        unit = clean_flux_unit(unit_raw)
-        # Scaling: the color range the plot actually uses -- distinct from the
-        # data stats above, which never change with scale/range.
-        stats_label.setText(
-            f"Intensity (data)\n[{unit}]:\n"
-            f"min={mn:.3e}\n"
-            f"max={mx:.3e}\n"
-            f"mean={mean:.3e}\n"
-            f"sum={total_sum:.3e}\n"
-            f"std={std:.3e}\n"
-            f"\n"
-            + scaling_stats_text(image, scale_settings)
-        )
+        # The image is passed in because last_idx_* changes only at the end of this method.
+        stats_label.setText(self._whole_image_stats_text(target, image))
 
         # Force redraw
         if target == "left":
@@ -2143,10 +2088,24 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             target (str): Panel to read from, 'left' or 'right'.
 
         Returns:
-            image (numpy.ndarray): The displayed slice, or None if unset.
+            image (numpy.ndarray): The displayed slice, or None if no cube is loaded.
         """
+        if getattr(self.cube_data, "cube", None) is None:
+            return None
         idx = self.last_idx_left if target == "left" else self.last_idx_right
         return self.cube_data.get_slice(idx)
+
+    def _region_wcs(self, target):
+        """Return the sky WCS of the given panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            wcs (astropy.wcs.WCS): The 2D sky WCS of the panel's axes, or None if it has none.
+        """
+        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
+        return plotter.wcs
 
     def _region_flux_unit(self, target):
         """Return the cleaned flux-unit string for the given panel.
@@ -2159,17 +2118,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         """
         unit_raw = getattr(self.cube_data, "flux_unit", "")
         return clean_flux_unit(unit_raw) if unit_raw else ""
-
-    def _region_stats_placeholder(self, target):
-        """Return the placeholder stats-label text for the given panel.
-
-        Args:
-            target (str): Panel to build the placeholder for, 'left' or 'right'.
-
-        Returns:
-            text (str): Placeholder label text shown before any stats exist.
-        """
-        return "Slice 1 Stats:\n-" if target == "left" else "Slice 2 Stats:\n-"
 
     def _region_slice_stat_keep(self, line):
         """Keep the whole-slice Scaling/vmin/vmax lines above region stats.
@@ -2207,28 +2155,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 self._display_slice(idx, target)
         if getattr(self, "active_spectrum_tab", None) == target:
             self._refresh_active_spectrum_tab()
-
-    def _selection_to_full_mask(self, target, sel):
-        """Build a full-image mask from a selection dict.
-
-        Args:
-            target (str): Panel the selection belongs to, 'left' or 'right'.
-            sel (dict): Selection dict from last_selection_left/right.
-
-        Returns:
-            mask (numpy.ndarray): Boolean mask, same spatial shape as the cube.
-        """
-        if sel.get("shape") == "POINT":
-            # Point selections store coords, not a mask -- build a single-pixel one.
-            x, y = sel["coords"]
-            x, y = int(round(x)), int(round(y))
-            cube = self.cube_data.cube
-            spatial_shape = cube.shape[1:] if self.cube_data.spec_axis == 0 else \
-                tuple(s for i, s in enumerate(cube.shape) if i != self.cube_data.spec_axis)
-            mask = np.zeros(spatial_shape, dtype=bool)
-            mask[y, x] = True
-            return mask
-        return sel["mask"]
 
     def _region_save_slice(self, target):
         """Save one panel's current slice as a standalone 2D FITS file.
@@ -2393,33 +2319,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         x = int(round(event.xdata))
         y = int(round(event.ydata))
         self._handle_pixel_click(x, y, target)
-
-    def _on_slice_hover(self, event, target):
-        """Live cursor readout (pixel, RA, Dec and value) as the mouse moves over a slice.
-
-        Args:
-            event (matplotlib.backend_bases.MouseEvent): Motion event.
-            target (str): Panel hovered over, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        hover_label = self.hover1_label if target == "left" else self.hover2_label
-        plotter = self.slice1_plotter if target == "left" else self.slice2_plotter
-        if (event.inaxes != plotter.ax or event.xdata is None or event.ydata is None
-                or not getattr(self, "cube_data", None)):
-            hover_label.setText("Cursor Info:\n-")
-            return
-        ix, iy = int(round(event.xdata)), int(round(event.ydata))
-        image = self._region_image(target)
-        if image is None or not (0 <= iy < image.shape[0] and 0 <= ix < image.shape[1]):
-            hover_label.setText("Cursor Info:\n-")
-            return
-        unit = self._region_flux_unit(target)
-        unit_str = f" [{unit}]" if unit else ""
-        sky = format_sky_position(plotter.wcs, event.xdata, event.ydata)
-        hover_label.setText(
-            f"Cursor Info:\nPixel: {ix}, {iy}\n{sky}Val: {float(image[iy, ix]):.4e}{unit_str}")
 
     def _on_spec_click(self, event):
         """Handle clicks on the spectrum display.
