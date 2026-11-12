@@ -303,7 +303,7 @@ class GuiSpectrumMixin:
         """
         if not sel:
             return None
-        if sel.get("shape") == "*":
+        if sel.get("shape") == "POINT":
             x, y = sel["coords"]
             return self.cube_data.get_pixel_spectrum(x, y)
 
@@ -592,6 +592,7 @@ class GuiSpectrumMixin:
         if vline_right is not None:
             vline_right.set_visible(indicator_set.get("right", False) and tab in ("full", "right"))
 
+        self._draw_error_bars()
         self._apply_shared_y_scale()
 
         # Gaussian fits belong to their tab: draw the active tab's, remove the others.

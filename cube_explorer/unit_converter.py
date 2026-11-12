@@ -405,31 +405,6 @@ def pixel_solid_angle(header):
     return None if area is None else area * u.sr
 
 
-def sum_to_jy_factor(flux_unit, header):
-    """
-    Give the factor that turns a spectrum summed over spaxels into Jy.
-    Each spaxel holds a surface brightness, for example in MJy/sr. The sum of those values
-    times the solid angle of one pixel is the total flux density of the summed region.
-
-    Args:
-        flux_unit (str): Flux unit of the cube, typically the BUNIT header keyword
-        header (astropy.io.fits.Header): FITS header with the pixel scale for the pixel solid angle
-
-    Returns:
-        result (tuple): (factor, note). factor is the number to multiply the values by, or None
-            if the unit is not a surface brightness or the header has no pixel scale. note is a
-            sentence that says why a surface brightness could not convert, or None.
-    """
-    unit = _string_to_astropy_unit(flux_unit)
-    if unit is None or not unit.is_equivalent(u.MJy / u.sr):
-        return None, None
-    omega = pixel_solid_angle(header)
-    if omega is None:
-        return None, (f"The cube header has no pixel scale (PIXAR_SR, CDELT, or a CD matrix), "
-                      f"so the flux stays in {flux_unit}.")
-    return float((1.0 * unit * omega).to(u.Jy).value), None
-
-
 def _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header):
     """
     Apply instrument corrections until `quantity` matches `target`, or give up.

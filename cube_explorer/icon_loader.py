@@ -11,9 +11,6 @@ from PyQt5.QtWidgets import QApplication
 
 ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 
-# Selection shape symbol to icon name. The symbol is still the shape id in the selection code.
-SHAPE_ICON_NAMES = {"*": "point", "▭": "rectangle", "○": "circle", "⬭": "ellipse", "✏": "freehand"}
-
 
 def _tinted_pixmap(renderer, size, color):
     """Render an SVG at the given size and fill its shapes with one color.

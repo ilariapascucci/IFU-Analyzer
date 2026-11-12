@@ -7,10 +7,12 @@ import gc
 import os
 import warnings
 import numpy as np
+from astropy import units as u
 from astropy.io import fits
 from astropy.wcs import WCS
 from .utils import TELESCOPE_LOADERS, detect_instrument, infer_spec_axis, get_wavelength
 from .fits_export import build_2d_export_header, write_fits_product
+from .spectrum_file import prepare_spectrum, normalize_wave_unit
 
 class CubeData:
     """
@@ -30,6 +32,8 @@ class CubeData:
         instrument (str): Detected instrument name
         filename (str): FITS file name
         flux_unit (str): String representation of flux unit (erg/cm**2*s*Angstrom, MJy/sr)
+        spectrum_error (array): Flux error of each point of spectrum, or None. Only a spectrum file gives it.
+        header_comments (list): The comment lines of the spectrum file, or None for a cube
     """
 
 
@@ -53,6 +57,23 @@ class CubeData:
         self.instrument = None
         self.filename = None
         self.flux_unit = ""
+        self.spectrum_error = None
+        self.header_comments = None
+
+
+    @property
+    def is_spectrum_only(self):
+        """
+        Tell if the data is a single spectrum from a text file. It has no cube, no slices and no pixels.
+
+        Args:
+            None
+
+        Returns:
+            spectrum_only (bool): True if a spectrum is loaded and there is no cube
+        """
+        # free_memory deletes both attributes, so read them with getattr.
+        return getattr(self, 'cube', None) is None and getattr(self, 'spectrum', None) is not None
 
 
     def load_from_file(self, filename):
@@ -72,6 +93,8 @@ class CubeData:
         try:
             # Store the filename for later use
             self.filename = filename
+            self.spectrum_error = None
+            self.header_comments = None
             
             # Open file with memory mapping
             self.hdul = fits.open(filename, memmap=True)
@@ -156,6 +179,107 @@ class CubeData:
 
         except Exception as e:
             raise Exception(f"Error reading FITS: {e}")
+
+
+    def load_from_arrays(self, wavelength, flux, wave_unit, flux_unit="", error=None, medium=None,
+                         instrument=None, grating=None, object_name=None, filename=None):
+        """
+        Load one spectrum that is not from a cube, for example from a text file.
+        The object then has no cube, no slices and no pixels. It has a small FITS header that
+        holds the instrument, the grating, the wavelength medium and the flux unit, so the tools
+        that read the header work on it in the same way as on a cube.
+
+        Args:
+            wavelength (array): Wavelengths in increasing order, in wave_unit
+            flux (array): Flux at each wavelength, in flux_unit
+            wave_unit (str): 'um' or 'Å'
+            flux_unit (str): Flux unit, for example 'Jy' or 'MJy/sr'. An empty string means unknown.
+            error (array): Flux error at each wavelength, in flux_unit, or None
+            medium (str): 'air' or 'vacuum', or None if not known
+            instrument (str): 'MIRI', 'NIRSpec' or 'MUSE', or None. Another name is kept as it is.
+            grating (str): NIRSpec grating, for example 'G395H'. Needed for the resolving power of NIRSpec.
+            object_name (str): Name of the object, or None
+            filename (str): Path of the file that the spectrum came from, or None
+
+        Returns:
+            success (bool): True if loading succeeded
+
+        Raises:
+            ValueError: If wave_unit is not 'um' or 'Å', the arrays differ in length, or medium is not valid
+        """
+        wavelength = np.asarray(wavelength, dtype=float)
+        flux = np.asarray(flux, dtype=float)
+        if wave_unit not in ('um', 'Å'):
+            raise ValueError(f"The wavelength unit must be 'um' or 'Å', got {wave_unit!r}.")
+        if wavelength.shape != flux.shape or wavelength.ndim != 1:
+            raise ValueError("The wavelength and flux must be 1D arrays of the same length.")
+        if error is not None:
+            error = np.asarray(error, dtype=float)
+            if error.shape != flux.shape:
+                raise ValueError("The error must have the same length as the flux.")
+        if medium not in (None, 'air', 'vacuum'):
+            raise ValueError(f"The medium must be 'air' or 'vacuum', got {medium!r}.")
+
+        known = {'MIRI': 'MIRI', 'NIRSPEC': 'NIRSpec', 'MUSE': 'MUSE'}
+        instrument = known.get(str(instrument).strip().upper(), instrument) if instrument else None
+
+        header = fits.Header()
+        if instrument:
+            header['INSTRUME'] = str(instrument)
+        if grating:
+            header['GRATING'] = str(grating).strip().upper()
+        if medium:
+            header['CTYPE3'] = 'AWAV' if medium == 'air' else 'WAVE'
+        if flux_unit:
+            header['BUNIT'] = flux_unit
+        if object_name:
+            header['OBJECT'] = str(object_name)
+
+        self.cube = None
+        self.header = header
+        self.wavelength = wavelength * (u.um if wave_unit == 'um' else u.AA)
+        self.wave_unit = wave_unit
+        self.spec_axis = 0
+        self.spectrum = flux
+        self.wcs = None
+        self.instrument = instrument
+        self.filename = filename
+        self.flux_unit = flux_unit
+        self.spectrum_error = error
+        self.header_comments = None
+        return True
+
+
+    def load_from_table(self, table, settings):
+        """
+        Load the spectrum that a text file gives, after the columns and units are chosen.
+        This removes the rows that cannot be used, sorts the rows by wavelength, and converts nm to um.
+
+        Args:
+            table (SpectrumTable): The table that spectrum_file.read_spectrum_table gives
+            settings (dict): x_index, y_index, error_index, wave_unit, flux_unit, medium, instrument,
+                grating and object, as spectrum_file.default_settings gives them
+
+        Returns:
+            notes (list): Sentences (str) that say what was changed in the data. Empty if nothing was changed.
+
+        Raises:
+            ValueError: If the columns, the units or the data are not valid
+        """
+        prepared = prepare_spectrum(table, settings["x_index"], settings["y_index"], settings["error_index"])
+        unit, factor = normalize_wave_unit(settings["wave_unit"])
+        notes = list(prepared["notes"])
+        if factor != 1.0:
+            notes.append(f"The wavelengths were converted from {settings['wave_unit']} to {unit}.")
+        self.load_from_arrays(
+            prepared["wavelength"] * factor, prepared["flux"], unit, settings["flux_unit"],
+            error=prepared["error"], medium=settings["medium"], instrument=settings["instrument"],
+            grating=settings["grating"], object_name=settings["object"], filename=table.path)
+        self.header_comments = list(table.comments)
+        wave = prepared["wavelength"] * factor
+        print(f"[OK] Loaded {os.path.basename(table.path)}: spectrum file, {wave.size} wavelength points, "
+              f"{wave.min():.4f} to {wave.max():.4f} {unit}")
+        return notes
 
 
     def _compute_spectrum(self):

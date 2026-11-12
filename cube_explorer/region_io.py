@@ -8,8 +8,8 @@ by eye.
 import numpy as np
 from astropy.coordinates import SkyCoord
 
-SHAPE_NAMES = {"*": "POINT", "▭": "RECTANGLE", "○": "CIRCLE", "⬭": "ELLIPSE", "✏": "POLYGON"}
-SHAPE_SYMBOLS = {v: k for k, v in SHAPE_NAMES.items()}
+# The shape names used everywhere in the code. The region text file writes the same names.
+SHAPES = ("POINT", "RECTANGLE", "CIRCLE", "ELLIPSE", "POLYGON")
 N_ELLIPSE_SAMPLES = 64
 _AXIS_STEP_PX = 1.0  # how far (in source pixels) the saved "axis marker" points sit from center
 
@@ -22,10 +22,10 @@ def region_shape_to_sky(shape, coords, wcs2d, lasso_verts=None):
     later rotation check).
 
     Args:
-        shape (str): Shape symbol, one of "*", "▭", "○", "⬭", "✏".
+        shape (str): Shape name, one of "POINT", "RECTANGLE", "CIRCLE", "ELLIPSE", "POLYGON".
         coords (tuple): (x, y) for a point, else (xmin, xmax, ymin, ymax).
         wcs2d (astropy.wcs.WCS): 2D celestial WCS of the source cube.
-        lasso_verts (array, optional): Polygon vertices; required if shape is "✏".
+        lasso_verts (array, optional): Polygon vertices; required if shape is "POLYGON".
 
     Returns:
         result (dict): {"shape": shape, "pixel_points": ndarray (N,2) columns
@@ -34,40 +34,40 @@ def region_shape_to_sky(shape, coords, wcs2d, lasso_verts=None):
             for point/polygon, which need no rotation check)}
 
     Raises:
-        ValueError: wcs2d is None/has no celestial axes, or shape is "✏"
+        ValueError: wcs2d is None/has no celestial axes, or shape is "POLYGON"
             with lasso_verts not given.
     """
     if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
         raise ValueError("No usable celestial WCS to convert this region to sky coordinates.")
 
-    if shape == "*":
+    if shape == "POINT":
         x, y = coords
         pixel_points = np.array([[float(x), float(y)]])
-    elif shape == "✏":
+    elif shape == "POLYGON":
         if lasso_verts is None:
             raise ValueError("Polygon selection has no stored vertices to save.")
         pixel_points = np.asarray(lasso_verts, dtype=float)
-    elif shape in ("○", "⬭"):
+    elif shape in ("CIRCLE", "ELLIPSE"):
         xmin, xmax, ymin, ymax = coords
         width, height = xmax - xmin + 1, ymax - ymin + 1
         cx, cy = xmin + (width - 1) / 2.0, ymin + (height - 1) / 2.0
-        if shape == "○":
+        if shape == "CIRCLE":
             # Matches _any_touch_circle_mask: radius is the smaller half-extent.
             a = b = min(max((width - 1) / 2.0, 1), max((height - 1) / 2.0, 1))
         else:
             a, b = max((width - 1) / 2.0, 0.5), max((height - 1) / 2.0, 0.5)
         angles = np.linspace(0, 2 * np.pi, N_ELLIPSE_SAMPLES, endpoint=False)
         pixel_points = np.column_stack([cx + a * np.cos(angles), cy + b * np.sin(angles)])
-    elif shape == "▭":
+    elif shape == "RECTANGLE":
         xmin, xmax, ymin, ymax = coords
         pixel_points = np.array([[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]], dtype=float)
     else:
-        raise ValueError(f"Unknown shape symbol: {shape!r}")
+        raise ValueError(f"Unknown shape name: {shape!r}")
 
     sky_points = wcs2d.pixel_to_world(pixel_points[:, 0], pixel_points[:, 1])
 
     sky_center = sky_axis_x = sky_axis_y = None
-    if shape in ("▭", "○", "⬭"):
+    if shape in ("RECTANGLE", "CIRCLE", "ELLIPSE"):
         # These two extra points record the source grid's orientation on
         # the sky, so sky_to_region_shape can later check for a rotation.
         center = pixel_points.mean(axis=0)
@@ -87,10 +87,10 @@ def sky_to_region_shape(shape, sky_points, sky_center, sky_axis_x, sky_axis_y, w
     back to a polygon if the target grid is rotated relative to the source.
 
     Args:
-        shape (str): Shape symbol read back from the saved file.
+        shape (str): Shape name read back from the saved file.
         sky_points (astropy.coordinates.SkyCoord): Boundary points, length N.
         sky_center, sky_axis_x, sky_axis_y (SkyCoord or None): The saved axis
-            markers; required (non-None) when shape is "▭"/"○"/"⬭".
+            markers; required (non-None) when shape is "RECTANGLE"/"CIRCLE"/"ELLIPSE".
         wcs2d (astropy.wcs.WCS): 2D celestial WCS of the target cube.
         target_shape (tuple, optional): (height, width) of the target image,
             for the off-frame check and clipping. None skips both.
@@ -98,7 +98,7 @@ def sky_to_region_shape(shape, sky_points, sky_center, sky_axis_x, sky_axis_y, w
             axis markers may drift and still count as "not rotated".
 
     Returns:
-        result (dict): {"shape": shape (possibly changed to "✏"),
+        result (dict): {"shape": shape (possibly changed to "POLYGON"),
             "coords": (x, y) or (xmin, xmax, ymin, ymax) or None,
             "verts": ndarray (N,2) or None} -- exactly one of
             "coords"/"verts" is set, matching what create_region /
@@ -127,9 +127,9 @@ def sky_to_region_shape(shape, sky_points, sky_center, sky_axis_x, sky_axis_y, w
         px = np.clip(px, 0, w - 1)
         py = np.clip(py, 0, h - 1)
 
-    if shape == "*":
+    if shape == "POINT":
         return {"shape": shape, "coords": (float(px[0]), float(py[0])), "verts": None}
-    if shape == "✏":
+    if shape == "POLYGON":
         return {"shape": shape, "coords": None, "verts": np.column_stack([px, py])}
 
     # Rectangle/circle/ellipse: check the axis markers to decide if the
@@ -147,7 +147,7 @@ def sky_to_region_shape(shape, sky_points, sky_center, sky_axis_x, sky_axis_y, w
     if aligned:
         return {"shape": shape, "coords": (float(px.min()), float(px.max()), float(py.min()), float(py.max())),
                 "verts": None}
-    return {"shape": "✏", "coords": None, "verts": np.column_stack([px, py])}
+    return {"shape": "POLYGON", "coords": None, "verts": np.column_stack([px, py])}
 
 
 def write_region_wcs_txt(path, shape, source_desc, pixel_points, sky_points,
@@ -159,7 +159,7 @@ def write_region_wcs_txt(path, shape, source_desc, pixel_points, sky_points,
 
     Args:
         path (str): Destination file path.
-        shape (str): Shape symbol being saved.
+        shape (str): Shape name being saved.
         source_desc (str): Free-text note (e.g. source FITS filename) for
             the file's header comment; purely informational.
         pixel_points (numpy.ndarray): (N,2) source-pixel coordinates, kept
@@ -171,12 +171,17 @@ def write_region_wcs_txt(path, shape, source_desc, pixel_points, sky_points,
 
     Returns:
         None: Writes `path` as a side effect.
+
+    Raises:
+        ValueError: shape is not one of SHAPES.
     """
+    if shape not in SHAPES:
+        raise ValueError(f"Unknown shape name: {shape!r}")
     if pixel_points is None:
         pixel_points = np.full((len(sky_points), 2), np.nan)
     lines = [
         "# IFU Analyzer - Region Export (WCS)\n",
-        f"# shape: {SHAPE_NAMES[shape]}\n",
+        f"# shape: {shape}\n",
         f"# source: {source_desc}\n",
         f"# n_points: {len(pixel_points)}\n",
         "# columns: x_pixel, y_pixel, RA_deg, Dec_deg\n",
@@ -201,7 +206,7 @@ def read_region_wcs_txt(path):
         path (str): File to read.
 
     Returns:
-        result (dict): {"shape": shape symbol, "sky_points": SkyCoord (N,),
+        result (dict): {"shape": shape name, "sky_points": SkyCoord (N,),
             "sky_center"/"sky_axis_x"/"sky_axis_y": SkyCoord or None}
 
     Raises:
@@ -231,9 +236,9 @@ def read_region_wcs_txt(path):
             else:
                 boundary_rows.append(line)
 
-    if shape_token not in SHAPE_SYMBOLS:
+    if shape_token not in SHAPES:
         raise ValueError(f"Unrecognized or missing shape in {path!r}: {shape_token!r}")
-    shape = SHAPE_SYMBOLS[shape_token]
+    shape = shape_token
 
     if shape_token == "POINT" and len(boundary_rows) != 1:
         raise ValueError(f"{path!r}: a POINT region needs exactly 1 point, found {len(boundary_rows)}.")

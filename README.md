@@ -25,12 +25,14 @@ Some tools have a narrower scope:
 - Full-spectrum display with wavelength and velocity axes
 - Dual slice view for a wavelength or velocity comparison
 - The spectrum updates when you change the selection
-- Region tools: point, rectangle, circle, ellipse, and freehand polygon
+- Region tools: point, rectangle, ellipse, and freehand polygon. To make a circle, use the Edit Shape tool to give an ellipse the same width and height.
 - Draggable region handles for a move or a resize
+- The RA and Dec of the cursor in the Cursor Info of each slice, and a Grid button that draws the RA and Dec grid on the slice. Both need a celestial WCS in the FITS header.
 - Colour scales: Linear, Log, and Power (with an adjustable gamma), with an absolute or a percentile colour range
 - Colormap selection through a dialog, with colourblind-friendly options
 - Support for 2D images (intensity maps and Gaussian parameter maps)
 - Copy of colormaps and regions between the two displays
+- Load a spectrum from a text file (txt or csv) with the "Load Spectrum" button. The file has a wavelength column, a flux column, and an optional flux error column. The window then shows that one spectrum, with no slices, and the continuum, Gaussian, multi-Gaussian, Doppler shift, line list, and save tools work on it. The tools that need a cube (Fit Gaussian Map, Flux Map, Pixel-by-Pixel continuum, regions) are off. The flux error is drawn as a dot with a line above and below it. It is saved in an Error column. No fit uses it as a weight.
 
 ### Rovibrational Flux Mapping
 
@@ -114,7 +116,7 @@ Bring several images to one resolution in a single step.
 
 #### Region Selection
 
-- Point, rectangle, circle, ellipse, and freehand polygon tools
+- Point, rectangle, ellipse, and freehand polygon tools
 - The statistics of the selected region (minimum, maximum, mean, sum, and standard deviation) are added to the intensity statistics panel.
 
 ### Spectral Analysis
@@ -123,8 +125,9 @@ Bring several images to one resolution in a single step.
   - Single-pixel interactive fitting with a visual overlay
   - Full-cube parallel fitting with parameter maps
   - Multi-Gaussian fitting for a complex line profile
-  - Save a fit to a text file: the single-line fit, the multi-Gaussian fit, and the pixel fit of a Gaussian map. The columns are wavelength, original spectrum, fit, and original minus fit (the fit and the difference are NaN where no line was fitted). For a cube in MJy/sr, the single-line and multi-Gaussian files give the flux in Jy: the sum over the spaxels times the pixel solid angle
+  - Save a fit to a text file: the single-line fit, the multi-Gaussian fit, and the pixel fit of a Gaussian map. The columns are wavelength, original spectrum, fit, and original minus fit (the fit and the difference are NaN where no line was fitted). The single-line and multi-Gaussian files add a baseline column. The flux stays in the unit of the cube
   - Save the fitted parameters of the single-line and multi-Gaussian fits to a text file (one row for each line)
+  - Load a saved fit again with "Load Fit" (single line, in the Gaussian Fit group) or "Load Fits" (multi-Gaussian, in the Lines & Fit group). The file that "Save Fit" writes holds the spectrum, the fit curve, the baseline, the Fit and Noise markers, and every fitted line with all its numbers (center, sigma, amplitude, their errors, the area, R², the catalog data, and the model of the chunk). It also says which continuum the baseline came from: the settings of an automatic continuum, or the points of a custom one. The multi-Gaussian fit uses the default settings of the automatic continuum when no continuum is fitted, and the file says so. The fit comes back as it was, with no new fit, and you can mark the same window again. The spectrum must have the same wavelengths as the fit. A Doppler shift that differs from the shift of the fit is refused, and the message says so. If no spectrum is open, "Load Fit" and "Load Fits" first load the spectrum that is in the fit file, and then show the fit. "Load Spectrum" also opens a fit file, but it loads the spectrum only, and a message says which button loads the fit. A fit file that an older version saved has no parameters and cannot be loaded.
   - Automatic baseline subtraction. The single-line fit uses the fitted continuum of the spectrum if there is one. If not, it uses a straight line between the two window edges. The results window shows which one was used.
   - Each spectrum (Full, Left, Right) keeps its own fit curves. The plot shows only the fits of the spectrum you are looking at, in the units of the plotted spectrum (also when the continuum is subtracted or the spectrum is normalized). Applying or reverting a wavelength shift clears the fits of that spectrum, because they were made on the old wavelengths. The multi-Gaussian window can be reopened without a new fit only if the lines, the spectrum, the wavelengths and the continuum have not changed.
   - Quality metrics (R², χ², FWHM, and area under the curve)
@@ -193,7 +196,7 @@ Bring several images to one resolution in a single step.
 
 ### Export Capabilities
 
-- **Continuum results (ASCII):** the "Save Spectrum" button saves the spectrum of the tab that is showing (Full, Left, or Right). To save a different spectrum, click its tab first. The file is tab-delimited and has five columns: wavelength, original spectrum, fitted continuum, continuum-subtracted spectrum, and "Plotted". The first four are raw flux. "Plotted" is the spectrum as the plot shows it: with the continuum subtracted if subtraction is on, and divided by the normalization number if Normalize or Self-Normalize is on. The `# Plotted` header line gives the steps and the number. The `# Spaxels` header line gives the number of spaxels in the sum. For a cube in MJy/sr, the flux columns are written in Jy (the sum times the pixel solid angle), and a header line gives the factor. A normalized "Plotted" column has no unit. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The `# Type: full_results` header line identifies the file format.
+- **Continuum results (ASCII):** the "Save Spectrum" button saves the spectrum of the tab that is showing (Full, Left, or Right). To save a different spectrum, click its tab first. The file is tab-delimited and has five columns: wavelength, original spectrum, fitted continuum, continuum-subtracted spectrum, and "Plotted". The first four are raw flux. "Plotted" is the spectrum as the plot shows it: with the continuum subtracted if subtraction is on, and divided by the normalization number if Normalize or Self-Normalize is on. The `# Plotted` header line gives the steps and the number. The `# Spaxels` header line gives the number of spaxels in the sum. The flux stays in the unit of the cube (for example MJy/sr). A normalized "Plotted" column has no unit. A missing column (for example, no continuum is fitted yet) is written as `NaN`. The comment lines at the top of the file give the format, the source file, the instrument, the units, which continuum the file used, and the column names. For an automatic continuum, the line `# Continuum:` lists the settings that were used. For a custom continuum, it says "custom, natural cubic spline", and the line `# Continuum points:` lists the points, so the same curve can be made again. If the tab has no continuum, the line says "none". If the settings were not recorded, it says "unknown".
 - **Residuals cube (FITS):** export of the 3D normalised residuals cube with full header metadata
 - **Flux maps:** export of the full-cube fitting results with the integrated flux estimates
 - **Contour coordinates (.txt):** export of the contour path vertices with the pixel and RA/Dec positions and the sigma-level labels
@@ -443,7 +446,7 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 
 | Task                | Functions                                                                                                   |
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Load data           | `load_cube`, `extract_pixel_spectrum`, `extract_region_spectrum`                                            |
+| Load data           | `load_cube`, `load_spectrum`, `load_fit`, `extract_pixel_spectrum`, `extract_region_spectrum`               |
 | Continuum           | `fit_continuum`, `save_continuum_cubes`                                                                     |
 | Gaussian fitting    | `fit_line`, `fit_hitran_lines`, `measure_equivalent_width`, `create_gaussian_map`, `export_residual_cube`   |
 | Flux                | `extract_flux`, `create_flux_map`                                                                           |
@@ -527,14 +530,19 @@ python main.py
 
 2. Load and view the data:
    - Click "Open FITS" and select a data cube. The file loads directly.
+   - You can open another file in the same window. A new file starts as a new start: the fits, the markers, the continuum, the Doppler shifts, the regions, the line lists, the Flux Map and Gaussian map caches, Normalize and Overplot, and the colormap and scale of the slices all go back to their defaults. The 2D window and the rotational diagram window stay open, because they do not use this cube.
+   - To work on one spectrum with no cube, click "Load Spectrum" and select a text file instead. A file that "Save Spectrum" wrote loads directly, because its comment lines give the units, the instrument, and the column names. For any other file, a window asks which column is the wavelength, the flux, and the flux error, and what the units are. Say the instrument (and the NIRSpec grating) if you want the multi-Gaussian fit to use the resolving power of the instrument. Rows with no number are removed, and rows out of order are sorted. The window says so. Click "Header" to read the comment lines (the lines that start with #) of the file. A fit file loads as a spectrum only, and a message says which button loads the fit. Click "Open FITS" to go back to a cube.
    - Use the spectrum plot (bottom) to move along the wavelength or velocity axis.
    - Click "Set Left Slice" and "Set Right Slice" to set the two slice views.
    - Adjust the colour scale and the colormap.
+   - Move the cursor over a slice. The Cursor Info shows the pixel, the RA, the Dec, and the value.
+   - Click the "Grid" button in the side column of a slice to draw the RA and Dec grid on that slice. The button is off when the FITS header has no celestial WCS.
 
 ### Region Analysis
 
 3. Select and examine a region:
-   - Click a shape button (point, rectangle, circle, ellipse, or freehand) to start a region tool.
+   - Click a shape button (point, rectangle, ellipse, or freehand) to start a region tool.
+   - To make a circle, draw an ellipse. Then click "Edit Shape" and drag a corner until the width and the height are the same.
    - Draw the region on either slice view.
    - The statistics update automatically.
    - The extracted spectrum shows in the bottom panel, on the "Left Region" or "Right Region" tab.
@@ -552,6 +560,7 @@ python main.py
    - Optionally, mark a line-free noise region with "Noise Left" and "Noise Right".
    - Click "Fit Gaussian" to run the fit.
    - Read the fit results: the centre, the amplitude, the width, the area, the baseline, and R².
+   - Click "Save Fit..." in the results window to save the fit. Click "Load Fit" later to see the same fit again, with its five markers, on the same spectrum.
 
    **Full-cube mapping:**
    - Mark "Fit Left", "Peak", and "Fit Right" as above. The map fit also needs the noise region ("Noise Left" and "Noise Right").
@@ -559,6 +568,8 @@ python main.py
    - Wait for the background processing (10 to 30 seconds is typical).
    - View the parameter maps (Area, Amplitude, Centre, Velocity, FWHM, and so on).
    - The Velocity map needs a rest line. When you select "Velocity" in the parameter list, choose the molecule or atom of the line in the fit window. A table lists the lines of that species from HITRAN and the LST catalog. Select the line that the peak shows. Its vacuum wavelength is zero velocity. If you cancel, the Velocity map is not made, and the results window gives the reason. To use another line, click "Change rest line..." next to the parameter list. The map redraws with the new line.
+   - A map that was fit on a shifted spectrum has no Velocity map. The line centers of that map are not the observed wavelengths. Revert the shift of that spectrum (see Doppler shift) and fit the map again. The other parameters stay available.
+   - "Shift Spectrum" (next to "Change rest line...", Velocity map only) closes this window and starts the "Preview Shift" of the main window for the same tab. The box starts with the systemic velocity, and you can change it. The systemic velocity is the velocity of the line center of a Gaussian fit to the summed spectrum, against the rest line. The Full tab sums all pixels. A Left or Right tab sums the pixels of its region. The Velocity statistics list the value. Then click "Apply Shift" as usual. The button is off when the fit of the summed spectrum did not converge.
    - To add lines (for example from HITEMP), click "Load line list file..." in the table. Use a CSV with the columns `wavelength` and `species`, a HITRAN-format `.par` file, or an LST catalog `.lst` file. Give vacuum wavelengths in a CSV. Unzip a HITEMP file before you load it. Lines from a file show in amber.
    - The LST catalog starts at 0.70 µm, and HITRAN has no atomic lines. For a MUSE line such as H-alpha, you must load a file.
    - MUSE cubes use air wavelengths (axis type `AWAV`). The app converts the rest line to air before it makes the map. A cube header that gives no `AWAV` or `WAVE` axis type has no Velocity map.
@@ -697,7 +708,7 @@ python main.py
 ### Data Export
 
 9. Export the results:
-   - **Spectrum:** click "Save Spectrum" in the row with the shift buttons.
+   - **Spectrum:** click "Save Spectrum" in the row with the shift buttons. The comment lines at the top of the file give the source file, instrument, wavelength and flux units, air or vacuum wavelengths, the Doppler shift that was applied, the continuum that was used, and the column names.
    - **Slice:** click the "Save" button in the side column of the slice.
    - **Continuum:** click "Save Points" to export the anchor points, or "Save Spectrum" for the full five-column file.
 
@@ -708,7 +719,7 @@ python main.py
    - **Line catalog:** "Import Lines" loads a custom spectral-line list: a CSV with `wavelength` and `species` columns, a HITRAN-format `.par` file (for example HITEMP), or an LST `.lst` file. The program finds the format from the first line of the file. A `.par` file gives its molecule from its first record. An LST file with more than one species asks which species to load. Unzip a HITEMP file before you load it.
    - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Show Lines" lists the loaded lines and lets you choose which ones to plot.
    - **Normalize spectrum:** the "Normalize" checkbox divides every spectrum by the peak of the full spectrum. "Show Left" and "Show Right" overlay a region's spectrum on the "Full" tab. "Self-Normalize Left" and "Self-Normalize Right" divide a region's spectrum by its own peak.
-   - **Doppler shift:** two buttons control a multiplicative wavelength correction (km/s). "Preview Shift" asks for the velocity and shows the shifted spectrum in orange. Click it again to cancel the preview. "Apply Shift" applies the preview. When no preview is pending, click "Apply Shift" again to revert the spectrum to its original wavelength. A button is pressed while its state is active for the spectrum you are looking at. Applying or reverting a shift clears the Gaussian fits of that spectrum.
+   - **Doppler shift:** two buttons control a multiplicative wavelength correction (km/s). "Preview Shift" asks for the velocity and shows the shifted spectrum in orange. Click it again to cancel the preview. "Apply Shift" applies the preview. When no preview is pending, click "Apply Shift" again to revert the spectrum to its original wavelength. A button is pressed while its state is active for the spectrum you are looking at. Applying or reverting a shift clears the Gaussian fits, the Fit and Noise markers and the Gaussian map of that spectrum. Place the markers again on the shifted spectrum. Line markers (HITRAN, LST, contaminant) stay at their wavelengths. Shifting or reverting the Full spectrum also updates the two slice wavelength boxes, the slice titles and the slice markers on the spectrum.
    - **Spectrum legend:** the "Legend" button, next to "Save Spectrum", opens a list of legend groups: Continuum, Slice markers, Fit markers, Noise region, Gaussian fits, Contaminants, and Shift preview. Clear the check mark of a group to remove its entries from the legend. The spectrum itself always stays in the legend. The "Gaussian fits" group also shows or hides the box with the center, FWHM, and R² of a single Gaussian fit. The Gaussian map pixel-fit window and the rotational-diagram fit windows have a "Legend" check box in the toolbar row of the plot. Clear it to hide the legend of that plot.
    - **Spectrum height:** drag the divider between the slices and the menu groups up or down. The spectrum and its buttons are below the divider. The plots change size while you drag. Double-click the divider to put it back at its start position. The window starts with the slices as tall as they can be while the slice buttons still use two columns. The divider stops when the stats and the cursor info of the slices would no longer fit. The spectrum always keeps room for the tallest menu, so opening a menu never makes the slices smaller. The divider stays at its start position, also when you resize the window, until you move it.
    - **Wavelength range:** the "λ min" and "λ max" boxes (in µm) in the "Lines & Fit" group set the range for "Fetch HITRAN", "Import Lines", "Contam. Lines", and "Flux Map". They fill from the cube when you load it.
@@ -730,6 +741,11 @@ IFU-Analyzer/
 │   ├── gui_gaussian.py                       # Gaussian-fitting mixin (single-line, full-cube, multi-Gaussian)
 │   ├── gui_flux_map.py                       # Flux-map mixin
 │   ├── gui_spectrum.py                       # Spectrum-plot mixin (tabs, normalisation, overplot)
+│   ├── gui_spectrum_file.py                  # Load Spectrum button, spectrum-only mode, error bars
+│   ├── gui_fit_file.py                       # Load Fit and Load Fits buttons
+│   ├── fit_file.py                           # Gaussian fit file writer and reader (GUI-free)
+│   ├── spectrum_file.py                      # Text-file spectrum reader (GUI-free)
+│   ├── spectrum_load_dialog.py               # Dialog for the columns and units of a spectrum file
 │   ├── gui_region_selection.py               # Shared region-selection controller (main window and 2D viewer)
 │   ├── gui_mixins.py                         # Shared helpers for the two-panel windows and the map dialogs
 │   ├── gui_rotational_diagram.py             # Rotational-diagram analyzer window

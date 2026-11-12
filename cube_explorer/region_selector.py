@@ -10,7 +10,7 @@ from matplotlib.patches import Rectangle, PathPatch
 
 def mask_from_shape_coords(shape, coords, verts, target_shape):
     """
-    Build a full-image boolean mask from a shape symbol and its coords/verts,
+    Build a full-image boolean mask from a shape name and its coords/verts,
     without needing a live interactive RegionSelector/canvas -- the headless
     equivalent of what create_region/on_lasso_select's on_select_callback
     receives (a bounding-box mask) and embeds into a full-image mask (see
@@ -19,10 +19,10 @@ def mask_from_shape_coords(shape, coords, verts, target_shape):
     rotational-diagram map's per-cube native grids.
 
     Args:
-        shape (str): Shape symbol -- "*", "▭", "○", "⬭", or "✏".
-        coords (tuple): (xmin, xmax, ymin, ymax) for "*"/"▭"/"○"/"⬭"; ignored
-            for "✏". For "*", (x, y) is also accepted.
-        verts (numpy.ndarray): (N,2) polygon vertices; required for "✏",
+        shape (str): Shape name -- "POINT", "RECTANGLE", "CIRCLE", "ELLIPSE", or "POLYGON".
+        coords (tuple): (xmin, xmax, ymin, ymax) for "RECTANGLE"/"CIRCLE"/"ELLIPSE";
+            ignored for "POLYGON". For "POINT", (x, y) is accepted.
+        verts (numpy.ndarray): (N,2) polygon vertices; required for "POLYGON",
             ignored otherwise.
         target_shape (tuple): (height, width) of the full image to mask.
 
@@ -32,14 +32,14 @@ def mask_from_shape_coords(shape, coords, verts, target_shape):
     h_img, w_img = target_shape
     full_mask = np.zeros((h_img, w_img), dtype=bool)
 
-    if shape == "*":
+    if shape == "POINT":
         x, y = coords
         x, y = int(round(x)), int(round(y))
         if 0 <= y < h_img and 0 <= x < w_img:
             full_mask[y, x] = True
         return full_mask
 
-    if shape == "✏":
+    if shape == "POLYGON":
         verts = np.asarray(verts, dtype=float)
         xmin, ymin = verts.min(axis=0)
         xmax, ymax = verts.max(axis=0)
@@ -52,9 +52,9 @@ def mask_from_shape_coords(shape, coords, verts, target_shape):
         ymin, ymax = min(ymin, ymax), max(ymin, ymax)
         height = max(1, ymax - ymin + 1)
         width = max(1, xmax - xmin + 1)
-        if shape == "○":
+        if shape == "CIRCLE":
             box_mask = _any_touch_circle_mask(width, height)
-        elif shape == "⬭":
+        elif shape == "ELLIPSE":
             box_mask = _any_touch_ellipse_mask(width, height)
         else:  # rectangle
             box_mask = np.ones((height, width), dtype=bool)
@@ -694,11 +694,11 @@ class RegionSelector:
     Handles interactive region selection on matplotlib plots.
     
     This class provides functionality to select regions using different shapes:
-    - Points (*)
-    - Rectangles (▭)
-    - Circles (○)
-    - Ellipses (⬭)
-    - Custom/Lasso (✏)
+    - Points ("POINT")
+    - Rectangles ("RECTANGLE")
+    - Circles ("CIRCLE", only through an imported region)
+    - Ellipses ("ELLIPSE")
+    - Custom/Lasso ("POLYGON")
     
     The selector maintains state about the current selection mode and
     handles the creation of appropriate matplotlib selector widgets.
@@ -752,10 +752,10 @@ class RegionSelector:
 
         self.active_shape = shape
 
-        if shape == "*":
+        if shape == "POINT":
             # Pixel selection is handled by click events
             return
-        elif shape == "▭":  # rectangle
+        elif shape == "RECTANGLE":
             self.selector = RectangleSelector(
                 self.ax, 
                 self.on_select,
@@ -771,7 +771,7 @@ class RegionSelector:
                 self.selector.set_visible(True)
             if hasattr(self.selector, 'set_active'):
                 self.selector.set_active(True)
-        elif shape in ["○", "⬭"]:  # circle or ellipse
+        elif shape in ["CIRCLE", "ELLIPSE"]:
             self.selector = EllipseSelector(
                 self.ax,
                 self.on_select,
@@ -782,7 +782,7 @@ class RegionSelector:
                 self.selector.set_visible(True)
             if hasattr(self.selector, 'set_active'):
                 self.selector.set_active(True)
-        elif shape == "✏":  # custom
+        elif shape == "POLYGON":
             self.selector = LassoSelector(
                 self.ax,
                 self.on_lasso_select
@@ -818,9 +818,9 @@ class RegionSelector:
         Returns:
             None
         """
-        if self.active_shape == "○":
+        if self.active_shape == "CIRCLE":
             shape_type = 'circle'
-        elif self.active_shape == "⬭":
+        elif self.active_shape == "ELLIPSE":
             shape_type = 'ellipse'
         else:
             shape_type = 'rectangle'

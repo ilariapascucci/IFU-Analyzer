@@ -11,7 +11,7 @@ the 3D and 2D windows already have in common:
     region_selector_left / region_selector_right   (RegionSelector)
     slice1_plotter / slice2_plotter                (SlicePlotter, has .ax)
     slice1_canvas  / slice2_canvas                 (FigureCanvas)
-    shape_buttons["left"|"right"][symbol]          (dict of QPushButton)
+    shape_buttons["left"|"right"][shape name]      (dict of QPushButton)
     edit_shape_btn_l / edit_shape_btn_r            (checkable QPushButton)
     stats1_label / stats2_label                    (QLabel)
     region_state                                   ({"left":..,"right":..})
@@ -179,7 +179,7 @@ class RegionSelectionMixin:
                 btn.setEnabled(False)
                 btn.setChecked(False)
             sel = self.last_selection_left if side == "left" else self.last_selection_right
-            edit_btn.setEnabled(bool(sel) and sel.get("shape") != "*")
+            edit_btn.setEnabled(bool(sel) and sel.get("shape") != "POINT")
             edit_btn.setChecked(False)
         elif new_state == "editing":
             for btn in self.shape_buttons[side].values():
@@ -212,7 +212,7 @@ class RegionSelectionMixin:
         """Handle shape button activation.
 
         Args:
-            shape (str): Shape symbol that was clicked.
+            shape (str): Shape name that was clicked.
             target (str): Panel the shape applies to, 'left' or 'right'.
 
         Returns:
@@ -397,15 +397,15 @@ class RegionSelectionMixin:
 
         selector = self.region_selector_left if target == "left" else self.region_selector_right
 
-        if source_selection["shape"] == "*":
+        if source_selection["shape"] == "POINT":
             x, y = source_selection["coords"]
             self._handle_pixel_click(x, y, target)
             return
 
-        if source_selection["shape"] == "✏":
+        if source_selection["shape"] == "POLYGON":
             patch = source_selection.get("patch")
             if patch is not None and hasattr(patch, "lasso_verts"):
-                selector.active_shape = "✏"
+                selector.active_shape = "POLYGON"
                 selector.on_lasso_select(patch.lasso_verts)
                 return
             # No stored vertices - fall through to a bounding-box rectangle.
@@ -444,12 +444,12 @@ class RegionSelectionMixin:
             selector.interactive_patch = None
 
         selector.active_shape = shape
-        if shape == "✏":
+        if shape == "POLYGON":
             verts = getattr(sel.get("patch"), "lasso_verts", None)
             if verts is not None:
                 selector.on_lasso_select(verts)
             else:
-                selector.active_shape = "▭"
+                selector.active_shape = "RECTANGLE"
                 selector.create_region((xmin, xmax, ymin, ymax))
         else:
             selector.create_region((xmin, xmax, ymin, ymax))
@@ -532,7 +532,7 @@ class RegionSelectionMixin:
 
     # ---------------------------------------------------------------- pixel
     def _handle_pixel_click(self, x, y, target):
-        """Handle a single-pixel ('*') selection.
+        """Handle a single-pixel ('POINT') selection.
 
         Args:
             x (int): Pixel x coordinate.
@@ -555,7 +555,7 @@ class RegionSelectionMixin:
 
             intensity = float(image[y, x])
             label = f"{target.capitalize()} Selection"
-            sel = {"shape": "*", "coords": (x, y), "mask": None, "label": label}
+            sel = {"shape": "POINT", "coords": (x, y), "mask": None, "label": label}
             if target == "left":
                 self.last_selection_left = sel
             else:

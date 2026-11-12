@@ -7,7 +7,6 @@ equivalent width, and integrated flux.
 """
 
 import os
-import warnings
 from astropy.io import fits
 from dataclasses import dataclass
 from astropy.units import Quantity
@@ -19,11 +18,11 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 from .unit_converter import (get_wave_unit, convert_area_to_cgs, extract_value_from_quantity,
-                             convert_wavelength, cgs_flux_label, sum_to_jy_factor)
+                             convert_wavelength, cgs_flux_label)
 from .utils import safe_worker_count, detect_instrument_from_header, get_spectral_resolution
 
 
-def build_gaussian_fit_curve(wavelength, results):
+def build_gaussian_fit_curve(wavelength, results, return_baseline=False):
     """Build the Gaussian fit on the full wavelength grid.
 
     Each fitted chunk gives its baseline plus all of its Gaussians. Wavelengths that
@@ -33,15 +32,18 @@ def build_gaussian_fit_curve(wavelength, results):
         wavelength (numpy.ndarray): Wavelength grid that the lines were fitted on.
         results (list): GaussianFitResult objects (a single fit, or the detection and
             contaminant lines of a multi-Gaussian fit).
+        return_baseline (bool): True to also return the baseline on the same grid.
 
     Returns:
-        fit (numpy.ndarray): Fit flux on `wavelength`, NaN outside every chunk.
+        fit (numpy.ndarray): Fit flux on `wavelength`, NaN outside every chunk. With
+            return_baseline, a tuple (fit, baseline) where baseline has the same NaN rule.
 
     Raises:
         ValueError: If a result's x_data is not a subset of `wavelength`.
     """
     wavelength = np.asarray(wavelength, dtype=float)
     fit = np.full(len(wavelength), np.nan)
+    baseline_curve = np.full(len(wavelength), np.nan)
     nearest_line = np.full(len(wavelength), np.inf)
 
     # Lines in one chunk share one joint model, so group them by chunk extent.
@@ -64,12 +66,13 @@ def build_gaussian_fit_curve(wavelength, results):
         distance = np.min(np.abs(wavelength[idx][:, None] - centers[None, :]), axis=1)
         closer = distance < nearest_line[idx]
         fit[idx[closer]] = (np.asarray(first.y_fit) + np.asarray(first.baseline))[closer]
+        baseline_curve[idx[closer]] = np.asarray(first.baseline)[closer]
         nearest_line[idx[closer]] = distance[closer]
-    return fit
+    return (fit, baseline_curve) if return_baseline else fit
 
 
 def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None, flux_unit=None,
-                          header_lines=(), flux_scale=1.0):
+                          header_lines=()):
     """Save the wavelength, original spectrum, fit and residual columns to an ASCII file.
 
     The columns are separated by tabs. The comment lines at the top start with "#".
@@ -85,8 +88,6 @@ def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None
         wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
         flux_unit (str): Flux unit for the file header, or None for "Unknown".
         header_lines (list): Extra comment lines (str) to write below the title.
-        flux_scale (float): Number that multiplies the spectrum and the fit before they are
-            written. The caller gives flux_unit for the scaled values.
 
     Returns:
         None
@@ -95,8 +96,8 @@ def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None
         ValueError: If the three arrays differ in length.
     """
     wavelength = np.asarray(wavelength, dtype=float)
-    spectrum = np.asarray(spectrum, dtype=float) * flux_scale
-    fit = np.asarray(fit, dtype=float) * flux_scale
+    spectrum = np.asarray(spectrum, dtype=float)
+    fit = np.asarray(fit, dtype=float)
     if not len(wavelength) == len(spectrum) == len(fit):
         raise ValueError("wavelength, spectrum and fit must have the same length.")
 
@@ -115,13 +116,12 @@ def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None
 
 
 def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_unit=None,
-                      header_lines=(), cube_header=None):
-    """Save the original spectrum and a Gaussian fit to an ASCII file.
+                      header_lines=(), entries=None, fit_type=None, markers=None):
+    """Save the original spectrum and a Gaussian fit to a text file that can be loaded again.
 
     Use this for a single fit or a multi-Gaussian fit. The columns are wavelength,
-    original spectrum, fit and original minus fit. The fit is NaN where no chunk was fitted.
-    The spectrum is a sum over spaxels. If the cube header is given and the flux is a surface
-    brightness (for example MJy/sr), the values are written in Jy.
+    original spectrum, fit, original minus fit and baseline. The fit is NaN where no chunk was fitted.
+    The comment lines hold every fitted line with all its numbers, so fit_file.read_fit_file can read it.
 
     Args:
         path (str): Output file path.
@@ -130,10 +130,12 @@ def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_
         results (list): GaussianFitResult objects (a single fit, or the detection and
             contaminant lines of a multi-Gaussian fit).
         wave_unit (str): Wavelength unit for the file header, or None for "Unknown".
-        flux_unit (str): Flux unit of the spectrum (typically BUNIT), or None for "Unknown".
+        flux_unit (str): Flux unit for the file header, or None for "Unknown".
         header_lines (list): Extra comment lines (str) to write below the title.
-        cube_header (astropy.io.fits.Header): Cube header with the pixel scale. With it, a
-            surface-brightness spectrum is converted to Jy. None writes the values unchanged.
+        entries (list): Dicts with 'kind' ('line', 'contaminant' or 'skipped'), 'line' (catalog dict) and
+            'result'. None makes one 'line' entry for each result.
+        fit_type (str): 'single' or 'multi'. None gives 'single' for one line and 'multi' for more.
+        markers (dict): The fit markers of a single fit (fit_left, peak, fit_right, noise_left, noise_right).
 
     Returns:
         None
@@ -141,21 +143,14 @@ def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_
     Raises:
         ValueError: If no result succeeded, or the arrays differ in length.
     """
-    if not any(r.success for r in results):
-        raise ValueError("No successful fit to save.")
-    flux_scale = 1.0
-    if cube_header is not None:
-        factor, note = sum_to_jy_factor(flux_unit, cube_header)
-        if note:
-            warnings.warn(note)
-        if factor is not None:
-            header_lines = [*header_lines, f"Flux converted from {flux_unit} to Jy (sum over spaxels): "
-                                           f"the values are multiplied by {factor:.6e}"]
-            flux_scale, flux_unit = factor, "Jy"
-    fit = build_gaussian_fit_curve(wavelength, results)
-    save_spectrum_and_fit(path, wavelength, spectrum, fit, "Gaussian fit export from IFU Analyzer",
-                          wave_unit=wave_unit, flux_unit=flux_unit, header_lines=header_lines,
-                          flux_scale=flux_scale)
+    from .fit_file import write_fit_file
+
+    if entries is None:
+        entries = [{'kind': 'line', 'line': {}, 'result': r} for r in results]
+    if fit_type is None:
+        fit_type = 'single' if len(entries) == 1 else 'multi'
+    write_fit_file(path, wavelength, spectrum, entries, fit_type, wave_unit=wave_unit, flux_unit=flux_unit,
+                   header_lines=header_lines, markers=markers)
 
 
 def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
@@ -349,6 +344,10 @@ class GaussianFitResult:
     # The local continuum plus this one line's own fitted Gaussian, not cropped. This is
     # distinct from y_fit (the whole chunk's joint model). None when the fit failed.
     y_fit_own: Optional[np.ndarray] = None
+
+    # A multi-Gaussian fit only: the local continuum (a + b*(x - x0)) and every Gaussian of the chunk, also the
+    # neighbour lines that have no result of their own. A fit file stores it to build the chunk curve again.
+    chunk_model: Optional[dict] = None
 
     def __str__(self):
         """
@@ -1406,139 +1405,41 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
 
 
 
-def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
-                            lam_min: Optional[float] = None,
-                            lam_max: Optional[float] = None,
-                            n_jobs: Optional[int] = None,
-                            fac_above_stdres: float = 3.0,
-                            noise_min: Optional[float] = None,
-                            noise_max: Optional[float] = None,
-                            header: Optional[object] = None,
-                            wave_unit: Optional[str] = None,
-                            flux_unit: Optional[str] = None,
-                            lambda_0: Optional[float] = None,
-                            progress_callback: Optional[callable] = None,
-                            cancel_event: Optional[threading.Event] = None) -> Optional[dict]:
+def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig, header, unit,
+                         flux_unit, region_mask=None):
     """
-    Fit a Gaussian to each pixel's spectrum in the cube, using the same per-pixel fit as
-    fit_gaussian_to_line() but seeded by a global fit to the stacked spectrum first.
+    Fit one Gaussian to the summed spectrum of the cube, or of a region of it.
+    The result seeds the per-pixel fits, and it gives the line center of the summed spectrum.
+    The fit window is the one that wave_mask selects.
 
     Args:
-        cube (array): 3D data cube with shape (n_wavelength, n_y, n_x)
-        wavelength (array): 1D wavelength array with length n_wavelength
-        lam_min (float): Minimum wavelength for the fit window. Defaults to the full range
-        lam_max (float): Maximum wavelength for the fit window. Defaults to the full range
-        n_jobs (int): Number of worker processes. Defaults to auto-detect CPUs
-        fac_above_stdres (float): Detection threshold in units of noise std (3.0 = 3-sigma)
-        noise_min (float): Optional left boundary of a line-free noise region
-        noise_max (float): Optional right boundary of a line-free noise region
-        header (astropy.io.fits.Header): Optional FITS header for unit conversion (reads CDELT1, CDELT2)
-        wave_unit (str): Wavelength unit string
-        flux_unit (str): Input flux unit, for example 'MJy/sr' or 'Jy/beam'. Used to check the CGS conversion
-        lambda_0 (float): Optional line-list reference wavelength (um) to seed the global 1D fit
-        progress_callback (callable): Optional progress_callback(current, total) called after each row
-        cancel_event (threading.Event): Checked once per cube row; if set, fitting stops after
-            in-flight rows finish and the function returns None instead of a results dict
+        cube (numpy.ndarray): 3D data cube, shape (n_wavelength, n_y, n_x).
+        wave_mask (numpy.ndarray): Boolean mask of the wavelengths in the fit window.
+        x_data (numpy.ndarray): Wavelengths in the fit window.
+        x1 (float): First wavelength of the fit window.
+        x2 (float): Last wavelength of the fit window.
+        x_range (float): Width of the fit window, x2 - x1.
+        lambda_0_orig (float): Line-list wavelength that seeds the center, or None.
+        header (astropy.io.fits.Header): FITS header for unit conversion, or None.
+        unit (str): Wavelength unit of x_data.
+        flux_unit (str): Flux unit of the cube.
+        region_mask (numpy.ndarray): Boolean mask of shape (n_y, n_x) that picks the pixels to sum,
+            or None to sum every pixel.
 
     Returns:
-        results (dict or None): None if cancelled via cancel_event, otherwise 2D parameter maps:
-            'amplitude': Peak amplitude map, native flux unit (not CGS-converted)
-            'center': Center wavelength map
-            'sigma': Width parameter map
-            'fwhm': FWHM map (2.355 * sigma)
-            'area': Integrated area map, in erg/s/cm**2 if header is given, else native units
-            'amplitude_error': Amplitude uncertainty map, from curve_fit's covariance
-            'area_error': Area uncertainty map (_propagate_area_error, NaN where undetected)
-            'r_squared': Reduced chi-squared (chi2_red) fit quality map
-            'success': Boolean mask of successful fits
-            'is_detection': Boolean mask of true detections (amplitude > fac_above_stdres * noise)
-            'is_upper_limit': Boolean mask of upper limits (failed the detection threshold)
-            'fit_failed': Subset of 'is_upper_limit' whose limit came from a fit that never ran
-                (too few finite samples, or parameter estimation/fit raised), not one that
-                converged on something too weak
-            'residuals_cube': Normalized (residual / std) residuals, cached during fitting
-            'fac_above_stdres': The detection threshold that was used
-            'wavelength_unit': Unit string, from the Quantity if wavelength was one, else wave_unit
-            'center_limits': (lowest, highest) line center a pixel fit may use, in the wavelength
-                unit. A center at either end is stuck at the limit, not freely measured
-            'global_fit': dict with the global 1D fit used to seed initial guesses
-                (also carries area/area_error/r_squared and the x_data/y_data/
-                baseline it was fit from, for the Area (AUC) export), or None
+        result (tuple): (global_guess, global_fit_info). global_guess is (amplitude, center, sigma),
+            or None if the fit could not run. global_fit_info is the dict stored as 'global_fit' in the
+            results of fit_gaussians_per_pixel, or None.
     """
-    # ========== PER-PIXEL GAUSSIAN FITTING SETUP ==========
-    # Get cube dimensions
-    n_wave, n_y, n_x = cube.shape
-    
-    # Get wavelength unit
-    unit = get_wave_unit(header, wave_unit)
-    
-    # Extract values from Quantity if needed (handle both raw arrays and Quantities)
-    wavelength_values = extract_value_from_quantity(wavelength)
-    lam_min_orig = extract_value_from_quantity(lam_min)
-    lam_max_orig = extract_value_from_quantity(lam_max)
-    noise_min_orig = extract_value_from_quantity(noise_min)
-    noise_max_orig = extract_value_from_quantity(noise_max)
-    lambda_0_orig = extract_value_from_quantity(lambda_0)
-    
-    # Set wavelength range
-    if lam_min_orig is None:
-        lam_min_orig = wavelength_values[0]
-    if lam_max_orig is None:
-        lam_max_orig = wavelength_values[-1]
-    
-    # Ensure lam_min < lam_max
-    if lam_min_orig > lam_max_orig:
-        lam_min_orig, lam_max_orig = lam_max_orig, lam_min_orig
-    
-    # Create wavelength mask
-    wave_mask = (wavelength_values >= lam_min_orig) & (wavelength_values <= lam_max_orig)
-    x_data = wavelength_values[wave_mask]
-    
-    if len(x_data) < 4:
-        raise ValueError(f"Not enough wavelength points in range [{lam_min}, {lam_max}] (need at least 4)")
-    
-    # Initialize output maps
-    amplitude_map = np.full((n_y, n_x), np.nan)
-    center_map = np.full((n_y, n_x), np.nan)
-    sigma_map = np.full((n_y, n_x), np.nan)
-    fwhm_map = np.full((n_y, n_x), np.nan)
-    area_map = np.full((n_y, n_x), np.nan)
-    amplitude_error_map = np.full((n_y, n_x), np.nan)
-    area_error_map = np.full((n_y, n_x), np.nan)
-    r_squared_map = np.full((n_y, n_x), np.nan)
-    success_map = np.zeros((n_y, n_x), dtype=bool)
-    is_detection_map = np.zeros((n_y, n_x), dtype=bool)  # True if SNR threshold passed
-    is_upper_limit_map = np.zeros((n_y, n_x), dtype=bool)  # True if upper limit computed
-    fit_failed_map = np.zeros((n_y, n_x), dtype=bool)  # True if the fit could not be attempted/converged
-    
-    # Optional noise region mask for robust std estimation
-    noise_wave_mask = None
-    noise_x = None
-    if noise_min_orig is not None and noise_max_orig is not None:
-        nmin, nmax = (noise_min_orig, noise_max_orig) if noise_min_orig <= noise_max_orig else (noise_max_orig, noise_min_orig)
-        noise_wave_mask = (wavelength_values >= nmin) & (wavelength_values <= nmax)
-        if np.count_nonzero(noise_wave_mask) < 4:  # Matches compute_line_free_noise_std's own floor
-            noise_wave_mask = None
-        else:
-            noise_x = wavelength_values[noise_wave_mask]
-
-    # Initialize residuals cube (for caching during fitting)
-    n_wave_sel = np.sum(wave_mask)
-    residuals_cube = np.full((n_wave_sel, n_y, n_x), np.nan, dtype=np.float32)
-    
-    # Get boundary wavelengths
-    x1 = x_data[0]
-    x2 = x_data[-1]
-    x_range = x2 - x1
-
-    # ========== STEP 2 GLOBAL: METHOD A - Global 1D Fit (seed all pixels) ==========
-    # Fits the stacked spectrum once to seed every pixel with consistent starting parameters.
     global_guess = None
     global_fit_info = None
     try:
         # STEP 2 GLOBAL-a: Stack all spatial pixels into one average spectrum
         #NBedit: Using sum instead of mean to preserve total flux for better peak detection
-        total_spectrum = np.nansum(cube[wave_mask, :, :], axis=(1, 2))
+        if region_mask is None:
+            total_spectrum = np.nansum(cube[wave_mask, :, :], axis=(1, 2))
+        else:
+            total_spectrum = np.nansum(cube[wave_mask, :, :][:, region_mask], axis=1)
         finite_mask_total = np.isfinite(total_spectrum) & np.isfinite(x_data)
         if np.count_nonzero(finite_mask_total) >= 4:
             x_total = x_data[finite_mask_total]
@@ -1610,6 +1511,155 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         # Global fit failed - will fall back to per-pixel METHOD B or C
         global_guess = None
         global_fit_info = None
+    return global_guess, global_fit_info
+
+
+def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
+                            lam_min: Optional[float] = None,
+                            lam_max: Optional[float] = None,
+                            n_jobs: Optional[int] = None,
+                            fac_above_stdres: float = 3.0,
+                            noise_min: Optional[float] = None,
+                            noise_max: Optional[float] = None,
+                            header: Optional[object] = None,
+                            wave_unit: Optional[str] = None,
+                            flux_unit: Optional[str] = None,
+                            lambda_0: Optional[float] = None,
+                            progress_callback: Optional[callable] = None,
+                            cancel_event: Optional[threading.Event] = None,
+                            region_mask: Optional[np.ndarray] = None) -> Optional[dict]:
+    """
+    Fit a Gaussian to each pixel's spectrum in the cube, using the same per-pixel fit as
+    fit_gaussian_to_line() but seeded by a global fit to the stacked spectrum first.
+
+    Args:
+        cube (array): 3D data cube with shape (n_wavelength, n_y, n_x)
+        wavelength (array): 1D wavelength array with length n_wavelength
+        lam_min (float): Minimum wavelength for the fit window. Defaults to the full range
+        lam_max (float): Maximum wavelength for the fit window. Defaults to the full range
+        n_jobs (int): Number of worker processes. Defaults to auto-detect CPUs
+        fac_above_stdres (float): Detection threshold in units of noise std (3.0 = 3-sigma)
+        noise_min (float): Optional left boundary of a line-free noise region
+        noise_max (float): Optional right boundary of a line-free noise region
+        header (astropy.io.fits.Header): Optional FITS header for unit conversion (reads CDELT1, CDELT2)
+        wave_unit (str): Wavelength unit string
+        flux_unit (str): Input flux unit, for example 'MJy/sr' or 'Jy/beam'. Used to check the CGS conversion
+        lambda_0 (float): Optional line-list reference wavelength (um) to seed the global 1D fit
+        progress_callback (callable): Optional progress_callback(current, total) called after each row
+        cancel_event (threading.Event): Checked once per cube row; if set, fitting stops after
+            in-flight rows finish and the function returns None instead of a results dict
+        region_mask (numpy.ndarray): Optional boolean mask of shape (n_y, n_x). The summed spectrum of
+            these pixels gets its own fit, saved as 'region_global_fit'. The per-pixel fits do not change
+
+    Returns:
+        results (dict or None): None if cancelled via cancel_event, otherwise 2D parameter maps:
+            'amplitude': Peak amplitude map, native flux unit (not CGS-converted)
+            'center': Center wavelength map
+            'sigma': Width parameter map
+            'fwhm': FWHM map (2.355 * sigma)
+            'area': Integrated area map, in erg/s/cm**2 if header is given, else native units
+            'amplitude_error': Amplitude uncertainty map, from curve_fit's covariance
+            'area_error': Area uncertainty map (_propagate_area_error, NaN where undetected)
+            'r_squared': Reduced chi-squared (chi2_red) fit quality map
+            'success': Boolean mask of successful fits
+            'is_detection': Boolean mask of true detections (amplitude > fac_above_stdres * noise)
+            'is_upper_limit': Boolean mask of upper limits (failed the detection threshold)
+            'fit_failed': Subset of 'is_upper_limit' whose limit came from a fit that never ran
+                (too few finite samples, or parameter estimation/fit raised), not one that
+                converged on something too weak
+            'residuals_cube': Normalized (residual / std) residuals, cached during fitting
+            'fac_above_stdres': The detection threshold that was used
+            'wavelength_unit': Unit string, from the Quantity if wavelength was one, else wave_unit
+            'center_limits': (lowest, highest) line center a pixel fit may use, in the wavelength
+                unit. A center at either end is stuck at the limit, not freely measured
+            'global_fit': dict with the global 1D fit used to seed initial guesses
+                (also carries area/area_error/r_squared and the x_data/y_data/
+                baseline it was fit from, for the Area (AUC) export), or None
+            'region_global_fit': same as 'global_fit', but for the summed spectrum of region_mask.
+                None when region_mask is None or its fit could not run
+    """
+    # ========== PER-PIXEL GAUSSIAN FITTING SETUP ==========
+    # Get cube dimensions
+    n_wave, n_y, n_x = cube.shape
+    if region_mask is not None:
+        region_mask = np.asarray(region_mask, dtype=bool)
+        if region_mask.shape != (n_y, n_x):
+            raise ValueError(f"region_mask has shape {region_mask.shape}, but the cube has {(n_y, n_x)} pixels")
+        if not region_mask.any():
+            raise ValueError("region_mask selects no pixels")
+    
+    # Get wavelength unit
+    unit = get_wave_unit(header, wave_unit)
+    
+    # Extract values from Quantity if needed (handle both raw arrays and Quantities)
+    wavelength_values = extract_value_from_quantity(wavelength)
+    lam_min_orig = extract_value_from_quantity(lam_min)
+    lam_max_orig = extract_value_from_quantity(lam_max)
+    noise_min_orig = extract_value_from_quantity(noise_min)
+    noise_max_orig = extract_value_from_quantity(noise_max)
+    lambda_0_orig = extract_value_from_quantity(lambda_0)
+    
+    # Set wavelength range
+    if lam_min_orig is None:
+        lam_min_orig = wavelength_values[0]
+    if lam_max_orig is None:
+        lam_max_orig = wavelength_values[-1]
+    
+    # Ensure lam_min < lam_max
+    if lam_min_orig > lam_max_orig:
+        lam_min_orig, lam_max_orig = lam_max_orig, lam_min_orig
+    
+    # Create wavelength mask
+    wave_mask = (wavelength_values >= lam_min_orig) & (wavelength_values <= lam_max_orig)
+    x_data = wavelength_values[wave_mask]
+    
+    if len(x_data) < 4:
+        raise ValueError(f"Not enough wavelength points in range [{lam_min}, {lam_max}] (need at least 4)")
+    
+    # Initialize output maps
+    amplitude_map = np.full((n_y, n_x), np.nan)
+    center_map = np.full((n_y, n_x), np.nan)
+    sigma_map = np.full((n_y, n_x), np.nan)
+    fwhm_map = np.full((n_y, n_x), np.nan)
+    area_map = np.full((n_y, n_x), np.nan)
+    amplitude_error_map = np.full((n_y, n_x), np.nan)
+    area_error_map = np.full((n_y, n_x), np.nan)
+    r_squared_map = np.full((n_y, n_x), np.nan)
+    success_map = np.zeros((n_y, n_x), dtype=bool)
+    is_detection_map = np.zeros((n_y, n_x), dtype=bool)  # True if SNR threshold passed
+    is_upper_limit_map = np.zeros((n_y, n_x), dtype=bool)  # True if upper limit computed
+    fit_failed_map = np.zeros((n_y, n_x), dtype=bool)  # True if the fit could not be attempted/converged
+    
+    # Optional noise region mask for robust std estimation
+    noise_wave_mask = None
+    noise_x = None
+    if noise_min_orig is not None and noise_max_orig is not None:
+        nmin, nmax = (noise_min_orig, noise_max_orig) if noise_min_orig <= noise_max_orig else (noise_max_orig, noise_min_orig)
+        noise_wave_mask = (wavelength_values >= nmin) & (wavelength_values <= nmax)
+        if np.count_nonzero(noise_wave_mask) < 4:  # Matches compute_line_free_noise_std's own floor
+            noise_wave_mask = None
+        else:
+            noise_x = wavelength_values[noise_wave_mask]
+
+    # Initialize residuals cube (for caching during fitting)
+    n_wave_sel = np.sum(wave_mask)
+    residuals_cube = np.full((n_wave_sel, n_y, n_x), np.nan, dtype=np.float32)
+    
+    # Get boundary wavelengths
+    x1 = x_data[0]
+    x2 = x_data[-1]
+    x_range = x2 - x1
+
+    # ========== STEP 2 GLOBAL: METHOD A - Global 1D Fit (seed all pixels) ==========
+    # Fits the stacked spectrum once to seed every pixel with consistent starting parameters.
+    global_guess, global_fit_info = _fit_summed_spectrum(
+        cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig, header, unit, flux_unit)
+    # A region gets its own fit, so the line center of that region is known. The seeds stay the same.
+    region_global_fit = None
+    if region_mask is not None:
+        _, region_global_fit = _fit_summed_spectrum(
+            cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig, header, unit, flux_unit,
+            region_mask=region_mask)
     
     # Progress tracking
     total_pixels = n_y * n_x
@@ -1763,5 +1813,6 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'wavelength_unit': (wavelength.unit.to_string() if isinstance(wavelength, Quantity)
                             else (wave_unit or 'unknown')),
         'global_fit': global_fit_info,  # Global 1D fit used for initial guesses
+        'region_global_fit': region_global_fit,  # Same fit on the region_mask pixels, or None
         'center_limits': center_limits  # Lowest and highest center a pixel fit may use
     }

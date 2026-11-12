@@ -16,12 +16,11 @@ from .line_catalog import available_rest_line_species, collect_rest_line_candida
 from .species_dialog import SpeciesDialog, RestLineDialog
 from .unit_converter import (
     clean_flux_unit, clean_wave_unit, spectral_axis_medium, cube_wavelength_to_vacuum_um,
-    sum_to_jy_factor,
 )
 from .utils import take_resolution_notes
 from .visualization import draw_spectrum_legend
 from .flux_map_extractor import (
-    fit_auto_continuum, DISPLAY_CROP_SIGMA_MULTIPLIER,
+    fit_auto_continuum, automatic_lines, DISPLAY_CROP_SIGMA_MULTIPLIER,
     unreliable_area_error_reason, save_gaussian_parameters, gaussian,
 )
 
@@ -346,18 +345,22 @@ class GuiGaussianMixin:
             self.gauss_fit_input = (spectrum_x, spectrum_y)
             # The tab keeps its own fit. A shift of the tab clears it (see _apply_shift).
             self.single_fit_by_tab[self.active_spectrum_tab] = result
-            self._display_gaussian_results(result, baseline_source)
+            # The straight-line baseline needs no continuum, so only a fitted continuum is described.
+            continuum_lines = self._continuum_lines(self.active_spectrum_tab) if continuum is not None else []
+            self._display_gaussian_results(result, baseline_source, continuum_lines)
             self._refresh_active_spectrum_tab()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Gaussian fitting error:\n{str(e)}")
 
-    def _display_gaussian_results(self, result: GaussianFitResult, baseline_source: str):
+    def _display_gaussian_results(self, result: GaussianFitResult, baseline_source: str, continuum_lines=()):
         """Show a single Gaussian fit's inputs and fitted results in a dialog.
 
         Args:
             result (GaussianFitResult): Completed fit result to display.
             baseline_source (str): What the baseline of the fit was, for the report.
+            continuum_lines (list): Header lines (str, without "#") that say which continuum the
+                baseline is. They go into the saved files. Empty if the baseline is a straight line.
 
         Returns:
             None
@@ -449,15 +452,18 @@ STATUS: {result.message}
 
         window_line = f"Fit window: {result.x_data[0]:.6f} - {result.x_data[-1]:.6f}"
         baseline_line = f"Baseline: {baseline_source}"
+        file_lines = [window_line, baseline_line, *continuum_lines]
         save_fit_btn = QPushButton("Save Fit...")
-        save_fit_btn.setToolTip("Save wavelength, original spectrum, fit and original minus fit to a text file")
+        save_fit_btn.setToolTip("Save the spectrum, the fit and all fit numbers to a text file. Load Fit can read it again.")
+        fit_markers = {'fit_left': left_x, 'peak': peak_x, 'fit_right': right_x,
+                       'noise_left': noise_left_x, 'noise_right': noise_right_x}
         save_fit_btn.clicked.connect(lambda: self._save_gaussian_fit_curve(
-            dlg, [result], self.gauss_fit_input, "gaussian_fit.txt", [window_line, baseline_line]))
+            dlg, [{'kind': 'line', 'line': {}, 'result': result}], self.gauss_fit_input, "gaussian_fit.txt",
+            file_lines, fit_type='single', markers=fit_markers))
         save_params_btn = QPushButton("Save Parameters...")
         save_params_btn.setToolTip("Save the fitted parameters to a text file")
         save_params_btn.clicked.connect(lambda: self._save_gaussian_parameters_table(
-            dlg, [{'kind': 'line', 'line': {}, 'result': result}], "gaussian_parameters.txt",
-            [window_line, baseline_line]))
+            dlg, [{'kind': 'line', 'line': {}, 'result': result}], "gaussian_parameters.txt", file_lines))
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
         btn_layout = QHBoxLayout()
@@ -587,8 +593,10 @@ STATUS: {result.message}
             except Exception as e:
                 QMessageBox.warning(self, "Continuum Error", f"Could not compute continuum automatically:\n{str(e)}")
                 return
+            continuum_lines = automatic_lines(default=True)
         else:
             continuum_y = self.continuum_fitted[self.active_spectrum_tab]
+            continuum_lines = self._continuum_lines(self.active_spectrum_tab)
 
         # Cache key: the lines, and the exact arrays the fit uses (wavelength, spectrum, continuum).
         # A shift, a new region or a new continuum gives another key. Each tab caches its own fit.
@@ -619,10 +627,12 @@ STATUS: {result.message}
                                               'contam_results': cached['contam_results']}
                 self._refresh_active_spectrum_tab()
                 self._show_multi_gaussian_results(cached['fit_results'], cached['contam_results'], None,
-                                                  failed_results=cached['failed_results'])
+                                                  failed_results=cached['failed_results'],
+                                                  continuum_lines=cached['continuum_lines'])
                 return
 
         self._multi_gauss_cache_key_pending = cache_key
+        self._multi_gauss_continuum_pending = continuum_lines
         # The fit runs in a thread. The user may switch tabs before it ends, but the fit
         # belongs to the tab where it started.
         self._multi_gauss_tab_pending = self.active_spectrum_tab
@@ -705,13 +715,15 @@ STATUS: {result.message}
         tab = self._multi_gauss_tab_pending
         self.multi_fit_by_tab[tab] = {'fit_results': fit_results, 'contam_results': contam_results}
         # The cache holds everything the results window needs, one entry for each tab.
+        continuum_lines = self._multi_gauss_continuum_pending
         self.multi_gauss_cache[tab] = {
             'key': self._multi_gauss_cache_key_pending, 'fit_results': fit_results,
             'contam_results': contam_results, 'failed_results': failed_results,
-            'fit_input': self.multi_gauss_fit_input,
+            'fit_input': self.multi_gauss_fit_input, 'continuum_lines': continuum_lines,
         }
         self._refresh_active_spectrum_tab()
-        self._show_multi_gaussian_results(fit_results, contam_results, None, failed_results=failed_results)
+        self._show_multi_gaussian_results(fit_results, contam_results, None, failed_results=failed_results,
+                                          continuum_lines=continuum_lines)
 
     def _redraw_fit_overlays(self):
         """Draw the active tab's Gaussian fits and remove the fits of the other tabs.
@@ -856,7 +868,7 @@ STATUS: {result.message}
         self.spec_canvas.draw_idle()
 
     def _show_multi_gaussian_results(self, fit_results, contam_results=None, velocity_shift_kms=None,
-                                      failed_results=None):
+                                      failed_results=None, continuum_lines=()):
         """Build and show the multi-Gaussian fit results text dialog.
 
         Args:
@@ -865,6 +877,8 @@ STATUS: {result.message}
             velocity_shift_kms (float): Applied velocity shift, or None.
             failed_results (list): {'line', 'result'} dicts for lines that
                 could not be fit.
+            continuum_lines (list): Header lines (str, without "#") that say which continuum the fit used.
+                They go into the saved files.
 
         Returns:
             None
@@ -1019,10 +1033,10 @@ STATUS: {result.message}
         
         btn_layout = QHBoxLayout()
         save_fit_btn = QPushButton("Save Fit...")
-        save_fit_btn.setToolTip("Save wavelength, original spectrum, fit and original minus fit to a text file")
+        save_fit_btn.setToolTip("Save the spectrum, the fits and all fit numbers to a text file. Load Fits can read it again.")
         save_fit_btn.clicked.connect(lambda: self._save_gaussian_fit_curve(
-            dlg, [info['result'] for info in fit_results + list(contam_results or [])],
-            self.multi_gauss_fit_input, "multi_gaussian_fit.txt"))
+            dlg, entries, self.multi_gauss_fit_input, "multi_gaussian_fit.txt", list(continuum_lines),
+            fit_type='multi'))
         # Fitted lines in spectrum order, then the lines that could not be fit.
         fitted = ([dict(info, kind='line') for info in fit_results]
                   + [dict(info, kind='contaminant') for info in (contam_results or [])])
@@ -1031,7 +1045,7 @@ STATUS: {result.message}
         save_params_btn = QPushButton("Save Parameters...")
         save_params_btn.setToolTip("Save the fitted parameters of every line to a text file")
         save_params_btn.clicked.connect(lambda: self._save_gaussian_parameters_table(
-            dlg, entries, "multi_gaussian_parameters.txt"))
+            dlg, entries, "multi_gaussian_parameters.txt", list(continuum_lines)))
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dlg.accept)
         btn_layout.addStretch()
@@ -1086,38 +1100,27 @@ STATUS: {result.message}
             ],
         }
 
-    def _save_gaussian_fit_curve(self, parent, results, fit_input, default_name, extra_lines=()):
-        """Save the original spectrum and a Gaussian fit to a text file.
+    def _save_gaussian_fit_curve(self, parent, entries, fit_input, default_name, extra_lines=(),
+                                 fit_type='single', markers=None):
+        """Save the original spectrum and a Gaussian fit to a text file that Load Fit can read again.
 
         Args:
             parent (QWidget): Dialog that owns the file and message boxes.
-            results (list): GaussianFitResult objects to draw the fit from.
+            entries (list): Dicts with 'kind', 'line' and 'result' for each fitted line.
             fit_input (tuple): (wavelength, spectrum) arrays that were fitted.
             default_name (str): File name that the file dialog suggests.
             extra_lines (list): Extra comment lines (str) for the file header.
+            fit_type (str): 'single' or 'multi'.
+            markers (dict): The fit markers of a single fit, or None.
 
         Returns:
             None
         """
         wavelength, spectrum = fit_input
-        header = getattr(self.cube_data, 'header', None)
-        export = self._gaussian_export_header(extra_lines)
-
-        def write(path):
-            """Warn if the flux cannot convert to Jy, then write the fit file.
-
-            Args:
-                path (str): Output file path.
-
-            Returns:
-                None
-            """
-            _, note = sum_to_jy_factor(export['flux_unit'], header)
-            if note:
-                QMessageBox.warning(parent, "Flux Unit", note)
-            save_gaussian_fit(path, wavelength, spectrum, results, cube_header=header, **export)
-
-        self._save_gaussian_text(parent, "Save Fit", default_name, write)
+        self._save_gaussian_text(
+            parent, "Save Fit", default_name,
+            lambda path: save_gaussian_fit(path, wavelength, spectrum, [], entries=entries, fit_type=fit_type,
+                                           markers=markers, **self._gaussian_export_header(extra_lines)))
 
     def _save_gaussian_parameters_table(self, parent, entries, default_name, extra_lines=()):
         """Save the fitted line parameters to a text file.
@@ -1175,7 +1178,7 @@ STATUS: {result.message}
         region_mask = None
         if active_tab in ("left", "right"):
             sel = self.last_selection_left if active_tab == "left" else self.last_selection_right
-            if not sel or sel.get("shape") == "*":
+            if not sel or sel.get("shape") == "POINT":
                 QMessageBox.warning(
                     self, "Region Selection Required",
                     f"A Gaussian map needs multiple pixels - select a region "
@@ -1237,13 +1240,16 @@ STATUS: {result.message}
         # later, since the user could switch tabs before the QThread finishes.
         self._gauss_map_fit_tab = active_tab
         self._gauss_map_fit_mask = region_mask
+        # A velocity map needs the observed wavelengths, so the map keeps the shift it was fit with.
+        self._gauss_map_fit_shift = self.spectrum_shift_factor.get(active_tab, 1.0)
 
         take_resolution_notes()  # drop the warnings of an earlier run
         self.gauss_worker = GaussianMapWorker(
             cube=cube, wavelength=wavelength, lam_min=lam_min, lam_max=lam_max, n_jobs=8,
             fac_above_stdres=3.0, noise_min=noise_min, noise_max=noise_max,
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
-            flux_unit=self.cube_data.flux_unit, lambda_0=self.lambda_0
+            flux_unit=self.cube_data.flux_unit, lambda_0=self.lambda_0,
+            region_mask=region_mask
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)
@@ -1328,6 +1334,7 @@ STATUS: {result.message}
             QMessageBox.warning(self, "Spectral Resolution Held Flat", resolution_note)
         tab = getattr(self, '_gauss_map_fit_tab', self.active_spectrum_tab)
         mask = getattr(self, '_gauss_map_fit_mask', None)
+        results['wave_shift_factor'] = self._gauss_map_fit_shift
         masked_results = self._mask_gaussian_map_results_for_tab(results, tab, mask)
         self.gauss_cache = masked_results
         self.gauss_cache_tab = tab
@@ -1423,5 +1430,7 @@ STATUS: {result.message}
             noise_max=getattr(self, 'gauss_cache_noise_max', None),
             gauss_peak_x=getattr(self, 'gauss_peak_x', None),
             rest_line_chooser=self._choose_rest_line,
+            fit_tab=tab,
+            shift_spectrum_callback=self._preview_shift_from_map,
         )
         dlg.exec_()

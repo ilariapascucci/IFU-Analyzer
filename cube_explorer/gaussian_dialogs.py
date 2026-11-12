@@ -26,7 +26,7 @@ _CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
 STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QFileDialog, QMessageBox, QInputDialog
@@ -43,7 +43,8 @@ class GaussianMapWorker(QThread):
     progress = pyqtSignal(int, int)  # (current, total) - emits progress updates
     
     def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
-                 noise_min=None, noise_max=None, header=None, wave_unit=None, flux_unit=None, lambda_0=None):
+                 noise_min=None, noise_max=None, header=None, wave_unit=None, flux_unit=None, lambda_0=None,
+                 region_mask=None):
         """
         Initialize Gaussian map fitting worker.
         
@@ -58,6 +59,7 @@ class GaussianMapWorker(QThread):
             header: FITS header for unit/metadata information
             wave_unit: Wavelength unit string
             lambda_0: Rest wavelength for velocity calculations
+            region_mask: Boolean (n_y, n_x) mask of the region whose summed spectrum also gets a fit, or None
 
         Returns:
             None
@@ -75,6 +77,7 @@ class GaussianMapWorker(QThread):
         self.wave_unit = wave_unit
         self.flux_unit = flux_unit
         self.lambda_0 = lambda_0
+        self.region_mask = region_mask
         self._cancel_event = threading.Event()
 
     def cancel(self):
@@ -115,6 +118,7 @@ class GaussianMapWorker(QThread):
                 lambda_0=self.lambda_0,
                 progress_callback=self._emit_progress,
                 cancel_event=self._cancel_event,
+                region_mask=self.region_mask,
             )
             # results is None when cancel() fired before completion; nothing
             # is listening by then, so just let the thread end.
@@ -217,7 +221,8 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
     """
     
     def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None,
-                 noise_min=None, noise_max=None, gauss_peak_x=None, rest_line_chooser=None):
+                 noise_min=None, noise_max=None, gauss_peak_x=None, rest_line_chooser=None,
+                 fit_tab="full", shift_spectrum_callback=None):
         """Build the Gaussian map results dialog and its parameter maps.
 
         Args:
@@ -232,6 +237,9 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             gauss_peak_x (float): User-picked peak wavelength that seeded the fit.
             rest_line_chooser (callable): Takes a parent widget and returns (line, reason). The dialog
                 calls it when the user selects Velocity and no rest line is chosen. None turns this off.
+            fit_tab (str): Spectrum tab the map was fit on, 'full', 'left' or 'right'.
+            shift_spectrum_callback (callable): Takes (tab, systemic velocity in km/s). The dialog closes
+                first, then the callback starts the Preview Shift. None hides the Shift Spectrum button.
 
         Returns:
             None
@@ -246,6 +254,8 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.rest_line = None
         self.rest_reason = None
         self.rest_line_chooser = rest_line_chooser
+        self.fit_tab = fit_tab
+        self.shift_spectrum_callback = shift_spectrum_callback
         self.wavelength = wavelength
         # The noise region the fit used, so a single-pixel view can draw the same
         # detection threshold the map was decided with.
@@ -389,6 +399,11 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.rest_line_btn.setVisible(False)
         param_layout.addWidget(self.rest_line_btn)
 
+        self.shift_btn = QPushButton("Shift Spectrum")
+        self.shift_btn.clicked.connect(self._shift_spectrum)
+        self.shift_btn.setVisible(False)
+        param_layout.addWidget(self.shift_btn)
+
         param_layout.addStretch()
         layout.addLayout(param_layout)
 
@@ -406,7 +421,8 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         layout.addLayout(select_layout)
 
         # Create matplotlib figure
-        self.fig = Figure(figsize=(8, 6))
+        # The tight layout fits the margins to the labels again at every redraw and resize.
+        self.fig = Figure(figsize=(8, 6), layout='tight')
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect('button_press_event', self._on_canvas_click)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
@@ -554,7 +570,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         # Plot with NaN handling
         draw_map(self.fig, ax, data, norm, cmap, title, unit_label)
 
-        self.fig.tight_layout()
         self.canvas.draw()
 
     def _on_param_changed(self):
@@ -570,8 +585,11 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         """
         is_velocity = self.param_combo.currentText() == "Velocity"
         self.rest_line_btn.setVisible(is_velocity and self.rest_line_chooser is not None)
-        if is_velocity and self.rest_line is None and self.rest_line_chooser is not None:
+        # A map from a shifted spectrum has no velocity map, so the rest line is not needed.
+        if (is_velocity and self.rest_line is None and self.rest_line_chooser is not None
+                and self._shift_reason() is None):
             self.rest_line, self.rest_reason = self.rest_line_chooser(self)
+        self._update_shift_button()
         super()._on_param_changed()
 
     def _change_rest_line(self):
@@ -590,7 +608,98 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             return
         self.rest_line, self.rest_reason = line, None
         self.scale_settings.clear_absolute_range()
+        self._update_shift_button()
         self._update_plot()
+
+    def _shift_reason(self):
+        """
+        Say why this map has no velocity map because of a spectrum shift.
+        A map that was fit on a shifted spectrum has line centers on the shifted wavelengths.
+
+        Args:
+            None
+
+        Returns:
+            reason (str): A sentence that says why, or None when the spectrum was not shifted.
+        """
+        if self.results.get('wave_shift_factor', 1.0) != 1.0:
+            return ("The spectrum was shifted when this map was fit, so the line centers are not the "
+                    "observed wavelengths. Revert the shift of this spectrum, then fit the map again.")
+        return None
+
+    def _systemic_velocity(self):
+        """
+        Give the systemic velocity: the Doppler velocity of the line center of the Gaussian fit to the
+        summed spectrum, against the rest line. The Full tab uses all pixels, and a region tab uses its pixels.
+
+        Args:
+            None
+
+        Returns:
+            result (tuple): (velocity, reason). velocity is a float in km/s, or None when it cannot be
+                found. reason is None, or a sentence that says why not.
+        """
+        reason = self._shift_reason()
+        if reason is not None:
+            return None, reason
+        key = 'global_fit' if self.fit_tab == 'full' else 'region_global_fit'
+        if key not in self.results:
+            return None, "This map has no fit of the summed spectrum of its region. Fit the map again."
+        fit = self.results[key]
+        if fit is None:
+            return None, "The Gaussian fit of the summed spectrum could not run."
+        if not fit['success']:
+            return None, ("The Gaussian fit of the summed spectrum did not converge, "
+                          "so its center is only a starting guess.")
+        rest, reason = self._rest_wavelength()
+        if rest is None:
+            return None, reason
+        try:
+            return float(wavelength_to_doppler_velocity(fit['center'], rest, self.wave_unit)), None
+        except ValueError as e:
+            return None, str(e)
+
+    def _update_shift_button(self):
+        """
+        Show the Shift Spectrum button for the Velocity map only. Enable it only when the systemic
+        velocity is known. The tooltip says why when it is off.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        is_velocity = self.param_combo.currentText() == "Velocity"
+        show = is_velocity and self.shift_spectrum_callback is not None
+        self.shift_btn.setVisible(show)
+        if not show:
+            return
+        velocity, reason = self._systemic_velocity()
+        tab_name = {'full': 'Full', 'left': 'Left Region', 'right': 'Right Region'}.get(self.fit_tab, self.fit_tab)
+        self.shift_btn.setEnabled(reason is None)
+        self.shift_btn.setToolTip(reason if reason is not None else
+                                  f"Preview a shift of the {tab_name} spectrum by the systemic velocity, "
+                                  f"{velocity:+.2f} km/s. This window closes. You can change the value first.")
+
+    def _shift_spectrum(self):
+        """
+        Close this window, then start the Preview Shift of the main window. The box of the
+        Preview Shift starts with the systemic velocity, and the user can change it.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        velocity, reason = self._systemic_velocity()
+        if velocity is None:
+            QMessageBox.warning(self, "Systemic Velocity Not Available", reason)
+            return
+        # The window closes first, then the main window opens its box.
+        self.accept()
+        QTimer.singleShot(0, lambda: self.shift_spectrum_callback(self.fit_tab, velocity))
 
     def _rest_wavelength(self):
         """
@@ -644,6 +753,9 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             result (tuple): (velocity, reason). velocity is a 2D numpy.ndarray, or None
                 when it cannot be made. reason is None, or a sentence that says why not.
         """
+        reason = self._shift_reason()
+        if reason is not None:
+            return None, reason
         rest, reason = self._rest_wavelength()
         if rest is None:
             return None, reason
@@ -751,6 +863,9 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             rest, _reason = self._rest_wavelength()
             if rest is not None:
                 lines.append(f"  Zero velocity: {rest:.6f} {self.wave_unit} ({self._rest_line_label()})")
+            systemic, _why = self._systemic_velocity()
+            if systemic is not None:
+                lines.append(f"  Systemic velocity (Gaussian fit of the summed spectrum): {systemic:+.2f} km/s")
         if data is None:
             lines.append("  (not available for this fit)" if param_name != "Velocity"
                          else f"  ({self._velocity_map()[1]})")
@@ -899,7 +1014,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             cmap = 'gray'
             draw_map(self.fig, ax, data, None, cmap, title)
         
-        self.fig.tight_layout()
         self.canvas.draw()
     
     def _export_residuals(self):

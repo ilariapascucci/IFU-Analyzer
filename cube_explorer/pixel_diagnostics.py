@@ -133,7 +133,8 @@ class PixelFitDialog(QDialog):
         # so stacking them above a wide figure would waste most of the window.
         body = QHBoxLayout()
 
-        self.fig = Figure(figsize=(8, 6))
+        # The tight layout fits the margins to the labels again at every redraw and resize.
+        self.fig = Figure(figsize=(8, 6), layout='tight')
         self.canvas = FigureCanvas(self.fig)
         plot_layout = QVBoxLayout()
         toolbar_row = QHBoxLayout()
@@ -269,7 +270,6 @@ class PixelFitDialog(QDialog):
         # Residual panel removed 2026-08-20: the old noise estimator read ~0.4x true sigma, so good
         # fits looked like 5-sigma failures. Fixed by compute_line_free_noise_std; the panel can return.
 
-        self.fig.tight_layout()
         self.canvas.draw()
 
         self._update_text(status, amplitude, center, sigma, area, chi2_red,

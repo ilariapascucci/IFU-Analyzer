@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QMessageBox, QApplication, QFileDialog, QProgressDi
 
 from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
-from .flux_map_extractor import fit_auto_continuum
+from .flux_map_extractor import fit_auto_continuum, NONE_LINES, UNKNOWN_LINES, automatic_lines, custom_lines
 from .utils import take_resolution_notes
 
 
@@ -168,6 +168,7 @@ class GuiContinuumMixin:
             continuum_values = fit_auto_continuum(wavelength, flux, **params)
             self.continuum_fitted[tab] = continuum_values
             self.continuum_mode_applied[tab] = 'auto'
+            self._record_continuum(tab, continuum_values, automatic_lines(params))
             self._refresh_active_spectrum_tab()
 
         except Exception as e:
@@ -177,6 +178,40 @@ class GuiContinuumMixin:
 
         if hasattr(self, 'subtract_continuum_btn'):
             self.subtract_continuum_btn.setEnabled(True)
+
+    def _record_continuum(self, tab, curve, lines):
+        """Keep the header lines that say how a tab's continuum was made, with the curve they belong to.
+        A saved file writes these lines, so the file tells which continuum it used.
+
+        Args:
+            tab (str): Spectrum tab, 'full', 'left' or 'right'
+            curve (numpy.ndarray): The fitted continuum that the lines describe
+            lines (list): The lines of text, without "#"
+
+        Returns:
+            None
+        """
+        if not hasattr(self, '_continuum_records'):
+            self._continuum_records = {}
+        self._continuum_records[tab] = {'curve': curve, 'lines': list(lines)}
+
+    def _continuum_lines(self, tab):
+        """Give the header lines for the continuum that a tab has now. The lines are used only if the
+        record belongs to the stored curve. Without that, the lines say that the settings are unknown.
+
+        Args:
+            tab (str): Spectrum tab, 'full', 'left' or 'right'
+
+        Returns:
+            lines (list): The lines of text, without "#". "Continuum: none" if the tab has no continuum.
+        """
+        curve = self.continuum_fitted.get(tab)
+        if curve is None:
+            return list(NONE_LINES)
+        record = getattr(self, '_continuum_records', {}).get(tab)
+        if record is not None and record['curve'] is curve:
+            return list(record['lines'])
+        return list(UNKNOWN_LINES)
 
     def _activate_continuum_subtraction(self):
         """Handle the Subtract Continuum toggle for the active tab.
@@ -1026,6 +1061,7 @@ class GuiContinuumMixin:
             tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
             self.continuum_fitted[tab] = continuum
             self.continuum_mode_applied[tab] = 'custom'
+            self._record_continuum(tab, continuum, custom_lines(self.custom_continuum_selector.continuum_points))
             # Subtract Continuum compares the points with these, so it never uses an old fit.
             self._custom_fit_points = list(self.custom_continuum_selector.continuum_points)
             self._refresh_active_spectrum_tab()

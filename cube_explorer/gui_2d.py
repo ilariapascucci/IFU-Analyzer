@@ -37,14 +37,14 @@ from matplotlib.colors import Normalize  # used by: Superimpose overlay
 from PyQt5.QtCore import Qt
 from .convolution_plan_dialog import confirm_convolution_plan
 from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
-from .visualization import SlicePlotter
+from .visualization import SlicePlotter, apply_wcs_grid, format_sky_position
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm, scaling_stats_text
 from .region_selector import RegionSelector
 from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
-from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
+from .icon_loader import set_button_icon
 from . import region_io
 from .utils import (
     detect_instrument, detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
@@ -366,29 +366,6 @@ def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
 
     return {"image": reprojected[0], "footprint": footprints[0],
             "sigma_arcsec": sigma_kernel_arcsec}
-
-
-def _grid_step_arcsec(wcs, nx, ny):
-    """
-    Pick one grid step for both the RA and Dec axes: 1, 2 or 5 times a power of 10 arcsec,
-    chosen to put about 5 lines across the smaller side of the image on the sky.
-
-    Args:
-        wcs (astropy.wcs.WCS): Celestial WCS of the image
-        nx (int): Image width, in pixels
-        ny (int): Image height, in pixels
-
-    Returns:
-        step (float): Grid step, in arcsec
-    """
-    corners = wcs.pixel_to_world(np.array([-0.5, nx - 0.5, nx - 0.5, -0.5]),
-                                 np.array([-0.5, -0.5, ny - 0.5, ny - 0.5]))
-    center = wcs.pixel_to_world((nx - 1) / 2, (ny - 1) / 2)
-    d_ra = ((corners.ra.deg - center.ra.deg + 180) % 360 - 180) * np.cos(center.dec.rad) * 3600
-    d_dec = (corners.dec.deg - center.dec.deg) * 3600
-    target = min(np.ptp(d_ra), np.ptp(d_dec)) / 5
-    power_of_ten = 10 ** np.floor(np.log10(target))
-    return float(power_of_ten * min((1, 2, 5, 10), key=lambda m: abs(m - target / power_of_ten)))
 
 
 # BATCH MATCH RESOLUTION DIALOG
@@ -1009,11 +986,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
-        def make_shape_button(symbol, target, callback=None):
+        def make_shape_button(shape, target, callback=None):
             """Build one square icon button wired to a shape or callback.
 
             Args:
-                symbol (str): Unicode glyph shown as the button label.
+                shape (str): Shape name. The icon file has the same name in lower case.
                 target (str): Side the button applies to ('left' or 'right').
                 callback (callable): Click handler; defaults to _set_shape.
 
@@ -1021,24 +998,24 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 btn (QPushButton): The configured button.
             """
             btn = QPushButton()
-            set_button_icon(btn, SHAPE_ICON_NAMES[symbol])
+            set_button_icon(btn, shape.lower())
             btn.setCheckable(True)
             btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
             if callback is None:
-                btn.clicked.connect(lambda _, s=symbol: self._set_shape(s, target=target))
+                btn.clicked.connect(lambda _, s=shape: self._set_shape(s, target=target))
             else:
                 btn.clicked.connect(callback)
             return btn
 
-        shapes = ["*", "▭", "○", "⬭", "✏"]
+        shapes = ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]
         self.shape_buttons = {
             "left": {shape: make_shape_button(shape, "left") for shape in shapes},
             "right": {shape: make_shape_button(shape, "right") for shape in shapes}
         }
         shape_tooltips = {
-            "*": "Select one pixel.", "▭": "Select a rectangle.", "○": "Select a circle.",
-            "⬭": "Select an ellipse.", "✏": "Select a freehand shape.",
+            "POINT": "Select one pixel.", "RECTANGLE": "Select a rectangle.",
+            "ELLIPSE": "Select an ellipse.", "POLYGON": "Select a freehand shape.",
         }
         for side in ("left", "right"):
             for shape, tooltip in shape_tooltips.items():
@@ -1244,8 +1221,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             tx, ty = tw.world_to_pixel(sky)
             return np.asarray(tx, float), np.asarray(ty, float)
 
-        # ---- pixel ("*") ----
-        if shape == "*":
+        # ---- pixel ("POINT") ----
+        if shape == "POINT":
             x, y = src_sel["coords"]
             if wcs_ok:
                 try:
@@ -1258,7 +1235,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return
 
         # ---- lasso (freehand shape) ----
-        if shape == "✏":
+        if shape == "POLYGON":
             patch = src_sel.get("patch")
             if patch is None or not hasattr(patch, "lasso_verts"):
                 return
@@ -1272,7 +1249,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                             [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
                 except Exception:
                     pass
-            selector.active_shape = "✏"
+            selector.active_shape = "POLYGON"
             try:
                 selector.on_lasso_select(verts)
             except Exception:
@@ -1293,10 +1270,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     abs(tx[0] - tx[3]) < 0.5 and abs(tx[1] - tx[2]) < 0.5 and
                     abs(ty[0] - ty[1]) < 0.5 and abs(ty[2] - ty[3]) < 0.5
                 )
-                if shape == "▭" and not axis_aligned:
+                if shape == "RECTANGLE" and not axis_aligned:
                     verts = np.column_stack(
                         [np.clip(tx, 0, nx - 1), np.clip(ty, 0, ny - 1)])
-                    selector.active_shape = "✏"
+                    selector.active_shape = "POLYGON"
                     try:
                         selector.on_lasso_select(verts)
                     except Exception:
@@ -1952,7 +1929,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         # Left Sidebar strictly bounded
         left_sidebar_widget = ResponsiveButtonColumn(
             [self.color_btn_left, self.scale_btn_left]
-            + [self.shape_buttons["left"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.shape_buttons["left"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
             + [self.copy_menu_btn_l, self.edit_shape_btn_l, self.erase_btn_l, self.save_slice_btn_l])
 
         left_half.addWidget(left_stats_widget, 0)
@@ -2001,7 +1978,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         # Right Sidebar strictly bounded
         right_sidebar_widget = ResponsiveButtonColumn(
             [self.color_btn_right, self.scale_btn_right]
-            + [self.shape_buttons["right"][shape] for shape in ["*", "▭", "○", "⬭", "✏"]]
+            + [self.shape_buttons["right"][shape] for shape in ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]]
             + [self.copy_menu_btn_r, self.edit_shape_btn_r, self.erase_btn_r, self.save_slice_btn_r])
 
         right_half.addWidget(right_stats_widget, 0)
@@ -2539,53 +2516,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             # Only attempt grid if the axes was built as a WCSAxes object
             if hasattr(ax, 'coords'):
                 try:
-                    ax.set_axis_on()
-                    ax.coords.grid(color='white', alpha=0.5, linestyle='solid')
-
-                    try:
-                        ra  = ax.coords['ra']
-                        dec = ax.coords['dec']
-                    except (KeyError, TypeError):
-                        ra, dec = ax.coords[0], ax.coords[1]
-
-                    # RA is written as an angle, like Dec, with the same step on both axes,
-                    # so the labels step by the same amount (1.0" and 1.0", not 0.1 s and 1.0").
-                    ny, nx = image.shape
-                    step = _grid_step_arcsec(ax.wcs, nx, ny)
-                    label_format = 'dd:mm:ss.s' if step < 1 else 'dd:mm:ss'
-                    ra.set_format_unit(u.deg)
-                    ra.set_major_formatter(label_format)
-                    dec.set_major_formatter(label_format)
-                    ra.set_ticks(spacing=step * u.arcsec)
-                    dec.set_ticks(spacing=step * u.arcsec)
-
-                    # RA goes on the bottom edge when it changes fastest along x.
-                    # A rotated image (V4046) has RA changing along y, so RA goes left.
-                    cx, cy = (nx - 1) / 2, (ny - 1) / 2
-                    center = ax.wcs.pixel_to_world(cx, cy)
-                    ra_step_x = abs(center.spherical_offsets_to(ax.wcs.pixel_to_world(cx + 1, cy))[0].arcsec)
-                    ra_step_y = abs(center.spherical_offsets_to(ax.wcs.pixel_to_world(cx, cy + 1))[0].arcsec)
-                    ra_side, dec_side = ('b', 'l') if ra_step_x >= ra_step_y else ('l', 'b')
-
-                    ra.set_axislabel('RA',   minpad=0.5)
-                    dec.set_axislabel('Dec', minpad=0.5)
-                    ra.set_ticklabel_position(ra_side)
-                    dec.set_ticklabel_position(dec_side)
-                    ra.set_axislabel_position(ra_side)
-                    dec.set_axislabel_position(dec_side)
-                    ra.set_ticks_visible(True)
-                    dec.set_ticks_visible(True)
-                    ra.set_ticklabel_visible(True)
-                    dec.set_ticklabel_visible(True)
-
-                    ra.set_ticklabel(color='black', size=7, rotation='vertical', pad=2)
-                    dec.set_ticklabel(color='black', size=7)
-                    ra.set_ticks(color='black', width=1)
-                    dec.set_ticks(color='black', width=1)
-                    ra.set_axislabel('RA',  color='black', size=8)
-                    dec.set_axislabel('Dec', color='black', size=8)
-
-
+                    apply_wcs_grid(ax, image.shape)
                 except Exception as e:
                     QMessageBox.warning(self, "Grid Error", f"Failed to draw WCS grid:\n{str(e)}")
                     traceback.print_exc()
@@ -2670,18 +2601,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             val = float('nan')
 
         # Translate Matplotlib X,Y coordinate to World Coordinate RA/DEC
-        wcs_str = ""
         wcs_obj = self.wcs_left if target == 'left' else self.wcs_right
-        
-        if wcs_obj is not None and wcs_obj.has_celestial:
-            try:
-                wcs2d = wcs_obj.celestial if wcs_obj.pixel_n_dim > 2 else wcs_obj
-                world = wcs2d.pixel_to_world(x, y)
-                ra = world.ra.to_string(unit='hour', sep='hms', precision=2, pad=True)
-                dec = world.dec.to_string(unit='deg', sep='dms', precision=1, alwayssign=True, pad=True)
-                wcs_str = f"RA: {ra}\nDec: {dec}\n"
-            except Exception:
-                pass
+        wcs_str = format_sky_position(wcs_obj, x, y)
 
         unit = self._region_flux_unit(target)
         unit_str = f" [{unit}]" if unit else ""
@@ -2774,7 +2695,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             mask (numpy.ndarray): Boolean mask, same shape as the panel's image.
         """
-        if sel.get("shape") == "*":
+        if sel.get("shape") == "POINT":
             # Point selections store coords, not a mask -- build a single-pixel one.
             x, y = sel["coords"]
             x, y = int(round(x)), int(round(y))
@@ -2856,7 +2777,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return
 
         shape = sel.get("shape")
-        lasso_verts = getattr(sel.get("patch"), "lasso_verts", None) if shape == "✏" else None
+        lasso_verts = getattr(sel.get("patch"), "lasso_verts", None) if shape == "POLYGON" else None
         try:
             result = region_io.region_shape_to_sky(shape, sel["coords"], wcs2d, lasso_verts=lasso_verts)
         except Exception as e:
@@ -2925,11 +2846,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             selector.interactive_patch = None
 
         shape = placed["shape"]
-        if shape == "*":
+        if shape == "POINT":
             x, y = placed["coords"]
             self._handle_pixel_click(int(round(x)), int(round(y)), target)
-        elif shape == "✏":
-            selector.active_shape = "✏"
+        elif shape == "POLYGON":
+            selector.active_shape = "POLYGON"
             selector.on_lasso_select(placed["verts"])
             selector.active_shape = None
         else:
@@ -2948,7 +2869,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
-        if event.inaxes is None or self.active_shape != "*": return
+        if event.inaxes is None or self.active_shape != "POINT": return
 
         ax = self.slice1_plotter.ax if target == "left" else self.slice2_plotter.ax
         if event.inaxes != ax: return

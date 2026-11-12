@@ -4369,7 +4369,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.clear_map_region_btn.setEnabled(True)
         self._reset_region_dependent_results()
         self.on_line_selected()
-        shape_name = region_io.SHAPE_NAMES.get(dlg.result_region["shape"], dlg.result_region["shape"])
+        shape_name = dlg.result_region["shape"]
         QMessageBox.information(
             self, "Region Selected",
             f"Region selected ({shape_name}). Calculate Fluxes and Run Fit will now only use "
@@ -4442,7 +4442,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.on_line_selected()
         QMessageBox.information(
             self, "Region Imported",
-            f"Region imported ({region_io.SHAPE_NAMES.get(saved['shape'], saved['shape'])}). "
+            f"Region imported ({saved['shape']}). "
             "Calculate Fluxes and Run Fit will now only use pixels inside it, on every loaded "
             "cube. Any previously computed fluxes were cleared since they no longer reflect "
             "this region. The maps always use the whole cube, so they are hidden, and Calculate "

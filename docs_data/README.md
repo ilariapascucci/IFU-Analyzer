@@ -8,7 +8,6 @@ All cubes are JWST Level 3 data cubes. Open them with **Open FITS** in the main 
 
 | File | Target | Use in the guide |
 |---|---|---|
-| `cubes/V4046_MIRI/Level3_ch1-long_s3d.fits` | V4046 Sgr, MIRI ch1-long | Gaussian fitting (single spectrum and full cube) of the H2 line at 6.91 µm |
 | `cubes/HH30_NIRSpec/Level3_g395h-f290lp_s3d.fits` | HH30, NIRSpec G395H | Multi-Gaussian fit and flux map of the 56 CO v=1->0 lines (4.40 to 4.79 µm) and the H2 contaminating lines |
 | `cubes/HH30_MIRI/` (7 cubes) | HH30, MIRI | H2 rotational diagram: fit, maps and convolution |
 
@@ -25,6 +24,11 @@ Each cube contains one of the seven H2 v=0->0 S(1) to S(7) lines. The cubes have
 | `ch2-medium` | 9.664911 | 31 × 37 |
 | `ch3-short` | 12.278612 | 37 × 39 |
 | `ch3-long` | 17.034846 | 35 × 39 |
+
+Two of these cubes have more uses in the guide:
+
+- `ch1-long`: continuum subtraction, and the Gaussian fit of the first H2 line (6.909509 µm).
+- `ch3-long`: the Gaussian fit of the second H2 line (17.034846 µm).
 
 ## Line lists
 
@@ -48,6 +52,5 @@ These folders are part of the repository. They are not repeated here.
 
 | Data | JWST program | Pipeline version |
 |---|---|---|
-| V4046 Sgr, MIRI | 2260 | 2.0.1 |
 | HH30, NIRSpec | 1621 | 1.13.4 |
 | HH30, MIRI | 1282 | 1.19.1 |

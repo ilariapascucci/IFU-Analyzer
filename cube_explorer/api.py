@@ -130,6 +130,139 @@ def load_cube(filename):
     return cube
 
 
+def load_spectrum(filename, x_column=None, y_column=None, error_column=None, wave_unit=None,
+                  flux_unit=None, medium=None, instrument=None, grating=None):
+    """
+    Load one spectrum from a text file (txt or csv). This is the same as the GUI's "Load Spectrum" button.
+
+    The file has a wavelength column, a flux column and an optional flux error column. The separator can
+    be a tab, a comma, a semicolon or white space. Lines that start with "#" are comments. A file that
+    "Save Spectrum" wrote gives its own units, instrument and column names. Any other file needs wave_unit.
+    The object has no cube. cube.spectrum, cube.wavelength, cube.header and cube.spectrum_error work as
+    they do for a cube, so fit_continuum and fit_line take them in the same way.
+
+    Args:
+        filename (str): Path to the text file
+        x_column (str or int): Name or index of the wavelength column. None uses the guess from the column names.
+        y_column (str or int): Name or index of the flux column. None uses the guess.
+        error_column (str, int or False): Name or index of the flux error column. None uses the guess.
+            False means that no column is the error.
+        wave_unit (str): 'um', 'nm' or 'Angstrom'. Needed if the file does not give it. nm is converted to um.
+        flux_unit (str): Flux unit, for example 'Jy'. None uses the file's unit, or leaves it unknown.
+        medium (str): 'air' or 'vacuum'. None uses the file's value, or leaves it unknown.
+        instrument (str): 'MIRI', 'NIRSpec' or 'MUSE'. It gives the resolving power for the multi-Gaussian fit.
+        grating (str): NIRSpec grating, for example 'G395H'. Needed for the resolving power of NIRSpec.
+
+    Returns:
+        CubeData: Object with spectrum, wavelength, wave_unit, flux_unit, header and spectrum_error.
+        cube is None.
+
+    Raises:
+        ValueError: If a column or unit is not valid, wave_unit is missing, or fewer than 10 usable rows are left
+        OSError: If the file cannot be opened
+
+    Example:
+        >>> spec = load_spectrum("my_spectrum.csv", wave_unit="um", flux_unit="Jy")
+        >>> result = fit_line(spec.wavelength, spec.spectrum, x1=6.90, x2=6.92)
+    """
+    from .spectrum_file import default_settings, read_spectrum_table
+
+    table = read_spectrum_table(filename)
+    settings = default_settings(table)
+    settings.pop("complete")
+
+    def column_index(column):
+        """Turn a column name or index into an index.
+
+        Args:
+            column (str or int): Column name, or index counted from 0
+
+        Returns:
+            index (int): Column index
+
+        Raises:
+            ValueError: If no column has this name
+        """
+        if isinstance(column, str):
+            names = [name.lower() for name in table.column_names]
+            if column.lower() not in names:
+                raise ValueError(f"No column is named {column!r}. The columns are {table.column_names}.")
+            return names.index(column.lower())
+        return int(column)
+
+    if x_column is not None:
+        settings["x_index"] = column_index(x_column)
+    if y_column is not None:
+        settings["y_index"] = column_index(y_column)
+    if error_column is False:
+        settings["error_index"] = None
+    elif error_column is not None:
+        settings["error_index"] = column_index(error_column)
+
+    if wave_unit is not None:
+        settings["wave_unit"] = wave_unit
+    elif "wave_unit" not in table.metadata:
+        raise ValueError("The file does not give its wavelength unit. Give wave_unit: 'um', 'nm' or 'Angstrom'.")
+    if flux_unit is not None:
+        settings["flux_unit"] = flux_unit
+    if medium is not None:
+        settings["medium"] = medium
+    if instrument is not None:
+        settings["instrument"] = instrument
+    if grating is not None:
+        settings["grating"] = grating
+
+    cube = CubeData()
+    for note in cube.load_from_table(table, settings):
+        warnings.warn(note)
+    return cube
+
+
+# --- Fit File API ---
+
+def load_fit(filename, wavelength=None, spectrum=None):
+    """
+    Load a Gaussian fit file that "Save Fit" (or the save_path of fit_line and fit_hitran_lines) wrote.
+    It gives the fit back as it was, with no new fit. This is the same as the GUI's "Load Fit"
+    (single line) and "Load Fits" (multi-Gaussian) buttons.
+
+    Args:
+        filename (str): Path to the fit file
+        wavelength (array-like): Wavelengths of the spectrum that the fit goes on. None uses the
+            wavelengths in the file. Given wavelengths must be the wavelengths of the file.
+        spectrum (array-like): Flux of the spectrum. None uses the flux in the file.
+
+    Returns:
+        dict: 'fit_type' ('single' or 'multi'), 'lines' (list of dicts with 'kind' ('line', 'contaminant' or
+            'skipped'), 'line' (catalog data) and 'result' (GaussianFitResult), in the order of the file),
+            'markers' (the fit markers of a single fit), 'tab', 'wave_unit', 'flux_unit', 'baseline_source',
+            'wavelength', 'spectrum', 'fit' and 'baseline' (arrays), and 'notes' (warnings, may be empty).
+
+    Raises:
+        ValueError: If the file has no fit parameters (a file from an older version), or the wavelengths
+            are not the wavelengths of the file. A Doppler shift gives this error.
+        OSError: If the file cannot be opened
+
+    Example:
+        >>> fit = load_fit("gaussian_fit.txt")
+        >>> print(fit['lines'][0]['result'].center)
+    """
+    from .fit_file import read_fit_file, rebuild_fit
+
+    fit_file = read_fit_file(filename)
+    wl = fit_file.wavelength if wavelength is None else _as_float_array(wavelength)
+    sp = fit_file.original if spectrum is None else _as_float_array(spectrum)
+    rebuilt = rebuild_fit(fit_file, wl, sp)
+    for note in rebuilt['notes']:
+        warnings.warn(note)
+    return {
+        'fit_type': fit_file.fit_type, 'lines': rebuilt['entries'], 'markers': fit_file.markers,
+        'tab': fit_file.tab, 'wave_unit': fit_file.wave_unit, 'flux_unit': fit_file.flux_unit,
+        'baseline_source': fit_file.baseline_source, 'wavelength': wl, 'spectrum': sp,
+        'fit': fit_file.fit, 'baseline': fit_file.baseline, 'notes': rebuilt['notes'],
+    }
+
+
 # --- Region Extraction API ---
 
 def extract_pixel_spectrum(cube, x, y):
@@ -176,7 +309,7 @@ def extract_region_spectrum(cube, mask):
 
 # --- Continuum Fitting API ---
 
-from .flux_map_extractor import fit_auto_continuum
+from .flux_map_extractor import fit_auto_continuum, automatic_lines, CALLER_LINES
 
 def fit_continuum(wavelength, flux, method='auto', **kwargs):
     """Fit continuum to a spectrum using automatic peak detection: the same
@@ -297,10 +430,8 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
         wave_unit (str, optional): Spectral axis unit, e.g. ``cube.wave_unit``.
         save_path (str, optional): If given, write a tab-separated text file with
             the columns wavelength, original spectrum, fit and original minus fit (the GUI's "Save Fit"
-            file). The fit is NaN outside ``x1`` to ``x2``. With ``header``, a surface
-            brightness such as MJy/sr is written in Jy, as the GUI does (the spectrum is
-            treated as a sum over spaxels, like ``cube.spectrum``). Nothing is written,
-            and a warning is raised, if the fit failed.
+            file). The fit is NaN outside ``x1`` to ``x2``. Nothing is written, and a
+            warning is raised, if the fit failed.
         parameters_path (str, optional): If given, write a tab-separated text file
             with the fitted parameters (the GUI's "Save Parameters" file). The same
             rule applies if the fit failed.
@@ -373,10 +504,13 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
             baseline_text = ("fitted continuum" if continuum is not None
                              else "straight line between the window edges")
             header_lines = [f"Fit window: {x1:.6f} - {x2:.6f}", f"Baseline: {baseline_text}"]
+            if continuum is not None:
+                # Only the array is given here, so the settings that made it are not known.
+                header_lines += CALLER_LINES
             if save_path is not None:
                 _save_gaussian_fit_internal(save_path, wl, fl, [result], wave_unit=wave_unit,
-                                            flux_unit=flux_unit, header_lines=header_lines,
-                                            cube_header=header)
+                                            flux_unit=flux_unit, header_lines=header_lines, fit_type='single',
+                                            markers={'fit_left': x1, 'peak': peak_x, 'fit_right': x2})
                 print(f"[OK] Saved the fit to {save_path}")
             if parameters_path is not None:
                 _save_gaussian_parameters_internal(
@@ -422,10 +556,8 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         save_path (str, optional): If given, write a tab-separated text file with
             the columns wavelength, original spectrum, fit and original minus fit (the GUI's "Save Fit"
             file). The fit includes the contaminant lines and is NaN where no line
-            was fitted. With ``header``, a surface brightness such as MJy/sr is written
-            in Jy, as the GUI does (the spectrum is treated as a sum over spaxels, like
-            ``cube.spectrum``). Nothing is written, and a warning is raised, if no line
-            fit succeeded.
+            was fitted. Nothing is written, and a warning is raised, if no line fit
+            succeeded.
         parameters_path (str, optional): If given, write a tab-separated text file
             with one row for each line: the fitted parameters, the catalog data, and
             a flag for an unreliable area error (the GUI's "Save Parameters" file).
@@ -494,8 +626,10 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
 
     if continuum is None:
         continuum_arr = fit_continuum(wl, sp)
+        continuum_lines = automatic_lines(default=True)
     else:
         continuum_arr = _as_float_array(continuum)
+        continuum_lines = list(CALLER_LINES)
 
     # Contaminant fits (if given) aren't surfaced; they only keep requested
     # lines' amplitudes honest. Center/sigma are free within a bound, not fixed.
@@ -516,9 +650,14 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
             flux_unit = header.get('BUNIT') if header is not None else None
             if save_path is not None:
                 _save_gaussian_fit_internal(
-                    save_path, wl, sp,
-                    [result for _line, result in fit_pairs + contam_pairs],
-                    wave_unit=wave_unit, flux_unit=flux_unit, cube_header=header)
+                    save_path, wl, sp, [], wave_unit=wave_unit, flux_unit=flux_unit, fit_type='multi',
+                    header_lines=continuum_lines,
+                    entries=([{'kind': 'line', 'line': line, 'result': result}
+                              for line, result in fit_pairs if result.success]
+                             + [{'kind': 'contaminant', 'line': line, 'result': result}
+                                for line, result in contam_pairs]
+                             + [{'kind': 'skipped', 'line': line, 'result': result}
+                                for line, result in fit_pairs if not result.success]))
                 print(f"[OK] Saved the fit to {save_path}")
             if parameters_path is not None:
                 entries = (
@@ -531,7 +670,8 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
                 entries += [{'kind': 'skipped', 'line': line, 'result': result}
                             for line, result in fit_pairs if not result.success]
                 _save_gaussian_parameters_internal(
-                    parameters_path, entries, wave_unit=wave_unit, flux_unit=flux_unit)
+                    parameters_path, entries, wave_unit=wave_unit, flux_unit=flux_unit,
+                    header_lines=continuum_lines)
                 print(f"[OK] Saved the parameters to {parameters_path}")
 
     return [
@@ -1244,6 +1384,8 @@ def save_rotational_diagram_map_fits(result, output_path):
 __all__ = [
     # Data Loading
     'load_cube',
+    'load_spectrum',
+    'load_fit',
     # Region Extraction
     'extract_pixel_spectrum',
     'extract_region_spectrum',

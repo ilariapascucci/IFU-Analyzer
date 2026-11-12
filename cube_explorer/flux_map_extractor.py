@@ -5,6 +5,7 @@ Fits multiple target lines and contaminating lines simultaneously from IFU spect
 extracting and summing the total flux to create integrated flux maps.
 """
 
+import inspect
 import sys
 import numpy as np
 import pandas as pd
@@ -176,6 +177,63 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
     except Exception as e:
         # Return NaN array if anything fails
         return np.full_like(wavelength, np.nan)
+
+
+# ================== Continuum Record (header lines of saved files) ==================
+# The GUI and the API write these lines into the header of a Save Spectrum file and a Save Fit file.
+# They say which continuum the file used.
+
+# The settings of the automatic continuum, in the order that the parameter window shows them.
+AUTO_PARAMETERS = ("window_size", "sigma_threshold", "peak_width", "peak_distance",
+                   "peak_exclusion", "iterations", "smoothing_factor")
+
+NONE_LINES = ["Continuum: none"]
+UNKNOWN_LINES = ["Continuum: unknown (the settings were not recorded)"]
+CALLER_LINES = ["Continuum: supplied by the caller (the settings are not recorded)"]
+
+
+def default_auto_parameters():
+    """Give the settings that fit_auto_continuum uses when no setting is given.
+
+    Args:
+        None
+
+    Returns:
+        params (dict): The name and the default value of each setting in AUTO_PARAMETERS
+    """
+    signature = inspect.signature(fit_auto_continuum).parameters
+    return {name: signature[name].default for name in AUTO_PARAMETERS}
+
+
+def automatic_lines(params=None, default=False):
+    """Write the line for an automatic continuum.
+
+    Args:
+        params (dict): The settings that were used, with the names in AUTO_PARAMETERS. None gives the defaults.
+        default (bool): True if the defaults were used because no setting was given
+
+    Returns:
+        lines (list): One line of text, without "#"
+    """
+    values = default_auto_parameters()
+    values.update(params or {})
+    text = ", ".join(f"{name}={values[name]}" for name in AUTO_PARAMETERS)
+    return [f"Continuum: automatic{', default settings' if default else ''} ({text})"]
+
+
+def custom_lines(points):
+    """Write the lines for a custom continuum. The curve is a natural cubic spline through the points.
+    The points are on the wavelength axis of the saved file. Each number is written so that it reads back exactly.
+
+    Args:
+        points (list): (wavelength, flux) tuples that the spline goes through
+
+    Returns:
+        lines (list): Two lines of text, without "#"
+    """
+    ordered = sorted((float(x), float(y)) for x, y in points)
+    text = "; ".join(f"{repr(x)}, {repr(y)}" for x, y in ordered)
+    return [f"Continuum: custom, natural cubic spline through {len(ordered)} points", f"Continuum points: {text}"]
 
 
 # ================== Gaussian Functions ==================
@@ -522,6 +580,10 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
             'noise_std': noise_std_chunk,
             'x_data': x_local, 'y_data': y_local, 'y_fit': y_fit_local,
             'y_fit_own': y_fit_own,
+            # The model that made y_fit_local, kept so that a fit file can build the curve again.
+            'chunk_model': {'a': float(a), 'b': float(b), 'x0': float(min_freq_chunk),
+                            'gaussians': [(float(par[jj]), float(par[jj + 1]), float(par[jj + 2]))
+                                          for jj in range(0, len(par), 3)]},
             'success': True, 'message': 'Success',
         }
 
@@ -1173,7 +1235,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             amplitude_error=fit.get('amplitude_error'), sigma_error=fit.get('sigma_error'),
             area_error=area_error,
             catalog_sigma=fit.get('catalog_sigma'), noise_std=fit.get('noise_std'),
-            y_fit_own=fit.get('y_fit_own'),
+            y_fit_own=fit.get('y_fit_own'), chunk_model=fit.get('chunk_model'),
         )
 
     results = [None] * len(hitran_lines)

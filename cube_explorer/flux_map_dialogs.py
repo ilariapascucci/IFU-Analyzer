@@ -324,7 +324,8 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         map_layout.addLayout(ctrl_layout)
 
         # Plot area for map
-        self.fig = Figure(figsize=(7, 6))
+        # The tight layout fits the margins to the labels again at every redraw and resize.
+        self.fig = Figure(figsize=(7, 6), layout='tight')
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.canvas.mpl_connect('button_press_event', self._on_canvas_click)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
@@ -592,8 +593,6 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
 
         norm, shown = build_norm(data, settings, self._percentile_mask(data, is_flux))
         draw_map(self.fig, ax, shown, norm, cmap, title, cbar_label)
-        
-        self.fig.tight_layout()
         self.canvas.draw()
     
     def _export_to_fits(self):

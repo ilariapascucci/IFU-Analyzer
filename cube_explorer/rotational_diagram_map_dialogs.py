@@ -35,7 +35,7 @@ from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from . import region_io
 from .region_selector import RegionSelector, mask_from_shape_coords
 from .utils import make_2d_wcs
-from .icon_loader import set_button_icon, SHAPE_ICON_NAMES
+from .icon_loader import set_button_icon
 from .gui_region_selection import RegionSelectionMixin
 from .visualization import SlicePlotter, draw_map
 from .colormap_dialog import ColorMapDialog
@@ -1112,10 +1112,10 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         None
     """
 
-    _SHAPES = ["*", "▭", "○", "⬭", "✏"]
+    _SHAPES = ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]
     _SHAPE_TOOLTIPS = {
-        "*": "Point selection", "▭": "Rectangle selection", "○": "Circle selection",
-        "⬭": "Ellipse selection", "✏": "Freehand drawing",
+        "POINT": "Point selection", "RECTANGLE": "Rectangle selection",
+        "ELLIPSE": "Ellipse selection", "POLYGON": "Freehand drawing",
     }
 
     def __init__(self, entries, n_sigma, parent=None):
@@ -1252,7 +1252,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.shape_buttons = {"left": {}, "right": {}}
         for shape in self._SHAPES:
             btn = QPushButton()
-            set_button_icon(btn, SHAPE_ICON_NAMES[shape])
+            set_button_icon(btn, shape.lower())
             btn.setCheckable(True)
             btn.setFixedSize(35, 35)
             btn.setStyleSheet("QPushButton { font-size: 18pt; }")
@@ -1468,7 +1468,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             return
         wcs2d = make_2d_wcs(self.current_entry["header"])
         verts = None
-        if sel["shape"] == "✏":
+        if sel["shape"] == "POLYGON":
             verts = getattr(sel.get("patch"), "lasso_verts", None)
         try:
             self._region_sky = region_io.region_shape_to_sky(
@@ -1530,7 +1530,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
 
     # ------------------------------------------------------- click/hover
     def _on_canvas_click(self, event):
-        """Point ('*') selection: RegionSelector treats this as a no-op, so
+        """Point ('POINT') selection: RegionSelector treats this as a no-op, so
         a plain click handler routes it to the mixin's own
         _handle_pixel_click, same division of labor as _on_slice_click.
 
@@ -1540,7 +1540,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         Returns:
             None
         """
-        if (event.inaxes is None or self.active_shape != "*"
+        if (event.inaxes is None or self.active_shape != "POINT"
                 or event.inaxes is not self.slice1_plotter.ax):
             return
         x, y = int(round(event.xdata)), int(round(event.ydata))
@@ -1620,11 +1620,11 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
                 old_region_sky["sky_center"], old_region_sky["sky_axis_x"],
                 old_region_sky["sky_axis_y"], wcs2d, target_shape=(ny, nx))
             shape = placed["shape"]
-            if shape == "*":
+            if shape == "POINT":
                 x, y = placed["coords"]
                 self._handle_pixel_click(int(round(x)), int(round(y)), "left")
                 return
-            if shape == "✏":
+            if shape == "POLYGON":
                 verts = placed["verts"]
                 xmin, ymin = verts.min(axis=0)
                 xmax, ymax = verts.max(axis=0)
