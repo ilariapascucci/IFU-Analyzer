@@ -359,19 +359,21 @@ class CubeData:
 
     def compute_region_spectrum(self, mask):
         """
-        Compute the mean spectrum over the pixels inside a mask.
+        Compute the summed spectrum of the pixels inside a mask.
+        A NaN pixel adds 0 to the sum. This is the same sum as the spectrum
+        of the whole cube, but for the masked pixels only.
 
         Args:
             mask (array): Boolean mask, same spatial size as the cube. True marks a
                 pixel to include
 
         Returns:
-            spectrum (array): 1D mean spectrum of the masked region. All zeros if the
+            spectrum (array): 1D summed spectrum of the masked region. All zeros if the
                 mask has no True pixels
 
         Raises:
             ValueError: if mask is not a 2D array
-            RuntimeError: if the mean over the masked pixels fails
+            RuntimeError: if the sum over the masked pixels fails
         """
 
         # Expect spectral axis to be first (0). If not, move it temporarily.
@@ -387,9 +389,7 @@ class CubeData:
         spectrum = np.zeros(n_spectral, dtype='float32')
         chunk_size = 100  # Adjust based on available memory
 
-        # Count valid pixels in mask for mean calculation
-        n_pixels = np.count_nonzero(mask)
-        if n_pixels == 0:
+        if not mask.any():
             return np.zeros(n_spectral, dtype='float32')
 
         try:
@@ -409,9 +409,7 @@ class CubeData:
                 chunk = np.array(chunk, dtype='float32')
                 masked = chunk * mask[None, :, :]
 
-                # Sum over spatial axes and compute mean
-                sum_spec = np.nansum(masked, axis=(1, 2))
-                spectrum[i:end] = sum_spec / float(n_pixels)
+                spectrum[i:end] = np.nansum(masked, axis=(1, 2))
 
             return spectrum
         except Exception as e:

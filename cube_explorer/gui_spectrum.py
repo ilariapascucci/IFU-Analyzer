@@ -292,8 +292,8 @@ class GuiSpectrumMixin:
 
     def _get_selection_spectrum(self, sel):
         """Compute the flux array for one stored selection dict (point or
-        region). Region spectra are scaled by pixel count to stay on a
-        comparable absolute scale to the summed original spectrum.
+        region). A region spectrum is the sum of its pixels, so it is on the
+        same scale as the summed spectrum of the whole cube.
 
         Args:
             sel (dict): Stored selection dict, or None/empty.
@@ -310,11 +310,7 @@ class GuiSpectrumMixin:
         mask = sel.get("mask")
         if mask is None:
             return None
-        mean_spectrum = self.cube_data.compute_region_spectrum(mask)
-        if mean_spectrum is None:
-            return None
-        n_pixels = int(np.count_nonzero(mask))
-        return mean_spectrum * float(n_pixels) if n_pixels else mean_spectrum
+        return self.cube_data.compute_region_spectrum(mask)
 
     def _get_tab_raw_flux(self, tab):
         """Return `tab`'s own raw flux array (before continuum subtraction or

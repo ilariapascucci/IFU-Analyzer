@@ -26,6 +26,11 @@ from .utils import make_2d_wcs
 _COMMON_KEYWORDS = ('INSTRUME', 'TELESCOP', 'OBSERVER', 'OBJECT', 'DATE-OBS', 'EXPTIME',
                      'TARGNAME', 'CHANNEL', 'BAND', 'DETECTOR')
 
+# Keywords that name the line of a map. A convolved map keeps these from the image
+# that was convolved. Statistics of the native map (SUMFLUX, NSUCC, GFIT*) are not here.
+_LINE_KEYWORDS = ('LINEWAVE', 'MOLECULE', 'SRCFILE', 'TRANSITN', 'A_UL', 'E_UPPER', 'G_U',
+                  'JLOWER', 'BRANCH', 'PARAM', 'FITMETHD', 'LAMMIN', 'LAMMAX')
+
 # This app's own unit/results labels use Unicode glyphs (mu, superscripts,
 # sigma, plus-minus...) for on-screen display; FITS header values/comments
 # must be plain ASCII, so any such string needs this before it can be
@@ -183,7 +188,7 @@ def build_line_map_header(source_header, shape, wavelength=None, molecule=None, 
 
 
 def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, identity_header=None,
-                          description=None):
+                          description=None, line_header=None):
     """
     Shared header for a resolution-matched (convolved + reprojected) 2D
     output -- the 2D viewer's Pair/Batch convolve exports all route
@@ -201,6 +206,10 @@ def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, id
             have them, being grid-only).
         description (str): Text for the DESC keyword, which names the map in the 2D
             viewer -- None adds none.
+        line_header (astropy.io.fits.Header): Header of the image that was convolved.
+            Its identity and line keywords replace those of the output grid, so the
+            output names its own line and not the line of the reference image.
+            None keeps the keywords of dst_wcs_or_header.
 
     Returns:
         header (astropy.io.fits.Header): Ready for the PRIMARY HDU. Pair
@@ -212,6 +221,10 @@ def build_resample_header(dst_wcs_or_header, shape, bunit=None, history=None, id
     extra = {}
     if bunit is not None:
         extra["BUNIT"] = bunit
+    if line_header is not None:
+        for kw in _COMMON_KEYWORDS + _LINE_KEYWORDS:
+            if kw in line_header:
+                extra[kw] = line_header[kw]
     if description:
         extra["DESC"] = description
     header = build_2d_export_header(source_header, shape, extra=extra)

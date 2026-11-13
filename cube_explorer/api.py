@@ -286,9 +286,9 @@ def extract_pixel_spectrum(cube, x, y):
 
 
 def extract_region_spectrum(cube, mask):
-    """Extract the mean spectrum over an arbitrary spatial region, the same
-    averaging the GUI uses for region selections (each reduces to a 2D
-    boolean mask). Excludes NaN pixels instead of propagating NaN.
+    """Extract the summed spectrum over an arbitrary spatial region, the same
+    sum the GUI shows for region selections (each reduces to a 2D
+    boolean mask). A NaN pixel adds 0 to the sum instead of giving NaN.
 
     Args:
         cube (CubeData): Loaded cube, as returned by load_cube()
@@ -296,7 +296,7 @@ def extract_region_spectrum(cube, mask):
             shape (cube.cube.shape[1:]); True marks pixels inside the region
 
     Returns:
-        numpy.ndarray: 1D mean spectrum over the masked pixels
+        numpy.ndarray: 1D summed spectrum of the masked pixels
 
     Example:
         >>> cube = load_cube("data.fits")

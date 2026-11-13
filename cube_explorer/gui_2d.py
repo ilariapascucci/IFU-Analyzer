@@ -52,6 +52,7 @@ from .utils import (
 from .unit_converter import clean_flux_unit
 from .fits_export import (
     build_2d_export_header, build_resample_header, build_coverage_extension, write_fits_product,
+    _LINE_KEYWORDS,
 )
 from .convolve_reproject import (
     gaussian_convolve_match as _convolve_match,
@@ -650,15 +651,13 @@ class BatchMatchResolutionDialog(QDialog):
                             f"{info['filename']}.")
                         return
 
-                    out_header = ref_header.copy()
-                    if bunit:
-                        out_header['BUNIT'] = bunit
-                    # The copy holds the description of the reference image, not of this one.
-                    out_header['DESC'] = _convolved_description(info['header'], ref_info['wavelength_um'])
-                    out_header['HISTORY'] = (
-                        f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
-                        f"reprojected onto {ref_info['filename']}'s native grid "
-                        f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"
+                    out_header = build_resample_header(
+                        ref_header, result_img.shape, bunit=bunit or None,
+                        history=(f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
+                                 f"reprojected onto {ref_info['filename']}'s native grid "
+                                 f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"),
+                        description=_convolved_description(info['header'], ref_info['wavelength_um']),
+                        line_header=info['header'],
                     )
 
                     out_name = f"matched_{info['filename']}"
@@ -814,6 +813,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.last_contour_right_img = None
         self.last_contour_right_wcs = None
         self.last_contour_right_level = None
+
+        # (file name, header) of the image that each active contour was made from
+        self.last_contour_left_source = None
+        self.last_contour_right_source = None
 
     def _init_ui(self):
         """Build every UI section in order.
@@ -1473,14 +1476,19 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             target_plotter.contours = []
 
         # Track for save/clear
+        source_side = target if source == 'self' else ('right' if target == 'left' else 'left')
+        source_info = (self.filename_left if source_side == 'left' else self.filename_right,
+                       self.header_left if source_side == 'left' else self.header_right)
         if target == 'left':
             self.last_contour_left_img   = source_img
             self.last_contour_left_wcs   = source_wcs
             self.last_contour_left_level = band_levels[0]
+            self.last_contour_left_source = source_info
         else:
             self.last_contour_right_img   = source_img
             self.last_contour_right_wcs   = source_wcs
             self.last_contour_right_level = band_levels[0]
+            self.last_contour_right_source = source_info
 
         try:
             kwargs = {'levels': band_levels, 'alpha': 0.8}
@@ -1534,10 +1542,12 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             self.slice1_canvas.draw()
             self.last_contour_left_img = None
             self.last_contour_left_level = None
+            self.last_contour_left_source = None
         else:
             self.slice2_canvas.draw()
             self.last_contour_right_img = None
             self.last_contour_right_level = None
+            self.last_contour_right_source = None
 
     def _save_contour_txt(self, target):
         """Write a panel's active contour's coordinates to a text/CSV file.
@@ -1566,8 +1576,17 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             fname += '.txt'
 
         try:
-            rows = ["# IFU Analyzer 2D — Contour Export\n",
-                    "# level, x_pixel, y_pixel, RA_deg, Dec_deg\n"]
+            rows = ["# IFU Analyzer 2D - Contour Export\n"]
+            source = self.last_contour_left_source if target == 'left' else self.last_contour_right_source
+            if source is not None and source[0]:
+                rows.append(f"# Image: {source[0]}\n")
+                description = _map_description(source[1], True) if source[1] is not None else ''
+                if description:
+                    rows.append(f"# Map: {description}\n")
+                unit = str(source[1].get('BUNIT', '')).strip() if source[1] is not None else ''
+                if unit:
+                    rows.append(f"# Level unit: {unit}\n")
+            rows.append("# level, x_pixel, y_pixel, RA_deg, Dec_deg\n")
 
             collections = cset.collections if hasattr(cset, 'collections') else [cset]
             levels      = list(cset.levels) if hasattr(cset, 'levels') else []
@@ -1586,7 +1605,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                                 pass
                         rows.append(f"{level:.6e}, {x:.4f}, {y:.4f}, {ra_str}, {dec_str}\n")
 
-            with open(fname, 'w') as f:
+            with open(fname, 'w', encoding='utf-8') as f:
                 f.writelines(rows)
 
             QMessageBox.information(self, "Saved", f"Contour coordinates saved to:\n{fname}")
@@ -2709,8 +2728,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         try:
             source_desc = _map_description(header, True)
             desc = f"Slice of {source_desc}" if source_desc else "Slice"
-            out_header = build_2d_export_header(
-                header, out_image.shape, extra={"DESC": desc + (" (region only)" if mask is not None else "")})
+            extra = {"DESC": desc + (" (region only)" if mask is not None else "")}
+            for kw in ("BUNIT",) + _LINE_KEYWORDS:
+                if header is not None and kw in header:
+                    extra[kw] = header[kw]
+            out_header = build_2d_export_header(header, out_image.shape, extra=extra)
             write_fits_product(path, out_image, out_header)
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Could not export slice:\n{e}")
@@ -2965,6 +2987,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                         f"reprojected onto {ref_side}'s native grid "
                         f"(ref wavelength {ref_wl:.4f} um)"),
                 description=_convolved_description(fine_header, ref_wl),
+                line_header=fine_header,
             )
 
             fname, _ = QFileDialog.getSaveFileName(
