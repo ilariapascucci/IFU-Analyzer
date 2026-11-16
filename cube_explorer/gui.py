@@ -4090,7 +4090,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 for line in header_lines:
                     f.write(line + "\n")
                 for i, (w, o, c, s, p) in enumerate(zip(wavelength, original, continuum, subtracted, plotted)):
-                    row = f"{w:.6e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\t{p:.6e}"
+                    row = f"{w:.10e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\t{p:.6e}"
                     if error is not None:
                         row += f"\t{error[i]:.6e}"
                     f.write(row + "\n")

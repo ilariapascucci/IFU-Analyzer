@@ -112,7 +112,7 @@ def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None
         f.write("#\n")
         f.write(f"# Wavelength ({wave_text})\tOriginal\tFit\tOriginal-Fit\n")
         for w, o, m in zip(wavelength, spectrum, fit):
-            f.write(f"{w:.6e}\t{o:.6e}\t{m:.6e}\t{o - m:.6e}\n")
+            f.write(f"{w:.10e}\t{o:.6e}\t{m:.6e}\t{o - m:.6e}\n")
 
 
 def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_unit=None,

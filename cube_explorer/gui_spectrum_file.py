@@ -271,5 +271,4 @@ class GuiSpectrumFileMixin:
         divisor = self._normalization_divisor("full", None)
         self._error_bars = self.spec_plotter.ax.errorbar(
             x, np.asarray(y, dtype=float) / divisor, yerr=np.asarray(error, dtype=float) / divisor,
-            fmt='o', markersize=2, color='blue', ecolor='steelblue', elinewidth=0.8, capsize=0,
-            alpha=0.7, zorder=2)
+            fmt='o', markersize=3, color='black', elinewidth=1.2, capsize=2, alpha=1.0, zorder=3)
