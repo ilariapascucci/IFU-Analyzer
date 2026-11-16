@@ -75,10 +75,6 @@
 </ul>
 </li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
@@ -252,11 +248,11 @@ above. <strong>Calculate Fluxes</strong> auto-checks <strong>Upper Limit?</stron
 still override the checkbox by hand afterward.</p>
 <p><strong>Step 3: Set Physical Parameters and Fit Options</strong></p>
 <ul class="simple">
-<li><p><strong>R (au)</strong>: emitting region radius. Check <strong>Unknown R</strong> to skip it entirely; N<sub>u</sub>
-is then reported as a total molecule count rather than a column density.</p></li>
-<li><p><strong>Distance (pc)</strong></p></li>
-<li><p><strong>R (au)</strong> and <strong>Distance (pc)</strong> start empty. Enter a number in both, or check <strong>Unknown R</strong>.
-Without them, <strong>Run Fit</strong> stops and shows a message.</p></li>
+<li><p><strong>Emitting Radius (au)</strong>: optional. With a radius, N<sub>u</sub> is a column density. Without
+it, N<sub>u</sub> is a total molecule count.</p></li>
+<li><p><strong>Distance (pc)</strong>: required.</p></li>
+<li><p>Both fields start empty. A blank radius means “not provided”. A blank distance, or a value
+that is not a number, stops <strong>Run Fit</strong> and shows a message.</p></li>
 <li><p><strong>Fit</strong>: <strong>1T</strong> or <strong>2T</strong></p></li>
 <li><p><strong>Fit OPR</strong>: grid-search the ortho-to-para ratio to minimize χ² instead of assuming the
 fixed equilibrium value <strong>OPR = 3</strong>. Only affects H2 S-branch lines. Click <strong>▸ Advanced</strong>

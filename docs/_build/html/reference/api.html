@@ -52,10 +52,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../user_guide/index.html">User Guide</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">Command-Line Interface</a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../features.html">Features</a></li>
@@ -214,9 +210,9 @@ it always applies the correct (wavelength, y, x) axis order.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.extract_region_spectrum">
 <span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">extract_region_spectrum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cube</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#extract_region_spectrum"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.extract_region_spectrum" title="Link to this definition"></a></dt>
-<dd><p>Extract the mean spectrum over an arbitrary spatial region, the same
-averaging the GUI uses for region selections (each reduces to a 2D
-boolean mask). Excludes NaN pixels instead of propagating NaN.</p>
+<dd><p>Extract the summed spectrum over an arbitrary spatial region, the same
+sum the GUI shows for region selections (each reduces to a 2D
+boolean mask). A NaN pixel adds 0 to the sum instead of giving NaN.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -226,7 +222,7 @@ shape (cube.cube.shape[1:]); True marks pixels inside the region</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>1D mean spectrum over the masked pixels</p>
+<dd class="field-even"><p>1D summed spectrum of the masked pixels</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>numpy.ndarray</p>
@@ -246,7 +242,7 @@ shape (cube.cube.shape[1:]); True marks pixels inside the region</p></li>
 <h2>Gaussian Line Fitting<a class="headerlink" href="#gaussian-line-fitting" title="Link to this heading"></a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_line">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">peak_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_line"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_line" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">line_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">peak_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_line"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_line" title="Link to this definition"></a></dt>
 <dd><p>Fit a Gaussian to an emission line in a spectrum. The fitter needs a
 starting guess for the line center; here it defaults to the brightest
 sample between x1 and x2, or pass peak_x explicitly.</p>
@@ -265,6 +261,18 @@ to the brightest wavelength between <code class="docutils literal notranslate"><
 <li><p><strong>header</strong> (<em>optional</em>) – FITS header used for unit conversion. Pass
 <code class="docutils literal notranslate"><span class="pre">cube.header</span></code> to match what the GUI produces.</p></li>
 <li><p><strong>wave_unit</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – Spectral axis unit, e.g. <code class="docutils literal notranslate"><span class="pre">cube.wave_unit</span></code>.</p></li>
+<li><p><strong>save_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – If given, write a tab-separated text file with
+the columns wavelength, original spectrum, fit and original minus fit (the GUI’s “Save Fit”
+file). The fit is NaN outside <code class="docutils literal notranslate"><span class="pre">x1</span></code> to <code class="docutils literal notranslate"><span class="pre">x2</span></code>. Nothing is written, and a
+warning is raised, if the fit failed.</p></li>
+<li><p><strong>parameters_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – If given, write a tab-separated text file
+with the fitted parameters (the GUI’s “Save Parameters” file). The same
+rule applies if the fit failed.</p></li>
+<li><p><strong>continuum</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Pre-fitted continuum, same length as
+<code class="docutils literal notranslate"><span class="pre">wavelength</span></code>. When given, it is the baseline of the fit, as in the GUI
+when a continuum is fitted for the spectrum. If None (default), the
+baseline is the straight line between the flux values at <code class="docutils literal notranslate"><span class="pre">x1</span></code> and <code class="docutils literal notranslate"><span class="pre">x2</span></code>.
+The fit fails if the continuum has no value where the flux has data.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -509,7 +517,7 @@ NaN in both cubes.</p>
 <h2>Flux Analysis<a class="headerlink" href="#flux-analysis" title="Link to this heading"></a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.fit_hitran_lines">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_hitran_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_upper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_lower</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contam_catalog</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_hitran_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_hitran_lines" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">fit_hitran_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wavelength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectrum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wavelength_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_upper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_lower</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">header</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wave_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">continuum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contam_catalog</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#fit_hitran_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.fit_hitran_lines" title="Link to this definition"></a></dt>
 <dd><p>Fit HITRAN spectral lines automatically using database lookup. Same
 algorithm as the GUI’s Multi-Gaussian Fit: every requested line and any
 contaminant sharing its chunk fit simultaneously, so they don’t double-claim flux.</p>
@@ -540,6 +548,16 @@ column, same format as <code class="docutils literal notranslate"><span class="p
 own component in the fit so they don’t distort a nearby requested line’s
 amplitude – the same optional catalog <code class="docutils literal notranslate"><span class="pre">extract_flux</span></code>/Flux Map
 already supports. None (default) skips this.</p></li>
+<li><p><strong>save_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – If given, write a tab-separated text file with
+the columns wavelength, original spectrum, fit and original minus fit (the GUI’s “Save Fit”
+file). The fit includes the contaminant lines and is NaN where no line
+was fitted. Nothing is written, and a warning is raised, if no line fit
+succeeded.</p></li>
+<li><p><strong>parameters_path</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>, </em><em>optional</em>) – If given, write a tab-separated text file
+with one row for each line: the fitted parameters, the catalog data, and
+a flag for an unreliable area error (the GUI’s “Save Parameters” file).
+Lines that could not be fit are listed as <code class="docutils literal notranslate"><span class="pre">skipped</span></code> with the reason.
+The same rule applies if no line fit succeeded.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -565,6 +583,9 @@ let it convert; always check this rather than assuming</p></li>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)">list</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#RuntimeError" title="(in Python v3.15)"><strong>RuntimeError</strong></a> – if the HITRAN fetch fails, or HITRAN does not know the molecule</p>
 </dd>
 </dl>
 <p class="rubric">Example</p>
@@ -675,9 +696,10 @@ which work well for typical spectra.</p></li>
 <dd class="field-even"><p><dl class="simple">
 <dt>Map data containing:</dt><dd><ul class="simple">
 <li><p>’flux_map’: 2D array of flux per pixel, in erg/s/cm2 if cube_data.header
-supports the conversion (see ‘flux_unit’), else the cube’s native flux unit</p></li>
+supports the conversion (see ‘flux_unit’), else the cube’s native flux unit.
+A pixel with no detected line is NaN</p></li>
 <li><p>’contam_flux_map’: 2D array of contaminating-line flux per pixel, same units
-as ‘flux_map’</p></li>
+as ‘flux_map’. A pixel with no detected contaminating line is NaN</p></li>
 <li><p>’detection_map’: 2D array with number of detected target lines per pixel</p></li>
 <li><p>’contam_detection_map’: 2D array with number of detected contaminating lines
 per pixel</p></li>
@@ -693,6 +715,13 @@ per pixel</p></li>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)">dict</a></p>
 </dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#RuntimeError" title="(in Python v3.15)"><strong>RuntimeError</strong></a> – if the CO line list for the cube’s wavelength range cannot be
+    fetched from HITRAN</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/builtins/exceptions.html#ValueError" title="(in Python v3.15)"><strong>ValueError</strong></a> – if cube_data has no cube loaded</p></li>
+</ul>
+</dd>
 </dl>
 <p class="rubric">Example</p>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
@@ -707,10 +736,11 @@ per pixel</p></li>
 <h2>Rotational Diagram<a class="headerlink" href="#rotational-diagram" title="Link to this heading"></a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="cube_explorer.api.rotational_diagram">
-<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">rotational_diagram</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fluxes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flux_errors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecular_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">OPR</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit_opr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opr_grid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit1T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit2T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4.3204e+20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upper_limits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">progress_callback</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H2'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#rotational_diagram"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.rotational_diagram" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">cube_explorer.api.</span></span><span class="sig-name descname"><span class="pre">rotational_diagram</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fluxes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flux_errors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecular_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">OPR</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit_opr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opr_grid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit1T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit2T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">140</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upper_limits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">progress_callback</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">molecule</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H2'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">isotopologue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cube_explorer/api.html#rotational_diagram"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cube_explorer.api.rotational_diagram" title="Link to this definition"></a></dt>
 <dd><p>Fit a rotational diagram (1T and/or 2T) to a set of line fluxes. Dispatches to the
 H2-specific fitter (hardcoded partition function, OPR support) or the general
-HITRAN-based fitter (any molecule, e.g. CO) depending on <cite>molecule</cite>.</p>
+HITRAN-based fitter (any molecule, e.g. CO) depending on <cite>molecule</cite>.
+R is optional. Without R, N is a total molecule count instead of a column density.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -722,8 +752,8 @@ HITRAN-based fitter (any molecule, e.g. CO) depending on <cite>molecule</cite>.<
 <li><p><strong>opr_grid</strong> (<em>array</em>) – OPR values to search (H2 only). Defaults to np.linspace(0.1, 5.0, 200)</p></li>
 <li><p><strong>fit1T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><em>bool</em></a>) – Report the 1T fit (always computed regardless, as 2T’s own seed)</p></li>
 <li><p><strong>fit2T</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#bool" title="(in Python v3.15)"><em>bool</em></a>) – Perform the 2T fit</p></li>
-<li><p><strong>R</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Emitting radius (AU or cm)</p></li>
-<li><p><strong>dist</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Distance (pc or cm)</p></li>
+<li><p><strong>R</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Emitting radius (AU), or None</p></li>
+<li><p><strong>dist</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/functions.html#float" title="(in Python v3.15)"><em>float</em></a>) – Distance (pc)</p></li>
 <li><p><strong>upper_limits</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#dict" title="(in Python v3.15)"><em>dict</em></a>) – {J: True} for measurements marked as upper limits</p></li>
 <li><p><strong>progress_callback</strong> (<em>callable</em>) – (phase, current, total) -&gt; None, for a GUI progress bar</p></li>
 <li><p><strong>molecule</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a>) – Species being fit, per get_available_molecules()</p></li>

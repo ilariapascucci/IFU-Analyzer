@@ -49,10 +49,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../user_guide/index.html">User Guide</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Command Line</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../../cli.html">Command-Line Interface</a></li>
-</ul>
 <p class="caption" role="heading"><span class="caption-text">Features &amp; Analysis</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../features.html">Features</a></li>
@@ -172,6 +168,9 @@
 <span class="sd">    &gt;&gt;&gt; print(f&quot;Frequency: {frequency}&quot;)</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 
@@ -223,6 +222,147 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">load_spectrum</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">x_column</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y_column</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">error_column</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                  <span class="n">flux_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">medium</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">instrument</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">grating</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Load one spectrum from a text file (txt or csv) or a 1D FITS table, for example a JWST x1d file.</span>
+<span class="sd">    This is the same as the GUI&#39;s &quot;Load Spectrum&quot; button.</span>
+
+<span class="sd">    The file has a wavelength column, a flux column and an optional flux error column. The separator can</span>
+<span class="sd">    be a tab, a comma, a semicolon or white space. Lines that start with &quot;#&quot; are comments. A file that</span>
+<span class="sd">    &quot;Save Spectrum&quot; wrote gives its own units, instrument and column names. Any other text file needs wave_unit.</span>
+<span class="sd">    A FITS table gives the unit of each column. For an x1d file the flux is FLUX in Jy, unless y_column is</span>
+<span class="sd">    SURF_BRIGHT (MJy/sr). The error column and the flux unit then follow the flux column.</span>
+<span class="sd">    The object has no cube. cube.spectrum, cube.wavelength, cube.header and cube.spectrum_error work as</span>
+<span class="sd">    they do for a cube, so fit_continuum and fit_line take them in the same way.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        filename (str): Path to the text file or the FITS file</span>
+<span class="sd">        x_column (str or int): Name or index of the wavelength column. None uses the guess from the column names.</span>
+<span class="sd">        y_column (str or int): Name or index of the flux column. None uses the guess.</span>
+<span class="sd">        error_column (str, int or False): Name or index of the flux error column. None uses the guess.</span>
+<span class="sd">            False means that no column is the error.</span>
+<span class="sd">        wave_unit (str): &#39;um&#39;, &#39;nm&#39; or &#39;Angstrom&#39;. Needed if the file does not give it. nm is converted to um.</span>
+<span class="sd">        flux_unit (str): Flux unit, for example &#39;Jy&#39;. None uses the file&#39;s unit, or leaves it unknown.</span>
+<span class="sd">        medium (str): &#39;air&#39; or &#39;vacuum&#39;. None uses the file&#39;s value, or leaves it unknown.</span>
+<span class="sd">        instrument (str): &#39;MIRI&#39;, &#39;NIRSpec&#39; or &#39;MUSE&#39;. It gives the resolving power for the multi-Gaussian fit.</span>
+<span class="sd">        grating (str): NIRSpec grating, for example &#39;G395H&#39;. Needed for the resolving power of NIRSpec.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        CubeData: Object with spectrum, wavelength, wave_unit, flux_unit, header and spectrum_error.</span>
+<span class="sd">        cube is None.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If a column or unit is not valid, wave_unit is missing, or fewer than 10 usable rows are left</span>
+<span class="sd">        OSError: If the file cannot be opened</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; spec = load_spectrum(&quot;my_spectrum.csv&quot;, wave_unit=&quot;um&quot;, flux_unit=&quot;Jy&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; result = fit_line(spec.wavelength, spec.spectrum, x1=6.90, x2=6.92)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">.spectrum_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">column_flux_unit</span><span class="p">,</span> <span class="n">default_settings</span><span class="p">,</span> <span class="n">read_spectrum_file</span><span class="p">,</span> <span class="n">suggest_error_column</span>
+
+    <span class="n">table</span> <span class="o">=</span> <span class="n">read_spectrum_file</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="n">settings</span> <span class="o">=</span> <span class="n">default_settings</span><span class="p">(</span><span class="n">table</span><span class="p">)</span>
+    <span class="n">settings</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;complete&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">column_index</span><span class="p">(</span><span class="n">column</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Turn a column name or index into an index.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            column (str or int): Column name, or index counted from 0</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            index (int): Column index</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If no column has this name</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">column</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">column_names</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">column</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No column is named </span><span class="si">{</span><span class="n">column</span><span class="si">!r}</span><span class="s2">. The columns are </span><span class="si">{</span><span class="n">table</span><span class="o">.</span><span class="n">column_names</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">names</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">column</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">column</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">x_column</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;x_index&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">column_index</span><span class="p">(</span><span class="n">x_column</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">y_column</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;y_index&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">column_index</span><span class="p">(</span><span class="n">y_column</span><span class="p">)</span>
+        <span class="c1"># A FITS table gives a unit for each column, so the unit and the error column follow the flux column.</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;flux_unit&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">column_flux_unit</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;y_index&quot;</span><span class="p">])</span> <span class="ow">or</span> <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;flux_unit&quot;</span><span class="p">]</span>
+        <span class="n">paired</span> <span class="o">=</span> <span class="n">suggest_error_column</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;y_index&quot;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">paired</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;error_index&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">paired</span>
+    <span class="k">if</span> <span class="n">error_column</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;error_index&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">elif</span> <span class="n">error_column</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;error_index&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">column_index</span><span class="p">(</span><span class="n">error_column</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">wave_unit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;wave_unit&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">wave_unit</span>
+    <span class="k">elif</span> <span class="s2">&quot;wave_unit&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">metadata</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The file does not give its wavelength unit. Give wave_unit: &#39;um&#39;, &#39;nm&#39; or &#39;Angstrom&#39;.&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">flux_unit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;flux_unit&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">flux_unit</span>
+    <span class="k">if</span> <span class="n">medium</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;medium&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">medium</span>
+    <span class="k">if</span> <span class="n">instrument</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;instrument&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">instrument</span>
+    <span class="k">if</span> <span class="n">grating</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">settings</span><span class="p">[</span><span class="s2">&quot;grating&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">grating</span>
+
+    <span class="n">cube</span> <span class="o">=</span> <span class="n">CubeData</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">note</span> <span class="ow">in</span> <span class="n">cube</span><span class="o">.</span><span class="n">load_from_table</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">settings</span><span class="p">):</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="n">note</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cube</span>
+
+
+<span class="c1"># --- Fit File API ---</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">load_fit</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">wavelength</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">spectrum</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Load a Gaussian fit file that &quot;Save Fit&quot; (or the save_path of fit_line and fit_hitran_lines) wrote.</span>
+<span class="sd">    It gives the fit back as it was, with no new fit. This is the same as the GUI&#39;s &quot;Load Fit&quot;</span>
+<span class="sd">    (single line) and &quot;Load Fits&quot; (multi-Gaussian) buttons.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        filename (str): Path to the fit file</span>
+<span class="sd">        wavelength (array-like): Wavelengths of the spectrum that the fit goes on. None uses the</span>
+<span class="sd">            wavelengths in the file. Given wavelengths must be the wavelengths of the file.</span>
+<span class="sd">        spectrum (array-like): Flux of the spectrum. None uses the flux in the file.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: &#39;fit_type&#39; (&#39;single&#39; or &#39;multi&#39;), &#39;lines&#39; (list of dicts with &#39;kind&#39; (&#39;line&#39;, &#39;contaminant&#39; or</span>
+<span class="sd">            &#39;skipped&#39;), &#39;line&#39; (catalog data) and &#39;result&#39; (GaussianFitResult), in the order of the file),</span>
+<span class="sd">            &#39;markers&#39; (the fit markers of a single fit), &#39;tab&#39;, &#39;wave_unit&#39;, &#39;flux_unit&#39;, &#39;baseline_source&#39;,</span>
+<span class="sd">            &#39;wavelength&#39;, &#39;spectrum&#39;, &#39;fit&#39; and &#39;baseline&#39; (arrays), and &#39;notes&#39; (warnings, may be empty).</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: If the file has no fit parameters (a file from an older version), or the wavelengths</span>
+<span class="sd">            are not the wavelengths of the file. A Doppler shift gives this error.</span>
+<span class="sd">        OSError: If the file cannot be opened</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; fit = load_fit(&quot;gaussian_fit.txt&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; print(fit[&#39;lines&#39;][0][&#39;result&#39;].center)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">.fit_file</span><span class="w"> </span><span class="kn">import</span> <span class="n">read_fit_file</span><span class="p">,</span> <span class="n">rebuild_fit</span>
+
+    <span class="n">fit_file</span> <span class="o">=</span> <span class="n">read_fit_file</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="n">wl</span> <span class="o">=</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">wavelength</span> <span class="k">if</span> <span class="n">wavelength</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">wavelength</span><span class="p">)</span>
+    <span class="n">sp</span> <span class="o">=</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">original</span> <span class="k">if</span> <span class="n">spectrum</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">spectrum</span><span class="p">)</span>
+    <span class="n">rebuilt</span> <span class="o">=</span> <span class="n">rebuild_fit</span><span class="p">(</span><span class="n">fit_file</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">note</span> <span class="ow">in</span> <span class="n">rebuilt</span><span class="p">[</span><span class="s1">&#39;notes&#39;</span><span class="p">]:</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="n">note</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s1">&#39;fit_type&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">fit_type</span><span class="p">,</span> <span class="s1">&#39;lines&#39;</span><span class="p">:</span> <span class="n">rebuilt</span><span class="p">[</span><span class="s1">&#39;entries&#39;</span><span class="p">],</span> <span class="s1">&#39;markers&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">markers</span><span class="p">,</span>
+        <span class="s1">&#39;tab&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">tab</span><span class="p">,</span> <span class="s1">&#39;wave_unit&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span> <span class="s1">&#39;flux_unit&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">flux_unit</span><span class="p">,</span>
+        <span class="s1">&#39;baseline_source&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">baseline_source</span><span class="p">,</span> <span class="s1">&#39;wavelength&#39;</span><span class="p">:</span> <span class="n">wl</span><span class="p">,</span> <span class="s1">&#39;spectrum&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="p">,</span>
+        <span class="s1">&#39;fit&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">fit</span><span class="p">,</span> <span class="s1">&#39;baseline&#39;</span><span class="p">:</span> <span class="n">fit_file</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="s1">&#39;notes&#39;</span><span class="p">:</span> <span class="n">rebuilt</span><span class="p">[</span><span class="s1">&#39;notes&#39;</span><span class="p">],</span>
+    <span class="p">}</span>
+
+
 <span class="c1"># --- Region Extraction API ---</span>
 
 <div class="viewcode-block" id="extract_pixel_spectrum">
@@ -251,9 +391,9 @@
 <div class="viewcode-block" id="extract_region_spectrum">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.extract_region_spectrum">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">extract_region_spectrum</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">mask</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract the mean spectrum over an arbitrary spatial region, the same</span>
-<span class="sd">    averaging the GUI uses for region selections (each reduces to a 2D</span>
-<span class="sd">    boolean mask). Excludes NaN pixels instead of propagating NaN.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract the summed spectrum over an arbitrary spatial region, the same</span>
+<span class="sd">    sum the GUI shows for region selections (each reduces to a 2D</span>
+<span class="sd">    boolean mask). A NaN pixel adds 0 to the sum instead of giving NaN.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        cube (CubeData): Loaded cube, as returned by load_cube()</span>
@@ -261,7 +401,7 @@
 <span class="sd">            shape (cube.cube.shape[1:]); True marks pixels inside the region</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        numpy.ndarray: 1D mean spectrum over the masked pixels</span>
+<span class="sd">        numpy.ndarray: 1D summed spectrum of the masked pixels</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
@@ -275,7 +415,7 @@
 
 <span class="c1"># --- Continuum Fitting API ---</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">.flux_map_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_auto_continuum</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.flux_map_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_auto_continuum</span><span class="p">,</span> <span class="n">automatic_lines</span><span class="p">,</span> <span class="n">CALLER_LINES</span>
 
 <div class="viewcode-block" id="fit_continuum">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_continuum">[docs]</a>
@@ -314,6 +454,57 @@
 
 
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">.continuum_cube</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_continuum_cubes</span> <span class="k">as</span> <span class="n">_export_continuum_cubes_internal</span>
+
+<div class="viewcode-block" id="save_continuum_cubes">
+<a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.save_continuum_cubes">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_continuum_cubes</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">continuum_path</span><span class="p">,</span> <span class="n">contsub_path</span><span class="p">,</span> <span class="n">continuum_params</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                         <span class="n">anchor_wavelengths</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit the continuum at every pixel, then save two cubes: the continuum</span>
+<span class="sd">    and the continuum-subtracted (line-only) cube. The same as the GUI&#39;s</span>
+<span class="sd">    Save Continuum Cubes button. The two cubes always sum to the original.</span>
+
+<span class="sd">    Two methods: automatic (the default), or anchor_wavelengths, the same</span>
+<span class="sd">    wavelengths you would click in the GUI&#39;s Custom Continuum tool. With</span>
+<span class="sd">    anchors, each pixel gets a cubic spline through its own flux at the</span>
+<span class="sd">    anchors (median of +/- 7 instrumental sigma, clipped at 3 sigma), held</span>
+<span class="sd">    flat beyond the first and last anchor. Scripts that call this need an</span>
+<span class="sd">    ``if __name__ == &quot;__main__&quot;:`` guard on Windows/macOS.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cube_data (CubeData): Loaded cube from load_cube()</span>
+<span class="sd">        continuum_path (str): Output FITS path of the continuum cube</span>
+<span class="sd">        contsub_path (str): Output FITS path of the continuum-subtracted cube</span>
+<span class="sd">        continuum_params (dict, optional): Override the fit_continuum() keyword</span>
+<span class="sd">            arguments (window_size, sigma_threshold, peak_width, peak_distance,</span>
+<span class="sd">            peak_exclusion, iterations, smoothing_factor). The same values</span>
+<span class="sd">            apply to every pixel. If None, uses the defaults. Not allowed</span>
+<span class="sd">            together with anchor_wavelengths.</span>
+<span class="sd">        anchor_wavelengths (array-like, optional): At least 3 wavelengths, in the</span>
+<span class="sd">            units of cube_data.wavelength. If given, uses the anchor method</span>
+<span class="sd">            instead of the automatic one.</span>
+<span class="sd">        n_jobs (int, optional): Number of worker processes (default: auto-detect</span>
+<span class="sd">            CPUs, capped by available memory)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        int: Number of pixels that have data but got no continuum (automatic: too</span>
+<span class="sd">            few valid points; anchors: fewer than 3 valid anchors). They are</span>
+<span class="sd">            NaN in both cubes.</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; n_failed = save_continuum_cubes(cube, &quot;cube_continuum.fits&quot;, &quot;cube_contsub.fits&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; n_failed = save_continuum_cubes(</span>
+<span class="sd">        ...     cube, &quot;cube_continuum.fits&quot;, &quot;cube_contsub.fits&quot;,</span>
+<span class="sd">        ...     anchor_wavelengths=[6.55, 6.70, 6.95, 7.20, 7.35])</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_export_continuum_cubes_internal</span><span class="p">(</span>
+        <span class="n">cube_data</span><span class="p">,</span> <span class="n">continuum_path</span><span class="p">,</span> <span class="n">contsub_path</span><span class="p">,</span>
+        <span class="n">continuum_params</span><span class="o">=</span><span class="n">continuum_params</span><span class="p">,</span> <span class="n">anchor_wavelengths</span><span class="o">=</span><span class="n">anchor_wavelengths</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
 <span class="c1"># --- Gaussian Fitting API ---</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.gaussian_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -321,14 +512,19 @@
     <span class="n">calculate_equivalent_width</span><span class="p">,</span>
     <span class="n">fit_gaussians_per_pixel</span> <span class="k">as</span> <span class="n">_fit_gaussians_per_pixel_internal</span><span class="p">,</span>
     <span class="n">export_residual_cube_fits</span> <span class="k">as</span> <span class="n">_export_residual_cube_fits_internal</span><span class="p">,</span>
+    <span class="n">save_gaussian_fit</span> <span class="k">as</span> <span class="n">_save_gaussian_fit_internal</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">.flux_map_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_hitran_lines_collective</span> <span class="k">as</span> <span class="n">_fit_hitran_lines_internal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.flux_map_extractor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">fit_hitran_lines_collective</span> <span class="k">as</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">,</span>
+    <span class="n">save_gaussian_parameters</span> <span class="k">as</span> <span class="n">_save_gaussian_parameters_internal</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="n">fetch_hitran_data</span>
 
 <div class="viewcode-block" id="fit_line">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_line">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_line</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">line_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">peak_x</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-             <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+             <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">save_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">parameters_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+             <span class="n">continuum</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit a Gaussian to an emission line in a spectrum. The fitter needs a</span>
 <span class="sd">    starting guess for the line center; here it defaults to the brightest</span>
 <span class="sd">    sample between x1 and x2, or pass peak_x explicitly.</span>
@@ -346,6 +542,18 @@
 <span class="sd">        header (optional): FITS header used for unit conversion. Pass</span>
 <span class="sd">            ``cube.header`` to match what the GUI produces.</span>
 <span class="sd">        wave_unit (str, optional): Spectral axis unit, e.g. ``cube.wave_unit``.</span>
+<span class="sd">        save_path (str, optional): If given, write a tab-separated text file with</span>
+<span class="sd">            the columns wavelength, original spectrum, fit and original minus fit (the GUI&#39;s &quot;Save Fit&quot;</span>
+<span class="sd">            file). The fit is NaN outside ``x1`` to ``x2``. Nothing is written, and a</span>
+<span class="sd">            warning is raised, if the fit failed.</span>
+<span class="sd">        parameters_path (str, optional): If given, write a tab-separated text file</span>
+<span class="sd">            with the fitted parameters (the GUI&#39;s &quot;Save Parameters&quot; file). The same</span>
+<span class="sd">            rule applies if the fit failed.</span>
+<span class="sd">        continuum (array-like, optional): Pre-fitted continuum, same length as</span>
+<span class="sd">            ``wavelength``. When given, it is the baseline of the fit, as in the GUI</span>
+<span class="sd">            when a continuum is fitted for the spectrum. If None (default), the</span>
+<span class="sd">            baseline is the straight line between the flux values at ``x1`` and ``x2``.</span>
+<span class="sd">            The fit fails if the continuum has no value where the flux has data.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        GaussianFitResult: Object with ``amplitude``, ``center``, ``sigma``,</span>
@@ -398,8 +606,32 @@
             <span class="p">)</span>
         <span class="n">peak_x</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">wl</span><span class="p">[</span><span class="n">in_window</span><span class="p">][</span><span class="n">np</span><span class="o">.</span><span class="n">nanargmax</span><span class="p">(</span><span class="n">window_flux</span><span class="p">)])</span>
 
-    <span class="k">return</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">fl</span><span class="p">,</span> <span class="n">peak_x</span><span class="o">=</span><span class="n">peak_x</span><span class="p">,</span>
-                                <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">)</span></div>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">fit_gaussian_to_line</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">fl</span><span class="p">,</span> <span class="n">peak_x</span><span class="o">=</span><span class="n">peak_x</span><span class="p">,</span>
+                                  <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
+                                  <span class="n">continuum</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">continuum</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">continuum</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">save_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">parameters_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;The fit failed (</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">message</span><span class="si">}</span><span class="s2">), so no file was written&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">flux_unit</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;BUNIT&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">header</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="n">baseline_text</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;fitted continuum&quot;</span> <span class="k">if</span> <span class="n">continuum</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                             <span class="k">else</span> <span class="s2">&quot;straight line between the window edges&quot;</span><span class="p">)</span>
+            <span class="n">header_lines</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;Fit window: </span><span class="si">{</span><span class="n">x1</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">x2</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Baseline: </span><span class="si">{</span><span class="n">baseline_text</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">continuum</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># Only the array is given here, so the settings that made it are not known.</span>
+                <span class="n">header_lines</span> <span class="o">+=</span> <span class="n">CALLER_LINES</span>
+            <span class="k">if</span> <span class="n">save_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">_save_gaussian_fit_internal</span><span class="p">(</span><span class="n">save_path</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">fl</span><span class="p">,</span> <span class="p">[</span><span class="n">result</span><span class="p">],</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
+                                            <span class="n">flux_unit</span><span class="o">=</span><span class="n">flux_unit</span><span class="p">,</span> <span class="n">header_lines</span><span class="o">=</span><span class="n">header_lines</span><span class="p">,</span> <span class="n">fit_type</span><span class="o">=</span><span class="s1">&#39;single&#39;</span><span class="p">,</span>
+                                            <span class="n">markers</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;fit_left&#39;</span><span class="p">:</span> <span class="n">x1</span><span class="p">,</span> <span class="s1">&#39;peak&#39;</span><span class="p">:</span> <span class="n">peak_x</span><span class="p">,</span> <span class="s1">&#39;fit_right&#39;</span><span class="p">:</span> <span class="n">x2</span><span class="p">})</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[OK] Saved the fit to </span><span class="si">{</span><span class="n">save_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">parameters_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">_save_gaussian_parameters_internal</span><span class="p">(</span>
+                    <span class="n">parameters_path</span><span class="p">,</span> <span class="p">[{</span><span class="s1">&#39;kind&#39;</span><span class="p">:</span> <span class="s1">&#39;line&#39;</span><span class="p">,</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="p">{},</span> <span class="s1">&#39;result&#39;</span><span class="p">:</span> <span class="n">result</span><span class="p">}],</span>
+                    <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="n">flux_unit</span><span class="p">,</span> <span class="n">header_lines</span><span class="o">=</span><span class="n">header_lines</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[OK] Saved the parameters to </span><span class="si">{</span><span class="n">parameters_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span></div>
 
 
 
@@ -407,7 +639,8 @@
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.fit_hitran_lines">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_hitran_lines</span><span class="p">(</span><span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span> <span class="n">molecule</span><span class="p">,</span> <span class="n">wavelength_min</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                      <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">v_upper</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">v_lower</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                     <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">continuum</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+                     <span class="n">header</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">continuum</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                     <span class="n">save_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">parameters_path</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit HITRAN spectral lines automatically using database lookup. Same</span>
 <span class="sd">    algorithm as the GUI&#39;s Multi-Gaussian Fit: every requested line and any</span>
 <span class="sd">    contaminant sharing its chunk fit simultaneously, so they don&#39;t double-claim flux.</span>
@@ -437,6 +670,16 @@
 <span class="sd">            own component in the fit so they don&#39;t distort a nearby requested line&#39;s</span>
 <span class="sd">            amplitude -- the same optional catalog ``extract_flux``/Flux Map</span>
 <span class="sd">            already supports. None (default) skips this.</span>
+<span class="sd">        save_path (str, optional): If given, write a tab-separated text file with</span>
+<span class="sd">            the columns wavelength, original spectrum, fit and original minus fit (the GUI&#39;s &quot;Save Fit&quot;</span>
+<span class="sd">            file). The fit includes the contaminant lines and is NaN where no line</span>
+<span class="sd">            was fitted. Nothing is written, and a warning is raised, if no line fit</span>
+<span class="sd">            succeeded.</span>
+<span class="sd">        parameters_path (str, optional): If given, write a tab-separated text file</span>
+<span class="sd">            with one row for each line: the fitted parameters, the catalog data, and</span>
+<span class="sd">            a flag for an unreliable area error (the GUI&#39;s &quot;Save Parameters&quot; file).</span>
+<span class="sd">            Lines that could not be fit are listed as ``skipped`` with the reason.</span>
+<span class="sd">            The same rule applies if no line fit succeeded.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        list: List of dicts with fit results for each line:</span>
@@ -453,6 +696,9 @@
 <span class="sd">            - r_squared: Fit quality</span>
 <span class="sd">            - success: Whether fit succeeded</span>
 <span class="sd">            - message: Status message</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        RuntimeError: if the HITRAN fetch fails, or HITRAN does not know the molecule</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; # Fit CO v=1-&gt;0 lines only</span>
@@ -480,7 +726,7 @@
         <span class="n">wavelength_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span>
 
     <span class="c1"># Fetch HITRAN data for this molecule</span>
-    <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
+    <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">fetch_meta</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
         <span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="p">,</span>
         <span class="n">molecule</span><span class="p">,</span> <span class="n">isotopologue</span><span class="p">,</span>
         <span class="n">refresh_cache</span><span class="o">=</span><span class="n">refresh_cache</span><span class="p">,</span>
@@ -488,21 +734,62 @@
         <span class="n">v_lower</span><span class="o">=</span><span class="n">v_lower</span>
     <span class="p">)</span>
 
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">hitran_lines</span> <span class="ow">and</span> <span class="n">fetch_meta</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;message&#39;</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not get </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> lines from HITRAN: </span><span class="si">{</span><span class="n">fetch_meta</span><span class="p">[</span><span class="s1">&#39;message&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">hitran_lines</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Warning: No HITRAN lines found for </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> in range </span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;No HITRAN lines found for </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> in range </span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="p">[]</span>
 
     <span class="k">if</span> <span class="n">continuum</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">continuum_arr</span> <span class="o">=</span> <span class="n">fit_continuum</span><span class="p">(</span><span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">)</span>
+        <span class="n">continuum_lines</span> <span class="o">=</span> <span class="n">automatic_lines</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">continuum_arr</span> <span class="o">=</span> <span class="n">_as_float_array</span><span class="p">(</span><span class="n">continuum</span><span class="p">)</span>
+        <span class="n">continuum_lines</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">CALLER_LINES</span><span class="p">)</span>
 
     <span class="c1"># Contaminant fits (if given) aren&#39;t surfaced; they only keep requested</span>
     <span class="c1"># lines&#39; amplitudes honest. Center/sigma are free within a bound, not fixed.</span>
-    <span class="n">fit_pairs</span><span class="p">,</span> <span class="n">_contam_pairs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span>
+    <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">fit_pairs</span><span class="p">,</span> <span class="n">contam_pairs</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_fit_hitran_lines_internal</span><span class="p">(</span>
         <span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">,</span> <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">continuum_arr</span><span class="p">,</span>
         <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
         <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_catalog</span><span class="p">)</span>
+
+    <span class="n">n_fitted</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">_line</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">fit_pairs</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[OK] Fitted </span><span class="si">{</span><span class="n">n_fitted</span><span class="si">}</span><span class="s2"> of </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">fit_pairs</span><span class="p">)</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> lines between &quot;</span>
+          <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um in </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">start_time</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> s&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">save_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">parameters_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">n_fitted</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No </span><span class="si">{</span><span class="n">molecule</span><span class="si">}</span><span class="s2"> line fit succeeded, so no file was written&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">flux_unit</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;BUNIT&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">header</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">save_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">_save_gaussian_fit_internal</span><span class="p">(</span>
+                    <span class="n">save_path</span><span class="p">,</span> <span class="n">wl</span><span class="p">,</span> <span class="n">sp</span><span class="p">,</span> <span class="p">[],</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="n">flux_unit</span><span class="p">,</span> <span class="n">fit_type</span><span class="o">=</span><span class="s1">&#39;multi&#39;</span><span class="p">,</span>
+                    <span class="n">header_lines</span><span class="o">=</span><span class="n">continuum_lines</span><span class="p">,</span>
+                    <span class="n">entries</span><span class="o">=</span><span class="p">([{</span><span class="s1">&#39;kind&#39;</span><span class="p">:</span> <span class="s1">&#39;line&#39;</span><span class="p">,</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">line</span><span class="p">,</span> <span class="s1">&#39;result&#39;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+                              <span class="k">for</span> <span class="n">line</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">fit_pairs</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">]</span>
+                             <span class="o">+</span> <span class="p">[{</span><span class="s1">&#39;kind&#39;</span><span class="p">:</span> <span class="s1">&#39;contaminant&#39;</span><span class="p">,</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">line</span><span class="p">,</span> <span class="s1">&#39;result&#39;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+                                <span class="k">for</span> <span class="n">line</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">contam_pairs</span><span class="p">]</span>
+                             <span class="o">+</span> <span class="p">[{</span><span class="s1">&#39;kind&#39;</span><span class="p">:</span> <span class="s1">&#39;skipped&#39;</span><span class="p">,</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">line</span><span class="p">,</span> <span class="s1">&#39;result&#39;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+                                <span class="k">for</span> <span class="n">line</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">fit_pairs</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">]))</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[OK] Saved the fit to </span><span class="si">{</span><span class="n">save_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">parameters_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">entries</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="p">[{</span><span class="s1">&#39;kind&#39;</span><span class="p">:</span> <span class="s1">&#39;line&#39;</span><span class="p">,</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">line</span><span class="p">,</span> <span class="s1">&#39;result&#39;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+                     <span class="k">for</span> <span class="n">line</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">fit_pairs</span> <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">]</span>
+                    <span class="o">+</span> <span class="p">[{</span><span class="s1">&#39;kind&#39;</span><span class="p">:</span> <span class="s1">&#39;contaminant&#39;</span><span class="p">,</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">line</span><span class="p">,</span> <span class="s1">&#39;result&#39;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+                       <span class="k">for</span> <span class="n">line</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">contam_pairs</span><span class="p">]</span>
+                <span class="p">)</span>
+                <span class="n">entries</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">entry</span><span class="p">:</span> <span class="n">entry</span><span class="p">[</span><span class="s1">&#39;result&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">center</span><span class="p">)</span>
+                <span class="n">entries</span> <span class="o">+=</span> <span class="p">[{</span><span class="s1">&#39;kind&#39;</span><span class="p">:</span> <span class="s1">&#39;skipped&#39;</span><span class="p">,</span> <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">line</span><span class="p">,</span> <span class="s1">&#39;result&#39;</span><span class="p">:</span> <span class="n">result</span><span class="p">}</span>
+                            <span class="k">for</span> <span class="n">line</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">fit_pairs</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">]</span>
+                <span class="n">_save_gaussian_parameters_internal</span><span class="p">(</span>
+                    <span class="n">parameters_path</span><span class="p">,</span> <span class="n">entries</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span> <span class="n">flux_unit</span><span class="o">=</span><span class="n">flux_unit</span><span class="p">,</span>
+                    <span class="n">header_lines</span><span class="o">=</span><span class="n">continuum_lines</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[OK] Saved the parameters to </span><span class="si">{</span><span class="n">parameters_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="p">[</span>
         <span class="p">{</span>
@@ -585,13 +872,13 @@
 <span class="sd">    Fit a Gaussian to every spatial pixel&#39;s spectrum in a wavelength window.</span>
 
 <span class="sd">    This is the same full-cube fitting used by the GUI&#39;s Gaussian mapping</span>
-<span class="sd">    dialog. RANSAC outlier rejection is always enabled.</span>
+<span class="sd">    dialog. Iterative sigma-clipping outlier rejection is always enabled.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        cube_data (CubeData): Loaded cube from load_cube()</span>
 <span class="sd">        lam_min (float, optional): Minimum wavelength for the fit window (default: full range)</span>
 <span class="sd">        lam_max (float, optional): Maximum wavelength for the fit window (default: full range)</span>
-<span class="sd">        n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)</span>
+<span class="sd">        n_jobs (int, optional): Number of worker processes (default: auto-detect CPUs)</span>
 <span class="sd">        **kwargs: Passed through to fit_gaussians_per_pixel (e.g. fac_above_stdres,</span>
 <span class="sd">            noise_min, noise_max, lambda_0, progress_callback)</span>
 
@@ -619,6 +906,73 @@
         <span class="o">**</span><span class="n">kwargs</span>
     <span class="p">)</span></div>
 
+
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.line_catalog</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">collect_rest_line_candidates</span> <span class="k">as</span> <span class="n">_collect_rest_line_candidates</span><span class="p">,</span>
+    <span class="n">load_line_list</span> <span class="k">as</span> <span class="n">_load_line_list</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.unit_converter</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">spectral_axis_medium</span> <span class="k">as</span> <span class="n">_spectral_axis_medium</span><span class="p">,</span>
+    <span class="n">vacuum_um_to_cube_wavelength</span> <span class="k">as</span> <span class="n">_vacuum_um_to_cube_wavelength</span><span class="p">,</span>
+    <span class="n">wavelength_to_doppler_velocity</span> <span class="k">as</span> <span class="n">_wavelength_to_doppler_velocity</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">find_rest_lines</span><span class="p">(</span><span class="n">molecule</span><span class="p">,</span> <span class="n">lam_min</span><span class="p">,</span> <span class="n">lam_max</span><span class="p">,</span> <span class="n">line_list_path</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    List the lines of one molecule that can set zero velocity, in a wavelength window.</span>
+<span class="sd">    It reads HITRAN and the LST catalog, and every line stays in the list.</span>
+<span class="sd">    Pass the &#39;wavelength&#39; of the line you pick to create_velocity_map().</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        molecule (str): Molecule or atom name, for example &#39;CO&#39;, &#39;H2&#39; or &#39;He I&#39;</span>
+<span class="sd">        lam_min (float): Lower end of the window, in um (vacuum)</span>
+<span class="sd">        lam_max (float): Upper end of the window, in um (vacuum)</span>
+<span class="sd">        line_list_path (str, optional): CSV file, HITRAN-format .par file (for example</span>
+<span class="sd">            HITEMP), or LST .lst file with more lines of this molecule. Its lines have a</span>
+<span class="sd">            &#39;source&#39; that starts with &#39;File&#39;.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        list: Line dicts sorted by wavelength. &#39;wavelength&#39; is in um (vacuum), and &#39;source&#39;</span>
+<span class="sd">            is &#39;HITRAN&#39;, &#39;LST&#39; or &#39;File: &lt;name&gt;&#39;.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: if the window is not 0 &lt; lam_min &lt; lam_max, or line_list_path is not</span>
+<span class="sd">            a readable line list of this molecule</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">rows</span><span class="p">,</span> <span class="n">notes</span> <span class="o">=</span> <span class="n">_collect_rest_line_candidates</span><span class="p">(</span><span class="n">molecule</span><span class="p">,</span> <span class="n">lam_min</span><span class="p">,</span> <span class="n">lam_max</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">note</span> <span class="ow">in</span> <span class="n">notes</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[WARN] </span><span class="si">{</span><span class="n">note</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">line_list_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="n">rows</span> <span class="o">+</span> <span class="n">_load_line_list</span><span class="p">(</span><span class="n">line_list_path</span><span class="p">,</span> <span class="n">lam_min</span><span class="p">,</span> <span class="n">lam_max</span><span class="p">,</span> <span class="n">molecule</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">row</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;wavelength&#39;</span><span class="p">])</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_velocity_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">maps</span><span class="p">,</span> <span class="n">rest_wavelength</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Make a Doppler velocity map from Gaussian map line centers and a rest wavelength.</span>
+<span class="sd">    Zero velocity is the rest wavelength, in um (vacuum), as find_rest_lines() gives it.</span>
+<span class="sd">    The function converts it to the air or vacuum wavelengths that the cube uses.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cube_data (CubeData): Loaded cube from load_cube()</span>
+<span class="sd">        maps (dict): Result of create_gaussian_map()</span>
+<span class="sd">        rest_wavelength (float): Rest wavelength of the line, in um (vacuum)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        numpy.ndarray: Velocity map in km/s. A pixel without a fitted center is NaN.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: if the cube header does not say if wavelengths are in air or in vacuum,</span>
+<span class="sd">            or the spectral axis is not a wavelength</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">medium</span> <span class="o">=</span> <span class="n">_spectral_axis_medium</span><span class="p">(</span><span class="n">cube_data</span><span class="o">.</span><span class="n">header</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">medium</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;The cube header does not say if its wavelengths are in air or in vacuum &quot;</span>
+                         <span class="s2">&quot;(CTYPE3 must be WAVE or AWAV), so a rest wavelength cannot be compared.&quot;</span><span class="p">)</span>
+    <span class="n">rest</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">_vacuum_um_to_cube_wavelength</span><span class="p">(</span><span class="n">rest_wavelength</span><span class="p">,</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">,</span> <span class="n">medium</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">_wavelength_to_doppler_velocity</span><span class="p">(</span><span class="n">maps</span><span class="p">[</span><span class="s1">&#39;center&#39;</span><span class="p">],</span> <span class="n">rest</span><span class="p">,</span> <span class="n">cube_data</span><span class="o">.</span><span class="n">wave_unit</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="export_residual_cube">
@@ -728,14 +1082,20 @@
         <span class="n">contam_catalog</span> <span class="o">=</span> <span class="n">load_contaminating_lines_catalog</span><span class="p">(</span><span class="n">contamination_catalog_path</span><span class="p">)</span>
 
     <span class="c1"># Call internal function</span>
-    <span class="k">return</span> <span class="n">_extract_flux_internal</span><span class="p">(</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">_extract_flux_internal</span><span class="p">(</span>
         <span class="n">wavelength</span><span class="p">,</span> <span class="n">spectrum</span><span class="p">,</span>
         <span class="n">target_catalog</span><span class="p">,</span> <span class="n">contam_catalog</span><span class="p">,</span>
         <span class="n">do_duplicate_removal</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">snr_threshold</span><span class="o">=</span><span class="n">snr_threshold</span><span class="p">,</span>
         <span class="n">continuum_params</span><span class="o">=</span><span class="n">continuum_params</span><span class="p">,</span>
         <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">wave_unit</span><span class="o">=</span><span class="n">wave_unit</span><span class="p">,</span>
-    <span class="p">)</span></div>
+    <span class="p">)</span>
+
+    <span class="n">lines</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="s1">&#39;detected_lines&#39;</span><span class="p">]</span>
+    <span class="n">n_detected</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">lines</span><span class="p">[</span><span class="s1">&#39;disposition&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[OK] Extracted flux </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> from </span><span class="si">{</span><span class="n">n_detected</span><span class="si">}</span><span class="s2"> detected line(s), &quot;</span>
+          <span class="sa">f</span><span class="s2">&quot;contaminating flux </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;contam_flux&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4e</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">result</span><span class="p">[</span><span class="s1">&#39;flux_unit&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span></div>
 
 
 
@@ -764,9 +1124,10 @@
 <span class="sd">    Returns:</span>
 <span class="sd">        dict: Map data containing:</span>
 <span class="sd">            - &#39;flux_map&#39;: 2D array of flux per pixel, in erg/s/cm2 if cube_data.header</span>
-<span class="sd">              supports the conversion (see &#39;flux_unit&#39;), else the cube&#39;s native flux unit</span>
+<span class="sd">              supports the conversion (see &#39;flux_unit&#39;), else the cube&#39;s native flux unit.</span>
+<span class="sd">              A pixel with no detected line is NaN</span>
 <span class="sd">            - &#39;contam_flux_map&#39;: 2D array of contaminating-line flux per pixel, same units</span>
-<span class="sd">              as &#39;flux_map&#39;</span>
+<span class="sd">              as &#39;flux_map&#39;. A pixel with no detected contaminating line is NaN</span>
 <span class="sd">            - &#39;detection_map&#39;: 2D array with number of detected target lines per pixel</span>
 <span class="sd">            - &#39;contam_detection_map&#39;: 2D array with number of detected contaminating lines</span>
 <span class="sd">              per pixel</span>
@@ -774,6 +1135,11 @@
 <span class="sd">            - &#39;header&#39;: FITS header from the original cube</span>
 <span class="sd">            - &#39;wave_range&#39;: (wavelength_min, wavelength_max) actually used for the fit</span>
 <span class="sd">            - &#39;flux_unit&#39;: unit of &#39;flux_map&#39;/&#39;contam_flux_map&#39;</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        RuntimeError: if the CO line list for the cube&#39;s wavelength range cannot be</span>
+<span class="sd">            fetched from HITRAN</span>
+<span class="sd">        ValueError: if cube_data has no cube loaded</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
@@ -793,14 +1159,15 @@
         <span class="n">wavelength_min</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span> <span class="k">if</span> <span class="n">wavelength_min</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">wavelength_min</span>
         <span class="n">wavelength_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">wl</span><span class="p">))</span> <span class="k">if</span> <span class="n">wavelength_max</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">wavelength_max</span>
 
-        <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
+        <span class="n">hitran_lines</span><span class="p">,</span> <span class="n">fetch_meta</span> <span class="o">=</span> <span class="n">fetch_hitran_data</span><span class="p">(</span>
             <span class="n">wavelength_min</span><span class="p">,</span> <span class="n">wavelength_max</span><span class="p">,</span>
             <span class="s1">&#39;CO&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
             <span class="n">refresh_cache</span><span class="o">=</span><span class="kc">False</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">hitran_lines</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;  ERROR: Could not fetch CO data from HITRAN&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="kc">None</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="n">fetch_meta</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;message&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="s1">&#39;HITRAN has no CO line in this range&#39;</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Could not get CO lines from HITRAN for </span><span class="si">{</span><span class="n">wavelength_min</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">wavelength_max</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2"> um: </span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="c1"># flux_map_extractor expects a DataFrame with a &#39;line_wave_um&#39; column;</span>
         <span class="c1"># fetch_hitran_data returns a list of dicts with &#39;wavelength&#39; instead</span>
         <span class="n">target_catalog</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">hitran_lines</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;wavelength&#39;</span><span class="p">:</span> <span class="s1">&#39;line_wave_um&#39;</span><span class="p">})</span>
@@ -823,19 +1190,20 @@
 
 <span class="c1"># --- Rotational Diagram API ---</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">.rotational_diagram_h2_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotational_diagram</span> <span class="k">as</span> <span class="n">_rotational_diagram_h2</span><span class="p">,</span> <span class="n">pc</span> <span class="k">as</span> <span class="n">_rot_diag_pc</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.rotational_diagram_h2_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotational_diagram</span> <span class="k">as</span> <span class="n">_rotational_diagram_h2</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.rotational_diagram_general_fitter</span><span class="w"> </span><span class="kn">import</span> <span class="n">rotational_diagram</span> <span class="k">as</span> <span class="n">_rotational_diagram_general</span>
 
 
 <div class="viewcode-block" id="rotational_diagram">
 <a class="viewcode-back" href="../../reference/api.html#cube_explorer.api.rotational_diagram">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">rotational_diagram</span><span class="p">(</span><span class="n">fluxes</span><span class="p">,</span> <span class="n">flux_errors</span><span class="p">,</span> <span class="n">molecular_data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">OPR</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                        <span class="n">fit1T</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">fit2T</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist</span><span class="o">=</span><span class="mi">140</span><span class="o">*</span><span class="n">_rot_diag_pc</span><span class="p">,</span> <span class="n">upper_limits</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="n">fit1T</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">fit2T</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">R</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist</span><span class="o">=</span><span class="mi">140</span><span class="p">,</span> <span class="n">upper_limits</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                         <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;H2&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Fit a rotational diagram (1T and/or 2T) to a set of line fluxes. Dispatches to the</span>
 <span class="sd">    H2-specific fitter (hardcoded partition function, OPR support) or the general</span>
 <span class="sd">    HITRAN-based fitter (any molecule, e.g. CO) depending on `molecule`.</span>
+<span class="sd">    R is optional. Without R, N is a total molecule count instead of a column density.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        fluxes (dict): {J: flux_value}, J is the upper rotational level</span>
@@ -846,8 +1214,8 @@
 <span class="sd">        opr_grid (array): OPR values to search (H2 only). Defaults to np.linspace(0.1, 5.0, 200)</span>
 <span class="sd">        fit1T (bool): Report the 1T fit (always computed regardless, as 2T&#39;s own seed)</span>
 <span class="sd">        fit2T (bool): Perform the 2T fit</span>
-<span class="sd">        R (float): Emitting radius (AU or cm)</span>
-<span class="sd">        dist (float): Distance (pc or cm)</span>
+<span class="sd">        R (float): Emitting radius (AU), or None</span>
+<span class="sd">        dist (float): Distance (pc)</span>
 <span class="sd">        upper_limits (dict): {J: True} for measurements marked as upper limits</span>
 <span class="sd">        progress_callback (callable): (phase, current, total) -&gt; None, for a GUI progress bar</span>
 <span class="sd">        molecule (str): Species being fit, per get_available_molecules()</span>
@@ -891,7 +1259,7 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_region</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">line_table</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;H2&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">opr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="mf">140.0</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-               <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+               <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit one rotational diagram to a cube&#39;s summed spectrum over a region.</span>
 <span class="sd">    This is the same fit the GUI&#39;s Run Fit button runs. Pass a mask to sum</span>
 <span class="sd">    only some pixels, or omit it to sum the whole cube.</span>
@@ -915,12 +1283,14 @@
 <span class="sd">        dedup_tol_um (float): Co-located-line merge tolerance in microns</span>
 <span class="sd">        contam_lines (pd.DataFrame, optional): Contaminating lines to give their</span>
 <span class="sd">            own component in the fit, same format create_flux_map accepts</span>
+<span class="sd">        fit2t (bool): Report the two-temperature fit instead of 1T</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        dict: &#39;status&#39; (int, one of STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/</span>
 <span class="sd">            STATUS_FIT_FAILED), &#39;n_pixels&#39;, &#39;n_lines&#39;, and on STATUS_OK also</span>
-<span class="sd">            &#39;results&#39; (rotational_diagram()&#39;s own return value); otherwise</span>
-<span class="sd">            &#39;reason&#39; explains why no fit was attempted</span>
+<span class="sd">            &#39;results&#39; (rotational_diagram()&#39;s own return value, with a &#39;1T&#39; or</span>
+<span class="sd">            &#39;2T&#39; entry depending on fit2t); otherwise &#39;reason&#39; explains why no</span>
+<span class="sd">            fit was attempted</span>
 
 <span class="sd">    Example:</span>
 <span class="sd">        &gt;&gt;&gt; cube = load_cube(&quot;data.fits&quot;)</span>
@@ -932,12 +1302,12 @@
                            <span class="n">isotopologue</span><span class="o">=</span><span class="n">isotopologue</span><span class="p">,</span> <span class="n">opr</span><span class="o">=</span><span class="n">opr</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="n">fit_opr</span><span class="p">,</span>
                            <span class="n">opr_grid</span><span class="o">=</span><span class="n">opr_grid</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="n">dist_pc</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="n">r_au</span><span class="p">,</span>
                            <span class="n">min_lines</span><span class="o">=</span><span class="n">min_lines</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="n">dedup_tol_um</span><span class="p">,</span>
-                           <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">)</span>
+                           <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="n">fit2t</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_pixel</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">line_table</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;H2&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">opr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
               <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="mf">140.0</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
-              <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+              <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_sigma</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit one rotational diagram to a single pixel&#39;s own spectrum.</span>
 <span class="sd">    This is fit_region for one pixel instead of a summed region.</span>
 
@@ -947,7 +1317,9 @@
 <span class="sd">        y (int): Spatial y pixel index</span>
 <span class="sd">        line_table (list): Line dicts, see fit_region</span>
 <span class="sd">        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,</span>
-<span class="sd">            dedup_tol_um, contam_lines: Same meaning as in fit_region</span>
+<span class="sd">            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region</span>
+<span class="sd">        n_sigma (float): Detection threshold in noise sigmas. A line below it</span>
+<span class="sd">            is an upper limit and is left out of the fit. 3.0 by default</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        dict: Same shape as fit_region&#39;s return, for this one pixel</span>
@@ -960,14 +1332,15 @@
                           <span class="n">isotopologue</span><span class="o">=</span><span class="n">isotopologue</span><span class="p">,</span> <span class="n">opr</span><span class="o">=</span><span class="n">opr</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="n">fit_opr</span><span class="p">,</span>
                           <span class="n">opr_grid</span><span class="o">=</span><span class="n">opr_grid</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="n">dist_pc</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="n">r_au</span><span class="p">,</span>
                           <span class="n">min_lines</span><span class="o">=</span><span class="n">min_lines</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="n">dedup_tol_um</span><span class="p">,</span>
-                          <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">)</span>
+                          <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">,</span> <span class="n">n_sigma</span><span class="o">=</span><span class="n">n_sigma</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="n">fit2t</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">create_rotational_diagram_map</span><span class="p">(</span><span class="n">cube_data</span><span class="p">,</span> <span class="n">line_table</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;H2&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                                    <span class="n">opr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="mf">140.0</span><span class="p">,</span>
                                    <span class="n">r_au</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-                                   <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cancel_flag</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit a 1T rotational diagram at every pixel of one cube.</span>
+                                   <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cancel_flag</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                                   <span class="n">n_sigma</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit a rotational diagram at every pixel of one cube.</span>
 <span class="sd">    Same fit as the GUI&#39;s Run Map button, run once per pixel.</span>
 
 <span class="sd">    Args:</span>
@@ -976,16 +1349,23 @@
 <span class="sd">        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, dedup_tol_um,</span>
 <span class="sd">            contam_lines: Same meaning as in fit_region</span>
 <span class="sd">        min_lines (int): Fewest lines a pixel needs, checked separately at each</span>
-<span class="sd">            pixel -- one pixel can use different lines than its neighbor</span>
+<span class="sd">            pixel -- one pixel can use different lines than its neighbor. Raise</span>
+<span class="sd">            this for fit2t (a 2T fit has 4 free parameters, not 2)</span>
 <span class="sd">        n_jobs (int): Worker threads, one cube row per task</span>
 <span class="sd">        progress_callback (callable, optional): progress_callback(done_pixels, total_pixels)</span>
 <span class="sd">        cancel_flag (object, optional): Object with a `.cancelled` attribute, checked</span>
 <span class="sd">            between rows so a long-running map can be stopped early</span>
+<span class="sd">        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default. A line</span>
+<span class="sd">            below it is an upper limit and stays NaN in the maps. Not applied to</span>
+<span class="sd">            &#39;region_fit&#39;, whose whole-cube sum keeps the 3-sigma rule</span>
+<span class="sd">        fit2t (bool): Report the two-temperature fit instead of 1T, at every pixel</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        dict: &#39;T&#39;, &#39;T_err&#39; (2D float32, K), &#39;Ncol&#39;, &#39;Ncol_err&#39; (2D float32, cm^-2),</span>
-<span class="sd">            &#39;n_lines&#39; (2D int, lines used per pixel), &#39;status&#39; (2D int, one of</span>
-<span class="sd">            STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),</span>
+<span class="sd">        dict: &#39;T&#39;, &#39;T_err&#39; (2D float32, K), &#39;Ncol&#39;, &#39;Ncol_err&#39; (2D float64, cm^-2, or molecules if r_au is None) --</span>
+<span class="sd">            component 1 (1T&#39;s only component, or 2T&#39;s T1); &#39;T2&#39;, &#39;T2_err&#39;,</span>
+<span class="sd">            &#39;Ncol2&#39;, &#39;Ncol2_err&#39; (2T&#39;s T2 component, all-NaN when fit2t is False);</span>
+<span class="sd">            &#39;fit2t&#39;, &#39;n_lines&#39; (2D int, lines used per pixel), &#39;status&#39; (2D int, one</span>
+<span class="sd">            of STATUS_OK/STATUS_NO_DATA/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),</span>
 <span class="sd">            &#39;region_fit&#39; (the whole-cube-summed anchor fit, same as fit_region&#39;s</span>
 <span class="sd">            return), plus &#39;header&#39;, &#39;wave_range&#39;, &#39;molecule&#39;, &#39;dist_pc&#39;, &#39;r_au&#39;,</span>
 <span class="sd">            &#39;opr&#39;, &#39;kept_lines&#39;, &#39;dropped_lines&#39;</span>
@@ -1003,12 +1383,12 @@
                            <span class="n">opr_grid</span><span class="o">=</span><span class="n">opr_grid</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="n">dist_pc</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="n">r_au</span><span class="p">,</span>
                            <span class="n">min_lines</span><span class="o">=</span><span class="n">min_lines</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="n">dedup_tol_um</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span>
                            <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">,</span> <span class="n">progress_callback</span><span class="o">=</span><span class="n">progress_callback</span><span class="p">,</span>
-                           <span class="n">cancel_flag</span><span class="o">=</span><span class="n">cancel_flag</span><span class="p">)</span>
+                           <span class="n">cancel_flag</span><span class="o">=</span><span class="n">cancel_flag</span><span class="p">,</span> <span class="n">n_sigma</span><span class="o">=</span><span class="n">n_sigma</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="n">fit2t</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_region_multi</span><span class="p">(</span><span class="n">cubes_and_lines</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;H2&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">opr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                       <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="mf">140.0</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                      <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+                      <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit one rotational diagram from several cubes at once, one line per cube.</span>
 <span class="sd">    This is fit_region for many cubes instead of one. No convolution or</span>
 <span class="sd">    reprojection is needed here, since every pixel of every cube is summed.</span>
@@ -1016,7 +1396,7 @@
 <span class="sd">    Args:</span>
 <span class="sd">        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube</span>
 <span class="sd">        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,</span>
-<span class="sd">            dedup_tol_um, contam_lines: Same meaning as in fit_region</span>
+<span class="sd">            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        dict: &#39;status&#39; (int, one of STATUS_OK/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),</span>
@@ -1032,15 +1412,16 @@
                                  <span class="n">isotopologue</span><span class="o">=</span><span class="n">isotopologue</span><span class="p">,</span> <span class="n">opr</span><span class="o">=</span><span class="n">opr</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="n">fit_opr</span><span class="p">,</span>
                                  <span class="n">opr_grid</span><span class="o">=</span><span class="n">opr_grid</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="n">dist_pc</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="n">r_au</span><span class="p">,</span>
                                  <span class="n">min_lines</span><span class="o">=</span><span class="n">min_lines</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="n">dedup_tol_um</span><span class="p">,</span>
-                                 <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">)</span>
+                                 <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="n">fit2t</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">create_rotational_diagram_map_multi</span><span class="p">(</span><span class="n">cubes_and_lines</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;H2&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
                                          <span class="n">opr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                                          <span class="n">dist_pc</span><span class="o">=</span><span class="mf">140.0</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
                                          <span class="n">dedup_tol_um</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-                                         <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cancel_flag</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit a 1T rotational diagram at every pixel of a common grid built from</span>
+                                         <span class="n">progress_callback</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cancel_flag</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_sigma</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
+                                         <span class="n">fit2t</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fit a rotational diagram at every pixel of a common grid built from</span>
 <span class="sd">    several cubes at different pixel scales, one line per cube. Convolves</span>
 <span class="sd">    and reprojects each cube onto that grid first, then fits like Run Map.</span>
 
@@ -1048,19 +1429,23 @@
 <span class="sd">        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube,</span>
 <span class="sd">            at least 2</span>
 <span class="sd">        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,</span>
-<span class="sd">            dedup_tol_um, contam_lines: Same meaning as in fit_region</span>
+<span class="sd">            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region</span>
 <span class="sd">        n_jobs (int): Worker threads for each cube&#39;s native-grid extraction</span>
 <span class="sd">        progress_callback (callable, optional): progress_callback(done_units, total_units),</span>
 <span class="sd">            spanning every native-grid extraction plus the final per-pixel fit</span>
 <span class="sd">        cancel_flag (object, optional): Object with a `.cancelled` attribute</span>
+<span class="sd">        n_sigma (float): Detection threshold in noise sigmas, 3.0 by default. Applies</span>
+<span class="sd">            to the native fits only; the convolved maps get no second test. Not applied</span>
+<span class="sd">            to &#39;region_fit&#39;, whose whole-cube sum keeps the 3-sigma rule</span>
 
 <span class="sd">    Returns:</span>
-<span class="sd">        dict: &#39;T&#39;, &#39;T_err&#39; (2D float32, K), &#39;Ncol&#39;, &#39;Ncol_err&#39; (2D float32, cm^-2),</span>
-<span class="sd">            &#39;n_lines&#39; (2D int), &#39;status&#39; (2D int, see create_rotational_diagram_map),</span>
-<span class="sd">            &#39;region_fit&#39; (the whole-cube-summed anchor fit, same as fit_region_multi&#39;s</span>
-<span class="sd">            return), plus &#39;dst_wcs&#39; (the new common-grid WCS), &#39;molecule&#39;, &#39;dist_pc&#39;,</span>
-<span class="sd">            &#39;r_au&#39;, &#39;opr&#39;, &#39;min_lines&#39;, &#39;t_cap&#39;, &#39;worst_pix_arcsec&#39;, &#39;kept_lines&#39;,</span>
-<span class="sd">            &#39;dropped_lines&#39;</span>
+<span class="sd">        dict: &#39;T&#39;, &#39;T_err&#39; (2D float32, K), &#39;Ncol&#39;, &#39;Ncol_err&#39; (2D float64, cm^-2, or molecules if r_au is None) --</span>
+<span class="sd">            component 1; &#39;T2&#39;, &#39;T2_err&#39;, &#39;Ncol2&#39;, &#39;Ncol2_err&#39; (2T&#39;s T2 component,</span>
+<span class="sd">            all-NaN when fit2t is False); &#39;fit2t&#39;, &#39;n_lines&#39; (2D int), &#39;status&#39; (2D</span>
+<span class="sd">            int, see create_rotational_diagram_map), &#39;region_fit&#39; (the whole-cube-</span>
+<span class="sd">            summed anchor fit, same as fit_region_multi&#39;s return), plus &#39;dst_wcs&#39;</span>
+<span class="sd">            (the new common-grid WCS), &#39;molecule&#39;, &#39;dist_pc&#39;, &#39;r_au&#39;, &#39;opr&#39;,</span>
+<span class="sd">            &#39;min_lines&#39;, &#39;t_cap&#39;, &#39;worst_pix_arcsec&#39;, &#39;kept_lines&#39;, &#39;dropped_lines&#39;</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: if fewer than 2 pairs are given, a cube has no readable</span>
@@ -1078,11 +1463,12 @@
                                  <span class="n">opr_grid</span><span class="o">=</span><span class="n">opr_grid</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="n">dist_pc</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="n">r_au</span><span class="p">,</span>
                                  <span class="n">min_lines</span><span class="o">=</span><span class="n">min_lines</span><span class="p">,</span> <span class="n">dedup_tol_um</span><span class="o">=</span><span class="n">dedup_tol_um</span><span class="p">,</span>
                                  <span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span> <span class="n">contam_lines</span><span class="o">=</span><span class="n">contam_lines</span><span class="p">,</span>
-                                 <span class="n">progress_callback</span><span class="o">=</span><span class="n">progress_callback</span><span class="p">,</span> <span class="n">cancel_flag</span><span class="o">=</span><span class="n">cancel_flag</span><span class="p">)</span>
+                                 <span class="n">progress_callback</span><span class="o">=</span><span class="n">progress_callback</span><span class="p">,</span> <span class="n">cancel_flag</span><span class="o">=</span><span class="n">cancel_flag</span><span class="p">,</span>
+                                 <span class="n">n_sigma</span><span class="o">=</span><span class="n">n_sigma</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="n">fit2t</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">fit_pixel_multi</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="s1">&#39;H2&#39;</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">opr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-                     <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="mf">140.0</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+                     <span class="n">opr_grid</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dist_pc</span><span class="o">=</span><span class="mf">140.0</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Re-fit one pixel of a create_rotational_diagram_map_multi result.</span>
 <span class="sd">    Uses its cached per-line maps instead of redoing the convolution.</span>
 
@@ -1090,8 +1476,8 @@
 <span class="sd">        result (dict): Output of create_rotational_diagram_map_multi</span>
 <span class="sd">        x (int): Spatial x index on the result&#39;s common grid</span>
 <span class="sd">        y (int): Spatial y index on the result&#39;s common grid</span>
-<span class="sd">        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines:</span>
-<span class="sd">            Same meaning as in fit_region</span>
+<span class="sd">        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,</span>
+<span class="sd">            fit2t: Same meaning as in fit_region</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        dict: Same shape as fit_pixel&#39;s return, for this pixel of the common grid</span>
@@ -1106,12 +1492,13 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="n">_rdm_fit_pixel_multi</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">molecule</span><span class="o">=</span><span class="n">molecule</span><span class="p">,</span> <span class="n">isotopologue</span><span class="o">=</span><span class="n">isotopologue</span><span class="p">,</span>
                                 <span class="n">opr</span><span class="o">=</span><span class="n">opr</span><span class="p">,</span> <span class="n">fit_opr</span><span class="o">=</span><span class="n">fit_opr</span><span class="p">,</span> <span class="n">opr_grid</span><span class="o">=</span><span class="n">opr_grid</span><span class="p">,</span>
-                                <span class="n">dist_pc</span><span class="o">=</span><span class="n">dist_pc</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="n">r_au</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="n">min_lines</span><span class="p">)</span>
+                                <span class="n">dist_pc</span><span class="o">=</span><span class="n">dist_pc</span><span class="p">,</span> <span class="n">r_au</span><span class="o">=</span><span class="n">r_au</span><span class="p">,</span> <span class="n">min_lines</span><span class="o">=</span><span class="n">min_lines</span><span class="p">,</span> <span class="n">fit2t</span><span class="o">=</span><span class="n">fit2t</span><span class="p">)</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">save_rotational_diagram_map_fits</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">output_path</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Write a rotational-diagram-map result to a multi-extension FITS file:</span>
-<span class="sd">    one image HDU each for T, T_err, Ncol, Ncol_err, n_lines, and status.</span>
+<span class="sd">    one image HDU each for T, T_err, Ncol, Ncol_err, n_lines, and status --</span>
+<span class="sd">    plus T2/T2_err/Ncol2/Ncol2_err when the result is a 2T fit.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        result (dict): Output of create_rotational_diagram_map or</span>
@@ -1133,16 +1520,21 @@
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="c1"># Data Loading</span>
     <span class="s1">&#39;load_cube&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;load_spectrum&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;load_fit&#39;</span><span class="p">,</span>
     <span class="c1"># Region Extraction</span>
     <span class="s1">&#39;extract_pixel_spectrum&#39;</span><span class="p">,</span>
     <span class="s1">&#39;extract_region_spectrum&#39;</span><span class="p">,</span>
     <span class="c1"># Continuum</span>
     <span class="s1">&#39;fit_continuum&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;save_continuum_cubes&#39;</span><span class="p">,</span>
     <span class="c1"># Gaussian Fitting</span>
     <span class="s1">&#39;fit_line&#39;</span><span class="p">,</span>
     <span class="s1">&#39;fit_hitran_lines&#39;</span><span class="p">,</span>
     <span class="s1">&#39;measure_equivalent_width&#39;</span><span class="p">,</span>
     <span class="s1">&#39;create_gaussian_map&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;find_rest_lines&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;create_velocity_map&#39;</span><span class="p">,</span>
     <span class="s1">&#39;export_residual_cube&#39;</span><span class="p">,</span>
     <span class="c1"># Flux</span>
     <span class="s1">&#39;extract_flux&#39;</span><span class="p">,</span>
