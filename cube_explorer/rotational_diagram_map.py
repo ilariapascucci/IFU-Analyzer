@@ -17,7 +17,7 @@ from threading import Lock
 import numpy as np
 from astropy.io import fits
 
-from .unit_converter import extract_units
+from .unit_converter import extract_units, pixel_solid_angle
 from .utils import safe_worker_count, detect_instrument, get_pixel_size_arcsec, make_2d_wcs, wcs_footprints_overlap
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from .convolve_reproject import convolve_reproject_maps
@@ -42,6 +42,30 @@ STATUS_FIT_FAILED = 3        # the rotational_diagram call raised
 NATIVE_PX_NONE = 0           # no fit: empty spectrum, failed fit, or outside a region
 NATIVE_PX_UL = 1             # fit succeeded but is below the n-sigma floor
 NATIVE_PX_DETECTION = 2      # fit succeeded and is at or above the n-sigma floor
+
+
+def _pixel_sr(header):
+    """
+    Give the solid angle of one pixel, in steradians.
+    A fit of one pixel divides the flux of that pixel by this area to get a column density.
+    The pixel scale of the grid that the fluxes are on must be known.
+
+    Args:
+        header (astropy.io.fits.Header or astropy.wcs.WCS): Header or WCS of the grid that the fluxes are on
+
+    Returns:
+        sr (float): Solid angle of one pixel, in sr
+
+    Raises:
+        ValueError: if the header gives no pixel scale
+    """
+    if hasattr(header, "to_header"):
+        header = header.to_header()
+    omega = pixel_solid_angle(header)
+    if omega is None:
+        raise ValueError("The header has no pixel scale, so the area of one pixel is not known.")
+    return float(omega.value)
+
 
 def _resolve_cube(cube_or_list):
     """
@@ -127,7 +151,7 @@ def _build_molecular_data(lines, keys, molecule):
 
 
 def _run_fitter(fluxes, flux_errors, molecular_data, molecule, isotopologue,
-                opr, fit_opr, opr_grid, dist_pc, r_au, fit2t=False):
+                opr, fit_opr, opr_grid, dist_pc, r_au, fit2t=False, emitting_sr=None):
     """
     Call the right rotational_diagram fitter (H2 or general).
 
@@ -141,9 +165,12 @@ def _run_fitter(fluxes, flux_errors, molecular_data, molecule, isotopologue,
         fit_opr (bool): Grid-search OPR, H2 only
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs
-        r_au (float): Emitting radius in AU, or None
+        r_au (float): Emitting radius in AU, or None. A pixel fit does not use the value: with
+            a radius, N is per cm^2 of that pixel's own area. Without one, N is molecules per pixel
         fit2t (bool): Report the two-temperature fit instead of 1T, same
             default Run Fit uses (report 1T only when 2T wasn't requested)
+        emitting_sr (float): Solid angle that the fluxes come from, in sr. A pixel fit passes
+            the area of that pixel. A region fit leaves it None, so the disk of radius r_au is used
 
     Returns:
         results (dict): The fitter's result dict, with '1T' or '2T' (whichever
@@ -153,12 +180,12 @@ def _run_fitter(fluxes, flux_errors, molecular_data, molecule, isotopologue,
         return rotational_diagram_h2(
             fluxes, flux_errors, molecular_data=molecular_data, OPR=opr,
             fit_opr=fit_opr, opr_grid=opr_grid, fit1T=not fit2t, fit2T=fit2t,
-            R=r_au, dist=dist_pc, upper_limits=None,
+            R=r_au, dist=dist_pc, upper_limits=None, emitting_sr=emitting_sr,
         )
     return rotational_diagram_general(
         fluxes, flux_errors, molecular_data=molecular_data, fit1T=not fit2t,
         fit2T=fit2t, R=r_au, dist=dist_pc, upper_limits=None,
-        molecule=molecule, isotopologue=isotopologue,
+        molecule=molecule, isotopologue=isotopologue, emitting_sr=emitting_sr,
     )
 
 
@@ -225,7 +252,8 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
         fit_opr (bool): Grid-search OPR, H2 only
         opr_grid (array): OPR grid, or None
         dist_pc (float): Source distance in parsecs
-        r_au (float): Emitting radius in AU, or None
+        r_au (float): Emitting radius in AU, or None. A pixel fit does not use the value: with
+            a radius, N is per cm^2 of that pixel's own area. Without one, N is molecules per pixel
         min_lines (int): Fewest detections this fit needs
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
         fit2t (bool): Report the two-temperature fit instead of 1T
@@ -252,9 +280,11 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
                 "reason": f"{len(fluxes)} detections, need {min_lines}", "per_line": per_line}
 
     try:
+        # One pixel is the emitting area, so its flux is divided by the area of that pixel
+        emitting_sr = None if r_au is None else _pixel_sr(header)
         results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
                               isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
-                              fit2t=fit2t)
+                              fit2t=fit2t, emitting_sr=emitting_sr)
     except Exception as exc:
         return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc), "per_line": per_line}
 
@@ -281,7 +311,8 @@ def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys,
         fit_opr (bool): Grid-search OPR, H2 only
         opr_grid (array): OPR grid, or None
         dist_pc (float): Source distance in parsecs
-        r_au (float): Emitting radius in AU, or None
+        r_au (float): Emitting radius in AU, or None. A pixel fit does not use the value: with
+            a radius, N is per cm^2 of that pixel's own area. Without one, N is molecules per pixel
         min_lines (int): Fewest detections this pixel's fit needs
         n_sigma (float): Detection threshold in noise sigmas, 3.0 by default
         fit2t (bool): Report the two-temperature fit instead of 1T
@@ -436,7 +467,8 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
         fit_opr (bool): Grid-search OPR, H2 only
         opr_grid (array): OPR grid, or None
         dist_pc (float): Source distance in parsecs
-        r_au (float): Emitting radius in AU, or None
+        r_au (float): Emitting radius in AU, or None. A pixel fit does not use the value: with
+            a radius, N is per cm^2 of that pixel's own area. Without one, N is molecules per pixel
         min_lines (int): Fewest detections this fit needs
         dedup_tol_um (float): Co-located-line merge tolerance in microns
         contam_lines (pd.DataFrame): Contaminating lines, or None
@@ -469,8 +501,10 @@ def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=
         cube_or_list (CubeData or list): One cube, or a one-element list holding it
         line_table (list): Line dicts, see create_rotational_diagram_map
         mask (np.ndarray): 2D bool of pixels to sum. None sums every pixel
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, min_lines,
             dedup_tol_um, contam_lines: Same meaning as in fit_pixel
+        r_au (float): Emitting radius in AU, or None. With a radius, the summed flux is divided
+            by the area of the disk of that radius, and N is per cm^2 of that disk
         fit2t (bool): Report the two-temperature fit instead of 1T
 
     Returns:
@@ -535,7 +569,8 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         fit_opr (bool): Grid-search OPR per pixel, H2 only
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs, passed straight to the fitter
-        r_au (float): Emitting radius in AU, or None (total-molecules mode)
+        r_au (float): Emitting radius in AU, or None (total-molecules mode). A map does not use
+            the value: with a radius, N is per cm^2 of each pixel's own area
         min_lines (int): Fewest detections a pixel needs for a fit. Callers
             must raise this for fit2t (a 2T fit has 4 free parameters, not 2)
         dedup_tol_um (float): Co-located-line merge tolerance in microns
@@ -852,8 +887,9 @@ def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, min_lines,
             dedup_tol_um, contam_lines: Same meaning as in fit_pixel
+        r_au (float): Emitting radius in AU, or None. Same meaning as in fit_region
         region_masks (dict): {CubeData: boolean mask (ny, nx)}, restricting
             which pixels get summed for that cube -- from an imported region.
             A cube missing from this dict, or region_masks=None, sums every
@@ -1342,7 +1378,8 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
         fit_opr (bool): Grid-search OPR per pixel, H2 only
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs
-        r_au (float): Emitting radius in AU, or None (total-molecules mode)
+        r_au (float): Emitting radius in AU, or None (total-molecules mode). A map does not use
+            the value: with a radius, N is per cm^2 of each pixel's own area
         min_lines (int): Fewest detections a pixel needs for a fit
         region_fit (dict): Output of fit_region_multi. This stage has no cube
             access to compute it itself -- the caller supplies it (see
@@ -1383,6 +1420,8 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
     total = n_y * n_x
     done = 0
     first_fit_error = None
+    # The fluxes sit on the common grid, so one pixel of that grid is the emitting area
+    emitting_sr = None if r_au is None else _pixel_sr(convolved_result["dst_wcs"])
     for y in range(n_y):
         if cancel_flag is not None and cancel_flag.cancelled:
             break
@@ -1403,7 +1442,7 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
                 try:
                     result = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
                                          isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
-                                         fit2t=fit2t)
+                                         fit2t=fit2t, emitting_sr=emitting_sr)
                     if fit2t:
                         two_t = result["2T"]
                         t_map[y, x] = float(two_t["T1"])
@@ -1487,7 +1526,8 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         fit_opr (bool): Grid-search OPR per pixel, H2 only
         opr_grid (array): OPR grid for the search, or None
         dist_pc (float): Source distance in parsecs
-        r_au (float): Emitting radius in AU, or None (total-molecules mode)
+        r_au (float): Emitting radius in AU, or None (total-molecules mode). A map does not use
+            the value: with a radius, N is per cm^2 of each pixel's own area
         min_lines (int): Fewest detections a pixel needs for a fit
         dedup_tol_um (float): Co-located-line merge tolerance in microns
         n_jobs (int): Worker processes for each native-grid extraction
@@ -1744,9 +1784,11 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
                 "reason": f"{len(fluxes)} detections, need {min_lines}"}
 
     try:
+        # One pixel of the common grid is the emitting area
+        emitting_sr = None if r_au is None else _pixel_sr(result["dst_wcs"])
         results = _run_fitter(fluxes, flux_errors, molecular_data, molecule,
                               isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au,
-                              fit2t=fit2t)
+                              fit2t=fit2t, emitting_sr=emitting_sr)
     except Exception as exc:
         return {"status": STATUS_FIT_FAILED, "n_lines": len(fluxes), "reason": str(exc)}
 

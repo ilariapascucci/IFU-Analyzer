@@ -15,6 +15,7 @@ import threading
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 import numpy as np
+from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from scipy.optimize import curve_fit
 
 from .unit_converter import (get_wave_unit, convert_area_to_cgs, extract_value_from_quantity,
@@ -452,13 +453,10 @@ def compute_line_free_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: 
     return None
 
 
-MAD_TO_STD = 1.4826  # 1 / 0.6745, turns a median absolute deviation into a Gaussian sigma
-
-
 def compute_mad_noise_std(y_data: np.ndarray) -> float:
     """
     Estimate the noise std of a spectrum that still contains emission lines.
-    Uses 1.4826 x the median absolute deviation, which the lines barely change.
+    Uses the median absolute deviation, which the lines barely change, scaled to a Gaussian sigma.
     Use it for whole spectra with lines, not for line-free windows.
 
     Args:
@@ -467,7 +465,7 @@ def compute_mad_noise_std(y_data: np.ndarray) -> float:
     Returns:
         std (float): Noise std in the units of y_data. NaN if y_data has no finite values
     """
-    return float(np.nanmedian(np.abs(y_data - np.nanmedian(y_data))) * MAD_TO_STD)
+    return float(mad_std(y_data, ignore_nan=True))
 
 
 def gaussian_flux_upper_limit(sigma_noise: float, sigma: float, n_sigma: float = 3.0) -> float:
@@ -687,8 +685,8 @@ def estimate_gaussian_params(x_data: np.ndarray,
         left_idx = indices[0]
         right_idx = indices[-1]
         fwhm_guess = x_data[right_idx] - x_data[left_idx]
-        # Convert FWHM to sigma: FWHM = 2.355 * sigma
-        sigma_guess = fwhm_guess / 2.355
+        # Convert FWHM to sigma: FWHM = 2*sqrt(2*ln(2)) * sigma
+        sigma_guess = fwhm_guess / gaussian_sigma_to_fwhm
     else:
         # Default: use 1/4 of the range
         sigma_guess = (x_data[-1] - x_data[0]) / 4.0
@@ -936,8 +934,8 @@ def fit_gaussian_to_line(x1: float, x2: float,
         residuals = y_corrected - y_fit
 
         # STEP 5b: Calculate derived quantities from fitted parameters
-        # FWHM = 2.355 * sigma (Full Width at Half Maximum)
-        fwhm = 2.355 * sigma  # FWHM = 2*sqrt(2*ln(2)) * sigma
+        # FWHM = 2*sqrt(2*ln(2)) * sigma (Full Width at Half Maximum)
+        fwhm = gaussian_sigma_to_fwhm * sigma
 
         # STEP 5c: Calculate integrated area (AUC) - total flux under the Gaussian
         # Area = A * sigma * sqrt(2*pi) [integrated line flux formula]
@@ -1124,7 +1122,7 @@ def _upper_limit_sigma(header, unit, global_guess, lambda_0, x1, x2):
         else:
             center = (x1 + x2) / 2
         resolution = get_spectral_resolution(center * to_um, instrument, header)
-        sigma = (center / resolution) / 2.355
+        sigma = (center / resolution) / gaussian_sigma_to_fwhm
         print(f"Upper-limit width: R-based sigma = {sigma:.5f} {unit} "
               f"(R = {resolution:.0f} at {center:.4f} {unit}, {instrument}).")
         return sigma
@@ -1343,8 +1341,8 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             y_fit = gaussian(x_data, amplitude, center, sigma)
             residuals = y_corrected - y_fit
 
-            # STEP 5b: FWHM = 2.355 * sigma (standard Gaussian relationship)
-            fwhm = 2.355 * sigma
+            # STEP 5b: FWHM = 2*sqrt(2*ln(2)) * sigma (standard Gaussian relationship)
+            fwhm = gaussian_sigma_to_fwhm * sigma
 
             # STEP 5c: Area = A * sigma * sqrt(2*pi), the analytical integral of a Gaussian (total flux).
             area_native = amplitude * sigma * np.sqrt(2 * np.pi)
@@ -1499,7 +1497,7 @@ def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig
                 "amplitude": float(g_amp),  # Native flux unit, for example MJy/sr. Not CGS-converted
                 "center": float(g_center),
                 "sigma": float(g_sigma),
-                "fwhm": float(2.355 * g_sigma),
+                "fwhm": float(gaussian_sigma_to_fwhm * g_sigma),
                 "center_source": center_source,
                 "success": bool(fit_success_tot),
                 # The small stacked spectrum this came from, kept so an
@@ -1556,7 +1554,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'amplitude': Peak amplitude map, native flux unit (not CGS-converted)
             'center': Center wavelength map
             'sigma': Width parameter map
-            'fwhm': FWHM map (2.355 * sigma)
+            'fwhm': FWHM map (2*sqrt(2*ln(2)) * sigma)
             'area': Integrated area map, in erg/s/cm**2 if header is given, else native units
             'amplitude_error': Amplitude uncertainty map, from curve_fit's covariance
             'area_error': Area uncertainty map (_propagate_area_error, NaN where undetected)

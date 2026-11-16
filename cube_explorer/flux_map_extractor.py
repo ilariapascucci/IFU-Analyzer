@@ -33,6 +33,7 @@ from .gaussian_fitter import (
     compute_line_free_noise_std, compute_mad_noise_std, gaussian_flux_upper_limit,
     GaussianFitResult, gaussian,
 )
+from astropy.stats import gaussian_sigma_to_fwhm
 from .utils import get_spectral_resolution
 from .unit_converter import (
     integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs,
@@ -892,7 +893,7 @@ def _line_sigma(wl, header):
     else:
         raise ValueError(f"No spectral resolution formula for instrument {instrument!r} "
                           f"(only MIRI and NIRSpec are supported).")
-    return (wl / R) / 2.355
+    return (wl / R) / gaussian_sigma_to_fwhm
 
 
 
@@ -1188,7 +1189,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
                 r_squared=0, success=False, message=fit['message'],
                 catalog_sigma=fit.get('catalog_sigma'),
             )
-        fwhm = 2.355 * fit['sigma']
+        fwhm = gaussian_sigma_to_fwhm * fit['sigma']
         area_native = fit['area']
         area_cgs = (convert_area_to_cgs(fit['amplitude'], fit['sigma'], fit['center'], header, unit)
                     if header is not None else None)

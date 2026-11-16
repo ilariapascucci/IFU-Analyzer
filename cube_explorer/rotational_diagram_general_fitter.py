@@ -65,7 +65,7 @@ def partition_function_err(T, T_err, molecule='CO', isotopologue=1):
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit2T=False,
                         R=None, dist=140, upper_limits=None, progress_callback=None,
-                        molecule='CO', isotopologue=1):
+                        molecule='CO', isotopologue=1, emitting_sr=None):
     """
     Fit a rotational diagram (1T and/or 2T) to a set of line fluxes, for any
     non-H2 molecule. No OPR here -- see rotational_diagram_h2_fitter for H2.
@@ -83,6 +83,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
         molecule (str): Species being fit, per get_available_molecules()
         isotopologue (int): HITRAN isotopologue number for `molecule`
+        emitting_sr (float): Solid angle that the fluxes come from (sr), for example one pixel.
+            None uses the disk of radius R
 
     Returns:
         results (dict): Fit results ("1T" and/or "2T" keys, plus "_plot_data")
@@ -102,7 +104,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
 
     # Build dataset (no OPR to correct for here)
     E_arr, y_arr, y_err, is_ul_mask, dropped_detections, wave_arr = build_excitation_dataset(
-        fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist,
+        fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist, emitting_sr=emitting_sr,
     )
 
     return fit_excitation_diagram(

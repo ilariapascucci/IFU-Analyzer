@@ -269,19 +269,24 @@ def column_unit(r_au):
     return "molecules" if r_au is None else "cm⁻²"
 
 
-def input_lines(r_au, dist_pc):
+def input_lines(r_au, dist_pc, per_pixel=False):
     """
     The emitting radius and distance lines of a results text, the Run Fit wording.
+    A fit of one pixel divides by the area of that pixel, so it names the pixel and not a radius.
 
     Args:
         r_au (float): Emitting radius in au, or None if the user left it empty
         dist_pc (float): Distance in pc
+        per_pixel (bool): True for the fit of one pixel of a map
 
     Returns:
-        lines (str): "Emitting radius = ... au" and "Distance = ... pc", one per line
+        lines (str): "Emitting radius = ... au" or "Emitting area = one pixel", and "Distance = ... pc", one per line
     """
-    radius = "not set" if r_au is None else f"{r_au:g} au"
-    return f"Emitting radius = {radius}{chr(10)}Distance = {dist_pc:g} pc{chr(10)}"
+    if per_pixel and r_au is not None:
+        emitting = "Emitting area = one pixel"
+    else:
+        emitting = f"Emitting radius = {'not set' if r_au is None else f'{r_au:g} au'}"
+    return f"{emitting}{chr(10)}Distance = {dist_pc:g} pc{chr(10)}"
 
 
 def _opr_line(results):
@@ -301,7 +306,7 @@ def _opr_line(results):
     return f"OPR = {results['OPR']:.2f} (fixed)\n"
 
 
-def _fit_block(results, r_au, dist_pc):
+def _fit_block(results, r_au, dist_pc, per_pixel=False):
     """
     The "--- 1T FIT ---" or "--- 2T FIT ---" block, formatted like Run Fit's
     show_results -- whichever of '1T'/'2T' is present in `results`.
@@ -310,12 +315,13 @@ def _fit_block(results, r_au, dist_pc):
         results (dict): A rotational_diagram result dict with a '1T' or '2T' entry
         r_au (float): Emitting radius in au, or None
         dist_pc (float): Distance in pc
+        per_pixel (bool): True for the fit of one pixel of a map
 
     Returns:
         text (str): The radius, distance and OPR lines plus the fit's temperature(s) and column density(s)
     """
     unit = column_unit(r_au)
-    text = input_lines(r_au, dist_pc) + _opr_line(results)
+    text = input_lines(r_au, dist_pc, per_pixel) + _opr_line(results)
     if "1T" in results:
         r1 = results["1T"]
         text += (
@@ -377,7 +383,7 @@ def pixel_result_text(x, y, out, r_au, dist_pc):
     head = f"{bar}\nROTATIONAL DIAGRAM ANALYSIS RESULTS -- PIXEL ({x}, {y})\n{bar}\n\n"
     if out.get("status") != STATUS_OK:
         return head + f"No fit: {out.get('reason', 'n/a')}\nLines used: {out.get('n_lines', 0)}\n{bar}\n"
-    return head + _fit_block(out["results"], r_au, dist_pc) + f"\nLines used: {out['n_lines']}\n{bar}\n"
+    return head + _fit_block(out["results"], r_au, dist_pc, per_pixel=True) + f"\nLines used: {out['n_lines']}\n{bar}\n"
 
 
 def pixel_result_html(text, highlight=None):

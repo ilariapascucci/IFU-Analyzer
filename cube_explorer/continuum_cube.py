@@ -13,6 +13,7 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 
 import numpy as np
 from astropy.io import fits
+from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from scipy.interpolate import CubicSpline
 
 from .flux_map_extractor import DEFAULT_SIGMA_MULTIPLIER, fit_auto_continuum
@@ -85,7 +86,7 @@ def _anchor_values(block):
         # An all-NaN window gives NaN on purpose; the caller counts those pixels.
         warnings.simplefilter('ignore', category=RuntimeWarning)
         median = np.nanmedian(block, axis=0)
-        sigma = 1.4826 * np.nanmedian(np.abs(block - median), axis=0)
+        sigma = mad_std(block, axis=0, ignore_nan=True)
         keep = np.isfinite(block) & ((np.abs(block - median) <= CLIP_SIGMA * sigma) | (sigma == 0))
         return np.nanmedian(np.where(keep, block, np.nan), axis=0)
 
@@ -130,7 +131,7 @@ def build_custom_anchors(cube_data, anchor_wavelengths, half_width_sigma=DEFAULT
     """
     Turn clicked anchor wavelengths into the slice windows used at every pixel.
     Each anchor snaps to the nearest slice. Its window spans +/- half_width_sigma instrumental
-    sigma, sigma = wavelength / R / 2.355, with R from the instrument. The default is the Flux Map's.
+    sigma, sigma = wavelength / R / (2*sqrt(2*ln(2))), with R from the instrument. The default is the Flux Map's.
 
     Args:
         cube_data (CubeData): Loaded cube from load_cube()
@@ -164,13 +165,13 @@ def build_custom_anchors(cube_data, anchor_wavelengths, half_width_sigma=DEFAULT
     windows = []
     for c in slices:
         resolution = get_spectral_resolution(wavelength[c] * to_um, cube_data.instrument, cube_data.header)
-        half_width = half_width_sigma * (wavelength[c] / resolution) / 2.355
+        half_width = half_width_sigma * (wavelength[c] / resolution) / gaussian_sigma_to_fwhm
         windows.append((int(np.searchsorted(wavelength, wavelength[c] - half_width, side='left')),
                         int(np.searchsorted(wavelength, wavelength[c] + half_width, side='right'))))
 
     centers = wavelength[slices]
     description = [
-        f"Custom continuum: {len(slices)} anchors, window +/-{half_width_sigma:g} sigma (lambda/R/2.355), "
+        f"Custom continuum: {len(slices)} anchors, window +/-{half_width_sigma:g} sigma (lambda/R/2.35482), "
         f"{CLIP_SIGMA:g}-sigma clipped median, cubic spline, flat beyond the outer anchors",
         "Anchor wavelengths: " + ", ".join(f"{w:.6g}" for w in centers),
     ]

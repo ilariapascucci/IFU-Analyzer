@@ -7,6 +7,8 @@ rotational_diagram_general_fitter.py instead.
 import logging
 
 import numpy as np
+import astropy.constants as const
+import astropy.units as u
 from scipy.optimize import curve_fit
 
 # nutpie compiles with numba, so PyTensor's C++ compiler is not used.
@@ -50,11 +52,9 @@ def _load_mcmc_libraries():
 CONSTANTS
 '''
 
-erg2ev = 6.24150647996e11  # erg -> eV
-clight = 2.99792458e10  # cm/s
-hplanck_eV = 4.135667696e-15  # eV*s
-hplanck = hplanck_eV / erg2ev  # erg*s
-pc = 3.086e18  # cm
+clight = const.c.cgs.value  # cm/s
+hplanck = const.h.cgs.value  # erg*s
+pc = u.pc.to(u.cm)  # cm
 
 _PYMC_RANDOM_SEED = 42  # PyMC random seed for deterministic approach
 
@@ -120,10 +120,11 @@ def get_gu(SJ):
     Ju = get_Ju(SJ)
     return (2*Ju + 1)
 
-def compute_Nu(F, lam, A, R=None, dist=None):
+def compute_Nu(F, lam, A, R=None, dist=None, emitting_sr=None):
     """
     Compute column density from flux.
     With R, the result is a column density. Without R, it is a total molecule count.
+    The column density is the flux divided by the solid angle that it comes from.
 
     Args:
         F (float): Flux
@@ -131,6 +132,8 @@ def compute_Nu(F, lam, A, R=None, dist=None):
         A (float): Einstein coefficient (s^-1)
         R (float): Emitting radius (AU), optional
         dist (float): Distance (pc)
+        emitting_sr (float): Solid angle that the flux comes from (sr), for example one pixel.
+            None uses the disk of radius R at distance dist. Not used when R is None.
 
     Returns:
         Nu (float): Column density, or total molecule count if R is None
@@ -139,9 +142,12 @@ def compute_Nu(F, lam, A, R=None, dist=None):
     Nu_col = (4*np.pi * F * lam_cm) / (hplanck * clight * A)
 
     if R is not None:
-        arcsec2 = np.pi*((R/dist)**2)
-        sr_arcsec2 = 4.25*(10**10)
-        sr = arcsec2/sr_arcsec2
+        if emitting_sr is None:
+            arcsec2 = np.pi*((R/dist)**2)
+            sr_arcsec2 = u.sr.to(u.arcsec ** 2)  # arcsec^2 per steradian
+            sr = arcsec2/sr_arcsec2
+        else:
+            sr = emitting_sr
         Nu_total = Nu_col / sr
         return Nu_total
     else:
@@ -585,7 +591,7 @@ def require_fit_selected(fit1T, fit2T):
 
 
 def build_excitation_dataset(fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist,
-                             nu_correction=None):
+                             nu_correction=None, emitting_sr=None):
     """
     Compute excitation diagram arrays from line fluxes.
     An optional correction is applied to each upper-level population, for example
@@ -602,6 +608,7 @@ def build_excitation_dataset(fluxes, flux_errors, wave, Aul, Eu, gu, upper_limit
         R (float): Emitting radius (AU), or None
         dist (float): Distance (pc)
         nu_correction (callable): (Nu, J) -> corrected Nu, or None for no correction
+        emitting_sr (float): Solid angle that the flux comes from (sr), or None for the disk of radius R
 
     Returns:
         E, y, y_err, is_ul, dropped, wave_arr (tuple): Arrays (E in K, y=log(Nu/gu)),
@@ -616,7 +623,7 @@ def build_excitation_dataset(fluxes, flux_errors, wave, Aul, Eu, gu, upper_limit
             continue
 
         F = fluxes[J]
-        Nu = compute_Nu(F, wave[J], Aul[J], R, dist)
+        Nu = compute_Nu(F, wave[J], Aul[J], R, dist, emitting_sr)
         if nu_correction is not None:
             Nu = nu_correction(Nu, J)
         y = np.log(Nu / gu[J])
@@ -973,7 +980,8 @@ def fit_excitation_diagram(E_arr, y_arr, y_err, is_ul_mask, dropped_detections, 
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit1T=True, fit2T=False, R=None, dist=140, upper_limits=None, progress_callback=None):
+                        fit1T=True, fit2T=False, R=None, dist=140, upper_limits=None, progress_callback=None,
+                        emitting_sr=None):
     """
     Fit an H2 rotational diagram (1T and/or 2T) to a set of line fluxes.
     R is optional. Without R, N is a total molecule count instead of a column density.
@@ -991,6 +999,8 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         dist (float): Distance (pc)
         upper_limits (dict): {J: True} for measurements marked as upper limits
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
+        emitting_sr (float): Solid angle that the fluxes come from (sr), for example one pixel.
+            None uses the disk of radius R
 
     Returns:
         results (dict): Fit results, always including "OPR"/"OPR_err"/"OPR_err_pos"/"OPR_err_neg"
@@ -1024,6 +1034,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         return build_excitation_dataset(
             fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist,
             nu_correction=lambda Nu, J: apply_OPR(Nu, J, opr_value),
+            emitting_sr=emitting_sr,
         )
 
     def _compute_chi2(E_arr, y_arr, y_err, is_ul_mask, use_2T):

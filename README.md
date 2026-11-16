@@ -176,6 +176,7 @@ Bring several images to one resolution in a single step.
   - Automatic method selection: ordinary least squares (`scipy.curve_fit`) when all points are detections; PyMC Bayesian censored regression when one or more upper limits are present.
   - Ortho-to-para ratio (OPR) fit for H2
   - A distance input (pc), which is required, and an emitting-radius input (au), which is optional. With a radius, N is a column density. Without a radius, N is a total molecule count.
+  - In a temperature map, each pixel uses the area of that pixel. With a radius, N is a column density per pixel area, and the value of the radius does not change the map. Without a radius, N is the number of molecules in the pixel.
   - The results dialog reports the emitting radius, the distance, the OPR, the fitted temperature or temperatures, and the column densities.
   - "Save Fit" in the results dialog, and in the dialog of a pixel in the temperature map, saves the results, the plotted points, and the fit line to a CSV file.
   - "Save Fit..." in the Line Fit window of a line (double-click "View" in the Fit column) saves the wavelength, the original spectrum, and the fit curve that the window shows to a text file. The fit is NaN outside its window.

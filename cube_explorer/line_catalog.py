@@ -10,6 +10,8 @@ import os
 import numpy as np
 import pandas as pd
 import time
+import astropy.units as u
+from astropy import constants as const
 from astropy.io import ascii
 from .unit_converter import wavelength_to_doppler_velocity, extract_value_from_quantity, convert_wavelength
 
@@ -19,7 +21,7 @@ from .unit_converter import wavelength_to_doppler_velocity, extract_value_from_q
 LINE_MATCH_VELOCITY_TOL_KMS = 50.0
 
 # Second radiation constant hc/k, in cm K. It turns an energy in cm-1 into K.
-SECOND_RADIATION_CONSTANT_CM_K = 1.438776877
+SECOND_RADIATION_CONSTANT_CM_K = (const.h * const.c / const.k_B).to(u.cm * u.K).value
 
 
 def match_nearest_hitran_line(hitran_lines, wavelength, velocity_tol_kms=LINE_MATCH_VELOCITY_TOL_KMS):

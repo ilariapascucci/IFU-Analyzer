@@ -24,6 +24,7 @@ from matplotlib.figure import Figure
 
 from .convolution_plan_dialog import confirm_convolution_plan
 from .gui_mixins import make_selectable, make_legend_checkbox
+from astropy.stats import gaussian_sigma_to_fwhm
 from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
 from .gui import CollapsibleButtonGroup, build_group_bar
@@ -731,7 +732,8 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.radius_input.setToolTip(
             "Radius of the emitting region, in au. With a radius, N_u is a column density "
             "(cm^-2). Without it, N_u is a total molecule count (for example, to compare "
-            "against PDRTPy)."
+            "against PDRTPy). In a map, each pixel uses the area of that pixel, so the value "
+            "of the radius does not change the map."
         )
         self.radius_input.setMaximumWidth(100)
         bottom_layout.addWidget(self.radius_input)
@@ -3598,7 +3600,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 "wavelength": line["wavelength"], "x_data": g_x,
                 "y_data": global_fit["y_data"], "baseline": g_baseline, "y_fit": g_y_fit,
                 "y_fit_own": None, "center": g_center, "sigma": g_sigma,
-                "fwhm": 2.355 * g_sigma if g_sigma is not None else None,
+                "fwhm": gaussian_sigma_to_fwhm * g_sigma if g_sigma is not None else None,
                 "r_squared": global_fit.get("r_squared"),
                 "amplitude": g_amp, "flux_cgs": global_fit.get("area"),
                 "flux_error_cgs": global_fit.get("area_error"), "is_upper_limit": False,

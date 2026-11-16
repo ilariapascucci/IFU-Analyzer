@@ -15,6 +15,7 @@ import os
 import numpy as np
 from .gui_mixins import make_selectable, make_legend_checkbox
 from .gui_sizing import fit_to_screen
+from astropy.stats import gaussian_sigma_to_fwhm
 from .unit_converter import extract_value_from_quantity
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -323,7 +324,7 @@ class PixelFitDialog(QDialog):
             return format(val, spec)
 
         n_finite = int(np.count_nonzero(np.isfinite(y_data)))
-        fwhm = 2.355 * sigma if np.isfinite(sigma) else np.nan
+        fwhm = gaussian_sigma_to_fwhm * sigma if np.isfinite(sigma) else np.nan
         lines = [
             "FIT PARAMETERS",
             "-" * 32,
