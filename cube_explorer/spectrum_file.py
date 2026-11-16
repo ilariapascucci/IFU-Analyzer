@@ -1,13 +1,15 @@
 """
-Read a spectrum from a text file (txt, csv, tsv).
+Read a spectrum from a text file (txt, csv, tsv) or from a 1D FITS table (for example a JWST x1d file).
 The file has a wavelength column, a flux column, and an optional flux error column.
 This module has no GUI code. The GUI and the API both use it.
 """
 
+import os
 import re
 from dataclasses import dataclass, field
 
 import numpy as np
+from astropy.io import fits
 
 # The fewest points that the spectrum tools can work with.
 MIN_POINTS = 10
@@ -37,20 +39,29 @@ _WAVE_UNITS = {
     "å": ("Å", 1.0), "a": ("Å", 1.0), "angstrom": ("Å", 1.0), "angstroms": ("Å", 1.0),
 }
 
+_FITS_EXTENSIONS = (".fits", ".fit", ".fts")
+_FITS_WAVE_NAMES = ("wavelength", "wave", "lambda", "wl", "lam")
+_INSTRUMENT_NAMES = {"MIRI": "MIRI", "NIRSPEC": "NIRSpec", "MUSE": "MUSE"}
+# Bit 0 of the DQ column of a JWST file. It marks a value that must not be used.
+_JWST_DO_NOT_USE = 1
+
 
 @dataclass
 class SpectrumTable:
-    """The numbers and the header facts of one text file.
+    """The numbers and the header facts of one spectrum file.
 
     Attributes:
         path (str): Path of the file
         values (numpy.ndarray): 2D array with one row for each data line. A value that is not a number is NaN.
         column_names (list): Name of each column. "Column 1", "Column 2" and so on if the file gives none.
         names_found (bool): True if the file gives the column names
-        metadata (dict): Facts from the comment lines: wave_unit, flux_unit, medium, instrument,
-            grating, object, source_file, shift_factor
+        metadata (dict): Facts from the comment lines or the FITS header: wave_unit, flux_unit, medium,
+            instrument, grating, object, source_file, shift_factor
         skipped_rows (int): Number of data lines that had the wrong number of columns
-        comments (list): The comment lines of the file, as written, each with its "#" at the start
+        comments (list): The comment lines of the file, as written, each with its "#" at the start.
+            For a FITS file, these are the header cards.
+        column_units (list): The unit of each column, as a FITS table gives it. Empty for a text file.
+        notes (list): Sentences (str) that say what the reader removed from the data
     """
     path: str
     values: np.ndarray
@@ -59,6 +70,8 @@ class SpectrumTable:
     metadata: dict = field(default_factory=dict)
     skipped_rows: int = 0
     comments: list = field(default_factory=list)
+    column_units: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
 
 
 def _read_lines(path):
@@ -218,6 +231,179 @@ def read_spectrum_table(path):
                          metadata=metadata, skipped_rows=len(rows) - len(good), comments=comments)
 
 
+def is_fits_file(path):
+    """Tell if a file is a FITS file. The name ends with .fits, .fit or .fts, or the file starts with "SIMPLE".
+
+    Args:
+        path (str): Path of the file
+
+    Returns:
+        is_fits (bool): True if the file is a FITS file
+
+    Raises:
+        OSError: If the file cannot be opened
+    """
+    if os.path.splitext(path)[1].lower() in _FITS_EXTENSIONS:
+        return True
+    with open(path, 'rb') as handle:
+        return handle.read(6) == b'SIMPLE'
+
+
+def _header_comment_lines(label, header):
+    """Write a FITS header as comment lines, one for each card, so the Header button can show them.
+
+    Args:
+        label (str): Name of the header, for example "PRIMARY header"
+        header (astropy.io.fits.Header): The header
+
+    Returns:
+        lines (list): The comment lines (str), each with its "#" at the start
+    """
+    return [f"# --- {label} ---"] + ["# " + card.image.strip() for card in header.cards]
+
+
+def read_spectrum_fits(path):
+    """Read a 1D spectrum from a FITS table, for example the EXTRACT1D table of a JWST x1d file.
+    The first table that has a wavelength column is used. Each column of numbers becomes a column of the
+    table, with the unit that the file gives. Rows that a JWST DQ column marks as DO_NOT_USE are removed.
+
+    Args:
+        path (str): Path of the FITS file
+
+    Returns:
+        table (SpectrumTable): The numbers, the column names, the column units and the facts of the header
+
+    Raises:
+        OSError: If the file cannot be opened
+        ValueError: If the file has no table with a wavelength column, holds a cube or an image,
+            has a wavelength unit that this program does not read, or has fewer than 2 columns of numbers
+    """
+    with fits.open(path) as hdul:
+        primary = hdul[0].header
+        table_hdu = None
+        image_shapes = []
+        for hdu in hdul:
+            if isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)) and hdu.data is not None:
+                if any(column.name.lower() in _FITS_WAVE_NAMES for column in hdu.columns):
+                    table_hdu = hdu
+                    break
+            elif isinstance(hdu, (fits.PrimaryHDU, fits.ImageHDU)) and len(hdu.shape) >= 2:
+                image_shapes.append(hdu.shape)
+        if table_hdu is None:
+            if image_shapes:
+                raise ValueError(f"This FITS file holds an image or a cube {image_shapes[0]}, not a 1D spectrum. "
+                                 "Open a cube with Open FITS.")
+            raise ValueError("This FITS file has no table with a wavelength column (WAVELENGTH, WAVE or LAMBDA).")
+
+        columns = []
+        for column in table_hdu.columns:
+            values = np.asarray(table_hdu.data[column.name])
+            if values.ndim == 2 and values.shape[0] == 1:
+                values = values[0]  # One row, and each cell holds a whole spectrum
+            if values.ndim == 1 and values.dtype.kind in "fiu":
+                columns.append((column.name, str(column.unit or "").strip(), values.astype(float)))
+        wave_index = next((i for i, (name, _, _) in enumerate(columns) if name.lower() in _FITS_WAVE_NAMES), None)
+        if wave_index is None:
+            raise ValueError("The wavelength column of this FITS table does not hold numbers.")
+        n_rows = columns[wave_index][2].size
+        columns = [entry for entry in columns if entry[2].size == n_rows]
+        wave_index = next(i for i, (name, _, _) in enumerate(columns) if name.lower() in _FITS_WAVE_NAMES)
+        if len(columns) < 2:
+            raise ValueError("The FITS table needs at least 2 columns of numbers: wavelength and flux.")
+
+        wave_name, wave_unit, _ = columns[wave_index]
+        if wave_unit:
+            try:
+                normalize_wave_unit(wave_unit)
+            except ValueError:
+                raise ValueError(f"The wavelength column {wave_name} is in '{wave_unit}'. "
+                                 "This program reads um, nm and Angstrom.") from None
+
+        names = [entry[0] for entry in columns]
+        arrays = [entry[2] for entry in columns]
+        notes = []
+        telescope = str(primary.get("TELESCOP", "")).strip().upper()
+        if telescope == "JWST" and "DQ" in names:
+            flagged = (np.nan_to_num(arrays[names.index("DQ")]).astype(np.int64) & _JWST_DO_NOT_USE) != 0
+            if flagged.any():
+                arrays = [array[~flagged] for array in arrays]
+                notes.append(f"{int(flagged.sum())} row(s) that the DQ column marks as DO_NOT_USE were removed.")
+
+        metadata = {}
+        if wave_unit:
+            metadata["wave_unit"] = wave_unit
+        instrument = str(primary.get("INSTRUME", "")).strip()
+        if instrument:
+            metadata["instrument"] = _INSTRUMENT_NAMES.get(instrument.upper(), instrument)
+        grating = str(primary.get("GRATING", "")).strip()
+        if grating:
+            metadata["grating"] = grating
+        target = str(primary.get("TARGNAME", primary.get("OBJECT", ""))).strip()
+        if target:
+            metadata["object"] = target
+        if telescope == "JWST":
+            metadata["medium"] = "vacuum"
+
+        comments = (_header_comment_lines("PRIMARY header", primary)
+                    + _header_comment_lines(f"{table_hdu.name} header", table_hdu.header))
+    return SpectrumTable(path=path, values=np.column_stack(arrays), column_names=names, names_found=True,
+                         metadata=metadata, comments=comments, column_units=[entry[1] for entry in columns],
+                         notes=notes)
+
+
+def read_spectrum_file(path):
+    """Read a spectrum file: a FITS table, or a text file (txt, csv, tsv).
+
+    Args:
+        path (str): Path of the file
+
+    Returns:
+        table (SpectrumTable): The numbers, the column names and the facts of the header
+
+    Raises:
+        OSError: If the file cannot be opened
+        ValueError: If the file is not a valid spectrum, see read_spectrum_fits and read_spectrum_table
+    """
+    return read_spectrum_fits(path) if is_fits_file(path) else read_spectrum_table(path)
+
+
+def column_flux_unit(table, y_index):
+    """Give the unit that a FITS table states for one column. A text file states none.
+
+    Args:
+        table (SpectrumTable): The table that read_spectrum_file gives
+        y_index (int): Index of the column
+
+    Returns:
+        unit (str): The unit, for example "Jy" or "MJy/sr". An empty string if the table gives none.
+    """
+    if 0 <= y_index < len(table.column_units):
+        return table.column_units[y_index]
+    return ""
+
+
+def suggest_error_column(table, y_index):
+    """Find the error column that goes with a flux column of a FITS table. It is the first column
+    with an error word in its name and the same unit as the flux. For FLUX in Jy this is FLUX_ERROR.
+    For SURF_BRIGHT in MJy/sr this is SB_ERROR.
+
+    Args:
+        table (SpectrumTable): The table that read_spectrum_file gives
+        y_index (int): Index of the flux column
+
+    Returns:
+        error_index (int): Index of the error column, or None if the table gives no units or no column fits
+    """
+    unit = column_flux_unit(table, y_index)
+    if not unit:
+        return None
+    for index, name in enumerate(table.column_names):
+        if (index != y_index and table.column_units[index] == unit
+                and any(word in name.lower() for word in _ERROR_WORDS)):
+            return index
+    return None
+
+
 def suggest_columns(table):
     """Guess which column is the wavelength, which is the flux, and which is the flux error.
     The guess uses the column names. Without names, the columns are wavelength, flux and error, in that order.
@@ -312,7 +498,7 @@ def prepare_spectrum(table, x_index, y_index, error_index=None):
     y = table.values[:, y_index]
     error = table.values[:, error_index] if error_index is not None else None
 
-    notes = []
+    notes = list(table.notes)
     if table.skipped_rows:
         notes.append(f"{table.skipped_rows} line(s) had the wrong number of columns and were skipped.")
     keep = np.isfinite(x) & np.isfinite(y)
@@ -354,13 +540,16 @@ def default_settings(table):
             and the column names, so nothing needs to be asked.
     """
     x_index, y_index, error_index = suggest_columns(table)
+    paired = suggest_error_column(table, y_index)
+    error_index = error_index if paired is None else paired
     meta = table.metadata
     medium = meta.get("medium", "").lower()
     instrument = meta.get("instrument", "")
+    flux_unit = meta["flux_unit"] if "flux_unit" in meta else column_flux_unit(table, y_index)
     return {
         "x_index": x_index, "y_index": y_index, "error_index": error_index,
         "wave_unit": meta.get("wave_unit", "um"),
-        "flux_unit": "" if meta.get("flux_unit", "").lower() == "unknown" else meta.get("flux_unit", ""),
+        "flux_unit": "" if flux_unit.lower() == "unknown" else flux_unit,
         "medium": medium if medium in ("air", "vacuum") else None,
         "instrument": None if instrument.lower() in ("", "unknown", "none") else instrument,
         "grating": meta.get("grating") or None,

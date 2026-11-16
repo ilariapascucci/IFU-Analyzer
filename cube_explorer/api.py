@@ -133,16 +133,19 @@ def load_cube(filename):
 def load_spectrum(filename, x_column=None, y_column=None, error_column=None, wave_unit=None,
                   flux_unit=None, medium=None, instrument=None, grating=None):
     """
-    Load one spectrum from a text file (txt or csv). This is the same as the GUI's "Load Spectrum" button.
+    Load one spectrum from a text file (txt or csv) or a 1D FITS table, for example a JWST x1d file.
+    This is the same as the GUI's "Load Spectrum" button.
 
     The file has a wavelength column, a flux column and an optional flux error column. The separator can
     be a tab, a comma, a semicolon or white space. Lines that start with "#" are comments. A file that
-    "Save Spectrum" wrote gives its own units, instrument and column names. Any other file needs wave_unit.
+    "Save Spectrum" wrote gives its own units, instrument and column names. Any other text file needs wave_unit.
+    A FITS table gives the unit of each column. For an x1d file the flux is FLUX in Jy, unless y_column is
+    SURF_BRIGHT (MJy/sr). The error column and the flux unit then follow the flux column.
     The object has no cube. cube.spectrum, cube.wavelength, cube.header and cube.spectrum_error work as
     they do for a cube, so fit_continuum and fit_line take them in the same way.
 
     Args:
-        filename (str): Path to the text file
+        filename (str): Path to the text file or the FITS file
         x_column (str or int): Name or index of the wavelength column. None uses the guess from the column names.
         y_column (str or int): Name or index of the flux column. None uses the guess.
         error_column (str, int or False): Name or index of the flux error column. None uses the guess.
@@ -165,9 +168,9 @@ def load_spectrum(filename, x_column=None, y_column=None, error_column=None, wav
         >>> spec = load_spectrum("my_spectrum.csv", wave_unit="um", flux_unit="Jy")
         >>> result = fit_line(spec.wavelength, spec.spectrum, x1=6.90, x2=6.92)
     """
-    from .spectrum_file import default_settings, read_spectrum_table
+    from .spectrum_file import column_flux_unit, default_settings, read_spectrum_file, suggest_error_column
 
-    table = read_spectrum_table(filename)
+    table = read_spectrum_file(filename)
     settings = default_settings(table)
     settings.pop("complete")
 
@@ -194,6 +197,11 @@ def load_spectrum(filename, x_column=None, y_column=None, error_column=None, wav
         settings["x_index"] = column_index(x_column)
     if y_column is not None:
         settings["y_index"] = column_index(y_column)
+        # A FITS table gives a unit for each column, so the unit and the error column follow the flux column.
+        settings["flux_unit"] = column_flux_unit(table, settings["y_index"]) or settings["flux_unit"]
+        paired = suggest_error_column(table, settings["y_index"])
+        if paired is not None:
+            settings["error_index"] = paired
     if error_column is False:
         settings["error_index"] = None
     elif error_column is not None:

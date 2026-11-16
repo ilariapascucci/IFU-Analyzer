@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
-from .spectrum_file import default_settings, normalize_wave_unit
+from .spectrum_file import column_flux_unit, default_settings, normalize_wave_unit, suggest_error_column
 from .utils import NIRSPEC_GRATINGS
 
 _PREVIEW_ROWS = 8
@@ -87,6 +87,8 @@ class SpectrumLoadDialog(QDialog):
         self.flux_box.setCurrentText(start["flux_unit"])
         self.flux_box.setToolTip("The unit of the flux. You can type another unit. Leave it empty if you do not know it.")
         form.addRow("Flux unit:", self.flux_box)
+        # A FITS table gives a unit for each column. The flux unit and the error column follow the flux column.
+        self.y_box.currentIndexChanged.connect(self._sync_to_flux_column)
 
         self.medium_box = QComboBox()
         self.medium_box.addItems(("unknown", "vacuum", "air"))
@@ -117,6 +119,23 @@ class SpectrumLoadDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _sync_to_flux_column(self, index):
+        """Set the flux unit and the error column to the ones that go with the chosen flux column.
+        A text file gives no column units, so nothing changes for it.
+
+        Args:
+            index (int): Index of the flux column that the user chose
+
+        Returns:
+            None
+        """
+        unit = column_flux_unit(self.table, index)
+        if unit:
+            self.flux_box.setCurrentText(unit)
+        error_index = suggest_error_column(self.table, index)
+        if error_index is not None:
+            self.error_box.setCurrentIndex(error_index + 1)
 
     def _sync_grating(self, *_):
         """Show the grating box only when the instrument is NIRSpec.

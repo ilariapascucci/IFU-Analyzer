@@ -1,5 +1,5 @@
 """
-Load a spectrum from a text file, and the spectrum-only mode of the main window.
+Load a spectrum from a text file or a 1D FITS table, and the spectrum-only mode of the main window.
 A spectrum file has no cube. The slices, the regions and the per-pixel tools do not apply to it.
 """
 
@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 from .data_loader import CubeData
 from .fit_file import fit_type_of_comments
 from .gui_fit_file import FIT_BUTTON_TEXT
-from .spectrum_file import default_settings, read_spectrum_table
+from .spectrum_file import default_settings, read_spectrum_file
 from .spectrum_load_dialog import SpectrumLoadDialog
 from .unit_converter import extract_value_from_quantity
 from .visualization import SpectrumPlotter
@@ -26,8 +26,8 @@ _CUBE_ONLY_TIP = "A spectrum file has no cube, so this tool is not available."
 
 class GuiSpectrumFileMixin:
     """
-    Mixin class for the Load Spectrum button. It loads a text file with a wavelength column,
-    a flux column and an optional flux error column. The window then works on that one spectrum.
+    Mixin class for the Load Spectrum button. It loads a text file or a 1D FITS table with a wavelength
+    column, a flux column and an optional flux error column. The window then works on that one spectrum.
     """
 
     def _init_spectrum_file_controls(self):
@@ -41,7 +41,8 @@ class GuiSpectrumFileMixin:
         """
         self.load_spectrum_btn = QPushButton("Load Spectrum")
         self.load_spectrum_btn.setToolTip(
-            "Load a spectrum from a text file (txt or csv) with wavelength, flux, and optional flux error. "
+            "Load a spectrum from a text file (txt or csv) or a 1D FITS table (for example a JWST x1d file) "
+            "with wavelength, flux, and optional flux error. "
             "The continuum and Gaussian tools then work on it, with no FITS cube.")
         self.load_spectrum_btn.clicked.connect(self.load_spectrum)
 
@@ -56,7 +57,7 @@ class GuiSpectrumFileMixin:
         self._cube_only_tips = {}
 
     def load_spectrum(self):
-        """Ask for a text file, read it, and show its spectrum. A file that Save Spectrum wrote
+        """Ask for a text file or a FITS table, read it, and show its spectrum. A file that Save Spectrum wrote
         loads with no question. For any other file, a dialog asks for the columns and the units.
         A fit file loads as a spectrum only. The message tells the user which button loads the fit.
 
@@ -67,7 +68,8 @@ class GuiSpectrumFileMixin:
             None
         """
         fname, _ = QFileDialog.getOpenFileName(
-            self, "Load Spectrum", filter="Spectrum files (*.txt *.csv *.tsv *.dat);;All files (*)")
+            self, "Load Spectrum",
+            filter="Spectrum files (*.txt *.csv *.tsv *.dat *.fits *.fit *.fts);;All files (*)")
         if not fname:
             return
 
@@ -83,11 +85,11 @@ class GuiSpectrumFileMixin:
             QMessageBox.information(self, "Load Spectrum", "\n".join(notes))
 
     def _open_spectrum_file(self, fname, title):
-        """Read a text file and show its spectrum. Each problem is shown in a message box.
+        """Read a text file or a FITS table and show its spectrum. Each problem is shown in a message box.
         A file that Save Spectrum wrote loads with no question. For any other file, a dialog asks.
 
         Args:
-            fname (str): Path of the text file
+            fname (str): Path of the text file or the FITS file
             title (str): Title of the dialog and of the message boxes
 
         Returns:
@@ -95,7 +97,7 @@ class GuiSpectrumFileMixin:
                 str that tell what was changed in the data. Returns None if nothing was loaded.
         """
         try:
-            table = read_spectrum_table(fname)
+            table = read_spectrum_file(fname)
             settings = default_settings(table)
             if not settings.pop("complete"):
                 dialog = SpectrumLoadDialog(table, self)

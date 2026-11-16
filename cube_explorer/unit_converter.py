@@ -408,13 +408,15 @@ def pixel_solid_angle(header):
 def _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header):
     """
     Apply instrument corrections until `quantity` matches `target`, or give up.
+    A flux density (for example Jy) needs only the c/lambda**2 factor. A surface brightness
+    (for example MJy/sr) also needs the pixel solid angle.
 
     Args:
         quantity (Quantity): Value to reduce, in its native units
         target (Unit): Unit `quantity` must reach
         wavelength (float): Line center wavelength, in `wave_astropy_unit`
         wave_astropy_unit (Unit): Unit of `wavelength`
-        header (astropy.io.fits.Header): FITS header supplying the pixel scale for the pixel solid angle
+        header (astropy.io.fits.Header): FITS header supplying the pixel scale for the pixel solid angle, or None
 
     Returns:
         value (float): `quantity` converted to `target`, or None if no combination of corrections reaches it
@@ -422,8 +424,16 @@ def _reduce_to_target(quantity, target, wavelength, wave_astropy_unit, header):
     if quantity.unit.is_equivalent(target):
         return float(quantity.to(target).value)
 
+    if wavelength is None or wave_astropy_unit is None:
+        return None
+
+    # Flux density x wavelength -> flux. No pixel area is involved, so no header is needed.
+    spectral = quantity * (const.c / (wavelength * wave_astropy_unit) ** 2)
+    if spectral.unit.is_equivalent(target):
+        return float(spectral.to(target).value)
+
     omega = pixel_solid_angle(header)
-    if omega is None or wavelength is None or wave_astropy_unit is None:
+    if omega is None:
         return None
 
     quantity = quantity * omega
@@ -442,13 +452,14 @@ def integrated_flux_to_cgs(value, flux_unit, wavelength=None, header=None, wave_
     Convert an integrated line flux (for example, a Gaussian area) to erg/s/cm**2.
 
     Dispatches by unit, not instrument name. MUSE's erg/s/cm**2/Angstrom needs no
-    correction. MIRI and NIRSpec's MJy/sr needs the pixel solid angle and the c/lambda**2 jacobian.
+    correction. A flux density in Jy (for example an x1d spectrum) needs the c/lambda**2 jacobian.
+    MIRI and NIRSpec's MJy/sr also needs the pixel solid angle.
 
     Args:
         value (float): Integrated flux in flux_unit x wave_unit
         flux_unit (str): Flux unit string, typically the BUNIT header keyword
-        wavelength (float): Line center, in wave_unit. Required for MJy/sr, not used for MUSE
-        header (astropy.io.fits.Header): FITS header with the pixel scale. Required for MJy/sr
+        wavelength (float): Line center, in wave_unit. Required for Jy and MJy/sr, not used for MUSE
+        header (astropy.io.fits.Header): FITS header with the pixel scale. Required for MJy/sr, not for Jy
         wave_unit (str): Wavelength unit string, for example 'Angstrom' or 'um'
 
     Returns:
