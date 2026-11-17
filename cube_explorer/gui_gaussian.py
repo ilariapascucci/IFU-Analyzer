@@ -1433,6 +1433,5 @@ STATUS: {result.message}
             gauss_peak_x=getattr(self, 'gauss_peak_x', None),
             rest_line_chooser=self._choose_rest_line,
             fit_tab=tab,
-            shift_spectrum_callback=self._preview_shift_from_map,
         )
         dlg.exec_()

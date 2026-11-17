@@ -853,6 +853,7 @@ from .unit_converter import (
     spectral_axis_medium as _spectral_axis_medium,
     vacuum_um_to_cube_wavelength as _vacuum_um_to_cube_wavelength,
     wavelength_to_doppler_velocity as _wavelength_to_doppler_velocity,
+    remove_systemic_velocity as _remove_systemic_velocity,
 )
 
 
@@ -886,7 +887,7 @@ def find_rest_lines(molecule, lam_min, lam_max, line_list_path=None):
     return sorted(rows, key=lambda row: row['wavelength'])
 
 
-def create_velocity_map(cube_data, maps, rest_wavelength):
+def create_velocity_map(cube_data, maps, rest_wavelength, systemic_velocity=0.0):
     """
     Make a Doppler velocity map from Gaussian map line centers and a rest wavelength.
     Zero velocity is the rest wavelength, in um (vacuum), as find_rest_lines() gives it.
@@ -896,20 +897,24 @@ def create_velocity_map(cube_data, maps, rest_wavelength):
         cube_data (CubeData): Loaded cube from load_cube()
         maps (dict): Result of create_gaussian_map()
         rest_wavelength (float): Rest wavelength of the line, in um (vacuum)
+        systemic_velocity (float, optional): Systemic velocity in km/s. The map is relative to it.
+            This is the "Systemic velocity" box of the Velocity map in the GUI. Only this map changes.
 
     Returns:
         numpy.ndarray: Velocity map in km/s. A pixel without a fitted center is NaN.
 
     Raises:
         ValueError: if the cube header does not say if wavelengths are in air or in vacuum,
-            or the spectral axis is not a wavelength
+            the spectral axis is not a wavelength, or systemic_velocity is not a finite number
+            greater than -c
     """
     medium = _spectral_axis_medium(cube_data.header)
     if medium is None:
         raise ValueError("The cube header does not say if its wavelengths are in air or in vacuum "
                          "(CTYPE3 must be WAVE or AWAV), so a rest wavelength cannot be compared.")
     rest = float(_vacuum_um_to_cube_wavelength(rest_wavelength, cube_data.wave_unit, medium))
-    return _wavelength_to_doppler_velocity(maps['center'], rest, cube_data.wave_unit)
+    velocity = _wavelength_to_doppler_velocity(maps['center'], rest, cube_data.wave_unit)
+    return _remove_systemic_velocity(velocity, systemic_velocity)
 
 
 def export_residual_cube(cube_data, out_path="residual_cube.fits", lam_min=None,

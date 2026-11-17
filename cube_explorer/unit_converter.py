@@ -138,6 +138,29 @@ def wavelength_to_doppler_velocity(wavelength, reference, wave_unit):
     return SPEED_OF_LIGHT_KMS * (np.asarray(wavelength, dtype=float) - reference) / reference
 
 
+def remove_systemic_velocity(velocity, systemic_velocity):
+    """
+    Give Doppler velocities relative to the systemic velocity of the source.
+    The result is the same as shifting the spectrum by the systemic velocity and then
+    measuring the line centers again, because wavelength_to_doppler_velocity is linear in wavelength.
+
+    Args:
+        velocity (float/array): Doppler velocity or velocities in km/s, from wavelength_to_doppler_velocity
+        systemic_velocity (float): Systemic velocity in km/s. Positive means moving away (redshift)
+
+    Returns:
+        velocity (float/array): Velocity in km/s, same shape as velocity. NaN stays NaN
+
+    Raises:
+        ValueError: if systemic_velocity is not a finite number, or is not greater than -c
+    """
+    if not np.isfinite(systemic_velocity):
+        raise ValueError(f"The systemic velocity must be a finite number, got {systemic_velocity}")
+    if systemic_velocity <= -SPEED_OF_LIGHT_KMS:
+        raise ValueError(f"The systemic velocity must be greater than -{SPEED_OF_LIGHT_KMS:.0f} km/s, got {systemic_velocity}")
+    return (np.asarray(velocity, dtype=float) - systemic_velocity) / (1 + systemic_velocity / SPEED_OF_LIGHT_KMS)
+
+
 def doppler_velocity_to_wavelength_factor(velocity):
     """
     Convert a Doppler velocity to the factor that moves observed wavelengths to rest.

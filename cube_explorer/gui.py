@@ -2568,13 +2568,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self.set_left_btn.setChecked(False)
             self.slice_target = "right" if self.set_right_btn.isChecked() else None
 
-    def apply_doppler_shift(self, default_velocity=0.0):
+    def apply_doppler_shift(self):
         """Preview a multiplicative Doppler shift for the active spectrum
         tab (Full, Left, or Right) using lambda_0 = lambda / (1 + v/c),
         composed on top of that tab's existing shift factor.
 
         Args:
-            default_velocity (float): Velocity in km/s that the box starts with.
+            None
 
         Returns:
             None
@@ -2602,7 +2602,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self,
             f"Doppler Shift (Multiplicative) - {tab_label}",
             "Enter systemic velocity (km/s):",
-            value=default_velocity,
+            value=0.0,
             decimals=2
         )
         if not ok:
@@ -2762,25 +2762,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "Shift Applied",
             f"Shift applied to the {tab_label} spectrum."
         )
-
-    def _preview_shift_from_map(self, tab, velocity):
-        """Start the Preview Shift of a tab with the systemic velocity of a Gaussian map.
-        The box of the Preview Shift starts with the velocity, and the user can change it.
-
-        Args:
-            tab (str): Tab the map was fit on, 'full', 'left' or 'right'. It must be the active tab.
-            velocity (float): Systemic velocity of the map in km/s.
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: if tab is not the active tab.
-        """
-        if tab != self.active_spectrum_tab:
-            raise ValueError(f"The map is for the {tab} tab, but the {self.active_spectrum_tab} tab is active.")
-        self.apply_doppler_shift(default_velocity=velocity)
-        self._sync_shift_buttons()
 
     def _cancel_shift_preview(self):
         """Cancel whichever tab's pending shift preview is active, without

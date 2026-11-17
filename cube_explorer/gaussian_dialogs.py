@@ -11,7 +11,7 @@ import threading
 from .gui_sizing import fit_to_screen
 from .unit_converter import (
     gaussian_map_unit_labels, wavelength_to_doppler_velocity, spectral_axis_medium,
-    vacuum_um_to_cube_wavelength,
+    vacuum_um_to_cube_wavelength, remove_systemic_velocity,
 )
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
 from .fits_export import build_line_map_header, write_fits_product, _ascii_safe
@@ -26,10 +26,10 @@ _CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
 STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
-from PyQt5.QtCore import QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QFileDialog, QMessageBox, QInputDialog
+    QComboBox, QFileDialog, QMessageBox, QInputDialog, QLineEdit, QWidget
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
@@ -222,7 +222,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
     
     def __init__(self, parent, results, cube_data, gauss_left_x, gauss_right_x, wavelength=None,
                  noise_min=None, noise_max=None, gauss_peak_x=None, rest_line_chooser=None,
-                 fit_tab="full", shift_spectrum_callback=None):
+                 fit_tab="full"):
         """Build the Gaussian map results dialog and its parameter maps.
 
         Args:
@@ -238,8 +238,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             rest_line_chooser (callable): Takes a parent widget and returns (line, reason). The dialog
                 calls it when the user selects Velocity and no rest line is chosen. None turns this off.
             fit_tab (str): Spectrum tab the map was fit on, 'full', 'left' or 'right'.
-            shift_spectrum_callback (callable): Takes (tab, systemic velocity in km/s). The dialog closes
-                first, then the callback starts the Preview Shift. None hides the Shift Spectrum button.
 
         Returns:
             None
@@ -255,7 +253,10 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.rest_reason = None
         self.rest_line_chooser = rest_line_chooser
         self.fit_tab = fit_tab
-        self.shift_spectrum_callback = shift_spectrum_callback
+        # Offset of the Velocity map only, in km/s. No other map and no spectrum uses it.
+        self.systemic_velocity = 0.0
+        # False while a message is on screen instead of a map, so a click cannot pick a pixel.
+        self._map_on_screen = False
         self.wavelength = wavelength
         # The noise region the fit used, so a single-pixel view can draw the same
         # detection threshold the map was decided with.
@@ -399,13 +400,31 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.rest_line_btn.setVisible(False)
         param_layout.addWidget(self.rest_line_btn)
 
-        self.shift_btn = QPushButton("Shift Spectrum")
-        self.shift_btn.clicked.connect(self._shift_spectrum)
-        self.shift_btn.setVisible(False)
-        param_layout.addWidget(self.shift_btn)
-
         param_layout.addStretch()
         layout.addLayout(param_layout)
+
+        # Own row, for the Velocity map only. It shifts that map and nothing else.
+        self.systemic_row = QWidget()
+        systemic_layout = QHBoxLayout(self.systemic_row)
+        systemic_layout.setContentsMargins(0, 0, 0, 0)
+        systemic_layout.addWidget(QLabel("Systemic velocity [km/s]:"))
+        self.systemic_edit = QLineEdit("0.00")
+        self.systemic_edit.setMaximumWidth(90)
+        self.systemic_edit.returnPressed.connect(self._apply_systemic_velocity)
+        systemic_layout.addWidget(self.systemic_edit)
+        self.systemic_apply_btn = QPushButton("Apply")
+        self.systemic_apply_btn.setToolTip("Shift the Velocity map by this velocity. The other maps and the spectrum do not change.")
+        self.systemic_apply_btn.clicked.connect(self._apply_systemic_velocity)
+        systemic_layout.addWidget(self.systemic_apply_btn)
+        self.systemic_status = QLabel("Velocities relative to the rest line")
+        make_selectable(self.systemic_status)
+        systemic_layout.addWidget(self.systemic_status)
+        self.systemic_hint = QLabel("")
+        make_selectable(self.systemic_hint)
+        systemic_layout.addWidget(self.systemic_hint)
+        systemic_layout.addStretch()
+        self.systemic_row.setVisible(False)
+        layout.addWidget(self.systemic_row)
 
         # Own row, below the selectors, so the window doesn't end up wider than
         # the map; same pixel-select control as the flux map.
@@ -491,6 +510,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         """
         self.fig.clear()
         ax = self.fig.add_subplot(111)
+        self._map_on_screen = True
 
         param_name = self.param_combo.currentText()
         self.scale_btn.setEnabled(param_name not in _CATEGORICAL_PARAMS)
@@ -527,9 +547,12 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                 ax.axis('off')
                 ax.text(0.5, 0.5, f"Velocity map unavailable:\n{reason}", ha='center', va='center',
                         transform=ax.transAxes, wrap=True)
+                self._map_on_screen = False
                 self.canvas.draw()
                 return
             title = f"Velocity vs. {self.rest_line['species']} Rest Line"
+            if self.systemic_velocity != 0.0:
+                title += f", relative to systemic velocity {self.systemic_velocity:+.2f} km/s"
             unit_label, default_cmap = param_units['Velocity']
         elif param_name == "Sigma":
             data = self.results['sigma']
@@ -589,7 +612,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         if (is_velocity and self.rest_line is None and self.rest_line_chooser is not None
                 and self._shift_reason() is None):
             self.rest_line, self.rest_reason = self.rest_line_chooser(self)
-        self._update_shift_button()
+        self._update_systemic_controls()
         super()._on_param_changed()
 
     def _change_rest_line(self):
@@ -608,7 +631,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             return
         self.rest_line, self.rest_reason = line, None
         self.scale_settings.clear_absolute_range()
-        self._update_shift_button()
+        self._update_systemic_controls()
         self._update_plot()
 
     def _shift_reason(self):
@@ -659,10 +682,10 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         except ValueError as e:
             return None, str(e)
 
-    def _update_shift_button(self):
+    def _update_systemic_controls(self):
         """
-        Show the Shift Spectrum button for the Velocity map only. Enable it only when the systemic
-        velocity is known. The tooltip says why when it is off.
+        Show the systemic velocity box for the Velocity map only. The text next to it gives the
+        fitted systemic velocity of the summed spectrum as a suggestion. It does not change the map.
 
         Args:
             None
@@ -671,21 +694,21 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             None
         """
         is_velocity = self.param_combo.currentText() == "Velocity"
-        show = is_velocity and self.shift_spectrum_callback is not None
-        self.shift_btn.setVisible(show)
-        if not show:
+        self.systemic_row.setVisible(is_velocity)
+        if not is_velocity:
             return
         velocity, reason = self._systemic_velocity()
-        tab_name = {'full': 'Full', 'left': 'Left Region', 'right': 'Right Region'}.get(self.fit_tab, self.fit_tab)
-        self.shift_btn.setEnabled(reason is None)
-        self.shift_btn.setToolTip(reason if reason is not None else
-                                  f"Preview a shift of the {tab_name} spectrum by the systemic velocity, "
-                                  f"{velocity:+.2f} km/s. This window closes. You can change the value first.")
+        if velocity is None:
+            self.systemic_hint.setText("Fitted value of the summed spectrum: not available")
+            self.systemic_hint.setToolTip(reason)
+        else:
+            self.systemic_hint.setText(f"Fitted value of the summed spectrum: {velocity:+.2f} km/s")
+            self.systemic_hint.setToolTip("")
 
-    def _shift_spectrum(self):
+    def _apply_systemic_velocity(self):
         """
-        Close this window, then start the Preview Shift of the main window. The box of the
-        Preview Shift starts with the systemic velocity, and the user can change it.
+        Read the systemic velocity from the box and redraw the Velocity map without it.
+        The other maps and the spectrum do not change. If the text is not valid, the map stays as it was.
 
         Args:
             None
@@ -693,13 +716,20 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         Returns:
             None
         """
-        velocity, reason = self._systemic_velocity()
-        if velocity is None:
-            QMessageBox.warning(self, "Systemic Velocity Not Available", reason)
+        text = self.systemic_edit.text().strip()
+        try:
+            velocity = float(text)
+            remove_systemic_velocity(0.0, velocity)
+        except ValueError as e:
+            QMessageBox.warning(self, "Systemic Velocity Not Valid",
+                                f"Cannot use '{text}' as a systemic velocity in km/s.\n{e}")
+            self.systemic_edit.setText(f"{self.systemic_velocity:.2f}")
             return
-        # The window closes first, then the main window opens its box.
-        self.accept()
-        QTimer.singleShot(0, lambda: self.shift_spectrum_callback(self.fit_tab, velocity))
+        self.systemic_velocity = velocity
+        self.systemic_status.setText("Velocities relative to the rest line" if velocity == 0.0
+                                     else f"Velocities relative to systemic velocity {velocity:+.2f} km/s")
+        self.scale_settings.clear_absolute_range()
+        self._update_plot()
 
     def _rest_wavelength(self):
         """
@@ -743,7 +773,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
     def _velocity_map(self):
         """
         Build the Doppler velocity map of the fitted line centers, in km/s. Zero velocity
-        is the rest wavelength of the line the user chose.
+        is the rest wavelength of the line the user chose, moved by the systemic velocity in the box.
         Pixels without a detection stay NaN, because their center was never fitted.
 
         Args:
@@ -761,6 +791,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             return None, reason
         try:
             velocity = wavelength_to_doppler_velocity(self.results['center'], rest, self.wave_unit)
+            velocity = remove_systemic_velocity(velocity, self.systemic_velocity)
         except ValueError as e:
             return None, str(e)
         return velocity, None
@@ -863,6 +894,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             rest, _reason = self._rest_wavelength()
             if rest is not None:
                 lines.append(f"  Zero velocity: {rest:.6f} {self.wave_unit} ({self._rest_line_label()})")
+            lines.append(f"  Systemic velocity removed from this map: {self.systemic_velocity:+.2f} km/s")
             systemic, _why = self._systemic_velocity()
             if systemic is not None:
                 lines.append(f"  Systemic velocity (Gaussian fit of the summed spectrum): {systemic:+.2f} km/s")
@@ -918,7 +950,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         """
         # A modal dialog opened mid-press would swallow the matching
         # release, leaving the toolbar stuck mid-pan -- skip while active.
-        if self.toolbar.mode or not self.pixel_selection_enabled:
+        if self.toolbar.mode or not self.pixel_selection_enabled or not self._map_on_screen:
             return
         if event.inaxes is None or event.xdata is None or event.ydata is None:
             return
@@ -1174,6 +1206,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                 extra['VREFUNIT'] = (_ascii_safe(str(self.wave_unit)), "Unit of VREFWAV")
                 extra['VREFMED'] = (spectral_axis_medium(source_header), "Medium of VREFWAV: air or vacuum")
                 extra['VREFLINE'] = (_ascii_safe(self._rest_line_label())[:68], "Rest line")
+                extra['VSYS'] = (float(self.systemic_velocity), "Systemic velocity removed from map (km/s)")
             is_area = param_name == "Area (AUC)"
             if is_area and species_text:
                 try:
