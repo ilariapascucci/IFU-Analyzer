@@ -1020,6 +1020,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self.mask_spectrum_btn = QPushButton("Mask Spectrum")
         self.clear_masks_btn = QPushButton("Clear Masks")
+        self.save_masks_btn = QPushButton("Save Masks")
+        self.load_masks_btn = QPushButton("Load Masks")
 
         self.custom_save_pts_btn = QPushButton("Save Points")
         self.custom_load_pts_btn = QPushButton("Load Points")
@@ -1046,6 +1048,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Connect action buttons (keep existing connections)
         self.mask_spectrum_btn.clicked.connect(self._on_mask_spectrum_clicked)
         self.clear_masks_btn.clicked.connect(self._on_clear_masks_clicked)
+        self.save_masks_btn.clicked.connect(self._save_masks)
+        self.load_masks_btn.clicked.connect(self._load_masks)
         self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
         self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
         self.custom_delete_btn.clicked.connect(self._on_custom_delete_toggled)
@@ -1057,6 +1061,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # Hide all action buttons initially
         self.mask_spectrum_btn.hide()
         self.clear_masks_btn.hide()
+        self.save_masks_btn.hide()
+        self.load_masks_btn.hide()
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
@@ -1076,6 +1082,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "multi-Gaussian fit use the masks of the Full spectrum. A new mask removes the fitted continuum."
         )
         self.clear_masks_btn.setToolTip("Remove all masked ranges of the active spectrum")
+        self.save_masks_btn.setToolTip("Save the masked ranges of the active spectrum to a .txt file")
+        self.load_masks_btn.setToolTip(
+            "Load masked ranges from a .txt file. They replace the masked ranges of the active spectrum. "
+            "A fitted continuum is removed. Masks that you add after the load join the loaded ones.")
         self.custom_subtract_btn.setToolTip(
             "Click the spectrum to place the continuum points. Each point snaps to the nearest data point. "
             "Place at least 3 points, where the spectrum has no lines. Press the button again to remove the points.")

@@ -14,7 +14,8 @@ from PyQt5.QtWidgets import (
 from .data_loader import CubeData
 from .fit_file import fit_type_of_comments
 from .gui_fit_file import FIT_BUTTON_TEXT
-from .spectrum_file import default_settings, is_save_spectrum_file, read_spectrum_file
+from .flux_map_extractor import mask_ranges_from_lines
+from .spectrum_file import default_settings, is_save_spectrum_file, normalize_wave_unit, read_spectrum_file
 from .spectrum_load_dialog import SpectrumLoadDialog
 from .unit_converter import extract_value_from_quantity
 from .visualization import SpectrumPlotter
@@ -87,7 +88,8 @@ class GuiSpectrumFileMixin:
     def _open_spectrum_file(self, fname, title, choose_columns=False):
         """Read a text file or a FITS table and show its spectrum. Each problem is shown in a message box.
         A file that Save Spectrum wrote loads with no question, unless choose_columns is True.
-        Then the dialog asks, and the flux column starts on "original". For any other file, a dialog asks.
+        Then the dialog asks, and the flux column starts on "original". With the original column,
+        the masked ranges of the automatic continuum in the header come back on the plot.
 
         Args:
             fname (str): Path of the text file or the FITS file
@@ -97,7 +99,8 @@ class GuiSpectrumFileMixin:
 
         Returns:
             opened (tuple): (table, notes). table is the SpectrumTable that was read. notes is a list of
-                str that tell what was changed in the data. Returns None if nothing was loaded.
+                str that tell what was changed in the data or what came back from the header.
+                Returns None if nothing was loaded.
         """
         try:
             table = read_spectrum_file(fname)
@@ -119,12 +122,38 @@ class GuiSpectrumFileMixin:
             self.cube_data.free_memory()
             notes = self.cube_data.load_from_table(table, settings)
             self._reset_session_state()
+            notes = list(notes or [])
+            if choose_columns and is_save_spectrum_file(table.comments) \
+                    and table.column_names[settings["y_index"]].strip().lower() == "original":
+                notes.extend(self._restore_masks_from_header(table.comments, settings["wave_unit"]))
             self._show_loaded_spectrum()
         except Exception as error:
             QMessageBox.critical(self, title, f"Error while showing the spectrum:\n{error}")
             return None
 
-        return table, list(notes or [])
+        return table, notes
+
+    def _restore_masks_from_header(self, comments, wave_unit):
+        """Put the masked ranges that a Save Spectrum header gives back on the Full tab. The next refresh draws them.
+        The wavelengths of the file were converted to um when the file was loaded, so the ranges are too.
+
+        Args:
+            comments (list): The comment lines of the file, each with its "#" at the start
+            wave_unit (str): Wavelength unit of the file, as written
+
+        Returns:
+            notes (list): One str that tells the user what came back, or why it could not. Empty if the file has no masks.
+        """
+        try:
+            ranges = mask_ranges_from_lines(comments)
+            factor = normalize_wave_unit(wave_unit)[1]
+        except ValueError as error:
+            return [f"The masked ranges in the header could not be read, so none were restored: {error}"]
+        if not ranges:
+            return []
+        self.continuum_masks["full"] = [(low * factor, high * factor) for low, high in ranges]
+        return [f"{len(ranges)} masked range(s) of the automatic continuum came back from the header. "
+                f"Fit Continuum uses them."]
 
     def _reset_fit_state(self):
         """Clear the markers, fits, caches and plotted lines of the previous spectrum. They belong

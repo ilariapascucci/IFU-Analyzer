@@ -10,7 +10,8 @@ from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
 from .fit_file import check_same_flux_unit
 from .flux_map_extractor import (fit_auto_continuum, NONE_LINES, UNKNOWN_LINES, automatic_lines, custom_lines,
-                                 merge_mask_ranges)
+                                 mask_file_lines, merge_mask_ranges, read_mask_file)
+from .spectrum_file import normalize_wave_unit
 from .utils import take_resolution_notes
 
 
@@ -389,6 +390,109 @@ class GuiContinuumMixin:
         self.continuum_masks[tab] = []
         self._refresh_active_spectrum_tab()
 
+    def _save_masks(self, _checked=False):
+        """Save the masked ranges of the active tab to a tab-separated text file. The file also gives
+        the wavelength unit and the Doppler shift factor, so that Load Masks can put the ranges on the right axis.
+
+        Args:
+            _checked (bool): Checked state that the button click passes. Not used.
+
+        Returns:
+            None
+        """
+        tab = self.active_spectrum_tab
+        ranges = self.continuum_masks[tab]
+        if not ranges:
+            QMessageBox.warning(self, "No Masks", "There are no masked ranges on this spectrum to save.")
+            return
+        fname, _ = QFileDialog.getSaveFileName(self, "Save Masks", f"masks_{tab}.txt", "Text files (*.txt)")
+        if not fname:
+            return
+        if not os.path.splitext(fname)[1]:
+            fname += ".txt"
+        try:
+            lines = mask_file_lines(ranges, getattr(self.cube_data, 'wave_unit', None),
+                                    self.spectrum_shift_factor.get(tab, 1.0))
+            with open(fname, 'w') as f:
+                f.write("\n".join(lines) + "\n")
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, "Error", f"Failed to save the masks:\n{error}")
+            return
+        QMessageBox.information(self, "Saved", f"Masks saved to:\n{fname}")
+
+    def _masks_on_current_axis(self, ranges, file_unit, file_shift, tab):
+        """Move the ranges of a masks file onto the wavelength axis that a tab has now.
+        The unit must be the same kind of unit. The Doppler shift can be different.
+
+        Args:
+            ranges (list): (low, high) tuples from the file
+            file_unit (str): Wavelength unit of the file, or None if the file does not give it
+            file_shift (float): Doppler shift factor of the file, or None if the file does not give it
+            tab (str): Spectrum tab that gets the ranges, 'full', 'left' or 'right'
+
+        Returns:
+            result (tuple): (ranges, notes). ranges is the list of (low, high) tuples on the axis of the tab.
+                notes is a list of str that the user must know.
+
+        Raises:
+            ValueError: if the unit of the file is not a unit of length that this program uses,
+                or if it is not the unit of the spectrum
+        """
+        unit = getattr(self.cube_data, 'wave_unit', None)
+        notes = []
+        factor = 1.0
+        if file_unit is None:
+            notes.append(f"The file does not give its wavelength unit. The ranges are used as {unit}.")
+        else:
+            file_name, file_factor = normalize_wave_unit(file_unit)
+            name, factor_now = normalize_wave_unit(unit)
+            if file_name != name:
+                raise ValueError(f"The masks are in {file_unit}, but the spectrum is in {unit}.")
+            factor = file_factor / factor_now
+        if file_shift is not None:
+            factor *= self.spectrum_shift_factor.get(tab, 1.0) / file_shift
+        moved = [(low * factor, high * factor) for low, high in ranges]
+
+        wavelength = np.asarray(self._get_tab_wavelength(tab), dtype=float)
+        lowest, highest = np.nanmin(wavelength), np.nanmax(wavelength)
+        outside = [pair for pair in moved if pair[1] < lowest or pair[0] > highest]
+        if outside:
+            notes.append(f"{len(outside)} of {len(moved)} range(s) are outside the wavelength range of this "
+                         f"spectrum ({lowest:.4g} to {highest:.4g} {unit}). They have no effect.")
+        return moved, notes
+
+    def _load_masks(self, _checked=False):
+        """Load masked ranges from a file that Save Masks wrote. The ranges replace the masks of the active tab.
+        A fitted automatic continuum is removed first, as it is for any change of the masks.
+
+        Args:
+            _checked (bool): Checked state that the button click passes. Not used.
+
+        Returns:
+            None
+        """
+        tab = self.active_spectrum_tab
+        if getattr(self, 'spec_plotter', None) is None or self._get_tab_raw_flux(tab) is None:
+            QMessageBox.warning(self, "No Spectrum", "No spectrum data available for this tab.")
+            return
+        fname, _ = QFileDialog.getOpenFileName(self, "Load Masks", filter="Text files (*.txt *.csv)")
+        if not fname:
+            return
+        try:
+            ranges, file_unit, file_shift = read_mask_file(fname)
+            ranges, notes = self._masks_on_current_axis(ranges, file_unit, file_shift, tab)
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, "Error", f"Failed to load the masks:\n{error}")
+            return
+
+        if not self._drop_automatic_continuum_for_masks():
+            return
+        self._cancel_pending_mask()
+        self.continuum_masks[tab] = merge_mask_ranges(ranges)
+        self._refresh_active_spectrum_tab()
+        if notes:
+            QMessageBox.information(self, "Masks Loaded", "\n".join(notes))
+
     def _drop_automatic_continuum_for_masks(self):
         """Remove the fitted automatic continuum of the active tab before its masks change.
         A continuum that is subtracted needs the user to agree first.
@@ -742,7 +846,7 @@ class GuiContinuumMixin:
             "Fit the continuum of the integrated spectrum and subtract it from the spectrum.")
         self.spectrum_continuum_popup.add_row([self.auto_continuum_toggle, self.custom_continuum_toggle])
         self.spectrum_continuum_popup.add_row([
-            self.mask_spectrum_btn, self.clear_masks_btn,
+            self.mask_spectrum_btn, self.clear_masks_btn, self.save_masks_btn, self.load_masks_btn,
             self.continuum_line_btn, self.subtract_continuum_btn, self.custom_subtract_btn,
             self.custom_delete_btn, self.custom_save_pts_btn, self.custom_load_pts_btn, self.custom_ok_btn,
             self.custom_contsub_btn])
@@ -1164,6 +1268,8 @@ class GuiContinuumMixin:
         self.hide_all_action_buttons()
         self.mask_spectrum_btn.show()
         self.clear_masks_btn.show()
+        self.save_masks_btn.show()
+        self.load_masks_btn.show()
         self.continuum_line_btn.show()
         self.subtract_continuum_btn.show()
         self.custom_ok_btn.hide()
@@ -1196,6 +1302,8 @@ class GuiContinuumMixin:
         """
         self.mask_spectrum_btn.hide()
         self.clear_masks_btn.hide()
+        self.save_masks_btn.hide()
+        self.load_masks_btn.hide()
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
@@ -1335,7 +1443,7 @@ class GuiContinuumMixin:
             None
         """
         if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
-            QMessageBox.warning(self, "Not Active", "Start a custom continuum session first. Click 'Custom Subtract' or 'Select Points'.")
+            QMessageBox.warning(self, "Not Active", "Start a custom continuum session first. Click 'Select Points' or 'Load Points'.")
             return
 
         points = getattr(self.custom_continuum_selector, 'continuum_points', [])

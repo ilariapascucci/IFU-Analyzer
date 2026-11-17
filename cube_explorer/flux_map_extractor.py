@@ -6,6 +6,7 @@ extracting and summing the total flux to create integrated flux maps.
 """
 
 import inspect
+import re
 import sys
 import numpy as np
 import pandas as pd
@@ -118,6 +119,74 @@ def masked_points(wavelength, mask_ranges):
     for low, high in merge_mask_ranges(mask_ranges):
         masked |= (wavelength >= low) & (wavelength <= high)
     return masked
+
+
+def mask_file_lines(mask_ranges, wave_unit, shift_factor):
+    """Write the lines of a masks file. The file is tab-separated text with one (low, high) pair on each line.
+    Each number is written so that it reads back exactly.
+
+    Args:
+        mask_ranges (list): (low, high) pairs on the wavelength axis of the spectrum
+        wave_unit (str): Wavelength unit of the pairs
+        shift_factor (float): Doppler shift factor of the wavelength axis. It is 1.0 if the axis is not shifted.
+
+    Returns:
+        lines (list): The lines of the file, as str with no line break at the end
+
+    Raises:
+        ValueError: if a masked range is not valid
+    """
+    lines = ["# IFU Analyzer continuum masks, format 1",
+             f"# Wavelength unit: {wave_unit or 'Unknown'}",
+             f"# Wavelength shift factor: {shift_factor:.12g}",
+             "# Columns: low, high"]
+    lines.extend(f"{low!r}\t{high!r}" for low, high in merge_mask_ranges(mask_ranges))
+    return lines
+
+
+def read_mask_file(path):
+    """Read a masks file that mask_file_lines wrote. A comma or a space can also separate the two numbers.
+
+    Args:
+        path (str): Path of the masks file
+
+    Returns:
+        result (tuple): (mask_ranges, wave_unit, shift_factor). mask_ranges is a sorted list of (low, high) tuples
+            of float. wave_unit (str) and shift_factor (float) are None if the file does not give them.
+
+    Raises:
+        OSError: if the file cannot be opened
+        ValueError: if a line is not a pair of numbers, a range is not valid, or the file has no range
+    """
+    pairs = []
+    wave_unit = None
+    shift_factor = None
+    with open(path, "r") as f:
+        for number, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                key, _, value = line.lstrip("#").partition(":")
+                if key.strip().lower() == "wavelength unit" and value.strip().lower() not in ("", "unknown"):
+                    wave_unit = value.strip()
+                elif key.strip().lower() == "wavelength shift factor":
+                    try:
+                        shift_factor = float(value.split()[0])
+                    except (ValueError, IndexError):
+                        raise ValueError(f"Line {number}: the wavelength shift factor is not a number.")
+                continue
+            cells = [cell for cell in re.split(r"[,\s]+", line) if cell]
+            try:
+                low, high = (float(cell) for cell in cells)
+            except ValueError:
+                raise ValueError(f"Line {number} is not a pair of two numbers (low, high): {line}")
+            pairs.append((low, high))
+    if not pairs:
+        raise ValueError("The file has no masked range.")
+    if shift_factor is not None and not (np.isfinite(shift_factor) and shift_factor > 0):
+        raise ValueError("The wavelength shift factor must be a positive number.")
+    return merge_mask_ranges(pairs), wave_unit, shift_factor
 
 
 # ================== Unit Utilities ==================
@@ -313,6 +382,32 @@ def automatic_lines(params=None, default=False):
     values["mask_ranges"] = merge_mask_ranges(values["mask_ranges"]) or None
     text = ", ".join(f"{name}={values[name]}" for name in AUTO_PARAMETERS)
     return [f"Continuum: automatic{', default settings' if default else ''} ({text})"]
+
+
+def mask_ranges_from_lines(comments):
+    """Read the masked ranges out of the header lines of a saved file. The line is the one that
+    automatic_lines wrote. A file with no automatic continuum line, or with no masked range, gives an empty list.
+
+    Args:
+        comments (list): The comment lines of the file, each with its "#" at the start
+
+    Returns:
+        mask_ranges (list): Sorted (low, high) tuples of float, in the wavelength unit of the file
+
+    Raises:
+        ValueError: if the line has masked ranges that cannot be read as pairs of numbers
+    """
+    for line in comments:
+        if not line.lstrip("#").strip().startswith("Continuum: automatic"):
+            continue
+        found = re.search(r"mask_ranges=(None|\[[^\]]*\])", line)
+        if found is None or found.group(1) == "None":
+            return []
+        numbers = re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", found.group(1))
+        if len(numbers) % 2:
+            raise ValueError(f"The masked ranges are not pairs of numbers: {found.group(1)}")
+        return merge_mask_ranges(list(zip(map(float, numbers[::2]), map(float, numbers[1::2]))))
+    return []
 
 
 def custom_lines(points):
