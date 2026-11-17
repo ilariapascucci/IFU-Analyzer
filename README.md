@@ -384,14 +384,15 @@ python main.py
    - Click "Select Points" to enter point-placement mode.
    - Click on the spectrum to place an anchor point. The point snaps to the data.
    - Use "Delete Point" mode to remove a point. A minimum of 3 points is necessary.
-   - Click "Fit Continuum" (or press ENTER). The fitted cubic-spline continuum is shown in orange. The points stay, so you can add or remove points and fit again.
+   - Click "Fit Continuum". The fitted cubic-spline continuum is shown in orange. The points stay, so you can add or remove points and fit again.
    - Click "Subtract Continuum" when the curve is right. The full subtracted spectrum is shown and the points are removed. Click "Subtract Continuum" again to undo the subtraction. The orange curve then shows again. If you changed the points after the last fit, the button asks you to fit again first.
-   - Click "Select Points" again to start over. Unpressing it, pressing ESC, or clicking Home removes the points and the custom continuum.
+   - Click "Select Points" again to start over. Unpressing it, or clicking Home, removes the points and the custom continuum.
    - Save the points with "Save Points" before you subtract, and save the result with "Save Spectrum".
+   - "Load Points" loads the points of a saved file. It starts the point selection if the selection is not on, so you do not need to click "Select Points" first. The loaded points replace the points on the plot. If the file gives no flux unit, a message says which unit the points use.
 
    **Pixel-by-Pixel.** Click "Pixel-by-Pixel". The tool fits the continuum at every pixel. It saves the continuum cube and the continuum-subtracted cube as two FITS files.
    - Automatic: click "Automatic", then "Set Parameters and Save". Set the fit parameters, then choose the base file name.
-   - Custom: click "Custom", then "Select Points". Click the continuum points on the spectrum. Each pixel gets a cubic spline through its own flux at those wavelengths. "Delete Point", "Save Points", and "Load Points" work as in the Integrated Spectrum window. A minimum of 3 points is necessary. Click "Save Cubes" (or press ENTER), then choose the base file name.
+   - Custom: click "Custom", then "Select Points". Click the continuum points on the spectrum. Each pixel gets a cubic spline through its own flux at those wavelengths. "Delete Point", "Save Points", and "Load Points" work as in the Integrated Spectrum window. A minimum of 3 points is necessary. Click "Save Cubes", then choose the base file name. Click "Cancel" to remove the points and end the point selection without a save.
 
 ### 2D Image Viewer
 

@@ -8,7 +8,6 @@ PyQt5 is optional and only loaded for interactive features.
 import numpy as np
 from scipy.interpolate import CubicSpline
 from PyQt5.QtWidgets import QMessageBox
-from PyQt5.QtCore import Qt
 
 class CustomContinuumSelector:
     """
@@ -45,7 +44,6 @@ class CustomContinuumSelector:
         # Connection IDs
         self.click_cid = None
         self.pick_cid = None
-        self.key_cid = None
         
         # Active state
         self.is_active = False
@@ -55,14 +53,13 @@ class CustomContinuumSelector:
 
         # Point requirements
         self.min_points = 3
-        self.recommended_points = 5
         
     def activate(self, for_cubes=False):
         """Activate the custom continuum selector.
 
         Args:
             for_cubes (bool): True when the points are for Save Continuum Cubes.
-                The instructions then say that Fit Continuum asks for the file name.
+                Fit Continuum then asks for the file name and saves the cubes.
 
         Returns:
             None
@@ -72,62 +69,13 @@ class CustomContinuumSelector:
 
         self.is_active = True
         self.for_cubes = for_cubes
-        
-        self.canvas.setFocusPolicy(Qt.StrongFocus)
-        self.canvas.setFocus()
-        
+
         # Clear any previous selections
         self._clear_points()
-        
+
         # Connect mouse events
         self.click_cid = self.canvas.mpl_connect('button_press_event', self._on_click)
         self.pick_cid = self.canvas.mpl_connect('pick_event', self._on_pick)
-        self.key_cid = self.canvas.mpl_connect('key_press_event', self.on_key_press)
-        
-        # Show instructions
-        if self.parent_widget and for_cubes:
-            QMessageBox.information(
-                self.parent_widget,
-                "Custom Continuum for the Cubes",
-                f"Instructions:\n"
-                f"• Click on the spectrum to select continuum points\n"
-                f"• Points will SNAP to the nearest spectrum data point\n"
-                f"• Select regions WITHOUT emission/absorption lines\n"
-                f"• Right-click on a black marker to remove it\n"
-                f"• Load Points adds points from a saved file\n"
-                f"• Press Save Cubes or ENTER when done, then choose the file name\n"
-                f"• Press ESC to cancel\n"
-                f"\n"
-                f"Click on the spectrum plot first if keys don't work\n"
-                f"\n"
-                f"Minimum: {self.min_points} points\n"
-                f"Recommended: {self.recommended_points}+ points for best results\n"
-                f"\n"
-                f"Method: every pixel gets a cubic spline through its own flux at these wavelengths.\n"
-                f"Only the wavelengths of the points are used."
-            )
-        elif self.parent_widget:
-            QMessageBox.information(
-                self.parent_widget,
-                "Custom Continuum Subtraction",
-                f"Instructions:\n"
-                f"• Click on the spectrum to select continuum points\n"
-                f"• Points will SNAP to the nearest spectrum data point\n"
-                f"• Select regions WITHOUT emission/absorption lines\n"
-                f"• Right-click on a black marker to remove it\n"
-                f"• Click Fit Continuum (or press ENTER) to fit and show the curve\n"
-                f"• Add or remove points and fit again as often as needed\n"
-                f"• Click Subtract Continuum when the curve is right\n"
-                f"• Press ESC to cancel\n"
-                f"\n"
-                f"Click on the spectrum plot first if keys don't work\n"
-                f"\n"
-                f"Minimum: {self.min_points} points\n"
-                f"Recommended: {self.recommended_points}+ points for best results\n"
-                f"\n"
-                f"Method: Cubic spline with smoothness constraints\n"
-                f"Result: I_subtracted(λ) = I_observed(λ) - I_continuum(λ)"
-            )
 
     def deactivate(self):
         """Deactivate the custom continuum selector.
@@ -151,9 +99,6 @@ class CustomContinuumSelector:
         if self.pick_cid:
             self.canvas.mpl_disconnect(self.pick_cid)
             self.pick_cid = None
-        if self.key_cid:
-            self.canvas.mpl_disconnect(self.key_cid)
-            self.key_cid = None
 
     def set_delete_mode(self, state):
         """Toggle left-click delete mode.
@@ -166,32 +111,6 @@ class CustomContinuumSelector:
         """
         self.delete_mode = state
 
-    def on_key_press(self, event):
-        """Handle keyboard events.
-
-        Args:
-            event (matplotlib.backend_bases.KeyEvent): Key press event.
-
-        Returns:
-            None
-        """
-        if event.key in ['enter', 'return']:
-            if self.parent_widget is not None:
-                if hasattr(self.parent_widget, '_finalize_custom_continuum'):
-                    self.parent_widget._finalize_custom_continuum()
-                else:
-                    print("[DEBUG] ERROR: _finalize_custom_continuum not found!")
-            else:
-                print("[DEBUG] ERROR: parent_widget is None!")
-        
-        elif event.key == 'escape':
-            if self.parent_widget is not None:
-                if hasattr(self.parent_widget, '_cancel_custom_continuum'):
-                    self.parent_widget._cancel_custom_continuum()
-                else:
-                    print("[DEBUG] ERROR: _cancel_custom_continuum not found!")
-
-                    
     def _on_click(self, event):
         """Handle mouse click events - SNAP to nearest spectrum point.
 
@@ -233,7 +152,7 @@ class CustomContinuumSelector:
         self._add_point(x_snap, y_snap)
         
     def _on_pick(self, event):
-        """Handle pick events (clicking on existing points to remove them).
+        """Handle pick events. A left click on a point removes it while Delete Point mode is on.
 
         Args:
             event (matplotlib.backend_bases.PickEvent): Pick event.
@@ -241,15 +160,12 @@ class CustomContinuumSelector:
         Returns:
             None
         """
-        is_right_click = event.mouseevent.button == 3
-        is_left_click_delete = event.mouseevent.button == 1 and self.delete_mode
-        
-        if not (is_right_click or is_left_click_delete):
+        if not (event.mouseevent.button == 1 and self.delete_mode):
             return
-            
+
         if hasattr(event.artist, 'custom_continuum_point'):
             self._remove_point(event.artist)
-        
+
     def _add_point(self, x, y):
         """Add a continuum point at (x, y).
 

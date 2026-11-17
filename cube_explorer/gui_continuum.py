@@ -49,7 +49,10 @@ class ContinuumPopup(QWidget):
         """
         label = QLabel(text)
         label.setWordWrap(True)
-        label.setMaximumWidth(420)
+        # A wide window can give a wrapped label too little height, and the text is cut off.
+        # A fixed width and a minimum height for that width prevent this.
+        label.setFixedWidth(420)
+        label.setMinimumHeight(label.heightForWidth(420))
         self._layout.addWidget(label)
         return label
 
@@ -779,13 +782,16 @@ class GuiContinuumMixin:
         self.pixel_save_pts_btn.clicked.connect(self._save_custom_points)
         self.pixel_load_pts_btn = QPushButton("Load Points")
         self.pixel_load_pts_btn.setToolTip(self.custom_load_pts_btn.toolTip())
-        self.pixel_load_pts_btn.clicked.connect(self._load_custom_points)
+        self.pixel_load_pts_btn.clicked.connect(lambda _checked=False: self._load_custom_points(for_cubes=True))
+        self.pixel_cancel_btn = QPushButton("Cancel")
+        self.pixel_cancel_btn.setToolTip("Remove the points and end the point selection")
+        self.pixel_cancel_btn.clicked.connect(self._cancel_cube_points)
         self.pixel_save_cubes_btn = QPushButton("Save Cubes")
         self.pixel_save_cubes_btn.setToolTip("Choose the file name and save the continuum cubes")
         self.pixel_save_cubes_btn.clicked.connect(self._on_pixel_save_cubes_clicked)
         self.pixel_custom_row = self.pixel_continuum_popup.add_row([
             self.pixel_points_btn, self.pixel_delete_btn, self.pixel_save_pts_btn,
-            self.pixel_load_pts_btn, self.pixel_save_cubes_btn])
+            self.pixel_load_pts_btn, self.pixel_cancel_btn, self.pixel_save_cubes_btn])
 
         # A click mode of the spectrum ends Mask Spectrum, because all of them use the clicks on the spectrum.
         for button in (self.mark_contam_btn, self.gauss_left_btn, self.gauss_peak_btn, self.gauss_right_btn,
@@ -909,7 +915,7 @@ class GuiContinuumMixin:
             selector.for_cubes = True
             QMessageBox.information(
                 self, "Custom Continuum for the Cubes",
-                "Your points stay. Add or remove points, then press Save Cubes or ENTER to choose the file name.")
+                "Your points stay. Add or remove points, then press Save Cubes to choose the file name.")
             return
 
         # A custom subtraction that is already applied would only be undone by the button.
@@ -1276,18 +1282,6 @@ class GuiContinuumMixin:
         if hasattr(self, 'custom_continuum_selector') and self.custom_continuum_selector is not None:
             self.custom_continuum_selector.set_delete_mode(checked)
 
-    def _finalize_custom_continuum(self):
-        """Keyboard ENTER alternative to clicking the Fit Continuum button; delegates
-        to the same handler so both paths behave identically.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.on_custom_ok_clicked()
-
     def on_custom_ok_clicked(self):
         """Fit the custom continuum through the points and show it in orange.
         The points stay, so the user can edit them and fit again. The Subtract Continuum
@@ -1365,19 +1359,30 @@ class GuiContinuumMixin:
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save points:\n{str(e)}")
 
-    def _load_custom_points(self):
-        """Load custom-continuum points from a text/CSV file.
+    def _custom_points_open(self):
+        """Check whether a custom-continuum point selection is open.
 
         Args:
             None
 
         Returns:
+            is_open (bool): True if the selector exists and is active.
+        """
+        selector = self.custom_continuum_selector
+        return bool(self.custom_continuum_active) and selector is not None and selector.is_active
+
+    def _load_custom_points(self, _checked=False, for_cubes=False):
+        """Load custom-continuum points from a text/CSV file. The points replace the points on the plot.
+        If no point selection is open, this opens it first, as the Select Points button does.
+
+        Args:
+            _checked (bool): Checked state that the button click passes. Not used.
+            for_cubes (bool): True when the points are for Save Continuum Cubes. It matters only
+                when the selection is not open yet.
+
+        Returns:
             None
         """
-        if not hasattr(self, 'custom_continuum_active') or not self.custom_continuum_active or self.custom_continuum_selector is None:
-            QMessageBox.warning(self, "Not Active", "Click 'Custom Subtract' or 'Select Points' to start a session before loading points.")
-            return
-
         fname, _ = QFileDialog.getOpenFileName(self, "Load Continuum Points", filter="Text files (*.txt *.csv)")
         if not fname:
             return
@@ -1408,9 +1413,35 @@ class GuiContinuumMixin:
             if file_unit is None:
                 note = f"\nThe file does not give its flux unit. The points are used as {spectrum_unit or 'the unit of the spectrum'}."
 
+            # The file is good, so the selection can open now. A message tells the user if it cannot.
+            if not self._custom_points_open():
+                if for_cubes:
+                    self._start_custom_points_for_cubes()
+                else:
+                    self.custom_subtract_btn.setChecked(True)
+                    self._activate_custom_continuum_subtraction()
+                if not self._custom_points_open():
+                    return
+
             # Send the points to the selector to draw them
             self.custom_continuum_selector.load_points(points)
-            QMessageBox.information(self, "Loaded", f"Successfully loaded {len(points)} points.{note}")
+            if note:
+                QMessageBox.information(self, "Points Loaded", note.strip())
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load points:\n{str(e)}")
+
+    def _cancel_cube_points(self):
+        """Cancel the points for the continuum cubes. This removes the points and ends the point selection.
+        It does nothing if the open points are not for the cubes.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        selector = self.custom_continuum_selector
+        if selector is None or not selector.is_active or not selector.for_cubes:
+            return
+        self.clear_custom_progress()

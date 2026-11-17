@@ -1025,7 +1025,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_load_pts_btn = QPushButton("Load Points")
 
         self.custom_save_pts_btn.setToolTip("Save custom continuum points to a .txt file")
-        self.custom_load_pts_btn.setToolTip("Load custom continuum points from a .txt file")
+        self.custom_load_pts_btn.setToolTip(
+            "Load custom continuum points from a .txt file. This starts the point selection if it is not on.")
 
         self.save_results_btn = QPushButton("Save Spectrum")
         self._init_legend_button()
@@ -1075,7 +1076,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             "multi-Gaussian fit use the masks of the Full spectrum. A new mask removes the fitted continuum."
         )
         self.clear_masks_btn.setToolTip("Remove all masked ranges of the active spectrum")
-        self.custom_subtract_btn.setToolTip("Click the spectrum to place the continuum points")
+        self.custom_subtract_btn.setToolTip(
+            "Click the spectrum to place the continuum points. Each point snaps to the nearest data point. "
+            "Place at least 3 points, where the spectrum has no lines. Press the button again to remove the points.")
         self.custom_ok_btn.setToolTip(
             "Fit a cubic spline through the points and show it in orange. "
             "Add or remove points and fit again as often as needed."
@@ -1635,31 +1638,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         bottom_low = max(splitter.widget(1).minimumHeight(), splitter.widget(1).minimumSizeHint().height())
         top = max(top_low, min(wanted, total - bottom_low))
         splitter.setSizes([top, total - top])
-
-    def _cancel_custom_continuum(self):
-        """Cancel custom continuum selection.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        if self.custom_continuum_selector is not None:
-            self.custom_continuum_selector.clear_all()
-            self.custom_continuum_selector.deactivate()
-
-        self.custom_subtract_btn.setChecked(False)
-        self.custom_continuum_active = False
-        tab = self._custom_continuum_tab if self._custom_continuum_tab is not None else self.active_spectrum_tab
-        if self.continuum_mode_applied.get(tab) == 'custom':
-            self._discard_custom_continuum(tab)
-
-        QMessageBox.information(
-            self,
-            "Cancelled",
-            "Custom continuum selection cancelled."
-        )
 
     def _init_state(self):
         """Initialize state variables.
