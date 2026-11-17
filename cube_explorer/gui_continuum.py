@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import traceback
+from matplotlib.patches import Rectangle
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtWidgets import (QMessageBox, QApplication, QFileDialog, QProgressDialog, QPushButton, QButtonGroup,
                              QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLayout)
@@ -8,7 +9,8 @@ from PyQt5.QtWidgets import (QMessageBox, QApplication, QFileDialog, QProgressDi
 from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
 from .fit_file import check_same_flux_unit
-from .flux_map_extractor import fit_auto_continuum, NONE_LINES, UNKNOWN_LINES, automatic_lines, custom_lines
+from .flux_map_extractor import (fit_auto_continuum, NONE_LINES, UNKNOWN_LINES, automatic_lines, custom_lines,
+                                 merge_mask_ranges)
 from .utils import take_resolution_notes
 
 
@@ -124,6 +126,8 @@ class GuiContinuumMixin:
             return
 
         if checked:
+            # A mask that changes after the fit would not match the fitted continuum.
+            self._end_mask_mode()
             if self.subtract_continuum_btn.isChecked():
                 self._restore_original_spectrum()
                 self.subtract_continuum_btn.setChecked(False)
@@ -166,10 +170,11 @@ class GuiContinuumMixin:
 
             # Same algorithm Flux Map/the API use (fit_auto_continuum), so
             # there's one shared implementation instead of copies that drift apart.
+            params = self._continuum_params_with_masks(params, tab)
             continuum_values = fit_auto_continuum(wavelength, flux, **params)
             self.continuum_fitted[tab] = continuum_values
             self.continuum_mode_applied[tab] = 'auto'
-            self._record_continuum(tab, continuum_values, automatic_lines(params))
+            self._record_continuum(tab, continuum_values, automatic_lines(params), params)
             self._refresh_active_spectrum_tab()
 
         except Exception as e:
@@ -180,7 +185,7 @@ class GuiContinuumMixin:
         if hasattr(self, 'subtract_continuum_btn'):
             self.subtract_continuum_btn.setEnabled(True)
 
-    def _record_continuum(self, tab, curve, lines):
+    def _record_continuum(self, tab, curve, lines, params=None):
         """Keep the header lines that say how a tab's continuum was made, with the curve they belong to.
         A saved file writes these lines, so the file tells which continuum it used.
 
@@ -188,13 +193,261 @@ class GuiContinuumMixin:
             tab (str): Spectrum tab, 'full', 'left' or 'right'
             curve (numpy.ndarray): The fitted continuum that the lines describe
             lines (list): The lines of text, without "#"
+            params (dict): The fit_auto_continuum settings of an automatic fit, so that the lines can be
+                written again after a Shift. None for a custom continuum.
 
         Returns:
             None
         """
         if not hasattr(self, '_continuum_records'):
             self._continuum_records = {}
-        self._continuum_records[tab] = {'curve': curve, 'lines': list(lines)}
+        self._continuum_records[tab] = {'curve': curve, 'lines': list(lines),
+                                        'params': dict(params) if params is not None else None}
+
+    def _continuum_params_with_masks(self, params, tab):
+        """Add the masked ranges of a tab to the settings of the automatic continuum.
+
+        Args:
+            params (dict): fit_auto_continuum() keyword arguments, or None for the defaults
+            tab (str): Spectrum tab whose masks are added, 'full', 'left' or 'right'
+
+        Returns:
+            merged (dict): A copy of params with the key mask_ranges added. None if params is None and the tab has no masks.
+        """
+        merged = dict(params) if params else {}
+        masks = self.continuum_masks.get(tab)
+        if masks:
+            merged['mask_ranges'] = list(masks)
+        return merged or None
+
+    def _reset_continuum_masks(self):
+        """Remove every masked range of every tab, the waiting first click and the gray ranges on the plot.
+        The Mask Spectrum button goes back to off.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._remove_mask_artists()
+        self.continuum_masks = {"full": [], "left": [], "right": []}
+        self._mask_pending = None
+        button = getattr(self, 'mask_spectrum_btn', None)
+        if button is not None:
+            button.setChecked(False)
+
+    def _remove_mask_artists(self):
+        """Take the gray ranges and the line of a waiting first click off the spectrum plot.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        artists = list(getattr(self, '_mask_span_artists', []))
+        artists.append(getattr(self, '_mask_pending_line', None))
+        for artist in artists:
+            if artist is not None and artist.axes is not None:
+                artist.remove()
+        self._mask_span_artists = []
+        self._mask_pending_line = None
+
+    def _draw_mask_spans(self):
+        """Draw the masked ranges of the active tab as gray bands on the spectrum plot.
+        A refresh of the active tab calls this, so the bands follow the tab that is showing.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        for artist in getattr(self, '_mask_span_artists', []):
+            if artist.axes is not None:
+                artist.remove()
+        self._mask_span_artists = []
+        ax = self.spec_plotter.ax
+        for low, high in self.continuum_masks.get(self.active_spectrum_tab, []):
+            # Only the first band has a label, so the legend has one entry. The label puts it in the Continuum group.
+            band = Rectangle((low, 0), high - low, 1, transform=ax.get_xaxis_transform(),
+                             facecolor='gray', edgecolor='none', alpha=0.25, zorder=1,
+                             label='Continuum Mask' if not self._mask_span_artists else '')
+            ax.add_patch(band)
+            self._mask_span_artists.append(band)
+
+    def _cancel_pending_mask(self):
+        """Forget a first click that waits for its second click, and remove its line from the plot.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self._mask_pending = None
+        line = getattr(self, '_mask_pending_line', None)
+        if line is not None and line.axes is not None:
+            line.remove()
+        self._mask_pending_line = None
+
+    def _end_mask_mode(self):
+        """Switch Mask Spectrum off. A first click that waits for its second click is forgotten.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        had_pending = self._mask_pending is not None
+        self.mask_spectrum_btn.setChecked(False)
+        self._cancel_pending_mask()
+        if had_pending:
+            self.spec_canvas.draw_idle()
+
+    def _on_mask_spectrum_clicked(self, checked):
+        """Handle the Mask Spectrum toggle. While it is on, two clicks on the spectrum mask the range between them.
+        A click that lands inside a masked range removes that range.
+
+        Args:
+            checked (bool): New checked state of the toggle.
+
+        Returns:
+            None
+        """
+        if not checked:
+            self._cancel_pending_mask()
+            self.spec_canvas.draw_idle()
+            return
+        if getattr(self, 'spec_plotter', None) is None or self._get_tab_raw_flux(self.active_spectrum_tab) is None:
+            QMessageBox.warning(self, "No Spectrum", "No spectrum data available for this tab.")
+            self.mask_spectrum_btn.setChecked(False)
+            return
+        # Every click mode uses the spectrum clicks, so only one of them can be on.
+        for button in (self.mark_contam_btn, self.gauss_left_btn, self.gauss_peak_btn, self.gauss_right_btn,
+                       self.gauss_noise_left_btn, self.gauss_noise_right_btn):
+            button.setChecked(False)
+        self.gauss_mode = None
+
+    def _handle_mask_click(self, wavelength):
+        """Use one click of Mask Spectrum. The first click of a pair marks one end of a range.
+        The second click closes the range. A click inside a masked range removes it when no first click waits.
+
+        Args:
+            wavelength (float): Wavelength that was clicked, on the axis of the active tab.
+
+        Returns:
+            None
+        """
+        tab = self.active_spectrum_tab
+        if self._mask_pending is not None and self._mask_pending[0] != tab:
+            self._cancel_pending_mask()
+
+        if self._mask_pending is None:
+            # A fitted continuum would not match the new masks, so it goes before any change.
+            if not self._drop_automatic_continuum_for_masks():
+                return
+            inside = [m for m in self.continuum_masks[tab] if m[0] <= wavelength <= m[1]]
+            if inside:
+                self.continuum_masks[tab] = [m for m in self.continuum_masks[tab] if m not in inside]
+                self._refresh_active_spectrum_tab()
+                return
+            self._mask_pending = (tab, float(wavelength))
+            self._mask_pending_line = self.spec_plotter.ax.axvline(
+                wavelength, color='gray', linestyle='--', linewidth=1.5, zorder=3)
+            self.spec_canvas.draw_idle()
+            return
+
+        first = self._mask_pending[1]
+        self._cancel_pending_mask()
+        if first != wavelength:
+            self.continuum_masks[tab] = merge_mask_ranges(self.continuum_masks[tab] + [(first, float(wavelength))])
+        self._refresh_active_spectrum_tab()
+
+    def _on_clear_masks_clicked(self):
+        """Handle Clear Masks: remove every masked range of the active tab.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        tab = self.active_spectrum_tab
+        if not self.continuum_masks[tab]:
+            self._cancel_pending_mask()
+            self._refresh_active_spectrum_tab()
+            return
+        if not self._drop_automatic_continuum_for_masks():
+            return
+        self._cancel_pending_mask()
+        self.continuum_masks[tab] = []
+        self._refresh_active_spectrum_tab()
+
+    def _drop_automatic_continuum_for_masks(self):
+        """Remove the fitted automatic continuum of the active tab before its masks change.
+        A continuum that is subtracted needs the user to agree first.
+
+        Args:
+            None
+
+        Returns:
+            agreed (bool): True if the masks can change. False if the user said no.
+        """
+        tab = self.active_spectrum_tab
+        if self.continuum_fitted.get(tab) is None or self.continuum_mode_applied.get(tab) == 'custom':
+            return True
+        if self.continuum_subtracted.get(tab, False):
+            reply = QMessageBox.question(
+                self, "Change the Masks?",
+                "The continuum is subtracted from this spectrum. A change of the masks removes the fitted "
+                "continuum and the subtraction. Continue?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return False
+        self._drop_automatic_continuum()
+        return True
+
+    def _drop_automatic_continuum(self):
+        """Remove the fitted continuum of the active tab and undo its subtraction.
+        The masks stay.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        tab = self.active_spectrum_tab
+        self.continuum_line_btn.setChecked(False)
+        self.subtract_continuum_btn.setChecked(False)
+        if self.continuum_subtracted.get(tab, False):
+            self._restore_original_spectrum()
+        self.continuum_fitted[tab] = None
+        self.continuum_subtracted[tab] = False
+        self.continuum_mode_applied[tab] = None
+        self._refresh_active_spectrum_tab()
+
+    def _scale_continuum_masks(self, tab, factor):
+        """Move the masked ranges of a tab with a Doppler shift, so that they stay on the same part of the spectrum.
+        The header lines of the fitted continuum are written again with the new ranges.
+
+        Args:
+            tab (str): Spectrum tab that was shifted, 'full', 'left' or 'right'
+            factor (float): The wavelength axis of the tab was multiplied by this number
+
+        Returns:
+            None
+        """
+        self._cancel_pending_mask()
+        self.continuum_masks[tab] = [(low * factor, high * factor) for low, high in self.continuum_masks[tab]]
+        record = getattr(self, '_continuum_records', {}).get(tab)
+        if record is not None and record.get('params') is not None:
+            record['params'] = self._continuum_params_with_masks(
+                {k: v for k, v in record['params'].items() if k != 'mask_ranges'}, tab)
+            record['lines'] = automatic_lines(record['params'])
 
     def _continuum_lines(self, tab):
         """Give the header lines for the continuum that a tab has now. The lines are used only if the
@@ -486,6 +739,7 @@ class GuiContinuumMixin:
             "Fit the continuum of the integrated spectrum and subtract it from the spectrum.")
         self.spectrum_continuum_popup.add_row([self.auto_continuum_toggle, self.custom_continuum_toggle])
         self.spectrum_continuum_popup.add_row([
+            self.mask_spectrum_btn, self.clear_masks_btn,
             self.continuum_line_btn, self.subtract_continuum_btn, self.custom_subtract_btn,
             self.custom_delete_btn, self.custom_save_pts_btn, self.custom_load_pts_btn, self.custom_ok_btn,
             self.custom_contsub_btn])
@@ -532,6 +786,11 @@ class GuiContinuumMixin:
         self.pixel_custom_row = self.pixel_continuum_popup.add_row([
             self.pixel_points_btn, self.pixel_delete_btn, self.pixel_save_pts_btn,
             self.pixel_load_pts_btn, self.pixel_save_cubes_btn])
+
+        # A click mode of the spectrum ends Mask Spectrum, because all of them use the clicks on the spectrum.
+        for button in (self.mark_contam_btn, self.gauss_left_btn, self.gauss_peak_btn, self.gauss_right_btn,
+                       self.gauss_noise_left_btn, self.gauss_noise_right_btn):
+            button.toggled.connect(lambda checked: checked and self._end_mask_mode())
 
         self.pixel_auto_row.hide()
         self.pixel_custom_row.hide()
@@ -604,7 +863,8 @@ class GuiContinuumMixin:
         dialog = ContinuumParametersDialog(self)
         if dialog.exec_() != dialog.Accepted:
             return
-        self._start_continuum_cube_save(dialog.get_parameters(), None)
+        # The cubes use the masked ranges of the Full spectrum, on the wavelength axis of the cube.
+        self._start_continuum_cube_save(self._continuum_params_with_masks(dialog.get_parameters(), "full"), None)
 
     def _on_pixel_save_cubes_clicked(self):
         """Handle Save Cubes in the Pixel-by-Pixel pop-up for the Custom fit.
@@ -896,6 +1156,8 @@ class GuiContinuumMixin:
             None
         """
         self.hide_all_action_buttons()
+        self.mask_spectrum_btn.show()
+        self.clear_masks_btn.show()
         self.continuum_line_btn.show()
         self.subtract_continuum_btn.show()
         self.custom_ok_btn.hide()
@@ -926,6 +1188,8 @@ class GuiContinuumMixin:
         Returns:
             None
         """
+        self.mask_spectrum_btn.hide()
+        self.clear_masks_btn.hide()
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
@@ -946,6 +1210,7 @@ class GuiContinuumMixin:
         """
         tab = self.active_spectrum_tab
         return (self.continuum_line_btn.isChecked() or self.subtract_continuum_btn.isChecked() or
+               self.mask_spectrum_btn.isChecked() or bool(self.continuum_masks.get(tab)) or
                self.continuum_fitted.get(tab) is not None or
                self.continuum_subtracted.get(tab, False))
 
@@ -963,7 +1228,7 @@ class GuiContinuumMixin:
                self.continuum_mode_applied.get(self.active_spectrum_tab) == 'custom')
 
     def clear_automatic_progress(self):
-        """Reset the active tab's automatic-continuum state.
+        """Reset the active tab's automatic-continuum state, with its masked ranges.
 
         Args:
             None
@@ -972,15 +1237,9 @@ class GuiContinuumMixin:
             None
         """
         try:
-            tab = self.active_spectrum_tab
-            self.continuum_line_btn.setChecked(False)
-            self.subtract_continuum_btn.setChecked(False)
-            if self.continuum_subtracted.get(tab, False):
-                self._restore_original_spectrum()
-            self.continuum_fitted[tab] = None
-            self.continuum_subtracted[tab] = False
-            self.continuum_mode_applied[tab] = None
-            self._refresh_active_spectrum_tab()
+            self._end_mask_mode()
+            self.continuum_masks[self.active_spectrum_tab] = []
+            self._drop_automatic_continuum()
         except Exception: pass
 
     def clear_custom_progress(self):

@@ -588,12 +588,14 @@ STATUS: {result.message}
         # continuum_fitted is always a dict, never None; check this tab's own
         # entry (not the dict) so an unfit tab is correctly detected.
         if not hasattr(self, 'continuum_fitted') or self.continuum_fitted.get(self.active_spectrum_tab) is None:
+            # The masked ranges of the tab apply here too, with the default settings for the rest.
+            mask_params = self._continuum_params_with_masks(None, self.active_spectrum_tab)
             try:
-                continuum_y = fit_auto_continuum(spectrum_x, spectrum_y)
+                continuum_y = fit_auto_continuum(spectrum_x, spectrum_y, **(mask_params or {}))
             except Exception as e:
                 QMessageBox.warning(self, "Continuum Error", f"Could not compute continuum automatically:\n{str(e)}")
                 return
-            continuum_lines = automatic_lines(default=True)
+            continuum_lines = automatic_lines(mask_params, default=True)
         else:
             continuum_y = self.continuum_fitted[self.active_spectrum_tab]
             continuum_lines = self._continuum_lines(self.active_spectrum_tab)

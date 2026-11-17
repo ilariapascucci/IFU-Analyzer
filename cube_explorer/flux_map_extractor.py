@@ -59,11 +59,72 @@ AREA_ERROR_SANITY_RATIO = 1.0
 # 3*(2x instrumental sigma) + 1sigma center shift = 7sigma is as far as real flux can land.
 DEFAULT_SIGMA_MULTIPLIER = 7.0
 
+# ================== Continuum Masks ==================
+
+# The fewest points that must stay outside the masked ranges, so that the continuum can be fitted.
+MIN_UNMASKED_POINTS = 10
+
+
+def merge_mask_ranges(mask_ranges):
+    """Check the masked wavelength ranges, and join the ranges that overlap or touch.
+    Each range is a pair (low, high) in the wavelength unit of the spectrum.
+    The result is sorted by wavelength.
+
+    Args:
+        mask_ranges (list): (low, high) pairs. The two numbers of a pair can be in any order.
+
+    Returns:
+        merged (list): Sorted (low, high) tuples of float that do not overlap. Empty if mask_ranges is None or empty.
+
+    Raises:
+        ValueError: if a range is not a pair of two finite numbers, or if its two numbers are equal.
+    """
+    pairs = []
+    for item in (mask_ranges if mask_ranges is not None else []):
+        try:
+            low, high = (float(value) for value in item)
+        except (TypeError, ValueError):
+            raise ValueError(f"A masked range must be a pair of two numbers (low, high). Got: {item!r}")
+        if not (np.isfinite(low) and np.isfinite(high)):
+            raise ValueError(f"A masked range must have finite numbers. Got: {item!r}")
+        if low == high:
+            raise ValueError(f"A masked range must have a width. The two numbers are equal in: {item!r}")
+        pairs.append((min(low, high), max(low, high)))
+    merged = []
+    for low, high in sorted(pairs):
+        if merged and low <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], high))
+        else:
+            merged.append((low, high))
+    return merged
+
+
+def masked_points(wavelength, mask_ranges):
+    """Find the points of a wavelength array that are inside the masked ranges.
+    The two ends of a range are inside the range.
+
+    Args:
+        wavelength (numpy.ndarray): Wavelength array
+        mask_ranges (list): (low, high) pairs in the unit of the wavelength array, or None
+
+    Returns:
+        masked (numpy.ndarray): Boolean array of the same length as wavelength. True where a point is masked.
+
+    Raises:
+        ValueError: if a range is not valid (see merge_mask_ranges)
+    """
+    wavelength = np.asarray(wavelength, dtype=float)
+    masked = np.zeros(wavelength.shape, dtype=bool)
+    for low, high in merge_mask_ranges(mask_ranges):
+        masked |= (wavelength >= low) & (wavelength <= high)
+    return masked
+
+
 # ================== Unit Utilities ==================
 
 def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
                                 peak_width=1, peak_distance=3, peak_exclusion=3,
-                                iterations=2, smoothing_factor=5):
+                                iterations=2, smoothing_factor=5, mask_ranges=None):
     """
     Fit continuum using peak detection and median filter method: finds emission peaks,
     excludes them, and fits a smooth continuum through the rest via median filtering and
@@ -82,43 +143,62 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
         iterations (int): Number of iterative sigma clipping iterations
         smoothing_factor (float): Spline smoothing divisor. The spline may differ from the median-filtered
             continuum by a total squared residual of N * noise**2 / smoothing_factor, where N is the number of
-            points and noise is the robust noise of the spectrum. A higher value follows the data more closely.
+            points outside the masked ranges and noise is the robust noise of the spectrum. A higher value
+            follows the data more closely.
+        mask_ranges (list): (low, high) wavelength pairs, in the unit of wavelength, or None. The points in
+            these ranges are not used to fit the continuum. The continuum crosses a masked range as a smooth
+            curve between its two sides, so it is not measured data there.
 
     Returns:
         continuum (array): Fitted continuum matching wavelength, or all-NaN if fitting fails
+
+    Raises:
+        ValueError: if a masked range is not valid, or if fewer than 10 finite points are outside the masked ranges
     """
+    wavelength = np.asarray(wavelength)
+    # The masks are checked here, outside the try block, so a wrong mask reaches the caller. It is not an all-NaN result.
+    user_masked = masked_points(wavelength, mask_ranges)
+    if user_masked.any():
+        finite = np.isfinite(wavelength) & np.isfinite(flux)
+        n_left = int(np.sum(finite & ~user_masked))
+        # A spectrum with too few finite points is not the fault of the masks. It gives an all-NaN result, as without masks.
+        if np.sum(finite) >= MIN_UNMASKED_POINTS and n_left < MIN_UNMASKED_POINTS:
+            raise ValueError(
+                f"The masked ranges leave {n_left} points to fit the continuum. At least {MIN_UNMASKED_POINTS} are needed.")
     try:
         # Remove NaN and infinite values
         mask = np.isfinite(wavelength) & np.isfinite(flux)
         wavelength_clean = wavelength[mask]
         flux_clean = flux[mask]
-        
+        user_masked_clean = user_masked[mask]
+
         if len(wavelength_clean) < 10:
             return np.full_like(wavelength, np.nan)
-        
+
         # STEP 1: Initial median filter to smooth noise
         flux_smoothed = median_filter(flux_clean, size=window_size, mode='reflect')
-        
+
         # STEP 2: Find peaks (emission lines) in the spectrum
+        # The masked points are not in the spread of the spectrum, so a masked dip does not raise the threshold.
         peaks, properties = find_peaks(
             flux_clean,
-            prominence=np.std(flux_clean) * sigma_threshold,
+            prominence=np.std(flux_clean[~user_masked_clean]) * sigma_threshold,
             width=peak_width,
             distance=peak_distance
         )
-        
+
         # STEP 3: Create mask to exclude peaks and surrounding region
-        exclude_mask = np.zeros(len(flux_clean), dtype=bool)
+        exclude_mask = user_masked_clean.copy()
         for peak_idx in peaks:
             left_edge = max(0, peak_idx - peak_exclusion)
             right_edge = min(len(flux_clean), peak_idx + peak_exclusion + 1)
             exclude_mask[left_edge:right_edge] = True
-        
+
         # STEP 4: Fit continuum using only non-peak regions
         good_indices = np.where(~exclude_mask)[0]
         if len(good_indices) < 10:
-            # Fallback if too many peaks excluded
-            exclude_mask = np.zeros(len(flux_clean), dtype=bool)
+            # Fallback if too many peaks excluded. The masked ranges of the user stay.
+            exclude_mask = user_masked_clean.copy()
         
         # Apply median filter to good (non-peak) regions
         flux_good = flux_clean.copy()
@@ -161,13 +241,13 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
         # STEP 6: Final smoothing with spline
         # The spline s is a sum of squared residuals, so it must scale with the noise of the data.
         # Then the smoothing is the same in every flux unit.
-        noise = mad_std(flux_clean - flux_smoothed)
+        noise = mad_std((flux_clean - flux_smoothed)[~user_masked_clean])
         noise = float(noise) if np.isfinite(noise) else 0.0
         try:
             spline = UnivariateSpline(
                 wavelength_clean[~exclude_mask],
                 continuum[~exclude_mask],
-                s=len(wavelength_clean) * noise ** 2 / smoothing_factor,
+                s=int(np.sum(~user_masked_clean)) * noise ** 2 / smoothing_factor,
                 k=3
             )
             # The spline only knows the unmasked points. Masked samples before the first or after
@@ -194,7 +274,7 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
 
 # The settings of the automatic continuum, in the order that the parameter window shows them.
 AUTO_PARAMETERS = ("window_size", "sigma_threshold", "peak_width", "peak_distance",
-                   "peak_exclusion", "iterations", "smoothing_factor")
+                   "peak_exclusion", "iterations", "smoothing_factor", "mask_ranges")
 
 NONE_LINES = ["Continuum: none"]
 UNKNOWN_LINES = ["Continuum: unknown (the settings were not recorded)"]
@@ -222,10 +302,15 @@ def automatic_lines(params=None, default=False):
         default (bool): True if the defaults were used because no setting was given
 
     Returns:
-        lines (list): One line of text, without "#"
+        lines (list): One line of text, without "#". The masked ranges are written as (low, high) pairs in the
+            wavelength unit of the spectrum, or as None if there are none.
+
+    Raises:
+        ValueError: if a masked range is not valid
     """
     values = default_auto_parameters()
     values.update(params or {})
+    values["mask_ranges"] = merge_mask_ranges(values["mask_ranges"]) or None
     text = ", ".join(f"{name}={values[name]}" for name in AUTO_PARAMETERS)
     return [f"Continuum: automatic{', default settings' if default else ''} ({text})"]
 

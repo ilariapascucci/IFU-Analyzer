@@ -77,11 +77,14 @@ class GuiFluxMapMixin:
                                  "Click Show Lines to choose lines in this range.")
             return
 
+        full_masks = self.continuum_masks.get("full", [])
+        mask_note = (f"\n\nThe {len(full_masks)} masked range(s) of the Full spectrum are not used to fit the continuum."
+                     if full_masks else "")
         reply = QMessageBox.question(
             self,
             "Continuum Subtraction",
             "Flux extraction automatically fits and subtracts a continuum for every "
-            "pixel, using default parameters that work well for typical spectra.\n\n"
+            "pixel, using default parameters that work well for typical spectra." + mask_note + "\n\n"
             "Use custom continuum parameters instead?",
             QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
             QMessageBox.No
@@ -92,9 +95,9 @@ class GuiFluxMapMixin:
             params_dialog = ContinuumParametersDialog(self)
             if params_dialog.exec_() != QDialog.Accepted:
                 return
-            self.flux_map_continuum_params = params_dialog.get_parameters()
+            self.flux_map_continuum_params = self._continuum_params_with_masks(params_dialog.get_parameters(), "full")
         else:
-            self.flux_map_continuum_params = None
+            self.flux_map_continuum_params = self._continuum_params_with_masks(None, "full")
 
         if hasattr(self, 'flux_map_result_cache') and hasattr(self, 'flux_map_params_cache'):
             params_match = (

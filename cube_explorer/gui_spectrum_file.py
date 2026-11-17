@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 from .data_loader import CubeData
 from .fit_file import fit_type_of_comments
 from .gui_fit_file import FIT_BUTTON_TEXT
-from .spectrum_file import default_settings, read_spectrum_file
+from .spectrum_file import default_settings, is_save_spectrum_file, read_spectrum_file
 from .spectrum_load_dialog import SpectrumLoadDialog
 from .unit_converter import extract_value_from_quantity
 from .visualization import SpectrumPlotter
@@ -57,8 +57,8 @@ class GuiSpectrumFileMixin:
         self._cube_only_tips = {}
 
     def load_spectrum(self):
-        """Ask for a text file or a FITS table, read it, and show its spectrum. A file that Save Spectrum wrote
-        loads with no question. For any other file, a dialog asks for the columns and the units.
+        """Ask for a text file or a FITS table, read it, and show its spectrum. A dialog asks for the columns
+        and the units. For a file that Save Spectrum wrote, the dialog starts on the original spectrum.
         A fit file loads as a spectrum only. The message tells the user which button loads the fit.
 
         Args:
@@ -73,7 +73,7 @@ class GuiSpectrumFileMixin:
         if not fname:
             return
 
-        opened = self._open_spectrum_file(fname, "Load Spectrum")
+        opened = self._open_spectrum_file(fname, "Load Spectrum", choose_columns=True)
         if opened is None:
             return
         table, notes = opened
@@ -84,13 +84,16 @@ class GuiSpectrumFileMixin:
         if notes:
             QMessageBox.information(self, "Load Spectrum", "\n".join(notes))
 
-    def _open_spectrum_file(self, fname, title):
+    def _open_spectrum_file(self, fname, title, choose_columns=False):
         """Read a text file or a FITS table and show its spectrum. Each problem is shown in a message box.
-        A file that Save Spectrum wrote loads with no question. For any other file, a dialog asks.
+        A file that Save Spectrum wrote loads with no question, unless choose_columns is True.
+        Then the dialog asks, and the flux column starts on "original". For any other file, a dialog asks.
 
         Args:
             fname (str): Path of the text file or the FITS file
             title (str): Title of the dialog and of the message boxes
+            choose_columns (bool): True to let the user choose the columns of a file that Save Spectrum wrote,
+                for example "subtracted" in place of "original"
 
         Returns:
             opened (tuple): (table, notes). table is the SpectrumTable that was read. notes is a list of
@@ -99,7 +102,8 @@ class GuiSpectrumFileMixin:
         try:
             table = read_spectrum_file(fname)
             settings = default_settings(table)
-            if not settings.pop("complete"):
+            complete = settings.pop("complete")
+            if not complete or (choose_columns and is_save_spectrum_file(table.comments)):
                 dialog = SpectrumLoadDialog(table, self)
                 if dialog.exec_() != QDialog.Accepted:
                     return None

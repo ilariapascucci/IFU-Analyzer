@@ -655,6 +655,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.continuum_fitted = {"full": None, "left": None, "right": None}
         self.continuum_subtracted = {"full": False, "left": False, "right": False}
         self.continuum_mode_applied = {"full": None, "left": None, "right": None}
+        self._reset_continuum_masks()
 
         # Clear subtraction markers
         if hasattr(self, 'subtract_markers'):
@@ -1017,6 +1018,9 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_ok_btn = QPushButton("Fit Continuum")
         self.custom_contsub_btn = QPushButton("Subtract Continuum")
 
+        self.mask_spectrum_btn = QPushButton("Mask Spectrum")
+        self.clear_masks_btn = QPushButton("Clear Masks")
+
         self.custom_save_pts_btn = QPushButton("Save Points")
         self.custom_load_pts_btn = QPushButton("Load Points")
 
@@ -1032,12 +1036,15 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_subtract_btn.setCheckable(True)
         self.custom_delete_btn.setCheckable(True)
         self.custom_contsub_btn.setCheckable(True)
+        self.mask_spectrum_btn.setCheckable(True)
 
         # Connect toggle buttons
         self.auto_continuum_toggle.clicked.connect(self.on_auto_continuum_toggle)
         self.custom_continuum_toggle.clicked.connect(self.on_custom_continuum_toggle)
 
         # Connect action buttons (keep existing connections)
+        self.mask_spectrum_btn.clicked.connect(self._on_mask_spectrum_clicked)
+        self.clear_masks_btn.clicked.connect(self._on_clear_masks_clicked)
         self.continuum_line_btn.clicked.connect(self._on_continuum_line_clicked)
         self.custom_subtract_btn.clicked.connect(self._activate_custom_continuum_subtraction)
         self.custom_delete_btn.clicked.connect(self._on_custom_delete_toggled)
@@ -1047,6 +1054,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.custom_load_pts_btn.clicked.connect(self._load_custom_points)
 
         # Hide all action buttons initially
+        self.mask_spectrum_btn.hide()
+        self.clear_masks_btn.hide()
         self.continuum_line_btn.hide()
         self.subtract_continuum_btn.hide()
         self.custom_subtract_btn.hide()
@@ -1060,6 +1069,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.auto_continuum_toggle.setToolTip("Toggle automatic continuum fitting mode")
         self.custom_continuum_toggle.setToolTip("Toggle custom continuum point selection mode")
         self.continuum_line_btn.setToolTip("Fit and display continuum line")
+        self.mask_spectrum_btn.setToolTip(
+            "Click two wavelengths on the spectrum to hide the range between them from the continuum fit. "
+            "Click inside a gray range to remove it. The Flux Map, the continuum cubes and the "
+            "multi-Gaussian fit use the masks of the Full spectrum. A new mask removes the fitted continuum."
+        )
+        self.clear_masks_btn.setToolTip("Remove all masked ranges of the active spectrum")
         self.custom_subtract_btn.setToolTip("Click the spectrum to place the continuum points")
         self.custom_ok_btn.setToolTip(
             "Fit a cubic spline through the points and show it in orange. "
@@ -1712,6 +1727,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.continuum_fitted = {"full": None, "left": None, "right": None}
         self.continuum_subtracted = {"full": False, "left": False, "right": False}
         self.continuum_mode_applied = {"full": None, "left": None, "right": None}  # 'auto' | 'custom' | None
+        # Masked wavelength ranges of the automatic continuum, on each tab's own wavelength axis.
+        self.continuum_masks = {"full": [], "left": [], "right": []}
+        self._mask_pending = None  # (tab, wavelength) of a first click that waits for the second click
+        self._mask_pending_line = None
+        self._mask_span_artists = []
         self.custom_continuum_selector = None
         self.custom_continuum_active = False
         # Tab a custom-continuum session belongs to, captured at session start
@@ -2353,6 +2373,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         if event.inaxes != self.spec_plotter.ax:
             return
 
+        # Mask Spectrum mode: a click is one end of a masked range, not a contaminant or a navigation.
+        if event.button == 1 and self.mask_spectrum_btn.isChecked() and event.xdata is not None:
+            self._handle_mask_click(event.xdata)
+            return
+
         # "Mark Contaminant" mode takes priority over everything else below --
         # a click here always means "add a contaminant", not "deselect" or "navigate".
         if event.button == 1 and getattr(self, 'mark_contam_btn', None) and self.mark_contam_btn.isChecked() \
@@ -2724,6 +2749,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.spectrum_shift_factor[active_tab] = new_factor
         self.spectrum_shift_preview[active_tab] = None
         self._clear_tab_fits(active_tab)
+        self._scale_continuum_masks(active_tab, incremental_factor)
 
         # cube_data.wavelength must stay synced for Full: fitting, continuum,
         # HITRAN, and CO-flux code still read it directly, not per tab.
@@ -2817,6 +2843,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.spectrum_shift_factor[active_tab] = 1.0
         self.spectrum_shift_preview[active_tab] = None
         self._clear_tab_fits(active_tab)
+        self._scale_continuum_masks(active_tab, 1.0 / applied_factor)
 
         if active_tab == "full":
             self.cube_data.wavelength = np.asarray(self.base_wavelength, dtype=float).copy()
@@ -3276,6 +3303,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.continuum_fitted = {"full": None, "left": None, "right": None}
         self.continuum_subtracted = {"full": False, "left": False, "right": False}
         self.continuum_mode_applied = {"full": None, "left": None, "right": None}
+        self._reset_continuum_masks()
         self.continuum_line_btn.setChecked(False)
         self.subtract_continuum_btn.setChecked(False)
         self.custom_subtract_btn.setChecked(False)

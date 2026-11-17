@@ -379,9 +379,16 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
             smoothing_factor (float): Spline smoothing divisor (default 5). A higher value follows the
                 data more closely. The smoothing follows the noise of the spectrum, so it does not
                 depend on the flux unit.
+            mask_ranges (list): (low, high) wavelength pairs, in the unit of wavelength (default None).
+                The points in these ranges are not used to fit the continuum. The continuum crosses
+                a masked range as a smooth curve between its two sides. The same key works in the
+                continuum_params of save_continuum_cubes, extract_flux and create_flux_map.
 
     Returns:
         array: Fitted continuum values matching input wavelength array
+
+    Raises:
+        ValueError: if a masked range is not valid, or if fewer than 10 points are outside the masked ranges
 
     Example:
         >>> wavelength = cube.wavelength

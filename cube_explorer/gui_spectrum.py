@@ -581,6 +581,7 @@ class GuiSpectrumMixin:
             self._shift_preview_line.set_visible(False)
 
         self._sync_shift_buttons()
+        self._draw_mask_spans()
 
         indicator_set = getattr(self, '_slice_indicator_set', {"left": False, "right": False})
         vline_left = getattr(self.spec_plotter, 'vline_left', None)
@@ -622,7 +623,10 @@ class GuiSpectrumMixin:
             plotter.global_line, getattr(self, '_spec_tab_line_left', None),
             getattr(self, '_spec_tab_line_right', None), plotter.vline_left, plotter.vline_right]
         candidates += [getattr(self, name, None) for name in (
-            '_shift_preview_line', '_continuum_line_artist', '_continuum_zero_line',
+            '_shift_preview_line', '_continuum_line_artist', '_continuum_zero_line')]
+        # The masked ranges are in the Continuum group. Only the first band has a label.
+        candidates += list(getattr(self, '_mask_span_artists', []))[:1]
+        candidates += [getattr(self, name, None) for name in (
             'gauss_left_marker', 'gauss_peak_marker', 'gauss_right_marker',
             'gauss_noise_left_marker', 'gauss_noise_right_marker')]
         # A removed artist has no axes, so a stale marker gets no entry.

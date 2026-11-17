@@ -32,7 +32,7 @@ Some tools have a narrower scope:
 - Colormap selection through a dialog, with colourblind-friendly options
 - Support for 2D images (intensity maps and Gaussian parameter maps)
 - Copy of colormaps and regions between the two displays
-- Load a spectrum from a text file (txt or csv) or a 1D FITS table (for example a JWST x1d file) with the "Load Spectrum" button. The file has a wavelength column, a flux column, and an optional flux error column. An x1d file starts on the `FLUX` column in Jy. Choose `SURF_BRIGHT` to use MJy/sr. A fit of a spectrum in Jy gives its flux in erg/s/cm², the same as a fit of a cube. The window then shows that one spectrum, with no slices, and the continuum, Gaussian, multi-Gaussian, Doppler shift, line list, and save tools work on it. The tools that need a cube (Fit Gaussian Map, Flux Map, Pixel-by-Pixel continuum, regions) are off. The flux error is drawn as a dot with a line above and below it. It is saved in an Error column. No fit uses it as a weight.
+- Load a spectrum from a text file (txt or csv) or a 1D FITS table (for example a JWST x1d file) with the "Load Spectrum" button. The file has a wavelength column, a flux column, and an optional flux error column. An x1d file starts on the `FLUX` column in Jy. Choose `SURF_BRIGHT` to use MJy/sr. A fit of a spectrum in Jy gives its flux in erg/s/cm², the same as a fit of a cube. The window then shows that one spectrum, with no slices, and the continuum, Gaussian, multi-Gaussian, Doppler shift, line list, and save tools work on it. The tools that need a cube (Fit Gaussian Map, Flux Map, Pixel-by-Pixel continuum, regions) are off. The flux error is drawn as a dot with a line above and below it. It is saved in an Error column. No fit uses it as a weight. A file that "Save Spectrum" wrote also shows the column dialog, and the flux column starts on "original". Choose "subtracted" to load the continuum-subtracted spectrum. The fitted continuum and the masks do not load. If the file has no continuum, the "subtracted" column is empty, and a message says so.
 
 ### Rovibrational Flux Mapping
 
@@ -155,6 +155,7 @@ Bring several images to one resolution in a single step.
 - **Continuum fitting:**
   - **Automatic mode:** median filter, then peak detection, then iterative sigma clipping, then a cubic-spline fit
     - Adjustable parameters: window size, sigma threshold, peak-exclusion width, iterations, and smoothing factor
+    - Mask Spectrum: you can mask one or more wavelength ranges, for example a dip or a group of lines. The fit does not use the points in a masked range. The continuum crosses the range as a smooth curve between the two sides. In a script, give the ranges as `mask_ranges=[(low, high), ...]` to `fit_continuum`, or in the `continuum_params` of the other functions.
     - The fitted continuum is shown in orange over the original spectrum before any subtraction.
     - One click subtracts the continuum from the whole spectrum.
   - **Custom interactive mode:**
@@ -368,10 +369,15 @@ python main.py
 
    **Automatic method:**
    - Click "Automatic".
+   - Optional: click "Mask Spectrum" to hide a range of the spectrum from the fit. Click two wavelengths on the spectrum. The range between them turns gray. Mask more ranges in the same way. Make a mask a little wider than a dip, because the sides of the dip also lower the continuum. To remove one range, click inside it. "Clear Masks" removes all ranges of the spectrum you see.
+   - A change of the masks removes the fitted continuum, and the subtraction if there is one. Click "Fit Continuum" again.
    - Click "Fit Continuum" to open the parameter dialog.
    - Set the window size, the sigma threshold, the peak-exclusion width, the iterations, and the smoothing factor.
    - The fitted continuum shows in orange over the original spectrum.
    - Click "Subtract Continuum". The full subtracted spectrum is shown.
+   - Each spectrum (Full, Left, Right) has its own masks. A Doppler shift moves the masks with the spectrum. The Flux Map, "Set Parameters and Save" in Pixel-by-Pixel, and a multi-Gaussian fit with no fitted continuum use the masks of the Full spectrum.
+   - Inside a masked range, the continuum is not measured data. A line in that range has a smooth baseline between the two sides of the range. The `# Continuum:` line of a saved file lists the masked ranges as `mask_ranges`.
+   - If the masks leave fewer than 10 points to fit, a message says so, and no continuum is made.
 
    **Custom interactive method:**
    - Click "Custom".
@@ -504,7 +510,7 @@ python main.py
    - **HITRAN database:** "Fetch HITRAN" queries molecular lines. "Show Lines" lists the loaded lines and lets you choose which ones to plot.
    - **Normalize spectrum:** the "Normalize" checkbox divides every spectrum by the peak of the full spectrum. "Show Left" and "Show Right" overlay a region's spectrum on the "Full" tab. "Self-Normalize Left" and "Self-Normalize Right" divide a region's spectrum by its own peak.
    - **Doppler shift:** two buttons control a multiplicative wavelength correction (km/s). "Preview Shift" asks for the velocity and shows the shifted spectrum in orange. Click it again to cancel the preview. "Apply Shift" applies the preview. When no preview is pending, click "Apply Shift" again to revert the spectrum to its original wavelength. A button is pressed while its state is active for the spectrum you are looking at. Applying or reverting a shift clears the Gaussian fits, the Fit and Noise markers and the Gaussian map of that spectrum. Place the markers again on the shifted spectrum. Line markers (HITRAN, LST, contaminant) stay at their wavelengths. Shifting or reverting the Full spectrum also updates the two slice wavelength boxes, the slice titles and the slice markers on the spectrum.
-   - **Spectrum legend:** the "Legend" button, next to "Save Spectrum", opens a list of legend groups: Continuum, Slice markers, Fit markers, Noise region, Gaussian fits, Contaminants, and Shift preview. Clear the check mark of a group to remove its entries from the legend. The spectrum itself always stays in the legend. The "Gaussian fits" group also shows or hides the box with the center, FWHM, and R² of a single Gaussian fit. The Gaussian map pixel-fit window and the rotational-diagram fit windows have a "Legend" check box in the toolbar row of the plot. Clear it to hide the legend of that plot.
+   - **Spectrum legend:** the "Legend" button, next to "Save Spectrum", opens a list of legend groups: Continuum, Slice markers, Fit markers, Noise region, Gaussian fits, Contaminants, and Shift preview. Clear the check mark of a group to remove its entries from the legend. The spectrum itself always stays in the legend. The "Continuum" group also has the entry "Continuum Mask" for the gray masked ranges. The ranges stay on the plot when you hide the group. The "Gaussian fits" group also shows or hides the box with the center, FWHM, and R² of a single Gaussian fit. The Gaussian map pixel-fit window and the rotational-diagram fit windows have a "Legend" check box in the toolbar row of the plot. Clear it to hide the legend of that plot.
    - **Spectrum height:** drag the divider between the slices and the menu groups up or down. The spectrum and its buttons are below the divider. The plots change size while you drag. Double-click the divider to put it back at its start position. The window starts with the slices as tall as they can be while the slice buttons still use two columns. The divider stops when the stats and the cursor info of the slices would no longer fit. The spectrum always keeps room for the tallest menu, so opening a menu never makes the slices smaller. The divider stays at its start position, also when you resize the window, until you move it.
    - **Wavelength range:** the "λ min" and "λ max" boxes (in µm) in the "Lines & Fit" group set the range for "Fetch HITRAN", "Import Lines", "Contam. Lines", and "Flux Map". They fill from the cube when you load it.
    - **New window:** the new-window button opens an independent application window for a multi-file comparison.

@@ -62,7 +62,12 @@ def _continuum_row_worker(row_idx, spectra_row, wavelength, continuum_params):
         spectrum = spectra_row[:, ix]
         if not np.any(np.isfinite(spectrum)):
             continue
-        continuum = fit_auto_continuum(wavelength, spectrum, **params)
+        # The masked ranges can leave a pixel with too few points. That pixel counts as failed, as an all-NaN fit does.
+        try:
+            continuum = fit_auto_continuum(wavelength, spectrum, **params)
+        except ValueError:
+            n_failed += 1
+            continue
         if np.all(np.isnan(continuum)):
             n_failed += 1
             continue

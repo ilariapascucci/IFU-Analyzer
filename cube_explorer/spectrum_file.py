@@ -404,6 +404,19 @@ def suggest_error_column(table, y_index):
     return None
 
 
+def is_save_spectrum_file(comments):
+    """Tell if the comment lines of a text file are the header of a file that Save Spectrum wrote.
+    That file has the columns wavelength, original, continuum, subtracted and plotted.
+
+    Args:
+        comments (list): The comment lines of the file, each with its "#" at the start
+
+    Returns:
+        is_spectrum_file (bool): True if the first comment line is the first line of a Save Spectrum file
+    """
+    return bool(comments) and comments[0].lstrip("#").strip().startswith("IFU Analyzer spectrum file")
+
+
 def suggest_columns(table):
     """Guess which column is the wavelength, which is the flux, and which is the flux error.
     The guess uses the column names. Without names, the columns are wavelength, flux and error, in that order.
