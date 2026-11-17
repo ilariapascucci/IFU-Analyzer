@@ -13,6 +13,7 @@ from astropy.wcs import WCS
 from .utils import TELESCOPE_LOADERS, detect_instrument, infer_spec_axis, get_wavelength
 from .fits_export import build_2d_export_header, write_fits_product
 from .spectrum_file import prepare_spectrum, normalize_wave_unit
+from .unit_converter import spectrum_flux_density_unit, _string_to_astropy_unit
 
 class CubeData:
     """
@@ -27,11 +28,14 @@ class CubeData:
         wavelength (astropy.units.Quantity): Array of wavelength values with units
         wave_unit (str): String representation of wavelength/velocity unit (Angstrom, um)
         spec_axis (int): Index of the spectral axis (typically 0)
-        spectrum (array): Full cube spectrum (sum over spatial dimensions)
+        spectrum (astropy.units.Quantity): Full cube spectrum (sum over spatial dimensions), in
+            spectrum_flux_unit. A plain array if that unit is not known.
+        spectrum_scale (float): The number that turns the pixel values of the cube into the values of a spectrum
+        spectrum_flux_unit (str): Unit of every spectrum: Jy for a cube in MJy/sr, otherwise the unit of the cube
         wcs (astropy.wcs.WCS): World Coordinate System for coordinate transforms
         instrument (str): Detected instrument name
         filename (str): FITS file name
-        flux_unit (str): String representation of flux unit (erg/cm**2*s*Angstrom, MJy/sr)
+        flux_unit (str): Unit of the pixel values of the cube (erg/cm**2*s*Angstrom, MJy/sr)
         spectrum_error (array): Flux error of each point of spectrum, or None. Only a spectrum file gives it.
         header_comments (list): The comment lines of the spectrum file, or None for a cube
     """
@@ -57,8 +61,57 @@ class CubeData:
         self.instrument = None
         self.filename = None
         self.flux_unit = ""
+        self.spectrum_scale = 1.0
+        self.spectrum_flux_unit = ""
         self.spectrum_error = None
         self.header_comments = None
+
+
+    def to_spectrum_units(self, values):
+        """
+        Turn pixel sums, in the unit of the cube, into spectrum values. For a cube in MJy/sr this
+        multiplies by the solid angle of one pixel and by 1e6, which gives Jy.
+
+        Args:
+            values (array): Sum of pixel values of the cube, in the unit of the cube
+
+        Returns:
+            spectrum (numpy.ndarray): Values in spectrum_flux_unit, float64, without a unit attached
+        """
+        return np.asarray(values, dtype=np.float64) * self.spectrum_scale
+
+
+    def with_spectrum_unit(self, values):
+        """
+        Attach spectrum_flux_unit to spectrum values, so the fitters can read the unit from the data.
+
+        Args:
+            values (array): Values in spectrum_flux_unit
+
+        Returns:
+            spectrum (astropy.units.Quantity): The values with their unit, or a plain array if the unit is not known
+        """
+        unit = _string_to_astropy_unit(self.spectrum_flux_unit)
+        return values if unit is None else values * unit
+
+
+    @property
+    def spectrum_header(self):
+        """
+        FITS header to give the fitters together with a spectrum. It is the header of the cube, but its
+        BUNIT is the unit of the spectrum, so the conversion to erg/s/cm2 uses the right unit.
+
+        Args:
+            None
+
+        Returns:
+            header (astropy.io.fits.Header): The header of the cube if spectra have the unit of the cube, else a copy with the new BUNIT
+        """
+        if self.header is None or self.spectrum_flux_unit == self.flux_unit:
+            return self.header
+        header = self.header.copy()
+        header['BUNIT'] = self.spectrum_flux_unit
+        return header
 
 
     @property
@@ -159,9 +212,10 @@ class CubeData:
             if self.wavelength is not None and len(self.wavelength) != self.cube.shape[self.spec_axis]:
                 self.wavelength = self.wavelength[:self.cube.shape[self.spec_axis]]
 
-            # Compute spectrum
-            self.spectrum = self._compute_spectrum()
-            
+            # A spectrum is a sum of pixels, so it is a flux (Jy), not a surface brightness (MJy/sr)
+            self.spectrum_scale, self.spectrum_flux_unit = spectrum_flux_density_unit(self.flux_unit, self.header)
+            self.spectrum = self.with_spectrum_unit(self.to_spectrum_units(self._compute_spectrum()))
+
             # Ensure wavelength increases left->right
             if self.wavelength is not None and self.wavelength[0] > self.wavelength[-1]:
                 self.wavelength = self.wavelength[::-1]
@@ -240,7 +294,9 @@ class CubeData:
         self.wavelength = wavelength * (u.um if wave_unit == 'um' else u.AA)
         self.wave_unit = wave_unit
         self.spec_axis = 0
-        self.spectrum = flux
+        self.spectrum_scale = 1.0
+        self.spectrum_flux_unit = flux_unit
+        self.spectrum = self.with_spectrum_unit(flux)
         self.wcs = None
         self.instrument = instrument
         self.filename = filename

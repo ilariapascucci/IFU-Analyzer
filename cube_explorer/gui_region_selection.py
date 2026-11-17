@@ -55,6 +55,18 @@ class RegionSelectionMixin:
         """
         return ""
 
+    def _region_sum_text(self, target, total_sum):
+        """Text of the sum line in the stats of a panel. A host can show the sum in another unit.
+
+        Args:
+            target (str): Panel to describe, 'left' or 'right'.
+            total_sum (float): Sum of the pixel values, in the unit of the image.
+
+        Returns:
+            text (str): "sum=..." by default, in the unit of the image.
+        """
+        return f"sum={total_sum:.3e}"
+
     def _region_wcs(self, target):
         """Sky WCS of panel ``target`` ('left'/'right'), or None.
 
@@ -181,7 +193,7 @@ class RegionSelectionMixin:
             f"min={mn:.3e}\n"
             f"max={mx:.3e}\n"
             f"mean={mean:.3e}\n"
-            f"sum={total_sum:.3e}\n"
+            f"{self._region_sum_text(target, total_sum)}\n"
             f"std={std:.3e}\n"
             f"\n"
             + scaling_stats_text(image, scale_settings)
@@ -462,7 +474,7 @@ class RegionSelectionMixin:
                 f"min={mn:.3e}",
                 f"max={mx:.3e}",
                 f"mean={mean:.3e}",
-                f"sum={total_sum:.3e}",
+                self._region_sum_text(target, total_sum),
                 f"std={std:.3e}",
             ]
             combined_stats = region_stats + [""] + slice_stats if slice_stats else region_stats

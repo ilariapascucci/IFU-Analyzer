@@ -86,7 +86,7 @@ class GuiFitFileMixin:
             QMessageBox.warning(self, title, "There is no spectrum on this tab to put the fit on.")
             return None
         try:
-            rebuilt = rebuild_fit(fit_file, wavelength, spectrum)
+            rebuilt = rebuild_fit(fit_file, wavelength, spectrum, flux_unit=self.cube_data.spectrum_flux_unit)
         except ValueError as error:
             QMessageBox.critical(self, title, f"The fit does not go on this spectrum:\n{error}")
             return None

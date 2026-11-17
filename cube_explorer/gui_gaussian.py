@@ -333,7 +333,7 @@ class GuiGaussianMixin:
             result = fit_gaussian_to_line(
                 self.gauss_left_x, self.gauss_right_x, spectrum_x, spectrum_y,
                 peak_x=self.gauss_peak_x, noise_min=noise_min, noise_max=noise_max,
-                header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
+                header=self.cube_data.spectrum_header, wave_unit=self.cube_data.wave_unit,
                 continuum=continuum
             )
             if not result.success:
@@ -366,7 +366,7 @@ class GuiGaussianMixin:
             None
         """
         wave_unit_raw = getattr(self.cube_data, 'wave_unit', 'spectral units')
-        flux_unit_raw = getattr(self.cube_data, 'flux_unit', 'flux units')
+        flux_unit_raw = getattr(self.cube_data, 'spectrum_flux_unit', None) or 'flux units'
         wave_unit = clean_wave_unit(wave_unit_raw)
         flux_unit = clean_flux_unit(flux_unit_raw)
         
@@ -639,7 +639,7 @@ STATUS: {result.message}
 
         self.multi_gauss_worker = MultiGaussianFitWorker(
             spectrum_x, spectrum_y, detection_lines, continuum_y,
-            header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
+            header=self.cube_data.spectrum_header, wave_unit=self.cube_data.wave_unit,
             contam_lines=contam_lines,
         )
         # No cancel button: fit_glines has no cancellation checkpoint, and
@@ -884,7 +884,7 @@ STATUS: {result.message}
             None
         """
         wave_unit = clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm'))
-        flux_unit = clean_flux_unit(getattr(self.cube_data, 'flux_unit', 'MJy/sr'))
+        flux_unit = clean_flux_unit(getattr(self.cube_data, 'spectrum_flux_unit', None) or 'MJy/sr')
         fallback_area_unit = f"{flux_unit}·{wave_unit}"
         failed_results = failed_results or []
 
@@ -1089,10 +1089,9 @@ STATUS: {result.message}
         Returns:
             header (dict): Keyword arguments wave_unit, flux_unit and header_lines.
         """
-        header = getattr(self.cube_data, 'header', None)
         return {
             'wave_unit': clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm')),
-            'flux_unit': header.get('BUNIT') if header is not None else None,
+            'flux_unit': getattr(self.cube_data, 'spectrum_flux_unit', None) or None,
             'header_lines': [
                 f"Instrument: {getattr(self.cube_data, 'instrument', 'Unknown')}",
                 f"Spectrum tab: {self.active_spectrum_tab}",

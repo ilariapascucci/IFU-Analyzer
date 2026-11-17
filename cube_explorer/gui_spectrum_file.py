@@ -158,7 +158,7 @@ class GuiSpectrumFileMixin:
             None
         """
         cube_data = self.cube_data
-        self.original_spectrum = np.array(cube_data.spectrum, dtype=float)
+        self.original_spectrum = np.array(extract_value_from_quantity(cube_data.spectrum), dtype=float)
         self.base_wavelength = np.array(extract_value_from_quantity(cube_data.wavelength), dtype=float)
 
         name = os.path.basename(cube_data.filename)
@@ -169,7 +169,7 @@ class GuiSpectrumFileMixin:
         self.spec_plotter = SpectrumPlotter(self.spec_fig, cube_data.wavelength, cube_data.wave_unit)
         self.spec_plotter.cube_data = cube_data
         self.spec_toolbar.custom_home_action = self._spectrum_home_reset
-        self.spec_plotter.plot_spectrum(cube_data.spectrum)
+        self.spec_plotter.plot_spectrum(self.original_spectrum)
         self._reset_slice_indicators()
         self._set_spectrum_only_mode(True)
         self.spec_tab_bar.setCurrentIndex(0)

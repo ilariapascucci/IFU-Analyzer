@@ -1774,8 +1774,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
                 QMessageBox.warning(self, "Data Error", "Failed to compute spectrum from the data")
                 return
 
-            # Copy spectrum
-            self.original_spectrum = self.cube_data.spectrum.copy()
+            # Copy spectrum. It is in spectrum_flux_unit (Jy for a cube in MJy/sr), as plain numbers.
+            self.original_spectrum = np.array(extract_value_from_quantity(self.cube_data.spectrum), dtype=float)
             self._set_spectrum_only_mode(False)
 
             # Permanent, never-mutated reference wavelength for the per-tab shift
@@ -1802,7 +1802,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             
             try:
                 # Plot the spectrum
-                self.spec_plotter.plot_spectrum(self.cube_data.spectrum)
+                self.spec_plotter.plot_spectrum(self.original_spectrum)
                 # Record the full y-range now, so a zoom made before the first redraw is kept.
                 self._apply_shared_y_scale()
                 try:
@@ -2122,6 +2122,23 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         """
         unit_raw = getattr(self.cube_data, "flux_unit", "")
         return clean_flux_unit(unit_raw) if unit_raw else ""
+
+    def _region_sum_text(self, target, total_sum):
+        """Text of the sum line in the stats of a slice panel. The pixels are a surface brightness,
+        but their sum is a flux, so it is shown in the unit of the spectra (Jy for a cube in MJy/sr).
+        The sum then equals the region spectrum at the wavelength of the slice.
+
+        Args:
+            target (str): Panel to describe, 'left' or 'right'.
+            total_sum (float): Sum of the pixel values, in the unit of the cube.
+
+        Returns:
+            text (str): "sum[Jy]=..." for a cube in MJy/sr, otherwise the sum in the unit of the cube.
+        """
+        if self.cube_data.spectrum_scale == 1.0:
+            return super()._region_sum_text(target, total_sum)
+        unit = clean_flux_unit(self.cube_data.spectrum_flux_unit)
+        return f"sum[{unit}]={total_sum * self.cube_data.spectrum_scale:.3e}"
 
     def _region_slice_stat_keep(self, line):
         """Keep the whole-slice Scaling/vmin/vmax lines above region stats.
@@ -4081,8 +4098,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         try:
             wave_unit = self.cube_data.wave_unit if hasattr(self.cube_data, 'wave_unit') else "Unknown"
-            header = getattr(self.cube_data, 'header', None)
-            flux_unit = header.get('BUNIT', 'Unknown') if header is not None else 'Unknown'
+            flux_unit = getattr(self.cube_data, 'spectrum_flux_unit', '') or 'Unknown'
 
             header_lines = self._spectrum_file_header_lines(
                 tab, wave_unit, flux_unit, plotted_text, divisor, has_error=error is not None)

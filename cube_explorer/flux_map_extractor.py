@@ -33,7 +33,7 @@ from .gaussian_fitter import (
     compute_line_free_noise_std, compute_mad_noise_std, gaussian_flux_upper_limit,
     GaussianFitResult, gaussian,
 )
-from astropy.stats import gaussian_sigma_to_fwhm
+from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from .utils import get_spectral_resolution
 from .unit_converter import (
     integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs,
@@ -68,6 +68,8 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
     Fit continuum using peak detection and median filter method: finds emission peaks,
     excludes them, and fits a smooth continuum through the rest via median filtering and
     spline smoothing. Same method used by the GUI's Automatic Continuum button.
+    The spline smoothing follows the noise of the spectrum, so the continuum has the same shape
+    in any flux unit (for example MJy/sr or Jy).
 
     Args:
         wavelength (array): Wavelength array
@@ -78,7 +80,9 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
         peak_distance (int): Minimum distance between peaks in pixels
         peak_exclusion (int): Number of pixels to exclude on each side of a peak
         iterations (int): Number of iterative sigma clipping iterations
-        smoothing_factor (float): Spline smoothing parameter divisor
+        smoothing_factor (float): Spline smoothing divisor. The spline may differ from the median-filtered
+            continuum by a total squared residual of N * noise**2 / smoothing_factor, where N is the number of
+            points and noise is the robust noise of the spectrum. A higher value follows the data more closely.
 
     Returns:
         continuum (array): Fitted continuum matching wavelength, or all-NaN if fitting fails
@@ -155,11 +159,15 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
             continuum = median_filter(flux_good, size=window_size, mode='reflect')
         
         # STEP 6: Final smoothing with spline
+        # The spline s is a sum of squared residuals, so it must scale with the noise of the data.
+        # Then the smoothing is the same in every flux unit.
+        noise = mad_std(flux_clean - flux_smoothed)
+        noise = float(noise) if np.isfinite(noise) else 0.0
         try:
             spline = UnivariateSpline(
                 wavelength_clean[~exclude_mask],
                 continuum[~exclude_mask],
-                s=len(wavelength_clean) / smoothing_factor,
+                s=len(wavelength_clean) * noise ** 2 / smoothing_factor,
                 k=3
             )
             # The spline only knows the unmasked points. Masked samples before the first or after

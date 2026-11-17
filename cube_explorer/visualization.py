@@ -328,9 +328,11 @@ class SpectrumPlotter:
                 xlabel = "Spectral axis"
             self.ax.set_xlabel(xlabel)
 
-            if hasattr(self.cube_data, 'flux_unit') and self.cube_data.flux_unit:
+            # A spectrum has its own unit: Jy for a cube in MJy/sr
+            spectrum_unit = getattr(self.cube_data, 'spectrum_flux_unit', '') or getattr(self.cube_data, 'flux_unit', '')
+            if spectrum_unit:
                 from .unit_converter import clean_flux_unit
-                ylabel = f"Flux [{clean_flux_unit(self.cube_data.flux_unit)}]"
+                ylabel = f"Flux [{clean_flux_unit(spectrum_unit)}]"
             else:
                 # No flux_unit available - use generic label instead of guessing
                 # (wavelength alone doesn't determine flux unit: micron could be Jy or MJy/sr)

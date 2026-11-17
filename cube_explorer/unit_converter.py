@@ -474,6 +474,30 @@ def integrated_flux_to_cgs(value, flux_unit, wavelength=None, header=None, wave_
     return _reduce_to_target(quantity, CGS_FLUX, wavelength, wave_astropy_unit, header)
 
 
+def spectrum_flux_density_unit(flux_unit, header):
+    """
+    Tell how the pixel values of a cube become the values of a spectrum. A spectrum is a sum of
+    pixels, so a surface brightness (for example MJy/sr) becomes a flux density (Jy) when each pixel
+    is multiplied by its own solid angle. A unit that is not per steradian stays as it is.
+
+    Args:
+        flux_unit (str): Flux unit of the cube pixels, typically the BUNIT header keyword
+        header (astropy.io.fits.Header): FITS header with the pixel scale
+
+    Returns:
+        result (tuple): (scale, unit). scale (float) multiplies the pixel values. unit (str) is the unit
+            of the spectrum, 'Jy' for MJy/sr, or flux_unit unchanged. scale is 1.0 when the unit is unchanged.
+    """
+    astropy_unit = _string_to_astropy_unit(flux_unit)
+    if astropy_unit is None or not (astropy_unit * u.sr).is_equivalent(u.Jy):
+        return 1.0, flux_unit
+    omega = pixel_solid_angle(header)
+    if omega is None:
+        print(f"[WARNING] The header has no pixel scale, so the spectra stay in {flux_unit}, a sum of pixels.")
+        return 1.0, flux_unit
+    return float(omega.value * (astropy_unit * u.sr).to(u.Jy)), 'Jy'
+
+
 def _resolve_flux_unit(flux_unit_input: Optional[str], header) -> Optional[str]:
     """
     Return the cube's flux unit, falling back to the header's BUNIT.

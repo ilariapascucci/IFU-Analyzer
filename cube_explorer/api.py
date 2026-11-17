@@ -83,6 +83,39 @@ import time
 import warnings
 
 import numpy as np
+from astropy import units as u
+from astropy.io import fits
+
+from .unit_converter import _string_to_astropy_unit
+
+
+def _spectrum_and_header(spectrum, header):
+    """Split a spectrum into plain numbers and the header to fit with.
+    A spectrum that carries a unit (an astropy Quantity, like cube.spectrum) gives its own unit,
+    and the header gets that unit as BUNIT. A spectrum in Jy is then never read as MJy/sr
+    because it came with the header of a cube.
+
+    Args:
+        spectrum (array-like or Quantity): Flux values, with or without a unit.
+        header (astropy.io.fits.Header or None): FITS header that the user gave.
+
+    Returns:
+        result (tuple): (values, header). values is a float array. header is the given header,
+            a copy of it with BUNIT set to the unit of the spectrum, or (if none was given)
+            a new header that holds only that unit. A spectrum with no unit leaves the header as it is.
+    """
+    values = _as_float_array(spectrum)
+    unit = getattr(spectrum, "unit", None)
+    if unit is None or unit == u.dimensionless_unscaled:
+        return values, header
+    if header is None:
+        header = fits.Header()
+    elif _string_to_astropy_unit(header.get("BUNIT")) == unit:
+        return values, header
+    else:
+        header = header.copy()
+    header["BUNIT"] = unit.to_string()
+    return values, header
 
 
 def _as_float_array(values):
@@ -238,7 +271,8 @@ def load_fit(filename, wavelength=None, spectrum=None):
         filename (str): Path to the fit file
         wavelength (array-like): Wavelengths of the spectrum that the fit goes on. None uses the
             wavelengths in the file. Given wavelengths must be the wavelengths of the file.
-        spectrum (array-like): Flux of the spectrum. None uses the flux in the file.
+        spectrum (array-like or Quantity): Flux of the spectrum. None uses the flux in the file. A Quantity gives
+            its unit, which must be the unit of the file.
 
     Returns:
         dict: 'fit_type' ('single' or 'multi'), 'lines' (list of dicts with 'kind' ('line', 'contaminant' or
@@ -247,8 +281,9 @@ def load_fit(filename, wavelength=None, spectrum=None):
             'wavelength', 'spectrum', 'fit' and 'baseline' (arrays), and 'notes' (warnings, may be empty).
 
     Raises:
-        ValueError: If the file has no fit parameters (a file from an older version), or the wavelengths
-            are not the wavelengths of the file. A Doppler shift gives this error.
+        ValueError: If the file has no fit parameters (a file from an older version), the wavelengths
+            are not the wavelengths of the file (a Doppler shift gives this error), or the flux unit of
+            the spectrum is not the flux unit of the file.
         OSError: If the file cannot be opened
 
     Example:
@@ -260,7 +295,8 @@ def load_fit(filename, wavelength=None, spectrum=None):
     fit_file = read_fit_file(filename)
     wl = fit_file.wavelength if wavelength is None else _as_float_array(wavelength)
     sp = fit_file.original if spectrum is None else _as_float_array(spectrum)
-    rebuilt = rebuild_fit(fit_file, wl, sp)
+    unit = getattr(spectrum, "unit", None)
+    rebuilt = rebuild_fit(fit_file, wl, sp, flux_unit=None if unit is None else unit.to_string())
     for note in rebuilt['notes']:
         warnings.warn(note)
     return {
@@ -284,13 +320,16 @@ def extract_pixel_spectrum(cube, x, y):
         y (int): Y pixel coordinate (0-based)
 
     Returns:
-        numpy.ndarray: 1D spectrum at (x, y), same length as cube.wavelength
+        astropy.units.Quantity: 1D spectrum at (x, y), same length as cube.wavelength. It is the flux
+        of that pixel in Jy for a cube in MJy/sr (the cube value times the pixel solid angle), the same
+        as the GUI shows, and the unit goes with the data.
 
     Example:
         >>> cube = load_cube("data.fits")
         >>> spectrum = extract_pixel_spectrum(cube, x=20, y=25)
     """
-    return cube.get_pixel_spectrum(x, y)
+    native = cube.get_pixel_spectrum(x, y)
+    return None if native is None else cube.with_spectrum_unit(cube.to_spectrum_units(native))
 
 
 def extract_region_spectrum(cube, mask):
@@ -304,7 +343,8 @@ def extract_region_spectrum(cube, mask):
             shape (cube.cube.shape[1:]); True marks pixels inside the region
 
     Returns:
-        numpy.ndarray: 1D summed spectrum of the masked pixels
+        astropy.units.Quantity: 1D summed spectrum of the masked pixels. It is a flux in Jy for a cube in MJy/sr
+        (the sum times the pixel solid angle), the same as the GUI shows, and the unit goes with the data.
 
     Example:
         >>> cube = load_cube("data.fits")
@@ -312,7 +352,8 @@ def extract_region_spectrum(cube, mask):
         >>> mask[15:35, 10:30] = True  # a rectangular region, [y, x] order
         >>> spectrum = extract_region_spectrum(cube, mask)
     """
-    return cube.compute_region_spectrum(mask)
+    native = cube.compute_region_spectrum(mask)
+    return None if native is None else cube.with_spectrum_unit(cube.to_spectrum_units(native))
 
 
 # --- Continuum Fitting API ---
@@ -335,7 +376,9 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
             peak_distance (int): Minimum distance between peaks (default 3)
             peak_exclusion (int): Pixels to exclude on each side of peak (default 3)
             iterations (int): Iterative clipping iterations (default 2)
-            smoothing_factor (float): Spline smoothing parameter (default 5)
+            smoothing_factor (float): Spline smoothing divisor (default 5). A higher value follows the
+                data more closely. The smoothing follows the noise of the spectrum, so it does not
+                depend on the flux unit.
 
     Returns:
         array: Fitted continuum values matching input wavelength array
@@ -426,7 +469,9 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
     Args:
         wavelength (array-like): Wavelength/frequency values. Astropy
             Quantities are accepted; their units are stripped.
-        spectrum (array-like): Flux values.
+        spectrum (array-like or Quantity): Flux values. A Quantity (like ``cube.spectrum``,
+            which is in Jy for a cube in MJy/sr) gives its own unit, and that unit is used
+            instead of the ``BUNIT`` of ``header``.
         x1 (float): Left boundary of the fitting region.
         x2 (float): Right boundary of the fitting region.
         line_name (str, optional): Descriptive label for the line. Not stored
@@ -454,8 +499,9 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
         ``fwhm``, ``area``, ``area_unit``, ``area_native``, ``baseline_slope``,
         ``baseline_intercept``, ``r_squared``, ``success`` and ``message``.
 
-        ``area`` is in erg/s/cm^2 when ``header`` is supplied and the cube is
-        in MJy/sr (MIRI, NIRSpec); otherwise it stays in flux*wavelength units.
+        ``area`` is in erg/s/cm^2 when the spectrum is in Jy (``header`` is not needed), or
+        when it is in MJy/sr and ``header`` is supplied (MIRI, NIRSpec); otherwise it
+        stays in flux*wavelength units.
         Check ``area_unit`` rather than assuming; it always states which.
         ``area_native`` is the unconverted value, which is what you want when
         dividing by a continuum measured in the cube's own units.
@@ -477,7 +523,7 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
         ...     print(f"FWHM: {result.fwhm:.6f} um")
     """
     wl = _as_float_array(wavelength)
-    fl = _as_float_array(spectrum)
+    fl, header = _spectrum_and_header(spectrum, header)
 
     # Boundaries are not reordered for you -- the GUI rejects a mis-ordered
     # selection, and this must behave the same way.
@@ -608,7 +654,7 @@ def fit_hitran_lines(wavelength, spectrum, molecule, wavelength_min=None, wavele
         >>> print(f"Detected {len(detected)} CO v=1->0 lines")
     """
     wl = _as_float_array(wavelength)
-    sp = _as_float_array(spectrum)
+    sp, header = _spectrum_and_header(spectrum, header)
 
     # Use spectrum edges if not provided
     if wavelength_min is None:
@@ -954,6 +1000,9 @@ def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalo
         >>> print(f"Total flux: {result['flux']:.4e} {result['flux_unit']}")
         >>> print(f"Detected {len(result['detected_lines'])} lines")
     """
+    # A spectrum with a unit (like cube.spectrum) gives its own unit to the conversion
+    spectrum, header = _spectrum_and_header(spectrum, header)
+
     # Load catalogs from files
     target_catalog = load_CO_line_catalog(target_catalog_path)
     contam_catalog = None

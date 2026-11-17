@@ -274,10 +274,11 @@ class ContinuumParametersDialog(QDialog):
             step=1,
             description=(
                 "<b>What it does:</b> Controls the smoothness of the final spline fit.<br>"
-                "<b>Effect:</b> Lower values = closer fit to data, higher = smoother curve<br>"
+                "<b>Effect:</b> Lower values = smoother curve, higher = closer fit to data<br>"
                 "<b>Typical range:</b> 3-20<br>"
-                "<b>Recommendation:</b> Use 5 for typical data, 10-20 for very noisy spectra<br>"
-                "<i>Formula: s = N / smoothing_factor (N = number of data points)</i>"
+                "<b>Recommendation:</b> Use 5 for typical data, 2-3 for very noisy spectra<br>"
+                "<i>Formula: s = N x noise^2 / smoothing_factor (N = number of data points, "
+                "noise = noise of the spectrum, so the curve does not depend on the flux unit)</i>"
             )
         )
         

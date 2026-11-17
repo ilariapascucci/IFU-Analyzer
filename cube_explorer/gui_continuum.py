@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (QMessageBox, QApplication, QFileDialog, QProgressDi
 
 from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
+from .fit_file import check_same_flux_unit
 from .flux_map_extractor import fit_auto_continuum, NONE_LINES, UNKNOWN_LINES, automatic_lines, custom_lines
 from .utils import take_resolution_notes
 
@@ -1098,6 +1099,7 @@ class GuiContinuumMixin:
         try:
             with open(fname, 'w') as f:
                 f.write("# Wavelength, Flux\n")
+                f.write(f"# Flux unit: {getattr(self.cube_data, 'spectrum_flux_unit', '') or 'Unknown'}\n")
                 for x, y in points:
                     f.write(f"{x:.6e}, {y:.6e}\n")
             QMessageBox.information(self, "Saved", f"Points successfully saved to:\n{fname}")
@@ -1123,9 +1125,12 @@ class GuiContinuumMixin:
 
         try:
             points = []
+            file_unit = None
             with open(fname, 'r') as f:
                 for line in f:
                     line = line.strip()
+                    if line.lower().startswith('# flux unit:'):
+                        file_unit = line.split(':', 1)[1].strip()
                     if not line or line.startswith('#'):
                         continue
                     parts = line.split(',')
@@ -1137,9 +1142,16 @@ class GuiContinuumMixin:
                 QMessageBox.warning(self, "No Valid Points", "No valid coordinates found in the file.")
                 return
 
+            # The flux of the points is in the unit of the spectrum that they were clicked on.
+            spectrum_unit = getattr(self.cube_data, 'spectrum_flux_unit', '')
+            check_same_flux_unit(file_unit, spectrum_unit, what="points file")
+            note = ""
+            if file_unit is None:
+                note = f"\nThe file does not give its flux unit. The points are used as {spectrum_unit or 'the unit of the spectrum'}."
+
             # Send the points to the selector to draw them
             self.custom_continuum_selector.load_points(points)
-            QMessageBox.information(self, "Loaded", f"Successfully loaded {len(points)} points.")
+            QMessageBox.information(self, "Loaded", f"Successfully loaded {len(points)} points.{note}")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load points:\n{str(e)}")

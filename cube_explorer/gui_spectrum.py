@@ -293,7 +293,8 @@ class GuiSpectrumMixin:
     def _get_selection_spectrum(self, sel):
         """Compute the flux array for one stored selection dict (point or
         region). A region spectrum is the sum of its pixels, so it is on the
-        same scale as the summed spectrum of the whole cube.
+        same scale as the summed spectrum of the whole cube. It is in the unit of the
+        spectra (Jy for a cube in MJy/sr), the same as the Full tab.
 
         Args:
             sel (dict): Stored selection dict, or None/empty.
@@ -305,12 +306,13 @@ class GuiSpectrumMixin:
             return None
         if sel.get("shape") == "POINT":
             x, y = sel["coords"]
-            return self.cube_data.get_pixel_spectrum(x, y)
-
-        mask = sel.get("mask")
-        if mask is None:
-            return None
-        return self.cube_data.compute_region_spectrum(mask)
+            native = self.cube_data.get_pixel_spectrum(x, y)
+        else:
+            mask = sel.get("mask")
+            if mask is None:
+                return None
+            native = self.cube_data.compute_region_spectrum(mask)
+        return None if native is None else self.cube_data.to_spectrum_units(native)
 
     def _get_tab_raw_flux(self, tab):
         """Return `tab`'s own raw flux array (before continuum subtraction or

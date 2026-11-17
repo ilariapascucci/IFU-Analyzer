@@ -11,6 +11,7 @@ import numpy as np
 
 from .gaussian_fitter import GaussianFitResult, build_gaussian_fit_curve, gaussian
 from .spectrum_file import _read_lines
+from .unit_converter import _string_to_astropy_unit
 
 FIRST_LINE = "IFU Analyzer Gaussian fit file, format 1"
 
@@ -380,7 +381,36 @@ def check_same_wavelengths(file_wavelength, wavelength):
                      "The fit was made on a different spectrum.")
 
 
-def rebuild_fit(fit_file, wavelength, spectrum):
+def check_same_flux_unit(file_unit, spectrum_unit, what="fit file"):
+    """Check that a file and a spectrum use the same flux unit. The numbers of a fit (amplitude,
+    baseline, errors) or of continuum points are in the unit of the spectrum that they were made on,
+    so they cannot go on a spectrum in another unit. A unit that is not known is not checked.
+
+    Args:
+        file_unit (str): Flux unit that the file states, or None
+        spectrum_unit (str): Flux unit of the spectrum that the numbers go on, or None
+        what (str): Name of the file, for the message, for example "fit file" or "points file"
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If both units are known and they are not the same unit
+    """
+    if not file_unit or not spectrum_unit or str(file_unit).strip().lower() == "unknown":
+        return
+    file_astropy, spectrum_astropy = _string_to_astropy_unit(file_unit), _string_to_astropy_unit(spectrum_unit)
+    if file_astropy is not None and spectrum_astropy is not None:
+        same = file_astropy == spectrum_astropy
+    else:
+        same = str(file_unit).strip() == str(spectrum_unit).strip()
+    if not same:
+        raise ValueError(f"The {what} is in {file_unit}, but the spectrum is in {spectrum_unit}. "
+                         "Its numbers cannot move between units. Make it again on this spectrum, "
+                         "or load the spectrum from the file.")
+
+
+def rebuild_fit(fit_file, wavelength, spectrum, flux_unit=None):
     """Build the fit results of a fit file again, on the spectrum that they were fitted on.
     This does not fit again. It evaluates the saved Gaussians and the saved baseline.
 
@@ -388,14 +418,17 @@ def rebuild_fit(fit_file, wavelength, spectrum):
         fit_file (FitFile): The file that read_fit_file gives
         wavelength (numpy.ndarray): Wavelengths of the spectrum. They must be the wavelengths of the file.
         spectrum (numpy.ndarray): Flux of the spectrum
+        flux_unit (str): Flux unit of the spectrum, or None if it is not known. It must be the unit of the file.
 
     Returns:
         result (dict): 'entries' (list of dicts with 'kind', 'line' and 'result', in the order of the file)
             and 'notes' (list of str: warnings about the data, empty if none)
 
     Raises:
-        ValueError: If the wavelengths are not the wavelengths of the file, or a line cannot be built
+        ValueError: If the wavelengths are not the wavelengths of the file, the flux units differ,
+            or a line cannot be built
     """
+    check_same_flux_unit(fit_file.flux_unit, flux_unit)
     wavelength = np.asarray(wavelength, dtype=float)
     spectrum = np.asarray(spectrum, dtype=float)
     if len(fit_file.wavelength) != len(wavelength):
