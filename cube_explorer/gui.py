@@ -2360,8 +2360,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             self._add_manual_contaminant(event.xdata)
             return
 
+        # With a multi-Gaussian fit on any tab, a click must not remove a line (zoom and pan clicks land here).
+        # The line list is shared by all tabs. To change the lines of a finished fit, change them and fit again.
+        fit_done = any(fit is not None for fit in self.multi_fit_by_tab.values())
+
         # LEFT CLICK: Check if clicking near a plotted spectral line to deselect it
-        if event.button == 1 and hasattr(self, 'plotted_lines') and self.plotted_lines:
+        if event.button == 1 and not fit_done and hasattr(self, 'plotted_lines') and self.plotted_lines:
             # Tolerance is in screen pixels, not wavelength, so it stays small
             # and consistent across zoom; a wavelength tolerance would over-trigger when zoomed in.
             CLICK_HIT_RADIUS_PX = 5
