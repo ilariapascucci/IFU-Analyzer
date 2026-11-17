@@ -31,7 +31,7 @@ from scipy.interpolate import UnivariateSpline
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
     compute_line_free_noise_std, compute_mad_noise_std, gaussian_flux_upper_limit,
-    GaussianFitResult, gaussian,
+    GaussianFitResult, gaussian, fitted_baseline_curve,
 )
 from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from .utils import get_spectral_resolution
@@ -1233,10 +1233,15 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
         message = (f"Warning: Poor fit quality (R² = {r_squared:.3f})" if r_squared < 0.5
                    else f"Success: Good fit (R² = {r_squared:.3f})")
+        # Slope and left end of the baseline that the fit used: the continuum plus the local line.
+        fitted = fitted_baseline_curve(baseline, fit['x_data'], fit.get('chunk_model'))
+        x_fit = np.asarray(fit['x_data'], dtype=float)
+        has_span = len(fitted) > 1 and x_fit[-1] != x_fit[0]
         return GaussianFitResult(
             amplitude=fit['amplitude'], center=fit['center'], sigma=fit['sigma'],
             fwhm=fwhm, area=area, area_unit=area_unit, area_native=area_native,
-            baseline_slope=0.0, baseline_intercept=float(baseline[0]) if len(baseline) else 0.0,
+            baseline_slope=float((fitted[-1] - fitted[0]) / (x_fit[-1] - x_fit[0])) if has_span else 0.0,
+            baseline_intercept=float(fitted[0]) if len(fitted) else 0.0,
             x_data=fit['x_data'], y_data=fit['y_data'],
             baseline=baseline, y_corrected=fit['y_data'],
             y_fit=fit['y_fit'], residuals=residuals,

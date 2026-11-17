@@ -827,8 +827,9 @@ STATUS: {result.message}
                 curve (tuple): (x_data, base_abs, fit_abs) arrays.
             """
             x_data = result.x_data
+            # The drawn baseline is the one that the fit used: the continuum plus the local line.
             fit_abs = np.asarray(result.y_fit) + result.baseline
-            base_abs = np.asarray(result.baseline)
+            base_abs = np.asarray(result.fitted_baseline)
             return x_data, to_display(x_data, base_abs), to_display(x_data, fit_abs)
 
         # Always the real joint chunk curve here (never the per-line crop) -- lines

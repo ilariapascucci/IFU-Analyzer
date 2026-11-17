@@ -72,6 +72,26 @@ def build_gaussian_fit_curve(wavelength, results, return_baseline=False):
     return (fit, baseline_curve) if return_baseline else fit
 
 
+def fitted_baseline_curve(baseline, x_data, chunk_model=None):
+    """Give the baseline that a fit used, on the wavelengths of the fit.
+    A multi-Gaussian fit adds a local line, a + b*(x - x0), to the continuum that was subtracted.
+    A single fit has no local line, so its baseline is the one that was subtracted.
+
+    Args:
+        baseline (numpy.ndarray): Continuum that was subtracted before the fit.
+        x_data (numpy.ndarray): Wavelengths of the baseline, same length as baseline.
+        chunk_model (dict): The chunk_model of a multi-Gaussian result, or None for a single fit.
+
+    Returns:
+        fitted (numpy.ndarray): The baseline plus the local line, or the baseline if chunk_model is None.
+    """
+    baseline = np.asarray(baseline, dtype=float)
+    if chunk_model is None:
+        return baseline
+    # The local line gives an offset a at x0 and a slope b per wavelength unit.
+    return baseline + chunk_model["a"] + chunk_model["b"] * (np.asarray(x_data, dtype=float) - chunk_model["x0"])
+
+
 def save_spectrum_and_fit(path, wavelength, spectrum, fit, title, wave_unit=None, flux_unit=None,
                           header_lines=()):
     """Save the wavelength, original spectrum, fit and residual columns to an ASCII file.
@@ -349,6 +369,20 @@ class GaussianFitResult:
     # A multi-Gaussian fit only: the local continuum (a + b*(x - x0)) and every Gaussian of the chunk, also the
     # neighbour lines that have no result of their own. A fit file stores it to build the chunk curve again.
     chunk_model: Optional[dict] = None
+
+    @property
+    def fitted_baseline(self):
+        """
+        Baseline that the fit used. For a multi-Gaussian fit this is the continuum plus the local line.
+        For a single fit it is the baseline.
+
+        Args:
+            None
+
+        Returns:
+            fitted (numpy.ndarray): The baseline that the fit used, on x_data
+        """
+        return fitted_baseline_curve(self.baseline, self.x_data, self.chunk_model)
 
     def __str__(self):
         """
@@ -1003,16 +1037,17 @@ def calculate_equivalent_width(fit_result: GaussianFitResult,
 
     Args:
         fit_result (GaussianFitResult): Result from fit_gaussian_to_line
-        continuum_level (float): Mean continuum flux level. Defaults to the mean baseline
+        continuum_level (float): Mean continuum flux level. Defaults to the mean of the baseline
+            that the fit used (fitted_baseline)
 
     Returns:
         ew (float): Equivalent width in wavelength units, or 0.0 if the fit failed or continuum <= 0
     """
     if not fit_result.success:
         return 0.0
-    
+
     if continuum_level is None:
-        continuum_level = np.mean(fit_result.baseline)
+        continuum_level = np.mean(fit_result.fitted_baseline)
     
     if continuum_level <= 0:
         return 0.0

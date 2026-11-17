@@ -215,6 +215,8 @@ def write_fit_file(path, wavelength, spectrum, entries, fit_type, wave_unit=None
         if marker_text:
             f.write(f"# Markers: {marker_text}\n")
         f.write("# Fit and Baseline are NaN where no fit was made. Original-Fit is NaN there too.\n")
+        f.write("# The baseline column is the continuum that was subtracted before the fit. "
+                "A multi fit adds a local line to it (a and b in chunk_model). The fit column has both.\n")
         f.write("# Line columns: " + "\t".join(LINE_COLUMNS) + "\n")
         for row in rows:
             f.write("# Line: " + "\t".join(row) + "\n")
