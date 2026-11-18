@@ -821,8 +821,9 @@ def create_gaussian_map(cube_data, lam_min=None, lam_max=None, n_jobs=None, **kw
             noise_min, noise_max, lambda_0, progress_callback)
 
     Returns:
-        dict: 2D parameter maps - 'amplitude', 'center', 'sigma', 'fwhm', 'area',
-            'r_squared', 'success', 'is_detection', 'is_upper_limit'
+        dict: 2D parameter maps - 'amplitude', 'continuum', 'center', 'sigma', 'fwhm', 'area',
+            'r_squared', 'success', 'is_detection', 'is_upper_limit'. 'continuum' is the baseline of
+            each pixel at 'continuum_wavelength', in the flux unit of the cube
 
     Example:
         >>> cube = load_cube("data.fits")

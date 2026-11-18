@@ -1185,12 +1185,13 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
         ctx (dict): Settings shared by every row: 'x_data' (fit-window wavelengths), 'noise_x'
             (noise-window wavelengths or None), 'global_guess' (seed (amp, center, sigma) or None),
             'ul_sigma' (width for every upper limit), 'fac_above_stdres', 'header',
-            'unit' (wavelength unit) and 'flux_unit'
+            'unit' (wavelength unit), 'flux_unit' and 'continuum_at' (the wavelength where
+            the baseline is read for the continuum map)
 
     Returns:
         row (tuple): (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row,
             amp_err_row, area_err_row, qual_row, succ_row, det_row, uplim_row,
-            fail_row, residuals_row), each a length-n_x array except row_idx
+            fail_row, residuals_row, cont_row), each a length-n_x array except row_idx
             and residuals_row (shape (n_wave_sel, n_x))
     """
     x_data = ctx['x_data']
@@ -1201,6 +1202,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
     header = ctx['header']
     unit = ctx['unit']
     flux_unit = ctx['flux_unit']
+    continuum_at = ctx['continuum_at']
     x1 = x_data[0]
     x2 = x_data[-1]
     x_range = x2 - x1
@@ -1218,6 +1220,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
     uplim_row = np.zeros(n_x, dtype=bool)  # Upper limit flag
     fail_row = np.zeros(n_x, dtype=bool)  # Fit-could-not-be-made flag (subset of uplim_row)
     residuals_row = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
+    cont_row = np.full(n_x, np.nan)  # Baseline at continuum_at, for every pixel that has data
 
     def _mark_upper_limit(ix, std, center_for_area, fit_failed=False):
         """
@@ -1278,6 +1281,9 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             # Completely outside the FOV (all-NaN spectrum). Leaves every output NaN, with
             # no upper-limit area: the only noise estimate here (safe_nanstd's 1.0 fallback) is artificial.
             continue
+
+        # The baseline of this pixel at one wavelength. A pixel with no line has it too.
+        cont_row[ix] = np.interp(continuum_at, x_data, baseline)
 
         if n_finite < 5:
             # Some data, but not enough for a full fit: assigns an upper limit instead.
@@ -1434,7 +1440,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             _mark_upper_limit(ix, std_val, center_guess if 'center_guess' in locals() else (x1 + x2) / 2)
 
     return (row_idx, amp_row, ctr_row, sig_row, fwhm_row, area_row, amp_err_row, area_err_row,
-            qual_row, succ_row, det_row, uplim_row, fail_row, residuals_row)
+            qual_row, succ_row, det_row, uplim_row, fail_row, residuals_row, cont_row)
 
 
 
@@ -1587,6 +1593,10 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     Returns:
         results (dict or None): None if cancelled via cancel_event, otherwise 2D parameter maps:
             'amplitude': Peak amplitude map, native flux unit (not CGS-converted)
+            'continuum': Baseline map in the native flux unit, read at 'continuum_wavelength'. A pixel
+                with data has a value, also when it has no line. NaN where the pixel has no data
+            'continuum_wavelength': Wavelength where the baseline was read, the line center of the
+                summed spectrum (the window midpoint if that fit failed)
             'center': Center wavelength map
             'sigma': Width parameter map
             'fwhm': FWHM map (2*sqrt(2*ln(2)) * sigma)
@@ -1662,6 +1672,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     is_detection_map = np.zeros((n_y, n_x), dtype=bool)  # True if SNR threshold passed
     is_upper_limit_map = np.zeros((n_y, n_x), dtype=bool)  # True if upper limit computed
     fit_failed_map = np.zeros((n_y, n_x), dtype=bool)  # True if the fit could not be attempted/converged
+    continuum_map = np.full((n_y, n_x), np.nan)
     
     # Optional noise region mask for robust std estimation
     noise_wave_mask = None
@@ -1703,12 +1714,15 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     # One width for every upper limit, chosen once here so no pixel has its own guess.
     ul_sigma = _upper_limit_sigma(header, unit, global_guess, lambda_0_orig, x1, x2)
     center_limits = tuple(float(c) for c in _center_limits(x_data, global_guess))
+    # The continuum map is the baseline at one wavelength for every pixel: the line center.
+    continuum_at = float(global_guess[1]) if global_guess is not None else float((x1 + x2) / 2)
 
     # ========== MAIN PER-PIXEL FITTING LOOP ==========
     # Everything a row needs besides its own spectra, as one picklable dict for the workers.
     ctx = {
         'x_data': x_data, 'noise_x': noise_x, 'global_guess': global_guess, 'ul_sigma': ul_sigma,
         'fac_above_stdres': fac_above_stdres, 'header': header, 'unit': unit, 'flux_unit': flux_unit,
+        'continuum_at': continuum_at,
     }
 
     def _row_inputs(row_idx: int):
@@ -1744,7 +1758,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 cancelled = True
                 break
             (_, amp_row, ctr_row, sig_row, f_row, a_row, ae_row, aee_row, q_row,
-             s_row, d_row, u_row, fl_row, res_row) = _fit_row_worker(*_row_inputs(iy))
+             s_row, d_row, u_row, fl_row, res_row, c_row) = _fit_row_worker(*_row_inputs(iy))
             amplitude_map[iy, :] = amp_row
             center_map[iy, :] = ctr_row
             sigma_map[iy, :] = sig_row
@@ -1758,6 +1772,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             is_upper_limit_map[iy, :] = u_row
             fit_failed_map[iy, :] = fl_row
             residuals_cube[:, iy, :] = res_row
+            continuum_map[iy, :] = c_row
 
             # Progress per row. The callback fires every row, so a GUI progress bar moves.
             # The console print stays throttled to every 5th row, so a large cube does not flood the terminal.
@@ -1783,7 +1798,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                 done, pending = wait(pending, return_when=FIRST_COMPLETED)
                 for fut in done:
                     (row_idx, amp_row, ctr_row, sig_row, f_row, a_row, ae_row, aee_row, q_row,
-                     s_row, d_row, u_row, fl_row, res_row) = fut.result()
+                     s_row, d_row, u_row, fl_row, res_row, c_row) = fut.result()
                     amplitude_map[row_idx, :] = amp_row
                     center_map[row_idx, :] = ctr_row
                     sigma_map[row_idx, :] = sig_row
@@ -1797,6 +1812,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                     is_upper_limit_map[row_idx, :] = u_row
                     fit_failed_map[row_idx, :] = fl_row
                     residuals_cube[:, row_idx, :] = res_row
+                    continuum_map[row_idx, :] = c_row
 
                     # See the serial path: callback every row, console every 5th row.
                     completed += n_x
@@ -1828,6 +1844,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
 
     return {
         'amplitude': amplitude_map,  # Native flux unit, for example MJy/sr. Not CGS-converted
+        'continuum': continuum_map,  # Baseline at continuum_wavelength, native flux unit
+        'continuum_wavelength': continuum_at,
         'center': center_map,
         'sigma': sigma_map,
         'fwhm': fwhm_map,

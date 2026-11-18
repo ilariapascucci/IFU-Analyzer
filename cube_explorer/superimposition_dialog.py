@@ -14,6 +14,7 @@ from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.colors import is_color_like
 from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
@@ -34,7 +35,7 @@ MODE_CONTOUR = "Contour"
 MODE_IMAGE = "Image"
 BASE_CMAP = "magma"
 SUPERIMPOSITION_CMAP = "hot"
-CONTOUR_COLORS = ["red", "white", "black", "cyan", "yellow", "lime", "magenta", "orange", "blue", "green"]
+CONTOUR_COLORS = ["red", "white", "gray", "black", "cyan", "yellow", "lime", "magenta", "orange", "blue", "green"]
 LINE_STYLES = ["solid", "dashed", "dotted", "dashdot"]
 COLORMAPS = [
     "magma", "inferno", "plasma", "viridis", "cividis", "gray", "cubehelix",
@@ -79,43 +80,63 @@ class SuperimpositionRow:
 
 
 def contour_levels(image, levels_text, sigma_text):
-    """Turn sigma multipliers into the pixel values where contours are drawn.
+    """Turn the level entries into the pixel values where contours are drawn.
 
-    The value of a level N is median + N * sigma. The median and the sigma come from
-    a sigma-clipped fit of the image. A typed sigma replaces the fitted sigma.
+    A number with a % sign is a percent of the peak: p / 100 * the largest finite pixel.
+    Any other number N is a multiple of sigma: median + N * sigma. The median and the sigma
+    come from a sigma-clipped fit of the image. A typed sigma replaces the fitted sigma.
 
     Args:
         image (numpy.ndarray): 2D array of pixel values.
-        levels_text (str): Comma-separated sigma multipliers, for example '3, 5, 10'.
-        sigma_text (str): Sigma as text, or '' for the fitted value.
+        levels_text (str): Comma-separated levels, for example '3, 5, 50%'.
+        sigma_text (str): Sigma as text, or '' for the fitted value. Not used when
+            every level is a percent.
 
     Returns:
         levels (list): The pixel values, sorted from low to high.
 
     Raises:
-        ValueError: A level or the sigma is not a number, no level is given, the image
-            has no finite pixel, or the sigma is not above 0.
+        ValueError: A level or the sigma is not a number, no level is given, a percent is
+            not above 0, the image has no finite pixel, a percent level needs a peak that
+            is not above 0, or the sigma is not above 0.
     """
-    try:
-        sigma_levels = [float(x.strip()) for x in levels_text.split(",") if x.strip()]
-    except ValueError:
-        raise ValueError("Levels must be comma-separated numbers, for example 3, 5, 10.")
-    if not sigma_levels:
-        raise ValueError("Enter at least one sigma level.")
+    entries = [x.strip() for x in levels_text.split(",") if x.strip()]
+    if not entries:
+        raise ValueError("Enter at least one level.")
+    multiples, percents = [], []
+    for entry in entries:
+        is_percent = entry.endswith("%")
+        try:
+            number = float(entry[:-1] if is_percent else entry)
+        except ValueError:
+            number = float("nan")
+        if not np.isfinite(number):
+            raise ValueError("Levels must be comma-separated numbers, for example 3, 5, 50%.")
+        if is_percent and not number > 0:
+            raise ValueError("A percent level must be above 0%.")
+        (percents if is_percent else multiples).append(number)
     valid = image[np.isfinite(image)]
     if valid.size == 0:
         raise ValueError("The source image has no finite pixel.")
-    _, median_val, fitted_std = sigma_clipped_stats(valid, sigma=3.0)
-    if sigma_text.strip():
-        try:
-            sigma = float(sigma_text)
-        except ValueError:
-            raise ValueError("Sigma must be a number, or empty for the automatic value.")
-    else:
-        sigma = fitted_std
-    if not sigma > 0:
-        raise ValueError("Sigma must be above 0.")
-    return sorted(median_val + n * sigma for n in sigma_levels)
+    levels = []
+    if percents:
+        peak = valid.max()
+        if not peak > 0:
+            raise ValueError("A percent level needs a source image with a peak above 0.")
+        levels += [percent / 100 * peak for percent in percents]
+    if multiples:
+        _, median_val, fitted_std = sigma_clipped_stats(valid, sigma=3.0)
+        if sigma_text.strip():
+            try:
+                sigma = float(sigma_text)
+            except ValueError:
+                raise ValueError("Sigma must be a number, or empty for the automatic value.")
+        else:
+            sigma = fitted_std
+        if not sigma > 0:
+            raise ValueError("Sigma must be above 0.")
+        levels += [median_val + n * sigma for n in multiples]
+    return sorted(levels)
 
 
 def load_superimposition_image(path):
@@ -213,6 +234,9 @@ def draw_layers(ax, images, rows):
                              "The level is outside the data range of the source image.")
             if not inside:
                 continue
+            if not is_color_like(row.color):
+                raise ValueError(f"Row {number}: '{row.color}' is not a color. "
+                                 "Use a name such as gray, or a code such as #ff8800.")
             kwargs = {} if is_base else {"transform": ax.get_transform(source["wcs"])}
             artists.append(ax.contour(source["image"], levels=inside, colors=[row.color],
                                       linestyles=row.line_style, linewidths=row.thickness,
@@ -495,7 +519,7 @@ class SuperimpositionWindow(QDialog):
             self.table.setItem(index, COL_SOURCE, source)
             if is_contour:
                 self._set_combo(index, COL_COLOR, CONTOUR_COLORS, row.color,
-                                lambda v, r=row: setattr(r, "color", v))
+                                lambda v, r=row: setattr(r, "color", v.strip()), editable=True)
                 self._set_combo(index, COL_STYLE, LINE_STYLES, row.line_style,
                                 lambda v, r=row: setattr(r, "line_style", v))
                 thickness = QDoubleSpinBox()
@@ -507,7 +531,8 @@ class SuperimpositionWindow(QDialog):
                 self.table.setCellWidget(index, COL_THICK, thickness)
                 levels = QLineEdit(row.levels)
                 levels.setAlignment(Qt.AlignCenter)
-                levels.setToolTip("Multiples of sigma, separated by commas. A level N draws a line at the median + N × sigma.")
+                levels.setToolTip("Separated by commas. A number N draws a line at the median + N × sigma. "
+                                  "A number with %, for example 50%, draws a line at that percent of the peak.")
                 levels.textChanged.connect(lambda v, r=row: setattr(r, "levels", v))
                 self.table.setCellWidget(index, COL_LEVELS, levels)
                 sigma = QLineEdit(row.sigma)
@@ -560,8 +585,8 @@ class SuperimpositionWindow(QDialog):
         if item.column() == COL_VIEW and 0 <= item.row() < len(self.rows):
             self._view(self.rows[item.row()])
 
-    def _set_combo(self, index, column, items, current, on_change, row=None):
-        """Put a drop-down list in one cell.
+    def _set_combo(self, index, column, items, current, on_change, row=None, editable=False):
+        """Put a drop-down list in one cell. An editable list also accepts a typed text.
 
         Args:
             index (int): Row number of the cell.
@@ -570,12 +595,17 @@ class SuperimpositionWindow(QDialog):
             current (str): Text that is selected at first.
             on_change (callable): Called with the new text when the choice changes.
             row (SuperimpositionRow): Row that on_change also gets, or None when it needs no row.
+            editable (bool): True when the user can type a text that is not in the list.
 
         Returns:
             None
         """
         combo = QComboBox()
         combo.addItems(items)
+        if editable:
+            combo.setEditable(True)
+            combo.setInsertPolicy(QComboBox.NoInsert)
+            combo.setToolTip("Choose a color, or type one: a name such as gray, or a code such as #ff8800.")
         combo.setCurrentText(current)
         if row is None:
             combo.currentTextChanged.connect(on_change)

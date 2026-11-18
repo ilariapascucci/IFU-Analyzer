@@ -14,7 +14,6 @@ import traceback
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
-from astropy.stats import sigma_clipped_stats  # used by: _apply_contour
 from astropy.stats import gaussian_sigma_to_fwhm
 from astropy.coordinates import SkyCoord  # used by: _apply_loaded_contour
 import astropy.units as u  # used by: _apply_loaded_contour
@@ -30,6 +29,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.axes import Axes
+from matplotlib.colors import is_color_like  # used by: _apply_contour
 from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PyQt5.QtCore import Qt
@@ -39,7 +39,7 @@ from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
 from .visualization import SlicePlotter, apply_wcs_grid, hide_wcs_grid
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
-from .superimposition_dialog import SuperimpositionWindow, PairSuperimpositionWindow, draw_layers
+from .superimposition_dialog import SuperimpositionWindow, PairSuperimpositionWindow, draw_layers, contour_levels
 from .region_selector import RegionSelector
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
@@ -1381,23 +1381,27 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         # 3. Sigma levels - comma-separated multipliers
         level_layout = QHBoxLayout()
-        level_layout.addWidget(QLabel("Sigma levels (e.g. 3, 5, 10):"))
+        level_layout.addWidget(QLabel("Levels (e.g. 3, 5, 50%):"))
         level_input = QLineEdit()          # ← local, not self.
         level_input.setText("3, 5, 10")
-        level_input.setPlaceholderText("e.g. 3, 5, 10")
+        level_input.setPlaceholderText("e.g. 3, 5, 50%")
         level_input.setMinimumWidth(120)
         level_layout.addWidget(level_input)
         layout.addLayout(level_layout)
 
         layout.addWidget(QLabel(
-            "<i>Each level N draws a line at the median of the image plus N × sigma.</i>"
+            "<i>A number N draws a line at the median of the image plus N × sigma. "
+            "A number with %, for example 50%, draws a line at that percent of the peak.</i>"
         ))
 
         # 4. Color
         color_layout = QHBoxLayout()
         color_layout.addWidget(QLabel("Contour Color:"))
         color_combo = QComboBox()
-        color_combo.addItems(["white", "red", "green", "cyan", "magenta", "yellow", "black"])
+        color_combo.addItems(["white", "red", "green", "cyan", "magenta", "yellow", "gray", "black"])
+        color_combo.setEditable(True)
+        color_combo.setInsertPolicy(QComboBox.NoInsert)
+        color_combo.setToolTip("Choose a color, or type one: a name such as gray, or a code such as #ff8800.")
         color_layout.addWidget(color_combo)
         layout.addLayout(color_layout)
 
@@ -1415,7 +1419,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             source      = "self" if source_combo.currentIndex() == 0 else "other"
             sigma_str   = sigma_input.text().strip()    # ← read from local var
             levels_str  = level_input.text().strip()    # ← read from local var
-            color       = color_combo.currentText()
+            color       = color_combo.currentText().strip()
             self._apply_contour(target, source, sigma_str, levels_str, color)
 
     def _apply_contour(self, target, source, sigma_str, levels_str, color):
@@ -1426,7 +1430,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             source (str): 'self' (own image) or 'other' (the other panel).
             sigma_str (str): Sigma typed by the user, or '' for
                 the automatic sigma-clipped estimate.
-            levels_str (str): Comma-separated sigma multipliers to contour.
+            levels_str (str): Comma-separated levels. A number is a multiple of sigma,
+                and a number with a % sign is a percent of the peak.
             color (str): Matplotlib color name for the contour lines.
 
         Returns:
@@ -1465,35 +1470,30 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.warning(self, "Missing Data", "Both images must be loaded.")
             return
 
-        # --- Parse sigma levels ---
-        try:
-            sigma_levels = [float(x.strip()) for x in levels_str.split(',') if x.strip()]
-        except ValueError:
+        if not is_color_like(color):
             QMessageBox.warning(self, "Invalid Input",
-                                "Levels must be comma-separated numbers (e.g. 3, 5, 10).")
-            return
-        if not sigma_levels:
-            QMessageBox.warning(self, "Invalid Input", "Enter at least one sigma level.")
+                                f"'{color}' is not a color. Use a name such as gray, or a code such as #ff8800.")
             return
 
-        # --- Calculate background stats ---
-        valid = source_img[np.isfinite(source_img)]
-        if valid.size == 0:
+        # The same levels as the Superimposition tables: multiples of sigma, or percents of the peak.
+        try:
+            band_levels = contour_levels(source_img, levels_str, sigma_str)
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid Input", str(error))
             return
-        _, median_val, astropy_std = sigma_clipped_stats(valid, sigma=3.0)
-
-        if sigma_str:
-            try:
-                sigma_value = float(sigma_str)
-            except ValueError:
-                QMessageBox.warning(self, "Invalid Input",
-                                    "Sigma must be a valid number.")
-                return
-        else:
-            sigma_value = astropy_std
-
-        # Each level N is the median plus N times sigma. The contour is a line at that value.
-        band_levels = sorted([median_val + n * sigma_value for n in sigma_levels])
+        # A level outside the data range has no line, and astropy fails on an empty contour set.
+        finite = source_img[np.isfinite(source_img)]
+        inside = [level for level in band_levels if finite.min() < level < finite.max()]
+        if not inside:
+            QMessageBox.warning(self, "No Contour",
+                                "Every level is outside the data range of the source image.")
+            return
+        if len(inside) < len(band_levels):
+            skipped = ", ".join(f"{level:.3e}" for level in band_levels if level not in inside)
+            QMessageBox.information(self, "Levels Skipped",
+                                    f"No contour is drawn at {skipped}. "
+                                    "The level is outside the data range of the source image.")
+        band_levels = inside
 
         ax = target_plotter.ax
         if not hasattr(target_plotter, 'contours'):

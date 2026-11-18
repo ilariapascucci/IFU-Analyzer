@@ -74,9 +74,9 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 The "Contour" button in the side column of each panel opens a menu: "Plot Contour...", "Save Contour...", "Load Contour...", and "Clear Contours". Each item acts on the panel of that button.
 
 - **Sigma:** Astropy sigma-clipped statistics of the image (automatic), or a value that you supply
-- **Sigma levels:** a comma-separated list of multipliers (for example `3, 5, 10`). Each value N draws a contour line at N × sigma above the median of the image.
+- **Levels:** a comma-separated list. A number N (for example `3, 5, 10`) draws a contour line at N × sigma above the median of the image. A number with a % sign (for example `50%, 30%`) draws a line at that percent of the peak, which is the largest valid pixel of the source image. You can use both in one list.
 - **WCS-matched cross-image contours:** Generate the contours from one panel and draw them on the other panel through a full WCS coordinate transformation. This works when the two images have a different pixel scale, array size, or orientation.
-- The contour colour is configurable.
+- The contour colour is configurable. Choose a colour from the list, or type a colour name (for example `gray`) or a code (for example `#ff8800`).
 - You can stack more than one contour set.
 - "Clear Contours" removes all contours from a panel.
 
@@ -93,7 +93,7 @@ The "Superimposition" group in the bottom row has three buttons: "Pair Superimpo
 
 - **Mode:** Image or Contour. A new row is an Image row. Change the Mode to Contour to draw lines instead of a colormap. Row 1 is the base image, so its Mode list has only Image.
 - **Source:** the data of the row. It does not change, because you can drag the rows. A file or a panel can have more than one row, for example an Image row and a Contour row.
-- **Contour row:** color, line style (solid, dashed, dotted, or dashdot), thickness, sigma, and levels (for example `3, 5, 7, 10`). Each level N draws a line at the median of the source image plus N × sigma. "Sigma" is the value of one sigma in the units of the source image. It is optional. When it is empty, the tool uses the scatter of the whole source image (sigma-clipped). This is not the noise of the image, so enter a sigma when you know the noise. A level that is outside the data range of the source image draws no line, and a message tells you which level.
+- **Contour row:** color (choose one, or type a name or a code such as `gray` or `#ff8800`), line style (solid, dashed, dotted, or dashdot), thickness, sigma, and levels (for example `3, 5, 7, 10`). Each level N draws a line at the median of the source image plus N × sigma. A level with a % sign, for example `50%`, draws a line at that percent of the peak, which is the largest valid pixel of the source image. The Sigma cell is not used when every level has a % sign. "Sigma" is the value of one sigma in the units of the source image. It is optional. When it is empty, the tool uses the scatter of the whole source image (sigma-clipped). This is not the noise of the image, so enter a sigma when you know the noise. A level that is outside the data range of the source image draws no line, and a message tells you which level.
 - **Image row:** colormap, scale, and alpha (0.1 to 1.0). The scale button opens the same Scale and Color Range dialog as the panels. The image is reprojected onto the pixel grid of the base image with `reproject_exact` from the `reproject` package. Each pixel of the reprojected image is the area-weighted mean of the source pixels that it covers. The pixel values keep their units, and the tool does not scale them by pixel area, so do not use the reprojected image for a flux total. A pixel is empty, and shows the image below it, when it is outside the source image or when it covers a NaN pixel of the source.
 - Cells that a mode does not use stay empty.
 - **Order:** drag the row number in the left header to move a row. A row that you move to the top becomes the base image, and the settings stay with the row. A Contour row cannot be the base, so the tool refuses a move that puts a Contour row at the top and shows a message. It also refuses to remove row 1 when row 2 is a Contour row. Change row 2 to Image, or remove it first.
@@ -168,6 +168,7 @@ Bring several images to one resolution in a single step.
   - Each pixel has its own baseline: a straight line between the two edges of the fit window. The fitted continuum is not used, because it belongs to the integrated spectrum. The map window says this.
   - Integrated area (intensity map) and its error
   - Peak amplitude
+  - Continuum: the baseline of each pixel, read at one wavelength (the line center of the summed spectrum), in the flux unit of the cube. A pixel with data has a value, also when it has no line. It is a straight line between only two channels, so it is noisy, and it can be negative. Export it as a 2D FITS file, for example for a Superimposition row.
   - Line centre and velocity (kinematics)
   - Line width (σ and FWHM)
   - Fit quality (χ²)
@@ -377,7 +378,7 @@ python main.py
    - Mark "Fit Left", "Peak", and "Fit Right" as above. The map fit also needs the noise region ("Noise Left" and "Noise Right").
    - Click "Fit Gaussian Map" to fit every pixel.
    - Wait for the background processing (10 to 30 seconds is typical).
-   - View the parameter maps (Area, Amplitude, Centre, Velocity, FWHM, and so on).
+   - View the parameter maps (Area, Amplitude, Continuum, Centre, Velocity, FWHM, and so on). The Continuum map is the baseline of each pixel at the line center. The statistics give the wavelength, and the exported FITS file has it in the `CONTWAV` keyword.
    - The Velocity map needs a rest line. When you select "Velocity" in the parameter list, choose the molecule or atom of the line in the fit window. A table lists the lines of that species from HITRAN and the LST catalog. Select the line that the peak shows. Its vacuum wavelength is zero velocity. If you cancel, the Velocity map is not made, and the results window gives the reason. To use another line, click "Change rest line..." next to the parameter list. The map redraws with the new line.
    - A map that was fit on a shifted spectrum has no Velocity map. The line centers of that map are not the observed wavelengths. Revert the shift of that spectrum (see Doppler shift) and fit the map again. The other parameters stay available.
    - "Shift Spectrum" (next to "Change rest line...", Velocity map only) closes this window and starts the "Preview Shift" of the main window for the same tab. The box starts with the systemic velocity, and you can change it. The systemic velocity is the velocity of the line center of a Gaussian fit to the summed spectrum, against the rest line. The Full tab sums all pixels. A Left or Right tab sums the pixels of its region. The Velocity statistics list the value. Then click "Apply Shift" as usual. The button is off when the fit of the summed spectrum did not converge.
@@ -441,9 +442,9 @@ python main.py
      - The panel to draw on ("Plot contour ON")
      - The source image ("Generate contour FROM": the same panel, or the other panel for a WCS-matched cross-image contour)
      - The sigma (blank for the Astropy automatic value, or enter a value)
-     - The sigma levels as a comma-separated list, for example `3, 5, 10`
-     - The contour colour
-   - A contour line is drawn at each N × sigma above the background median.
+     - The levels as a comma-separated list, for example `3, 5, 10` (multiples of sigma) or `50%, 30%` (percent of the peak)
+     - The contour colour (a name or a code, such as `gray` or `#ff8800`)
+   - A contour line is drawn at the median plus N × sigma for each number N, and at that percent of the peak for each number with a % sign.
    - "Clear" removes all contour overlays from a panel.
 
    **Save contour:**
