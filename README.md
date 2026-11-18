@@ -73,8 +73,8 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 
 The "Contour" button in the side column of each panel opens a menu: "Plot Contour...", "Save Contour...", "Load Contour...", and "Clear Contours". Each item acts on the panel of that button.
 
-- **Background estimation:** Astropy sigma-clipped statistics (automatic), or a value that you supply
-- **Sigma levels:** a comma-separated list of multipliers (for example `3, 5, 10`). Each value N draws a contour line at N × background_std above the background median.
+- **Sigma:** Astropy sigma-clipped statistics of the image (automatic), or a value that you supply
+- **Sigma levels:** a comma-separated list of multipliers (for example `3, 5, 10`). Each value N draws a contour line at N × sigma above the median of the image.
 - **WCS-matched cross-image contours:** Generate the contours from one panel and draw them on the other panel through a full WCS coordinate transformation. This works when the two images have a different pixel scale, array size, or orientation.
 - The contour colour is configurable.
 - You can stack more than one contour set.
@@ -85,12 +85,38 @@ The "Contour" button in the side column of each panel opens a menu: "Plot Contou
 - **Save Contour (.txt):** writes all contour path vertices as pixel coordinates and RA/Dec (degrees) with the sigma-level labels. The file is human-readable.
 - **Load Contour:** reads a saved contour (`.txt` or `.csv`) and draws it on the panel of the button through the WCS mapping. The contour lines up on an image with a different pixel scale or orientation.
 
-#### WCS Superimpose
+#### Superimposition
 
-- Overlay two images that have a different WCS grid (a different pixel scale, array size, orientation, or pointing) onto one panel.
-- The overlay image is reprojected onto the pixel grid of the background image with `reproject_exact` from the `reproject` package. This method conserves flux.
-- The overlay colormap and the alpha transparency (0.1 to 1.0) are configurable.
-- "Clear Superimpose" removes the overlay from the panels. The button is off when no panel shows an overlay. A new overlay, a rotation, a new color map or scale on the same panel, or a new image also removes the overlay.
+The "Superimposition" group in the bottom row has three buttons: "Pair Superimposition", "Clear Superimposition", and "Batch Superimposition". Both tools show the same table. Each row is one layer. The rows are drawn in table order, so each row goes on top of the rows above it. Row 1 is the base image. The image of another row can have a different WCS grid (a different pixel scale, array size, orientation, or pointing). To draw the contours of one panel, you can also use the "Contour" button in the side column of that panel.
+
+**The table**
+
+- **Mode:** Image or Contour. A new row is an Image row. Change the Mode to Contour to draw lines instead of a colormap. Row 1 is the base image, so its Mode list has only Image.
+- **Source:** the data of the row. It does not change, because you can drag the rows. A file or a panel can have more than one row, for example an Image row and a Contour row.
+- **Contour row:** color, line style (solid, dashed, dotted, or dashdot), thickness, sigma, and levels (for example `3, 5, 7, 10`). Each level N draws a line at the median of the source image plus N × sigma. "Sigma" is the value of one sigma in the units of the source image. It is optional. When it is empty, the tool uses the scatter of the whole source image (sigma-clipped). This is not the noise of the image, so enter a sigma when you know the noise. A level that is outside the data range of the source image draws no line, and a message tells you which level.
+- **Image row:** colormap, scale, and alpha (0.1 to 1.0). The scale button opens the same Scale and Color Range dialog as the panels. The image is reprojected onto the pixel grid of the base image with `reproject_exact` from the `reproject` package. Each pixel of the reprojected image is the area-weighted mean of the source pixels that it covers. The pixel values keep their units, and the tool does not scale them by pixel area, so do not use the reprojected image for a flux total. A pixel is empty, and shows the image below it, when it is outside the source image or when it covers a NaN pixel of the source.
+- Cells that a mode does not use stay empty.
+- **Order:** drag the row number in the left header to move a row. A row that you move to the top becomes the base image, and the settings stay with the row. A Contour row cannot be the base, so the tool refuses a move that puts a Contour row at the top and shows a message. It also refuses to remove row 1 when row 2 is a Contour row. Change row 2 to Image, or remove it first.
+- **Add Row** at the bottom of the table adds a row at the bottom. The trash button at the right end of a row removes that row.
+- Double-click **View** in a row to draw the base image with that row on it, in a new window. View on row 1 draws the base image alone. The toolbar of the window saves the picture as an image file.
+
+**Pair Superimposition (two panels)**
+
+- Load an image in the left panel and in the right panel. Both images need a sky WCS. Then click "Pair Superimposition".
+- The table starts with two rows: the left panel as the base image, and the right panel on top. The Source of a row is the Left or the Right panel. You can change the order, the mode, and every setting.
+- The base row has no colormap, scale, or alpha cell. The base image keeps the colormap and the scale of its panel. Change them with the buttons of the panel.
+- **Add Row** asks for the Left or the Right panel and adds an Image row for it.
+- **Produce** draws the layers on the panel of the base row. A new Produce replaces the layers of the old one. The zoom of the panel stays.
+- The window uses the images that the panels show when you open it, also a rotated image. Open the window again after you load or rotate an image.
+- "Clear Superimposition" removes the layers from the panels. The button is off when no panel shows a layer. A rotation, a new color map or scale on the same panel, or a new image also removes the layers.
+
+**Batch Superimposition (several files)**
+
+- The window selects its own files, as in Batch Convolution. The two panels do not need an image, and they are not changed.
+- **Add Row** opens a file dialog where you can select more than one 2D FITS file. Each file becomes an Image row at the bottom. A file that has no 2D image or no sky WCS is not added, and a message gives the file name and the reason. You can add the same file again for a second row. A file that no row uses any more leaves the memory.
+- The base starts with the `magma` colormap and the other Image rows with `hot`.
+- A rotation that you applied in a panel is not used, because the file on disk is not rotated. Save the rotated image as a FITS file first.
+- **Produce** draws all rows, from the base image to the top row, in a new window. The toolbar of the window saves the picture as an image file.
 
 #### Resolution Matching: Pair (two images)
 
@@ -98,7 +124,7 @@ Match two images of one field to the same spatial resolution. This is the standa
 
 - **Input:** two MIRI or NIRSpec images in a flux-per-pixel unit, one in each panel. The images must overlap on the sky. A surface-brightness unit such as MJy/sr is rejected.
 - Each image needs its line wavelength. The tool reads it from the `LINEWAVE` header key (written by the rotational-diagram "Save Maps"), or from the middle of `LAMMIN` and `LAMMAX` (written by the Gaussian-map export). If the header has neither, the tool asks for the wavelength.
-- Click **Pair Convolution** to open the confirmation table. It has one row for each image: the line wavelength, the file, the pixel scale, the native PSF, and the kernel width. The reference image is marked. The line above the table gives the output grid. It is the same table that Run Map and Convolve Maps show in the rotational diagram window.
+- Open the **Convolution** group and click **Pair Convolution** to open the confirmation table. It has one row for each image: the line wavelength, the file, the pixel scale, the native PSF, and the kernel width. The reference image is marked. The line above the table gives the output grid. It is the same table that Run Map and Convolve Maps show in the rotational diagram window.
 - The image with the **longer wavelength** is the reference, because its PSF is wider. The tool convolves the other image with a Gaussian kernel up to the reference PSF.
 - Kernel width: `σ = √(σ_ref² − σ_image²)`. Each σ comes from the PSF FWHM of the instrument at the line wavelength. MIRI: `FWHM(") = 0.033 × λ(µm) + 0.106`. NIRSpec: an approximate quadratic fit.
 - The tool then reprojects the convolved image onto the **native pixel grid of the reference image**, and it conserves the flux.
@@ -110,7 +136,7 @@ Match two images of one field to the same spatial resolution. This is the standa
 
 Bring several images to one resolution in a single step.
 
-- Click **Batch Convolution** to open the batch dialog.
+- Open the **Convolution** group and click **Batch Convolution** to open the batch dialog.
 - Click **+ Add FITS Files** to add two or more 2D FITS files. The requirements are the same as for Pair: MIRI or NIRSpec, a flux-per-pixel unit, and an overlap on the sky.
 - The tool reads or asks for the line wavelength of each file, as in Pair.
 - The file with the **longest wavelength** is the reference. The tool convolves every other file to the PSF of the reference and reprojects it onto the native grid of the reference. The reference file is not smoothed.
@@ -414,7 +440,7 @@ python main.py
    - Click "Plot" and set:
      - The panel to draw on ("Plot contour ON")
      - The source image ("Generate contour FROM": the same panel, or the other panel for a WCS-matched cross-image contour)
-     - The background std (blank for the Astropy automatic value, or enter a value)
+     - The sigma (blank for the Astropy automatic value, or enter a value)
      - The sigma levels as a comma-separated list, for example `3, 5, 10`
      - The contour colour
    - A contour line is drawn at each N × sigma above the background median.
@@ -427,23 +453,24 @@ python main.py
    - Click "Load", choose a panel, and select a saved contour `.txt` or `.csv` file. Then choose the line colour.
    - The contour is drawn on the chosen panel through the WCS mapping.
 
-   **Superimpose:**
+   **Pair Superimposition:**
    - Load a different image into the left panel and the right panel.
-   - Click "Superimpose".
-   - Choose the background panel (the reference grid).
-   - Select the overlay colormap and the alpha (0.5 is a good starting value).
-   - The overlay image is reprojected onto the background WCS grid and blended.
+   - Open the "Superimposition" group and click "Pair Superimposition".
+   - Row 1 is the base panel. Row 2 goes on top of it. Set row 2 to Image (a colormap) or to Contour.
+   - Select the colormap and the alpha (0.5 is a good starting value) for an Image row, or the color, the line style, the thickness, and the sigma levels for a Contour row.
+   - Click "Produce". The image or the contours of row 2 are reprojected onto the WCS grid of the base panel and drawn on it.
+   - Click "Clear Superimposition" in the same group to remove the layers.
 
-   **Pair (resolution matching, two images).** Open the "Convolution" group.
+   **Pair Convolution (resolution matching, two images).** Open the "Convolution" group.
    - Load two MIRI or NIRSpec flux-per-pixel images of the same field into the left panel and the right panel.
-   - Click "Pair". If a header has no `LINEWAVE` key, enter the line wavelength (in µm) when the tool asks.
+   - Click "Pair Convolution". If a header has no `LINEWAVE` key
    - The confirmation table shows each image with its line wavelength, pixel scale, native PSF, and kernel width, and the output grid size above it. The image with the longer wavelength is the reference.
    - Click "Convolve" to run, then choose a save path. The output FITS file has a 2-HDU layout (image and `COVERAGE`).
    - The success dialog shows the flux audit: the input total, the output total, and `Ratio out/in`.
    - If both panels have the same wavelength, a message explains that there is nothing to convolve.
 
-   **Batch (resolution matching, several files):**
-   - Click "Batch".
+   **Batch Convolution (resolution matching, several files):**
+   - Open the "Convolution" group and click "Batch Convolution".
    - Click "+ Add FITS Files" and select two or more 2D FITS files (MIRI or NIRSpec, flux-per-pixel units, the same field).
    - Click "Process & Download ZIP", choose a save path for the output `.zip` file, and check the confirmation table.
    - The file with the longest wavelength is the reference. All outputs are on its pixel grid, ready for a comparison.
@@ -541,6 +568,7 @@ IFU-Analyzer/
 │   ├── gui_mixins.py                         # Shared helpers for the two-panel windows and the map dialogs
 │   ├── gui_rotational_diagram.py             # Rotational-diagram analyzer window
 │   ├── gui_2d.py                             # 2D FITS dual viewer (WCS, rotation, contours, superimpose, resolution matching)
+│   ├── superimposition_dialog.py             # Pair and Batch Superimposition windows: contour and image rows drawn over one base image
 │   ├── data_loader.py                        # CubeData: FITS loading and instrument detection
 │   ├── gaussian_fitter.py                    # Single and multi-Gaussian line fitting; full-cube parallel fits
 │   ├── flux_map_extractor.py                 # Full-cube rovibrational flux mapping for any species
@@ -606,11 +634,11 @@ The `CubeExplorer` class in `gui.py` is composed from the `gui_*` mixins listed 
    - Check the terminal for the `DEBUG rebuild_axes` messages, which report the WCS parse status.
    - A non-celestial WCS falls back to plain pixel axes automatically.
 
-5. **Superimpose misalignment:**
+5. **Superimposition misalignment:**
    - A visible offset between the two images indicates a WCS header difference between the two files.
    - Open "Header" on each panel and compare the WCS keywords.
 
-6. **"Pair" or "Batch" problems:**
+6. **"Pair Convolution" or "Batch Convolution" problems:**
    - An "Unsupported Instrument" message means that a file is not from MIRI or NIRSpec. The PSF formulas exist for those two instruments only.
    - An "Unsupported BUNIT" message means that a file is not in a flux-per-pixel unit. A surface-brightness unit such as MJy/sr is rejected.
    - The tool asks for a line wavelength when the header has no `LINEWAVE` key. Enter the wavelength in µm.

@@ -19,7 +19,6 @@ from astropy.stats import gaussian_sigma_to_fwhm
 from astropy.coordinates import SkyCoord  # used by: _apply_loaded_contour
 import astropy.units as u  # used by: _apply_loaded_contour
 from scipy.ndimage import rotate  # used by: rotate_image
-from reproject import reproject_exact  # used by: _prompt_and_superimpose
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
@@ -33,13 +32,14 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from matplotlib.colors import Normalize  # used by: Superimpose overlay
 from PyQt5.QtCore import Qt
 from .convolution_plan_dialog import confirm_convolution_plan
+from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
 from .visualization import SlicePlotter, apply_wcs_grid, hide_wcs_grid
 from .colormap_dialog import ColorMapDialog
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
+from .superimposition_dialog import SuperimpositionWindow, PairSuperimpositionWindow, draw_layers
 from .region_selector import RegionSelector
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
@@ -749,7 +749,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self._init_ui()
 
     def closeEvent(self, event):
-        """Free the images of this window on close.
+        """Drop this window's collapsible groups from the shared registry and free its images on close.
 
         Args:
             event (QCloseEvent): Close event Qt sends to the widget.
@@ -757,6 +757,12 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
+        for group in (getattr(self, 'convolution_group', None), getattr(self, 'superimposition_group', None)):
+            try:
+                if group in CollapsibleButtonGroup._all_groups:
+                    CollapsibleButtonGroup._all_groups.remove(group)
+            except Exception:
+                pass
         self.image_left = None
         self.image_right = None
         self.base_image_left = None
@@ -1126,33 +1132,51 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                     self.contour_btn_l, self.contour_btn_r):
             btn.setEnabled(False)
 
-        # Bottom row: plain default styling, matching the 3D window and the
-        # Open/Header/Save buttons above.
-        self.superimpose_btn = QPushButton("Superimpose")
-        self.superimpose_btn.setToolTip("Blend one image over the other image, matched by sky coordinates.")
-        self.superimpose_btn.clicked.connect(self._prompt_and_superimpose)
-
-        # On only while a panel shows a superimposed image.
-        self.clear_superimpose_btn = QPushButton("Clear Superimpose")
-        self.clear_superimpose_btn.setToolTip("Remove the superimposed image from the panels.")
-        self.clear_superimpose_btn.setEnabled(False)
-        self.clear_superimpose_btn.clicked.connect(self._clear_superimpose)
-
-        self.batch_match_btn = QPushButton("Batch Convolution")
-        self.batch_match_btn.setToolTip(
-            "Select multiple 2D FITS files. All are convolved to the\n"
-            "longest-wavelength file's PSF and reprojected onto its native\n"
-            "grid. Result is downloaded as a ZIP. MIRI and NIRSpec only."
-        )
-        self.batch_match_btn.clicked.connect(self._open_batch_match_dialog)
-
-        self.match_res_btn = QPushButton("Pair Convolution")
-        self.match_res_btn.setToolTip(
+        # Bottom row: collapsible groups, as in the 3D window. A button opens its own window or dialog.
+        self.pair_convolution_btn = QPushButton("Pair Convolution")
+        self.pair_convolution_btn.setToolTip(
             "Convolve the shorter-wavelength panel to match the longer-\n"
             "wavelength panel's PSF, reprojected onto its own native grid.\n"
             "MIRI and NIRSpec only."
         )
-        self.match_res_btn.clicked.connect(self.prompt_and_match_resolution)
+        self.pair_convolution_btn.clicked.connect(self.prompt_and_match_resolution)
+
+        self.batch_convolution_btn = QPushButton("Batch Convolution")
+        self.batch_convolution_btn.setToolTip(
+            "Select multiple 2D FITS files. All are convolved to the\n"
+            "longest-wavelength file's PSF and reprojected onto its native\n"
+            "grid. Result is downloaded as a ZIP. MIRI and NIRSpec only."
+        )
+        self.batch_convolution_btn.clicked.connect(self._open_batch_match_dialog)
+
+        self.pair_superimposition_btn = QPushButton("Pair Superimposition")
+        self.pair_superimposition_btn.setToolTip(
+            "Draw one panel's image as a colormap or as contours over the other panel,\n"
+            "matched by sky coordinates."
+        )
+        self.pair_superimposition_btn.clicked.connect(self._open_pair_superimposition_window)
+
+        # On only while a panel shows a superimposed layer.
+        self.clear_superimposition_btn = QPushButton("Clear Superimposition")
+        self.clear_superimposition_btn.setToolTip("Remove the superimposed layers from the panels.")
+        self.clear_superimposition_btn.setEnabled(False)
+        self.clear_superimposition_btn.clicked.connect(self._clear_superimposition)
+
+        self.batch_superimposition_btn = QPushButton("Batch Superimposition")
+        self.batch_superimposition_btn.setToolTip(
+            "Select 2D FITS files and draw them as colormap images and contours over a base image."
+        )
+        self.batch_superimposition_btn.clicked.connect(self._open_batch_superimposition_window)
+
+        self.convolution_group = CollapsibleButtonGroup("Convolution")
+        self.convolution_group.add_button(self.pair_convolution_btn)
+        self.convolution_group.add_button(self.batch_convolution_btn)
+        self.superimposition_group = CollapsibleButtonGroup("Superimposition")
+        self.superimposition_group.add_button(self.pair_superimposition_btn)
+        self.superimposition_group.add_button(self.clear_superimposition_btn)
+        self.superimposition_group.add_button(self.batch_superimposition_btn)
+        self._pair_superimposition_window = None
+        self._batch_superimposition_window = None
 
     def _make_rotate_button(self, target):
         """Build a square button that opens the rotation dialog for one panel.
@@ -1346,9 +1370,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         source_layout.addWidget(source_combo)
         layout.addLayout(source_layout)
 
-        # 2. Background Std - LOCAL variable, not self.sigma_input
+        # 2. Sigma - LOCAL variable, not self.sigma_input
         sigma_layout = QHBoxLayout()
-        sigma_layout.addWidget(QLabel("Background Std (blank = Astropy auto):"))
+        sigma_layout.addWidget(QLabel("Sigma (blank = measured from the image):"))
         sigma_input = QLineEdit()          # ← local, not self.
         sigma_input.setPlaceholderText("Auto")
         sigma_input.setMinimumWidth(120)
@@ -1366,7 +1390,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         layout.addLayout(level_layout)
 
         layout.addWidget(QLabel(
-            "<i>Each level N draws a filled band at N × σ ± 0.05σ above background median.</i>"
+            "<i>Each level N draws a line at the median of the image plus N × sigma.</i>"
         ))
 
         # 4. Color
@@ -1400,7 +1424,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Args:
             target (str): Panel to draw the contour on, 'left' or 'right'.
             source (str): 'self' (own image) or 'other' (the other panel).
-            sigma_str (str): Background std typed by the user, or '' for
+            sigma_str (str): Sigma typed by the user, or '' for
                 the automatic sigma-clipped estimate.
             levels_str (str): Comma-separated sigma multipliers to contour.
             color (str): Matplotlib color name for the contour lines.
@@ -1460,16 +1484,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         if sigma_str:
             try:
-                bkg_std = float(sigma_str)
+                sigma_value = float(sigma_str)
             except ValueError:
                 QMessageBox.warning(self, "Invalid Input",
-                                    "Background Std must be a valid number.")
+                                    "Sigma must be a valid number.")
                 return
         else:
-            bkg_std = astropy_std
+            sigma_value = astropy_std
 
-        # Build band-pairs: each level N maps to [N-0.05, N+0.05] * std + median.
-        band_levels = sorted([median_val + n * bkg_std for n in sigma_levels])
+        # Each level N is the median plus N times sigma. The contour is a line at that value.
+        band_levels = sorted([median_val + n * sigma_value for n in sigma_levels])
 
         ax = target_plotter.ax
         if not hasattr(target_plotter, 'contours'):
@@ -1723,9 +1747,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.critical(self, "Load Error", f"Failed to plot saved contour:\n{str(e)}")
             traceback.print_exc()
 
-    def _prompt_and_superimpose(self):
-        """Ask for background/overlay/colormap/alpha, then blend one panel's
-        image, reprojected, over the other panel's background image.
+    def _open_pair_superimposition_window(self):
+        """Open the Pair Superimposition window for the two images that the panels show.
+        An older Pair window is closed, so the window always starts from the current images.
 
         Args:
             None
@@ -1736,120 +1760,67 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         if self.image_left is None or self.image_right is None:
             QMessageBox.warning(self, "Missing Images", "Load an image in BOTH panels before superimposing.")
             return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Superimpose / WCS Match")
-        dialog.setMinimumWidth(380)
-        layout = QVBoxLayout(dialog)
-
-        bg_layout = QHBoxLayout()
-        bg_layout.addWidget(QLabel("Background (reference) image:"))
-        bg_combo = QComboBox()
-        bg_combo.addItems(["Left", "Right"])
-        bg_layout.addWidget(bg_combo)
-        layout.addLayout(bg_layout)
-
-        cmap_layout = QHBoxLayout()
-        cmap_layout.addWidget(QLabel("Overlay colormap:"))
-        cmap_combo = QComboBox()
-        cmap_combo.addItems(["viridis", "plasma", "hot", "cool", "Blues", "Greens", "Reds", "magma"])
-        cmap_layout.addWidget(cmap_combo)
-        layout.addLayout(cmap_layout)
-
-        alpha_layout = QHBoxLayout()
-        alpha_layout.addWidget(QLabel("Overlay alpha (0.1 – 1.0):"))
-        alpha_spin = QDoubleSpinBox()
-        alpha_spin.setRange(0.1, 1.0)
-        alpha_spin.setValue(0.5)
-        alpha_spin.setSingleStep(0.1)
-        alpha_layout.addWidget(alpha_spin)
-        layout.addLayout(alpha_layout)
-
-        layout.addWidget(QLabel("<i>The overlay image is reprojected onto the background\nWCS grid and blended with the selected alpha.</i>"))
-
-        btn_layout = QHBoxLayout()
-        ok_btn = QPushButton("Superimpose")
-        ok_btn.clicked.connect(dialog.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(dialog.reject)
-        btn_layout.addWidget(ok_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-
-        if dialog.exec_() != QDialog.Accepted:
-            return
-
-        bg          = bg_combo.currentText().lower()      
-        ov          = 'right' if bg == 'left' else 'left'
-        alpha       = alpha_spin.value()
-        overlay_cmap = cmap_combo.currentText()
-
-        bg_img    = self.image_left   if bg == 'left' else self.image_right
-        bg_wcs    = self.wcs_left     if bg == 'left' else self.wcs_right
-        ov_img    = self.image_left   if ov == 'left' else self.image_right
-        ov_wcs    = self.wcs_left     if ov == 'left' else self.wcs_right
-
-        if bg_wcs is None or ov_wcs is None:
-            QMessageBox.warning(self, "No WCS", "Both images must have valid WCS to superimpose.")
-            return
-
-        try:
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-
-            reprojected, footprint = reproject_exact((ov_img, ov_wcs), bg_wcs, shape_out=bg_img.shape)
-
-            plotter = self.slice1_plotter if bg == 'left' else self.slice2_plotter
-            canvas  = self.slice1_canvas  if bg == 'left' else self.slice2_canvas
-            ax      = plotter.ax
-
-            if np.count_nonzero(footprint) == 0:
-                QMessageBox.warning(self, "No Overlap", "The two images have no overlapping sky area.")
+        panels = {}
+        for side, image, wcs, header, filename in (
+                ("left", self.image_left, self.wcs_left, self.header_left, self.filename_left),
+                ("right", self.image_right, self.wcs_right, self.header_right, self.filename_right)):
+            if wcs is None or not wcs.has_celestial:
+                QMessageBox.warning(self, "No WCS", "Both images must have valid WCS to superimpose.")
                 return
+            panels[side] = {"image": image, "wcs": wcs, "header": header,
+                            "filename": filename or f"{side} panel"}
+        if self._pair_superimposition_window is not None:
+            self._pair_superimposition_window.close()
+        self._pair_superimposition_window = PairSuperimpositionWindow(
+            panels, self._draw_pair_superimposition, parent=self)
+        self._pair_superimposition_window.show()
+        self._pair_superimposition_window.raise_()
+        self._pair_superimposition_window.activateWindow()
 
-            ov_finite = reprojected[np.isfinite(reprojected)]
-            if ov_finite.size == 0:
-                return
-
-            ov_norm = Normalize(vmin=float(np.nanmin(ov_finite)), vmax=float(np.nanmax(ov_finite)))
-            overlay = ax.imshow(reprojected, origin='lower', cmap=overlay_cmap,
-                    norm=ov_norm, alpha=alpha, aspect='auto', interpolation='nearest')
-            overlay._is_superimpose_overlay = True
-            canvas.draw()
-            self._update_clear_superimpose_button()
-
-        except Exception as e:
-            QMessageBox.critical(self, "Superimpose Error", f"Failed to superimpose:\n{str(e)}")
-            traceback.print_exc()
-        finally:
-            QApplication.restoreOverrideCursor()
-
-    def _panels_with_overlay(self):
-        """Find the panels that show a superimposed image on top of their own image.
+    def _open_batch_superimposition_window(self):
+        """Open the Batch Superimposition window, or bring it forward if it is already open.
+        The window loads its own files, so the panels can be empty.
 
         Args:
             None
 
         Returns:
-            panels (list): Names of the panels, 'left' or 'right', that have an overlay.
+            None
+        """
+        if self._batch_superimposition_window is None:
+            self._batch_superimposition_window = SuperimpositionWindow(parent=self)
+        self._batch_superimposition_window.show()
+        self._batch_superimposition_window.raise_()
+        self._batch_superimposition_window.activateWindow()
+
+    def _superimposition_artists(self, plotter):
+        """Find the images and contour sets that Pair Superimposition drew on a panel.
+
+        Args:
+            plotter (SlicePlotter): Panel plotter to search.
+
+        Returns:
+            artists (list): The artists that carry the superimposition mark.
+        """
+        if plotter.ax is None:
+            return []
+        return [artist for artist in list(plotter.ax.images) + list(plotter.ax.collections)
+                if getattr(artist, "_is_superimposition", False)]
+
+    def _panels_with_superimposition(self):
+        """Find the panels that show a superimposed layer on top of their own image.
+
+        Args:
+            None
+
+        Returns:
+            panels (list): Names of the panels, 'left' or 'right', that have a superimposed layer.
         """
         return [side for side, plotter in (("left", self.slice1_plotter), ("right", self.slice2_plotter))
-                if plotter.ax is not None
-                and any(getattr(image, "_is_superimpose_overlay", False) for image in plotter.ax.images)]
+                if self._superimposition_artists(plotter)]
 
-    def _update_clear_superimpose_button(self):
-        """Turn Clear Superimpose on when a panel shows an overlay, and off when none does.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.clear_superimpose_btn.setEnabled(bool(self._panels_with_overlay()))
-
-    def _clear_superimpose(self):
-        """Remove the superimposed image from every panel that shows one.
-        Only the overlay layer goes. The rotation, region, contours, color map and scale stay.
+    def _update_clear_superimposition_button(self):
+        """Turn Clear Superimposition on when a panel shows a superimposed layer, and off when none does.
 
         Args:
             None
@@ -1857,16 +1828,79 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
-        for side in self._panels_with_overlay():
+        self.clear_superimposition_btn.setEnabled(bool(self._panels_with_superimposition()))
+
+    def _remove_superimposition_layers(self):
+        """Remove the superimposed layers from every panel that shows them. The panel images stay.
+
+        Args:
+            None
+
+        Returns:
+            panels (list): Names of the panels that had a superimposed layer.
+        """
+        sides = self._panels_with_superimposition()
+        for side in sides:
+            plotter = self.slice1_plotter if side == "left" else self.slice2_plotter
+            for artist in self._superimposition_artists(plotter):
+                artist.remove()
+        return sides
+
+    def _clear_superimposition(self):
+        """Remove the superimposed layers from the panels.
+        Only the superimposed layers go. The rotation, region, contours, color map and scale stay.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        for side in self._remove_superimposition_layers():
             plotter = self.slice1_plotter if side == "left" else self.slice2_plotter
             canvas = self.slice1_canvas if side == "left" else self.slice2_canvas
-            for image in list(plotter.ax.images):
-                if getattr(image, "_is_superimpose_overlay", False):
-                    image.remove()
-            # The overlay was drawn with an automatic aspect. Set the image aspect again.
             plotter.ax.set_aspect('equal')
             canvas.draw()
-        self._update_clear_superimpose_button()
+        self._update_clear_superimposition_button()
+
+    def _draw_pair_superimposition(self, images, rows):
+        """Draw the rows after row 1 on the panel of row 1. Layers from an earlier Produce go first.
+        If a row fails, the layers of this call are removed again, so no half result stays.
+
+        Args:
+            images (dict): The keys 'left' and 'right', each with the image data of that panel.
+            rows (list): SuperimpositionRow objects. The source of row 1 names the base panel.
+
+        Returns:
+            notes (list): Messages about rows that drew nothing, as text.
+
+        Raises:
+            ValueError: There is no row, row 1 is not an Image row, or a row cannot be drawn.
+        """
+        if not rows:
+            raise ValueError("There is no row to draw.")
+        side = rows[0].source
+        plotter = self.slice1_plotter if side == "left" else self.slice2_plotter
+        canvas = self.slice1_canvas if side == "left" else self.slice2_canvas
+        ax = plotter.ax
+        self._remove_superimposition_layers()
+        xlim, ylim = ax.get_xlim(), ax.get_ylim()
+        before = set(ax.images) | set(ax.collections)
+        try:
+            notes, artists = draw_layers(ax, images, rows)
+        except Exception:
+            for artist in (set(ax.images) | set(ax.collections)) - before:
+                artist.remove()
+            canvas.draw()
+            self._update_clear_superimposition_button()
+            raise
+        for artist in artists:
+            artist._is_superimposition = True
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        canvas.draw()
+        self._update_clear_superimposition_button()
+        return notes
 
     def _make_source_label(self):
         """Make the line above a panel that names its instrument, map and file.
@@ -2001,16 +2035,10 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         top_layout.addLayout(left_half, 1)
         top_layout.addLayout(right_half, 1)
 
-        # Bottom row: the actions that use both images.
-        bottom_row = QHBoxLayout()
-        bottom_row.addWidget(self.match_res_btn)
-        bottom_row.addWidget(self.batch_match_btn)
-        bottom_row.addWidget(self.superimpose_btn)
-        bottom_row.addWidget(self.clear_superimpose_btn)
-        bottom_row.addStretch(1)
+        group_bar = build_group_bar([self.convolution_group, self.superimposition_group])
 
         main_layout.addLayout(top_layout, 3)
-        main_layout.addLayout(bottom_row, 0)
+        main_layout.addLayout(group_bar, 0)
         main_layout.addStretch(2)  # empty space fills the rest (no spectrum here)
 
         self.setLayout(main_layout)
@@ -2554,8 +2582,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             self.slice1_canvas.draw()
         else:
             self.slice2_canvas.draw()
-        # The redraw removed any overlay on this panel.
-        self._update_clear_superimpose_button()
+        # The redraw removed any superimposed layer on this panel.
+        self._update_clear_superimposition_button()
 
     def _apply_grid_state(self, target):
         """Show or hide the RA/Dec grid on a panel, as its grid button says.
