@@ -36,6 +36,7 @@ from .gaussian_fitter import (
 )
 from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from .utils import get_spectral_resolution
+from .spectrum_file import normalize_wave_unit
 from .unit_converter import (
     integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs,
     extract_units, extract_value_from_quantity, cgs_flux_label, CGS_FLUX_NAME,
@@ -187,6 +188,38 @@ def read_mask_file(path):
     if shift_factor is not None and not (np.isfinite(shift_factor) and shift_factor > 0):
         raise ValueError("The wavelength shift factor must be a positive number.")
     return merge_mask_ranges(pairs), wave_unit, shift_factor
+
+
+def move_masks_to_axis(mask_ranges, file_unit, file_shift, wave_unit, shift_factor=1.0):
+    """
+    Move masked ranges that a file gives onto another wavelength axis.
+    The unit can be another unit of length. The Doppler shift can be different.
+    A unit or a shift that the file does not give is taken to be the same as the axis.
+
+    Args:
+        mask_ranges (list): (low, high) pairs on the axis of the file
+        file_unit (str): Wavelength unit of the file, or None if the file does not give it
+        file_shift (float): Doppler shift factor of the file, or None if the file does not give it
+        wave_unit (str): Wavelength unit of the new axis
+        shift_factor (float): Doppler shift factor of the new axis. It is 1.0 if the axis is not shifted.
+
+    Returns:
+        moved (list): (low, high) tuples of float on the new axis
+
+    Raises:
+        ValueError: if a unit is not a unit of length that this program uses, or if the unit
+            of the file is not the same kind of unit as the unit of the axis
+    """
+    factor = 1.0
+    if file_unit is not None:
+        file_name, file_factor = normalize_wave_unit(file_unit)
+        name, factor_now = normalize_wave_unit(wave_unit)
+        if file_name != name:
+            raise ValueError(f"The masks are in {file_unit}, but the spectrum is in {wave_unit}.")
+        factor = file_factor / factor_now
+    if file_shift is not None:
+        factor *= shift_factor / file_shift
+    return [(float(low) * factor, float(high) * factor) for low, high in mask_ranges]
 
 
 # ================== Unit Utilities ==================

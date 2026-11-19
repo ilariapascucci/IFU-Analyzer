@@ -258,13 +258,22 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 | Task                | Functions                                                                                                   |
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Load data           | `load_cube`, `load_spectrum`, `load_fit`, `extract_pixel_spectrum`, `extract_region_spectrum`               |
-| Continuum           | `fit_continuum`, `save_continuum_cubes`                                                                     |
-| Gaussian fitting    | `fit_line`, `fit_hitran_lines`, `measure_equivalent_width`, `create_gaussian_map`, `export_residual_cube`   |
+| Continuum           | `fit_continuum`, `save_continuum_masks`, `load_continuum_masks`, `save_continuum_cubes`                     |
+| Gaussian fitting    | `fit_line`, `fit_hitran_lines`, `measure_equivalent_width`, `create_gaussian_map`, `create_velocity_map`, `export_residual_cube` |
 | Flux                | `extract_flux`, `create_flux_map`                                                                           |
-| Rotational diagrams | `rotational_diagram`, `fit_region`, `fit_pixel`, `create_rotational_diagram_map`, `save_rotational_diagram_map_fits`, and the `_multi` versions for cubes at different pixel scales |
+| Save maps (FITS)    | `save_gaussian_map`, `save_gaussian_maps`, `save_flux_map`, `save_line_maps`, `save_rotational_diagram_map_fits` |
+| Rotational diagrams | `rotational_diagram`, `fit_region`, `fit_pixel`, `create_rotational_diagram_map`, and the `_multi` versions for cubes at different pixel scales |
+| Regions             | `make_region_mask`, `save_region`, `load_region` |
+| Rotational-diagram tables | `save_line_fluxes`, `load_line_fluxes`, `save_rotational_fit` |
+| Helpers             | `fetch_hitran_lines`, `doppler_shift_factor` |
+| Rotational-diagram map, one step at a time | `compute_native_line_maps`, `convolution_plan`, `convolve_line_maps`, `combine_line_maps`, `import_line_map`, `fit_region_mixed`, `create_rotational_diagram_map_mixed` |
 
 - Each function has a docstring with its arguments and an example. Use `help(function_name)` to read it.
 - `cube.spectrum`, `extract_pixel_spectrum`, and `extract_region_spectrum` give an astropy quantity: Jy for a cube in MJy/sr, the same as the GUI. The fit functions read the unit from the quantity, so `header=cube.header` still gives the right flux in erg/s/cm². The cube itself (`cube.cube`, `cube.header`, the slices, and the maps) stays in MJy/sr. For plain numbers, use `cube.spectrum.value`.
+- The save functions write the files of the Export and Save buttons of the GUI. `save_gaussian_map` and `save_flux_map` write one FITS file. `save_line_maps` writes the flux map of each line in a folder, or in one .zip file, as "Save Maps" does. It writes no PNG files.
+- `save_region` and `load_region` use the region file of "Save Region" and "Import Region" in the GUI. The file holds sky coordinates, so a region saved on one cube loads on another image of the same field. A polygon can change by a few pixels on its edge when it loads, because the sky coordinates are rounded.
+- `save_line_fluxes` and `load_line_fluxes` use the CSV file of "Save Fluxes" and "Import from CSV". `load_line_fluxes` matches each line to HITRAN, and its result is the `line_table` of `fit_region`. `save_rotational_fit` is "Save Fit".
+- The rotational-diagram buttons "Calculate Maps", "Convolve Maps" and "Run Map" are `compute_native_line_maps`, `convolve_line_maps` and `combine_line_maps`. Save the maps between the steps with `save_line_maps`. `import_line_map` is "Load Maps".
 - The map functions use several processes. On Windows and macOS, put the code of your script under `if __name__ == "__main__":`.
 
 ---
@@ -381,7 +390,7 @@ python main.py
    - View the parameter maps (Area, Amplitude, Continuum, Centre, Velocity, FWHM, and so on). The Continuum map is the baseline of each pixel at the line center. The statistics give the wavelength, and the exported FITS file has it in the `CONTWAV` keyword.
    - The Velocity map needs a rest line. When you select "Velocity" in the parameter list, choose the molecule or atom of the line in the fit window. A table lists the lines of that species from HITRAN and the LST catalog. Select the line that the peak shows. Its vacuum wavelength is zero velocity. If you cancel, the Velocity map is not made, and the results window gives the reason. To use another line, click "Change rest line..." next to the parameter list. The map redraws with the new line.
    - A map that was fit on a shifted spectrum has no Velocity map. The line centers of that map are not the observed wavelengths. Revert the shift of that spectrum (see Doppler shift) and fit the map again. The other parameters stay available.
-   - "Shift Spectrum" (next to "Change rest line...", Velocity map only) closes this window and starts the "Preview Shift" of the main window for the same tab. The box starts with the systemic velocity, and you can change it. The systemic velocity is the velocity of the line center of a Gaussian fit to the summed spectrum, against the rest line. The Full tab sums all pixels. A Left or Right tab sums the pixels of its region. The Velocity statistics list the value. Then click "Apply Shift" as usual. The button is off when the fit of the summed spectrum did not converge.
+   - "Systemic velocity [km/s]" (Velocity map only) is a box under the parameter list. Type a velocity and click "Apply" (or press ENTER) to move the zero of the Velocity map by that velocity. Only the Velocity map changes. The other maps and the spectrum do not change. The text next to the box gives the velocity of the line center of a Gaussian fit to the summed spectrum, as a suggestion. It does not change the map. The Full tab sums all pixels. A Left or Right tab sums the pixels of its region. The title and the statistics of the map give the velocity that was removed, and the exported FITS file has it in the `VSYS` keyword. In a script, use `systemic_velocity` in `create_velocity_map`.
    - To add lines (for example from HITEMP), click "Load line list file..." in the table. Use a CSV with the columns `wavelength` and `species`, a HITRAN-format `.par` file, or an LST catalog `.lst` file. Give vacuum wavelengths in a CSV. Unzip a HITEMP file before you load it. Lines from a file show in amber.
    - The LST catalog starts at 0.70 µm, and HITRAN has no atomic lines. For a MUSE line such as H-alpha, you must load a file.
    - MUSE cubes use air wavelengths (axis type `AWAV`). The app converts the rest line to air before it makes the map. A cube header that gives no `AWAV` or `WAVE` axis type has no Velocity map.
@@ -397,7 +406,7 @@ python main.py
    **Automatic method:**
    - Click "Automatic".
    - Optional: click "Mask Spectrum" to hide a range of the spectrum from the fit. Click two wavelengths on the spectrum. The range between them turns gray. Mask more ranges in the same way. Make a mask a little wider than a dip, because the sides of the dip also lower the continuum. To remove one range, click inside it. "Clear Masks" removes all ranges of the spectrum you see.
-   - Click "Save Masks" to save the ranges of the spectrum you see to a .txt file. Click "Load Masks" to read them again, for example to repeat the same masks on another day. The loaded ranges replace the ranges of the spectrum you see. Ranges that you add after the load join the loaded ranges, and ranges that overlap become one range. The file gives the wavelength unit and the Doppler shift, so the ranges stay on the same part of the spectrum if the shift is not the same as when you saved them.
+   - Click "Save Masks" to save the ranges of the spectrum you see to a .txt file. Click "Load Masks" to read them again, for example to repeat the same masks on another day. The loaded ranges replace the ranges of the spectrum you see. Ranges that you add after the load join the loaded ranges, and ranges that overlap become one range. The file gives the wavelength unit and the Doppler shift, so the ranges stay on the same part of the spectrum if the shift is not the same as when you saved them. In a script, use `save_continuum_masks` and `load_continuum_masks`. They read and write the same file.
    - A change of the masks removes the fitted continuum, and the subtraction if there is one. Click "Fit Continuum" again.
    - Click "Fit Continuum" to open the parameter dialog.
    - Set the window size, the sigma threshold, the peak-exclusion width, the iterations, and the smoothing factor.
@@ -555,6 +564,8 @@ IFU-Analyzer/
 ├── cube_explorer/
 │   ├── __init__.py
 │   ├── api.py                                # Programmatic (non-GUI) interface for scripts and notebooks
+│   ├── table_export.py                       # Region files and rotational-diagram CSV files with no GUI, used by api.py
+│   ├── map_export.py                         # FITS writers for the maps (Gaussian map, Flux Map, line maps), used by api.py
 │   ├── gui.py                                # Main window: spectrum and slice plots, layout (~3700 lines)
 │   ├── gui_continuum.py                      # Continuum-subtraction mixin (automatic and custom modes)
 │   ├── gui_gaussian.py                       # Gaussian-fitting mixin (single-line, full-cube, multi-Gaussian)

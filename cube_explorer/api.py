@@ -403,6 +403,69 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
     )
 
 
+from .flux_map_extractor import (
+    mask_file_lines as _mask_file_lines, read_mask_file as _read_mask_file,
+    move_masks_to_axis as _move_masks_to_axis, merge_mask_ranges as _merge_mask_ranges,
+)
+
+def save_continuum_masks(filename, mask_ranges, wave_unit=None, shift_factor=1.0):
+    """Save masked wavelength ranges of the automatic continuum to a tab-separated text file.
+    This is the same file as the GUI's Save Masks button writes. The file gives the wavelength unit
+    and the Doppler shift factor, so load_continuum_masks can put the ranges on the right axis.
+
+    Args:
+        filename (str): Path of the text file to write
+        mask_ranges (list): (low, high) wavelength pairs, in wave_unit
+        wave_unit (str, optional): Wavelength unit of the pairs, for example 'um' or 'Angstrom'.
+            None writes "Unknown", and a load then cannot convert units.
+        shift_factor (float, optional): Doppler shift factor of the wavelength axis. It is 1.0 if the
+            axis is not shifted. A Doppler shift of v km/s in the GUI gives a factor of 1 / (1 + v/c).
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if a masked range is not valid
+        OSError: if the file cannot be written
+
+    Example:
+        >>> save_continuum_masks("masks.txt", [(6.90, 6.93), (7.10, 7.15)], wave_unit="um")
+    """
+    lines = _mask_file_lines(mask_ranges, wave_unit, float(shift_factor))
+    with open(filename, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def load_continuum_masks(filename, wave_unit=None, shift_factor=1.0):
+    """Load masked wavelength ranges from a text file that save_continuum_masks or the GUI wrote.
+    The ranges are moved onto the axis you give. If the file was saved in another unit, or with
+    another Doppler shift, the ranges stay on the same part of the spectrum.
+
+    Args:
+        filename (str): Path of the masks file
+        wave_unit (str, optional): Wavelength unit of the spectrum that you use the ranges on, for
+            example 'um'. None keeps the unit of the file.
+        shift_factor (float, optional): Doppler shift factor of the wavelength axis of that spectrum.
+            It is 1.0 if the axis is not shifted. A file that gives no shift factor is not moved.
+
+    Returns:
+        list: Sorted (low, high) tuples of float on your axis, ready for mask_ranges in fit_continuum.
+
+    Raises:
+        OSError: if the file cannot be opened
+        ValueError: if the file has no range or a bad line, or if its unit is not the same kind of
+            unit as wave_unit
+
+    Example:
+        >>> masks = load_continuum_masks("masks.txt", wave_unit="um")
+        >>> continuum = fit_continuum(cube.wavelength, cube.spectrum, mask_ranges=masks)
+    """
+    ranges, file_unit, file_shift = _read_mask_file(filename)
+    moved = _move_masks_to_axis(ranges, file_unit, file_shift,
+                                file_unit if wave_unit is None else wave_unit, float(shift_factor))
+    return _merge_mask_ranges(moved)
+
+
 from .continuum_cube import export_continuum_cubes as _export_continuum_cubes_internal
 
 def save_continuum_cubes(cube_data, continuum_path, contsub_path, continuum_params=None,
@@ -1449,6 +1512,591 @@ def save_rotational_diagram_map_fits(result, output_path):
     _rdm_save_fits(result, output_path)
 
 
+# --- Rotational Diagram Map API: the steps of Run Map, one at a time ---
+
+from .rotational_diagram_map import (
+    compute_native_line_maps as _rdm_compute_native,
+    combine_line_maps as _rdm_combine,
+    fit_region_mixed as _rdm_fit_region_mixed,
+    create_rotational_diagram_map_mixed as _rdm_create_map_mixed,
+    build_imported_map_payload as _rdm_build_imported_payload,
+)
+from .convolve_reproject import (
+    convolution_plan as _convolution_plan,
+    convolve_reproject_maps as _convolve_reproject_maps,
+)
+from .import_map_dialog import _peek_header, _has_real_error
+from .line_catalog import match_nearest_hitran_line as _match_nearest_hitran_line
+
+
+def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
+                             progress_callback=None, cancel_flag=None, region_masks=None, n_sigma=3.0):
+    """Fit each line at the native resolution of its own cube. This is the Calculate Maps button of the
+    rotational-diagram window, and the first step of Run Map. The next step is convolve_line_maps.
+    Scripts that call this need an ``if __name__ == "__main__":`` guard on Windows/macOS.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
+        contam_lines (pandas.DataFrame, optional): Contaminating lines, or None
+        n_jobs (int): Number of worker processes for each cube
+        dedup_tol_um (float): Co-located-line merge tolerance in microns
+        progress_callback (callable, optional): progress_callback(done_pixels, total_pixels)
+        cancel_flag (object, optional): Object with a `.cancelled` attribute
+        region_masks (dict, optional): {CubeData: 2D boolean mask}. Only the pixels in the mask are fitted
+            for that cube. A cube that is not in the dict is fitted at every pixel.
+        n_sigma (float): Detection threshold in noise sigmas (default 3.0). This is the only step that
+            applies a threshold. The later steps use the maps as they are.
+
+    Returns:
+        dict: 'kept_lines', 'dropped_lines', 'native_flux_maps', 'native_flux_error_maps',
+        'native_fit_flux_maps', 'native_status_maps', 'native_ul_ceiling_maps' (lists of 2D arrays, one
+        for each kept line), 'native_wcs', 'native_headers', 'native_shapes', 'native_pix_arcsec',
+        'native_instrument' and 'cube_filenames'. Pass it to convolution_plan, convolve_line_maps
+        or save_line_maps.
+
+    Raises:
+        ValueError: if no pair is given, a cube has no celestial WCS or pixel scale, or two cubes
+            share no sky coverage
+
+    Example:
+        >>> native = compute_native_line_maps([(load_cube("s1.fits"), {"wavelength": 17.0348, ...}),
+        ...                                    (load_cube("s2.fits"), {"wavelength": 12.2786, ...})])
+        >>> save_line_maps(native, "native_maps")
+    """
+    return _rdm_compute_native(cubes_and_lines, contam_lines=contam_lines, n_jobs=n_jobs,
+                               dedup_tol_um=dedup_tol_um, progress_callback=progress_callback,
+                               cancel_flag=cancel_flag, region_masks=region_masks, n_sigma=n_sigma)
+
+
+def convolution_plan(native_result):
+    """Show what convolve_line_maps will do, without doing it. This is the table that the GUI shows
+    before Convolve Maps and Run Map. The line with the longest wavelength is the reference.
+
+    Args:
+        native_result (dict): Result of compute_native_line_maps
+
+    Returns:
+        dict: 'worst_pix_arcsec' (pixel scale of the reference line), 'dst_shape' (shape of the output
+        grid), 'per_cube' (one dict for each line: 'wavelength', 'instrument', 'filename',
+        'native_pix_arcsec', 'sigma_arcsec', 'sigma_pix') and 'dropped_lines'
+
+    Raises:
+        ValueError: if a line is from an instrument that has no PSF formula (only MIRI and NIRSpec have one)
+    """
+    return _convolution_plan(native_result)
+
+
+def convolve_line_maps(native_result):
+    """Convolve every native line map to the resolution of the line with the longest wavelength, and
+    reproject it onto the grid of that line. This is the Convolve Maps button of the rotational-diagram
+    window, and the second step of Run Map. The error maps go through the same steps.
+
+    Args:
+        native_result (dict): Result of compute_native_line_maps (or of merge of imported maps, see
+            create_rotational_diagram_map_mixed)
+
+    Returns:
+        dict: 'kept_lines', 'line_flux_maps', 'line_flux_error_maps' (the convolved maps, all on one grid),
+        'dst_wcs', 'dst_shape', 'worst_pix_arcsec', 'reference_wavelength', and the native maps that
+        went in. Pass it to combine_line_maps or save_line_maps.
+
+    Raises:
+        ValueError: if a line is from an instrument that has no PSF formula (only MIRI and NIRSpec have one)
+
+    Example:
+        >>> convolved = convolve_line_maps(native)
+        >>> save_line_maps(convolved, "convolved_maps.zip")
+    """
+    return _convolve_reproject_maps(native_result)
+
+
+def combine_line_maps(convolved_result, molecule='H2', isotopologue=1, opr=None, fit_opr=False,
+                      opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, region_fit=None,
+                      progress_callback=None, cancel_flag=None, fit2t=False):
+    """Fit a rotational diagram at every pixel of the convolved line maps. This is the last step of
+    Run Map. It has no detection threshold of its own. The threshold was set in compute_native_line_maps.
+
+    Args:
+        convolved_result (dict): Result of convolve_line_maps
+        molecule (str): Species name. 'H2' uses the fitter with the ortho-para ratio.
+        isotopologue (int): HITRAN isotopologue number, not used for H2
+        opr (float, optional): Fixed ortho-para ratio, H2 only
+        fit_opr (bool): Search the ortho-para ratio at every pixel, H2 only
+        opr_grid (array, optional): Ratios to search, H2 only
+        dist_pc (float): Distance in parsecs
+        r_au (float, optional): Emitting radius in AU. A map does not use the value: with a radius,
+            N is per cm^2 of the area of each pixel. None gives molecules per pixel.
+        min_lines (int): Fewest detected lines that a pixel needs for a fit
+        region_fit (dict, optional): Result of fit_region_multi, to add the fit of the summed region
+        progress_callback (callable, optional): progress_callback(done_pixels, total_pixels)
+        cancel_flag (object, optional): Object with a `.cancelled` attribute
+        fit2t (bool): Report the two-temperature fit instead of the one-temperature fit
+
+    Returns:
+        dict: The same as create_rotational_diagram_map_multi: 'T', 'T_err', 'Ncol', 'Ncol_err', 'T2',
+        'T2_err', 'Ncol2', 'Ncol2_err', 'n_lines', 'status', 'dst_wcs' and more. Save it with
+        save_rotational_diagram_map_fits.
+    """
+    return _rdm_combine(convolved_result, molecule=molecule, isotopologue=isotopologue, opr=opr,
+                        fit_opr=fit_opr, opr_grid=opr_grid, dist_pc=dist_pc, r_au=r_au,
+                        min_lines=min_lines, region_fit=region_fit, progress_callback=progress_callback,
+                        cancel_flag=cancel_flag, fit2t=fit2t)
+
+
+def import_line_map(fits_path, species=None, wavelength=None, error_pct=None):
+    """Read a flux map that was made before, for example by Export of the Gaussian map, as one line
+    of a rotational diagram. This is the Load Maps (Import Map) button. The line has no cube. Its map
+    goes straight into create_rotational_diagram_map_mixed.
+
+    The species and the wavelength come from the FITS header (the MOLECULE and LINEWAVE keywords) when
+    it has them. A value that you give replaces the header value. The Einstein A, the upper energy and
+    the statistical weight come from the header, or from the HITRAN line nearest to the wavelength.
+
+    Args:
+        fits_path (str): Path of the FITS file of the flux map
+        species (str, optional): Species, for example 'H2'. Needed if the header has no MOLECULE keyword.
+        wavelength (float, optional): Line wavelength in um. Needed if the header has no LINEWAVE keyword.
+        error_pct (float, optional): Flat error in percent of the flux. Needed if the file has no error
+            map (an ERR extension). It is not used if the file has one.
+
+    Returns:
+        dict: A line dict with 'wavelength', 'species', 'transition', 'hitran_matched' and 'imported_map'
+        (the map, its error, its WCS and its pixel scale). If HITRAN has no match, 'hitran_matched' is
+        False and the line has no A, E_u or g_u, so it is not fitted until you add them.
+
+    Raises:
+        ValueError: if the species, the wavelength or the error percent is needed and not given,
+            or the file has no 2D image with a celestial WCS
+
+    Example:
+        >>> line = import_line_map("s1_gaussian_area_map.fits", error_pct=20.0)
+        >>> result = create_rotational_diagram_map_mixed([(cube, other_line)], [line])
+    """
+    found = _peek_header(fits_path)
+    if species is None and found.get("MOLECULE"):
+        species = str(found["MOLECULE"])
+    if not species or not str(species).strip():
+        raise ValueError(f"{fits_path} has no MOLECULE keyword. Give species, for example 'H2'.")
+    species = str(species).strip().upper()
+    if wavelength is None and found.get("LINEWAVE") is not None:
+        try:
+            wavelength = float(found["LINEWAVE"])
+        except (TypeError, ValueError):
+            wavelength = None
+    if wavelength is None:
+        raise ValueError(f"{fits_path} has no usable LINEWAVE keyword. Give wavelength, in um.")
+    wavelength = float(wavelength)
+    if _has_real_error(fits_path):
+        error_pct = 0.0
+    elif error_pct is None:
+        raise ValueError(f"{fits_path} has no error map. Give error_pct, the flat error in percent of the flux.")
+    payload = _rdm_build_imported_payload(fits_path, error_pct)
+
+    if all(key in found for key in ("A_UL", "E_UPPER", "G_U", "TRANSITN")):
+        best_match = {'a_coeff': found['A_UL'], 'e_upper': found['E_UPPER'], 'Gp': found['G_U'],
+                      'transition': found['TRANSITN'], 'j_lower': found.get('JLOWER'),
+                      'branch': found.get('BRANCH')}
+    else:
+        try:
+            hitran_lines, _meta = fetch_hitran_data(
+                wavelength - 0.01, wavelength + 0.01, molecule=species, isotopologue=1)
+        except Exception as error:
+            warnings.warn(f"Could not fetch HITRAN data for {species} at {wavelength:.6f} um: {error}")
+            hitran_lines = []
+        best_match = _match_nearest_hitran_line(hitran_lines, wavelength)
+
+    if best_match:
+        line = {'wavelength': wavelength, 'hitran_matched': True,
+                'a_coeff': best_match.get('a_coeff', 0.0), 'e_upper': best_match.get('e_upper', 0.0),
+                'Gp': best_match.get('Gp', 1.0), 'j_lower': best_match.get('j_lower'),
+                'branch': best_match.get('branch'), 'transition': best_match.get('transition', 'User Data'),
+                'species': species}
+    else:
+        warnings.warn(f"No HITRAN match for {species} at {wavelength:.6f} um. A_ul, E_u and g_u are blank, "
+                      "so this line is not fitted until you add them.")
+        line = {'wavelength': wavelength, 'hitran_matched': False, 'transition': 'NA', 'species': species}
+    line['imported_map'] = payload
+    return line
+
+
+def fit_region_mixed(cubes_and_lines, imported_lines, molecule='H2', isotopologue=1, opr=None,
+                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
+                     dedup_tol_um=1e-5, contam_lines=None, region_masks=None,
+                     imported_region_masks=None, fit2t=False):
+    """Fit one rotational diagram to the summed region, with some lines from cubes and some from
+    imported maps (see import_line_map). The same as fit_region_multi, plus the imported lines.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs for the lines that come from cubes. Can be empty.
+        imported_lines (list): Line dicts from import_line_map
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um,
+            contam_lines, fit2t: The same as in fit_region_multi
+        region_masks (dict, optional): {CubeData: 2D boolean mask}. Only these pixels are summed for that cube.
+        imported_region_masks (dict, optional): {id(line): 2D boolean mask} for an imported line. A line
+            that is not in the dict sums its whole map.
+
+    Returns:
+        dict: The same as fit_region_multi
+    """
+    return _rdm_fit_region_mixed(cubes_and_lines, imported_lines, molecule=molecule,
+                                 isotopologue=isotopologue, opr=opr, fit_opr=fit_opr, opr_grid=opr_grid,
+                                 dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, dedup_tol_um=dedup_tol_um,
+                                 contam_lines=contam_lines, region_masks=region_masks,
+                                 imported_region_masks=imported_region_masks, fit2t=fit2t)
+
+
+def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecule='H2', isotopologue=1,
+                                        opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                                        min_lines=3, dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
+                                        region_fit=None, progress_callback=None, cancel_flag=None,
+                                        region_masks=None, imported_region_masks=None, n_sigma=3.0,
+                                        fit2t=False):
+    """Make a rotational-diagram map from lines that come from cubes and lines that come from imported
+    maps (see import_line_map). The same as create_rotational_diagram_map_multi, plus the imported lines.
+    Scripts that call this need an ``if __name__ == "__main__":`` guard on Windows/macOS.
+
+    Args:
+        cubes_and_lines (list): (CubeData, line_dict) pairs for the lines that come from cubes. Can be empty.
+        imported_lines (list): Line dicts from import_line_map
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um, n_jobs,
+            contam_lines, progress_callback, cancel_flag, n_sigma, fit2t: The same as in
+            create_rotational_diagram_map_multi
+        region_fit (dict, optional): Result of fit_region_mixed, to add the fit of the summed region
+        region_masks (dict, optional): {CubeData: 2D boolean mask}. Only these pixels are fitted for that cube.
+        imported_region_masks (dict, optional): {id(line): 2D boolean mask} for an imported line
+
+    Returns:
+        dict: The same as create_rotational_diagram_map_multi
+
+    Raises:
+        ValueError: if no line is given, a map has no celestial WCS or pixel scale, or two inputs
+            share no sky coverage
+    """
+    return _rdm_create_map_mixed(cubes_and_lines, imported_lines, molecule=molecule,
+                                 isotopologue=isotopologue, opr=opr, fit_opr=fit_opr, opr_grid=opr_grid,
+                                 dist_pc=dist_pc, r_au=r_au, min_lines=min_lines, dedup_tol_um=dedup_tol_um,
+                                 n_jobs=n_jobs, contam_lines=contam_lines, region_fit=region_fit,
+                                 progress_callback=progress_callback, cancel_flag=cancel_flag,
+                                 region_masks=region_masks, imported_region_masks=imported_region_masks,
+                                 n_sigma=n_sigma, fit2t=fit2t)
+
+
+# --- Map Saving API: the FITS files of the Save and Export buttons ---
+
+from .map_export import (
+    save_gaussian_map as _save_gaussian_map,
+    save_gaussian_maps as _save_gaussian_maps,
+    save_flux_map as _save_flux_map,
+    save_line_maps as _save_line_maps,
+)
+
+
+def save_gaussian_map(cube_data, maps, parameter, out_path, lam_min, lam_max, peak_wavelength=None,
+                      rest_wavelength=None, rest_label=None, systemic_velocity=0.0, species=None):
+    """Save one parameter of a Gaussian map to a FITS file. This is the Export button of the Gaussian map
+    window. The header has the fit window, the unit and the keywords that the parameter needs
+    (for example VSYS for the Velocity map and CONTWAV for the Continuum map).
+
+    Args:
+        cube_data (CubeData): Loaded cube that the map was fitted on
+        maps (dict): Result of create_gaussian_map()
+        parameter (str): One of 'area', 'area_error', 'amplitude', 'continuum', 'center', 'velocity',
+            'sigma', 'fwhm', 'chi2', 'fit_status', 'success_mask'
+        out_path (str): Path of the FITS file to write
+        lam_min (float): Start of the fit window, in the wavelength unit of the cube
+        lam_max (float): End of the fit window, in the wavelength unit of the cube
+        peak_wavelength (float, optional): Wavelength of the line peak. None uses the middle of the window.
+        rest_wavelength (float, optional): Rest wavelength in um (vacuum). The Velocity map needs it.
+        rest_label (str, optional): Short text that names the rest line, for the header
+        systemic_velocity (float): Systemic velocity in km/s that the Velocity map is relative to
+        species (str, optional): Species of the line, for example 'H2'. For the Area map only. It adds the
+            HITRAN constants of the nearest line, so import_line_map can read the file.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if the parameter is not known, or the Velocity map has no rest_wavelength
+
+    Example:
+        >>> maps = create_gaussian_map(cube, lam_min=17.02, lam_max=17.05, lambda_0=17.0348)
+        >>> save_gaussian_map(cube, maps, 'area', 's1_area.fits', 17.02, 17.05,
+        ...                   peak_wavelength=17.0348, species='H2')
+    """
+    _save_gaussian_map(cube_data, maps, parameter, out_path, lam_min, lam_max, peak_wavelength=peak_wavelength,
+                       rest_wavelength=rest_wavelength, rest_label=rest_label,
+                       systemic_velocity=systemic_velocity, species=species)
+
+
+def save_gaussian_maps(cube_data, maps, out_dir, lam_min, lam_max, parameters=None, peak_wavelength=None,
+                       rest_wavelength=None, rest_label=None, systemic_velocity=0.0, species=None,
+                       base_name=None):
+    """Save several parameters of a Gaussian map, one FITS file for each, in one folder. The names are
+    <cube name>_gaussian_<parameter>.fits. The Velocity map is left out when there is no rest_wavelength.
+
+    Args:
+        cube_data (CubeData): Loaded cube that the map was fitted on
+        maps (dict): Result of create_gaussian_map()
+        out_dir (str): Folder for the files. It is made if it does not exist.
+        lam_min (float): Start of the fit window, in the wavelength unit of the cube
+        lam_max (float): End of the fit window, in the wavelength unit of the cube
+        parameters (list, optional): Parameter names, see save_gaussian_map. None writes all of them.
+        peak_wavelength, rest_wavelength, rest_label, systemic_velocity, species: See save_gaussian_map
+        base_name (str, optional): First part of each file name. None uses the name of the cube file.
+
+    Returns:
+        list: The paths of the files that were written
+    """
+    return _save_gaussian_maps(cube_data, maps, out_dir, lam_min, lam_max, parameters=parameters,
+                               peak_wavelength=peak_wavelength, rest_wavelength=rest_wavelength,
+                               rest_label=rest_label, systemic_velocity=systemic_velocity,
+                               species=species, base_name=base_name)
+
+
+def save_flux_map(result, out_path, species=None, cube_data=None):
+    """Save a Flux Map result to a FITS file. This is the Export button of the Flux Map window. The first
+    image is the flux map. The extensions hold the detection counts and the contaminating lines.
+
+    Args:
+        result (dict): Result of create_flux_map()
+        out_path (str): Path of the FITS file to write
+        species (str, optional): Species of the target lines, for example 'CO'. None writes 'Target'.
+        cube_data (CubeData, optional): Loaded cube. It gives the instrument name if the header has none.
+
+    Returns:
+        None
+
+    Example:
+        >>> flux = create_flux_map(cube, target_catalog_path="co_lines.ecsv")
+        >>> save_flux_map(flux, "co_flux_map.fits", species="CO", cube_data=cube)
+    """
+    _save_flux_map(result, out_path, species=species, cube_data=cube_data)
+
+
+def save_line_maps(result, output_path, molecule=None):
+    """Save the flux map of every line of a rotational-diagram result. This is the Save Maps button of the
+    rotational-diagram window, without the PNG files. The native maps go in 'Flux Maps/fits' and the
+    convolved maps in 'Convolved Maps/fits'. Each file is <species>_<flux or convolved>_<wavelength>um.fits.
+
+    Args:
+        result (dict): Result of compute_native_line_maps (native maps), convolve_line_maps (convolved maps),
+            create_rotational_diagram_map (native maps) or create_rotational_diagram_map_multi (both)
+        output_path (str): A folder, or a path that ends in .zip to write one zip file
+        molecule (str, optional): Species name for the file names and headers. None uses the one in the
+            result, or 'H2'.
+
+    Returns:
+        dict: {'Flux Maps': number of native maps written, 'Convolved Maps': number of convolved maps
+        written}. A group that the result does not have is not in the dict.
+
+    Raises:
+        ValueError: if the result has no line maps
+
+    Example:
+        >>> native = compute_native_line_maps(cubes_and_lines)
+        >>> convolved = convolve_line_maps(native)
+        >>> save_line_maps(convolved, "convolved_maps.zip")
+    """
+    return _save_line_maps(result, output_path, molecule=molecule)
+
+
+# --- Regions and Tables API: the region files and the CSV files of the GUI ---
+
+from .table_export import (
+    make_region_mask as _make_region_mask,
+    save_region_file as _save_region_file,
+    load_region_file as _load_region_file,
+    save_line_fluxes_csv as _save_line_fluxes_csv,
+    load_line_fluxes_csv as _load_line_fluxes_csv,
+    save_rotational_fit_csv as _save_rotational_fit_csv,
+)
+from .unit_converter import doppler_velocity_to_wavelength_factor as _doppler_factor
+
+
+def make_region_mask(shape, coords, target_shape, verts=None):
+    """Make a boolean mask of a region from its shape and its pixel coordinates. The mask has True for the
+    pixels that the region touches, the same as a region that you draw in the GUI. Use it as mask in
+    extract_region_spectrum or fit_region.
+
+    Args:
+        shape (str): 'POINT', 'RECTANGLE', 'CIRCLE', 'ELLIPSE' or 'POLYGON'
+        coords (tuple): (x, y) for 'POINT'. (xmin, xmax, ymin, ymax) in pixels for 'RECTANGLE', 'CIRCLE' and
+            'ELLIPSE'. The circle and the ellipse fill that box. Not used for 'POLYGON'.
+        target_shape (tuple): (height, width) of the image, for example cube.cube.shape[1:]
+        verts (array-like, optional): (N, 2) polygon vertices as (x, y) pixels. Needed for 'POLYGON'.
+
+    Returns:
+        numpy.ndarray: 2D boolean array of shape target_shape
+
+    Raises:
+        ValueError: if the shape is not known, or a polygon has no vertices
+
+    Example:
+        >>> mask = make_region_mask('CIRCLE', (20, 30, 15, 25), cube.cube.shape[1:])
+        >>> spectrum = extract_region_spectrum(cube, mask)
+    """
+    return _make_region_mask(shape, coords, target_shape, verts=verts)
+
+
+def save_region(path, shape, coords, cube_data, verts=None, source_desc=None):
+    """Save a region to a text file, as RA and Dec sky coordinates. This is Save Region in the GUI.
+    The file works on any image of the same field. Read it with load_region.
+
+    Args:
+        path (str): Path of the text file to write
+        shape (str): 'POINT', 'RECTANGLE', 'CIRCLE', 'ELLIPSE' or 'POLYGON'
+        coords (tuple): Pixel coordinates, see make_region_mask
+        cube_data (CubeData): Loaded cube. Its WCS turns the pixels into sky coordinates.
+        verts (array-like, optional): (N, 2) polygon vertices as (x, y) pixels. Needed for 'POLYGON'.
+        source_desc (str, optional): Note for the header of the file. None uses the name of the cube file.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if the shape is not known, a polygon has no vertices, or the cube has no celestial WCS
+    """
+    _save_region_file(path, shape, coords, cube_data, verts=verts, source_desc=source_desc)
+
+
+def load_region(path, cube_data):
+    """Read a region file and turn it into a boolean mask on the pixel grid of a cube. This is Import Region
+    in the GUI. The file can come from another image of the same field, because it holds sky coordinates.
+
+    Args:
+        path (str): Path of a region file that Save Region wrote
+        cube_data (CubeData): Loaded cube that the mask is for
+
+    Returns:
+        numpy.ndarray: 2D boolean array, shape (ny, nx) of the cube. Use it as mask in
+        extract_region_spectrum or fit_region, or in region_masks.
+
+    Raises:
+        ValueError: if the file is not a region file, the cube has no celestial WCS, or the region
+            is outside the cube
+
+    Example:
+        >>> mask = load_region("my_region.txt", cube)
+        >>> spectrum = extract_region_spectrum(cube, mask)
+    """
+    return _load_region_file(path, cube_data)
+
+
+def save_line_fluxes(path, lines):
+    """Save the line fluxes to a CSV file with the columns species, wavelength, flux, flux_error and
+    upper_limit. This is Save Fluxes in the rotational-diagram window. Read it with load_line_fluxes.
+    A line with no flux is not written.
+
+    Args:
+        path (str): Path of the CSV file to write
+        lines (list): One dict for each line, with 'species', 'wavelength' (um), 'flux' and 'flux_error'
+            (erg/s/cm2). A line with 'upper_limit' True is written as an upper limit.
+
+    Returns:
+        int: Number of lines written
+
+    Raises:
+        ValueError: if no line has a flux
+    """
+    return _save_line_fluxes_csv(path, lines)
+
+
+def load_line_fluxes(path):
+    """Read a CSV file of lines and add the HITRAN constants that the rotational diagram needs. This is
+    Import from CSV in the rotational-diagram window. The file needs the columns species and wavelength
+    (um). The columns flux, an error column and upper_limit are optional. Each line is matched to the
+    nearest HITRAN line. A line with no match is flagged ('hitran_matched' False) and has no A, E_u and g_u.
+
+    Args:
+        path (str): Path of the CSV file
+
+    Returns:
+        list: One dict for each valid row. It is the line_table of fit_region and
+        create_rotational_diagram_map. A row with flux and flux_error also gives the fluxes for
+        rotational_diagram.
+
+    Raises:
+        ValueError: if the file is empty, has no species or wavelength column, or has no valid row
+
+    Example:
+        >>> lines = load_line_fluxes("H2_lines.csv")
+        >>> result = fit_region(cube, lines)
+    """
+    return _load_line_fluxes_csv(path)
+
+
+def save_rotational_fit(path, results, header_text=None):
+    """Save a rotational-diagram fit to a CSV file: one row for each point of the diagram, then the fit
+    line. This is Save Fit in the rotational-diagram window. The lines that start with "#" at the top
+    hold the results.
+
+    Args:
+        path (str): Path of the CSV file to write
+        results (dict): The 'results' of fit_region or fit_pixel, or the result of rotational_diagram.
+            It must have '_plot_data'.
+        header_text (str, optional): Text for the "#" lines at the top. None writes the single numbers
+            of the '1T' and '2T' entries.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if results has no '_plot_data'
+
+    Example:
+        >>> fit = fit_region(cube, lines)
+        >>> save_rotational_fit("fit.csv", fit['results'])
+    """
+    _save_rotational_fit_csv(path, results, header_text=header_text)
+
+
+def doppler_shift_factor(velocity):
+    """Give the number that moves observed wavelengths to rest wavelengths for a systemic velocity.
+    This is the multiplicative Doppler shift of the GUI: rest = observed / (1 + v/c).
+
+    Args:
+        velocity (float): Systemic velocity in km/s. Positive means moving away (redshift).
+
+    Returns:
+        float: The factor. Multiply the wavelengths by it.
+
+    Example:
+        >>> rest_wavelength = cube.wavelength * doppler_shift_factor(17.5)
+    """
+    return _doppler_factor(velocity)
+
+
+def fetch_hitran_lines(lam_min, lam_max, molecule, isotopologue=1, refresh_cache=False, v_upper=None,
+                       v_lower=None):
+    """Get the lines of one molecule from HITRAN, or from the local copy when there is one. This is
+    Fetch HITRAN in the GUI. Each line is a dict with 'wavelength' (um, vacuum), 'a_coeff', 'e_upper',
+    'Gp', 'transition' and more.
+
+    Args:
+        lam_min (float): Start of the wavelength range in um
+        lam_max (float): End of the wavelength range in um
+        molecule (str): Molecule name, for example 'H2' or 'CO'
+        isotopologue (int): HITRAN isotopologue number (default 1). None gives all of them.
+        refresh_cache (bool): True fetches the lines again, even if a copy is stored
+        v_upper (int, optional): Keep only lines with this upper vibrational level
+        v_lower (int, optional): Keep only lines with this lower vibrational level
+
+    Returns:
+        list: The line dicts, sorted by wavelength. Empty if HITRAN has no line in the range.
+
+    Raises:
+        RuntimeError: if the lines could not be fetched (for example, no network and no local copy)
+
+    Example:
+        >>> lines = fetch_hitran_lines(4.6, 5.3, 'CO', v_upper=1, v_lower=0)
+    """
+    rows, meta = fetch_hitran_data(lam_min, lam_max, molecule, isotopologue=isotopologue,
+                                   refresh_cache=refresh_cache, v_upper=v_upper, v_lower=v_lower)
+    if meta.get('error'):
+        raise RuntimeError(f"Could not get {molecule} lines from HITRAN: {meta.get('message', 'unknown error')}")
+    return rows
+
+
 # --- Unit Conversion API: no wrapper functions here, use astropy.units
 # directly, e.g. (2.293*u.um).to(u.Hz, equivalencies=u.brightness_temperature(...)). ---
 __all__ = [
@@ -1461,6 +2109,8 @@ __all__ = [
     'extract_region_spectrum',
     # Continuum
     'fit_continuum',
+    'save_continuum_masks',
+    'load_continuum_masks',
     'save_continuum_cubes',
     # Gaussian Fitting
     'fit_line',
@@ -1483,6 +2133,29 @@ __all__ = [
     'create_rotational_diagram_map_multi',
     'fit_pixel_multi',
     'save_rotational_diagram_map_fits',
+    # Rotational Diagram Map, one step at a time
+    'compute_native_line_maps',
+    'convolution_plan',
+    'convolve_line_maps',
+    'combine_line_maps',
+    'import_line_map',
+    'fit_region_mixed',
+    'create_rotational_diagram_map_mixed',
+    # Map Saving
+    'save_gaussian_map',
+    'save_gaussian_maps',
+    'save_flux_map',
+    'save_line_maps',
+    # Regions and Tables
+    'make_region_mask',
+    'save_region',
+    'load_region',
+    'save_line_fluxes',
+    'load_line_fluxes',
+    'save_rotational_fit',
+    # Helpers
+    'doppler_shift_factor',
+    'fetch_hitran_lines',
     'STATUS_OK',
     'STATUS_NO_DATA',
     'STATUS_TOO_FEW_LINES',
