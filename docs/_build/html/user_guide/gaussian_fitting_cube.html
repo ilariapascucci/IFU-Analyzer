@@ -348,8 +348,7 @@ window, <code class="docutils literal notranslate"><span class="pre">NSUCC</span
 <p><strong>Residuals export as a 3D cube, not a 2D map.</strong> Selecting <strong>Residuals</strong> and clicking
 <strong>Save as FITS File</strong> writes the full normalized residual cube (shape
 <code class="docutils literal notranslate"><span class="pre">(n_wave,</span> <span class="pre">n_y,</span> <span class="pre">n_x)</span></code> over the fit window, with <code class="docutils literal notranslate"><span class="pre">BUNIT</span> <span class="pre">=</span> <span class="pre">'Normalized</span> <span class="pre">residuals'</span></code>),
-even though the dialog only ever displays the middle wavelength slice. The API
-equivalent is <code class="docutils literal notranslate"><span class="pre">export_residual_cube</span></code> (below).</p>
+even though the dialog only ever displays the middle wavelength slice.</p>
 </div>
 </section>
 <section id="using-the-api">
@@ -402,27 +401,6 @@ equivalent is <code class="docutils literal notranslate"><span class="pre">expor
 <p><code class="docutils literal notranslate"><span class="pre">amplitude</span></code> and <code class="docutils literal notranslate"><span class="pre">area</span></code> are <strong>not</strong> converted the same way. <code class="docutils literal notranslate"><span class="pre">amplitude</span></code> stays in
 the cube’s native flux unit; only <code class="docutils literal notranslate"><span class="pre">area</span></code> is CGS-converted (to erg/s/cm², when the
 header has the pixel scale needed for the conversion).</p>
-</div>
-<p><strong>Exporting a residual cube</strong></p>
-<p>Fits and subtracts a Gaussian at every pixel, writing the normalized residuals to a 3D FITS
-file:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">export_residual_cube</span>
-
-<span class="n">cube</span> <span class="o">=</span> <span class="n">load_cube</span><span class="p">(</span><span class="s2">&quot;data.fits&quot;</span><span class="p">)</span>
-
-<span class="n">export_residual_cube</span><span class="p">(</span>
-    <span class="n">cube</span><span class="p">,</span>
-    <span class="n">out_path</span><span class="o">=</span><span class="s2">&quot;residual.fits&quot;</span><span class="p">,</span>
-    <span class="n">lam_min</span><span class="o">=</span><span class="mf">7.492291</span><span class="p">,</span>
-    <span class="n">lam_max</span><span class="o">=</span><span class="mf">7.517421</span><span class="p">,</span>
-<span class="p">)</span>
-
-<span class="c1"># return_cube=True returns the array INSTEAD of writing a file --</span>
-<span class="c1"># out_path is ignored in this mode, it&#39;s not written in addition</span>
-<span class="n">residuals</span> <span class="o">=</span> <span class="n">export_residual_cube</span><span class="p">(</span>
-    <span class="n">cube</span><span class="p">,</span> <span class="n">lam_min</span><span class="o">=</span><span class="mf">7.492291</span><span class="p">,</span> <span class="n">lam_max</span><span class="o">=</span><span class="mf">7.517421</span><span class="p">,</span> <span class="n">return_cube</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span>
-</pre></div>
 </div>
 </section>
 <section id="constraints-and-tips">

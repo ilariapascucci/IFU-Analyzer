@@ -47,6 +47,33 @@ class CancellableWorker(ProgressWorker):
         self.cancelled = True
 
 
+def make_panel_button(icon, tooltip, callback, checkable=False, styled=True):
+    """Build one square icon button of a panel sidebar.
+
+    Args:
+        icon (str): Name of the icon file, without the extension.
+        tooltip (str): Tooltip text.
+        callback (callable): Click handler, or None for a button that does nothing. A handler that
+            takes an argument gets the checked state of the click.
+        checkable (bool): True if the button stays pressed when clicked.
+        styled (bool): True to give the button the large-font style that the other square buttons have.
+
+    Returns:
+        btn (QPushButton): The configured button.
+    """
+    btn = QPushButton()
+    set_button_icon(btn, icon)
+    if checkable:
+        btn.setCheckable(True)
+    btn.setFixedSize(35, 35)
+    if styled:
+        btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+    btn.setToolTip(tooltip)
+    if callback is not None:
+        btn.clicked.connect(callback)
+    return btn
+
+
 def make_vertical_separator():
     """Make a thin vertical line that splits the button groups of a top bar.
 
@@ -117,30 +144,6 @@ class DualPanelViewMixin:
     # texts "colormap", "clear" and "save". Each text has {side} for 'left' or 'right'.
     _panel_words = None
 
-    def _make_panel_button(self, icon, tooltip, callback, checkable=False, styled=True):
-        """Build one square icon button of a panel sidebar.
-
-        Args:
-            icon (str): Name of the icon file, without the extension.
-            tooltip (str): Tooltip text.
-            callback (callable): Click handler. It gets the checked state of the click as its first argument.
-            checkable (bool): True if the button stays pressed when clicked.
-            styled (bool): True to give the button the large-font style that the other square buttons have.
-
-        Returns:
-            btn (QPushButton): The configured button.
-        """
-        btn = QPushButton()
-        set_button_icon(btn, icon)
-        if checkable:
-            btn.setCheckable(True)
-        btn.setFixedSize(35, 35)
-        if styled:
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-        btn.setToolTip(tooltip)
-        btn.clicked.connect(callback)
-        return btn
-
     def _init_panel_buttons(self):
         """Build the sidebar buttons that both dual-panel windows have: the four shape buttons, colormap,
         scale, copy, edit shape, clear, save, region and grid, for the left and the right panel.
@@ -155,17 +158,17 @@ class DualPanelViewMixin:
         words = self._panel_words
         shapes = ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]
         self.shape_buttons = {
-            side: {shape: self._make_panel_button(
+            side: {shape: make_panel_button(
                        shape.lower(), words["shapes"][shape],
                        lambda _checked=False, s=shape, t=side: self._set_shape(s, target=t), checkable=True)
                    for shape in shapes}
             for side in ("left", "right")
         }
 
-        self.color_btn_left = self._make_panel_button(
+        self.color_btn_left = make_panel_button(
             "colormap", words["colormap"].format(side="left"),
             lambda _checked=False: self._open_colormap_dialog('left'), styled=False)
-        self.color_btn_right = self._make_panel_button(
+        self.color_btn_right = make_panel_button(
             "colormap", words["colormap"].format(side="right"),
             lambda _checked=False: self._open_colormap_dialog('right'), styled=False)
 
@@ -176,24 +179,24 @@ class DualPanelViewMixin:
         self.copy_menu_btn_r = self._make_copy_button('right')
 
         # Edit Shape turns on drag and resize handles. It works only on a placed shape.
-        self.edit_shape_btn_l = self._make_panel_button(
+        self.edit_shape_btn_l = make_panel_button(
             "edit_shape", "Toggle Edit Shape (drag/resize)",
             lambda _checked=False: self._toggle_edit_shape("left"), checkable=True)
-        self.edit_shape_btn_r = self._make_panel_button(
+        self.edit_shape_btn_r = make_panel_button(
             "edit_shape", "Toggle Edit Shape (drag/resize)",
             lambda _checked=False: self._toggle_edit_shape("right"), checkable=True)
         self.edit_shape_btn_l.setEnabled(False)
         self.edit_shape_btn_r.setEnabled(False)
 
-        self.erase_btn_l = self._make_panel_button(
+        self.erase_btn_l = make_panel_button(
             "clear", words["clear"].format(side="left"), lambda _checked=False: self.clear_region("left"))
-        self.erase_btn_r = self._make_panel_button(
+        self.erase_btn_r = make_panel_button(
             "clear", words["clear"].format(side="right"), lambda _checked=False: self.clear_region("right"))
 
         # Save writes the region only if one is drawn, else the whole image.
-        self.save_slice_btn_l = self._make_panel_button(
+        self.save_slice_btn_l = make_panel_button(
             "save", words["save"].format(side="left"), lambda _checked=False: self._region_save_slice("left"))
-        self.save_slice_btn_r = self._make_panel_button(
+        self.save_slice_btn_r = make_panel_button(
             "save", words["save"].format(side="right"), lambda _checked=False: self._region_save_slice("right"))
 
         self.region_menu_btn_l = self._make_region_button("left")
@@ -417,11 +420,22 @@ class DualPanelViewMixin:
 class MapResultsDialogMixin:
     """Pixel-select toggle, scale dialog and scale reset shared by the map results dialogs.
 
-    The host class must define pixel_select_btn, pixel_selection_enabled,
-    scale_settings, _update_plot and the hook _scale_dialog_inputs.
+    The host class must define scale_settings and _update_plot, plus the hook _scale_dialog_inputs
+    for the scale dialog, and pixel_select_btn and pixel_selection_enabled for the pixel-select toggle.
     """
 
     _no_scale_data_message = ("No Data", "This parameter has no map to scale.")
+
+    def _scale_settings_changed(self):
+        """Run after the user chose new scale settings and before the map is drawn again.
+        A host that keeps the settings somewhere else overrides this. It does nothing by default.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
 
     def _scale_dialog_inputs(self):
         """Give the data and the percentile mask for the scale dialog, for the map on screen.
@@ -456,6 +470,7 @@ class MapResultsDialogMixin:
         if dialog.exec_() != QDialog.Accepted:
             return
         self.scale_settings = dialog.result_settings
+        self._scale_settings_changed()
         self._update_plot()
 
     def _toggle_pixel_selection(self):

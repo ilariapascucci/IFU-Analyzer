@@ -1504,6 +1504,8 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
         "native_shapes": convolved_result["native_shapes"],
         "native_pix_arcsec": convolved_result["native_pix_arcsec"],
         "cube_filenames": convolved_result["cube_filenames"],
+        "native_headers": convolved_result.get("native_headers"),
+        "native_instrument": convolved_result.get("native_instrument"),
     }
 
 

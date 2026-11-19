@@ -8,6 +8,33 @@ from matplotlib.path import Path
 from matplotlib.patches import Rectangle, PathPatch
 
 
+def mask_from_saved_region(saved, wcs2d, target_shape):
+    """
+    Place a region that was saved as sky coordinates on the pixel grid of an image, as a boolean mask.
+    The sky conversion returns coordinates like 9.99996 for pixel 10, so the numbers are rounded first.
+    This is the rounding that Import Region uses, so every window places a saved region on the same pixels.
+
+    Args:
+        saved (dict): Result of region_io.read_region_wcs_txt
+        wcs2d (astropy.wcs.WCS): 2D celestial WCS of the image
+        target_shape (tuple): (height, width) of the image
+
+    Returns:
+        mask (numpy.ndarray): Boolean mask, shape == target_shape
+
+    Raises:
+        ValueError: for the errors of region_io.sky_to_region_shape, for example a region outside the image
+    """
+    from . import region_io
+    placed = region_io.sky_to_region_shape(
+        saved["shape"], saved["sky_points"], saved["sky_center"], saved["sky_axis_x"], saved["sky_axis_y"],
+        wcs2d, target_shape=tuple(target_shape))
+    coords = placed.get("coords")
+    if coords is not None and placed["shape"] != "POINT":
+        coords = tuple(int(round(c)) for c in coords)
+    return mask_from_shape_coords(placed["shape"], coords, placed.get("verts"), tuple(target_shape))
+
+
 def mask_from_shape_coords(shape, coords, verts, target_shape):
     """
     Build a full-image boolean mask from a shape name and its coords/verts,

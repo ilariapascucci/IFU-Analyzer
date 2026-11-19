@@ -97,53 +97,6 @@ tells you how many.
 
 **Using the Continuum API**
 
-Fit and subtract continuum programmatically:
-
-.. code-block:: python
-
-    from cube_explorer.api import load_cube, fit_continuum
-    
-    # Load data
-    cube = load_cube("data.fits")
-    spectrum = cube.spectrum
-    wavelength = cube.wavelength
-    
-    # Fit continuum using automatic peak detection
-    continuum = fit_continuum(
-        wavelength,
-        spectrum,
-        sigma_threshold=2.0,      # Peak detection sensitivity
-        peak_exclusion=3,         # Pixels to exclude near peaks
-        iterations=2              # Iterative refinement
-    )
-    
-    # Subtract to get line-only spectrum
-    line_spectrum = spectrum - continuum
-    
-    print(f"Original spectrum range: {spectrum.min():.3f} to {spectrum.max():.3f}")
-    print(f"Line-only spectrum range: {line_spectrum.min():.3f} to {line_spectrum.max():.3f}")
-
-**Continuum Parameters**
-
-You can fine-tune the continuum fitting with these parameters:
-
-.. code-block:: python
-
-    continuum = fit_continuum(
-        wavelength,
-        spectrum,
-        window_size=51,           # Window for median filter (must be odd)
-        sigma_threshold=2.0,      # Prominence threshold in sigma
-        peak_width=1,             # Minimum width of a peak, in pixels
-        peak_distance=3,          # Minimum pixels between peaks
-        peak_exclusion=3,         # Pixels excluded on each side of peak
-        iterations=2,             # Number of refinement iterations
-        smoothing_factor=5        # Spline smoothing parameter
-    )
-
-Higher ``sigma_threshold`` values are less aggressive (detect fewer lines).
-Lower ``sigma_threshold`` values are more aggressive (detect more lines).
-
 **Saving continuum cubes**
 
 ``save_continuum_cubes`` does the same as the **Save Continuum Cubes** button. It needs an

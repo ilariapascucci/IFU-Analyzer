@@ -12,7 +12,7 @@ import numpy as np
 
 from . import region_io
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
-from .region_selector import mask_from_shape_coords
+from .region_selector import mask_from_saved_region, mask_from_shape_coords
 from .rotational_diagram_h2_fitter import model_1T, model_2T
 from .utils import make_2d_wcs
 
@@ -115,14 +115,7 @@ def load_region_file(path, cube_data):
     """
     saved = region_io.read_region_wcs_txt(path)
     target_shape = (cube_data.cube.shape[1], cube_data.cube.shape[2])
-    placed = region_io.sky_to_region_shape(
-        saved["shape"], saved["sky_points"], saved["sky_center"], saved["sky_axis_x"], saved["sky_axis_y"],
-        _celestial_wcs(cube_data), target_shape=target_shape)
-    coords = placed.get("coords")
-    # The sky conversion gives 9.99996 for pixel 10, so the numbers are rounded, as Import Region rounds them.
-    if coords is not None and placed["shape"] != "POINT":
-        coords = tuple(int(round(c)) for c in coords)
-    return mask_from_shape_coords(placed["shape"], coords, placed.get("verts"), target_shape)
+    return mask_from_saved_region(saved, _celestial_wcs(cube_data), target_shape)
 
 
 _FLUX_COLUMNS = ["species", "wavelength", "flux", "flux_error", "upper_limit"]

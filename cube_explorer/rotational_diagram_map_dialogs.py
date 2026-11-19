@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure, SubplotParams
 
-from .gui_mixins import CancellableWorker, make_selectable, make_legend_checkbox
+from .gui_mixins import CancellableWorker, MapResultsDialogMixin, make_legend_checkbox, make_panel_button, make_selectable
 from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
 from .rotational_diagram_map import (
@@ -33,9 +33,8 @@ from .rotational_diagram_h2_fitter import model_1T, model_2T
 from .fits_export import build_line_map_header, write_fits_product
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
 from . import region_io
-from .region_selector import RegionSelector, mask_from_shape_coords
+from .region_selector import RegionSelector, mask_from_saved_region
 from .utils import make_2d_wcs
-from .icon_loader import set_button_icon
 from .gui_region_selection import RegionSelectionMixin
 from .visualization import SlicePlotter, draw_map
 from .colormap_dialog import ColorMapDialog
@@ -1189,60 +1188,32 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         """
         sidebar = QVBoxLayout()
 
-        self.color_btn_left = QPushButton()
-        set_button_icon(self.color_btn_left, "colormap")
-        self.color_btn_left.setFixedSize(35, 35)
-        self.color_btn_left.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.color_btn_left.setToolTip("Change color scale")
-        self.color_btn_left.clicked.connect(self._open_colormap_dialog)
+        self.color_btn_left = make_panel_button("colormap", "Change color scale", self._open_colormap_dialog)
         sidebar.addWidget(self.color_btn_left)
 
-        self.scale_btn_left = QPushButton()
-        set_button_icon(self.scale_btn_left, "scale")
-        self.scale_btn_left.setFixedSize(35, 35)
-        self.scale_btn_left.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.scale_btn_left.setToolTip("Intensity scaling (Linear, Auto range)")
-        self.scale_btn_left.clicked.connect(self._open_scale_dialog)
+        self.scale_btn_left = make_panel_button("scale", "Intensity scaling (Linear, Auto range)", self._open_scale_dialog)
         sidebar.addWidget(self.scale_btn_left)
 
         self.shape_buttons = {"left": {}, "right": {}}
         for shape in self._SHAPES:
-            btn = QPushButton()
-            set_button_icon(btn, shape.lower())
-            btn.setCheckable(True)
-            btn.setFixedSize(35, 35)
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            btn.setToolTip(self._SHAPE_TOOLTIPS[shape])
-            btn.clicked.connect(lambda _checked, s=shape: self._set_shape(s, "left"))
+            btn = make_panel_button(shape.lower(), self._SHAPE_TOOLTIPS[shape],
+                                    lambda _checked=False, s=shape: self._set_shape(s, "left"), checkable=True)
             self.shape_buttons["left"][shape] = btn
             sidebar.addWidget(btn)
             self.shape_buttons["right"][shape] = QPushButton()  # never shown
 
-        self.copy_menu_btn_l = QPushButton()
-        set_button_icon(self.copy_menu_btn_l, "copy")
-        self.copy_menu_btn_l.setFixedSize(35, 35)
-        self.copy_menu_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.copy_menu_btn_l.setToolTip("Copy -- not applicable with a single panel")
+        self.copy_menu_btn_l = make_panel_button("copy", "Copy -- not applicable with a single panel", None)
         self.copy_menu_btn_l.setEnabled(False)
         sidebar.addWidget(self.copy_menu_btn_l)
 
-        self.edit_shape_btn_l = QPushButton()
-        set_button_icon(self.edit_shape_btn_l, "edit_shape")
-        self.edit_shape_btn_l.setCheckable(True)
-        self.edit_shape_btn_l.setFixedSize(35, 35)
-        self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
+        self.edit_shape_btn_l = make_panel_button(
+            "edit_shape", "Toggle Edit Shape (drag/resize)",
+            lambda _checked=False: self._toggle_edit_shape("left"), checkable=True)
         self.edit_shape_btn_l.setEnabled(False)
-        self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
         sidebar.addWidget(self.edit_shape_btn_l)
         self.edit_shape_btn_r = QPushButton()  # never shown
 
-        self.erase_btn_l = QPushButton()
-        set_button_icon(self.erase_btn_l, "clear")
-        self.erase_btn_l.setFixedSize(35, 35)
-        self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.erase_btn_l.setToolTip("Clear selection")
-        self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
+        self.erase_btn_l = make_panel_button("clear", "Clear selection", lambda _checked=False: self.clear_region("left"))
         sidebar.addWidget(self.erase_btn_l)
 
         sidebar.addStretch()
@@ -1575,9 +1546,9 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
                 xmax, ymax = verts.max(axis=0)
                 patch_stub = SimpleNamespace(lasso_verts=verts)
             else:
-                xmin, xmax, ymin, ymax = placed["coords"]
+                xmin, xmax, ymin, ymax = (int(round(c)) for c in placed["coords"])
                 patch_stub = None
-            mask = mask_from_shape_coords(shape, placed.get("coords"), placed.get("verts"), (ny, nx))
+            mask = mask_from_saved_region(old_region_sky, wcs2d, (ny, nx))
             self.last_selection_left = {
                 "shape": shape, "coords": (xmin, xmax, ymin, ymax),
                 "mask": mask, "label": "Left Selection", "patch": patch_stub}
@@ -1601,7 +1572,7 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
         self.accept()
 
 
-class LineFluxMapDialog(QDialog):
+class LineFluxMapDialog(MapResultsDialogMixin, QDialog):
     """
     Single-line flux (AUC) map viewer: one image plus a colormap/scale
     control and FITS export. The Run Map analogue of Run Fit's per-line
@@ -1727,10 +1698,19 @@ class LineFluxMapDialog(QDialog):
         self.fig.tight_layout()
         self.canvas.draw()
 
-    def _open_scale_dialog(self):
+    def _scale_dialog_inputs(self):
+        """Give the flux map to the scale dialog.
+
+        Args:
+            None
+
+        Returns:
+            inputs (tuple): (data, None) for the map on screen.
         """
-        Open the shared scale/range picker, save the choice on the line's
-        entry for the PNG export, and redraw.
+        return np.asarray(self.flux_map, dtype=float), None
+
+    def _scale_settings_changed(self):
+        """Keep the new scale settings in the plot-data entry of the line, for the PNG export.
 
         Args:
             None
@@ -1738,12 +1718,7 @@ class LineFluxMapDialog(QDialog):
         Returns:
             None
         """
-        dialog = ScaleDialog(self.scale_settings, np.asarray(self.flux_map, dtype=float), parent=self)
-        if dialog.exec_() != QDialog.Accepted:
-            return
-        self.scale_settings = dialog.result_settings
         self.scale_store["scale_settings"] = self.scale_settings
-        self._update_plot()
 
     def _show_statistics(self):
         """

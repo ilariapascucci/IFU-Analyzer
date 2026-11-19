@@ -334,4 +334,7 @@ def convolve_reproject_maps(native_result):
         "native_wcs": native_result["native_wcs"], "native_shapes": native_result["native_shapes"],
         "native_pix_arcsec": native_result["native_pix_arcsec"],
         "cube_filenames": native_result["cube_filenames"],
+        # The real header of each cube, so that a saved map keeps INSTRUME, TARGNAME and the file name.
+        "native_headers": native_result.get("native_headers"),
+        "native_instrument": native_result.get("native_instrument"),
     }

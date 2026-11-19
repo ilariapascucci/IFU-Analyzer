@@ -490,7 +490,7 @@ def many_gaussians_list(xl, a, b, *params):
 
 # ================== Line Detection ==================
 
-def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate=False, snr_threshold=DEFAULT_DETECTION_SIGMA, noise_std=None):
+def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate=False, noise_std=None):
     """
     Identify which spectral lines are detected in a spectrum, and set a starting
     max_amplitude for each one. Finds peaks near each line and compares them to the
@@ -502,7 +502,6 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         lines_to_search (pd.DataFrame): Columns 'line_wave_um', 'species', others optional
         contaminating_lines (pd.DataFrame): Optional column 'line_wave_um' for lines to avoid
         remove_duplicate (bool): True to remove duplicate detections (keep the strongest per group)
-        snr_threshold (float): Signal-to-noise threshold for line detection, in units of sigma
         noise_std (float): Precomputed noise estimate. Pass this to avoid a repeat noise
             calculation for the same (xwave, yflux) pair, for example in
             extract_flux_from_spectrum's two calls. If None, this function computes it.
@@ -539,8 +538,8 @@ def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_d
         
         # Check if peak exists, is at right location, and is statistically significant
         if (cflux_max > cflux_min) and (cwave[cflux_idx_max] <= cline + xres) and (cwave[cflux_idx_max] >= cline - xres):
-            # Apply SNR threshold: peak must be significant above noise
-            if peak_amplitude > snr_threshold * noise_std:
+            # The peak must be at least DEFAULT_DETECTION_SIGMA times the noise
+            if peak_amplitude > DEFAULT_DETECTION_SIGMA * noise_std:
                 if isinstance(contaminating_lines, pd.DataFrame):
                     # Check if peak is away from contaminating lines
                     if all(np.abs(cwave[cflux_idx_max] - iline) > xres for iline in contaminating_lines['line_wave_um']):
@@ -1119,7 +1118,7 @@ def _line_sigma(wl, header, wave_unit=None):
 
 
 
-def _trough_is_elevated(center_a, center_b, xwave, y_corrected, noise_std, snr_threshold):
+def _trough_is_elevated(center_a, center_b, xwave, y_corrected, noise_std):
     """
     Check the real spectrum between two line centers for a genuine blend.
 
@@ -1129,7 +1128,6 @@ def _trough_is_elevated(center_a, center_b, xwave, y_corrected, noise_std, snr_t
         xwave (array): Real wavelength array
         y_corrected (array): Real continuum-subtracted flux array, same length as xwave
         noise_std (float): Real noise estimate, same units as y_corrected
-        snr_threshold (float): Trough must exceed this many noise_std to count as elevated
 
     Returns:
         elevated (bool): True if the two lines must be fit together (real flux stays above
@@ -1141,11 +1139,11 @@ def _trough_is_elevated(center_a, center_b, xwave, y_corrected, noise_std, snr_t
     local = y_corrected[nearest]
     if len(local) == 0 or not np.any(np.isfinite(local)):
         return True
-    return float(np.nanmin(local)) > snr_threshold * noise_std
+    return float(np.nanmin(local)) > DEFAULT_DETECTION_SIGMA * noise_std
 
 
 def _merged_wave_boundaries(centers, sigmas, xwave, y_corrected, noise_std,
-                             half_width_sigma=DEFAULT_SIGMA_MULTIPLIER, snr_threshold=DEFAULT_DETECTION_SIGMA):
+                             half_width_sigma=DEFAULT_SIGMA_MULTIPLIER):
     """
     Build fit_glines' list_wboundaries from each line's own instrumental width and
     the real spectrum, not a fixed grid or a size cap. Each line gets a
@@ -1158,8 +1156,6 @@ def _merged_wave_boundaries(centers, sigmas, xwave, y_corrected, noise_std,
         y_corrected (array): Real continuum-subtracted flux array, same length as xwave
         noise_std (float): Real noise estimate, same units as y_corrected
         half_width_sigma (float): Each line's window half-width, in multiples of its own sigma
-        snr_threshold (float): Trough significance bar for the blend check, in units of
-            noise_std. Matches find_lines' own default detection threshold.
 
     Returns:
         ownership_boundaries (array): Flat, sorted chunk boundaries. Each consecutive pair
@@ -1178,8 +1174,7 @@ def _merged_wave_boundaries(centers, sigmas, xwave, y_corrected, noise_std,
     prev_center = intervals[0][3]
     for lo, hi, s, c in intervals[1:]:
         windows_overlap = lo <= merged[-1][1]
-        blended = windows_overlap and _trough_is_elevated(
-            prev_center, c, xwave, y_corrected, noise_std, snr_threshold)
+        blended = windows_overlap and _trough_is_elevated(prev_center, c, xwave, y_corrected, noise_std)
         if blended:
             merged[-1][1] = max(merged[-1][1], hi)
         else:
@@ -1598,7 +1593,7 @@ def save_gaussian_parameters(path, entries, wave_unit=None, flux_unit=None, head
 def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
                                    excluded_wavelengths=None,
-                                   continuum_params=None, snr_threshold=DEFAULT_DETECTION_SIGMA, header=None, wave_unit=None,
+                                   continuum_params=None, header=None, wave_unit=None,
                                    issue_counts=None):
     """
     Extract total flux from a single spectrum by detecting and fitting all target lines.
@@ -1615,7 +1610,6 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         excluded_wavelengths (set or list): Wavelengths to exclude from flux calculation
         continuum_params (dict): Overrides for fit_auto_continuum()'s defaults, which work
             well for typical spectra
-        snr_threshold (float): Minimum signal-to-noise, in sigma, for a line to count as detected
         header (astropy.io.fits.Header): Required as soon as this function detects a line.
             Each line's fit width comes from the instrument's real spectral resolution
             (_line_sigma, MIRI/NIRSpec only). A missing header raises ValueError instead of
@@ -1715,7 +1709,6 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         spectrum_wave, spectrum_flux, target_catalog_for_fit,
         contaminating_lines=contam_catalog,
         remove_duplicate=do_duplicate_removal,
-        snr_threshold=snr_threshold,
         noise_std=shared_noise_std
     )
     
@@ -1758,7 +1751,6 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
         detected_contam_lines = find_lines(
             spectrum_wave, spectrum_flux, contam_catalog,
             remove_duplicate=do_duplicate_removal,
-            snr_threshold=snr_threshold,
             noise_std=shared_noise_std
         )
         detected_contam = detected_contam_lines[detected_contam_lines['disposition'] == 1].copy()

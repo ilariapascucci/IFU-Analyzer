@@ -398,11 +398,9 @@ click.</p>
 identical totals for the same spectrum. Both now fit lines simultaneously via the same
 function, so the real remaining difference isn’t the fitting method itself, it’s <em>which</em>
 lines get fit: <code class="docutils literal notranslate"><span class="pre">extract_flux</span></code>/<code class="docutils literal notranslate"><span class="pre">create_flux_map</span></code> auto-detect lines per pixel and
-only count one that clears a signal-to-noise threshold first (<code class="docutils literal notranslate"><span class="pre">snr_threshold</span></code>, default
-3σ). <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines</span></code> has no SNR gate at all: it fits whatever you selected, weak
-lines included. Summed over many pixels this adds up to Flux Map running
-systematically lower. Lowering <code class="docutils literal notranslate"><span class="pre">snr_threshold</span></code> would let more noise into the flux
-instead (a trade-off, not a fix).</p>
+only count one that clears the 3σ detection threshold first. <code class="docutils literal notranslate"><span class="pre">fit_hitran_lines</span></code> has no
+SNR gate at all: it fits whatever you selected, weak lines included. Summed over many
+pixels this adds up to Flux Map running systematically lower.</p>
 </div>
 <p><strong>Extract Flux from a Single Spectrum</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">cube_explorer.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_cube</span><span class="p">,</span> <span class="n">extract_flux</span>

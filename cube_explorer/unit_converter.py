@@ -414,9 +414,9 @@ _PIXEL_AREA_KEYS = ('PIXAR_SR', 'CDELT1', 'CDELT2', 'CD1_1', 'CD1_2', 'CD2_1', '
 def _pixel_area_sr(values):
     """
     Work out the solid angle of one pixel from the header keywords that give it.
-    The WCS gives the area from the pixel scale, the rotation and any CD matrix. The
-    pipeline value PIXAR_SR is more exact, so it wins unless it disagrees with the WCS by more
-    than 1%. A header that was changed to another grid can keep an old PIXAR_SR.
+    The WCS gives the area from the pixel scale, the rotation and any CD matrix. The WCS always
+    wins, because a header that was changed to another grid can keep an old PIXAR_SR.
+    PIXAR_SR is used only if the header has no WCS pixel scale.
 
     Args:
         values (tuple): Header values in the order of _PIXEL_AREA_KEYS. None for a missing key.
@@ -447,9 +447,7 @@ def _pixel_area_sr(values):
         except Exception:
             wcs_area = None
 
-    if pixar is not None and (wcs_area is None or abs(pixar - wcs_area) <= 0.01 * wcs_area):
-        return pixar
-    return wcs_area
+    return wcs_area if wcs_area is not None else pixar
 
 
 def pixel_solid_angle(header):
@@ -457,8 +455,8 @@ def pixel_solid_angle(header):
     Solid angle subtended by one spatial pixel, in steradians.
 
     Args:
-        header (astropy.io.fits.Header): FITS header with the pixel scale: PIXAR_SR, or
-            CDELT1 and CDELT2 in degrees, or a CD matrix in degrees
+        header (astropy.io.fits.Header): FITS header with the pixel scale: CDELT1 and CDELT2 in
+            degrees, or a CD matrix in degrees. PIXAR_SR is used only if neither is present.
 
     Returns:
         area (Quantity): Area of one pixel in steradians, or None if the header lacks the pixel scales

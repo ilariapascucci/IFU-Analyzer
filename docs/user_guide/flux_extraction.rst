@@ -312,11 +312,9 @@ Extract fluxes programmatically for single spectra or full data cubes, using
    identical totals for the same spectrum. Both now fit lines simultaneously via the same
    function, so the real remaining difference isn't the fitting method itself, it's *which*
    lines get fit: ``extract_flux``/``create_flux_map`` auto-detect lines per pixel and
-   only count one that clears a signal-to-noise threshold first (``snr_threshold``, default
-   3σ). ``fit_hitran_lines`` has no SNR gate at all: it fits whatever you selected, weak
-   lines included. Summed over many pixels this adds up to Flux Map running
-   systematically lower. Lowering ``snr_threshold`` would let more noise into the flux
-   instead (a trade-off, not a fix).
+   only count one that clears the 3σ detection threshold first. ``fit_hitran_lines`` has no
+   SNR gate at all: it fits whatever you selected, weak lines included. Summed over many
+   pixels this adds up to Flux Map running systematically lower.
 
 **Extract Flux from a Single Spectrum**
 

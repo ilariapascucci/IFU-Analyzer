@@ -32,7 +32,7 @@ from .data_loader import CubeData
 from .line_catalog import fetch_hitran_data, load_contaminating_lines_catalog, match_nearest_hitran_line
 from .table_drag_select import SortableCheckboxTableMixin
 from . import region_io
-from .region_selector import mask_from_shape_coords
+from .region_selector import mask_from_saved_region
 from .rotational_diagram_h2_fitter import (
     rotational_diagram as rotational_diagram_h2,
     get_gu, compute_line_fluxes_collective, model_1T, model_2T,
@@ -4507,10 +4507,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 f"{getattr(cube, 'filename', 'This cube')} has no usable celestial WCS, "
                 "so the imported region can't be placed on it.")
         ny, nx = cube.cube.shape[1], cube.cube.shape[2]
-        placed = region_io.sky_to_region_shape(
-            saved["shape"], saved["sky_points"], saved["sky_center"],
-            saved["sky_axis_x"], saved["sky_axis_y"], wcs2d, target_shape=(ny, nx))
-        return mask_from_shape_coords(placed["shape"], placed.get("coords"), placed.get("verts"), (ny, nx))
+        return mask_from_saved_region(saved, wcs2d, (ny, nx))
 
     def calculate_rotational_maps(self):
         """Compute each checked line's own flux map at native resolution

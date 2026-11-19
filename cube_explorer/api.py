@@ -369,23 +369,26 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
         wavelength (array-like): Wavelength/frequency values
         flux (array-like): Flux values
         method (str): Fitting method - currently only 'auto' is supported
-        **kwargs: Additional arguments for fine-tuning:
-            window_size (int): Size of median filter window (default 51, must be odd)
-            sigma_threshold (float): Prominence threshold in sigma (default 2.0)
-            peak_width (int): Minimum width of peaks in pixels (default 1)
-            peak_distance (int): Minimum distance between peaks (default 3)
-            peak_exclusion (int): Pixels to exclude on each side of peak (default 3)
-            iterations (int): Iterative clipping iterations (default 2)
-            smoothing_factor (float): Spline smoothing divisor (default 5). A higher value follows the
-                data more closely. The smoothing follows the noise of the spectrum, so it does not
-                depend on the flux unit.
-            mask_ranges (list): (low, high) wavelength pairs, in the unit of wavelength (default None).
-                The points in these ranges are not used to fit the continuum. The continuum crosses
-                a masked range as a smooth curve between its two sides. The same key works in the
-                continuum_params of save_continuum_cubes, extract_flux and create_flux_map.
+
+    Keyword Args:
+        window_size (int): Size of median filter window (default 51, must be odd)
+        sigma_threshold (float): Prominence threshold in sigma (default 2.0)
+        peak_width (int): Minimum width of peaks in pixels (default 1)
+        peak_distance (int): Minimum distance between peaks (default 3)
+        peak_exclusion (int): Pixels to exclude on each side of peak (default 3)
+        iterations (int): Iterative clipping iterations (default 2)
+        smoothing_factor (float): Spline smoothing divisor (default 5). A higher value follows the
+            data more closely. The smoothing follows the noise of the spectrum, so it does not
+            depend on the flux unit.
+        mask_ranges (list): (low, high) wavelength pairs, in the unit of wavelength (default None).
+            The points in these ranges are not used to fit the continuum. The continuum crosses
+            a masked range as a smooth curve between its two sides. The same key works in the
+            continuum_params of save_continuum_cubes, extract_flux and create_flux_map.
 
     Returns:
-        array: Fitted continuum values matching input wavelength array
+        array or Quantity: Fitted continuum values matching input wavelength array. If flux is an
+        astropy Quantity (like cube.spectrum, which is in Jy), the continuum has the same unit, so
+        spectrum - continuum works. A plain array in gives a plain array out.
 
     Raises:
         ValueError: if a masked range is not valid, or if fewer than 10 points are outside the masked ranges
@@ -398,9 +401,13 @@ def fit_continuum(wavelength, flux, method='auto', **kwargs):
     """
     if method != 'auto':
         raise ValueError(f"Unknown continuum fitting method: {method}. Use 'auto'.")
-    return fit_auto_continuum(
+    continuum = fit_auto_continuum(
         _as_float_array(wavelength), _as_float_array(flux), **kwargs
     )
+    unit = getattr(flux, "unit", None)
+    if unit is None or unit == u.dimensionless_unscaled:
+        return continuum
+    return continuum * unit
 
 
 from .flux_map_extractor import (
@@ -1022,7 +1029,7 @@ from .flux_map_extractor import (
 from .line_catalog import load_CO_line_catalog, load_contaminating_lines_catalog
 
 def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalog_path=None,
-                     snr_threshold=DEFAULT_DETECTION_SIGMA, continuum_params=None,
+                     continuum_params=None,
                      header=None, wave_unit=None):
     """Extract total flux by fitting all target lines in a spectrum
     simultaneously with contaminating lines and continuum; the same
@@ -1033,7 +1040,6 @@ def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalo
         spectrum (array-like): Flux values
         target_catalog_path (str): Path to target line catalog (ECSV format)
         contamination_catalog_path (str, optional): Path to contaminant lines catalog
-        snr_threshold (float): Minimum signal-to-noise for line detection (default 3.0)
         continuum_params (dict, optional): Override the default continuum-fitting
             parameters (window_size, sigma_threshold, peak_width, peak_distance,
             peak_exclusion, iterations, smoothing_factor). If None, uses the defaults,
@@ -1083,7 +1089,6 @@ def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalo
         wavelength, spectrum,
         target_catalog, contam_catalog,
         do_duplicate_removal=True,
-        snr_threshold=snr_threshold,
         continuum_params=continuum_params,
         header=header, wave_unit=wave_unit,
     )
@@ -1306,8 +1311,7 @@ def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=No
         x (int): Spatial x pixel index
         y (int): Spatial y pixel index
         line_table (list): Line dicts, see fit_region
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
         n_sigma (float): Detection threshold in noise sigmas. A line below it
             is an upper limit and is left out of the fit. 3.0 by default
 
@@ -1336,8 +1340,7 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
     Args:
         cube_data (CubeData): Loaded cube from load_cube()
         line_table (list): Line dicts, see fit_region
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, dedup_tol_um,
-            contam_lines: Same meaning as in fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, dedup_tol_um, contam_lines: Same meaning as in fit_region
         min_lines (int): Fewest lines a pixel needs, checked separately at each
             pixel -- one pixel can use different lines than its neighbor. Raise
             this for fit2t (a 2T fit has 4 free parameters, not 2)
@@ -1385,8 +1388,7 @@ def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
 
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
 
     Returns:
         dict: 'status' (int, one of STATUS_OK/STATUS_TOO_FEW_LINES/STATUS_FIT_FAILED),
@@ -1418,8 +1420,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs, one per input cube,
             at least 2
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um, contam_lines, fit2t: Same meaning as in fit_region
         n_jobs (int): Worker threads for each cube's native-grid extraction
         progress_callback (callable, optional): progress_callback(done_units, total_units),
             spanning every native-grid extraction plus the final per-pixel fit
@@ -1466,8 +1467,7 @@ def fit_pixel_multi(result, x, y, molecule='H2', isotopologue=1, opr=None, fit_o
         result (dict): Output of create_rotational_diagram_map_multi
         x (int): Spatial x index on the result's common grid
         y (int): Spatial y index on the result's common grid
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines,
-            fit2t: Same meaning as in fit_region
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, fit2t: Same meaning as in fit_region
 
     Returns:
         dict: Same shape as fit_pixel's return, for this pixel of the common grid
@@ -1722,8 +1722,7 @@ def fit_region_mixed(cubes_and_lines, imported_lines, molecule='H2', isotopologu
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs for the lines that come from cubes. Can be empty.
         imported_lines (list): Line dicts from import_line_map
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um,
-            contam_lines, fit2t: The same as in fit_region_multi
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um, contam_lines, fit2t: The same as in fit_region_multi
         region_masks (dict, optional): {CubeData: 2D boolean mask}. Only these pixels are summed for that cube.
         imported_region_masks (dict, optional): {id(line): 2D boolean mask} for an imported line. A line
             that is not in the dict sums its whole map.
@@ -1751,9 +1750,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
     Args:
         cubes_and_lines (list): (CubeData, line_dict) pairs for the lines that come from cubes. Can be empty.
         imported_lines (list): Line dicts from import_line_map
-        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um, n_jobs,
-            contam_lines, progress_callback, cancel_flag, n_sigma, fit2t: The same as in
-            create_rotational_diagram_map_multi
+        molecule, isotopologue, opr, fit_opr, opr_grid, dist_pc, r_au, min_lines, dedup_tol_um, n_jobs, contam_lines, progress_callback, cancel_flag, n_sigma, fit2t: The same as in create_rotational_diagram_map_multi
         region_fit (dict, optional): Result of fit_region_mixed, to add the fit of the summed region
         region_masks (dict, optional): {CubeData: 2D boolean mask}. Only these pixels are fitted for that cube.
         imported_region_masks (dict, optional): {id(line): 2D boolean mask} for an imported line

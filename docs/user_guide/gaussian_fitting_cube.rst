@@ -217,8 +217,7 @@ window, ``NSUCC``/``NTOTAL`` for the number of successful fits and the number of
    **Residuals export as a 3D cube, not a 2D map.** Selecting **Residuals** and clicking
    **Save as FITS File** writes the full normalized residual cube (shape
    ``(n_wave, n_y, n_x)`` over the fit window, with ``BUNIT = 'Normalized residuals'``),
-   even though the dialog only ever displays the middle wavelength slice. The API
-   equivalent is ``export_residual_cube`` (below).
+   even though the dialog only ever displays the middle wavelength slice.
 
 Using the API
 =============
@@ -275,30 +274,6 @@ Using the API
    ``amplitude`` and ``area`` are **not** converted the same way. ``amplitude`` stays in
    the cube's native flux unit; only ``area`` is CGS-converted (to erg/s/cm², when the
    header has the pixel scale needed for the conversion).
-
-**Exporting a residual cube**
-
-Fits and subtracts a Gaussian at every pixel, writing the normalized residuals to a 3D FITS
-file:
-
-.. code-block:: python
-
-    from cube_explorer.api import load_cube, export_residual_cube
-
-    cube = load_cube("data.fits")
-
-    export_residual_cube(
-        cube,
-        out_path="residual.fits",
-        lam_min=7.492291,
-        lam_max=7.517421,
-    )
-
-    # return_cube=True returns the array INSTEAD of writing a file --
-    # out_path is ignored in this mode, it's not written in addition
-    residuals = export_residual_cube(
-        cube, lam_min=7.492291, lam_max=7.517421, return_cube=True,
-    )
 
 Constraints and Tips
 ====================
