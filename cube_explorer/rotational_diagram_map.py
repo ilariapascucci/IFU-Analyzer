@@ -20,6 +20,7 @@ from astropy.io import fits
 from .unit_converter import extract_units, pixel_solid_angle
 from .utils import safe_worker_count, detect_instrument, get_pixel_size_arcsec, make_2d_wcs, wcs_footprints_overlap
 from .line_catalog import dedupe_colocated_lines as _dedupe_colocated
+from .gaussian_fitter import DEFAULT_DETECTION_SIGMA
 from .convolve_reproject import convolve_reproject_maps
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
@@ -232,7 +233,7 @@ def _prepare_lines(line_table, molecule, dedup_tol_um):
 
 def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                   contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                  dist_pc, r_au, min_lines, n_sigma=3.0, fit2t=False):
+                  dist_pc, r_au, min_lines, n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
     """
     Fit one spectrum's rotational diagram (detections only). Shared by
     _fit_one_pixel (the bulk loop, flat-tuple return) and fit_pixel (one
@@ -293,7 +294,7 @@ def _fit_spectrum(spectrum, wavelength, line_wavelengths, molecular_data, keys, 
 
 def _fit_one_pixel(spectrum, wavelength, line_wavelengths, molecular_data, keys, header,
                    contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                   dist_pc, r_au, min_lines, n_sigma=3.0, fit2t=False):
+                   dist_pc, r_au, min_lines, n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
     """
     Fit one pixel and flatten the result for the bulk map loop's arrays.
 
@@ -385,7 +386,7 @@ def _pin_worker_math_threads():
 
 def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecular_data, keys,
                     header, contam_lines, molecule, isotopologue, opr, fit_opr, opr_grid,
-                    dist_pc, r_au, min_lines, n_lines_total, row_mask=None, n_sigma=3.0,
+                    dist_pc, r_au, min_lines, n_lines_total, row_mask=None, n_sigma=DEFAULT_DETECTION_SIGMA,
                     fit2t=False):
     """
     Fit every pixel in one cube row, in a worker process. Module-level so it
@@ -451,7 +452,7 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
 
 def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
               opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
-              min_lines=3, dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0,
+              min_lines=3, dedup_tol_um=1e-5, contam_lines=None, n_sigma=DEFAULT_DETECTION_SIGMA,
               fit2t=False):
     """
     Fit one pixel and return the full rotational_diagram result for display.
@@ -555,7 +556,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                                   min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                   contam_lines=None, region_fit=None,
                                   progress_callback=None, cancel_flag=None, region_mask=None,
-                                  n_sigma=3.0, fit2t=False):
+                                  n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
     """
     Fit a rotational diagram at every spatial pixel of the cube.
 
@@ -724,7 +725,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
 
 
 def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, header, contam_lines,
-                            row_mask=None, n_sigma=3.0):
+                            row_mask=None, n_sigma=DEFAULT_DETECTION_SIGMA):
     """
     Fit one line in every pixel of one cube row, in a worker process.
     Module-level so it can be pickled for ProcessPoolExecutor.
@@ -784,7 +785,7 @@ def _native_line_row_worker(row_idx, spectra_row, wavelength, line_wavelength, h
 
 def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
                      progress_callback=None, cancel_flag=None, executor=None, region_mask=None,
-                     n_sigma=3.0):
+                     n_sigma=DEFAULT_DETECTION_SIGMA):
     """
     Fit one line at every pixel of one cube's native grid.
 
@@ -1032,7 +1033,7 @@ def fit_region_mixed(cubes_and_lines, imported_lines, molecule="H2", isotopologu
 
 def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
                              progress_callback=None, cancel_flag=None, region_masks=None,
-                             n_sigma=3.0):
+                             n_sigma=DEFAULT_DETECTION_SIGMA):
     """
     Fit each line at its own cube's native resolution -- stage 1 of the
     multi-cube map pipeline (see convolve_reproject_maps, combine_line_maps).
@@ -1511,7 +1512,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
                                         dist_pc=140.0, r_au=None, min_lines=3,
                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None,
-                                        cancel_flag=None, region_masks=None, n_sigma=3.0,
+                                        cancel_flag=None, region_masks=None, n_sigma=DEFAULT_DETECTION_SIGMA,
                                         fit2t=False):
     """
     Fit a rotational diagram at every pixel of a common grid, one line per
@@ -1636,7 +1637,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None,
                                         cancel_flag=None, region_masks=None,
-                                        imported_region_masks=None, n_sigma=3.0, fit2t=False):
+                                        imported_region_masks=None, n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
     """
     create_rotational_diagram_map_multi's mixed-source sibling (some lines
     are cube-backed, others already have their map via Import Map): chains

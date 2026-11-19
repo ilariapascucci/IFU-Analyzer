@@ -13,7 +13,8 @@ import time
 import astropy.units as u
 from astropy import constants as const
 from astropy.io import ascii
-from .unit_converter import wavelength_to_doppler_velocity, extract_value_from_quantity, convert_wavelength
+from .unit_converter import (wavelength_to_doppler_velocity, extract_value_from_quantity, convert_wavelength,
+                             um_to_wavenumber, wavenumber_to_um)
 
 # -------------------- Helper Functions --------------------
 # Shared by CSV import, Import Map, and Gaussian Map's export identity lookup.
@@ -302,8 +303,8 @@ def compute_hitran_table_name(wavelength_min, wavelength_max, molecule, isotopol
         return None
     wavelength_min_val = extract_value_from_quantity(wavelength_min)
     wavelength_max_val = extract_value_from_quantity(wavelength_max)
-    wavenum_min = 1e4 / wavelength_max_val
-    wavenum_max = 1e4 / wavelength_min_val
+    wavenum_min = um_to_wavenumber(wavelength_max_val)
+    wavenum_max = um_to_wavenumber(wavelength_min_val)
     return f'{molecule}_{M}_{isotopologue}_{int(wavenum_min)}_{int(wavenum_max)}'
 
 
@@ -326,8 +327,8 @@ def find_containing_cached_table(wavelength_min, wavelength_max, molecule, isoto
         return None
     wavelength_min_val = extract_value_from_quantity(wavelength_min)
     wavelength_max_val = extract_value_from_quantity(wavelength_max)
-    wavenum_min = 1e4 / wavelength_max_val
-    wavenum_max = 1e4 / wavelength_min_val
+    wavenum_min = um_to_wavenumber(wavelength_max_val)
+    wavenum_max = um_to_wavenumber(wavelength_min_val)
 
     prefix = f'{molecule}_{M}_{isotopologue}_'
     best_name, best_span = None, None
@@ -479,8 +480,8 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
     # Convert wavelength (micron) to wavenumber (1/cm)
     wavelength_min_val = extract_value_from_quantity(wavelength_min)
     wavelength_max_val = extract_value_from_quantity(wavelength_max)
-    wavenum_min = 1e4 / wavelength_max_val
-    wavenum_max = 1e4 / wavelength_min_val
+    wavenum_min = um_to_wavenumber(wavelength_max_val)
+    wavenum_max = um_to_wavenumber(wavelength_min_val)
     table_name = compute_hitran_table_name(wavelength_min, wavelength_max, molecule, I)
 
     # A wider already-cached table covering this range serves just as well as
@@ -550,7 +551,7 @@ def _fetch_hitran_data_single_iso(wavelength_min, wavelength_max, molecule, isot
         nu = convert_to_numpy(nu)
         A = convert_to_numpy(A)
         elower = convert_to_numpy(elower)
-        wavelength = 1e4 / nu  # Convert wavenumber to wavelength (already dimensionless)
+        wavelength = wavenumber_to_um(nu)
         # Calculate upper energy level: E_upper = (E_lower + nu) * hc/k [K]
         eupper = (elower + nu) * SECOND_RADIATION_CONSTANT_CM_K
         species_name = molecule
@@ -991,8 +992,8 @@ def read_par_lines(path, wavelength_min, wavelength_max, molecule):
     except ImportError:
         ISO = {}
 
-    wavenumber_min = 1e4 / wavelength_max
-    wavenumber_max = 1e4 / wavelength_min
+    wavenumber_min = um_to_wavenumber(wavelength_max)
+    wavenumber_max = um_to_wavenumber(wavelength_min)
     source = f"File: {os.path.basename(path)}"
     ids_found = set()
     n_records = 0
@@ -1027,7 +1028,7 @@ def read_par_lines(path, wavelength_min, wavelength_max, molecule):
             rows.append({
                 'model': 'File',
                 'source': source,
-                'wavelength': 1e4 / wavenumber,
+                'wavelength': wavenumber_to_um(wavenumber),
                 'wavenumber': wavenumber,
                 'species': molecule,
                 'transition': _par_transition(record),

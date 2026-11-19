@@ -16,9 +16,9 @@ from scipy.optimize import curve_fit
 logging.getLogger("pytensor.configdefaults").addFilter(
     lambda record: "g++" not in record.getMessage())
 
-from .unit_converter import integrated_flux_to_cgs
+from .unit_converter import integrated_flux_to_cgs, _resolve_flux_unit
 from .flux_map_extractor import fit_auto_continuum, fit_hitran_lines_collective
-from .gaussian_fitter import gaussian_flux_upper_limit
+from .gaussian_fitter import gaussian_flux_upper_limit, DEFAULT_DETECTION_SIGMA
 
 # pymc, nutpie, and arviz take about 4 s to import, and only the upper-limit fits use them.
 # _load_mcmc_libraries() fills these names on the first fit, so the Rotational Diagram opens fast.
@@ -251,7 +251,7 @@ UPPER LIMITS
 '''
 
 def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelengths, header,
-                                    contam_lines=None, n_sigma=3.0):
+                                    contam_lines=None, n_sigma=DEFAULT_DETECTION_SIGMA):
     """
     Fit every line in `line_wavelengths` simultaneously in one spectrum
     (fit_hitran_lines_collective) -- usually the better fit for rotational-diagram lines.
@@ -307,7 +307,9 @@ def compute_line_fluxes_collective(wavelength_arr, spectrum_arr, line_wavelength
 
         F_ul_native = gaussian_flux_upper_limit(fit_result.noise_std, fit_result.catalog_sigma, n_sigma)
         try:
-            F_ul_cgs = integrated_flux_to_cgs(F_ul_native, 'MJy/sr', wavelength=wl, header=header, wave_unit='um')
+            # The unit of the header, the one that the fitted area was converted from.
+            F_ul_cgs = integrated_flux_to_cgs(F_ul_native, _resolve_flux_unit(None, header), wavelength=wl,
+                                              header=header, wave_unit='um')
         except Exception:
             F_ul_cgs = None
         if F_ul_cgs is None:

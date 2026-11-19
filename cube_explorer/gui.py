@@ -46,7 +46,7 @@ from .line_catalog import (
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
-from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity, spectral_axis_medium, SPEED_OF_LIGHT_KMS
+from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, doppler_factor_to_velocity, extract_value_from_quantity, spectral_axis_medium
 
 
 # Qt value for "no maximum size" on a widget.
@@ -3190,8 +3190,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         wave = np.asarray(extract_value_from_quantity(self.cube_data.wavelength), dtype=float)
         header = getattr(self.cube_data, 'header', None)
         edge_sigmas = [
-            _line_sigma(float(np.nanmin(wave)), header),
-            _line_sigma(float(np.nanmax(wave)), header),
+            _line_sigma(float(np.nanmin(wave)), header, self.cube_data.wave_unit),
+            _line_sigma(float(np.nanmax(wave)), header, self.cube_data.wave_unit),
         ]
         # Same 4x-sigma padding fit_hitran_lines_collective() uses, so "close
         # enough to matter" means the same thing in both places.
@@ -3749,7 +3749,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         medium = spectral_axis_medium(header) or "unknown"
 
         shift_factor = self.spectrum_shift_factor[tab]
-        shift_velocity = SPEED_OF_LIGHT_KMS * (1.0 / shift_factor - 1.0)
+        shift_velocity = doppler_factor_to_velocity(shift_factor)
 
         lines = ["# IFU Analyzer spectrum file, format 1"]
         if filename:

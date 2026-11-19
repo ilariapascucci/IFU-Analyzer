@@ -27,7 +27,8 @@ from matplotlib.figure import Figure
 
 from .gaussian_fitter import (
     gaussian, calculate_baseline, compute_line_free_noise_std, pixel_fit_status,
-    save_spectrum_and_fit, STATUS_DETECTION, STATUS_UPPER_LIMIT,
+    save_spectrum_and_fit, STATUS_DETECTION, STATUS_UPPER_LIMIT, DEFAULT_DETECTION_SIGMA,
+    MIN_NOISE_POINTS,
 )
 
 # How much spectrum to show on either side of the fit window, as a fraction of the
@@ -52,7 +53,7 @@ class PixelFitDialog(QDialog):
     """
 
     def __init__(self, parent, cube, wavelength, lam_min, lam_max, fit_results,
-                 row, col, fac_above_stdres=3.0, noise_min=None, noise_max=None,
+                 row, col, fac_above_stdres=DEFAULT_DETECTION_SIGMA, noise_min=None, noise_max=None,
                  flux_unit='', wave_unit='', area_unit=''):
         """Build the pixel inspector and render the stored fit immediately.
 
@@ -100,7 +101,7 @@ class PixelFitDialog(QDialog):
         if noise_min is not None and noise_max is not None:
             nmin, nmax = min(noise_min, noise_max), max(noise_min, noise_max)
             noise_mask = (self.wavelength >= nmin) & (self.wavelength <= nmax)
-            if np.count_nonzero(noise_mask) >= 2:
+            if np.count_nonzero(noise_mask) >= MIN_NOISE_POINTS:
                 try:
                     self.noise_std = compute_line_free_noise_std(
                         self.wavelength[noise_mask], cube[noise_mask, self.row, self.col])

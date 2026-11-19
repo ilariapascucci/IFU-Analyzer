@@ -18,9 +18,21 @@ import numpy as np
 from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from scipy.optimize import curve_fit
 
+from .fits_export import set_instrument_keywords
 from .unit_converter import (get_wave_unit, convert_area_to_cgs, extract_value_from_quantity,
-                             convert_wavelength, cgs_flux_label)
-from .utils import safe_worker_count, detect_instrument_from_header, get_spectral_resolution
+                             cgs_flux_label, gaussian_area)
+from .utils import safe_worker_count, detect_instrument_from_header, resolving_power
+
+# Detection threshold in noise sigmas. Every tool uses it by default.
+DEFAULT_DETECTION_SIGMA = 3.0
+# Sigma-clipping threshold that removes outlier points from a line fit.
+OUTLIER_CLIP_SIGMA = 3.0
+# Fewest finite points that a noise window needs for a noise estimate. Below it the estimate is None.
+MIN_NOISE_POINTS = 4
+# Fewest points that a fit window needs for the three-parameter Gaussian fit.
+MIN_FIT_WINDOW_POINTS = 4
+# Fewest finite points that one pixel needs for a Gaussian fit. Below it the pixel gets an upper limit.
+MIN_FINITE_POINTS = 5
 
 
 def build_gaussian_fit_curve(wavelength, results, return_baseline=False):
@@ -295,14 +307,7 @@ def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jo
         else:
             out_header = fits.Header()
 
-        # Use instrument from header if present, fallback to hint
-        instr = out_header.get('INSTRUME', '').strip().upper() or instrument_hint or 'UNKNOWN'
-        teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
-        # Update header with detected values
-        if instr != 'UNKNOWN':
-            out_header['INSTRUME'] = instr
-        if teles != 'UNKNOWN':
-            out_header['TELESCOP'] = teles
+        set_instrument_keywords(out_header, instrument_hint)
         out_header['BUNIT'] = 'Normalized Residuals'
         out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + ' (Residuals)')
         out_header['COMMENT'] = 'Gaussian fit residuals: (data - fit) / noise; wavelength-limited'
@@ -473,7 +478,7 @@ def compute_line_free_noise_std(x_data: np.ndarray, y_data: np.ndarray, degree: 
         return None
 
     finite_mask = np.isfinite(y_data) & np.isfinite(x_data)
-    if np.count_nonzero(finite_mask) < max(4, degree + 2):  # Need enough points for polynomial fit
+    if np.count_nonzero(finite_mask) < max(MIN_NOISE_POINTS, degree + 2):  # Need enough points for polynomial fit
         return None
 
     x_noise = x_data[finite_mask]
@@ -502,7 +507,7 @@ def compute_mad_noise_std(y_data: np.ndarray) -> float:
     return float(mad_std(y_data, ignore_nan=True))
 
 
-def gaussian_flux_upper_limit(sigma_noise: float, sigma: float, n_sigma: float = 3.0) -> float:
+def gaussian_flux_upper_limit(sigma_noise: float, sigma: float, n_sigma: float = DEFAULT_DETECTION_SIGMA) -> float:
     """
     n-sigma upper-limit flux: the area of an artificial Gaussian with amplitude
     n_sigma*sigma_noise and the given sigma, using the same area formula as every
@@ -518,7 +523,7 @@ def gaussian_flux_upper_limit(sigma_noise: float, sigma: float, n_sigma: float =
     Returns:
         F_ul (float): Upper limit flux, same units as sigma_noise * sigma
     """
-    return n_sigma * sigma_noise * sigma * np.sqrt(2 * np.pi)
+    return gaussian_area(n_sigma * sigma_noise, sigma)
 
 
 def safe_nanstd(arr: np.ndarray, fallback: float = 0.0) -> float:
@@ -602,7 +607,7 @@ def _propagate_area_error(amplitude: float, sigma: float, pcov: Optional[np.ndar
 
 def fit_gaussian_with_sigma_clipping(x_data: np.ndarray, y_data: np.ndarray,
                                      p0: np.ndarray, bounds: Tuple,
-                                     clip_thresh: float = 3.0,
+                                     clip_thresh: float = OUTLIER_CLIP_SIGMA,
                                      clip_iters: int = 2) -> Tuple[np.ndarray, Optional[np.ndarray], bool, np.ndarray]:
     """
     Fit a Gaussian with iterative sigma clipping, not RANSAC (no random sampling):
@@ -833,10 +838,10 @@ def fit_gaussian_to_line(x1: float, x2: float,
     y_data = spectrum_y[mask]
     
     # Validation checks
-    if len(x_data) < 4:
+    if len(x_data) < MIN_FIT_WINDOW_POINTS:
         return _invalid_selection(
             x_data, y_data,
-            "Error: Not enough points in selected region (need at least 4)"
+            f"Error: Not enough points in selected region (need at least {MIN_FIT_WINDOW_POINTS})"
         )
 
     # Reject peak outside boundaries
@@ -889,7 +894,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
     if noise_min is not None and noise_max is not None:
         nmin, nmax = (noise_min, noise_max) if noise_min <= noise_max else (noise_max, noise_min)
         noise_mask = (spectrum_x >= nmin) & (spectrum_x <= nmax)
-        if np.count_nonzero(noise_mask) >= 4:  # Matches compute_line_free_noise_std's own floor
+        if np.count_nonzero(noise_mask) >= MIN_NOISE_POINTS:
             noise_std = compute_line_free_noise_std(spectrum_x[noise_mask], spectrum_y[noise_mask])
 
     std_val_fit = safe_nanstd(y_corrected, fallback=1.0)
@@ -956,7 +961,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
             x_data, y_corrected,
             p0=[amp_guess, center_guess, sigma_guess],
             bounds=bounds,
-            clip_thresh=3.0,
+            clip_thresh=OUTLIER_CLIP_SIGMA,
             clip_iters=3
         )
         
@@ -973,7 +978,7 @@ def fit_gaussian_to_line(x1: float, x2: float,
 
         # STEP 5c: Calculate integrated area (AUC) - total flux under the Gaussian
         # Area = A * sigma * sqrt(2*pi) [integrated line flux formula]
-        area_native = amplitude * sigma * np.sqrt(2 * np.pi)
+        area_native = gaussian_area(amplitude, sigma)
 
         # STEP 5d: Convert area to CGS units (erg/s/cm**2) if FITS header provided with pixel scales
         unit = get_wave_unit(header, wave_unit)
@@ -1149,14 +1154,13 @@ def _upper_limit_sigma(header, unit, global_guess, lambda_0, x1, x2):
     """
     instrument = detect_instrument_from_header(header) if header is not None else None
     if instrument in ('MIRI', 'NIRSpec', 'MUSE'):
-        to_um = float(convert_wavelength(1.0, unit, 'um'))
         if global_guess is not None:
             center = float(global_guess[1])
         elif lambda_0 is not None:
             center = float(lambda_0)
         else:
             center = (x1 + x2) / 2
-        resolution = get_spectral_resolution(center * to_um, instrument, header)
+        resolution = resolving_power(center, unit, instrument, header)
         sigma = (center / resolution) / gaussian_sigma_to_fwhm
         print(f"Upper-limit width: R-based sigma = {sigma:.5f} {unit} "
               f"(R = {resolution:.0f} at {center:.4f} {unit}, {instrument}).")
@@ -1238,7 +1242,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             None
         """
         upper_limit_amplitude = fac_above_stdres * std
-        area_native = upper_limit_amplitude * ul_sigma * np.sqrt(2 * np.pi)
+        area_native = gaussian_area(upper_limit_amplitude, ul_sigma)
         if header is not None:
             area_cgs = convert_area_to_cgs(upper_limit_amplitude, ul_sigma, center_for_area, header, unit, flux_unit)
             area_row[ix] = area_cgs if area_cgs is not None else area_native
@@ -1285,7 +1289,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
         # The baseline of this pixel at one wavelength. A pixel with no line has it too.
         cont_row[ix] = np.interp(continuum_at, x_data, baseline)
 
-        if n_finite < 5:
+        if n_finite < MIN_FINITE_POINTS:
             # Some data, but not enough for a full fit: assigns an upper limit instead.
             # Uses fallback=None so safe_nanstd can signal "no real estimate" rather than inventing one.
             std_temp = noise_std if (noise_std is not None and np.isfinite(noise_std)) else safe_nanstd(y_data, fallback=None)
@@ -1371,7 +1375,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
                 x_data, y_corrected,
                 p0=[amp_guess, center_guess, sigma_guess],
                 bounds=bounds,
-                clip_thresh=3.0,  # 3-sigma threshold for outliers, matches fac_above_stdres
+                clip_thresh=OUTLIER_CLIP_SIGMA,
                 clip_iters=2  # Very fast: 2 iterations is enough, minimal outliers in spectral data
             )
 
@@ -1386,7 +1390,7 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
             fwhm = gaussian_sigma_to_fwhm * sigma
 
             # STEP 5c: Area = A * sigma * sqrt(2*pi), the analytical integral of a Gaussian (total flux).
-            area_native = amplitude * sigma * np.sqrt(2 * np.pi)
+            area_native = gaussian_area(amplitude, sigma)
             # STEP 5d: Convert area to CGS units (erg/s/cm^2) if a FITS header was provided.
             if header is not None:
                 area_cgs = convert_area_to_cgs(amplitude, sigma, center, header, unit, flux_unit)
@@ -1480,7 +1484,7 @@ def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig
         else:
             total_spectrum = np.nansum(cube[wave_mask, :, :][:, region_mask], axis=1)
         finite_mask_total = np.isfinite(total_spectrum) & np.isfinite(x_data)
-        if np.count_nonzero(finite_mask_total) >= 4:
+        if np.count_nonzero(finite_mask_total) >= MIN_FIT_WINDOW_POINTS:
             x_total = x_data[finite_mask_total]
             y_total = total_spectrum[finite_mask_total]
             # STEP 1 GLOBAL: Extract baseline from total spectrum endpoints
@@ -1514,7 +1518,7 @@ def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig
                 x_total, y_total_corrected,
                 p0=[amp_guess_tot, center_guess_tot, sigma_guess_tot],
                 bounds=bounds_tot,
-                clip_thresh=3.0,
+                clip_thresh=OUTLIER_CLIP_SIGMA,
                 clip_iters=2
             )
             # STEP 5 GLOBAL: Extract final global guess for seeding all pixels
@@ -1524,7 +1528,7 @@ def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig
                 global_guess = (amp_guess_tot, center_guess_tot, sigma_guess_tot)
 
             g_amp, g_center, g_sigma = global_guess
-            g_area_native = g_amp * g_sigma * np.sqrt(2 * np.pi)
+            g_area_native = gaussian_area(g_amp, g_sigma)
             g_area_cgs = convert_area_to_cgs(g_amp, g_sigma, g_center, header, unit, flux_unit) \
                 if header is not None else None
             g_area = g_area_cgs if g_area_cgs is not None else g_area_native
@@ -1557,7 +1561,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             lam_min: Optional[float] = None,
                             lam_max: Optional[float] = None,
                             n_jobs: Optional[int] = None,
-                            fac_above_stdres: float = 3.0,
+                            fac_above_stdres: float = DEFAULT_DETECTION_SIGMA,
                             noise_min: Optional[float] = None,
                             noise_max: Optional[float] = None,
                             header: Optional[object] = None,
@@ -1656,8 +1660,8 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     wave_mask = (wavelength_values >= lam_min_orig) & (wavelength_values <= lam_max_orig)
     x_data = wavelength_values[wave_mask]
     
-    if len(x_data) < 4:
-        raise ValueError(f"Not enough wavelength points in range [{lam_min}, {lam_max}] (need at least 4)")
+    if len(x_data) < MIN_FIT_WINDOW_POINTS:
+        raise ValueError(f"Not enough wavelength points in range [{lam_min}, {lam_max}] (need at least {MIN_FIT_WINDOW_POINTS})")
     
     # Initialize output maps
     amplitude_map = np.full((n_y, n_x), np.nan)
@@ -1680,7 +1684,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     if noise_min_orig is not None and noise_max_orig is not None:
         nmin, nmax = (noise_min_orig, noise_max_orig) if noise_min_orig <= noise_max_orig else (noise_max_orig, noise_min_orig)
         noise_wave_mask = (wavelength_values >= nmin) & (wavelength_values <= nmax)
-        if np.count_nonzero(noise_wave_mask) < 4:  # Matches compute_line_free_noise_std's own floor
+        if np.count_nonzero(noise_wave_mask) < MIN_NOISE_POINTS:
             noise_wave_mask = None
         else:
             noise_x = wavelength_values[noise_wave_mask]

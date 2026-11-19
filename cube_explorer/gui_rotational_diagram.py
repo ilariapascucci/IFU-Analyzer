@@ -39,7 +39,7 @@ from .rotational_diagram_h2_fitter import (
 )
 from .rotational_diagram_general_fitter import rotational_diagram as rotational_diagram_general
 from .flux_map_extractor import DISPLAY_CROP_SIGMA_MULTIPLIER, gaussian
-from .gaussian_fitter import save_spectrum_and_fit
+from .gaussian_fitter import save_spectrum_and_fit, DEFAULT_DETECTION_SIGMA
 from .rotational_diagram_map import (
     _line_keys, build_imported_map_payload, merge_native_results,
 )
@@ -4871,7 +4871,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         """
         n_sigma, ok = QInputDialog.getDouble(
             self, "Detection Threshold", "Detection threshold (σ):",
-            3.0, 0.0, 1.0e6, 1)
+            DEFAULT_DETECTION_SIGMA, 0.0, 1.0e6, 1)
         if not ok:
             return None
         return n_sigma

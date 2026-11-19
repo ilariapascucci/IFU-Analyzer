@@ -17,8 +17,7 @@ from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from scipy.interpolate import CubicSpline
 
 from .flux_map_extractor import DEFAULT_SIGMA_MULTIPLIER, fit_auto_continuum
-from .unit_converter import convert_wavelength
-from .utils import get_spectral_resolution, safe_worker_count
+from .utils import resolving_power, safe_worker_count
 
 # Same minimum as the interactive custom continuum tool.
 MIN_ANCHORS = 3
@@ -166,10 +165,9 @@ def build_custom_anchors(cube_data, anchor_wavelengths, half_width_sigma=DEFAULT
     if len(slices) < MIN_ANCHORS:
         raise ValueError(f"Need at least {MIN_ANCHORS} different anchors, got {len(slices)}.")
 
-    to_um = float(convert_wavelength(1.0, cube_data.wave_unit, 'um'))
     windows = []
     for c in slices:
-        resolution = get_spectral_resolution(wavelength[c] * to_um, cube_data.instrument, cube_data.header)
+        resolution = resolving_power(wavelength[c], cube_data.wave_unit, cube_data.instrument, cube_data.header)
         half_width = half_width_sigma * (wavelength[c] / resolution) / gaussian_sigma_to_fwhm
         windows.append((int(np.searchsorted(wavelength, wavelength[c] - half_width, side='left')),
                         int(np.searchsorted(wavelength, wavelength[c] + half_width, side='right'))))

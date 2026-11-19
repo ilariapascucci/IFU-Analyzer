@@ -75,6 +75,27 @@ def _ascii_safe_card(value):
     return _ascii_safe(value)
 
 
+def set_instrument_keywords(header, instrument_hint=None):
+    """
+    Write INSTRUME and TELESCOP to a header that is about to be saved, in upper case.
+    The header keeps its own values. A missing INSTRUME takes the hint. A value that stays
+    unknown is not written.
+
+    Args:
+        header (astropy.io.fits.Header): Header to change in place
+        instrument_hint (str): Instrument name to use when the header has none, or None
+
+    Returns:
+        None
+    """
+    instrument = header.get('INSTRUME', '').strip().upper() or instrument_hint or 'UNKNOWN'
+    telescope = header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
+    if instrument != 'UNKNOWN':
+        header['INSTRUME'] = instrument
+    if telescope != 'UNKNOWN':
+        header['TELESCOP'] = telescope
+
+
 def build_2d_export_header(source_header, data_shape, extra=None):
     """
     Build a standalone 2D FITS header: a clean WCS from source_header, plus

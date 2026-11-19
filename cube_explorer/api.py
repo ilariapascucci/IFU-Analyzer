@@ -517,6 +517,7 @@ def save_continuum_cubes(cube_data, continuum_path, contsub_path, continuum_para
 # --- Gaussian Fitting API ---
 
 from .gaussian_fitter import (
+    DEFAULT_DETECTION_SIGMA,
     fit_gaussian_to_line,
     calculate_equivalent_width,
     fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
@@ -1029,7 +1030,7 @@ from .flux_map_extractor import (
 from .line_catalog import load_CO_line_catalog, load_contaminating_lines_catalog
 
 def extract_flux(wavelength, spectrum, target_catalog_path, contamination_catalog_path=None,
-                     snr_threshold=3.0, continuum_params=None,
+                     snr_threshold=DEFAULT_DETECTION_SIGMA, continuum_params=None,
                      header=None, wave_unit=None):
     """Extract total flux by fitting all target lines in a spectrum
     simultaneously with contaminating lines and continuum; the same
@@ -1304,7 +1305,7 @@ def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, 
 
 def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=None,
               fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
-              dedup_tol_um=1e-5, contam_lines=None, n_sigma=3.0, fit2t=False):
+              dedup_tol_um=1e-5, contam_lines=None, n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
     """Fit one rotational diagram to a single pixel's own spectrum.
     This is fit_region for one pixel instead of a summed region.
 
@@ -1336,7 +1337,7 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
                                    opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0,
                                    r_au=None, min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                    contam_lines=None, progress_callback=None, cancel_flag=None,
-                                   n_sigma=3.0, fit2t=False):
+                                   n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
     """Fit a rotational diagram at every pixel of one cube.
     Same fit as the GUI's Run Map button, run once per pixel.
 
@@ -1416,7 +1417,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
                                          opr=None, fit_opr=False, opr_grid=None,
                                          dist_pc=140.0, r_au=None, min_lines=3,
                                          dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
-                                         progress_callback=None, cancel_flag=None, n_sigma=3.0,
+                                         progress_callback=None, cancel_flag=None, n_sigma=DEFAULT_DETECTION_SIGMA,
                                          fit2t=False):
     """Fit a rotational diagram at every pixel of a common grid built from
     several cubes at different pixel scales, one line per cube. Convolves
@@ -1530,7 +1531,7 @@ from .line_catalog import match_nearest_hitran_line as _match_nearest_hitran_lin
 
 
 def compute_native_line_maps(cubes_and_lines, contam_lines=None, n_jobs=8, dedup_tol_um=1e-5,
-                             progress_callback=None, cancel_flag=None, region_masks=None, n_sigma=3.0):
+                             progress_callback=None, cancel_flag=None, region_masks=None, n_sigma=DEFAULT_DETECTION_SIGMA):
     """Fit each line at the native resolution of its own cube. This is the Calculate Maps button of the
     rotational-diagram window, and the first step of Run Map. The next step is convolve_line_maps.
     Scripts that call this need an ``if __name__ == "__main__":`` guard on Windows/macOS.
@@ -1749,7 +1750,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
                                         opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
                                         min_lines=3, dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None, cancel_flag=None,
-                                        region_masks=None, imported_region_masks=None, n_sigma=3.0,
+                                        region_masks=None, imported_region_masks=None, n_sigma=DEFAULT_DETECTION_SIGMA,
                                         fit2t=False):
     """Make a rotational-diagram map from lines that come from cubes and lines that come from imported
     maps (see import_line_map). The same as create_rotational_diagram_map_multi, plus the imported lines.

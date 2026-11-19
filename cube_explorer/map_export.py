@@ -11,7 +11,8 @@ import zipfile
 import astropy.units as u
 import numpy as np
 
-from .fits_export import _ascii_safe, build_2d_export_header, build_line_map_header, write_fits_product
+from .fits_export import (_ascii_safe, build_2d_export_header, build_line_map_header, set_instrument_keywords,
+                          write_fits_product)
 from .gaussian_fitter import fit_status_map
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
 from .unit_converter import (
@@ -213,12 +214,7 @@ def save_gaussian_map(cube_data, maps, parameter, out_path, lam_min, lam_max, pe
             ("SPECY", np.asarray(global_fit["y_data"], dtype=np.float32), None),
             ("SPECBASE", np.asarray(global_fit["baseline"], dtype=np.float32), None),
         ]
-    instrument = out_header.get("INSTRUME", "").strip().upper() or cube_data.instrument or "UNKNOWN"
-    telescope = out_header.get("TELESCOP", "").strip().upper() or "UNKNOWN"
-    if instrument != "UNKNOWN":
-        out_header["INSTRUME"] = instrument
-    if telescope != "UNKNOWN":
-        out_header["TELESCOP"] = telescope
+    set_instrument_keywords(out_header, cube_data.instrument)
     out_header["COMMENT"] = f"{param_name}: {bunit}"
     out_header["COMMENT"] = f"Gaussian fit parameter: {param_name}"
     write_fits_product(out_path, data, out_header, extensions=extensions or None)

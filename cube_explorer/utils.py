@@ -322,6 +322,27 @@ def get_spectral_resolution(wavelength, instrument, header=None):
         raise ValueError(f"Instrument {instrument} not yet supported for spectral resolution")
 
 
+def resolving_power(wavelength, wave_unit, instrument, header=None):
+    """
+    Give the spectral resolution R(lambda) at a wavelength that is in any unit of length.
+    The wavelength is turned into micron first, because get_spectral_resolution works in micron.
+
+    Args:
+        wavelength (float): Wavelength, in wave_unit
+        wave_unit (str): Unit of the wavelength, for example 'um' or 'Angstrom'
+        instrument (str): Instrument name ('NIRSPEC', 'MIRI' or 'MUSE')
+        header (astropy.io.fits.Header): FITS header. Required for NIRSpec, to read the grating.
+
+    Returns:
+        resolution (float): Spectral resolution R(lambda) at this wavelength
+
+    Raises:
+        ValueError: If wave_unit is not a unit of length, or for the errors of get_spectral_resolution
+    """
+    to_um = float(convert_wavelength(1.0, wave_unit, 'um'))
+    return get_spectral_resolution(wavelength * to_um, instrument, header)
+
+
 def psf_fwhm_arcsec(wavelength, instrument):
     """
     Calculate the FWHM of the point spread function, in arcsec, at a wavelength.

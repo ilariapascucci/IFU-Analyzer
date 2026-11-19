@@ -8,7 +8,7 @@ from PyQt5.QtGui import QColor
 from .gui_sizing import fit_dialog_to_table
 from .table_drag_select import SortableCheckboxTableMixin
 from .line_catalog import dedupe_colocated_lines, load_line_list
-from .unit_converter import SPEED_OF_LIGHT_KMS
+from .unit_converter import wavelength_to_doppler_velocity
 
 
 def source_tint(row):
@@ -504,7 +504,7 @@ class RestLineDialog(QDialog):
         Returns:
             offset (float): Velocity in km/s. Positive means the line is redward of the peak.
         """
-        return SPEED_OF_LIGHT_KMS * (row['wavelength'] - self.peak_um) / self.peak_um
+        return wavelength_to_doppler_velocity(row['wavelength'], self.peak_um, 'um')
 
     def _refresh(self):
         """Fill the table from the stored rows and select the best default line.

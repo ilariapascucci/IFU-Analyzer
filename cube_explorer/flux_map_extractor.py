@@ -32,13 +32,13 @@ from scipy.interpolate import UnivariateSpline
 # REUSE: Import helper functions from gaussian_fitter
 from .gaussian_fitter import (
     compute_line_free_noise_std, compute_mad_noise_std, gaussian_flux_upper_limit,
-    GaussianFitResult, gaussian, fitted_baseline_curve,
+    GaussianFitResult, gaussian, fitted_baseline_curve, DEFAULT_DETECTION_SIGMA,
 )
 from astropy.stats import gaussian_sigma_to_fwhm, mad_std
-from .utils import get_spectral_resolution
+from .utils import resolving_power
 from .spectrum_file import normalize_wave_unit
 from .unit_converter import (
-    integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs,
+    integrated_flux_to_cgs, get_wave_unit, _resolve_flux_unit, convert_area_to_cgs, gaussian_area,
     extract_units, extract_value_from_quantity, cgs_flux_label, CGS_FLUX_NAME,
 )
 
@@ -274,7 +274,7 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
         flux_clean = flux[mask]
         user_masked_clean = user_masked[mask]
 
-        if len(wavelength_clean) < 10:
+        if len(wavelength_clean) < MIN_UNMASKED_POINTS:
             return np.full_like(wavelength, np.nan)
 
         # STEP 1: Initial median filter to smooth noise
@@ -298,7 +298,7 @@ def fit_auto_continuum(wavelength, flux, window_size=51, sigma_threshold=2.0,
 
         # STEP 4: Fit continuum using only non-peak regions
         good_indices = np.where(~exclude_mask)[0]
-        if len(good_indices) < 10:
+        if len(good_indices) < MIN_UNMASKED_POINTS:
             # Fallback if too many peaks excluded. The masked ranges of the user stay.
             exclude_mask = user_masked_clean.copy()
         
@@ -490,7 +490,7 @@ def many_gaussians_list(xl, a, b, *params):
 
 # ================== Line Detection ==================
 
-def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate=False, snr_threshold=3.0, noise_std=None):
+def find_lines(xwave, yflux, lines_to_search, contaminating_lines=None, remove_duplicate=False, snr_threshold=DEFAULT_DETECTION_SIGMA, noise_std=None):
     """
     Identify which spectral lines are detected in a spectrum, and set a starting
     max_amplitude for each one. Finds peaks near each line and compares them to the
@@ -791,7 +791,7 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
         y_fit_own = a + b * (x_local - min_freq_chunk) + gaussian(x_local, amp_i, cen_i, sig_i)
         return {
             'wavelength': cat_wave, 'amplitude': amp_i, 'center': cen_i, 'sigma': sig_i,
-            'area': amp_i * sig_i * np.sqrt(2 * np.pi),
+            'area': gaussian_area(amp_i, sig_i),
             # amp_err_i/sig_err_i: from curve_fit's joint covariance matrix, not a separate
             # local fit. A line that overlaps a close neighbor gets a larger error here.
             'amplitude_error': amp_err_i,
@@ -871,7 +871,7 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
             current_sum_target = 0.0
             for _, coline in filtered_target_lines.iterrows():
                 amp_i, cen_i, sig_i, amp_err_i, sig_err_i = _cached_slice(float(coline['line']))
-                current_sum_target += amp_i * sig_i * np.sqrt(2 * np.pi)
+                current_sum_target += gaussian_area(amp_i, sig_i)
                 catalog_sigma_i = coline['sigma'] if 'sigma' in coline else sigma
                 per_line_fits.append(_fit_record(
                     cen_i, amp_i, sig_i, coline['line'], amp_err_i, sig_err_i, catalog_sigma_i,
@@ -879,7 +879,7 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
             current_sum_contaminating = 0.0
             for _, contam_line in filtered_contaminatinglines.iterrows():
                 amp_j, cen_j, sig_j, amp_err_j, sig_err_j = _cached_slice(float(contam_line['line']))
-                current_sum_contaminating += amp_j * sig_j * np.sqrt(2 * np.pi)
+                current_sum_contaminating += gaussian_area(amp_j, sig_j)
                 catalog_sigma_j = contam_line['sigma'] if 'sigma' in contam_line else sigma
                 per_contam_fits.append(_fit_record(
                     cen_j, amp_j, sig_j, contam_line['line'], amp_err_j, sig_err_j, catalog_sigma_j,
@@ -1004,13 +1004,13 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
             # the residual, but never sums them here, so n_owned_params excludes them.
             n_owned_params = 3 * (n_target + ncont_lines)
             if ncont_lines > 0:
-                current_sum_target = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
+                current_sum_target = sum(gaussian_area(par[jj], par[jj + 2])
                                     for jj in range(0, 3 * n_target, 3))
-                current_sum_contaminating = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
+                current_sum_contaminating = sum(gaussian_area(par[jj], par[jj + 2])
                                                for jj in range(3 * n_target, n_owned_params, 3))
             else:
                 current_sum_contaminating = 0  # there are no contaminating lines in this wave range!
-                current_sum_target = sum(par[jj] * par[jj + 2] * np.sqrt(2 * np.pi)
+                current_sum_target = sum(gaussian_area(par[jj], par[jj + 2])
                                     for jj in range(0, n_owned_params, 3))
 
             if current_sum_target < 0:
@@ -1052,8 +1052,8 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
             # Uses median(line_sigmas), not the scalar sigma. This gives the same value when
             # broadcast (Flux Map), but the real per-line width when it varies (fit_hitran_lines_collective).
             fallback_sigma = np.median(line_sigmas)
-            current_sum_contaminating = 3 * np.median(std_residuals) * fallback_sigma * np.sqrt(2 * np.pi)
-            current_sum_target = 3 * np.median(std_residuals) * fallback_sigma * np.sqrt(2 * np.pi)
+            current_sum_contaminating = gaussian_area(DEFAULT_DETECTION_SIGMA * np.median(std_residuals), fallback_sigma)
+            current_sum_target = gaussian_area(DEFAULT_DETECTION_SIGMA * np.median(std_residuals), fallback_sigma)
             a = np.nanmedian(continuum)
             df_continuum.loc[idx_xwave, 'continuum'] = continuum
             for i, (_, coline) in enumerate(filtered_target_lines.iterrows()):
@@ -1087,15 +1087,16 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
     return sum_target_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits, per_contam_fits
 
 
-def _line_sigma(wl, header):
+def _line_sigma(wl, header, wave_unit=None):
     """
     Instrumental Gaussian sigma at wavelength `wl`, from the real spectral resolution
     (R = lambda/delta_lambda) in `header`. This function has no fallback value: MIRI and
     NIRSpec headers must have this data, so a bad header must raise an error here.
 
     Args:
-        wl (float): Wavelength, in the same units as the header's spectral resolution formula
+        wl (float): Wavelength, in wave_unit
         header (astropy.io.fits.Header): FITS header identifying the instrument (MIRI/NIRSpec)
+        wave_unit (str): Unit of wl. None means micron, the unit of MIRI and NIRSpec cubes.
 
     Returns:
         sigma (float): Instrumental Gaussian sigma, same units as `wl`
@@ -1108,9 +1109,9 @@ def _line_sigma(wl, header):
         raise ValueError("Cannot determine spectral resolution: no FITS header given.")
     instrument = header.get('INSTRUME', '').strip().upper()
     if 'MIRI' in instrument:
-        R = get_spectral_resolution(wl, 'MIRI', header)
+        R = resolving_power(wl, wave_unit or 'um', 'MIRI', header)
     elif 'NIRSPEC' in instrument:
-        R = get_spectral_resolution(wl, 'NIRSpec', header)
+        R = resolving_power(wl, wave_unit or 'um', 'NIRSpec', header)
     else:
         raise ValueError(f"No spectral resolution formula for instrument {instrument!r} "
                           f"(only MIRI and NIRSpec are supported).")
@@ -1144,7 +1145,7 @@ def _trough_is_elevated(center_a, center_b, xwave, y_corrected, noise_std, snr_t
 
 
 def _merged_wave_boundaries(centers, sigmas, xwave, y_corrected, noise_std,
-                             half_width_sigma=DEFAULT_SIGMA_MULTIPLIER, snr_threshold=3.0):
+                             half_width_sigma=DEFAULT_SIGMA_MULTIPLIER, snr_threshold=DEFAULT_DETECTION_SIGMA):
     """
     Build fit_glines' list_wboundaries from each line's own instrumental width and
     the real spectrum, not a fixed grid or a size cap. Each line gets a
@@ -1326,13 +1327,14 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             results[orig_idx] = (line, result)
         return [r for r in results if r is not None], [], None
 
+    unit = get_wave_unit(header, wave_unit)
     # Per-line sigma from the instrument's own resolution (_line_sigma), not one shared
     # guess. A single estimate over the whole spectrum cannot know each line's real width.
     det_target_lines = pd.DataFrame({
         'line': [d[1] for d in lines_data],
         'disposition': [1] * len(lines_data),
         'max_amplitude': [d[3] for d in lines_data],
-        'sigma': [_line_sigma(d[1], header) for d in lines_data],
+        'sigma': [_line_sigma(d[1], header, unit) for d in lines_data],
     })
 
     if contam_lines is not None and len(contam_lines) > 0:
@@ -1349,7 +1351,7 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
             'line': [p[0] for p in contam_pairs],
             'disposition': [1] * len(contam_pairs),
             'max_amplitude': [p[1] for p in contam_pairs],
-            'sigma': [_line_sigma(p[0], header) for p in contam_pairs],
+            'sigma': [_line_sigma(p[0], header, unit) for p in contam_pairs],
         })
     else:
         detcontaminating_lines = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'sigma'])
@@ -1385,7 +1387,6 @@ def fit_hitran_lines_collective(spectrum_x, spectrum_y, hitran_lines, continuum,
     # fit_glines groups and loops by chunk, not by input order. This code matches results
     # back by wavelength, so it keeps species/transition data and the caller's own order.
     by_wavelength = {round(f['wavelength'], 9): f for f in per_line_fits}
-    unit = get_wave_unit(header, wave_unit)
 
     def _to_result(fit):
         """
@@ -1597,7 +1598,7 @@ def save_gaussian_parameters(path, entries, wave_unit=None, flux_unit=None, head
 def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, contam_catalog,
                                    wave_boundaries=None, wave_min=None, wave_max=None, do_duplicate_removal=True,
                                    excluded_wavelengths=None,
-                                   continuum_params=None, snr_threshold=3.0, header=None, wave_unit=None,
+                                   continuum_params=None, snr_threshold=DEFAULT_DETECTION_SIGMA, header=None, wave_unit=None,
                                    issue_counts=None):
     """
     Extract total flux from a single spectrum by detecting and fitting all target lines.
@@ -1749,7 +1750,7 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
 
     # Per-line sigma from the instrument's own resolution (_line_sigma), the same as
     # fit_hitran_lines_collective. One shared sigma under-resolves a narrow line.
-    detected_target['sigma'] = [_line_sigma(wl, header) for wl in detected_target['line']]
+    detected_target['sigma'] = [_line_sigma(wl, header, resolved_wave_unit) for wl in detected_target['line']]
 
     # This runs peak detection against the contaminant catalog itself, with no avoidance
     # of target lines. A contaminant near a target line needs its own Gaussian, not to be dropped.
@@ -1761,7 +1762,7 @@ def extract_flux_from_spectrum(spectrum_wave, spectrum_flux, target_catalog, con
             noise_std=shared_noise_std
         )
         detected_contam = detected_contam_lines[detected_contam_lines['disposition'] == 1].copy()
-        detected_contam['sigma'] = [_line_sigma(wl, header) for wl in detected_contam['line']]
+        detected_contam['sigma'] = [_line_sigma(wl, header, resolved_wave_unit) for wl in detected_contam['line']]
     else:
         # Empty DataFrame - still needs the right columns for fit_glines
         detected_contam = pd.DataFrame(columns=['line', 'disposition', 'max_amplitude', 'species', 'sigma'])

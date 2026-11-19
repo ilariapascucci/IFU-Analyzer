@@ -113,6 +113,33 @@ def convert_wavelength(value, from_unit, to_unit):
     return (value * from_unit_obj).to(to_unit_obj).value
 
 
+def um_to_wavenumber(wavelength_um):
+    """
+    Convert a wavelength in micron to a wavenumber in cm^-1, which is 1e4 / wavelength.
+    The same operation converts a wavenumber in cm^-1 to a wavelength in micron.
+
+    Args:
+        wavelength_um (float/array): Wavelength or wavelengths in micron
+
+    Returns:
+        wavenumber (float/array): Wavenumber or wavenumbers in cm^-1, same shape as the input
+    """
+    return 1e4 / wavelength_um
+
+
+def wavenumber_to_um(wavenumber):
+    """
+    Convert a wavenumber in cm^-1 to a wavelength in micron, which is 1e4 / wavenumber.
+
+    Args:
+        wavenumber (float/array): Wavenumber or wavenumbers in cm^-1
+
+    Returns:
+        wavelength_um (float/array): Wavelength or wavelengths in micron, same shape as the input
+    """
+    return 1e4 / wavenumber
+
+
 def wavelength_to_doppler_velocity(wavelength, reference, wave_unit):
     """
     Convert wavelengths to Doppler velocities in km/s relative to a reference wavelength.
@@ -173,6 +200,20 @@ def doppler_velocity_to_wavelength_factor(velocity):
         factor (float): Number to multiply observed wavelengths by
     """
     return 1 / (1 + velocity / SPEED_OF_LIGHT_KMS)
+
+
+def doppler_factor_to_velocity(factor):
+    """
+    Convert the factor that moves observed wavelengths to rest into a Doppler velocity.
+    This is the inverse of doppler_velocity_to_wavelength_factor: v = c * (1 / factor - 1).
+
+    Args:
+        factor (float): Number that observed wavelengths are multiplied by
+
+    Returns:
+        velocity (float): Velocity in km/s. Positive means moving away (redshift)
+    """
+    return SPEED_OF_LIGHT_KMS * (1.0 / factor - 1.0)
 
 
 def _angstrom_per_unit(wave_unit):
@@ -557,6 +598,21 @@ def get_wave_unit(header, fallback: Optional[str] = None) -> Optional[str]:
     return fallback
 
 
+def gaussian_area(amplitude, sigma):
+    """
+    Area under a Gaussian line, amplitude * sigma * sqrt(2*pi). Every line fit in this program
+    uses this one formula, including the upper-limit area of an artificial line.
+
+    Args:
+        amplitude (float): Peak amplitude, in any flux unit
+        sigma (float): Gaussian sigma, in any wavelength unit
+
+    Returns:
+        area (float): Area, in the flux unit times the wavelength unit
+    """
+    return amplitude * sigma * np.sqrt(2 * np.pi)
+
+
 def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_unit: Optional[str], flux_unit_input: Optional[str] = None):
     """
     Convert a fitted Gaussian area (A * sigma * sqrt(2*pi)) to erg/s/cm**2 via integrated_flux_to_cgs.
@@ -582,7 +638,7 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
             return None  # A velocity axis, for example, needs a rest wavelength we do not have
 
         # Gaussian area in native units, A * sigma * sqrt(2*pi), carrying [flux_unit * wave_unit]
-        area_native = amplitude_mjy_sr * sigma_val * np.sqrt(2 * np.pi)
+        area_native = gaussian_area(amplitude_mjy_sr, sigma_val)
 
         return integrated_flux_to_cgs(
             area_native,

@@ -13,8 +13,8 @@ from .unit_converter import (
     gaussian_map_unit_labels, wavelength_to_doppler_velocity, spectral_axis_medium,
     vacuum_um_to_cube_wavelength, remove_systemic_velocity,
 )
-from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
-from .fits_export import build_line_map_header, write_fits_product, _ascii_safe
+from .gaussian_fitter import fit_status_map, STATUS_NO_DATA, DEFAULT_DETECTION_SIGMA
+from .fits_export import build_line_map_header, write_fits_product, set_instrument_keywords, _ascii_safe
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
 from .scale_dialog import ScaleSettings, build_norm
 from .visualization import draw_map
@@ -42,7 +42,7 @@ class GaussianMapWorker(ProgressWorker):
     error = pyqtSignal(str)  # Emits error message if failed
     progress = pyqtSignal(int, int)  # (current, total) - emits progress updates
     
-    def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=3.0,
+    def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=DEFAULT_DETECTION_SIGMA,
                  noise_min=None, noise_max=None, header=None, wave_unit=None, flux_unit=None, lambda_0=None,
                  region_mask=None):
         """
@@ -983,7 +983,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                 self.results,
                 row=row,
                 col=col,
-                fac_above_stdres=self.results.get('fac_above_stdres', 3.0),
+                fac_above_stdres=self.results.get('fac_above_stdres', DEFAULT_DETECTION_SIGMA),
                 noise_min=self.noise_min,
                 noise_max=self.noise_max,
                 flux_unit=self.flux_unit,
@@ -1250,14 +1250,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                     ("SPECY", np.asarray(global_fit['y_data'], dtype=np.float32), None),
                     ("SPECBASE", np.asarray(global_fit['baseline'], dtype=np.float32), None),
                 ]
-            # Get instrument info -- normalized to uppercase, falling back to
-            # cube_data.instrument, same as this dialog has always done.
-            instr = out_header.get('INSTRUME', '').strip().upper() or self.cube_data.instrument or 'UNKNOWN'
-            teles = out_header.get('TELESCOP', '').strip().upper() or 'UNKNOWN'
-            if instr != 'UNKNOWN':
-                out_header['INSTRUME'] = instr
-            if teles != 'UNKNOWN':
-                out_header['TELESCOP'] = teles
+            set_instrument_keywords(out_header, self.cube_data.instrument)
             out_header['COMMENT'] = comment
             out_header['COMMENT'] = f'Gaussian fit parameter: {param_name}'
 

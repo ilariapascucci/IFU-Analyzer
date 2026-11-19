@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
 from .gui_sizing import fit_to_screen
-from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, save_gaussian_fit
+from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, save_gaussian_fit, DEFAULT_DETECTION_SIGMA, MIN_FINITE_POINTS, MIN_NOISE_POINTS
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
 from .line_catalog import available_rest_line_species, collect_rest_line_candidates
 from .species_dialog import SpeciesDialog, RestLineDialog
@@ -23,14 +23,6 @@ from .flux_map_extractor import (
     fit_auto_continuum, automatic_lines, DISPLAY_CROP_SIGMA_MULTIPLIER,
     unreliable_area_error_reason, save_gaussian_parameters, gaussian,
 )
-
-# Same floor fit_gaussians_per_pixel uses for the per-pixel map: below this many finite
-# points, a 3-parameter Gaussian fit has 0-1 degrees of freedom, too little to trust.
-MIN_FINITE_POINTS = 5
-
-# Matches compute_line_free_noise_std's own floor (gaussian_fitter.py): below this
-# many finite points, the noise estimate silently comes back None.
-MIN_NOISE_POINTS = 4
 
 
 class GuiGaussianMixin:
@@ -1248,7 +1240,7 @@ STATUS: {result.message}
         take_resolution_notes()  # drop the warnings of an earlier run
         self.gauss_worker = GaussianMapWorker(
             cube=cube, wavelength=wavelength, lam_min=lam_min, lam_max=lam_max, n_jobs=8,
-            fac_above_stdres=3.0, noise_min=noise_min, noise_max=noise_max,
+            fac_above_stdres=DEFAULT_DETECTION_SIGMA, noise_min=noise_min, noise_max=noise_max,
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
             flux_unit=self.cube_data.flux_unit, lambda_0=self.lambda_0,
             region_mask=region_mask
