@@ -23,9 +23,11 @@ is the only one with no usable default).
 """
 
 import numpy as np
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
+from . import region_io
 from .scale_dialog import scaling_stats_text
+from .utils import make_2d_wcs
 from .visualization import format_sky_position
 
 
@@ -78,6 +80,47 @@ class RegionSelectionMixin:
         """
         return None
 
+    # Words that the save and import messages use. A host sets them to its own wording.
+    _region_noun = "image"
+    _region_no_image_text = "No image is currently loaded on that panel."
+
+    def _region_header(self, target):
+        """FITS header whose WCS places the region of panel ``target``.
+        Save Region and Import Region use it. A host that has them must override it.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            header (astropy.io.fits.Header): Header of the image in the panel.
+
+        Raises:
+            NotImplementedError: if the host does not override this hook.
+        """
+        raise NotImplementedError("The host must give the header of a panel in _region_header.")
+
+    def _region_unavailable(self):
+        """Say why Save Region and Import Region cannot work yet, for example no cube is loaded.
+
+        Args:
+            None
+
+        Returns:
+            reason (tuple): (title, text) for a warning box, or None if the host can go on. None by default.
+        """
+        return None
+
+    def _region_source_desc(self, target):
+        """Short note about the source file of panel ``target`` for the header of a region file.
+
+        Args:
+            target (str): Panel to describe, 'left' or 'right'.
+
+        Returns:
+            desc (str): The note. An empty string by default.
+        """
+        return ""
+
     def _region_pixel_coords(self, target, x, y):
         """(ra_deg, dec_deg) for pixel (x, y) in panel ``target``.
 
@@ -118,15 +161,15 @@ class RegionSelectionMixin:
 
     def _region_slice_stat_keep(self, line):
         """True for existing stats-label lines to preserve above region stats.
-        Default keeps nothing - a region selection replaces the panel stats.
+        The default keeps the whole-image Scaling, vmin and vmax lines. A host can override it.
 
         Args:
             line (str): One line of the current stats label text.
 
         Returns:
-            keep (bool): Whether to preserve this line; False by default.
+            keep (bool): True for a Scaling, vmin or vmax line.
         """
-        return False
+        return line.startswith(("Scaling:", "vmin=", "vmax="))
 
     def _region_on_change(self, target, kind):
         """Post-hook after a selection changes. 3D refreshes the active
@@ -809,3 +852,138 @@ class RegionSelectionMixin:
 
         except Exception as e:
             print(f"Error handling pixel click: {e}")
+
+    def _on_slice_click(self, event, target):
+        """Handle a click on a panel. A click selects one pixel when the Point shape is active.
+
+        Args:
+            event (matplotlib.backend_bases.MouseEvent): Click event.
+            target (str): Panel clicked on, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        if event.inaxes is None:
+            return
+
+        if self.active_shape != "POINT":
+            return
+
+        ax = self.slice1_plotter.ax if target == "left" else self.slice2_plotter.ax
+        if event.inaxes != ax:
+            return
+
+        x = int(round(event.xdata))
+        y = int(round(event.ydata))
+        self._handle_pixel_click(x, y, target)
+
+    # ------------------------------------------------------------ region files
+    def _region_save_wcs_text(self, target):
+        """Save one panel's region as RA/Dec sky coordinates in a text
+        file, so it can be placed on a different image later.
+
+        Args:
+            target (str): Panel whose region to save, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        unavailable = self._region_unavailable()
+        if unavailable is not None:
+            QMessageBox.warning(self, *unavailable)
+            return
+        sel = self.last_selection_left if target == "left" else self.last_selection_right
+        if not sel:
+            QMessageBox.warning(
+                self, "Region Selection Required",
+                f"Select a region or pixel on the {target.capitalize()} side first.")
+            return
+
+        wcs2d = make_2d_wcs(self._region_header(target))
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            QMessageBox.critical(
+                self, "No WCS Available",
+                f"This {self._region_noun} has no usable celestial WCS, so its region can't be saved as sky coordinates.")
+            return
+
+        shape = sel.get("shape")
+        lasso_verts = getattr(sel.get("patch"), "lasso_verts", None) if shape == "POLYGON" else None
+        try:
+            result = region_io.region_shape_to_sky(shape, sel["coords"], wcs2d, lasso_verts=lasso_verts)
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not convert region to sky coordinates:\n{e}")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
+        if not path:
+            return
+        if not path.lower().endswith((".txt", ".csv")):
+            path += ".txt"
+
+        try:
+            region_io.write_region_wcs_txt(
+                path, shape, self._region_source_desc(target), result["pixel_points"], result["sky_points"],
+                result.get("sky_center"), result.get("sky_axis_x"), result.get("sky_axis_y"))
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not write region file:\n{e}")
+            return
+        QMessageBox.information(self, "Export Complete", f"Region saved to:\n{path}")
+
+    def _region_import_wcs_text(self, target):
+        """Load a region saved as WCS text and place it on one panel,
+        using that panel's own WCS to match the same sky position.
+
+        Args:
+            target (str): Panel to place the imported region on, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        unavailable = self._region_unavailable()
+        if unavailable is not None:
+            QMessageBox.warning(self, *unavailable)
+            return
+
+        wcs2d = make_2d_wcs(self._region_header(target))
+        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
+            QMessageBox.critical(
+                self, "No WCS Available",
+                f"This {self._region_noun} has no usable celestial WCS, so a saved region can't be placed on it.")
+            return
+
+        image = self._region_image(target)
+        if image is None:
+            QMessageBox.warning(self, "Import Failed", self._region_no_image_text)
+            return
+
+        path, _ = QFileDialog.getOpenFileName(self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
+        if not path:
+            return
+
+        try:
+            saved = region_io.read_region_wcs_txt(path)
+            placed = region_io.sky_to_region_shape(
+                saved["shape"], saved["sky_points"], saved["sky_center"],
+                saved["sky_axis_x"], saved["sky_axis_y"], wcs2d, target_shape=image.shape)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Failed", str(e))
+            return
+
+        selector = self.region_selector_left if target == "left" else self.region_selector_right
+        if selector.interactive_patch is not None:
+            selector.interactive_patch.disconnect()
+            selector.interactive_patch = None
+
+        shape = placed["shape"]
+        if shape == "POINT":
+            x, y = placed["coords"]
+            self._handle_pixel_click(int(round(x)), int(round(y)), target)
+        elif shape == "POLYGON":
+            selector.active_shape = "POLYGON"
+            selector.on_lasso_select(placed["verts"])
+            selector.active_shape = None
+        else:
+            selector.active_shape = shape
+            coords = tuple(int(round(c)) for c in placed["coords"])
+            selector.create_region(coords)
+            selector.active_shape = None

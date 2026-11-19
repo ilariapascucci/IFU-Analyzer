@@ -11,7 +11,7 @@ import traceback
 from types import SimpleNamespace
 
 import numpy as np
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox,
     QWidget, QFileDialog, QMessageBox, QTextEdit,
@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure, SubplotParams
 
-from .gui_mixins import make_selectable, make_legend_checkbox
+from .gui_mixins import CancellableWorker, make_selectable, make_legend_checkbox
 from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
 from .rotational_diagram_map import (
@@ -56,7 +56,7 @@ _PARAMS = [
 _CATEGORICAL_KEYS = {"n_lines", "status"}
 
 
-class CalculateNativeMapsWorker(QThread):
+class CalculateNativeMapsWorker(CancellableWorker):
     """
     Background thread for the multi-cube "Calculate Maps" button: computes
     each line's own flux map at its cube's native resolution (stage 1 of the
@@ -112,33 +112,8 @@ class CalculateNativeMapsWorker(QThread):
         except Exception as exc:
             self.error.emit(f"{exc}\n{traceback.format_exc()}")
 
-    def _emit_progress(self, current, total):
-        """
-        Forward progress to the GUI.
 
-        Args:
-            current (int): Pixels done
-            total (int): Pixels total
-
-        Returns:
-            None
-        """
-        self.progress.emit(current, total)
-
-    def request_cancel(self):
-        """
-        Ask the run to stop at the next row.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.cancelled = True
-
-
-class CombineMapsWorker(QThread):
+class CombineMapsWorker(CancellableWorker):
     """
     Background thread for Run Map's fast path: recombines already-convolved
     per-line flux maps (Calculate Maps + Convolve Maps already ran) into a
@@ -229,31 +204,6 @@ class CombineMapsWorker(QThread):
                 self.finished.emit(result)
         except Exception as exc:
             self.error.emit(f"{exc}\n{traceback.format_exc()}")
-
-    def _emit_progress(self, current, total):
-        """
-        Forward progress to the GUI.
-
-        Args:
-            current (int): Pixels done
-            total (int): Pixels total
-
-        Returns:
-            None
-        """
-        self.progress.emit(current, total)
-
-    def request_cancel(self):
-        """
-        Ask the run to stop at the next row.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.cancelled = True
 
 
 def column_unit(r_au):
@@ -1383,17 +1333,6 @@ class SelectCubeRegionDialog(QDialog, RegionSelectionMixin):
             text (str): Stats label text.
         """
         return self._map_stats_text() if target == "left" else "Intensity:\n-"
-
-    def _region_slice_stat_keep(self, line):
-        """Keep the whole-map Scaling/vmin/vmax lines above region stats.
-
-        Args:
-            line (str): One line of the current stats label text.
-
-        Returns:
-            keep (bool): True for a Scaling/vmin/vmax line.
-        """
-        return line.startswith(("Scaling:", "vmin=", "vmax="))
 
     def _region_pixel_coords(self, target, x, y):
         """(ra_deg, dec_deg) for pixel (x, y) via the current line's cube WCS.

@@ -16,9 +16,9 @@ from .unit_converter import (
 from .gaussian_fitter import fit_status_map, STATUS_NO_DATA
 from .fits_export import build_line_map_header, write_fits_product, _ascii_safe
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
-from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
+from .scale_dialog import ScaleSettings, build_norm
 from .visualization import draw_map
-from .gui_mixins import MapResultsDialogMixin, make_selectable
+from .gui_mixins import MapResultsDialogMixin, ProgressWorker, make_selectable
 
 # Parameters that flag pixels instead of measuring a quantity.
 _CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
@@ -26,7 +26,7 @@ _CATEGORICAL_PARAMS = ("Fit Status", "Success Mask")
 # Default colors for the categorical Fit Status map, in STATUS_* code order:
 # neutral grey for pixels with nothing to fit, amber for limits, green for detections.
 STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QFileDialog, QMessageBox, QInputDialog, QLineEdit, QWidget
@@ -36,7 +36,7 @@ from matplotlib.figure import Figure
 from matplotlib.colors import ListedColormap
 
 
-class GaussianMapWorker(QThread):
+class GaussianMapWorker(ProgressWorker):
     """Background worker thread for Gaussian map fitting"""
     finished = pyqtSignal(dict)  # Emits results when done
     error = pyqtSignal(str)  # Emits error message if failed
@@ -128,20 +128,7 @@ class GaussianMapWorker(QThread):
             self.error.emit(str(e))
 
 
-    def _emit_progress(self, current, total):
-        """Emit progress signal.
-
-        Args:
-            current (int): Pixels fit so far.
-            total (int): Total pixels to fit.
-
-        Returns:
-            None
-        """
-        self.progress.emit(current, total)
-
-
-class MultiGaussianFitWorker(QThread):
+class MultiGaussianFitWorker(ProgressWorker):
     """Background worker thread for Multi-Gaussian Fit (fit_hitran_lines_collective).
 
     Same shape as GaussianMapWorker above -- a single spectrum with a handful of chunks is
@@ -198,18 +185,6 @@ class MultiGaussianFitWorker(QThread):
             self.finished.emit(fit_pairs, contam_pairs)
         except Exception as e:
             self.error.emit(str(e))
-
-    def _emit_progress(self, current, total):
-        """Relay a fit-progress update through the `progress` signal.
-
-        Args:
-            current (int): Chunks fit so far.
-            total (int): Total chunks to fit.
-
-        Returns:
-            None
-        """
-        self.progress.emit(current, total)
 
 
 class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
@@ -482,24 +457,19 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         
         self.setLayout(layout)
     
-    def _open_scale_dialog(self):
-        """Open the shared scale/range picker for the parameter on screen and redraw.
+    def _scale_dialog_inputs(self):
+        """Give the parameter map on screen to the scale dialog.
 
         Args:
             None
 
         Returns:
-            None
+            inputs (tuple): (data, None), or None if the parameter has no map.
         """
         data = self._resolve_param_array(self.param_combo.currentText())
         if data is None:
-            QMessageBox.warning(self, "No Data", "This parameter has no map to scale.")
-            return
-        dialog = ScaleDialog(self.scale_settings, np.asarray(data, dtype=float), parent=self)
-        if dialog.exec_() != QDialog.Accepted:
-            return
-        self.scale_settings = dialog.result_settings
-        self._update_plot()
+            return None
+        return np.asarray(data, dtype=float), None
 
     def _update_plot(self):
         """Update plot when parameter selection changes.

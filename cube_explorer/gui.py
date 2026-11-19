@@ -33,14 +33,12 @@ from .gui_spectrum import GuiSpectrumMixin
 from .gui_spectrum_file import GuiSpectrumFileMixin
 from .gui_fit_file import GuiFitFileMixin
 from .gui_region_selection import RegionSelectionMixin
-from .gui_mixins import DualPanelViewMixin
+from .gui_mixins import DualPanelViewMixin, make_vertical_separator
 from .visualization import SpectrumPlotter, SlicePlotter
-from .colormap_dialog import ColorMapDialog
-from .scale_dialog import ScaleDialog, ScaleSettings
+from .scale_dialog import ScaleSettings
 from .region_selector import RegionSelector
 from .utils import make_2d_wcs
 from .icon_loader import set_button_icon
-from . import region_io
 from .line_catalog import (
     get_available_molecules, hitran_gui_interface, line_list_format, line_list_species,
     load_contaminating_lines_catalog, load_custom_line_catalog, load_line_list,
@@ -852,31 +850,17 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.instrument_label = QLabel("Instrument: -")
         self.instrument_label.setStyleSheet("font-weight: bold;")
 
-        def separator():
-            """Build a thin vertical line that splits the top-bar button groups.
-
-            Args:
-                None
-
-            Returns:
-                line (QFrame): The vertical separator line.
-            """
-            line = QFrame()
-            line.setFixedWidth(1)
-            line.setStyleSheet("background-color: palette(mid);")
-            return line
-
         self.controls_layout = QHBoxLayout()
         self.controls_layout.addWidget(self.open_btn)
         self.controls_layout.addWidget(self.header_btn)
-        self.controls_layout.addWidget(separator())
+        self.controls_layout.addWidget(make_vertical_separator())
         self.controls_layout.addWidget(self.refresh_btn)
         self.controls_layout.addWidget(self.new_window_btn)
-        self.controls_layout.addWidget(separator())
+        self.controls_layout.addWidget(make_vertical_separator())
         self.controls_layout.addWidget(self.load_spectrum_btn)
         self.controls_layout.addWidget(self.rot_diag_btn)
         self.controls_layout.addWidget(self.two_d_btn)
-        self.controls_layout.addWidget(separator())
+        self.controls_layout.addWidget(make_vertical_separator())
         self.controls_layout.addWidget(self.instrument_label)
         self.controls_layout.addStretch()
 
@@ -1202,8 +1186,22 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         self.show_species_btn.setToolTip("Show the loaded lines. Check the ones to plot on the spectrum.")
         self.show_species_btn.clicked.connect(self.show_available_species)
 
+    # Words of the sidebar tooltips. DualPanelViewMixin builds the buttons.
+    _panel_words = {
+        "shapes": {
+            "POINT": "Point selection",
+            "RECTANGLE": "Rectangle selection",
+            "ELLIPSE": "Ellipse selection",
+            "POLYGON": "Freehand drawing",
+        },
+        "colormap": "Change {side} slice color scale",
+        "clear": "Clear selection on {side} slice",
+        "save": "Save the {side} slice as a 2D FITS (only the region, if one is drawn)",
+    }
+
     def _init_shape_controls(self):
-        """Initialize shape selection buttons.
+        """Initialize the sidebar buttons of the two slices: shapes, colormap, scale, copy,
+        edit shape, clear, save, region and grid.
 
         Args:
             None
@@ -1211,133 +1209,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
-        # Helper function to create shape buttons
-        def make_shape_button(shape, target, callback=None, checkable=True):
-            """Build one square icon button wired to a shape or callback.
-
-            Args:
-                shape (str): Shape name. The icon file has the same name in lower case.
-                target (str): Side the button applies to ('left' or 'right').
-                callback (callable): Click handler; defaults to _set_shape.
-                checkable (bool): Whether the button stays pressed when set.
-
-            Returns:
-                btn (QPushButton): The configured button.
-            """
-            btn = QPushButton()
-            set_button_icon(btn, shape.lower())
-            btn.setCheckable(checkable)
-            btn.setFixedSize(35, 35)
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            if callback is None:
-                btn.clicked.connect(lambda _, s=shape: self._set_shape(s, target=target))
-            else:
-                btn.clicked.connect(callback)
-            return btn
-
-        # Create left and right shape buttons
-        shapes = ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]
-        shape_tooltips = {
-            "POINT": "Point selection",
-            "RECTANGLE": "Rectangle selection",
-            "ELLIPSE": "Ellipse selection",
-            "POLYGON": "Freehand drawing"
-        }
-        self.shape_buttons = {
-            "left": {shape: make_shape_button(shape, "left") for shape in shapes},
-            "right": {shape: make_shape_button(shape, "right") for shape in shapes}
-        }
-        # Add tooltips to shape buttons
-        for side in ["left", "right"]:
-            for shape, tooltip in shape_tooltips.items():
-                self.shape_buttons[side][shape].setToolTip(tooltip)
-
-        # Colormap (color scale) buttons (non-shape, open dialog)
-        self.color_btn_left = QPushButton()
-        set_button_icon(self.color_btn_left, "colormap")
-        self.color_btn_left.setFixedSize(35, 35)
-        self.color_btn_left.setToolTip("Change left slice color scale")
-        self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
-
-        self.color_btn_right = QPushButton()
-        set_button_icon(self.color_btn_right, "colormap")
-        self.color_btn_right.setFixedSize(36, 36)
-        self.color_btn_right.setToolTip("Change right slice color scale")
-        self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
-
-        # Scale selection buttons - square icon buttons that open the scale/
-        # range dialog, matching the other square buttons.
-        self.scale_btn_left = self._make_scale_button('left')
-        self.scale_btn_right = self._make_scale_button('right')
-
-        # One copy button per panel. It opens a menu to copy the selection,
-        # colormap, or scale/range from the other panel.
-        self.copy_menu_btn_l = self._make_copy_button('left')
-        self.copy_menu_btn_r = self._make_copy_button('right')
-
-        # Edit Shape toggle buttons (enable drag/resize on a placed shape)
-        self.edit_shape_btn_l = QPushButton()
-        set_button_icon(self.edit_shape_btn_l, "edit_shape")
-        self.edit_shape_btn_l.setCheckable(True)
-        self.edit_shape_btn_l.setFixedSize(35, 35)
-        self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
-        self.edit_shape_btn_l.setEnabled(False)
-        self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
-
-        self.edit_shape_btn_r = QPushButton()
-        set_button_icon(self.edit_shape_btn_r, "edit_shape")
-        self.edit_shape_btn_r.setCheckable(True)
-        self.edit_shape_btn_r.setFixedSize(35, 35)
-        self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
-        self.edit_shape_btn_r.setEnabled(False)
-        self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
-
-        # Erase (clear) selection buttons
-        self.erase_btn_l = QPushButton()
-        set_button_icon(self.erase_btn_l, "clear")
-        self.erase_btn_l.setFixedSize(35, 35)
-        self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.erase_btn_l.setToolTip("Clear selection on left slice")
-        self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
-
-        self.erase_btn_r = QPushButton()
-        set_button_icon(self.erase_btn_r, "clear")
-        self.erase_btn_r.setFixedSize(35, 35)
-        self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.erase_btn_r.setToolTip("Clear selection on right slice")
-        self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
-
-        # Save slice: the region only if one is drawn, else the whole slice.
-        self.save_slice_btn_l = QPushButton()
-        set_button_icon(self.save_slice_btn_l, "save")
-        self.save_slice_btn_l.setFixedSize(35, 35)
-        self.save_slice_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.save_slice_btn_l.setToolTip(
-            "Save the left slice as a 2D FITS (only the region, if one is drawn)")
-        self.save_slice_btn_l.clicked.connect(lambda: self._region_save_slice("left"))
-
-        self.save_slice_btn_r = QPushButton()
-        set_button_icon(self.save_slice_btn_r, "save")
-        self.save_slice_btn_r.setFixedSize(35, 35)
-        self.save_slice_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.save_slice_btn_r.setToolTip(
-            "Save the right slice as a 2D FITS (only the region, if one is drawn)")
-        self.save_slice_btn_r.clicked.connect(lambda: self._region_save_slice("right"))
-
-        # Save/import region: one menu button in each slice sidebar, so the panel is known.
-        self.region_menu_btn_l = self._make_region_button("left")
-        self.region_menu_btn_r = self._make_region_button("right")
-
-        # RA/Dec grid toggle: one button in each slice sidebar. It is off until a cube with a sky WCS loads.
-        self.grid_btn_l = self._make_grid_button("left")
-        self.grid_btn_r = self._make_grid_button("right")
-
-        for btn in (self.save_slice_btn_l, self.save_slice_btn_r,
-                    self.region_menu_btn_l, self.region_menu_btn_r,
-                    self.grid_btn_l, self.grid_btn_r):
-            btn.setEnabled(False)
+        self._init_panel_buttons()
 
     def _toggle_grid(self, target, checked):
         """Show or hide the RA/Dec grid on one slice.
@@ -2148,17 +2020,6 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         unit = clean_flux_unit(self.cube_data.spectrum_flux_unit)
         return f"sum[{unit}]={total_sum * self.cube_data.spectrum_scale:.3e}"
 
-    def _region_slice_stat_keep(self, line):
-        """Keep the whole-slice Scaling/vmin/vmax lines above region stats.
-
-        Args:
-            line (str): One line of the current stats label text.
-
-        Returns:
-            keep (bool): True for a Scaling/vmin/vmax line.
-        """
-        return line.startswith(("Scaling:", "vmin=", "vmax="))
-
     # Pixel readout omits RA/Dec (sky position is often unavailable here) and
     # wavelength (already shown on the spectrum and slice title).
 
@@ -2216,138 +2077,44 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         kind = "Slice" if mask is None else "Slice (region only)"
         QMessageBox.information(self, "Export Complete", f"{kind} saved to:\n{path}")
 
-    def _region_save_wcs_text(self, target):
-        """Save one panel's region as RA/Dec sky coordinates in a text
-        file, so it can be placed on a different cube later.
+    # Save Region and Import Region run in RegionSelectionMixin. The cube gives the header and the wording.
+    _region_noun = "cube"
+    _region_no_image_text = "No slice is currently displayed on that panel."
+
+    def _region_header(self, target):
+        """FITS header of the loaded cube, whose WCS places a region.
 
         Args:
-            target (str): Panel whose region to save, 'left' or 'right'.
+            target (str): Panel to read from, 'left' or 'right'. Both panels show the same cube.
 
         Returns:
+            header (astropy.io.fits.Header): Header of the cube.
+        """
+        return self.cube_data.header
+
+    def _region_unavailable(self):
+        """Say that Save Region and Import Region need a loaded cube.
+
+        Args:
             None
+
+        Returns:
+            reason (tuple): (title, text) for a warning box, or None if a cube is loaded.
         """
         if getattr(self.cube_data, "cube", None) is None:
-            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
-            return
-        sel = self.last_selection_left if target == "left" else self.last_selection_right
-        if not sel:
-            QMessageBox.warning(
-                self, "Region Selection Required",
-                f"Select a region or pixel on the {target.capitalize()} side first.")
-            return
+            return "No Cube Loaded", "Load a cube first."
+        return None
 
-        wcs2d = make_2d_wcs(self.cube_data.header)
-        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
-            QMessageBox.critical(
-                self, "No WCS Available",
-                "This cube has no usable celestial WCS, so its region can't be saved as sky coordinates.")
-            return
-
-        shape = sel.get("shape")
-        lasso_verts = getattr(sel.get("patch"), "lasso_verts", None) if shape == "POLYGON" else None
-        try:
-            result = region_io.region_shape_to_sky(shape, sel["coords"], wcs2d, lasso_verts=lasso_verts)
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"Could not convert region to sky coordinates:\n{e}")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
-        if not path:
-            return
-        if not path.lower().endswith((".txt", ".csv")):
-            path += ".txt"
-
-        source_desc = os.path.basename(self.cube_data.filename or "")
-        try:
-            region_io.write_region_wcs_txt(
-                path, shape, source_desc, result["pixel_points"], result["sky_points"],
-                result.get("sky_center"), result.get("sky_axis_x"), result.get("sky_axis_y"))
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"Could not write region file:\n{e}")
-            return
-        QMessageBox.information(self, "Export Complete", f"Region saved to:\n{path}")
-
-    def _region_import_wcs_text(self, target):
-        """Load a region saved as WCS text and place it on one panel,
-        using this cube's own WCS to match the same sky position.
+    def _region_source_desc(self, target):
+        """Name of the cube file, for the header of a region file.
 
         Args:
-            target (str): Panel to place the imported region on, 'left' or 'right'.
+            target (str): Panel to describe, 'left' or 'right'.
 
         Returns:
-            None
+            desc (str): File name without the folder.
         """
-        if getattr(self.cube_data, "cube", None) is None:
-            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
-            return
-
-        wcs2d = make_2d_wcs(self.cube_data.header)
-        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
-            QMessageBox.critical(
-                self, "No WCS Available",
-                "This cube has no usable celestial WCS, so a saved region can't be placed on it.")
-            return
-
-        image = self._region_image(target)
-        if image is None:
-            QMessageBox.warning(self, "Import Failed", "No slice is currently displayed on that panel.")
-            return
-
-        path, _ = QFileDialog.getOpenFileName(self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
-        if not path:
-            return
-
-        try:
-            saved = region_io.read_region_wcs_txt(path)
-            placed = region_io.sky_to_region_shape(
-                saved["shape"], saved["sky_points"], saved["sky_center"],
-                saved["sky_axis_x"], saved["sky_axis_y"], wcs2d, target_shape=image.shape)
-        except Exception as e:
-            QMessageBox.warning(self, "Import Failed", str(e))
-            return
-
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-        if selector.interactive_patch is not None:
-            selector.interactive_patch.disconnect()
-            selector.interactive_patch = None
-
-        shape = placed["shape"]
-        if shape == "POINT":
-            x, y = placed["coords"]
-            self._handle_pixel_click(int(round(x)), int(round(y)), target)
-        elif shape == "POLYGON":
-            selector.active_shape = "POLYGON"
-            selector.on_lasso_select(placed["verts"])
-            selector.active_shape = None
-        else:
-            selector.active_shape = shape
-            coords = tuple(int(round(c)) for c in placed["coords"])
-            selector.create_region(coords)
-            selector.active_shape = None
-
-    def _on_slice_click(self, event, target):
-        """Handle clicks on slice display.
-
-        Args:
-            event (matplotlib.backend_bases.MouseEvent): Click event.
-            target (str): Panel clicked on, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        if event.inaxes is None:
-            return
-
-        if self.active_shape != "POINT":
-            return
-
-        ax = self.slice1_plotter.ax if target == "left" else self.slice2_plotter.ax
-        if event.inaxes != ax:
-            return
-
-        x = int(round(event.xdata))
-        y = int(round(event.ydata))
-        self._handle_pixel_click(x, y, target)
+        return os.path.basename(self.cube_data.filename or "")
 
     def _on_spec_click(self, event):
         """Handle clicks on the spectrum display.
@@ -2824,85 +2591,52 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
         self._refresh_active_spectrum_tab()
 
-    def _open_colormap_dialog(self, target):
-        """Open the colormap picker and apply the chosen map to a slice.
+    # The colormap and scale tools run in DualPanelViewMixin. These hooks tie them to the cube slices.
+    _no_image_message = ("No Cube Loaded", "Load a cube first.")
+
+    def _scale_image(self, target):
+        """Give the slice that the scale dialog works on for one panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            image (numpy.ndarray): 2D slice shown in the panel, or None if no cube is loaded.
+        """
+        if getattr(self, 'cube_data', None) is None:
+            return None
+        idx = self.last_idx_left if target == 'left' else self.last_idx_right
+        return self.cube_data.get_slice(idx)
+
+    def _redraw_panel(self, target):
+        """Draw the slice of one panel again. It does nothing if no cube is loaded.
+
+        Args:
+            target (str): Panel to redraw, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        if getattr(self, 'cube_data', None) is not None:
+            idx = self.last_idx_left if target == 'left' else self.last_idx_right
+            self._display_slice(idx, target)
+
+    def _set_panel_cmap(self, target, cmap):
+        """Store the colormap of one slice and show it.
 
         Args:
             target (str): Panel to recolor, 'left' or 'right'.
+            cmap (str): Matplotlib colormap name.
 
         Returns:
             None
         """
-        dialog = ColorMapDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            cmap = dialog.selected_cmap
-            if target == 'left':
-                self.slice1_cmap = cmap
-                self.slice1_plotter.set_cmap(cmap)
-            else:
-                self.slice2_cmap = cmap
-                self.slice2_plotter.set_cmap(cmap)
-
-    def copy_colormap(self, source, target):
-        """Copy one slice's colormap onto the other slice.
-
-        Args:
-            source (str): Panel to copy the colormap from, 'left' or 'right'.
-            target (str): Panel to copy the colormap to, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        src_cmap = getattr(self, 'slice1_cmap' if source == 'left' else 'slice2_cmap', None)
-        if not src_cmap:
-            return
         if target == 'left':
-            self.slice1_cmap = src_cmap
-            self.slice1_plotter.set_cmap(src_cmap)
+            self.slice1_cmap = cmap
+            self.slice1_plotter.set_cmap(cmap)
         else:
-            self.slice2_cmap = src_cmap
-            self.slice2_plotter.set_cmap(src_cmap)
-
-    def _open_scale_dialog(self, target):
-        """Open the scale, gamma, and color range dialog for a slice.
-
-        Args:
-            target (str): Panel to configure, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        if not hasattr(self, 'cube_data') or self.cube_data is None:
-            QMessageBox.warning(self, "No Cube Loaded", "Load a cube first.")
-            return
-
-        idx = self.last_idx_left if target == 'left' else self.last_idx_right
-        image = self.cube_data.get_slice(idx)
-        current = self.slice1_scale if target == 'left' else self.slice2_scale
-
-        dialog = ScaleDialog(current, image, parent=self)
-        if dialog.exec_() != QDialog.Accepted:
-            return
-
-        self._store_scale_settings(target, dialog.result_settings)
-        self._display_slice(idx, target)
-
-    def copy_scale(self, source, target):
-        """Copy one slice's scale type, gamma, and color range onto the other slice.
-
-        Args:
-            source (str): Panel to copy from, 'left' or 'right'.
-            target (str): Panel to copy to, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        settings = self.slice1_scale if source == 'left' else self.slice2_scale
-        self._store_scale_settings(target, settings.copy())
-
-        if hasattr(self, 'cube_data') and self.cube_data is not None:
-            idx = self.last_idx_left if target == 'left' else self.last_idx_right
-            self._display_slice(idx, target)
+            self.slice2_cmap = cmap
+            self.slice2_plotter.set_cmap(cmap)
 
     def _contam_rows(self):
         """Convert the contaminating-line catalog into rows shaped like

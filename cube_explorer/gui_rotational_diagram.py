@@ -23,7 +23,7 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 
 from .convolution_plan_dialog import confirm_convolution_plan
-from .gui_mixins import make_selectable, make_legend_checkbox
+from .gui_mixins import make_selectable, make_legend_checkbox, make_vertical_separator
 from astropy.stats import gaussian_sigma_to_fwhm
 from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
@@ -633,26 +633,12 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         self.new_window_btn.clicked.connect(self._open_new_window)
         header_row.addWidget(self.new_window_btn)
 
-        def separator():
-            """Build a thin vertical line that splits the header row's groups.
-
-            Args:
-                None
-
-            Returns:
-                line (QFrame): The vertical separator line.
-            """
-            line = QFrame()
-            line.setFixedWidth(1)
-            line.setStyleSheet("background-color: palette(mid);")
-            return line
-
-        header_row.addWidget(separator())
+        header_row.addWidget(make_vertical_separator())
 
         self.molecule_label = QLabel("Molecule: --")
         self.molecule_label.setStyleSheet("font-weight: bold;")
         header_row.addWidget(self.molecule_label)
-        header_row.addWidget(separator())
+        header_row.addWidget(make_vertical_separator())
 
         lines_label = QLabel("Lines:")
         lines_label.setStyleSheet("font-weight: bold;")

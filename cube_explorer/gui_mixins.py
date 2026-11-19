@@ -2,13 +2,64 @@
 Small Qt mixins for methods that two windows or two dialogs had copied.
 
 DualPanelViewMixin serves the 3D and 2D dual-panel windows. MapResultsDialogMixin
-serves the Flux Map and Gaussian Map results dialogs.
+serves the Flux Map and Gaussian Map results dialogs. ProgressWorker and
+CancellableWorker serve the background threads of the map dialogs.
 """
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QPushButton, QMenu, QCheckBox
+from PyQt5.QtCore import Qt, QThread
+from PyQt5.QtWidgets import QPushButton, QMenu, QCheckBox, QFrame, QDialog, QMessageBox
 
+from .colormap_dialog import ColorMapDialog
 from .icon_loader import set_button_icon
+from .scale_dialog import ScaleDialog
+
+
+class ProgressWorker(QThread):
+    """Background thread that reports progress through a `progress` signal.
+    The subclass declares `progress = pyqtSignal(int, int)` and calls _emit_progress from its run().
+    """
+
+    def _emit_progress(self, current, total):
+        """Relay a progress update through the `progress` signal.
+
+        Args:
+            current (int): Units done so far.
+            total (int): Total units.
+
+        Returns:
+            None
+        """
+        self.progress.emit(current, total)
+
+
+class CancellableWorker(ProgressWorker):
+    """Progress worker whose run() checks the `cancelled` flag at the end of each row."""
+
+    def request_cancel(self):
+        """Ask the run to stop at the next row.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        self.cancelled = True
+
+
+def make_vertical_separator():
+    """Make a thin vertical line that splits the button groups of a top bar.
+
+    Args:
+        None
+
+    Returns:
+        line (QFrame): The vertical separator line. The caller puts it in a layout.
+    """
+    line = QFrame()
+    line.setFixedWidth(1)
+    line.setStyleSheet("background-color: palette(mid);")
+    return line
 
 
 def make_legend_checkbox(canvas):
@@ -53,13 +104,215 @@ def make_selectable(label):
 class DualPanelViewMixin:
     """Sidebar-button helpers for a window with a left and a right panel.
 
-    The host class must define slice1_scale, slice2_scale, scale_btn_left,
-    scale_btn_right, _open_scale_dialog, copy_selection, copy_colormap, copy_scale,
-    _region_save_wcs_text, _region_import_wcs_text and _toggle_grid. It can set
-    _panel_noun to the word its tooltips use for one panel.
+    The host class must define slice1_scale, slice2_scale, slice1_cmap, slice2_cmap,
+    scale_btn_left, scale_btn_right, copy_selection, _region_save_wcs_text,
+    _region_import_wcs_text, _toggle_grid and the three hooks _scale_image, _redraw_panel
+    and _set_panel_cmap. It can set _panel_noun to the word its tooltips use for one
+    panel, and _no_image_message to the warning that the Scale button shows with no image.
     """
 
     _panel_noun = "slice"
+    _no_image_message = ("No Image Loaded", "Load an image into this panel first.")
+    # Words of the sidebar tooltips. A host sets "shapes" (a tooltip for each shape name) and the
+    # texts "colormap", "clear" and "save". Each text has {side} for 'left' or 'right'.
+    _panel_words = None
+
+    def _make_panel_button(self, icon, tooltip, callback, checkable=False, styled=True):
+        """Build one square icon button of a panel sidebar.
+
+        Args:
+            icon (str): Name of the icon file, without the extension.
+            tooltip (str): Tooltip text.
+            callback (callable): Click handler. It gets the checked state of the click as its first argument.
+            checkable (bool): True if the button stays pressed when clicked.
+            styled (bool): True to give the button the large-font style that the other square buttons have.
+
+        Returns:
+            btn (QPushButton): The configured button.
+        """
+        btn = QPushButton()
+        set_button_icon(btn, icon)
+        if checkable:
+            btn.setCheckable(True)
+        btn.setFixedSize(35, 35)
+        if styled:
+            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
+        btn.setToolTip(tooltip)
+        btn.clicked.connect(callback)
+        return btn
+
+    def _init_panel_buttons(self):
+        """Build the sidebar buttons that both dual-panel windows have: the four shape buttons, colormap,
+        scale, copy, edit shape, clear, save, region and grid, for the left and the right panel.
+        The words of the tooltips come from _panel_words. Save, region and grid stay off until an image loads.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        words = self._panel_words
+        shapes = ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]
+        self.shape_buttons = {
+            side: {shape: self._make_panel_button(
+                       shape.lower(), words["shapes"][shape],
+                       lambda _checked=False, s=shape, t=side: self._set_shape(s, target=t), checkable=True)
+                   for shape in shapes}
+            for side in ("left", "right")
+        }
+
+        self.color_btn_left = self._make_panel_button(
+            "colormap", words["colormap"].format(side="left"),
+            lambda _checked=False: self._open_colormap_dialog('left'), styled=False)
+        self.color_btn_right = self._make_panel_button(
+            "colormap", words["colormap"].format(side="right"),
+            lambda _checked=False: self._open_colormap_dialog('right'), styled=False)
+
+        self.scale_btn_left = self._make_scale_button('left')
+        self.scale_btn_right = self._make_scale_button('right')
+
+        self.copy_menu_btn_l = self._make_copy_button('left')
+        self.copy_menu_btn_r = self._make_copy_button('right')
+
+        # Edit Shape turns on drag and resize handles. It works only on a placed shape.
+        self.edit_shape_btn_l = self._make_panel_button(
+            "edit_shape", "Toggle Edit Shape (drag/resize)",
+            lambda _checked=False: self._toggle_edit_shape("left"), checkable=True)
+        self.edit_shape_btn_r = self._make_panel_button(
+            "edit_shape", "Toggle Edit Shape (drag/resize)",
+            lambda _checked=False: self._toggle_edit_shape("right"), checkable=True)
+        self.edit_shape_btn_l.setEnabled(False)
+        self.edit_shape_btn_r.setEnabled(False)
+
+        self.erase_btn_l = self._make_panel_button(
+            "clear", words["clear"].format(side="left"), lambda _checked=False: self.clear_region("left"))
+        self.erase_btn_r = self._make_panel_button(
+            "clear", words["clear"].format(side="right"), lambda _checked=False: self.clear_region("right"))
+
+        # Save writes the region only if one is drawn, else the whole image.
+        self.save_slice_btn_l = self._make_panel_button(
+            "save", words["save"].format(side="left"), lambda _checked=False: self._region_save_slice("left"))
+        self.save_slice_btn_r = self._make_panel_button(
+            "save", words["save"].format(side="right"), lambda _checked=False: self._region_save_slice("right"))
+
+        self.region_menu_btn_l = self._make_region_button("left")
+        self.region_menu_btn_r = self._make_region_button("right")
+
+        self.grid_btn_l = self._make_grid_button("left")
+        self.grid_btn_r = self._make_grid_button("right")
+
+        for btn in (self.save_slice_btn_l, self.save_slice_btn_r,
+                    self.region_menu_btn_l, self.region_menu_btn_r,
+                    self.grid_btn_l, self.grid_btn_r):
+            btn.setEnabled(False)
+
+    def _scale_image(self, target):
+        """Give the image that the scale dialog works on for one panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            image (numpy.ndarray): 2D image shown in the panel, or None if the panel has none.
+
+        Raises:
+            NotImplementedError: if the host does not override this hook.
+        """
+        raise NotImplementedError("The host must give the image of a panel in _scale_image.")
+
+    def _redraw_panel(self, target):
+        """Draw one panel again, after its scale or colormap changed. It does nothing if the panel has no image.
+
+        Args:
+            target (str): Panel to redraw, 'left' or 'right'.
+
+        Returns:
+            None
+
+        Raises:
+            NotImplementedError: if the host does not override this hook.
+        """
+        raise NotImplementedError("The host must redraw a panel in _redraw_panel.")
+
+    def _set_panel_cmap(self, target, cmap):
+        """Store the colormap of one panel and show it.
+
+        Args:
+            target (str): Panel to recolor, 'left' or 'right'.
+            cmap (str): Matplotlib colormap name.
+
+        Returns:
+            None
+
+        Raises:
+            NotImplementedError: if the host does not override this hook.
+        """
+        raise NotImplementedError("The host must apply a colormap in _set_panel_cmap.")
+
+    def _open_colormap_dialog(self, target):
+        """Open the colormap picker and apply the chosen map to a panel.
+
+        Args:
+            target (str): Panel to recolor, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        dialog = ColorMapDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self._set_panel_cmap(target, dialog.selected_cmap)
+
+    def copy_colormap(self, source, target):
+        """Copy the colormap of one panel onto the other panel.
+
+        Args:
+            source (str): Panel to copy the colormap from, 'left' or 'right'.
+            target (str): Panel to copy the colormap to, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        src_cmap = getattr(self, 'slice1_cmap' if source == 'left' else 'slice2_cmap', None)
+        if not src_cmap:
+            return
+        self._set_panel_cmap(target, src_cmap)
+
+    def _open_scale_dialog(self, target):
+        """Open the scale, gamma, and color range dialog for a panel.
+
+        Args:
+            target (str): Panel to configure, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        image = self._scale_image(target)
+        if image is None:
+            QMessageBox.warning(self, *self._no_image_message)
+            return
+
+        current = self.slice1_scale if target == 'left' else self.slice2_scale
+        dialog = ScaleDialog(current, image, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        self._store_scale_settings(target, dialog.result_settings)
+        self._redraw_panel(target)
+
+    def copy_scale(self, source, target):
+        """Copy the scale type, gamma, and color range of one panel onto the other panel.
+
+        Args:
+            source (str): Panel to copy from, 'left' or 'right'.
+            target (str): Panel to copy to, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        settings = self.slice1_scale if source == 'left' else self.slice2_scale
+        self._store_scale_settings(target, settings.copy())
+        self._redraw_panel(target)
 
     def _store_scale_settings(self, target, settings):
         """Save a panel's scale settings and refresh its Scale button tooltip.
@@ -162,11 +415,48 @@ class DualPanelViewMixin:
 
 
 class MapResultsDialogMixin:
-    """Pixel-select toggle and scale reset shared by the map results dialogs.
+    """Pixel-select toggle, scale dialog and scale reset shared by the map results dialogs.
 
     The host class must define pixel_select_btn, pixel_selection_enabled,
-    scale_settings and _update_plot.
+    scale_settings, _update_plot and the hook _scale_dialog_inputs.
     """
+
+    _no_scale_data_message = ("No Data", "This parameter has no map to scale.")
+
+    def _scale_dialog_inputs(self):
+        """Give the data and the percentile mask for the scale dialog, for the map on screen.
+
+        Args:
+            None
+
+        Returns:
+            inputs (tuple): (data, mask). data is a 2D float array. mask is a boolean array or None.
+                The result is None if the map on screen has no data.
+
+        Raises:
+            NotImplementedError: if the host does not override this hook.
+        """
+        raise NotImplementedError("The host must give the map data in _scale_dialog_inputs.")
+
+    def _open_scale_dialog(self):
+        """Open the shared scale/range picker for the map on screen and redraw.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+        inputs = self._scale_dialog_inputs()
+        if inputs is None:
+            QMessageBox.warning(self, *self._no_scale_data_message)
+            return
+        data, mask = inputs
+        dialog = ScaleDialog(self.scale_settings, data, mask=mask, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        self.scale_settings = dialog.result_settings
+        self._update_plot()
 
     def _toggle_pixel_selection(self):
         """Toggle click-a-pixel mode so the matplotlib toolbar can be used instead.

@@ -6,9 +6,9 @@ Simplified: no parameter dialog, automatic processing of entire spectrum.
 """
 
 import numpy as np
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QMessageBox, QComboBox, QTabWidget, QWidget
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
@@ -17,13 +17,13 @@ from astropy import units as u
 
 from .gui_sizing import fit_to_screen
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
-from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
+from .scale_dialog import ScaleSettings, build_norm
 from .visualization import draw_map
-from .gui_mixins import MapResultsDialogMixin, make_selectable
+from .gui_mixins import CancellableWorker, MapResultsDialogMixin, make_selectable
 from .unit_converter import CGS_FLUX_NAME, clean_flux_unit
 
 
-class FluxMapWorker(QThread):
+class FluxMapWorker(CancellableWorker):
     """Background worker for flux extraction"""
     progress = pyqtSignal(int, int)  # (current, total)
     finished = pyqtSignal(dict)       # Results dict
@@ -93,29 +93,6 @@ class FluxMapWorker(QThread):
             import traceback
             error_msg = f"{str(e)}\n{traceback.format_exc()}"
             self.error.emit(error_msg)
-    
-    def _emit_progress(self, current, total):
-        """Relay a fit-progress update through the `progress` signal.
-
-        Args:
-            current (int): Pixels fit so far.
-            total (int): Total pixels to fit.
-
-        Returns:
-            None
-        """
-        self.progress.emit(current, total)
-
-    def request_cancel(self):
-        """Request cancellation.
-
-        Args:
-            None
-
-        Returns:
-            None
-        """
-        self.cancelled = True
 
 
 class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
@@ -557,22 +534,17 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
             return None
         return np.isfinite(data) & (data != 0)
 
-    def _open_scale_dialog(self):
-        """Open the shared scale/range picker for the map on screen and redraw.
+    def _scale_dialog_inputs(self):
+        """Give the flux map and its percentile mask to the scale dialog.
 
         Args:
             None
 
         Returns:
-            None
+            inputs (tuple): (data, mask) of the map on screen.
         """
         data, _, _, is_flux = self._current_map()
-        dialog = ScaleDialog(self.scale_settings, data,
-                             mask=self._percentile_mask(data, is_flux), parent=self)
-        if dialog.exec_() != QDialog.Accepted:
-            return
-        self.scale_settings = dialog.result_settings
-        self._update_plot()
+        return data, self._percentile_mask(data, is_flux)
 
     def _update_plot(self):
         """Update visualization.

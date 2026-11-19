@@ -37,14 +37,12 @@ from .convolution_plan_dialog import confirm_convolution_plan
 from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
 from .visualization import SlicePlotter, apply_wcs_grid, hide_wcs_grid
-from .colormap_dialog import ColorMapDialog
-from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
+from .scale_dialog import ScaleSettings, build_norm
 from .superimposition_dialog import SuperimpositionWindow, PairSuperimpositionWindow, draw_layers, contour_levels
 from .region_selector import RegionSelector
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
 from .icon_loader import set_button_icon
-from . import region_io
 from .utils import (
     detect_instrument, detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
     is_per_pixel_flux_unit, wcs_footprints_overlap,
@@ -898,102 +896,62 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             lambda mask, patch, coords: self._handle_region_select(mask, patch, coords, "right")
         )
 
-    def _open_colormap_dialog(self, target):
-        """Opens the colormap dialog and applies the selection to the chosen panel.
+    # The colormap and scale tools run in DualPanelViewMixin. These hooks tie them to the two images.
+    def _scale_image(self, target):
+        """Give the image that the scale dialog works on for one panel.
+
+        Args:
+            target (str): Panel to read from, 'left' or 'right'.
+
+        Returns:
+            image (numpy.ndarray): 2D image shown in the panel, or None if the panel has none.
+        """
+        return self.image_left if target == 'left' else self.image_right
+
+    def _redraw_panel(self, target):
+        """Draw the image of one panel again. It does nothing if the panel has no image.
+
+        Args:
+            target (str): Panel to redraw, 'left' or 'right'.
+
+        Returns:
+            None
+        """
+        if self._scale_image(target) is not None:
+            self.display_image(target)
+
+    def _set_panel_cmap(self, target, cmap):
+        """Store the colormap of one panel and draw its image again.
 
         Args:
             target (str): Panel to recolor, 'left' or 'right'.
+            cmap (str): Matplotlib colormap name.
 
         Returns:
             None
         """
-        # Open the custom dialog imported at the top of the file
-        dialog = ColorMapDialog(self)
-        
-        if dialog.exec_():
-            # Safely extract the chosen colormap string from the dialog
-            # (Checking the most common variable names used in custom PyQt dialogs)
-            selected_cmap = getattr(dialog, 'selected_cmap', None)
-            if selected_cmap is None and hasattr(dialog, 'get_colormap'):
-                selected_cmap = dialog.get_colormap()
-            if selected_cmap is None:
-                selected_cmap = getattr(dialog, 'cmap', 'magma') # fallback
-
-            if selected_cmap:
-                # Apply the colormap to the correct panel variable
-                if target == 'left':
-                    self.slice1_cmap = selected_cmap
-                else:
-                    self.slice2_cmap = selected_cmap
-                    
-                # Force the image to redraw with the new colors (if an image is loaded)
-                if target == 'left' and self.image_left is not None:
-                    self.display_image('left')
-                elif target == 'right' and self.image_right is not None:
-                    self.display_image('right')
-
-    def copy_colormap(self, source, target):
-        """Copy the source panel's colormap onto the target panel (matches 3D).
-
-        Args:
-            source (str): Panel to copy the colormap from, 'left' or 'right'.
-            target (str): Panel to copy the colormap to, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        src_cmap = getattr(self, 'slice1_cmap' if source == 'left' else 'slice2_cmap', None)
-        if not src_cmap:
-            return
         if target == 'left':
-            self.slice1_cmap = src_cmap
-            if self.image_left is not None:
-                self.display_image('left')
+            self.slice1_cmap = cmap
         else:
-            self.slice2_cmap = src_cmap
-            if self.image_right is not None:
-                self.display_image('right')
+            self.slice2_cmap = cmap
+        self._redraw_panel(target)
 
-    def _open_scale_dialog(self, target):
-        """Open the scale, gamma, and color range dialog for a panel (matches 3D).
-
-        Args:
-            target (str): Panel to configure, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        image = self.image_left if target == 'left' else self.image_right
-        if image is None:
-            QMessageBox.warning(self, "No Image Loaded", "Load an image into this panel first.")
-            return
-
-        current = self.slice1_scale if target == 'left' else self.slice2_scale
-        dialog = ScaleDialog(current, image, parent=self)
-        if dialog.exec_() != QDialog.Accepted:
-            return
-
-        self._store_scale_settings(target, dialog.result_settings)
-        self.display_image(target)
-
-    def copy_scale(self, source, target):
-        """Copy one panel's scale type, gamma, and color range onto the other (matches 3D).
-
-        Args:
-            source (str): Panel to copy from, 'left' or 'right'.
-            target (str): Panel to copy to, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        settings = self.slice1_scale if source == 'left' else self.slice2_scale
-        self._store_scale_settings(target, settings.copy())
-        image = self.image_left if target == 'left' else self.image_right
-        if image is not None:
-            self.display_image(target)
+    # Words of the sidebar tooltips. DualPanelViewMixin builds the buttons.
+    _panel_words = {
+        "shapes": {
+            "POINT": "Select one pixel.",
+            "RECTANGLE": "Select a rectangle.",
+            "ELLIPSE": "Select an ellipse.",
+            "POLYGON": "Select a freehand shape.",
+        },
+        "colormap": "Change the color map of the {side} image.",
+        "clear": "Clear the selection on the {side} image.",
+        "save": "Save the {side} image as a 2D FITS (only the region, if one is drawn)",
+    }
 
     def _init_shape_controls(self):
-        """Initialize shape selection buttons.
+        """Initialize the sidebar buttons of the two panels, and the bottom row of groups.
+        The shared buttons come from DualPanelViewMixin. Rotate and Contour are only here.
 
         Args:
             None
@@ -1001,123 +959,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
-        def make_shape_button(shape, target, callback=None):
-            """Build one square icon button wired to a shape or callback.
-
-            Args:
-                shape (str): Shape name. The icon file has the same name in lower case.
-                target (str): Side the button applies to ('left' or 'right').
-                callback (callable): Click handler; defaults to _set_shape.
-
-            Returns:
-                btn (QPushButton): The configured button.
-            """
-            btn = QPushButton()
-            set_button_icon(btn, shape.lower())
-            btn.setCheckable(True)
-            btn.setFixedSize(35, 35)
-            btn.setStyleSheet("QPushButton { font-size: 18pt; }")
-            if callback is None:
-                btn.clicked.connect(lambda _, s=shape: self._set_shape(s, target=target))
-            else:
-                btn.clicked.connect(callback)
-            return btn
-
-        shapes = ["POINT", "RECTANGLE", "ELLIPSE", "POLYGON"]
-        self.shape_buttons = {
-            "left": {shape: make_shape_button(shape, "left") for shape in shapes},
-            "right": {shape: make_shape_button(shape, "right") for shape in shapes}
-        }
-        shape_tooltips = {
-            "POINT": "Select one pixel.", "RECTANGLE": "Select a rectangle.",
-            "ELLIPSE": "Select an ellipse.", "POLYGON": "Select a freehand shape.",
-        }
-        for side in ("left", "right"):
-            for shape, tooltip in shape_tooltips.items():
-                self.shape_buttons[side][shape].setToolTip(tooltip)
-
-        self.color_btn_left = QPushButton()
-        set_button_icon(self.color_btn_left, "colormap")
-        self.color_btn_left.setFixedSize(35, 35)
-        self.color_btn_left.setToolTip("Change the color map of the left image.")
-        self.color_btn_left.clicked.connect(lambda: self._open_colormap_dialog('left'))
-
-        self.color_btn_right = QPushButton()
-        set_button_icon(self.color_btn_right, "colormap")
-        self.color_btn_right.setFixedSize(35, 35)
-        self.color_btn_right.setToolTip("Change the color map of the right image.")
-        self.color_btn_right.clicked.connect(lambda: self._open_colormap_dialog('right'))
-
-        # Scale selection buttons - square icon buttons that open the scale/
-        # range dialog, matching the 3D window's own scale buttons.
-        self.scale_btn_left = self._make_scale_button('left')
-        self.scale_btn_right = self._make_scale_button('right')
-
-        # One copy button per panel. It opens a menu to copy the selection,
-        # colormap, or scale/range from the other panel (matches the 3D window).
-        self.copy_menu_btn_l = self._make_copy_button('left')
-        self.copy_menu_btn_r = self._make_copy_button('right')
-
-        self.erase_btn_l = QPushButton()
-        set_button_icon(self.erase_btn_l, "clear")
-        self.erase_btn_l.setFixedSize(35, 35)
-        self.erase_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.erase_btn_l.setToolTip("Clear the selection on the left image.")
-        self.erase_btn_l.clicked.connect(lambda: self.clear_region("left"))
-
-        self.erase_btn_r = QPushButton()
-        set_button_icon(self.erase_btn_r, "clear")
-        self.erase_btn_r.setFixedSize(35, 35)
-        self.erase_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.erase_btn_r.setToolTip("Clear the selection on the right image.")
-        self.erase_btn_r.clicked.connect(lambda: self.clear_region("right"))
-
-        # Edit Shape: toggles drag/resize handles on a placed selection.
-        # Enabled only in the "placed" state (and not for pixel selections).
-        self.edit_shape_btn_l = QPushButton()
-        set_button_icon(self.edit_shape_btn_l, "edit_shape")
-        self.edit_shape_btn_l.setCheckable(True)
-        self.edit_shape_btn_l.setFixedSize(35, 35)
-        self.edit_shape_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.edit_shape_btn_l.setToolTip("Toggle Edit Shape (drag/resize)")
-        self.edit_shape_btn_l.setEnabled(False)
-        self.edit_shape_btn_l.clicked.connect(lambda: self._toggle_edit_shape("left"))
-
-        self.edit_shape_btn_r = QPushButton()
-        set_button_icon(self.edit_shape_btn_r, "edit_shape")
-        self.edit_shape_btn_r.setCheckable(True)
-        self.edit_shape_btn_r.setFixedSize(35, 35)
-        self.edit_shape_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.edit_shape_btn_r.setToolTip("Toggle Edit Shape (drag/resize)")
-        self.edit_shape_btn_r.setEnabled(False)
-        self.edit_shape_btn_r.clicked.connect(lambda: self._toggle_edit_shape("right"))
-
-        # Save image: the region only if one is drawn, else the whole image.
-        self.save_slice_btn_l = QPushButton()
-        set_button_icon(self.save_slice_btn_l, "save")
-        self.save_slice_btn_l.setFixedSize(35, 35)
-        self.save_slice_btn_l.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.save_slice_btn_l.setToolTip(
-            "Save the left image as a 2D FITS (only the region, if one is drawn)")
-        self.save_slice_btn_l.clicked.connect(lambda: self._region_save_slice("left"))
-        self.save_slice_btn_l.setEnabled(False)
-
-        self.save_slice_btn_r = QPushButton()
-        set_button_icon(self.save_slice_btn_r, "save")
-        self.save_slice_btn_r.setFixedSize(35, 35)
-        self.save_slice_btn_r.setStyleSheet("QPushButton { font-size: 18pt; }")
-        self.save_slice_btn_r.setToolTip(
-            "Save the right image as a 2D FITS (only the region, if one is drawn)")
-        self.save_slice_btn_r.clicked.connect(lambda: self._region_save_slice("right"))
-        self.save_slice_btn_r.setEnabled(False)
-
-        # Save/import region: one menu button in each sidebar, so the panel is known.
-        self.region_menu_btn_l = self._make_region_button("left")
-        self.region_menu_btn_r = self._make_region_button("right")
-
-        # RA/Dec grid toggle: one button in each sidebar. It is off until an image with a sky WCS loads.
-        self.grid_btn_l = self._make_grid_button("left")
-        self.grid_btn_r = self._make_grid_button("right")
+        self._init_panel_buttons()
 
         # Rotate and Contour: one button per panel, under the other sidebar buttons.
         # They stay off until an image loads into the panel.
@@ -1126,9 +968,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.contour_btn_l = self._make_contour_button("left")
         self.contour_btn_r = self._make_contour_button("right")
 
-        for btn in (self.region_menu_btn_l, self.region_menu_btn_r,
-                    self.grid_btn_l, self.grid_btn_r,
-                    self.rotate_btn_l, self.rotate_btn_r,
+        for btn in (self.rotate_btn_l, self.rotate_btn_r,
                     self.contour_btn_l, self.contour_btn_r):
             btn.setEnabled(False)
 
@@ -2689,17 +2529,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return clean_flux_unit(str(header["BUNIT"]))
         return ""
 
-    def _region_slice_stat_keep(self, line):
-        """Keep the whole-image Scaling/vmin/vmax lines above region stats.
-
-        Args:
-            line (str): One line of the current stats label text.
-
-        Returns:
-            keep (bool): True for a Scaling/vmin/vmax line.
-        """
-        return line.startswith(("Scaling:", "vmin=", "vmax="))
-
     def _region_pixel_coords(self, target, x, y):
         """Convert a pixel position to sky coordinates for the given panel.
 
@@ -2768,127 +2597,28 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         kind = "Slice" if mask is None else "Slice (region only)"
         QMessageBox.information(self, "Export Complete", f"{kind} saved to:\n{path}")
 
-    def _region_save_wcs_text(self, target):
-        """Save one panel's region as RA/Dec sky coordinates in a text
-        file, so it can be placed on a different 2D image later.
+    # Save Region and Import Region run in RegionSelectionMixin. Each panel gives its own header.
+    def _region_header(self, target):
+        """FITS header of the image in one panel, whose WCS places a region.
 
         Args:
-            target (str): Panel whose region to save, 'left' or 'right'.
+            target (str): Panel to read from, 'left' or 'right'.
 
         Returns:
-            None
+            header (astropy.io.fits.Header): Header of the image in the panel.
         """
-        sel = self.last_selection_left if target == "left" else self.last_selection_right
-        if not sel:
-            QMessageBox.warning(
-                self, "Region Selection Required",
-                f"Select a region or pixel on the {target.capitalize()} side first.")
-            return
+        return self.header_left if target == "left" else self.header_right
 
-        header = self.header_left if target == "left" else self.header_right
-        wcs2d = make_2d_wcs(header)
-        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
-            QMessageBox.critical(
-                self, "No WCS Available",
-                "This image has no usable celestial WCS, so its region can't be saved as sky coordinates.")
-            return
-
-        shape = sel.get("shape")
-        lasso_verts = getattr(sel.get("patch"), "lasso_verts", None) if shape == "POLYGON" else None
-        try:
-            result = region_io.region_shape_to_sky(shape, sel["coords"], wcs2d, lasso_verts=lasso_verts)
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"Could not convert region to sky coordinates:\n{e}")
-            return
-
-        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
-        if not path:
-            return
-        if not path.lower().endswith((".txt", ".csv")):
-            path += ".txt"
-
-        source_desc = getattr(self, f"filename_{target}", None) or ""
-        try:
-            region_io.write_region_wcs_txt(
-                path, shape, source_desc, result["pixel_points"], result["sky_points"],
-                result.get("sky_center"), result.get("sky_axis_x"), result.get("sky_axis_y"))
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"Could not write region file:\n{e}")
-            return
-        QMessageBox.information(self, "Export Complete", f"Region saved to:\n{path}")
-
-    def _region_import_wcs_text(self, target):
-        """Load a region saved as WCS text and place it on one panel,
-        using that panel's own image WCS to match the same sky position.
+    def _region_source_desc(self, target):
+        """Name of the file in one panel, for the header of a region file.
 
         Args:
-            target (str): Panel to place the imported region on, 'left' or 'right'.
+            target (str): Panel to describe, 'left' or 'right'.
 
         Returns:
-            None
+            desc (str): The file name, or an empty string.
         """
-        header = self.header_left if target == "left" else self.header_right
-        wcs2d = make_2d_wcs(header)
-        if wcs2d is None or not getattr(wcs2d, "has_celestial", False):
-            QMessageBox.critical(
-                self, "No WCS Available",
-                "This image has no usable celestial WCS, so a saved region can't be placed on it.")
-            return
-
-        image = self._region_image(target)
-        if image is None:
-            QMessageBox.warning(self, "Import Failed", "No image is currently loaded on that panel.")
-            return
-
-        path, _ = QFileDialog.getOpenFileName(self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
-        if not path:
-            return
-
-        try:
-            saved = region_io.read_region_wcs_txt(path)
-            placed = region_io.sky_to_region_shape(
-                saved["shape"], saved["sky_points"], saved["sky_center"],
-                saved["sky_axis_x"], saved["sky_axis_y"], wcs2d, target_shape=image.shape)
-        except Exception as e:
-            QMessageBox.warning(self, "Import Failed", str(e))
-            return
-
-        selector = self.region_selector_left if target == "left" else self.region_selector_right
-        if selector.interactive_patch is not None:
-            selector.interactive_patch.disconnect()
-            selector.interactive_patch = None
-
-        shape = placed["shape"]
-        if shape == "POINT":
-            x, y = placed["coords"]
-            self._handle_pixel_click(int(round(x)), int(round(y)), target)
-        elif shape == "POLYGON":
-            selector.active_shape = "POLYGON"
-            selector.on_lasso_select(placed["verts"])
-            selector.active_shape = None
-        else:
-            selector.active_shape = shape
-            coords = tuple(int(round(c)) for c in placed["coords"])
-            selector.create_region(coords)
-            selector.active_shape = None
-
-    def _on_slice_click(self, event, target):
-        """Handle clicks on a slice display.
-
-        Args:
-            event (matplotlib.backend_bases.MouseEvent): Click event.
-            target (str): Panel clicked on, 'left' or 'right'.
-
-        Returns:
-            None
-        """
-        if event.inaxes is None or self.active_shape != "POINT": return
-
-        ax = self.slice1_plotter.ax if target == "left" else self.slice2_plotter.ax
-        if event.inaxes != ax: return
-
-        x, y = int(round(event.xdata)), int(round(event.ydata))
-        self._handle_pixel_click(x, y, target)
+        return getattr(self, f"filename_{target}", None) or ""
 
     def prompt_and_match_resolution(self):
         """"Pair" button: convolve the shorter-wavelength panel to the
