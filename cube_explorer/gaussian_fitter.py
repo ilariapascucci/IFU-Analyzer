@@ -13,7 +13,7 @@ from astropy.units import Quantity
 from typing import Optional, Tuple
 import threading
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 import numpy as np
 from astropy.stats import gaussian_sigma_to_fwhm, mad_std
 from scipy.optimize import curve_fit
@@ -186,142 +186,50 @@ def save_gaussian_fit(path, wavelength, spectrum, results, wave_unit=None, flux_
                    header_lines=header_lines, markers=markers)
 
 
-def export_residual_cube_fits(cube, wavelength, lam_min=None, lam_max=None, n_jobs=None, out_path="residual_cube.fits", return_cube=False, header=None, precomputed_cube=None, instrument_hint=None):
+def write_residual_cube_fits(residual_cube, out_path="residual_cube.fits", header=None, instrument_hint=None):
     """
-    Fit a Gaussian to every pixel and write a cube of normalized residuals, (y_corrected - y_fit) / std, to FITS.
+    Write the normalized residual cube of a Gaussian map to a FITS file.
+    The map keeps these residuals, (y_corrected - y_fit) / noise, when it fits each pixel.
+    This function fits nothing again.
 
     Args:
-        cube (array): 3D data cube with shape (n_wavelength, n_y, n_x)
-        wavelength (array): 1D wavelength array with length n_wavelength
-        lam_min (float): Minimum wavelength for the fit window. Defaults to wavelength[0]
-        lam_max (float): Maximum wavelength for the fit window. Defaults to wavelength[-1]
-        n_jobs (int): Number of worker threads. Defaults to auto-detect CPUs
+        residual_cube (numpy.ndarray): The 'residuals_cube' of a Gaussian map, with shape
+            (n_wavelength_in_fit_window, n_y, n_x)
         out_path (str): Output FITS filename
-        return_cube (bool): If True, return the cube instead of writing to file
-        header (astropy.io.fits.Header): Optional FITS header from the original cube to copy metadata
-        precomputed_cube (array): Already-fitted residual cube to reuse instead of refitting
+        header (astropy.io.fits.Header): Header of the original cube, to copy its metadata, or None
         instrument_hint (str): Instrument name used if the header lacks INSTRUME/TELESCOP
 
     Returns:
-        result (array or None): Residual cube if return_cube is True, else None (writes FITS to out_path)
+        None
+
+    Raises:
+        ValueError: if residual_cube does not have 3 dimensions
     """
-    # Use same wavelength mask as fit_gaussians_per_pixel
-    n_wave, n_y, n_x = cube.shape
-    if lam_min is None:
-        lam_min = wavelength[0]
-    if lam_max is None:
-        lam_max = wavelength[-1]
-    wave_mask = (wavelength >= lam_min) & (wavelength <= lam_max)
-    x_data = wavelength[wave_mask]
-    n_wave_sel = len(x_data)
+    residual_cube = np.asarray(residual_cube).astype(np.float32, copy=False)
+    if residual_cube.ndim != 3:
+        raise ValueError(f"The residual cube must have 3 dimensions, but it has {residual_cube.ndim}.")
+    n_wave_sel, n_y, n_x = residual_cube.shape
 
-    # Prepare output cube
-    # If provided, use precomputed residual cube to avoid recomputation
-    if precomputed_cube is not None:
-        residual_cube = precomputed_cube.astype(np.float32, copy=False)
+    if header is not None:
+        out_header = header.copy()
     else:
-        residual_cube = np.full((n_wave_sel, n_y, n_x), np.nan, dtype=np.float32)
+        out_header = fits.Header()
 
-    # Fit per pixel (parallel)
-    def _fit_residual_row(row_idx):
-        """
-        Fit a plain Gaussian to every pixel in one cube row and compute normalized residuals.
+    set_instrument_keywords(out_header, instrument_hint)
+    out_header['BUNIT'] = 'Normalized Residuals'
+    out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + ' (Residuals)')
+    out_header['COMMENT'] = 'Gaussian fit residuals: (data - fit) / noise; wavelength-limited'
 
-        Args:
-            row_idx (int): Row index in the cube's spatial y-axis
+    # Update NAXIS and axis sizes
+    out_header['NAXIS'] = 3
+    out_header['NAXIS1'] = int(n_x)
+    out_header['NAXIS2'] = int(n_y)
+    out_header['NAXIS3'] = int(n_wave_sel)
 
-        Returns:
-            row (tuple): (row_idx, row_residuals), row_residuals shape (n_wave_sel, n_x)
-        """
-        spectra_row = cube[wave_mask, row_idx, :]  # shape: (n_wave_sel, n_x)
-        row_residuals = np.full((n_wave_sel, n_x), np.nan, dtype=np.float32)
-        for ix in range(n_x):
-            y_data = spectra_row[:, ix]
-            # Skip pixels with all NaNs
-            if np.all(np.isnan(y_data)):
-                continue
-            # Skip if all NaN
-            if np.all(np.isnan(y_data)):
-                continue
-            y1 = y_data[0]
-            y2 = y_data[-1]
-            #NBedit: Added y_data to the calculate_baseline function
-            baseline = calculate_baseline(x_data[0], y1, x_data[-1], y2, x_data, y_data)
-            y_corrected = y_data - baseline
-            mean_val = np.nanmean(y_corrected)
-            std_val = np.nanstd(y_corrected)
-            # Skip if mean or std are NaN
-            if np.isnan(mean_val) or np.isnan(std_val):
-                continue
-            guess = estimate_initial_gaussian_guess(x_data, y_corrected)
-            if guess is None:
-                continue
-            amp_guess, center_guess, sigma_guess = guess
-            if np.nanmax(y_corrected) <= 0:
-                continue
-            bounds = ([0, x_data[0], 0.001 * (x_data[-1] - x_data[0])],
-                      [10 * np.nanmax(y_corrected), x_data[-1], 2 * (x_data[-1] - x_data[0])])
-            # Clamp initial guesses to be within bounds
-            amp_guess = np.clip(amp_guess, bounds[0][0], bounds[1][0])
-            center_guess = np.clip(center_guess, bounds[0][1], bounds[1][1])
-            sigma_guess = np.clip(sigma_guess, bounds[0][2], bounds[1][2])
-            try:
-                popt, _ = curve_fit(
-                    gaussian, x_data, y_corrected,
-                    p0=[amp_guess, center_guess, sigma_guess],
-                    bounds=bounds,
-                    maxfev=1000
-                )
-                amplitude, center, sigma = popt
-                y_fit = gaussian(x_data, amplitude, center, sigma)
-                # Normalize residuals by std
-                std_for_norm = std_val if std_val > 0 else 1.0
-                norm_residuals = (y_corrected - y_fit) / std_for_norm
-                row_residuals[:, ix] = norm_residuals.astype(np.float32)
-            except Exception:
-                continue
-        return row_idx, row_residuals
-
-    # Determine workers
-    if n_jobs is None:
-        try:
-            cpu = os.cpu_count() or 1
-        except Exception:
-            cpu = 1
-        n_jobs = max(1, min(cpu, 8))
-
-    if precomputed_cube is None:
-        with ThreadPoolExecutor(max_workers=n_jobs) as ex:
-            futures = [ex.submit(_fit_residual_row, iy) for iy in range(n_y)]
-            for fut in as_completed(futures):
-                row_idx, row_residuals = fut.result()
-                residual_cube[:, row_idx, :] = row_residuals
-
-    # Return cube or write FITS file
-    if return_cube:
-        return residual_cube
-    else:
-        # Create HDU with header if provided
-        if header is not None:
-            out_header = header.copy()
-        else:
-            out_header = fits.Header()
-
-        set_instrument_keywords(out_header, instrument_hint)
-        out_header['BUNIT'] = 'Normalized Residuals'
-        out_header['OBJECT'] = (out_header.get('OBJECT', 'Unknown') + ' (Residuals)')
-        out_header['COMMENT'] = 'Gaussian fit residuals: (data - fit) / noise; wavelength-limited'
-
-        # Update NAXIS and axis sizes
-        out_header['NAXIS'] = 3
-        out_header['NAXIS1'] = int(n_x)
-        out_header['NAXIS2'] = int(n_y)
-        out_header['NAXIS3'] = int(n_wave_sel)
-
-        hdu = fits.PrimaryHDU(residual_cube, header=out_header)
-        hdul = fits.HDUList([hdu])
-        hdul.writeto(out_path, overwrite=True)
-        print(f"Residual cube FITS written to {out_path}")
+    hdu = fits.PrimaryHDU(residual_cube, header=out_header)
+    hdul = fits.HDUList([hdu])
+    hdul.writeto(out_path, overwrite=True)
+    print(f"Residual cube FITS written to {out_path}")
 
 
 @dataclass
@@ -741,7 +649,7 @@ def estimate_initial_gaussian_guess(x_data: np.ndarray,
                                     y_corrected: np.ndarray) -> Optional[Tuple[float, float, float]]:
     """
     Estimate an initial (amplitude, center, sigma) guess for a single pixel's spectrum from the
-    peak and half-width of its shape. Shared by export_residual_cube_fits and by
+    peak and half-width of its shape. Shared by the per-pixel map and by
     fit_gaussians_per_pixel, which uses it only when its global seed fit fails.
 
     Args:

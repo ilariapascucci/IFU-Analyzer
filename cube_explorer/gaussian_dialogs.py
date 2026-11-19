@@ -1055,16 +1055,11 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         )
         if out_path:
             try:
-                from .gaussian_fitter import export_residual_cube_fits
-                residual_cube = self.results['residuals_cube']
-                export_residual_cube_fits(
-                    self.cube_data.cube, 
-                    self.wavelength,
-                    min(self.gauss_left_x, self.gauss_right_x),
-                    max(self.gauss_left_x, self.gauss_right_x),
-                    out_path=out_path, 
+                from .gaussian_fitter import write_residual_cube_fits
+                write_residual_cube_fits(
+                    self.results['residuals_cube'],
+                    out_path=out_path,
                     header=self.cube_data.header,
-                    precomputed_cube=residual_cube,
                     instrument_hint=self.cube_data.instrument
                 )
                 QMessageBox.information(

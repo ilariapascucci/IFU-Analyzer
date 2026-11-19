@@ -521,7 +521,7 @@ from .gaussian_fitter import (
     fit_gaussian_to_line,
     calculate_equivalent_width,
     fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
-    export_residual_cube_fits as _export_residual_cube_fits_internal,
+    write_residual_cube_fits as _write_residual_cube_fits,
     save_gaussian_fit as _save_gaussian_fit_internal,
 )
 from .flux_map_extractor import (
@@ -982,42 +982,34 @@ def create_velocity_map(cube_data, maps, rest_wavelength, systemic_velocity=0.0)
     return _remove_systemic_velocity(velocity, systemic_velocity)
 
 
-def export_residual_cube(cube_data, out_path="residual_cube.fits", lam_min=None,
-                          lam_max=None, n_jobs=None, return_cube=False):
+def export_residual_cube(cube_data, maps, out_path="residual_cube.fits"):
     """
-    Fit and subtract a Gaussian at every pixel, writing the residual cube to FITS.
+    Save the residual cube of a Gaussian map to a FITS file. This is the "Residuals" export of the
+    Gaussian map window. The residuals are the ones that the map kept when it fitted each pixel:
+    (data - fit) / noise, inside the fit window. Nothing is fitted again.
 
     Args:
-        cube_data (CubeData): Loaded cube from load_cube()
+        cube_data (CubeData): Loaded cube that the map was fitted on. It gives the header.
+        maps (dict): Result of create_gaussian_map(). It must have 'residuals_cube'.
         out_path (str): Output FITS filename (default "residual_cube.fits")
-        lam_min (float, optional): Minimum wavelength for the fit window
-        lam_max (float, optional): Maximum wavelength for the fit window
-        n_jobs (int, optional): Number of worker threads (default: auto-detect CPUs)
-        return_cube (bool): If True, return the residual array instead of writing
-            to out_path -- the two are exclusive, not additive: out_path is
-            ignored when return_cube is True.
 
     Returns:
-        array or None: The residual cube if return_cube is True; otherwise None
-            (the FITS file is written to out_path as a side effect instead).
+        None: The FITS file is written to out_path. To use the residuals as an array, read
+        maps['residuals_cube'].
+
+    Raises:
+        ValueError: if maps has no 'residuals_cube', for example a map that was cancelled
 
     Example:
         >>> cube = load_cube("data.fits")
-        >>> export_residual_cube(cube, out_path="residual.fits", lam_min=4.65, lam_max=4.70)
+        >>> maps = create_gaussian_map(cube, lam_min=4.65, lam_max=4.70)
+        >>> export_residual_cube(cube, maps, out_path="residual.fits")
     """
-    wl = cube_data.wavelength
-    if hasattr(wl, 'value'):
-        wl = wl.value
-    return _export_residual_cube_fits_internal(
-        cube=cube_data.cube,
-        wavelength=wl,
-        lam_min=lam_min,
-        lam_max=lam_max,
-        n_jobs=n_jobs,
-        out_path=out_path,
-        return_cube=return_cube,
-        header=cube_data.header,
-    )
+    residuals = maps.get('residuals_cube') if maps is not None else None
+    if residuals is None:
+        raise ValueError("maps has no 'residuals_cube'. Pass the result of create_gaussian_map().")
+    _write_residual_cube_fits(residuals, out_path=out_path, header=cube_data.header,
+                              instrument_hint=cube_data.instrument)
 
 
 # --- CO Flux Extraction API ---
