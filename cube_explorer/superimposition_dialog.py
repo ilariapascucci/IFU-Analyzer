@@ -14,13 +14,12 @@ from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.colors import is_color_like
 from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QApplication, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QHBoxLayout, QHeaderView,
-    QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+    QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 )
 from reproject import reproject_exact
 
@@ -43,9 +42,9 @@ COLORMAPS = [
     "hot", "cool", "Blues", "Greens", "Reds",
 ]
 CONTOUR_ALPHA = 0.8
-COLUMNS = ["Mode", "Source", "Color", "Line Style", "Thickness", "Levels (σ)", "Sigma",
+COLUMNS = ["#", "Mode", "Source", "Color", "Line Style", "Thickness", "Levels (σ)", "Sigma",
            "Colormap", "Scale", "Alpha", "View", ""]
-COL_MODE, COL_SOURCE, COL_COLOR, COL_STYLE, COL_THICK, COL_LEVELS, COL_SIGMA, \
+COL_NUM, COL_MODE, COL_SOURCE, COL_COLOR, COL_STYLE, COL_THICK, COL_LEVELS, COL_SIGMA, \
     COL_CMAP, COL_SCALE, COL_ALPHA, COL_VIEW, COL_DELETE = range(len(COLUMNS))
 
 
@@ -72,7 +71,7 @@ class SuperimpositionRow:
     color: str = "red"
     line_style: str = "solid"
     thickness: float = 1.5
-    levels: str = "3, 5, 7, 10"
+    levels: str = "3, 5, 10"
     sigma: str = ""
     cmap: str = SUPERIMPOSITION_CMAP
     scale: ScaleSettings = field(default_factory=ScaleSettings)
@@ -234,9 +233,6 @@ def draw_layers(ax, images, rows):
                              "The level is outside the data range of the source image.")
             if not inside:
                 continue
-            if not is_color_like(row.color):
-                raise ValueError(f"Row {number}: '{row.color}' is not a color. "
-                                 "Use a name such as gray, or a code such as #ff8800.")
             kwargs = {} if is_base else {"transform": ax.get_transform(source["wcs"])}
             artists.append(ax.contour(source["image"], levels=inside, colors=[row.color],
                                       linestyles=row.line_style, linewidths=row.thickness,
@@ -331,7 +327,7 @@ class SuperimpositionWindow(QDialog):
 
     TITLE = "Batch Superimposition"
     INFO = ("Add Row selects 2D FITS files. Each file becomes an Image row. Row 1 is the base image. "
-            "Each next row goes on top of the rows above it. Drag a row number to change the order. "
+            "Each next row goes on top of the rows above it. Drag the = of a row, or type a new number in the # column, to change the order. "
             "Change the Mode of a row to Contour to draw lines at sigma levels of its file instead "
             "of a colormap. Double-click View to show one row on the base. The trash button removes "
             "a row. Produce shows all rows together.")
@@ -364,7 +360,7 @@ class SuperimpositionWindow(QDialog):
         self.table.setSortingEnabled(False)
         self.table.setSelectionMode(QTableWidget.NoSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(COL_SOURCE, QHeaderView.Stretch)
         # The same cell padding as the table of the rotational diagram window.
         self.table.setStyleSheet(
@@ -375,7 +371,7 @@ class SuperimpositionWindow(QDialog):
         # A cell widget takes the mouse, so a row moves by its number in the left header.
         row_header = self.table.verticalHeader()
         row_header.setSectionsMovable(True)
-        row_header.setToolTip("Drag a row number to move the row.")
+        row_header.setToolTip("Drag the = to move the row, or type a new number in the # column.")
         row_header.sectionMoved.connect(lambda *_: QTimer.singleShot(0, self._apply_row_order))
         layout.addWidget(self.table, 1)
 
@@ -441,7 +437,7 @@ class SuperimpositionWindow(QDialog):
 
     def _apply_row_order(self):
         """Put the rows in the order that the left header shows after a drag. Then build the table
-        again, so the header shows the row numbers in order.
+        again, so the # column shows the row numbers in order.
 
         Args:
             None
@@ -458,12 +454,39 @@ class SuperimpositionWindow(QDialog):
         for position in range(count):
             header.moveSection(header.visualIndex(position), position)
         header.blockSignals(False)
-        new_rows = [self.rows[index] for index in order]
+        self._set_row_order([self.rows[index] for index in order])
+
+    def _set_row_order(self, new_rows):
+        """Use a new order of the rows, then build the table again. A Contour row cannot be row 1,
+        so the old order stays when it would be.
+
+        Args:
+            new_rows (list): The same SuperimpositionRow objects in the new order.
+
+        Returns:
+            None
+        """
         if new_rows[0].mode != MODE_IMAGE:
             QMessageBox.warning(self, "Base Image", "Row 1 is the base image. A Contour row cannot be the base.")
         else:
             self.rows = new_rows
         self._rebuild_table()
+
+    def _move_row(self, row, position):
+        """Move one row to a number that the user typed in the # column.
+
+        Args:
+            row (SuperimpositionRow): Row to move.
+            position (int): New row number, from 1.
+
+        Returns:
+            None
+        """
+        if row not in self.rows or self.rows.index(row) == position - 1:
+            return
+        new_rows = [item for item in self.rows if item is not row]
+        new_rows.insert(position - 1, row)
+        self._set_row_order(new_rows)
 
     def _purge_unused_images(self):
         """Remove the files that no row uses from the memory.
@@ -497,7 +520,7 @@ class SuperimpositionWindow(QDialog):
         self._rebuild_table()
 
     def _rebuild_table(self):
-        """Build every cell again from the row settings. Cells that a mode does not use stay empty.
+        """Build every cell again from the row settings. A cell that a mode does not use shows a dash.
 
         Args:
             None
@@ -507,9 +530,22 @@ class SuperimpositionWindow(QDialog):
         """
         self.table.clearContents()
         self.table.setRowCount(len(self.rows))
-        self.table.setVerticalHeaderLabels(["1 (Base)"] + [str(n) for n in range(2, len(self.rows) + 1)])
+        self.table.setVerticalHeaderLabels(["="] * len(self.rows))
         for index, row in enumerate(self.rows):
             is_contour = row.mode == MODE_CONTOUR
+            number = QSpinBox()
+            number.setRange(1, len(self.rows))
+            number.setValue(index + 1)
+            number.setAlignment(Qt.AlignCenter)
+            number.setButtonSymbols(QSpinBox.NoButtons)
+            number.setMinimumWidth(36)
+            # The row moves when the user presses Enter or leaves the box, not at each typed digit.
+            number.setKeyboardTracking(False)
+            number.setToolTip("Row number. Type a new number to move the row." if index
+                              else "Row 1 is the base image. Type a new number to move the row.")
+            number.valueChanged.connect(
+                lambda value, r=row: QTimer.singleShot(0, lambda: self._move_row(r, value)))
+            self.table.setCellWidget(index, COL_NUM, number)
             # The base image is always an Image row, so row 1 has no Contour choice.
             modes = [MODE_IMAGE] if index == 0 else [MODE_CONTOUR, MODE_IMAGE]
             self._set_combo(index, COL_MODE, modes, row.mode, self._on_mode_changed, row)
@@ -519,7 +555,7 @@ class SuperimpositionWindow(QDialog):
             self.table.setItem(index, COL_SOURCE, source)
             if is_contour:
                 self._set_combo(index, COL_COLOR, CONTOUR_COLORS, row.color,
-                                lambda v, r=row: setattr(r, "color", v.strip()), editable=True)
+                                lambda v, r=row: setattr(r, "color", v))
                 self._set_combo(index, COL_STYLE, LINE_STYLES, row.line_style,
                                 lambda v, r=row: setattr(r, "line_style", v))
                 thickness = QDoubleSpinBox()
@@ -554,6 +590,7 @@ class SuperimpositionWindow(QDialog):
                     alpha.setSingleStep(0.1)
                     alpha.setValue(row.alpha)
                     alpha.setAlignment(Qt.AlignCenter)
+                    alpha.setMinimumWidth(70)
                     alpha.valueChanged.connect(lambda v, r=row: setattr(r, "alpha", v))
                     self.table.setCellWidget(index, COL_ALPHA, alpha)
             # The same blue underlined "View" cell as the rotational diagram table.
@@ -571,7 +608,18 @@ class SuperimpositionWindow(QDialog):
             trash_btn.setToolTip("Remove this row.")
             trash_btn.clicked.connect(lambda _checked=False, r=row: self._delete_row(r))
             self.table.setCellWidget(index, COL_DELETE, trash_btn)
+            # A cell that this row does not use gets a dash, so it does not look like a missing control.
+            for column in range(COL_COLOR, COL_ALPHA + 1):
+                if self.table.cellWidget(index, column) is None:
+                    unused = QTableWidgetItem("-")
+                    unused.setTextAlignment(Qt.AlignCenter)
+                    unused.setFlags(Qt.NoItemFlags)
+                    self.table.setItem(index, column, unused)
         self.table.resizeColumnsToContents()
+        # A cell widget sits 6 px inside its cell on each side, so its column needs 12 px more than the widget.
+        for column in range(len(COLUMNS)):
+            if any(self.table.cellWidget(r, column) is not None for r in range(len(self.rows))):
+                self.table.setColumnWidth(column, self.table.columnWidth(column) + 12)
 
     def _on_item_double_clicked(self, item):
         """Draw the row of a View cell after a double-click on it.
@@ -585,8 +633,8 @@ class SuperimpositionWindow(QDialog):
         if item.column() == COL_VIEW and 0 <= item.row() < len(self.rows):
             self._view(self.rows[item.row()])
 
-    def _set_combo(self, index, column, items, current, on_change, row=None, editable=False):
-        """Put a drop-down list in one cell. An editable list also accepts a typed text.
+    def _set_combo(self, index, column, items, current, on_change, row=None):
+        """Put a drop-down list in one cell.
 
         Args:
             index (int): Row number of the cell.
@@ -595,23 +643,22 @@ class SuperimpositionWindow(QDialog):
             current (str): Text that is selected at first.
             on_change (callable): Called with the new text when the choice changes.
             row (SuperimpositionRow): Row that on_change also gets, or None when it needs no row.
-            editable (bool): True when the user can type a text that is not in the list.
 
         Returns:
             None
         """
         combo = QComboBox()
         combo.addItems(items)
-        if editable:
-            combo.setEditable(True)
-            combo.setInsertPolicy(QComboBox.NoInsert)
-            combo.setToolTip("Choose a color, or type one: a name such as gray, or a code such as #ff8800.")
         combo.setCurrentText(current)
         if row is None:
             combo.currentTextChanged.connect(on_change)
         else:
             combo.currentTextChanged.connect(lambda text, r=row: on_change(r, text))
         self.table.setCellWidget(index, column, combo)
+        # The list of a drop-down is as wide as the drop-down, so a narrow one cuts the longest item.
+        # The table gives the drop-down its font, so the width is measured after the drop-down is in the table.
+        longest = max(combo.fontMetrics().horizontalAdvance(item) for item in items)
+        combo.setMinimumWidth(longest + 40)
 
     def _on_mode_changed(self, row, mode):
         """Store a new mode and build the table again after the signal has ended.
@@ -703,7 +750,7 @@ class PairSuperimpositionWindow(SuperimpositionWindow):
 
     TITLE = "Pair Superimposition"
     INFO = ("Row 1 is the base panel. Each next row goes on top of it. Source is the Left or the "
-            "Right panel. Change the Mode of a row to Contour to draw lines instead of a colormap. Drag a row number to change the order. "
+            "Right panel. Change the Mode of a row to Contour to draw lines instead of a colormap. Drag the = of a row, or type a new number in the # column, to change the order. "
             "Double-click View to show one row in a new window. Produce draws all rows on the base panel. "
             "Clear Superimposition removes them.")
     BASE_IS_PANEL = True

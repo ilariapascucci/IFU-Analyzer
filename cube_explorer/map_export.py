@@ -25,7 +25,6 @@ GAUSSIAN_MAP_PARAMETERS = {
     "area": ("Area (AUC)", "area", "area_map"),
     "area_error": ("Area Error", "area_error", "area_error_map"),
     "amplitude": ("Amplitude", "amplitude", "amplitude_map"),
-    "continuum": ("Continuum", "continuum", "continuum_map"),
     "center": ("Center", "center", "center_map"),
     "velocity": ("Velocity", None, "velocity_map"),
     "sigma": ("Sigma", "sigma", "sigma_map"),
@@ -101,7 +100,7 @@ def _gaussian_map_unit(cube_data, parameter, lam_min, lam_max):
                                       wavelength=(lam_min + lam_max) / 2.0)
     if parameter in ("area", "area_error"):
         return _ascii_safe(labels["area"])
-    if parameter in ("amplitude", "continuum"):
+    if parameter == "amplitude":
         return _ascii_safe(flux_unit)
     return _ascii_safe(labels["wave"])
 
@@ -116,7 +115,7 @@ def save_gaussian_map(cube_data, maps, parameter, out_path, lam_min, lam_max, pe
     Args:
         cube_data (CubeData): Loaded cube that the map was fitted on
         maps (dict): Result of create_gaussian_map()
-        parameter (str): One of "area", "area_error", "amplitude", "continuum", "center",
+        parameter (str): One of "area", "area_error", "amplitude", "center",
             "velocity", "sigma", "fwhm", "chi2", "fit_status", "success_mask"
         out_path (str): Path of the FITS file to write
         lam_min (float): Start of the fit window, in the wavelength unit of the cube
@@ -155,9 +154,6 @@ def save_gaussian_map(cube_data, maps, parameter, out_path, lam_min, lam_max, pe
         "NSUCC": (int(np.sum(maps["success"])), "Number of successful fits"),
         "NTOTAL": (int(np.asarray(maps["success"]).size), "Total number of pixels"),
     }
-    if parameter == "continuum":
-        extra["CONTWAV"] = (float(maps["continuum_wavelength"]), "Wavelength of the continuum value")
-        extra["CONTMETH"] = "Straight line between the fit window edges"
     if parameter == "velocity":
         medium = spectral_axis_medium(source_header)
         rest = float(vacuum_um_to_cube_wavelength(rest_wavelength, cube_data.wave_unit, medium))

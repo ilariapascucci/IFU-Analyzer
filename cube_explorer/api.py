@@ -892,9 +892,8 @@ def create_gaussian_map(cube_data, lam_min=None, lam_max=None, n_jobs=None, **kw
             noise_min, noise_max, lambda_0, progress_callback)
 
     Returns:
-        dict: 2D parameter maps - 'amplitude', 'continuum', 'center', 'sigma', 'fwhm', 'area',
-            'r_squared', 'success', 'is_detection', 'is_upper_limit'. 'continuum' is the baseline of
-            each pixel at 'continuum_wavelength', in the flux unit of the cube
+        dict: 2D parameter maps - 'amplitude', 'center', 'sigma', 'fwhm', 'area',
+            'r_squared', 'success', 'is_detection', 'is_upper_limit'
 
     Example:
         >>> cube = load_cube("data.fits")
@@ -1785,12 +1784,12 @@ def save_gaussian_map(cube_data, maps, parameter, out_path, lam_min, lam_max, pe
                       rest_wavelength=None, rest_label=None, systemic_velocity=0.0, species=None):
     """Save one parameter of a Gaussian map to a FITS file. This is the Export button of the Gaussian map
     window. The header has the fit window, the unit and the keywords that the parameter needs
-    (for example VSYS for the Velocity map and CONTWAV for the Continuum map).
+    (for example VSYS for the Velocity map).
 
     Args:
         cube_data (CubeData): Loaded cube that the map was fitted on
         maps (dict): Result of create_gaussian_map()
-        parameter (str): One of 'area', 'area_error', 'amplitude', 'continuum', 'center', 'velocity',
+        parameter (str): One of 'area', 'area_error', 'amplitude', 'center', 'velocity',
             'sigma', 'fwhm', 'chi2', 'fit_status', 'success_mask'
         out_path (str): Path of the FITS file to write
         lam_min (float): Start of the fit window, in the wavelength unit of the cube

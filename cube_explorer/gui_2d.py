@@ -29,7 +29,6 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.axes import Axes
-from matplotlib.colors import is_color_like  # used by: _apply_contour
 from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PyQt5.QtCore import Qt
@@ -805,6 +804,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         self.rotate_angle = 90.0
         self.rotate_clockwise = False
 
+        # Last values of the Plot Contour dialog of each panel, shown again the next time it opens.
+        self.contour_dialog_values = {"left": {}, "right": {}}
+
         # Coverage map of each image as loaded. Rotation drops the live one.
         self.base_coverage_left = None
         self.base_coverage_right = None
@@ -1230,7 +1232,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         layout.addLayout(level_layout)
 
         layout.addWidget(QLabel(
-            "<i>A number N draws a line at the median of the image plus N × sigma. "
+            "<i>A number N draws a line at the median of the image plus N × sigma.<br>"
             "A number with %, for example 50%, draws a line at that percent of the peak.</i>"
         ))
 
@@ -1239,11 +1241,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         color_layout.addWidget(QLabel("Contour Color:"))
         color_combo = QComboBox()
         color_combo.addItems(["white", "red", "green", "cyan", "magenta", "yellow", "gray", "black"])
-        color_combo.setEditable(True)
-        color_combo.setInsertPolicy(QComboBox.NoInsert)
-        color_combo.setToolTip("Choose a color, or type one: a name such as gray, or a code such as #ff8800.")
         color_layout.addWidget(color_combo)
         layout.addLayout(color_layout)
+
+        last = self.contour_dialog_values[target]
+        if last:
+            source_combo.setCurrentIndex(last["source"])
+            sigma_input.setText(last["sigma"])
+            level_input.setText(last["levels"])
+            color_combo.setCurrentText(last["color"])
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -1260,6 +1266,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             sigma_str   = sigma_input.text().strip()    # ← read from local var
             levels_str  = level_input.text().strip()    # ← read from local var
             color       = color_combo.currentText().strip()
+            self.contour_dialog_values[target] = {
+                "source": source_combo.currentIndex(), "sigma": sigma_str, "levels": levels_str, "color": color}
             self._apply_contour(target, source, sigma_str, levels_str, color)
 
     def _apply_contour(self, target, source, sigma_str, levels_str, color):
@@ -1308,11 +1316,6 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return
         if source == 'other' and (self.header_left is None or self.header_right is None):
             QMessageBox.warning(self, "Missing Data", "Both images must be loaded.")
-            return
-
-        if not is_color_like(color):
-            QMessageBox.warning(self, "Invalid Input",
-                                f"'{color}' is not a color. Use a name such as gray, or a code such as #ff8800.")
             return
 
         # The same levels as the Superimposition tables: multiples of sigma, or percents of the peak.
@@ -1629,6 +1632,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         """
         if self._batch_superimposition_window is None:
             self._batch_superimposition_window = SuperimpositionWindow(parent=self)
+        if self._batch_superimposition_window.isHidden():
+            self._batch_superimposition_window.showMaximized()
         self._batch_superimposition_window.show()
         self._batch_superimposition_window.raise_()
         self._batch_superimposition_window.activateWindow()

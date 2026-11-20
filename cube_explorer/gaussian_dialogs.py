@@ -304,8 +304,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             'Area Error': (f'Area error [{area_unit}]', 'viridis'),
             # Amplitude stays in the cube's native flux unit -- not CGS-converted, unlike Area.
             'Amplitude': (f'Amplitude [{self.flux_unit}]', 'plasma'),
-            # The baseline of each pixel, read at the line center. Native flux unit, like Amplitude.
-            'Continuum': (f'Continuum [{self.flux_unit}]', 'magma'),
             'Center': (f'Center [{wave_display}]', 'twilight'),
             'Velocity': ('Velocity [km/s]', 'coolwarm'),
             'Sigma': (f'Sigma [{wave_display}]', 'cividis'),
@@ -348,7 +346,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         param_layout.addWidget(QLabel("Parameter:"))
         self.param_combo = QComboBox()
         self.param_combo.addItems([
-            "Area (AUC)", "Area Error", "Amplitude", "Continuum", "Center", "Velocity", "Sigma",
+            "Area (AUC)", "Area Error", "Amplitude", "Center", "Velocity", "Sigma",
             "FWHM", "chi2 (fit quality)", "Fit Status", "Success Mask", "Residuals"
         ])
         self.param_combo.setMaxVisibleItems(self.param_combo.count())  # Show the whole list, no scrolling
@@ -509,10 +507,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             data = self.results['amplitude']
             title = "Gaussian Peak Amplitude"
             unit_label, default_cmap = param_units['Amplitude']
-        elif param_name == "Continuum":
-            data = self.results['continuum']
-            title = "Continuum at the Line (baseline of the fit)"
-            unit_label, default_cmap = param_units['Continuum']
         elif param_name == "Center":
             data = self.results['center']
             title = "Gaussian Center Position"
@@ -792,8 +786,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             return self.results['area_error']
         if param_name == "Amplitude":
             return self.results['amplitude']
-        if param_name == "Continuum":
-            return self.results['continuum']
         if param_name == "Center":
             return self.results['center']
         if param_name == "Velocity":
@@ -868,11 +860,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             units = unit_label[unit_label.index('[') + 1: unit_label.rindex(']')]
         lines.append(f"{param_name.upper()} VALUES:")
         lines.append(f"  Units:   {units}")
-        if param_name == "Continuum":
-            lines.append(f"  Read at: {self.results['continuum_wavelength']:.6f} {self.wave_unit} "
-                         "(line center of the summed spectrum)")
-            lines.append("  Baseline: a straight line between the first and the last channel of the fit window.")
-            lines.append("  Every pixel with data has a value, also a pixel with no line.")
         if param_name == "Velocity":
             rest, _reason = self._rest_wavelength()
             if rest is not None:
@@ -1105,7 +1092,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             "Area (AUC)": (self.results['area'], f"{base_name}_gaussian_area_map.fits"),
             "Area Error": (self.results['area_error'], f"{base_name}_gaussian_area_error_map.fits"),
             "Amplitude": (self.results['amplitude'], f"{base_name}_gaussian_amplitude_map.fits"),
-            "Continuum": (self.results['continuum'], f"{base_name}_gaussian_continuum_map.fits"),
             "Center": (self.results['center'], f"{base_name}_gaussian_center_map.fits"),
             "Velocity": (self._velocity_map()[0], f"{base_name}_gaussian_velocity_map.fits"),
             "Sigma": (self.results['sigma'], f"{base_name}_gaussian_sigma_map.fits"),
@@ -1180,9 +1166,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                 'NSUCC': (int(np.sum(self.results['success'])), "Number of successful fits"),
                 'NTOTAL': (int(self.results['success'].size), "Total number of pixels"),
             }
-            if param_name == "Continuum":
-                extra['CONTWAV'] = (float(self.results['continuum_wavelength']), "Wavelength of the continuum value")
-                extra['CONTMETH'] = "Straight line between the fit window edges"
             if param_name == "Velocity":
                 extra['VREFWAV'] = (self._rest_wavelength()[0], "Rest wavelength that sets zero velocity")
                 extra['VREFUNIT'] = (_ascii_safe(str(self.wave_unit)), "Unit of VREFWAV")
