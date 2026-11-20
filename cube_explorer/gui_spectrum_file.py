@@ -48,7 +48,7 @@ class GuiSpectrumFileMixin:
         self.load_spectrum_btn.clicked.connect(self.load_spectrum)
 
         self.error_bars_checkbox = QCheckBox("Error bars")
-        self.error_bars_checkbox.setChecked(True)
+        self.error_bars_checkbox.setChecked(False)
         self.error_bars_checkbox.setToolTip("Show the flux error of each point as a dot with a line above and below it.")
         self.error_bars_checkbox.toggled.connect(lambda _checked: self._refresh_active_spectrum_tab())
         self.error_bars_checkbox.setVisible(False)

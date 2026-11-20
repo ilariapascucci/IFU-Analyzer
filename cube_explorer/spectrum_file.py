@@ -567,5 +567,5 @@ def default_settings(table):
         "instrument": None if instrument.lower() in ("", "unknown", "none") else instrument,
         "grating": meta.get("grating") or None,
         "object": meta.get("object") or None,
-        "complete": "wave_unit" in meta and "flux_unit" in meta and table.names_found,
+        "complete": "wave_unit" in meta and ("flux_unit" in meta or bool(flux_unit)) and table.names_found,
     }
