@@ -14,11 +14,12 @@ import numpy as np
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox,
-    QWidget, QFileDialog, QMessageBox, QTextEdit,
+    QWidget, QMessageBox, QTextEdit,
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure, SubplotParams
 
+from .file_dialogs import save_file_name
 from .gui_mixins import CancellableWorker, MapResultsDialogMixin, make_legend_checkbox, make_panel_button, make_selectable
 from .unit_converter import CGS_FLUX_NAME, cgs_flux_label
 from .gui_sizing import fit_to_screen
@@ -542,7 +543,7 @@ def save_fit_csv(parent, text, plot_data, default_name):
     Returns:
         None
     """
-    path, _ = QFileDialog.getSaveFileName(parent, "Save Fit", default_name, "CSV files (*.csv)")
+    path, _ = save_file_name(parent, "Save Fit", default_name, "CSV files (*.csv)")
     if not path:
         return
     ln10 = np.log(10)
@@ -1035,7 +1036,7 @@ class RotDiagMapResultsDialog(QDialog):
         Returns:
             None
         """
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = save_file_name(
             self, "Save Rotational Diagram Map",
             f"{self.result.get('molecule', 'H2')}_rotdiag_map.fits",
             "FITS files (*.fits);;All files (*.*)")
@@ -1770,7 +1771,7 @@ class LineFluxMapDialog(MapResultsDialogMixin, QDialog):
         Returns:
             None
         """
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = save_file_name(
             self, "Save Line Flux Map",
             f"{self.molecule}_flux_{self.wavelength:.4f}um.fits",
             "FITS files (*.fits);;All files (*.*)")

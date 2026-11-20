@@ -13,13 +13,14 @@ shows is exactly what the maps contain.
 import os
 
 import numpy as np
+from .file_dialogs import save_file_name
 from .gui_mixins import make_selectable, make_legend_checkbox
 from .gui_sizing import fit_to_screen
 from astropy.stats import gaussian_sigma_to_fwhm
 from .unit_converter import extract_value_from_quantity
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QFileDialog, QMessageBox
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QMessageBox
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
@@ -181,7 +182,7 @@ class PixelFitDialog(QDialog):
         Returns:
             None
         """
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = save_file_name(
             self, "Save Fit", f"pixel_{self.col}_{self.row}_fit.txt", "Text files (*.txt)")
         if not path:
             return

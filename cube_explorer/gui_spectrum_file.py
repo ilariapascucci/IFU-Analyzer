@@ -8,9 +8,10 @@ import os
 import numpy as np
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
-    QCheckBox, QDialog, QFileDialog, QLabel, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QLabel, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from .file_dialogs import open_file_name
 from .data_loader import CubeData
 from .fit_file import fit_type_of_comments
 from .gui_fit_file import FIT_BUTTON_TEXT
@@ -68,7 +69,7 @@ class GuiSpectrumFileMixin:
         Returns:
             None
         """
-        fname, _ = QFileDialog.getOpenFileName(
+        fname, _ = open_file_name(
             self, "Load Spectrum",
             filter="Spectrum files (*.txt *.csv *.tsv *.dat *.fits *.fit *.fts);;All files (*)")
         if not fname:

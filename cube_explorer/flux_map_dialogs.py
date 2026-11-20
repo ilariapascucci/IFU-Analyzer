@@ -9,12 +9,13 @@ import numpy as np
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFileDialog, QMessageBox, QComboBox, QTabWidget, QWidget
+    QMessageBox, QComboBox, QTabWidget, QWidget
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from astropy import units as u
 
+from .file_dialogs import save_file_name
 from .gui_sizing import fit_to_screen
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .scale_dialog import ScaleSettings, build_norm
@@ -576,7 +577,7 @@ class FluxMapResultsDialog(MapResultsDialogMixin, QDialog):
         Returns:
             None
         """
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = save_file_name(
             self,
             "Save Flux Results",
             f"{self.species_label}_flux_map.fits",

@@ -22,7 +22,7 @@ from scipy.ndimage import rotate  # used by: rotate_image
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QMessageBox, QComboBox, QDialog, QDoubleSpinBox, QApplication, QTextEdit,
     QInputDialog, QLineEdit, QListWidget, QListWidgetItem, QSizePolicy, QMenu
 )
@@ -32,6 +32,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PyQt5.QtCore import Qt
+from .file_dialogs import open_file_name, open_file_names, save_file_name
 from .convolution_plan_dialog import confirm_convolution_plan
 from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
@@ -456,7 +457,7 @@ class BatchMatchResolutionDialog(QDialog):
         Returns:
             None
         """
-        files, _ = QFileDialog.getOpenFileNames(self, "Select 2D FITS Files", filter="FITS files (*.fits *.fz *.fit)")
+        files, _ = open_file_names(self, "Select 2D FITS Files", filter="FITS files (*.fits *.fz *.fit)")
         for f in files:
             if f not in self.filepaths:
                 self.filepaths.append(f)
@@ -500,7 +501,7 @@ class BatchMatchResolutionDialog(QDialog):
                 "Please select at least 2 FITS files for batch processing.")
             return
 
-        zip_path, _ = QFileDialog.getSaveFileName(
+        zip_path, _ = save_file_name(
             self, "Save ZIP File", "Convolution_Images.zip", "ZIP Files (*.zip)")
         if not zip_path:
             return
@@ -1434,7 +1435,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                                 f"No active contour found on the {target} panel.")
             return
 
-        fname, _ = QFileDialog.getSaveFileName(
+        fname, _ = save_file_name(
             self, f"Save Contour ({target.capitalize()})",
             filter="Text files (*.txt)")
         if not fname:
@@ -1490,7 +1491,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
-        fname, _ = QFileDialog.getOpenFileName(
+        fname, _ = open_file_name(
             self, "Open Contour Text File", filter="Text files (*.txt *.csv)"
         )
         if not fname:
@@ -2052,7 +2053,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         Returns:
             None
         """
-        fname, _ = QFileDialog.getOpenFileName(
+        fname, _ = open_file_name(
             self, f"Open 2D FITS ({target.capitalize()})", filter="FITS files (*.fits *.fz *.fit)")
         
         if not fname:
@@ -2328,7 +2329,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             QMessageBox.warning(self, "No Image", f"There is no image currently loaded in the {target} panel to save.")
             return
             
-        fname, _ = QFileDialog.getSaveFileName(
+        fname, _ = save_file_name(
             self, f"Save FITS ({target.capitalize()})", filter="FITS files (*.fits)"
         )
         if not fname:
@@ -2575,7 +2576,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         mask = self._selection_to_full_mask(target, sel) if sel else None
         header = self.header_left if target == "left" else self.header_right
 
-        path, _ = QFileDialog.getSaveFileName(self, "Save Slice as 2D FITS", "", "FITS files (*.fits)")
+        path, _ = save_file_name(self, "Save Slice as 2D FITS", "", "FITS files (*.fits)")
         if not path:
             return
         if not path.lower().endswith(".fits"):
@@ -2753,7 +2754,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 line_header=fine_header,
             )
 
-            fname, _ = QFileDialog.getSaveFileName(
+            fname, _ = save_file_name(
                 self, "Save Convolved FITS", filter="FITS (*.fits)")
             if fname:
                 if not fname.lower().endswith(".fits"):

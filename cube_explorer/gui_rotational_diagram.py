@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QSpinBox,
     QDoubleSpinBox, QCheckBox, QMessageBox, QProgressDialog,
-    QFrame, QComboBox, QDialog, QTextEdit, QFileDialog, QLineEdit, QHeaderView, QInputDialog,
+    QFrame, QComboBox, QDialog, QTextEdit, QLineEdit, QHeaderView, QInputDialog,
     QStyledItemDelegate
 )
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
@@ -22,6 +22,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
+from .file_dialogs import open_file_name, open_file_names, save_file_name
 from .convolution_plan_dialog import confirm_convolution_plan
 from .gui_mixins import make_selectable, make_legend_checkbox, make_vertical_separator
 from astropy.stats import gaussian_sigma_to_fwhm
@@ -1855,7 +1856,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        csv_path, _ = QFileDialog.getOpenFileName(
+        csv_path, _ = open_file_name(
             self,
             "Import CSV File",
             "",
@@ -2106,7 +2107,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        fits_paths, _ = QFileDialog.getOpenFileNames(
+        fits_paths, _ = open_file_names(
             self, "Select Flux Map FITS", "", "FITS files (*.fits *.fz *.fit)")
         if not fits_paths:
             return
@@ -2264,7 +2265,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        fits_paths, _ = QFileDialog.getOpenFileNames(
+        fits_paths, _ = open_file_names(
             self, "Load FITS Files For Flux Calculation", "",
             "FITS Files (*.fits *.fit);;All Files (*.*)"
         )
@@ -2318,7 +2319,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             None
         """
 
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = open_file_name(
             self, "Load Contaminating Lines CSV", "",
             "CSV Files (*.csv);;All Files (*.*)"
         )
@@ -2392,7 +2393,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
             )
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
+        file_path, _ = save_file_name(
             self, "Save Fluxes as CSV", "", "CSV Files (*.csv)")
         if not file_path:
             return
@@ -2936,7 +2937,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 fit = np.where((x >= lo) & (x <= hi), y_fit, np.nan)
                 coverage = "Fit window only. This line has no full spectrum."
 
-            path, _ = QFileDialog.getSaveFileName(
+            path, _ = save_file_name(
                 dlg, "Save Fit", f"line_{data['wavelength']:.4f}_fit.txt", "Text files (*.txt)")
             if not path:
                 return
@@ -3281,7 +3282,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
                 self, "Save Maps",
                 "No maps to save yet -- run Calculate Maps (and optionally Convolve Maps) first.")
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = save_file_name(
             self, "Save Maps", "rot_diag_maps.zip", "Zip files (*.zip)")
         if not path:
             return
@@ -4413,7 +4414,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         Returns:
             None
         """
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = open_file_name(
             self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
         if not path:
             return
@@ -4466,7 +4467,7 @@ class RotationalDiagramWindow(QMainWindow, SortableCheckboxTableMixin):
         region = self._rot_map_region_sky
         if region is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
+        path, _ = save_file_name(self, "Save Region as WCS Text", "", "Text files (*.txt)")
         if not path:
             return
         try:

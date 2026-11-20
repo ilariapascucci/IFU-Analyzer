@@ -43,6 +43,7 @@ if __name__ == "__main__":
     try:
         from PyQt5.QtCore import Qt, QThread
         from PyQt5.QtWidgets import QApplication, QMessageBox
+        from cube_explorer.file_dialogs import use_last_directory_in_plot_toolbars
         from cube_explorer.gui import CubeExplorer
     except ImportError as exc:
         print(f"[ERROR] A required library is missing or has the wrong version: {exc}")
@@ -57,6 +58,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     # Native styles give each OS different widget sizes. Fusion looks the same everywhere.
     app.setStyle("Fusion")
+    use_last_directory_in_plot_toolbars()
 
     def report_unhandled_exception(exc_type, exc_value, exc_traceback):
         """Show an error dialog for an exception no code caught, instead of letting PyQt5 abort.

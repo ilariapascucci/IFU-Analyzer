@@ -1,10 +1,11 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QTableWidget,
-    QTableWidgetItem, QLabel, QAbstractItemView, QApplication, QFileDialog, QMessageBox
+    QTableWidgetItem, QLabel, QAbstractItemView, QApplication, QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
+from .file_dialogs import open_file_name
 from .gui_sizing import fit_dialog_to_table
 from .table_drag_select import SortableCheckboxTableMixin
 from .line_catalog import dedupe_colocated_lines, load_line_list
@@ -617,7 +618,7 @@ class RestLineDialog(QDialog):
         Returns:
             None
         """
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = open_file_name(
             self, "Load Line List", "", "Line lists (*.csv *.par *.lst);;All Files (*.*)")
         if not path:
             return

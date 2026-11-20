@@ -23,8 +23,9 @@ is the only one with no usable default).
 """
 
 import numpy as np
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QMessageBox
 
+from .file_dialogs import open_file_name, save_file_name
 from . import region_io
 from .scale_dialog import scaling_stats_text
 from .utils import make_2d_wcs
@@ -914,7 +915,7 @@ class RegionSelectionMixin:
             QMessageBox.critical(self, "Export Failed", f"Could not convert region to sky coordinates:\n{e}")
             return
 
-        path, _ = QFileDialog.getSaveFileName(self, "Save Region as WCS Text", "", "Text files (*.txt)")
+        path, _ = save_file_name(self, "Save Region as WCS Text", "", "Text files (*.txt)")
         if not path:
             return
         if not path.lower().endswith((".txt", ".csv")):
@@ -956,7 +957,7 @@ class RegionSelectionMixin:
             QMessageBox.warning(self, "Import Failed", self._region_no_image_text)
             return
 
-        path, _ = QFileDialog.getOpenFileName(self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
+        path, _ = open_file_name(self, "Import Region as WCS Text", "", "Text files (*.txt *.csv)")
         if not path:
             return
 

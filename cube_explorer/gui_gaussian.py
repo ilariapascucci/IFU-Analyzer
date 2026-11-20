@@ -4,11 +4,12 @@ import os
 import numpy as np
 from PyQt5.QtWidgets import (
     QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton,
-    QApplication, QInputDialog, QFileDialog,
+    QApplication, QInputDialog,
 )
 from PyQt5.QtCore import Qt
 from astropy.units import Quantity
 
+from .file_dialogs import save_file_name
 from .gui_sizing import fit_to_screen
 from .gaussian_fitter import fit_gaussian_to_line, GaussianFitResult, save_gaussian_fit, DEFAULT_DETECTION_SIGMA, MIN_FINITE_POINTS, MIN_NOISE_POINTS
 from .gaussian_dialogs import GaussianMapWorker, GaussianMapResultsDialog, MultiGaussianFitWorker
@@ -1063,7 +1064,7 @@ STATUS: {result.message}
         Returns:
             None
         """
-        path, _ = QFileDialog.getSaveFileName(parent, dialog_title, default_name, "Text files (*.txt)")
+        path, _ = save_file_name(parent, dialog_title, default_name, "Text files (*.txt)")
         if not path:
             return
         if not os.path.splitext(path)[1]:

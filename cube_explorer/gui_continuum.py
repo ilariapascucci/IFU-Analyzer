@@ -3,9 +3,10 @@ import numpy as np
 import traceback
 from matplotlib.patches import Rectangle
 from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtWidgets import (QMessageBox, QApplication, QFileDialog, QProgressDialog, QPushButton, QButtonGroup,
+from PyQt5.QtWidgets import (QMessageBox, QApplication, QProgressDialog, QPushButton, QButtonGroup,
                              QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLayout)
 
+from .file_dialogs import open_file_name, save_file_name
 from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
 from .custom_continuum import CustomContinuumSelector
 from .fit_file import check_same_flux_unit
@@ -405,7 +406,7 @@ class GuiContinuumMixin:
         if not ranges:
             QMessageBox.warning(self, "No Masks", "There are no masked ranges on this spectrum to save.")
             return
-        fname, _ = QFileDialog.getSaveFileName(self, "Save Masks", f"masks_{tab}.txt", "Text files (*.txt)")
+        fname, _ = save_file_name(self, "Save Masks", f"masks_{tab}.txt", "Text files (*.txt)")
         if not fname:
             return
         if not os.path.splitext(fname)[1]:
@@ -475,7 +476,7 @@ class GuiContinuumMixin:
         if getattr(self, 'spec_plotter', None) is None or self._get_tab_raw_flux(tab) is None:
             QMessageBox.warning(self, "No Spectrum", "No spectrum data available for this tab.")
             return
-        fname, _ = QFileDialog.getOpenFileName(self, "Load Masks", filter="Text files (*.txt *.csv)")
+        fname, _ = open_file_name(self, "Load Masks", filter="Text files (*.txt *.csv)")
         if not fname:
             return
         try:
@@ -1057,7 +1058,7 @@ class GuiContinuumMixin:
         Returns:
             started (bool): True if the save started, False if the user cancelled.
         """
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = save_file_name(
             self, "Save Continuum Cubes (base name)", "", "FITS files (*.fits)")
         if not path:
             return False
@@ -1451,7 +1452,7 @@ class GuiContinuumMixin:
             QMessageBox.warning(self, "No Points", "There are no points on the graph to save.")
             return
 
-        fname, _ = QFileDialog.getSaveFileName(self, "Save Continuum Points", filter="Text files (*.txt)")
+        fname, _ = save_file_name(self, "Save Continuum Points", filter="Text files (*.txt)")
         if not fname:
             return
         if not os.path.splitext(fname)[1]:
@@ -1491,7 +1492,7 @@ class GuiContinuumMixin:
         Returns:
             None
         """
-        fname, _ = QFileDialog.getOpenFileName(self, "Load Continuum Points", filter="Text files (*.txt *.csv)")
+        fname, _ = open_file_name(self, "Load Continuum Points", filter="Text files (*.txt *.csv)")
         if not fname:
             return
 

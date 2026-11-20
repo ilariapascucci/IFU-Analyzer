@@ -2,8 +2,9 @@
 Load Fit and Load Fits: bring a saved Gaussian fit back on the spectrum, with no new fit.
 """
 
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QPushButton
+from PyQt5.QtWidgets import QMessageBox, QPushButton
 
+from .file_dialogs import open_file_name
 from .fit_file import MARKER_NAMES, read_fit_file, rebuild_fit
 
 # The marker of each name, as the Gaussian mixin keeps it: (attribute of the value, mode of _mark_gaussian_boundary).
@@ -58,7 +59,7 @@ class GuiFitFileMixin:
         Returns:
             loaded (tuple): (fit_file, entries, wavelength, spectrum, tab), or None if nothing was loaded
         """
-        path, _ = QFileDialog.getOpenFileName(self, title, filter="Text files (*.txt);;All files (*)")
+        path, _ = open_file_name(self, title, filter="Text files (*.txt);;All files (*)")
         if not path:
             return None
         try:

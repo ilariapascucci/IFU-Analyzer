@@ -8,6 +8,7 @@ to keep the main GUI file cleaner and more maintainable.
 import numpy as np
 import os
 import threading
+from .file_dialogs import save_file_name
 from .gui_sizing import fit_to_screen
 from .unit_converter import (
     gaussian_map_unit_labels, wavelength_to_doppler_velocity, spectral_axis_medium,
@@ -29,7 +30,7 @@ STATUS_COLORS = ['#e6e6e6', '#e8b021', '#2e9e5b']
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QFileDialog, QMessageBox, QInputDialog, QLineEdit, QWidget
+    QComboBox, QMessageBox, QInputDialog, QLineEdit, QWidget
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
@@ -1034,7 +1035,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         else:
             default_filename = "residual_cube.fits"
         
-        out_path, _ = QFileDialog.getSaveFileName(
+        out_path, _ = save_file_name(
             self, 
             "Export Residuals FITS", 
             default_filename, 
@@ -1110,7 +1111,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             QMessageBox.warning(self, "No Data", f"{param_name} map unavailable:\n{self._velocity_map()[1]}")
             return
 
-        out_path, _ = QFileDialog.getSaveFileName(
+        out_path, _ = save_file_name(
             self,
             f"Export {param_name} Map",
             default_filename,

@@ -18,11 +18,12 @@ from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QHBoxLayout, QHeaderView,
+    QApplication, QComboBox, QDialog, QDoubleSpinBox, QHBoxLayout, QHeaderView,
     QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 )
 from reproject import reproject_exact
 
+from .file_dialogs import open_file_names
 from .gui_sizing import fit_to_screen
 from .icon_loader import set_button_icon
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
@@ -400,7 +401,7 @@ class SuperimpositionWindow(QDialog):
         Returns:
             None
         """
-        paths, _ = QFileDialog.getOpenFileNames(self, "Select 2D FITS Files",
+        paths, _ = open_file_names(self, "Select 2D FITS Files",
                                                 filter="FITS files (*.fits *.fz *.fit)")
         failed = []
         QApplication.setOverrideCursor(Qt.WaitCursor)

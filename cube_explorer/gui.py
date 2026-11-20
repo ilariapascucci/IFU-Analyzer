@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QMessageBox, QTextEdit, QInputDialog, QDialog, QToolTip,
     QListWidget, QListWidgetItem, QFrame, QDoubleSpinBox,
     QSizePolicy, QSplitter, QSplitterHandle
@@ -23,6 +23,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
+from .file_dialogs import open_file_name, save_file_name
 from .gui_sizing import ResponsiveButtonColumn
 from .data_loader import CubeData
 from .flow_layout import FlowLayout, row_of
@@ -1629,7 +1630,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             None
         """
-        fname, _ = QFileDialog.getOpenFileName(
+        fname, _ = open_file_name(
             self, "Open FITS", filter="FITS files (*.fits *.fz *.fit)")
         if not fname:
             return
@@ -2064,7 +2065,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         mask = self._selection_to_full_mask(target, sel) if sel else None
         idx = self.last_idx_left if target == "left" else self.last_idx_right
 
-        path, _ = QFileDialog.getSaveFileName(self, "Save Slice as 2D FITS", "", "FITS files (*.fits)")
+        path, _ = save_file_name(self, "Save Slice as 2D FITS", "", "FITS files (*.fits)")
         if not path:
             return
         if not path.lower().endswith(".fits"):
@@ -3384,13 +3385,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return
         wavelength_min, wavelength_max = wave_range
 
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        default_path = os.path.join(base_path, 'data')
-
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = open_file_name(
             self,
             "Load Custom Line List",
-            default_path,
+            "",
             "Line lists (*.csv *.par *.lst);;All Files (*.*)"
         )
         if not file_path:
@@ -3559,15 +3557,11 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             return
         wavelength_min, wavelength_max = wavelength_min - pad, wavelength_max + pad
 
-        # Suggest default location
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        default_path = os.path.join(base_path, 'data', 'CO')
-
         # Open file browser
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = open_file_name(
             self,
             "Load Contaminating Lines CSV",
-            default_path,
+            "",
             "CSV Files (*.csv);;All Files (*.*)"
         )
 
@@ -3820,7 +3814,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         # A loaded spectrum file can have a flux error for each point. It belongs to the Full tab only.
         error = getattr(self.cube_data, 'spectrum_error', None) if tab == 'full' else None
 
-        file_path, _ = QFileDialog.getSaveFileName(
+        file_path, _ = save_file_name(
             self,
             "Save Spectrum as ASCII",
             f"spectrum_{tab}.txt",
