@@ -6,6 +6,7 @@ rotational-diagram window.
 """
 
 import csv
+import os
 import warnings
 
 import numpy as np
@@ -178,7 +179,8 @@ def load_line_fluxes_csv(path):
             It is the line_table of fit_region and create_rotational_diagram_map.
 
     Raises:
-        ValueError: if the file is empty, has no species or wavelength column, or has no valid row
+        ValueError: if the file is empty, has no species or wavelength column, has no valid row,
+            or has an upper_limit value that is not 1, 0, true, false, yes or no
         OSError: if the file cannot be opened
     """
     csv_data = []
@@ -193,11 +195,14 @@ def load_line_fluxes_csv(path):
         flux_col = columns.get("flux")
         error_col = next((actual for lower, actual in columns.items() if "error" in lower and lower != "wavelength"), None)
         upper_limit_col = columns.get("upper_limit")
+        problems = []
         for row_dict in reader:
+            number = reader.line_num
             try:
                 row = {"species": (row_dict.get(columns["species"]) or "").strip().upper(),
                        "wavelength": float((row_dict.get(columns["wavelength"]) or "").strip())}
             except (ValueError, TypeError):
+                problems.append(f"line {number}: the species or the wavelength is not valid, so the row was skipped")
                 continue
             for key, column in (("flux", flux_col), ("flux_error", error_col)):
                 text = (row_dict.get(column) or "").strip() if column else ""
@@ -205,10 +210,16 @@ def load_line_fluxes_csv(path):
                     try:
                         row[key] = float(text)
                     except ValueError:
-                        pass
+                        problems.append(f"line {number}: {key} '{text}' is not a number, so the row has no {key}")
             if upper_limit_col:
-                row["upper_limit"] = (row_dict.get(upper_limit_col) or "").strip().lower() in ("1", "true", "yes")
+                token = (row_dict.get(upper_limit_col) or "").strip().lower()
+                if token not in ("", "0", "false", "no", "1", "true", "yes"):
+                    raise ValueError(f"Line {number}: upper_limit is '{token}'. Use 1, 0, true, false, yes or no.")
+                row["upper_limit"] = token in ("1", "true", "yes")
             csv_data.append(row)
+    if problems:
+        shown = "; ".join(problems[:5]) + (" ..." if len(problems) > 5 else "")
+        warnings.warn(f"{os.path.basename(path)}: {len(problems)} problem(s) in the CSV file. {shown}")
     if not csv_data:
         raise ValueError("The CSV file has no valid row.")
 

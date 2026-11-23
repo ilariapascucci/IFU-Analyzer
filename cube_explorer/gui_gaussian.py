@@ -879,8 +879,8 @@ STATUS: {result.message}
         Returns:
             None
         """
-        wave_unit = clean_wave_unit(getattr(self.cube_data, 'wave_unit', 'µm'))
-        flux_unit = clean_flux_unit(getattr(self.cube_data, 'spectrum_flux_unit', None) or 'MJy/sr')
+        wave_unit = clean_wave_unit(self.cube_data.wave_unit)
+        flux_unit = clean_flux_unit(self.cube_data.spectrum_flux_unit or 'native')
         fallback_area_unit = f"{flux_unit}·{wave_unit}"
         failed_results = failed_results or []
 

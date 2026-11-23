@@ -1457,7 +1457,7 @@ from .rotational_diagram_general_fitter import rotational_diagram as _rotational
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit1T=True, fit2T=False, R=None, dist=140, upper_limits=None,
+                        fit1T=True, fit2T=False, R=None, dist=None, upper_limits=None,
                         progress_callback=None, molecule='H2', isotopologue=1):
     """
     Fit a rotational diagram (1T and/or 2T) to a set of line fluxes. Dispatches to the
@@ -1475,7 +1475,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
         fit2T (bool): Perform the 2T fit
         R (float): Emitting radius (AU), or None
-        dist (float): Distance (pc)
+        dist (float): Distance (pc). Required, no default is assumed
         upper_limits (dict): {J: True} for measurements marked as upper limits
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
         molecule (str): Species being fit, per get_available_molecules()
@@ -1517,7 +1517,7 @@ from .rotational_diagram_map import (
 
 
 def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, opr=None,
-               fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
+               fit_opr=False, opr_grid=None, dist_pc=None, r_au=None, min_lines=3,
                dedup_tol_um=1e-5, contam_lines=None, fit2t=False):
     """Fit one rotational diagram to a cube's summed spectrum over a region.
     This is the same fit the GUI's Run Fit button runs. Pass a mask to sum
@@ -1535,7 +1535,7 @@ def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, 
         opr (float, optional): Fixed ortho-para ratio, H2 only
         fit_opr (bool): Grid-search OPR to minimize chi-squared, H2 only
         opr_grid (array, optional): OPR values to search, H2 only
-        dist_pc (float): Source distance in parsecs
+        dist_pc (float): Source distance in parsecs. Required, no default is assumed
         r_au (float, optional): Emitting region radius in AU. None reports Ncol
             as a total molecule count instead of a column density
         min_lines (int): Fewest detected lines needed before fitting
@@ -1565,7 +1565,7 @@ def fit_region(cube_data, line_table, mask=None, molecule='H2', isotopologue=1, 
 
 
 def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=None,
-              fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
+              fit_opr=False, opr_grid=None, dist_pc=None, r_au=None, min_lines=3,
               dedup_tol_um=1e-5, contam_lines=None, n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
     """Fit one rotational diagram to a single pixel's own spectrum.
     This is fit_region for one pixel instead of a summed region.
@@ -1594,7 +1594,7 @@ def fit_pixel(cube_data, x, y, line_table, molecule='H2', isotopologue=1, opr=No
 
 
 def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopologue=1,
-                                   opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0,
+                                   opr=None, fit_opr=False, opr_grid=None, dist_pc=None,
                                    r_au=None, min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                    contam_lines=None, progress_callback=None, cancel_flag=None,
                                    n_sigma=DEFAULT_DETECTION_SIGMA, fit2t=False):
@@ -1644,7 +1644,7 @@ def create_rotational_diagram_map(cube_data, line_table, molecule='H2', isotopol
 
 
 def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
-                      fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                      fit_opr=False, opr_grid=None, dist_pc=None, r_au=None,
                       min_lines=3, dedup_tol_um=1e-5, contam_lines=None, fit2t=False):
     """Fit one rotational diagram from several cubes at once, one line per cube.
     This is fit_region for many cubes instead of one. No convolution or
@@ -1673,7 +1673,7 @@ def fit_region_multi(cubes_and_lines, molecule='H2', isotopologue=1, opr=None,
 
 def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopologue=1,
                                          opr=None, fit_opr=False, opr_grid=None,
-                                         dist_pc=140.0, r_au=None, min_lines=3,
+                                         dist_pc=None, r_au=None, min_lines=3,
                                          dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                          progress_callback=None, cancel_flag=None, n_sigma=DEFAULT_DETECTION_SIGMA,
                                          fit2t=False):
@@ -1723,7 +1723,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule='H2', isotopol
 
 
 def fit_pixel_multi(result, x, y, molecule='H2', isotopologue=1, opr=None, fit_opr=False,
-                     opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, fit2t=False):
+                     opr_grid=None, dist_pc=None, r_au=None, min_lines=3, fit2t=False):
     """Re-fit one pixel of a create_rotational_diagram_map_multi result.
     Uses its cached per-line maps instead of redoing the convolution.
 
@@ -1924,7 +1924,7 @@ def save_convolved_maps(result, out_path):
 
 
 def combine_line_maps(convolved_result, molecule='H2', isotopologue=1, opr=None, fit_opr=False,
-                      opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, region_fit=None,
+                      opr_grid=None, dist_pc=None, r_au=None, min_lines=3, region_fit=None,
                       progress_callback=None, cancel_flag=None, fit2t=False):
     """Fit a rotational diagram at every pixel of the convolved line maps. This is the last step of
     Run Map. It has no detection threshold of its own. The threshold was set in compute_native_line_maps.
@@ -1936,7 +1936,7 @@ def combine_line_maps(convolved_result, molecule='H2', isotopologue=1, opr=None,
         opr (float, optional): Fixed ortho-para ratio, H2 only
         fit_opr (bool): Search the ortho-para ratio at every pixel, H2 only
         opr_grid (array, optional): Ratios to search, H2 only
-        dist_pc (float): Distance in parsecs
+        dist_pc (float): Distance in parsecs. Required, no default is assumed
         r_au (float, optional): Emitting radius in AU. A map does not use the value: with a radius,
             N is per cm^2 of the area of each pixel. None gives molecules per pixel.
         min_lines (int): Fewest detected lines that a pixel needs for a fit
@@ -2033,7 +2033,7 @@ def import_line_map(fits_path, species=None, wavelength=None, error_pct=None):
 
 
 def fit_region_mixed(cubes_and_lines, imported_lines, molecule='H2', isotopologue=1, opr=None,
-                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3,
+                     fit_opr=False, opr_grid=None, dist_pc=None, r_au=None, min_lines=3,
                      dedup_tol_um=1e-5, contam_lines=None, region_masks=None,
                      imported_region_masks=None, fit2t=False):
     """Fit one rotational diagram to the summed region, with some lines from cubes and some from
@@ -2058,7 +2058,7 @@ def fit_region_mixed(cubes_and_lines, imported_lines, molecule='H2', isotopologu
 
 
 def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecule='H2', isotopologue=1,
-                                        opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                                        opr=None, fit_opr=False, opr_grid=None, dist_pc=None, r_au=None,
                                         min_lines=3, dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None, cancel_flag=None,
                                         region_masks=None, imported_region_masks=None, n_sigma=DEFAULT_DETECTION_SIGMA,

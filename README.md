@@ -19,6 +19,7 @@ Some tools have a narrower scope:
 
 - **Fetch HITRAN, Flux Map, and the rotational diagram** read wavelengths in µm, so use them on MIRI and NIRSpec cubes. The offline HITRAN data in `hitran_local/` covers 1 to 30 µm. For another range, the app fetches the lines from HITRAN online, so it needs an internet connection.
 - **Pair Convolution and Batch Convolution** (resolution matching) work on MIRI and NIRSpec images only.
+- **A MIRI or NIRSpec cube needs `CUNIT3` in its header.** Without it, the cube does not load, because the wavelength unit is not known. A cube with no `BUNIT` loads, and a message says that the flux unit is not known. The spectra and maps then show the values with no unit, and fluxes in CGS units are not computed. A cube does not load if its values are all NaN, or if its `NAXIS3` does not match the data, because the spectral axis is then not known.
 
 ### Interactive Visualization
 
@@ -27,7 +28,7 @@ Some tools have a narrower scope:
 - The spectrum updates when you change the selection
 - Region tools: point, rectangle, ellipse, and freehand polygon. To make a circle, use the Edit Shape tool to give an ellipse the same width and height.
 - Draggable region handles for a move or a resize
-- The RA and Dec of the cursor in the Cursor Info of each slice, and a Grid button that shows or hides the RA and Dec grid on the slice. The grid is on when a cube loads. Both need a celestial WCS in the FITS header.
+- The RA and Dec of the cursor in the Cursor Info of each slice, and a Grid button that shows or hides the RA and Dec grid on the slice. The grid is on when a cube loads. Both need complete sky coordinates in the FITS header: the axis types, a reference pixel, a reference position, and a pixel scale. If a keyword is missing, a message names it, and the slices show in pixels. IFU Analyzer never fills a missing keyword with a default value.
 - Colour scales: Linear, Log, and Power (with an adjustable gamma), with an absolute or a percentile colour range
 - Colormap selection through a dialog, with colourblind-friendly options
 - Support for 2D images (intensity maps and Gaussian parameter maps)
@@ -54,7 +55,7 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 - Dual-panel layout. Load an independent 2D FITS file into the left panel or the right panel.
 - A label above each panel gives the instrument, what the map shows, and the file name, for example `MIRI: Rotational diagram: temperature [map.fits]`. The text comes from the `DESC` keyword of the HDU, or from `PARAM` (Gaussian maps), or from the HDU name. IFU Analyzer writes `DESC` in its saved slices, convolved images, flux maps, and rotational-diagram maps. Files from older versions, and files from other tools, show only the HDU name.
 - A file with more than one HDU opens its first 2D image. "Header" has a list of all HDUs, and a choice of an HDU with a 2D image shows that image in the panel.
-- RA and Dec grid overlay. The RA and Dec tick labels stay in the correct position at any rotation angle. The "Grid" button in the side column of each panel shows or hides the grid. It is on when an image loads. It is off and not usable when the image has no celestial WCS.
+- RA and Dec grid overlay. The RA and Dec tick labels stay in the correct position at any rotation angle. The "Grid" button in the side column of each panel shows or hides the grid. It is on when an image loads. It is off and not usable when the image has no complete sky coordinates. If the header has some coordinate keywords but not all of them, a message names the missing keywords. The image then shows in pixels, and Rotate, Save Slice, Pair Superimposition, and a contour from the other image do not work with it.
 - The tick-label format adjusts to the field of view (degrees, then arcmin, then arcsec, then sub-arcsec).
 - Live cursor readout: pixel coordinates, RA (hh:mm:ss), Dec (dd:mm:ss), and flux value
 - Intensity statistics panel: minimum, maximum, mean, sum, and standard deviation, plus the colour range in use, with the flux unit from the FITS header
@@ -273,7 +274,8 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 - `cube.spectrum`, `extract_pixel_spectrum`, and `extract_region_spectrum` give an astropy quantity: Jy for a cube in MJy/sr, the same as the GUI. The fit functions read the unit from the quantity, so `header=cube.header` still gives the right flux in erg/s/cm². The cube itself (`cube.cube`, `cube.header`, the slices, and the maps) stays in MJy/sr. For plain numbers, use `cube.spectrum.value`.
 - The save functions write the files of the Export and Save buttons of the GUI. `save_gaussian_map` and `save_flux_map` write one FITS file. `save_line_maps` writes the flux map of each line in a folder, or in one .zip file, as "Save Maps" does. It writes no PNG files.
 - `save_region` and `load_region` use the region file of "Save Region" and "Import Region" in the GUI. The file holds sky coordinates, so a region saved on one cube loads on another image of the same field. A polygon can change by a few pixels on its edge when it loads, because the sky coordinates are rounded.
-- `save_line_fluxes` and `load_line_fluxes` use the CSV file of "Save Fluxes" and "Import from CSV". `load_line_fluxes` matches each line to HITRAN, and its result is the `line_table` of `fit_region`. `save_rotational_fit` is "Save Fit".
+- `save_line_fluxes` and `load_line_fluxes` use the CSV file of "Save Fluxes" and "Import from CSV". `load_line_fluxes` matches each line to HITRAN, and its result is the `line_table` of `fit_region`. `save_rotational_fit` is "Save Fit". A row that cannot be read, and a flux that is not a number, give a warning that says which line. The `upper_limit` column must hold 1, 0, true, false, yes or no. Any other value stops the load.
+- **The rotational-diagram functions need the distance to the source.** Give `dist` (for `rotational_diagram`) or `dist_pc` (for all the others), in pc. There is no default value, the same as the "Distance (pc)" box of the GUI. A missing distance, or a value that is not above 0, stops the function with a message.
 - The rotational-diagram buttons "Calculate Maps", "Convolve Maps" and "Run Map" are `compute_native_line_maps`, `convolve_line_maps` and `combine_line_maps`. Save the maps between the steps with `save_line_maps`. `import_line_map` is "Load Maps".
 - The map functions use several processes. On Windows and macOS, put the code of your script under `if __name__ == "__main__":`.
 

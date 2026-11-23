@@ -48,7 +48,7 @@ from .line_catalog import (
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
-from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity
+from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity, has_sky_keywords, sky_wcs_problem
 
 
 # Qt value for "no maximum size" on a widget.
@@ -1248,6 +1248,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             None
         """
         wcs = make_2d_wcs(self.cube_data.header)
+        problem = sky_wcs_problem(self.cube_data.header)
         for target in ("left", "right"):
             left = target == "left"
             plotter = self.slice1_plotter if left else self.slice2_plotter
@@ -1278,7 +1279,14 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             if error is None:
                 btn.setToolTip(f"Show the RA/Dec grid on the {target} slice")
             else:
-                btn.setToolTip(f"The RA/Dec grid is not available: {error}")
+                btn.setToolTip(f"The RA/Dec grid is not available: {problem or error}")
+
+        # A header with no coordinates at all needs no message. A header with some does.
+        if problem is not None and has_sky_keywords(self.cube_data.header):
+            QMessageBox.warning(
+                self, "Incomplete Coordinates",
+                f"{problem}\n\nThe slices are shown in pixels, with no sky positions. "
+                "The tools that need sky positions do not work with this cube.")
 
     def _setup_main_layout(self):
         """Set up the main application layout.
@@ -1667,6 +1675,13 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             # Update instrument label with filename
             filename = os.path.basename(self.cube_data.filename)
             self.instrument_label.setText(f"Instrument: {self.cube_data.instrument} [{filename}]")
+
+            if not self.cube_data.flux_unit:
+                QMessageBox.warning(
+                    self, "Flux Unit Not Known",
+                    "The header of this cube has no BUNIT keyword, so the flux unit is not known.\n\n"
+                    "The spectra and the maps show the values with no unit. "
+                    "Fluxes in CGS units are not computed.")
 
             # Clear spec AND TICKS from previous spec
             self.spec_fig.clf()

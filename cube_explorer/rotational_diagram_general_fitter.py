@@ -10,7 +10,7 @@ from .line_catalog import get_available_molecules
 # The shared fit engine lives next to the models and PyMC code it calls.
 # This module only supplies Q(T) for any HITRAN molecule.
 from .rotational_diagram_h2_fitter import (
-    T_CAP, require_fit_selected, build_excitation_dataset, fit_excitation_diagram,
+    T_CAP, require_fit_selected, require_distance, build_excitation_dataset, fit_excitation_diagram,
 )
 
 # Molecular data for the line set being fit (populated per-call from molecular_data)
@@ -64,7 +64,7 @@ def partition_function_err(T, T_err, molecule='CO', isotopologue=1):
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit2T=False,
-                        R=None, dist=140, upper_limits=None, progress_callback=None,
+                        R=None, dist=None, upper_limits=None, progress_callback=None,
                         molecule='CO', isotopologue=1, emitting_sr=None):
     """
     Fit a rotational diagram (1T and/or 2T) to a set of line fluxes, for any
@@ -78,7 +78,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
         fit2T (bool): Perform the 2T fit
         R (float): Emitting radius (AU), or None
-        dist (float): Distance (pc)
+        dist (float): Distance (pc). Required, no default is assumed
         upper_limits (dict): {J: True} for measurements marked as upper limits
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
         molecule (str): Species being fit, per get_available_molecules()
@@ -90,9 +90,10 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, fit1T=True, fit
         results (dict): Fit results ("1T" and/or "2T" keys, plus "_plot_data")
 
     Raises:
-        ValueError: if neither fit1T nor fit2T is True
+        ValueError: if neither fit1T nor fit2T is True, or if dist is missing or not above 0
     """
     require_fit_selected(fit1T, fit2T)
+    dist = require_distance(dist)
 
     global wave, Aul, Eu, gu
 

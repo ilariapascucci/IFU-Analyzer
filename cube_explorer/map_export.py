@@ -286,16 +286,20 @@ def save_flux_map(result, out_path, species=None, cube_data=None):
     shape = flux_map.shape
     species_label = species.strip() if species and species.strip() else "Target"
 
-    flux_unit = result.get("flux_unit") or "MJy/sr um"
-    if flux_unit != "MJy/sr um":
+    flux_unit = result.get("flux_unit")
+    if flux_unit:
         unit_str = flux_unit
     else:
-        bunit = header.get("BUNIT", "MJy/sr") if header else "MJy/sr"
-        try:
-            bunit = str(u.Unit(bunit))
-        except (ValueError, TypeError):
-            pass
-        unit_str = f"{bunit} um"
+        bunit = header.get("BUNIT") if header else None
+        if bunit:
+            try:
+                bunit = str(u.Unit(bunit))
+            except (ValueError, TypeError):
+                pass
+            unit_str = f"{bunit} um"
+        else:
+            # The unit is not known. It is flagged as UNKNOWN, as the extractor does, and not guessed.
+            unit_str = "UNKNOWN"
 
     primary_extra = {
         "DESC": f"{species_label} rovibrational flux: Integrated area under target line gaussians",

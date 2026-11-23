@@ -7,6 +7,7 @@ import contextlib
 import io
 import re
 import os
+import warnings
 import numpy as np
 import pandas as pd
 import time
@@ -795,6 +796,7 @@ def load_custom_line_catalog(filepath):
 
         rows = []
         skipped = 0
+        bad_cells = []
         # Only wavelength is physically needed (width comes from instrument
         # resolution); species is required anyway so every line is identifiable.
         for _, row in df.iterrows():
@@ -819,13 +821,13 @@ def load_custom_line_catalog(filepath):
                     try:
                         entry[float_col] = float(value)
                     except (TypeError, ValueError):
-                        pass
+                        bad_cells.append(f"{float_col} '{value}'")
             iso_num = _clean(row.get('isotopologue'))
             if iso_num is not None:
                 try:
                     entry['isotopologue'] = int(iso_num)
                 except (TypeError, ValueError):
-                    pass
+                    bad_cells.append(f"isotopologue '{iso_num}'")
             # Skips format_isotopologue_name(): that assumes HITRAN's bracket
             # notation and would misformat plain user text. Shown as given.
             iso_name = _clean(row.get('isotopologue_name'))
@@ -835,6 +837,9 @@ def load_custom_line_catalog(filepath):
 
         if skipped:
             print(f"[WARN] Skipped {skipped} row(s) missing 'wavelength' or 'species'")
+        if bad_cells:
+            shown = ", ".join(bad_cells[:5]) + (" ..." if len(bad_cells) > 5 else "")
+            print(f"[WARN] {len(bad_cells)} value(s) are not numbers and were left out: {shown}")
 
         if not rows:
             raise ValueError("No valid rows (all missing 'wavelength' and/or 'species').")
@@ -865,12 +870,21 @@ def _lst_records(path):
 
     Returns:
         records (generator): One line dict per record, as _parse_lst_record gives it.
+            A record with a column that is not a number is skipped, and a warning at the end says how many.
     """
+    skipped = []
     with open(path, 'r', encoding='utf-8', errors='replace') as handle:
-        for line in handle:
-            row = _parse_lst_record(line.rstrip('\r\n'))
+        for number, line in enumerate(handle, 1):
+            try:
+                row = _parse_lst_record(line.rstrip('\r\n'))
+            except ValueError as error:
+                skipped.append(f"line {number}: {error}")
+                continue
             if row is not None:
                 yield row
+    if skipped:
+        shown = "; ".join(skipped[:3]) + (" ..." if len(skipped) > 3 else "")
+        warnings.warn(f"{os.path.basename(path)}: {len(skipped)} LST record(s) were skipped. {shown}")
 
 
 def available_rest_line_species():
@@ -1092,6 +1106,9 @@ def _parse_lst_record(record):
     Returns:
         row (dict): Line dict in the fetch_hitran_data row format, wavelength in um (vacuum).
             None if the line is a header or is not an LST record.
+
+    Raises:
+        ValueError: The line is an LST record, but its A or E_upper column is not a number
     """
     try:
         wavelength = float(record[7:24].replace(':', ' '))
@@ -1116,7 +1133,7 @@ def _parse_lst_record(record):
             try:
                 row[key] = float(text)
             except ValueError:
-                return None
+                raise ValueError(f"the {key} column is '{text}', not a number") from None
     return row
 
 
@@ -1188,7 +1205,11 @@ def line_list_format(path):
         is_par = False
     if is_par:
         return 'par'
-    if _parse_lst_record(first) is not None:
+    try:
+        is_lst = _parse_lst_record(first) is not None
+    except ValueError:
+        is_lst = True  # An LST record, with a column that is not a number
+    if is_lst:
         return 'lst'
     raise ValueError("IFU Analyzer cannot read this file. Use a CSV with 'wavelength' and "
                      "'species' columns, a HITRAN-format .par file, or an LST .lst file.")

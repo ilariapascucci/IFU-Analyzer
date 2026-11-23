@@ -6,6 +6,8 @@ data. Uses astropy.units for accurate, unit-aware conversions, and still accepts
 unit strings for backward compatibility.
 """
 
+import warnings
+
 import numpy as np
 import astropy.units as u
 from astropy import constants as const
@@ -405,9 +407,117 @@ def cgs_flux_label():
     return CGS_FLUX.to_string('unicode')
 
 
+# A header with one of these keywords claims to have coordinates, also if they are not complete.
+_SKY_KEYWORDS = ('CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 'CDELT1', 'CDELT2',
+                 'CD1_1', 'CD2_2', 'PC1_1', 'PC2_2')
+
+
+def _is_number(value):
+    """
+    Tell if a header value is a finite number.
+    A text value, a truth value, a missing value and NaN are not numbers.
+
+    Args:
+        value (object): The value from a header, or None if the keyword is missing
+
+    Returns:
+        is_number (bool): True if the value is an int or a float and is not NaN or infinite
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return False
+    return isinstance(value, (int, float, np.integer, np.floating)) and bool(np.isfinite(value))
+
+
+def sky_wcs_problem(header):
+    """
+    Find out why a header does not give a complete sky (RA/Dec) coordinate system.
+    The two sky axes need a reference pixel, a reference position and a pixel scale.
+    Every one of these must be a number. Astropy would fill a missing one with a default value.
+
+    Args:
+        header (astropy.io.fits.Header): FITS header of the image or the cube, or None
+
+    Returns:
+        problem (str): A sentence that says what is missing, or None if the sky coordinates are complete
+    """
+    if header is None:
+        return "The image has no header."
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wcs = WCS(header)
+            wcs.wcs.set()
+    except Exception as error:
+        return f"The coordinate keywords in the header cannot be read ({error})."
+
+    lng, lat = wcs.wcs.lng, wcs.wcs.lat
+    if lng < 0 or lat < 0:
+        return "The header has no sky coordinates (no RA and Dec axes)."
+    axes = (lng + 1, lat + 1)
+
+    missing = []
+    for axis in axes:
+        for name in (f"CRVAL{axis}", f"CRPIX{axis}"):
+            if not _is_number(header.get(name)):
+                missing.append(name)
+
+    for i in range(1, 5):
+        for j in range(1, 5):
+            name = f"PC{i}_{j}"
+            if name in header and not _is_number(header[name]):
+                missing.append(name)
+
+    has_cd = any(f"CD{i}_{j}" in header for i in range(1, 5) for j in range(1, 5))
+    if has_cd:
+        # A CD matrix replaces CDELT. An element that is not in the header is zero.
+        block = np.zeros((2, 2))
+        for row, i in enumerate(axes):
+            for column, j in enumerate(axes):
+                name = f"CD{i}_{j}"
+                if name in header:
+                    if _is_number(header[name]):
+                        block[row, column] = header[name]
+                    else:
+                        missing.append(name)
+        if not any(name.startswith("CD") for name in missing) and np.linalg.det(block) == 0:
+            missing.append("a pixel scale (the CD matrix is all zero)")
+    else:
+        for axis in axes:
+            value = header.get(f"CDELT{axis}")
+            if not _is_number(value) or value == 0:
+                missing.append(f"CDELT{axis}")
+
+    if missing:
+        return ("The sky coordinates in the header are incomplete. "
+                "These keywords are missing or are not valid numbers: " + ", ".join(missing) + ".")
+    return None
+
+
+def has_sky_keywords(header):
+    """
+    Tell if a header looks as if it has sky coordinates, complete or not.
+    A header with no coordinate keyword has no coordinates at all, so there is nothing to tell the user.
+    A header with a sky axis type, or with coordinate keywords but no axis type, looks as if it has
+    coordinates, so the user must hear that it does not. An axis type that is not a sky type, for
+    example LINEAR, is a choice of the file, so it is not reported.
+
+    Args:
+        header (astropy.io.fits.Header): FITS header of the image or the cube, or None
+
+    Returns:
+        has_keywords (bool): True if the header has a sky axis type, or coordinate keywords with no axis type
+    """
+    if header is None:
+        return False
+    axis_types = [str(header.get(f"CTYPE{axis}", "")).strip().upper() for axis in (1, 2)]
+    if any(kind.startswith(("RA--", "DEC-")) or kind[1:4] in ("LON", "LAT") for kind in axis_types):
+        return True
+    return not any(axis_types) and any(name in header for name in _SKY_KEYWORDS)
+
+
 # Header keywords that set the area of one pixel. Equal values give an equal area.
-_PIXEL_AREA_KEYS = ('PIXAR_SR', 'CDELT1', 'CDELT2', 'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2',
-                    'PC1_1', 'PC1_2', 'PC2_1', 'PC2_2')
+_PIXEL_AREA_KEYS =('PIXAR_SR', 'CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2', 'CDELT1', 'CDELT2',
+                    'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2', 'PC1_1', 'PC1_2', 'PC2_1', 'PC2_2')
 
 
 @lru_cache(maxsize=32)
@@ -416,7 +526,7 @@ def _pixel_area_sr(values):
     Work out the solid angle of one pixel from the header keywords that give it.
     The WCS gives the area from the pixel scale, the rotation and any CD matrix. The WCS always
     wins, because a header that was changed to another grid can keep an old PIXAR_SR.
-    PIXAR_SR is used only if the header has no WCS pixel scale.
+    PIXAR_SR is used only if the header has no pixel scale on two sky axes (RA and Dec).
 
     Args:
         values (tuple): Header values in the order of _PIXEL_AREA_KEYS. None for a missing key.
@@ -432,16 +542,16 @@ def _pixel_area_sr(values):
         pixar = None
 
     wcs_area = None
-    has_cd = any(keys[k] is not None for k in ('CD1_1', 'CD1_2', 'CD2_1', 'CD2_2'))
-    if has_cd or (keys['CDELT1'] is not None and keys['CDELT2'] is not None):
-        minimal = fits.Header()
-        minimal['NAXIS'] = 2
-        minimal['CTYPE1'], minimal['CTYPE2'] = 'RA---TAN', 'DEC--TAN'
-        minimal['CRPIX1'], minimal['CRPIX2'] = 1.0, 1.0
-        minimal['CRVAL1'], minimal['CRVAL2'] = 0.0, 0.0
-        for key, value in keys.items():
-            if key != 'PIXAR_SR' and value is not None:
-                minimal[key] = value
+    # The position does not change the area, so a fixed one is used.
+    minimal = fits.Header()
+    minimal['NAXIS'] = 2
+    minimal['CRPIX1'], minimal['CRPIX2'] = 1.0, 1.0
+    minimal['CRVAL1'], minimal['CRVAL2'] = 0.0, 0.0
+    for key, value in keys.items():
+        if key != 'PIXAR_SR' and value is not None:
+            minimal[key] = str(value).replace('-SIP', '') if key.startswith('CTYPE') else value
+    # Without sky axes, a CDELT value is not an angle. A default unit would give a false area.
+    if sky_wcs_problem(minimal) is None:
         try:
             wcs_area = float((proj_plane_pixel_area(WCS(minimal)) * u.deg ** 2).to(u.sr).value)
         except Exception:
@@ -455,8 +565,9 @@ def pixel_solid_angle(header):
     Solid angle subtended by one spatial pixel, in steradians.
 
     Args:
-        header (astropy.io.fits.Header): FITS header with the pixel scale: CDELT1 and CDELT2 in
-            degrees, or a CD matrix in degrees. PIXAR_SR is used only if neither is present.
+        header (astropy.io.fits.Header): FITS header with the pixel scale on two sky axes: CDELT1 and CDELT2,
+            or a CD matrix, in the unit of CUNIT (degrees if CUNIT is missing). PIXAR_SR is used only if
+            the header has no such pixel scale.
 
     Returns:
         area (Quantity): Area of one pixel in steradians, or None if the header lacks the pixel scales
@@ -665,7 +776,8 @@ def convert_area_to_cgs(amplitude_mjy_sr, sigma_val, center_val, header, wave_un
             header=header,
             wave_unit=wave_unit,
         )
-    except Exception:
+    except (ValueError, TypeError, ZeroDivisionError, u.UnitsError):
+        # A unit that cannot reach CGS, or a value that is not a number. Any other error is a bug and shows.
         return None
 
 

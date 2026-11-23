@@ -592,6 +592,30 @@ def require_fit_selected(fit1T, fit2T):
         raise ValueError("At least one of fit1T/fit2T must be True -- nothing to fit.")
 
 
+def require_distance(dist, name="dist"):
+    """
+    Stop early when the caller gave no distance to the source.
+    No default is assumed. The column density and the molecule count change with the distance squared.
+
+    Args:
+        dist (float): Distance to the source in pc, or None if the caller gave none
+        name (str): Name of the argument in the function that was called, for the message
+
+    Returns:
+        dist (float): The distance in pc
+
+    Raises:
+        ValueError: if dist is None, is not a number, or is not above 0
+    """
+    try:
+        value = float(dist)
+    except (TypeError, ValueError):
+        value = float("nan")
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f"The distance to the source is required. Give {name} as a number above 0, in pc.")
+    return value
+
+
 def build_excitation_dataset(fluxes, flux_errors, wave, Aul, Eu, gu, upper_limits, R, dist,
                              nu_correction=None, emitting_sr=None):
     """
@@ -982,7 +1006,7 @@ def fit_excitation_diagram(E_arr, y_arr, y_err, is_ul_mask, dropped_detections, 
 
 
 def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_opr=False, opr_grid=None,
-                        fit1T=True, fit2T=False, R=None, dist=140, upper_limits=None, progress_callback=None,
+                        fit1T=True, fit2T=False, R=None, dist=None, upper_limits=None, progress_callback=None,
                         emitting_sr=None):
     """
     Fit an H2 rotational diagram (1T and/or 2T) to a set of line fluxes.
@@ -998,7 +1022,7 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         fit1T (bool): Report the 1T fit (always computed regardless, as 2T's own seed)
         fit2T (bool): Perform the 2T fit
         R (float): Emitting radius (AU), or None
-        dist (float): Distance (pc)
+        dist (float): Distance (pc). Required, no default is assumed
         upper_limits (dict): {J: True} for measurements marked as upper limits
         progress_callback (callable): (phase, current, total) -> None, for a GUI progress bar
         emitting_sr (float): Solid angle that the fluxes come from (sr), for example one pixel.
@@ -1008,9 +1032,10 @@ def rotational_diagram(fluxes, flux_errors, molecular_data=None, OPR=None, fit_o
         results (dict): Fit results, always including "OPR"/"OPR_err"/"OPR_err_pos"/"OPR_err_neg"
 
     Raises:
-        ValueError: if neither fit1T nor fit2T is True
+        ValueError: if neither fit1T nor fit2T is True, or if dist is missing or not above 0
     """
     require_fit_selected(fit1T, fit2T)
+    dist = require_distance(dist)
 
     global wave, Aul, Eu, gu
 

@@ -5,7 +5,6 @@ Data loading and processing functions for different telescopes
 import tempfile
 import gc
 import os
-import warnings
 import numpy as np
 from astropy import units as u
 from astropy.io import fits
@@ -346,10 +345,10 @@ class CubeData:
             None
 
         Returns:
-            spectrum (array): 1D summed spectrum. All zeros if every value is NaN
+            spectrum (array): 1D summed spectrum
 
         Raises:
-            RuntimeError: if the sum over the spatial axes fails
+            RuntimeError: if the sum over the spatial axes fails, or if every value of the cube is NaN
         """
 
         if self.cube is None:
@@ -380,7 +379,7 @@ class CubeData:
 
             # nansum turns an all-NaN chunk into 0, so the sum cannot show missing data
             if not has_data:
-                warnings.warn("The cube contains only NaN values. The summed spectrum is all zeros.")
+                raise ValueError("The cube contains only NaN values, so there is no spectrum.")
 
             return spectrum
             

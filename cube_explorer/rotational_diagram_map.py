@@ -24,7 +24,7 @@ from .gaussian_fitter import DEFAULT_DETECTION_SIGMA
 from .convolve_reproject import convolve_reproject_maps
 from .fits_export import build_2d_export_header, build_line_map_header, write_fits_product
 from .rotational_diagram_h2_fitter import (
-    compute_line_fluxes_collective, get_gu, T_CAP as T_CAP_H2,
+    compute_line_fluxes_collective, get_gu, require_distance, T_CAP as T_CAP_H2,
     rotational_diagram as rotational_diagram_h2,
 )
 from .rotational_diagram_general_fitter import (
@@ -451,7 +451,7 @@ def _fit_row_worker(row_idx, spectra_row, wavelength, line_wavelengths, molecula
 
 
 def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
-              opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+              opr=None, fit_opr=False, opr_grid=None, dist_pc=None, r_au=None,
               min_lines=3, dedup_tol_um=1e-5, contam_lines=None, n_sigma=DEFAULT_DETECTION_SIGMA,
               fit2t=False):
     """
@@ -467,7 +467,7 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
         opr (float): Fixed ortho-para ratio, or None
         fit_opr (bool): Grid-search OPR, H2 only
         opr_grid (array): OPR grid, or None
-        dist_pc (float): Source distance in parsecs
+        dist_pc (float): Source distance in parsecs. Required, no default is assumed
         r_au (float): Emitting radius in AU, or None. A pixel fit does not use the value: with
             a radius, N is per cm^2 of that pixel's own area. Without one, N is molecules per pixel
         min_lines (int): Fewest detections this fit needs
@@ -480,7 +480,11 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
         out (dict): 'status' (int), 'n_lines' (int), and on STATUS_OK also
             'results' (the fitter's dict with '1T' or '2T' plus '_plot_data');
             otherwise 'reason'
+
+    Raises:
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     cube = _resolve_cube(cube_or_list)
     wavelength, _unit = extract_units(cube.wavelength)
     kept, _dropped, line_wavelengths, molecular_data, keys = _prepare_lines(
@@ -493,7 +497,7 @@ def fit_pixel(cube_or_list, x, y, line_table, molecule="H2", isotopologue=1,
 
 
 def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=1,
-               opr=None, fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+               opr=None, fit_opr=False, opr_grid=None, dist_pc=None, r_au=None,
                min_lines=3, dedup_tol_um=1e-5, contam_lines=None, fit2t=False):
     """
     Fit one rotational diagram to the summed spectrum over `mask`.
@@ -511,7 +515,11 @@ def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=
     Returns:
         out (dict): 'status' (int), 'n_pixels' (int), 'n_lines' (int), and on
             STATUS_OK also 'results'; otherwise 'reason'
+
+    Raises:
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     cube = _resolve_cube(cube_or_list)
     wavelength, _unit = extract_units(cube.wavelength)
     kept, _dropped, line_wavelengths, molecular_data, keys = _prepare_lines(
@@ -552,7 +560,7 @@ def fit_region(cube_or_list, line_table, mask=None, molecule="H2", isotopologue=
 
 def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
                                   isotopologue=1, opr=None, fit_opr=False,
-                                  opr_grid=None, dist_pc=140.0, r_au=None,
+                                  opr_grid=None, dist_pc=None, r_au=None,
                                   min_lines=3, dedup_tol_um=1e-5, n_jobs=8,
                                   contam_lines=None, region_fit=None,
                                   progress_callback=None, cancel_flag=None, region_mask=None,
@@ -569,7 +577,7 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
         opr (float): Fixed ortho-para ratio, or None for the fitter default
         fit_opr (bool): Grid-search OPR per pixel, H2 only
         opr_grid (array): OPR grid for the search, or None
-        dist_pc (float): Source distance in parsecs, passed straight to the fitter
+        dist_pc (float): Source distance in parsecs, passed straight to the fitter. Required, no default is assumed
         r_au (float): Emitting radius in AU, or None (total-molecules mode). A map does not use
             the value: with a radius, N is per cm^2 of each pixel's own area
         min_lines (int): Fewest detections a pixel needs for a fit. Callers
@@ -602,7 +610,9 @@ def create_rotational_diagram_map(cube_or_list, line_table, molecule="H2",
     Raises:
         ValueError: if more than one cube is given -- use
             create_rotational_diagram_map_multi instead, or if the cube has no data loaded
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     cube = _resolve_cube(cube_or_list)
     if cube.cube is None:
         raise ValueError("No cube loaded")
@@ -877,7 +887,7 @@ def _native_line_map(cube, line_wavelength, contam_lines=None, n_jobs=8,
 
 
 def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
-                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                     fit_opr=False, opr_grid=None, dist_pc=None, r_au=None,
                      min_lines=3, dedup_tol_um=1e-5, contam_lines=None, region_masks=None,
                      fit2t=False):
     """
@@ -901,7 +911,11 @@ def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
         out (dict): 'status' (int), 'n_lines' (int), 'n_pixels' (total spaxels
             summed, across every cube), 'n_cubes', and on STATUS_OK also
             'results'; otherwise 'reason'
+
+    Raises:
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     kept_pairs, _dropped = _dedupe_colocated(list(cubes_and_lines), dedup_tol_um, line_of=lambda p: p[1])
     kept_lines = [l for _, l in kept_pairs]
     keys = _line_keys(kept_lines, molecule)
@@ -945,7 +959,7 @@ def fit_region_multi(cubes_and_lines, molecule="H2", isotopologue=1, opr=None,
 
 
 def fit_region_mixed(cubes_and_lines, imported_lines, molecule="H2", isotopologue=1, opr=None,
-                     fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                     fit_opr=False, opr_grid=None, dist_pc=None, r_au=None,
                      min_lines=3, dedup_tol_um=1e-5, contam_lines=None, region_masks=None,
                      imported_region_masks=None, fit2t=False):
     """
@@ -967,7 +981,11 @@ def fit_region_mixed(cubes_and_lines, imported_lines, molecule="H2", isotopologu
 
     Returns:
         out (dict): Same shape as fit_region_multi's own return
+
+    Raises:
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     items = [(cube, line) for cube, line in cubes_and_lines] + \
             [(None, line) for line in imported_lines]
     kept_pairs, _dropped = _dedupe_colocated(items, dedup_tol_um, line_of=lambda p: p[1])
@@ -1364,7 +1382,7 @@ def merge_native_results(native_cube_result, imported_lines, dedup_tol_um=1e-5):
 
 
 def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None, fit_opr=False,
-                      opr_grid=None, dist_pc=140.0, r_au=None, min_lines=3, region_fit=None,
+                      opr_grid=None, dist_pc=None, r_au=None, min_lines=3, region_fit=None,
                       progress_callback=None, cancel_flag=None, fit2t=False):
     """
     Combine already-convolved per-line flux maps into a rotational diagram at
@@ -1378,7 +1396,7 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
         opr (float): Fixed ortho-para ratio, or None for the fitter default
         fit_opr (bool): Grid-search OPR per pixel, H2 only
         opr_grid (array): OPR grid for the search, or None
-        dist_pc (float): Source distance in parsecs
+        dist_pc (float): Source distance in parsecs. Required, no default is assumed
         r_au (float): Emitting radius in AU, or None (total-molecules mode). A map does not use
             the value: with a radius, N is per cm^2 of each pixel's own area
         min_lines (int): Fewest detections a pixel needs for a fit
@@ -1398,7 +1416,11 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
             'opr', 'min_lines', 't_cap', 'worst_pix_arcsec', 'kept_lines',
             'dropped_lines', 'region_fit', 'native_flux_maps', 'native_flux_error_maps',
             'native_wcs', 'native_shapes', 'native_pix_arcsec', 'cube_filenames'
+
+    Raises:
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     kept_lines = convolved_result["kept_lines"]
     keys = _line_keys(kept_lines, molecule)
     molecular_data = _build_molecular_data(kept_lines, keys, molecule)
@@ -1511,7 +1533,7 @@ def combine_line_maps(convolved_result, molecule="H2", isotopologue=1, opr=None,
 
 def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopologue=1,
                                         opr=None, fit_opr=False, opr_grid=None,
-                                        dist_pc=140.0, r_au=None, min_lines=3,
+                                        dist_pc=None, r_au=None, min_lines=3,
                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None,
                                         cancel_flag=None, region_masks=None, n_sigma=DEFAULT_DETECTION_SIGMA,
@@ -1528,7 +1550,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
         opr (float): Fixed ortho-para ratio, or None for the fitter default
         fit_opr (bool): Grid-search OPR per pixel, H2 only
         opr_grid (array): OPR grid for the search, or None
-        dist_pc (float): Source distance in parsecs
+        dist_pc (float): Source distance in parsecs. Required, no default is assumed
         r_au (float): Emitting radius in AU, or None (total-molecules mode). A map does not use
             the value: with a radius, N is per cm^2 of each pixel's own area
         min_lines (int): Fewest detections a pixel needs for a fit
@@ -1559,7 +1581,9 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
     Raises:
         ValueError: if fewer than 2 pairs are given, a cube has no readable
             celestial WCS/pixel scale, or two inputs share no sky coverage
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     if len(cubes_and_lines) < 2:
         raise ValueError("Need at least 2 (cube, line) pairs -- use "
                          "create_rotational_diagram_map for a single cube.")
@@ -1635,7 +1659,7 @@ def create_rotational_diagram_map_multi(cubes_and_lines, molecule="H2", isotopol
 
 def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecule="H2",
                                         isotopologue=1, opr=None, fit_opr=False, opr_grid=None,
-                                        dist_pc=140.0, r_au=None, min_lines=3,
+                                        dist_pc=None, r_au=None, min_lines=3,
                                         dedup_tol_um=1e-5, n_jobs=8, contam_lines=None,
                                         region_fit=None, progress_callback=None,
                                         cancel_flag=None, region_masks=None,
@@ -1665,7 +1689,9 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
         ValueError: if neither a cube-backed nor an imported line is given,
             a cube/imported map has no readable celestial WCS/pixel scale,
             or two inputs share no sky coverage
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     if not cubes_and_lines and not imported_lines:
         raise ValueError("Need at least one cube-backed or imported line.")
 
@@ -1745,7 +1771,7 @@ def create_rotational_diagram_map_mixed(cubes_and_lines, imported_lines, molecul
 
 
 def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
-                    fit_opr=False, opr_grid=None, dist_pc=140.0, r_au=None,
+                    fit_opr=False, opr_grid=None, dist_pc=None, r_au=None,
                     min_lines=3, fit2t=False):
     """
     Re-fit one pixel of a convolved/reprojected map from its cached per-line
@@ -1767,7 +1793,9 @@ def fit_pixel_multi(result, x, y, molecule="H2", isotopologue=1, opr=None,
     Raises:
         KeyError: if result has no cached per-line maps (predates this
             function, or came from a different map type)
+        ValueError: if dist_pc is missing or not above 0
     """
+    dist_pc = require_distance(dist_pc, "dist_pc")
     flux_maps = result["_flux_maps"]
     err_maps = result["_err_maps"]
     keys = result["_keys"]

@@ -46,7 +46,7 @@ from .utils import (
     detect_instrument, detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
     is_per_pixel_flux_unit, wcs_footprints_overlap, rotate_image_with_wcs,
 )
-from .unit_converter import clean_flux_unit, is_per_solid_angle_unit
+from .unit_converter import clean_flux_unit, is_per_solid_angle_unit, has_sky_keywords, sky_wcs_problem
 from .fits_export import (
     build_2d_export_header, build_resample_header, build_coverage_extension, write_fits_product,
     _LINE_KEYWORDS,
@@ -622,6 +622,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         
         self.wcs_left = None
         self.wcs_right = None
+        # Why a panel has no sky coordinates (str), or None when it has them.
+        self.sky_problem_left = None
+        self.sky_problem_right = None
         self.base_image_left = None
         self.base_header_left = None
         self.cum_angle_left = 0.0
@@ -1147,6 +1150,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         if source == 'other' and (self.header_left is None or self.header_right is None):
             QMessageBox.warning(self, "Missing Data", "Both images must be loaded.")
             return
+        if source == 'other':
+            for side, side_header, side_name in (("left", self.header_left, self.filename_left),
+                                                 ("right", self.header_right, self.filename_right)):
+                problem = sky_wcs_problem(side_header)
+                if problem is not None:
+                    QMessageBox.warning(
+                        self, "No Sky Coordinates",
+                        "A contour from the other image needs complete sky coordinates in both images.\n\n"
+                        f"{side_name or side + ' panel'}: {problem}")
+                    return
 
         # The same levels as the Superimposition tables: multiples of sigma, or percents of the peak.
         try:
@@ -1438,7 +1451,11 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 ("left", self.image_left, self.wcs_left, self.header_left, self.filename_left),
                 ("right", self.image_right, self.wcs_right, self.header_right, self.filename_right)):
             if wcs is None or not wcs.has_celestial:
-                QMessageBox.warning(self, "No WCS", "Both images must have valid WCS to superimpose.")
+                problem = self.sky_problem_left if side == "left" else self.sky_problem_right
+                QMessageBox.warning(
+                    self, "No WCS",
+                    "Both images must have complete sky coordinates to superimpose.\n\n"
+                    f"{filename or side + ' panel'}: {problem or 'The header has no sky coordinates.'}")
                 return
             panels[side] = {"image": image, "wcs": wcs, "header": header,
                             "filename": filename or f"{side} panel"}
@@ -1790,6 +1807,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         ax_rect = [0.13, 0.10, 0.70, 0.80]
 
         wcs_for_projection = None
+        problem = None
 
         # --- Step 1: Build a clean, strictly-2D, SIP-free WCS ---
         try:
@@ -1818,19 +1836,26 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 if ct in ch and '-SIP' in str(ch[ct]):
                     ch[ct] = str(ch[ct]).replace('-SIP', '')
 
-            wcs_obj = WCS(ch, naxis=2)
-
-            wcs_for_projection = wcs_obj.celestial if wcs_obj.has_celestial else wcs_obj
+            problem = sky_wcs_problem(ch)
+            if problem is None:
+                wcs_obj = WCS(ch, naxis=2)
+                wcs_for_projection = wcs_obj.celestial if wcs_obj.has_celestial else wcs_obj
+            else:
+                # Plain pixel axes. Astropy would fill the missing keywords with default values.
+                wcs_for_projection = WCS(naxis=2)
 
         except Exception as e:
             print(f"DEBUG rebuild_axes [{target}]: WCS parse FAILED -> {e}")
             wcs_for_projection = None
-            
+            problem = f"The coordinate keywords in the header cannot be read ({e})."
+
         # Store so hover readout can use it
         if target == 'left':
             self.wcs_left  = wcs_for_projection
+            self.sky_problem_left = problem
         else:
             self.wcs_right = wcs_for_projection
+            self.sky_problem_right = problem
 
         # --- Step 2: Create axes (WCSAxes if possible, plain fallback) ---
         try:
@@ -2017,6 +2042,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                            self.rotate_btn_l if is_left else self.rotate_btn_r,
                            self.contour_btn_l if is_left else self.contour_btn_r):
                     _b.setEnabled(True)
+
+                # A header with no coordinates at all needs no message. A header with some does.
+                problem = self.sky_problem_left if is_left else self.sky_problem_right
+                if problem is not None and has_sky_keywords(header):
+                    QMessageBox.warning(
+                        self, "Incomplete Coordinates",
+                        f"{filename}\n\n{problem}\n\n"
+                        "The image is shown in pixels, with no sky positions. "
+                        "The tools that need sky positions do not work with this image.")
                 return True
 
         except Exception as e:
@@ -2059,12 +2093,13 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
             
-            wcs_in_full = WCS(base_header)
-            if not wcs_in_full.has_celestial:
+            problem = sky_wcs_problem(base_header)
+            if problem is not None:
                 QApplication.restoreOverrideCursor()
-                QMessageBox.warning(self, "WCS Error", "Image does not have a valid celestial WCS.")
+                QMessageBox.warning(self, "WCS Error", f"Rotate needs complete sky coordinates. {problem}")
                 return
-                
+            wcs_in_full = WCS(base_header)
+
             if wcs_in_full.pixel_n_dim > 2:
                 wcs_in = wcs_in_full.celestial
             else:
@@ -2282,7 +2317,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         if usable:
             btn.setToolTip(f"Show the RA/Dec grid on the {target} image")
         else:
-            btn.setToolTip("The RA/Dec grid is not available: this image has no sky WCS")
+            problem = self.sky_problem_left if target == 'left' else self.sky_problem_right
+            btn.setToolTip(f"The RA/Dec grid is not available: {problem or 'this image has no sky WCS'}")
 
     def _toggle_grid(self, target, checked):
         """Show or hide the RA/Dec grid on one panel.
@@ -2505,8 +2541,12 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         ref_wcs = make_2d_wcs(ref_header)
         if ref_wcs is not None and ref_img is not None:
-            if not wcs_footprints_overlap(
-                    fine_wcs, fine_img.shape, ref_wcs, ref_img.shape):
+            try:
+                overlap = wcs_footprints_overlap(fine_wcs, fine_img.shape, ref_wcs, ref_img.shape)
+            except ValueError as error:
+                QMessageBox.warning(self, "WCS Error", str(error))
+                return
+            if not overlap:
                 QMessageBox.warning(
                     self, "No Sky Overlap",
                     "The two images cover completely different regions of the sky.\n\n"

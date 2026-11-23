@@ -11,7 +11,7 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.wcs.utils import proj_plane_pixel_scales
 from scipy.ndimage import rotate
-from .unit_converter import convert_wavelength
+from .unit_converter import convert_wavelength, sky_wcs_problem
 
 # Resolving-power tables from the JWST docs (Jakobsen et al. 2022), one file per disperser.
 NIRSPEC_DISP_DIR = Path(__file__).resolve().parent.parent / 'nirspec_disp'
@@ -387,19 +387,20 @@ def infer_spec_axis(header, cube_shape):
         cube_shape (tuple): Shape of the loaded data cube
 
     Returns:
-        axis (int): Index of the spectral axis (0 = first, 2 = last, for a 3D cube).
-            Returns 0 if the header does not give a clear answer.
+        axis (int): Index of the spectral axis (0 = first, 2 = last, for a 3D cube)
+
+    Raises:
+        ValueError: The header has no NAXIS3, or NAXIS3 is not the length of the first or the last axis
     """
-    try:
-        naxis3 = header.get('NAXIS3', None)
-        if naxis3 is not None:
-            if naxis3 == cube_shape[0]:
-                return 0
-            elif naxis3 == cube_shape[-1]:
-                return len(cube_shape) - 1
-    except Exception as e:
-        print(f"Error inferring spectral axis: {e}")  # Debug info
-    return 0
+    naxis3 = header.get('NAXIS3', None)
+    if naxis3 is None:
+        raise ValueError("The header has no NAXIS3, so the spectral axis cannot be found.")
+    if naxis3 == cube_shape[0]:
+        return 0
+    if naxis3 == cube_shape[-1]:
+        return len(cube_shape) - 1
+    raise ValueError(f"NAXIS3 is {naxis3}, but the cube has the shape {tuple(cube_shape)}. "
+                     "The spectral axis cannot be found.")
 
 
 def get_wavelength(header, instrument, cube_shape):
@@ -416,7 +417,11 @@ def get_wavelength(header, instrument, cube_shape):
         result (dict): Has 'wavelength' (Quantity) and 'unit' (str). Also has 'flux_unit'
             and 'wave_error' for MUSE, or 'flux_unit', 'mjd_avg', 'exposure_time', and
             'pa_aper' for MIRI/NIRSpec. The caller sets these extra keys onto the cube
-            with setattr. On error, returns a dummy dict instead of raising.
+            with setattr.
+
+    Raises:
+        ValueError: The header lacks a keyword of the wavelength axis, or the axis or its unit is not valid.
+            A missing CUNIT3 is an error. A missing BUNIT is not: the flux unit is then an empty string.
     """
 
     try:
@@ -466,8 +471,8 @@ def get_wavelength(header, instrument, cube_shape):
                 # Store MJD for potential time-series analysis
                 'mjd_avg': float(header.get("MJD-AVG", 0.0)),
                 'exposure_time': float(header.get("XPOSURE", 0.0)),
-                # Store flux units (typically MJy/sr for JWST)
-                'flux_unit': header.get("BUNIT", "MJy/sr"),
+                # An empty text means the flux unit is not known. No unit is assumed.
+                'flux_unit': str(header.get("BUNIT", "")).strip(),
                 # Store aperture position angle for orientation
                 'pa_aper': float(header.get("PA_APER", 0.0)),
             }
@@ -480,15 +485,18 @@ def get_wavelength(header, instrument, cube_shape):
                 source_unit = "nm"
             elif cunit3 == "M":
                 source_unit = "m"
-            else:
+            elif cunit3 in ("UM", "MICRON", "MICRONS", "MICROMETER", "MICROMETERS"):
                 source_unit = "um"
+            elif not cunit3:
+                raise ValueError("The header has no CUNIT3, so the wavelength unit is not known.")
+            else:
+                raise ValueError(f"CUNIT3 is '{cunit3.lower()}'. This program reads um, nm, Angstrom and m.")
             wavelengths = convert_wavelength(wavelengths, source_unit, "um")
 
             return {'wavelength': wavelengths * u.um, 'unit': "um", **extra}
 
     except Exception as e:
-        print(f"Error calculating wavelength array: {e}")
-        return {'wavelength': None * u.dimensionless_unscaled, 'unit': ""}
+        raise ValueError(f"The wavelength axis of the cube is incomplete or not valid: {e}") from e
 
 
 # --- 2D WCS and BUNIT helpers ---
@@ -502,8 +510,11 @@ def get_pixel_size_arcsec(header):
         header (astropy.io.fits.Header): FITS header to read the WCS from.
 
     Returns:
-        scale (float): Pixel scale in arcsec/pixel, or None if not found.
+        scale (float): Pixel scale in arcsec/pixel, or None if the header has no complete sky coordinates.
     """
+    # A pixel scale from an incomplete WCS would be a default value, for example 3600 arcsec.
+    if sky_wcs_problem(header) is not None:
+        return None
     try:
         w = WCS(header)
         if w.has_celestial:
@@ -526,9 +537,13 @@ def make_2d_wcs(header):
         header (astropy.io.fits.Header): FITS header to build the WCS from.
 
     Returns:
-        wcs (astropy.wcs.WCS): The 2D WCS, or None if it could not be built.
+        wcs (astropy.wcs.WCS): The 2D WCS, or None if it could not be built. A header without
+            complete sky coordinates gives a plain pixel WCS, and its has_celestial is False.
     """
     try:
+        if sky_wcs_problem(header) is not None:
+            # Astropy would fill the missing keywords with defaults and report false sky positions.
+            return WCS(naxis=2)
         w = WCS(header)
         if w.pixel_n_dim > 2 and w.has_celestial:
             return w.celestial
@@ -635,9 +650,10 @@ def wcs_footprints_overlap(wcs1, shape1, wcs2, shape2):
         shape2 (tuple): (ny, nx) shape of the second image.
 
     Returns:
-        overlap (bool): True if any sample point falls inside the other
-            image; also True on any exception, so a WCS that cannot be
-            evaluated never blocks the caller.
+        overlap (bool): True if any sample point falls inside the other image
+
+    Raises:
+        ValueError: A WCS cannot be evaluated, so the sky coverage of the two images is not known
     """
     try:
         ny1, nx1 = shape1
@@ -674,7 +690,6 @@ def wcs_footprints_overlap(wcs1, shape1, wcs2, shape2):
             return True
 
         return False
-    except Exception:
-        # Cannot evaluate the WCS: assume overlap so a degenerate header
-        # never blocks the caller; a real non-overlap yields all-NaN output.
-        return True
+    except Exception as error:
+        raise ValueError(f"The sky coverage of the two images is not known, because a WCS cannot be "
+                         f"evaluated: {error}") from error

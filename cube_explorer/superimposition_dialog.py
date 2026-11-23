@@ -29,7 +29,7 @@ from .file_dialogs import open_file_names
 from .gui_sizing import fit_to_screen
 from .icon_loader import set_button_icon
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
-from .unit_converter import clean_flux_unit
+from .unit_converter import clean_flux_unit, sky_wcs_problem
 from .utils import make_2d_wcs, rotate_image_with_wcs
 from .visualization import apply_wcs_grid
 
@@ -182,6 +182,9 @@ def load_superimposition_image(path):
                     break
     if data is None:
         raise ValueError(f"{name} has no 2D image.")
+    problem = sky_wcs_problem(header)
+    if problem is not None:
+        raise ValueError(f"{name} has no sky WCS. {problem}")
     wcs = make_2d_wcs(header)
     if wcs is None or not wcs.has_celestial:
         raise ValueError(f"{name} has no sky WCS.")

@@ -1086,7 +1086,7 @@ def fit_glines(xwave, yflux, list_wboundaries, det_target_lines, detcontaminatin
     return sum_target_area, sum_contaminating_area, mean_cont, df_residual, df_continuum, per_line_fits, per_contam_fits
 
 
-def _line_sigma(wl, header, wave_unit=None):
+def _line_sigma(wl, header, wave_unit):
     """
     Instrumental Gaussian sigma at wavelength `wl`, from the real spectral resolution
     (R = lambda/delta_lambda) in `header`. This function has no fallback value: MIRI and
@@ -1095,22 +1095,24 @@ def _line_sigma(wl, header, wave_unit=None):
     Args:
         wl (float): Wavelength, in wave_unit
         header (astropy.io.fits.Header): FITS header identifying the instrument (MIRI/NIRSpec)
-        wave_unit (str): Unit of wl. None means micron, the unit of MIRI and NIRSpec cubes.
+        wave_unit (str): Unit of wl, for example 'um'. Required, no unit is assumed.
 
     Returns:
         sigma (float): Instrumental Gaussian sigma, same units as `wl`
 
     Raises:
-        ValueError: if header is None, the instrument isn't MIRI/NIRSpec, or (NIRSpec) the
-            grating is missing/unrecognized
+        ValueError: if header is None, wave_unit is missing, the instrument isn't MIRI/NIRSpec, or
+            (NIRSpec) the grating is missing/unrecognized
     """
     if header is None:
         raise ValueError("Cannot determine spectral resolution: no FITS header given.")
+    if not wave_unit:
+        raise ValueError("Cannot determine spectral resolution: the wavelength unit is not known.")
     instrument = header.get('INSTRUME', '').strip().upper()
     if 'MIRI' in instrument:
-        R = resolving_power(wl, wave_unit or 'um', 'MIRI', header)
+        R = resolving_power(wl, wave_unit, 'MIRI', header)
     elif 'NIRSPEC' in instrument:
-        R = resolving_power(wl, wave_unit or 'um', 'NIRSpec', header)
+        R = resolving_power(wl, wave_unit, 'NIRSpec', header)
     else:
         raise ValueError(f"No spectral resolution formula for instrument {instrument!r} "
                           f"(only MIRI and NIRSpec are supported).")
