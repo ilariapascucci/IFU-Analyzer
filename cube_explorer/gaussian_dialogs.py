@@ -395,9 +395,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.systemic_status = QLabel("Velocities relative to the rest line")
         make_selectable(self.systemic_status)
         systemic_layout.addWidget(self.systemic_status)
-        self.systemic_hint = QLabel("")
-        make_selectable(self.systemic_hint)
-        systemic_layout.addWidget(self.systemic_hint)
         systemic_layout.addStretch()
         self.systemic_row.setVisible(False)
         layout.addWidget(self.systemic_row)
@@ -655,8 +652,9 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
 
     def _update_systemic_controls(self):
         """
-        Show the systemic velocity box for the Velocity map only. The text next to it gives the
-        fitted systemic velocity of the summed spectrum as a suggestion. It does not change the map.
+        Show the systemic velocity box for the Velocity map only.
+        The box does not show the fitted value of the summed spectrum. The statistics show it.
+        It does not change the map.
 
         Args:
             None
@@ -664,17 +662,7 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         Returns:
             None
         """
-        is_velocity = self.param_combo.currentText() == "Velocity"
-        self.systemic_row.setVisible(is_velocity)
-        if not is_velocity:
-            return
-        velocity, reason = self._systemic_velocity()
-        if velocity is None:
-            self.systemic_hint.setText("Fitted value of the summed spectrum: not available")
-            self.systemic_hint.setToolTip(reason)
-        else:
-            self.systemic_hint.setText(f"Fitted value of the summed spectrum: {velocity:+.2f} km/s")
-            self.systemic_hint.setToolTip("")
+        self.systemic_row.setVisible(self.param_combo.currentText() == "Velocity")
 
     def _apply_systemic_velocity(self):
         """
@@ -699,7 +687,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
         self.systemic_velocity = velocity
         self.systemic_status.setText("Velocities relative to the rest line" if velocity == 0.0
                                      else f"Velocities relative to systemic velocity {velocity:+.2f} km/s")
-        self.scale_settings.clear_absolute_range()
         self._update_plot()
 
     def _rest_wavelength(self):
