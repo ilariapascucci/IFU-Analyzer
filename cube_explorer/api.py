@@ -1515,7 +1515,9 @@ from .rotational_diagram_map import (
 )
 from .convolve_reproject import (
     convolution_plan as _convolution_plan,
+    convolve_maps as _convolve_maps,
     convolve_reproject_maps as _convolve_reproject_maps,
+    save_convolved_maps as _save_convolved_maps,
 )
 from .import_map_dialog import _peek_header, _has_real_error
 from .line_catalog import match_nearest_hitran_line as _match_nearest_hitran_line
@@ -1600,6 +1602,60 @@ def convolve_line_maps(native_result):
         >>> save_line_maps(convolved, "convolved_maps.zip")
     """
     return _convolve_reproject_maps(native_result)
+
+
+def convolve_maps(paths, wavelengths_um=None):
+    """Convolve 2D maps to the resolution of the map with the longest wavelength, and reproject every
+    map onto the grid of that map. This is the Batch Convolution of the 2D viewer. The maps can be
+    any 2D FITS maps of MIRI or NIRSpec lines, for example the Area export of a Gaussian map or a
+    map of line intensity. A map is a flux per pixel (for example erg/s/cm2) or a surface brightness
+    (for example MJy/sr). Each result keeps the unit of its map.
+    A surface brightness is multiplied by the solid angle of the pixel before the convolution and
+    divided by the solid angle of the output pixel after it.
+
+    Args:
+        paths (list): Paths of the 2D FITS maps, at least two.
+        wavelengths_um (list or dict, optional): Line wavelength of each map, in um. A list has one value
+            per path, in order, and None keeps the header value of that map. A dict has a path or a file
+            name as key. A value that you give replaces the header value. A map needs a wavelength from
+            its header (LINEWAVE, or LAMMIN and LAMMAX) or from this argument.
+
+    Returns:
+        dict: 'reference' (file name of the map with the longest wavelength), 'reference_wavelength_um',
+        'dst_shape' and 'maps'. 'maps' has one dict for each input, in the order of paths, with
+        'filename', 'wavelength_um', 'is_reference', 'image', 'coverage' (overlap fraction of each
+        pixel), 'header', 'sigma_arcsec' (size of the kernel, 0 for the reference), 'input_total' and
+        'output_total' (flux sums, so that you can check that flux is kept). Pass it to save_convolved_maps.
+
+    Raises:
+        ValueError: if fewer than two maps are given, a file cannot be read, two maps share no sky
+            coverage, a map is not from MIRI or NIRSpec, a unit is neither a flux per pixel nor a
+            surface brightness, a wavelength is missing, or a convolution gives no valid pixel
+
+    Example:
+        >>> result = convolve_maps(["s7_area.fits", "s1_area.fits"])
+        >>> save_convolved_maps(result, "convolved_maps.zip")
+    """
+    return _convolve_maps(paths, wavelengths_um=wavelengths_um)
+
+
+def save_convolved_maps(result, out_path):
+    """Save the maps of convolve_maps as FITS files. Each file is named matched_ and the name of the
+    input file. It has the image, and the overlap fraction of each pixel in the extension COVERAGE.
+    This is the ZIP file that Batch Convolution of the 2D viewer writes.
+
+    Args:
+        result (dict): Result of convolve_maps
+        out_path (str): Path of a ZIP file (a path that ends with .zip), or of a folder. A folder is
+            made if it does not exist.
+
+    Returns:
+        list: The files that were written. For a ZIP file, the names of the files inside it.
+
+    Example:
+        >>> save_convolved_maps(convolve_maps(["a.fits", "b.fits"]), "convolved_maps")
+    """
+    return _save_convolved_maps(result, out_path)
 
 
 def combine_line_maps(convolved_result, molecule='H2', isotopologue=1, opr=None, fit_opr=False,
@@ -2126,6 +2182,8 @@ __all__ = [
     'compute_native_line_maps',
     'convolution_plan',
     'convolve_line_maps',
+    'convolve_maps',
+    'save_convolved_maps',
     'combine_line_maps',
     'import_line_map',
     'fit_region_mixed',

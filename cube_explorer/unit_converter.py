@@ -560,6 +560,26 @@ def spectrum_flux_density_unit(flux_unit, header):
     return float(omega.value * (astropy_unit * u.sr).to(u.Jy)), 'Jy'
 
 
+def is_per_solid_angle_unit(unit_text):
+    """
+    Tell whether a unit is a surface brightness, which is a unit per solid angle, for example MJy/sr,
+    erg/s/cm2/sr or MJy/arcsec2. A map in such a unit gives the flux of a pixel when each value is
+    multiplied by the solid angle of the pixel.
+
+    Args:
+        unit_text (str): Unit text, typically the BUNIT header keyword
+
+    Returns:
+        is_per_angle (bool): True if the unit has a solid angle in its denominator
+    """
+    unit = _string_to_astropy_unit(unit_text)
+    if unit is None:
+        return False
+    # The steradian is rad**2 in astropy, so it shows as the radian after the unit is broken into base units.
+    decomposed = unit.decompose()
+    return dict(zip(decomposed.bases, decomposed.powers)).get(u.rad, 0) < 0
+
+
 def _resolve_flux_unit(flux_unit_input: Optional[str], header) -> Optional[str]:
     """
     Return the cube's flux unit, falling back to the header's BUNIT.

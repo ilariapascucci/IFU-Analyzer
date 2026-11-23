@@ -47,43 +47,20 @@ from .utils import (
     detect_instrument, detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
     is_per_pixel_flux_unit, wcs_footprints_overlap,
 )
-from .unit_converter import clean_flux_unit
+from .unit_converter import clean_flux_unit, is_per_solid_angle_unit
 from .fits_export import (
     build_2d_export_header, build_resample_header, build_coverage_extension, write_fits_product,
     _LINE_KEYWORDS,
 )
 from .convolve_reproject import (
-    gaussian_convolve_match as _convolve_match,
-    reproject_flux_maps as _reproject_flux_maps,
+    convolution_flux_totals,
+    convolve_map_to_reference as _run_convolve_pair,
+    convolved_description as _convolved_description,
+    header_line_wavelength_um as _header_line_wavelength_um,
+    load_map_for_convolution,
+    map_description as _map_description,
+    unsupported_files as _unsupported_files,
 )
-
-
-def _header_line_wavelength_um(header):
-    """Read LINEWAVE, or LAMMIN/LAMMAX's midpoint, from a header -- no
-    prompting. LINEWAVE (rotational-diagram Save Maps exports) is exact.
-    LAMMIN/LAMMAX (Gaussian Map exports) bound one line's own fit window, so
-    their midpoint is a good proxy. WAVEMIN/WAVEMAX (Flux Map exports) can
-    span several blended lines, so those are never used here -- a midpoint
-    there could silently name the wrong line.
-
-    Args:
-        header (astropy.io.fits.Header): This image's FITS header, or None.
-
-    Returns:
-        wavelength_um (float or None): Wavelength in microns, or None if
-            neither header key is present or usable.
-    """
-    if header is not None and 'LINEWAVE' in header:
-        try:
-            return float(header['LINEWAVE'])
-        except (TypeError, ValueError):
-            pass
-    if header is not None and 'LAMMIN' in header and 'LAMMAX' in header:
-        try:
-            return (float(header['LAMMIN']) + float(header['LAMMAX'])) / 2.0
-        except (TypeError, ValueError):
-            pass
-    return None
 
 
 def _get_line_wavelength_um(header, filename, parent):
@@ -109,61 +86,6 @@ def _get_line_wavelength_um(header, filename, parent):
         "to compute its PSF FWHM. Enter it manually:",
         5.0, 0.1, 30.0, 6)
     return float(value) if ok else None
-
-
-def _unsupported_files(infos):
-    """Return (filename, instrument) for every input that isn't MIRI or NIRSpec --
-    the PSF formula has no confirmed fit for any other instrument yet.
-
-    Args:
-        infos (list): (filename, header) pairs to check.
-
-    Returns:
-        bad (list): (filename, detected instrument or 'unknown') pairs.
-    """
-    bad = []
-    for filename, header in infos:
-        inst = detect_instrument_from_header(header) if header is not None else None
-        if inst not in ("MIRI", "NIRSpec"):
-            bad.append((filename, inst or "unknown"))
-    return bad
-
-
-def _map_description(header, is_primary):
-    """Name what one HDU shows, from the keywords that IFU Analyzer exports write.
-    DESC wins. A Gaussian map has PARAM, and its other HDUs add their own HDU name.
-    If there is neither, the HDU name is used.
-
-    Args:
-        header (astropy.io.fits.Header): Header of one HDU.
-        is_primary (bool): True if the HDU is the first HDU of the file.
-
-    Returns:
-        description (str): The description, or an empty string if the header has none.
-    """
-    extname = str(header.get('EXTNAME', '')).strip()
-    desc = str(header.get('DESC', '')).strip()
-    if desc:
-        return desc
-    param = str(header.get('PARAM', '')).strip()
-    if param:
-        return param if is_primary or not extname else f"{param}, {extname}"
-    return '' if extname.upper() == 'PRIMARY' else extname
-
-
-def _convolved_description(source_header, ref_wavelength):
-    """Build the DESC text of a convolved image.
-
-    Args:
-        source_header (astropy.io.fits.Header): Header of the image that was convolved.
-        ref_wavelength (float): Wavelength of the reference image, in um.
-
-    Returns:
-        text (str): For example "Convolved to the PSF at 17.0348 um: Area (AUC)".
-    """
-    text = f"Convolved to the PSF at {ref_wavelength:.4f} um"
-    source_desc = _map_description(source_header, True)
-    return f"{text}: {source_desc}" if source_desc else text
 
 
 def _source_label(hdul, hdu_index, filename):
@@ -307,63 +229,6 @@ def _convolution_plan_row(filename, header, wavelength, pix_arcsec, ref_waveleng
     return {"wavelength": wavelength, "instrument": instrument, "filename": filename,
             "native_pix_arcsec": pix_arcsec, "sigma_arcsec": sigma_arcsec,
             "sigma_pix": sigma_arcsec / pix_arcsec}
-
-
-def _run_convolve_pair(conv_img, conv_header, conv_wl, conv_pix,
-                       ref_img, ref_header, ref_wl):
-    """Convolve conv_img to ref_wl's PSF (psf_fwhm_arcsec formula of each
-    image's instrument) and reproject it onto ref_header's own native grid, using the
-    same unmodified gaussian_convolve_match/reproject_flux_maps ported for
-    the rotational-diagram convolution.
-
-    Args:
-        conv_img (numpy.ndarray): Image to convolve+reproject (shorter wavelength).
-        conv_header (astropy.io.fits.Header): conv_img's FITS header.
-        conv_wl (float): conv_img's line wavelength (microns).
-        conv_pix (float): conv_img's pixel scale (arcsec/pixel).
-        ref_img (numpy.ndarray): Reference image (longer wavelength).
-        ref_header (astropy.io.fits.Header): Reference image's FITS header.
-        ref_wl (float): Reference image's line wavelength (microns).
-
-    Returns:
-        result (dict): 'image' (conv_img reprojected onto ref's grid),
-            'footprint' (per-pixel coverage fraction, same grid),
-            'sigma_arcsec' (kernel sigma used).
-
-    Raises:
-        ValueError: If ref_wl's PSF is not larger than conv_wl's (the
-            formula requires the reference to have the longer wavelength).
-    """
-    conv_instrument = detect_instrument_from_header(conv_header)
-    ref_instrument = detect_instrument_from_header(ref_header)
-    fwhm_in = psf_fwhm_arcsec(conv_wl, conv_instrument)
-    fwhm_target = psf_fwhm_arcsec(ref_wl, ref_instrument)
-    if fwhm_target <= fwhm_in:
-        raise ValueError(
-            f"The convolution requires the reference wavelength "
-            f"({ref_wl:.4f} um) to have a larger PSF than the convolved "
-            f"image's ({conv_wl:.4f} um) -- got FWHM {fwhm_target:.4f}\" "
-            f"<= {fwhm_in:.4f}\".")
-
-    conv_header = conv_header.copy()
-    conv_header["NAXIS"] = 2
-    conv_header["NAXIS1"] = conv_img.shape[1]
-    conv_header["NAXIS2"] = conv_img.shape[0]
-    ref_header = ref_header.copy()
-    ref_header["NAXIS"] = 2
-    ref_header["NAXIS1"] = ref_img.shape[1]
-    ref_header["NAXIS2"] = ref_img.shape[0]
-
-    convolved = _convolve_match([conv_img], [conv_wl], [ref_wl], [conv_pix],
-                                [conv_instrument], ref_instrument)
-    reprojected, footprints = _reproject_flux_maps(convolved, [conv_header], ref_header)
-
-    sigma_in = fwhm_in / gaussian_sigma_to_fwhm
-    sigma_target = fwhm_target / gaussian_sigma_to_fwhm
-    sigma_kernel_arcsec = (sigma_target ** 2 - sigma_in ** 2) ** 0.5
-
-    return {"image": reprojected[0], "footprint": footprints[0],
-            "sigma_arcsec": sigma_kernel_arcsec}
 
 
 # BATCH MATCH RESOLUTION DIALOG
@@ -511,60 +376,35 @@ class BatchMatchResolutionDialog(QDialog):
             # ---- 1. Load every input ------------------------------------
             images_data = []
             for fp in self.filepaths:
-                with fits.open(fp) as hdul:
-                    data, header = None, None
-                    for hdu in hdul:
-                        if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
-                            sq = np.squeeze(hdu.data)
-                            if sq.ndim == 2:
-                                data = sq.astype(float)
-                                header = hdu.header.copy()
-                                break
-                    if data is None:
-                        raise ValueError(
-                            f"No 2D image data in {os.path.basename(fp)}")
-                    pix = get_pixel_size_arcsec(header)
-                    if pix is None:
-                        raise ValueError(
-                            f"Could not find pixel scale in "
-                            f"{os.path.basename(fp)}")
-                    wcs = make_2d_wcs(header)
-                    if wcs is None:
-                        raise ValueError(
-                            f"Could not build WCS for {os.path.basename(fp)}")
-                    images_data.append({
-                        'filename': os.path.basename(fp),
-                        'data': data, 'header': header,
-                        'pix_scale': pix, 'wcs': wcs, 'shape': data.shape,
-                    })
-                    disjoint_pairs = []
-                    for i in range(len(images_data)):
-                        for j in range(i + 1, len(images_data)):
-                            a, b = images_data[i], images_data[j]
-                            if not wcs_footprints_overlap(
-                                    a['wcs'], a['shape'], b['wcs'], b['shape']):
-                                disjoint_pairs.append((a['filename'], b['filename']))
+                images_data.append(load_map_for_convolution(fp))
+                disjoint_pairs = []
+                for i in range(len(images_data)):
+                    for j in range(i + 1, len(images_data)):
+                        a, b = images_data[i], images_data[j]
+                        if not wcs_footprints_overlap(
+                                a['wcs'], a['shape'], b['wcs'], b['shape']):
+                            disjoint_pairs.append((a['filename'], b['filename']))
 
-                    if disjoint_pairs:
-                        QApplication.restoreOverrideCursor()
-                        msg_lines = [
-                            "Some of the selected images cover completely "
-                            "different regions of the sky:\n"
-                        ]
-                        for fa, fb in disjoint_pairs[:10]:
-                            msg_lines.append(f"   • {fa}  ↔  {fb}")
-                        if len(disjoint_pairs) > 10:
-                            msg_lines.append(
-                                f"   …and {len(disjoint_pairs) - 10} more pair(s)")
+                if disjoint_pairs:
+                    QApplication.restoreOverrideCursor()
+                    msg_lines = [
+                        "Some of the selected images cover completely "
+                        "different regions of the sky:\n"
+                    ]
+                    for fa, fb in disjoint_pairs[:10]:
+                        msg_lines.append(f"   • {fa}  ↔  {fb}")
+                    if len(disjoint_pairs) > 10:
                         msg_lines.append(
-                            "\nBatch Convolution requires every input to share "
-                            "sky coverage with the others, so they can be "
-                            "matched onto a common WCS grid.\n\n"
-                            "Please remove the off-field file(s) and try again.")
-                        QMessageBox.warning(
-                            self, "No Sky Overlap",
-                            "\n".join(msg_lines))
-                        return
+                            f"   …and {len(disjoint_pairs) - 10} more pair(s)")
+                    msg_lines.append(
+                        "\nBatch Convolution requires every input to share "
+                        "sky coverage with the others, so they can be "
+                        "matched onto a common WCS grid.\n\n"
+                        "Please remove the off-field file(s) and try again.")
+                    QMessageBox.warning(
+                        self, "No Sky Overlap",
+                        "\n".join(msg_lines))
+                    return
 
             # ---- 2. MIRI/NIRSpec-only check: no confirmed PSF formula otherwise ---
             bad = _unsupported_files([(info['filename'], info['header']) for info in images_data])
@@ -577,18 +417,16 @@ class BatchMatchResolutionDialog(QDialog):
                     f"formula for other instruments yet):\n{detail}")
                 return
 
-            # ---- 3. BUNIT check: reproject_flux_maps assumes -------------
-            #         flux-per-pixel input for every file.
+            # ---- 3. BUNIT check: a flux per pixel, or a surface brightness ---
             for info in images_data:
-                if not is_per_pixel_flux_unit(info['header'].get('BUNIT', '')):
+                info_bunit = info['header'].get('BUNIT', '')
+                if not (is_per_pixel_flux_unit(info_bunit) or is_per_solid_angle_unit(info_bunit)):
                     QApplication.restoreOverrideCursor()
                     QMessageBox.warning(
                         self, "Unsupported BUNIT",
-                        f"'{info['filename']}' has the unit "
-                        f"'{info['header'].get('BUNIT', '')}'. It is not a "
-                        "flux-per-pixel unit.\n\n"
-                        "The convolution needs flux-per-pixel input for every file. "
-                        "It does not support surface-brightness units such as MJy/sr.")
+                        f"'{info['filename']}' has the unit '{info_bunit}'. It is not a "
+                        "flux-per-pixel unit (for example erg/s/cm2) and not a "
+                        "surface-brightness unit (for example MJy/sr).")
                     return
 
             # ---- 4. Wavelength per file (LINEWAVE header, else prompt) ---
@@ -660,19 +498,11 @@ class BatchMatchResolutionDialog(QDialog):
 
                     out_name = f"matched_{info['filename']}"
                     out_filepath = os.path.join(tmpdir, out_name)
-                    cov_header = fits.Header()
-                    cov_header['EXTNAME'] = 'COVERAGE'
-                    cov_header['BUNIT'] = 'fraction'
-                    cov_header['COMMENT'] = (
-                        'Per-pixel input/output overlap fraction (0..1).')
-                    fits.HDUList([
-                        fits.PrimaryHDU(data=result_img, header=out_header),
-                        fits.ImageHDU(data=np.asarray(coverage, dtype=np.float32),
-                                      header=cov_header),
-                    ]).writeto(out_filepath, overwrite=True)
+                    write_fits_product(out_filepath, result_img, out_header,
+                                       extensions=[build_coverage_extension(coverage)])
 
-                    in_total = float(np.nansum(info['data']))
-                    out_total = float(np.nansum(result_img[np.isfinite(result_img)]))
+                    in_total, out_total = convolution_flux_totals(
+                        info['data'], info['header'], result_img, ref_header)
                     flux_audit.append((info['filename'], in_total, out_total))
 
                 # ---- 7. Pack everything into the ZIP ---------------------
@@ -2660,13 +2490,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 f"for other instruments yet):\n{detail}")
             return
 
-        if not is_per_pixel_flux_unit(self.header_left.get('BUNIT', '') if self.header_left else '') or \
-           not is_per_pixel_flux_unit(self.header_right.get('BUNIT', '') if self.header_right else ''):
-            QMessageBox.warning(
-                self, "Unsupported BUNIT",
-                "The convolution needs flux-per-pixel input for both images.\n\n"
-                "It does not support surface-brightness units such as MJy/sr.")
-            return
+        for side_header in (self.header_left, self.header_right):
+            side_bunit = side_header.get('BUNIT', '') if side_header else ''
+            if not (is_per_pixel_flux_unit(side_bunit) or is_per_solid_angle_unit(side_bunit)):
+                QMessageBox.warning(
+                    self, "Unsupported BUNIT",
+                    f"The unit '{side_bunit}' is not a flux-per-pixel unit (for example erg/s/cm2) "
+                    "and not a surface-brightness unit (for example MJy/sr).")
+                return
 
         wl_left = _get_line_wavelength_um(
             self.header_left, self.filename_left or "left panel", self)
@@ -2724,7 +2555,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         header_text = (f"Convolve the {conv_side} image ({conv_wl:.4f} µm) to the PSF of the {ref_side} image "
                        f"({ref_wl:.4f} µm). Output grid: the {ref_side} image's own grid "
                        f"({ref_img.shape[1]} x {ref_img.shape[0]} px).")
-        footer_text = (f"BUNIT: {bunit} (flux mode). Algorithm: gaussian_convolve_match and reproject_flux_maps "
+        mode = "surface-brightness mode" if is_per_solid_angle_unit(bunit) else "flux mode"
+        footer_text = (f"BUNIT: {bunit} ({mode}). Algorithm: gaussian_convolve_match and reproject_flux_maps "
                        "(MIRI and NIRSpec PSF formulas).\n\nProceed?")
         if not confirm_convolution_plan(self, rows, header_text, footer_text, "Convolve", "Convolve"):
             return
@@ -2737,6 +2569,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 ref_img, ref_header, ref_wl)
             result_img = convolve_out['image']
             coverage = convolve_out['footprint']
+            sigma_arcsec = convolve_out['sigma_arcsec']
 
             if not np.any(np.isfinite(result_img)):
                 QApplication.restoreOverrideCursor()
@@ -2762,14 +2595,14 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
                 write_fits_product(fname, result_img, out_header,
                                    extensions=[build_coverage_extension(coverage)])
 
-                in_total = float(np.nansum(fine_img))
-                out_total = float(np.nansum(result_img[np.isfinite(result_img)]))
+                in_total, out_total = convolution_flux_totals(fine_img, fine_header, result_img, ref_header)
+                audit_unit = f"{bunit} x sr" if is_per_solid_angle_unit(bunit) else bunit
                 ratio = (out_total / in_total) if in_total != 0 else float('nan')
                 QApplication.restoreOverrideCursor()
                 QMessageBox.information(
                     self, "Saved",
                     f"Saved to:\n{fname}\n\n"
-                    f"Flux audit ({bunit}):\n"
+                    f"Flux audit ({audit_unit}):\n"
                     f"  Input  total : {in_total:.4e}\n"
                     f"  Output total : {out_total:.4e}\n"
                     f"  Ratio out/in : {ratio:.6f}\n"

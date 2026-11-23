@@ -2,13 +2,22 @@
 convolved_reproject.ipynb, ported for GUI use. Naman's version.
 """
 
+import os
+import tempfile
+import zipfile
+
 import numpy as np
 from astropy.convolution import convolve_fft, Gaussian2DKernel
+from astropy.io import fits
 from astropy.stats import gaussian_sigma_to_fwhm
 from reproject import reproject_exact
 
-from .unit_converter import pixel_solid_angle
-from .utils import psf_fwhm_arcsec, make_2d_wcs
+from .fits_export import build_coverage_extension, build_resample_header, write_fits_product
+from .unit_converter import is_per_solid_angle_unit, pixel_solid_angle
+from .utils import (
+    detect_instrument_from_header, get_pixel_size_arcsec, is_per_pixel_flux_unit, make_2d_wcs,
+    psf_fwhm_arcsec, wcs_footprints_overlap,
+)
 
 
 def gaussian_convolve_match(images,
@@ -338,3 +347,379 @@ def convolve_reproject_maps(native_result):
         "native_headers": native_result.get("native_headers"),
         "native_instrument": native_result.get("native_instrument"),
     }
+
+
+# ================== 2D maps: convolve to the longest-wavelength map ==================
+# The 2D viewer (Pair and Batch Convolution) and the API (convolve_maps) use these functions.
+
+
+def header_line_wavelength_um(header):
+    """Read LINEWAVE, or LAMMIN/LAMMAX's midpoint, from a header -- no
+    prompting. LINEWAVE (rotational-diagram Save Maps exports) is exact.
+    LAMMIN/LAMMAX (Gaussian Map exports) bound one line's own fit window, so
+    their midpoint is a good proxy. WAVEMIN/WAVEMAX (Flux Map exports) can
+    span several blended lines, so those are never used here -- a midpoint
+    there could silently name the wrong line.
+
+    Args:
+        header (astropy.io.fits.Header): This image's FITS header, or None.
+
+    Returns:
+        wavelength_um (float or None): Wavelength in microns, or None if
+            neither header key is present or usable.
+    """
+    if header is not None and 'LINEWAVE' in header:
+        try:
+            return float(header['LINEWAVE'])
+        except (TypeError, ValueError):
+            pass
+    if header is not None and 'LAMMIN' in header and 'LAMMAX' in header:
+        try:
+            return (float(header['LAMMIN']) + float(header['LAMMAX'])) / 2.0
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def unsupported_files(infos):
+    """Return (filename, instrument) for every input that isn't MIRI or NIRSpec --
+    the PSF formula has no confirmed fit for any other instrument yet.
+
+    Args:
+        infos (list): (filename, header) pairs to check.
+
+    Returns:
+        bad (list): (filename, detected instrument or 'unknown') pairs.
+    """
+    bad = []
+    for filename, header in infos:
+        inst = detect_instrument_from_header(header) if header is not None else None
+        if inst not in ("MIRI", "NIRSpec"):
+            bad.append((filename, inst or "unknown"))
+    return bad
+
+
+def map_description(header, is_primary):
+    """Name what one HDU shows, from the keywords that IFU Analyzer exports write.
+    DESC wins. A Gaussian map has PARAM, and its other HDUs add their own HDU name.
+    If there is neither, the HDU name is used.
+
+    Args:
+        header (astropy.io.fits.Header): Header of one HDU.
+        is_primary (bool): True if the HDU is the first HDU of the file.
+
+    Returns:
+        description (str): The description, or an empty string if the header has none.
+    """
+    extname = str(header.get('EXTNAME', '')).strip()
+    desc = str(header.get('DESC', '')).strip()
+    if desc:
+        return desc
+    param = str(header.get('PARAM', '')).strip()
+    if param:
+        return param if is_primary or not extname else f"{param}, {extname}"
+    return '' if extname.upper() == 'PRIMARY' else extname
+
+
+def convolved_description(source_header, ref_wavelength):
+    """Build the DESC text of a convolved image.
+
+    Args:
+        source_header (astropy.io.fits.Header): Header of the image that was convolved.
+        ref_wavelength (float): Wavelength of the reference image, in um.
+
+    Returns:
+        text (str): For example "Convolved to the PSF at 17.0348 um: Area (AUC)".
+    """
+    text = f"Convolved to the PSF at {ref_wavelength:.4f} um"
+    source_desc = map_description(source_header, True)
+    return f"{text}: {source_desc}" if source_desc else text
+
+
+def convolve_map_to_reference(conv_img, conv_header, conv_wl, conv_pix,
+                              ref_img, ref_header, ref_wl):
+    """Convolve conv_img to ref_wl's PSF (psf_fwhm_arcsec formula of each
+    image's instrument) and reproject it onto ref_header's own native grid, using the
+    same unmodified gaussian_convolve_match/reproject_flux_maps ported for
+    the rotational-diagram convolution.
+    The unit of conv_img is a flux per pixel (for example erg/s/cm2) or a surface brightness
+    (for example MJy/sr). A surface brightness becomes a flux per pixel before the engine runs
+    and goes back to a surface brightness after it, so the result has the unit of conv_img.
+
+    Args:
+        conv_img (numpy.ndarray): Image to convolve+reproject (shorter wavelength).
+        conv_header (astropy.io.fits.Header): conv_img's FITS header.
+        conv_wl (float): conv_img's line wavelength (microns).
+        conv_pix (float): conv_img's pixel scale (arcsec/pixel).
+        ref_img (numpy.ndarray): Reference image (longer wavelength).
+        ref_header (astropy.io.fits.Header): Reference image's FITS header.
+        ref_wl (float): Reference image's line wavelength (microns).
+
+    Returns:
+        result (dict): 'image' (conv_img reprojected onto ref's grid),
+            'footprint' (per-pixel coverage fraction, same grid),
+            'sigma_arcsec' (kernel sigma used).
+
+    Raises:
+        ValueError: If ref_wl's PSF is not larger than conv_wl's (the
+            formula requires the reference to have the longer wavelength), if the unit of
+            conv_img is neither a flux per pixel nor a surface brightness, or if the header of
+            a surface brightness has no pixel scale.
+    """
+    conv_instrument = detect_instrument_from_header(conv_header)
+    ref_instrument = detect_instrument_from_header(ref_header)
+    fwhm_in = psf_fwhm_arcsec(conv_wl, conv_instrument)
+    fwhm_target = psf_fwhm_arcsec(ref_wl, ref_instrument)
+    if fwhm_target <= fwhm_in:
+        raise ValueError(
+            f"The convolution requires the reference wavelength "
+            f"({ref_wl:.4f} um) to have a larger PSF than the convolved "
+            f"image's ({conv_wl:.4f} um) -- got FWHM {fwhm_target:.4f}\" "
+            f"<= {fwhm_in:.4f}\".")
+
+    bunit = conv_header.get("BUNIT", "")
+    per_angle = is_per_solid_angle_unit(bunit)
+    if not per_angle and not is_per_pixel_flux_unit(bunit):
+        raise ValueError(
+            f"The unit '{bunit}' is not a flux per pixel (for example erg/s/cm2) and not a "
+            "surface brightness (for example MJy/sr), so the convolution cannot use it.")
+
+    conv_header = conv_header.copy()
+    conv_header["NAXIS"] = 2
+    conv_header["NAXIS1"] = conv_img.shape[1]
+    conv_header["NAXIS2"] = conv_img.shape[0]
+    ref_header = ref_header.copy()
+    ref_header["NAXIS"] = 2
+    ref_header["NAXIS1"] = ref_img.shape[1]
+    ref_header["NAXIS2"] = ref_img.shape[0]
+
+    image_in = conv_img
+    if per_angle:
+        omega_in = pixel_solid_angle(conv_header)
+        omega_out = pixel_solid_angle(ref_header)
+        if omega_in is None or omega_out is None:
+            raise ValueError("The header has no pixel scale, so the area of one pixel is not known.")
+        image_in = np.asarray(conv_img, dtype=float) * omega_in.value
+
+    convolved = gaussian_convolve_match([image_in], [conv_wl], [ref_wl], [conv_pix],
+                                        [conv_instrument], ref_instrument)
+    reprojected, footprints = reproject_flux_maps(convolved, [conv_header], ref_header)
+    image_out, footprint = reprojected[0], footprints[0]
+    if per_angle:
+        # The engine gives the flux of the covered part of each pixel, so dividing by the covered
+        # area gives the mean surface brightness back. A pixel with no coverage stays NaN.
+        covered_sr = omega_out.value * footprint
+        with np.errstate(divide="ignore", invalid="ignore"):
+            image_out = np.where(covered_sr > 0, image_out / covered_sr, np.nan)
+
+    sigma_in = fwhm_in / gaussian_sigma_to_fwhm
+    sigma_target = fwhm_target / gaussian_sigma_to_fwhm
+    sigma_kernel_arcsec = (sigma_target ** 2 - sigma_in ** 2) ** 0.5
+
+    return {"image": image_out, "footprint": footprint,
+            "sigma_arcsec": sigma_kernel_arcsec}
+
+
+def load_map_for_convolution(path):
+    """Read the first 2D image of a FITS file, with the header, the pixel scale and the WCS
+    that the convolution of 2D maps needs.
+
+    Args:
+        path (str): Path of the FITS file.
+
+    Returns:
+        info (dict): 'filename', 'data' (2D float array), 'header', 'pix_scale' (arcsec/pixel),
+            'wcs' (2D celestial WCS) and 'shape'.
+
+    Raises:
+        ValueError: If the file has no 2D image, no pixel scale, or no usable WCS.
+    """
+    with fits.open(path) as hdul:
+        data, header = None, None
+        for hdu in hdul:
+            if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
+                sq = np.squeeze(hdu.data)
+                if sq.ndim == 2:
+                    data = sq.astype(float)
+                    header = hdu.header.copy()
+                    break
+        if data is None:
+            raise ValueError(
+                f"No 2D image data in {os.path.basename(path)}")
+        pix = get_pixel_size_arcsec(header)
+        if pix is None:
+            raise ValueError(
+                f"Could not find pixel scale in "
+                f"{os.path.basename(path)}")
+        wcs = make_2d_wcs(header)
+        if wcs is None:
+            raise ValueError(
+                f"Could not build WCS for {os.path.basename(path)}")
+        return {
+            'filename': os.path.basename(path),
+            'data': data, 'header': header,
+            'pix_scale': pix, 'wcs': wcs, 'shape': data.shape,
+        }
+
+
+def convolution_flux_totals(input_image, input_header, output_image, output_header):
+    """Sum a map before and after a convolution, as a flux, for the check that flux is kept.
+    A surface brightness is multiplied by the solid angle of one pixel first, so the sums are
+    comparable.
+
+    Args:
+        input_image (numpy.ndarray): The map before the convolution.
+        input_header (astropy.io.fits.Header): Header of the map before the convolution.
+        output_image (numpy.ndarray): The map after the convolution, on the reference grid.
+        output_header (astropy.io.fits.Header): Header of the reference grid.
+
+    Returns:
+        totals (tuple): (input_total, output_total).
+    """
+    input_total = float(np.nansum(input_image))
+    output_total = float(np.nansum(output_image[np.isfinite(output_image)]))
+    if is_per_solid_angle_unit(input_header.get('BUNIT', '')):
+        omega_in = pixel_solid_angle(input_header)
+        omega_out = pixel_solid_angle(output_header)
+        if omega_in is not None and omega_out is not None:
+            input_total *= omega_in.value
+            output_total *= omega_out.value
+    return input_total, output_total
+
+
+def convolve_maps(paths, wavelengths_um=None):
+    """Convolve 2D maps to the PSF of the map with the longest wavelength, and reproject every map
+    onto the grid of that map. This is the Batch Convolution of the 2D viewer, without the windows.
+    A map is a flux per pixel (for example erg/s/cm2) or a surface brightness (for example MJy/sr),
+    and the result keeps the unit of each map. Only MIRI and NIRSpec maps work.
+
+    Args:
+        paths (list): Paths of the 2D FITS maps, at least two.
+        wavelengths_um (list or dict): Line wavelength of each map, in um. A list has one value per
+            path, in order, and None keeps the value of that header. A dict has a path or a file name
+            as key. A value that you give replaces the header value. A map needs a wavelength from the
+            header (LINEWAVE, or LAMMIN and LAMMAX) or from this argument.
+
+    Returns:
+        result (dict): 'reference' (file name of the reference map), 'reference_wavelength_um',
+            'dst_shape' and 'maps'. 'maps' has one dict for each input, in the order of paths, with
+            'filename', 'wavelength_um', 'is_reference', 'image', 'coverage' (overlap fraction of each
+            pixel), 'header' (ready to save), 'sigma_arcsec' (kernel size, 0 for the reference),
+            'input_total' and 'output_total' (flux sums, for a check that flux is kept).
+
+    Raises:
+        ValueError: If fewer than two maps are given, a file cannot be read, two maps share no sky
+            coverage, a map is not MIRI or NIRSpec, a unit cannot be used, a wavelength is missing,
+            or a convolution gives no valid pixel.
+    """
+    paths = [str(path) for path in paths]
+    if len(paths) < 2:
+        raise ValueError("Give at least two maps to convolve.")
+    infos = [load_map_for_convolution(path) for path in paths]
+
+    given = {}
+    if isinstance(wavelengths_um, dict):
+        by_name = {os.path.basename(str(key)): value for key, value in wavelengths_um.items()}
+        given = {info['filename']: by_name.get(info['filename']) for info in infos}
+    elif wavelengths_um is not None:
+        if len(wavelengths_um) != len(paths):
+            raise ValueError("wavelengths_um must have one value for each path.")
+        given = {info['filename']: value for info, value in zip(infos, wavelengths_um)}
+
+    disjoint = [(a['filename'], b['filename']) for i, a in enumerate(infos) for b in infos[i + 1:]
+                if not wcs_footprints_overlap(a['wcs'], a['shape'], b['wcs'], b['shape'])]
+    if disjoint:
+        pairs = ", ".join(f"{first} and {second}" for first, second in disjoint[:10])
+        raise ValueError(f"These maps cover different regions of the sky: {pairs}. "
+                         "Every map must share sky coverage with the others.")
+    bad = unsupported_files([(info['filename'], info['header']) for info in infos])
+    if bad:
+        raise ValueError("Only MIRI and NIRSpec maps work, because the PSF formula is known only for "
+                         "them: " + ", ".join(f"{name} ({instrument})" for name, instrument in bad))
+    for info in infos:
+        bunit = info['header'].get('BUNIT', '')
+        if not (is_per_pixel_flux_unit(bunit) or is_per_solid_angle_unit(bunit)):
+            raise ValueError(f"'{info['filename']}' has the unit '{bunit}'. It is not a flux per pixel "
+                             "(for example erg/s/cm2) and not a surface brightness (for example MJy/sr).")
+    for info in infos:
+        value = given.get(info['filename'])
+        info['wavelength_um'] = float(value) if value is not None else header_line_wavelength_um(info['header'])
+        if info['wavelength_um'] is None:
+            raise ValueError(f"'{info['filename']}' has no LINEWAVE, LAMMIN or LAMMAX in its header. "
+                             "Give its wavelength in wavelengths_um.")
+
+    ref_info = max(infos, key=lambda info: info['wavelength_um'])
+    ref_header = ref_info['header'].copy()
+    ref_header['NAXIS'] = 2
+    ref_header['NAXIS1'] = ref_info['shape'][1]
+    ref_header['NAXIS2'] = ref_info['shape'][0]
+
+    maps = []
+    for info in infos:
+        bunit = info['header'].get('BUNIT', '')
+        if info is ref_info:
+            result_img = np.asarray(info['data'], dtype=float).copy()
+            result_img[result_img == 0.0] = np.nan
+            coverage = np.where(np.isfinite(result_img), 1.0, 0.0)
+            sigma_arcsec = 0.0
+        else:
+            convolve_out = convolve_map_to_reference(
+                info['data'], info['header'], info['wavelength_um'], info['pix_scale'],
+                ref_info['data'], ref_header, ref_info['wavelength_um'])
+            result_img = convolve_out['image']
+            coverage = convolve_out['footprint']
+            sigma_arcsec = convolve_out['sigma_arcsec']
+        if not np.any(np.isfinite(result_img)):
+            raise ValueError(f"The convolution gave no valid pixels for {info['filename']}.")
+
+        out_header = build_resample_header(
+            ref_header, result_img.shape, bunit=bunit or None,
+            history=(f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
+                     f"reprojected onto {ref_info['filename']}'s native grid "
+                     f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"),
+            description=convolved_description(info['header'], ref_info['wavelength_um']),
+            line_header=info['header'],
+        )
+        input_total, output_total = convolution_flux_totals(
+            info['data'], info['header'], result_img, ref_header)
+        maps.append({
+            'filename': info['filename'], 'wavelength_um': info['wavelength_um'],
+            'is_reference': info is ref_info, 'image': result_img, 'coverage': coverage,
+            'header': out_header, 'sigma_arcsec': sigma_arcsec,
+            'input_total': input_total, 'output_total': output_total,
+        })
+    return {'reference': ref_info['filename'], 'reference_wavelength_um': ref_info['wavelength_um'],
+            'dst_shape': ref_info['shape'], 'maps': maps}
+
+
+def save_convolved_maps(result, out_path):
+    """Save the maps of convolve_maps as FITS files, one for each map, named matched_<file name>.
+    Each file has the image, and the overlap fraction of each pixel in the extension COVERAGE.
+    This is what the ZIP of the Batch Convolution of the 2D viewer holds.
+
+    Args:
+        result (dict): Result of convolve_maps.
+        out_path (str): Path of a ZIP file (a path that ends with .zip), or of a folder. A folder
+            is made if it does not exist.
+
+    Returns:
+        paths (list): The names of the files that were written. For a ZIP, the names inside it.
+    """
+    def write_all(folder):
+        names = []
+        for item in result['maps']:
+            name = f"matched_{item['filename']}"
+            write_fits_product(os.path.join(folder, name), item['image'], item['header'],
+                               extensions=[build_coverage_extension(item['coverage'])])
+            names.append(name)
+        return names
+
+    if str(out_path).lower().endswith('.zip'):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            names = write_all(tmpdir)
+            with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for name in names:
+                    zipf.write(os.path.join(tmpdir, name), arcname=name)
+        return names
+    os.makedirs(out_path, exist_ok=True)
+    return [os.path.join(out_path, name) for name in write_all(out_path)]
