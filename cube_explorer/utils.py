@@ -10,6 +10,7 @@ import astropy.units as u
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.wcs.utils import proj_plane_pixel_scales
+from scipy.ndimage import rotate
 from .unit_converter import convert_wavelength
 
 # Resolving-power tables from the JWST docs (Jakobsen et al. 2022), one file per disperser.
@@ -536,6 +537,55 @@ def make_2d_wcs(header):
         return w
     except Exception:
         return None
+
+
+def rotate_image_with_wcs(image, wcs_in, total_angle):
+    """Turn a 2D image and its WCS together, so the sky position of every pixel stays the same.
+
+    The array grows to hold the turned image, and the new pixels are NaN. The 2D viewer and the
+    superimposition tables both use this function. A positive angle turns the image clockwise as drawn
+    (origin='lower').
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values, with the image as it was loaded.
+        wcs_in (astropy.wcs.WCS): 2D celestial WCS of image.
+        total_angle (float): Rotation in degrees from the loaded image. A positive value is clockwise.
+
+    Returns:
+        array_out (numpy.ndarray): The turned image, with the new shape.
+        wcs_out (astropy.wcs.WCS): The WCS of array_out. wcs_in does not change.
+    """
+    wcs_out = wcs_in.deepcopy()
+    theta = np.deg2rad(total_angle)
+
+    array_out = rotate(image, total_angle, reshape=True, cval=np.nan, order=1)
+
+    # Both rotation signs here were checked against a point source with a known sky position.
+    cos_t, sin_t = np.cos(theta), np.sin(theta)
+    R_inv = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
+
+    if hasattr(wcs_out.wcs, 'cd'):
+        wcs_out.wcs.cd = np.dot(wcs_out.wcs.cd, R_inv)
+    elif hasattr(wcs_out.wcs, 'pc'):
+        wcs_out.wcs.pc = np.dot(wcs_out.wcs.pc, R_inv)
+    else:
+        wcs_out.wcs.pc = R_inv
+
+    ny, nx = image.shape
+    new_ny, new_nx = array_out.shape
+
+    cx, cy = (nx - 1) / 2.0, (ny - 1) / 2.0
+    new_cx, new_cy = (new_nx - 1) / 2.0, (new_ny - 1) / 2.0
+
+    crpix_0 = wcs_in.wcs.crpix - 1
+    dx, dy = crpix_0[0] - cx, crpix_0[1] - cy
+
+    cos_r, sin_r = np.cos(-theta), np.sin(-theta)
+    new_dx = dx * cos_r - dy * sin_r
+    new_dy = dx * sin_r + dy * cos_r
+
+    wcs_out.wcs.crpix = np.array([new_cx + new_dx, new_cy + new_dy]) + 1
+    return array_out, wcs_out
 
 
 # --- BUNIT helper: per-pixel-flux detection ---

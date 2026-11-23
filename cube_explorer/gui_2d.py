@@ -17,7 +17,6 @@ from astropy.wcs import WCS
 from astropy.stats import gaussian_sigma_to_fwhm
 from astropy.coordinates import SkyCoord  # used by: _apply_loaded_contour
 import astropy.units as u  # used by: _apply_loaded_contour
-from scipy.ndimage import rotate  # used by: rotate_image
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
@@ -45,7 +44,7 @@ from .gui_mixins import DualPanelViewMixin
 from .icon_loader import set_button_icon
 from .utils import (
     detect_instrument, detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
-    is_per_pixel_flux_unit, wcs_footprints_overlap,
+    is_per_pixel_flux_unit, wcs_footprints_overlap, rotate_image_with_wcs,
 )
 from .unit_converter import clean_flux_unit, is_per_solid_angle_unit
 from .fits_export import (
@@ -2071,37 +2070,9 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             else:
                 wcs_in = wcs_in_full
                 
-            wcs_out = wcs_in.deepcopy()
-            theta = np.deg2rad(total_angle)
-            
-            array_out = rotate(base_image, total_angle, reshape=True, cval=np.nan, order=1)
-            
-            # Both rotation signs here were checked against a point source with a known sky position.
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            R_inv = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
-            
-            if hasattr(wcs_out.wcs, 'cd'):
-                wcs_out.wcs.cd = np.dot(wcs_out.wcs.cd, R_inv)
-            elif hasattr(wcs_out.wcs, 'pc'):
-                wcs_out.wcs.pc = np.dot(wcs_out.wcs.pc, R_inv)
-            else:
-                wcs_out.wcs.pc = R_inv
-                
-            ny, nx = base_image.shape
+            array_out, wcs_out = rotate_image_with_wcs(base_image, wcs_in, total_angle)
             new_ny, new_nx = array_out.shape
-            
-            cx, cy = (nx - 1) / 2.0, (ny - 1) / 2.0
-            new_cx, new_cy = (new_nx - 1) / 2.0, (new_ny - 1) / 2.0
-            
-            crpix_0 = wcs_in.wcs.crpix - 1
-            dx, dy = crpix_0[0] - cx, crpix_0[1] - cy
-            
-            cos_r, sin_r = np.cos(-theta), np.sin(-theta)
-            new_dx = dx * cos_r - dy * sin_r
-            new_dy = dx * sin_r + dy * cos_r
-            
-            wcs_out.wcs.crpix = np.array([new_cx + new_dx, new_cy + new_dy]) + 1
-            
+
             new_header = base_header.copy()
             for key in list(wcs_in_full.to_header().keys()):
                 if key in new_header:

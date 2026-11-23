@@ -41,7 +41,7 @@ def grid_step_arcsec(wcs, nx, ny):
     return float(power_of_ten * min((1, 2, 5, 10), key=lambda m: abs(m - target / power_of_ten)))
 
 
-def apply_wcs_grid(ax, image_shape):
+def apply_wcs_grid(ax, image_shape, grid=True):
     """Draw the RA and Dec grid, tick labels and axis labels on a WCS axes.
 
     The grid lines are white. RA and Dec use the same step. Each label sits on
@@ -50,6 +50,7 @@ def apply_wcs_grid(ax, image_shape):
     Args:
         ax (astropy.visualization.wcsaxes.WCSAxes): Axes made with a celestial WCS.
         image_shape (tuple): Image height and width in pixels, as (ny, nx).
+        grid (bool): True to draw the white grid lines. False to draw only the ticks and labels.
 
     Returns:
         None
@@ -58,7 +59,8 @@ def apply_wcs_grid(ax, image_shape):
         Exception: The error from astropy when the WCS cannot make the grid.
     """
     ax.set_axis_on()
-    ax.coords.grid(color='white', alpha=0.5, linestyle='solid')
+    if grid:
+        ax.coords.grid(color='white', alpha=0.5, linestyle='solid')
 
     try:
         ra  = ax.coords['ra']
