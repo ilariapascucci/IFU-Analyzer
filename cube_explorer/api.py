@@ -525,6 +525,7 @@ def save_continuum_cubes(cube_data, continuum_path, contsub_path, continuum_para
 
 from .gaussian_fitter import (
     DEFAULT_DETECTION_SIGMA,
+    MIN_NOISE_POINTS,
     fit_gaussian_to_line,
     calculate_equivalent_width,
     fit_gaussians_per_pixel as _fit_gaussians_per_pixel_internal,
@@ -539,7 +540,7 @@ from .line_catalog import fetch_hitran_data
 
 def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
              header=None, wave_unit=None, save_path=None, parameters_path=None,
-             continuum=None):
+             continuum=None, noise_min=None, noise_max=None):
     """Fit a Gaussian to an emission line in a spectrum. The fitter needs a
     starting guess for the line center; here it defaults to the brightest
     sample between x1 and x2, or pass peak_x explicitly.
@@ -571,6 +572,13 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
             when a continuum is fitted for the spectrum. If None (default), the
             baseline is the straight line between the flux values at ``x1`` and ``x2``.
             The fit fails if the continuum has no value where the flux has data.
+        noise_min (float, optional): One edge of a line-free noise region, in the unit of
+            ``wavelength``. These are the "Noise Left" and "Noise Right" markers of the GUI.
+            In a single-line fit, the noise region does not change the fitted numbers. The
+            GUI uses it for the display of the normalized residual, and the Save Fit file
+            records it. Give both ``noise_min`` and ``noise_max``, or neither. The two
+            values can be in any order.
+        noise_max (float, optional): The other edge of the noise region.
 
     Returns:
         GaussianFitResult: Object with ``amplitude``, ``center``, ``sigma``,
@@ -586,7 +594,8 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
 
     Raises:
         ValueError: If no wavelength samples lie between ``x1`` and ``x2``, or
-            if every flux value in that window is NaN.
+            if every flux value in that window is NaN, or if only one of ``noise_min`` and
+            ``noise_max`` is given, or if the noise region has fewer than 4 finite points.
 
     Example:
         >>> result = fit_line(
@@ -624,7 +633,20 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
             )
         peak_x = float(wl[in_window][np.nanargmax(window_flux)])
 
+    # The GUI ignores a lone noise marker. Here it is an error, so a typo does not change the fit silently.
+    if (noise_min is None) != (noise_max is None):
+        raise ValueError("Give both noise_min and noise_max, or neither.")
+    if noise_min is not None:
+        noise_min, noise_max = min(noise_min, noise_max), max(noise_min, noise_max)
+        n_noise = np.count_nonzero((wl >= noise_min) & (wl <= noise_max) & np.isfinite(fl))
+        if n_noise < MIN_NOISE_POINTS:
+            raise ValueError(
+                f"Only {n_noise} finite point(s) between noise_min and noise_max. "
+                f"The fit needs at least {MIN_NOISE_POINTS}. Move them further apart."
+            )
+
     result = fit_gaussian_to_line(x1, x2, wl, fl, peak_x=peak_x,
+                                  noise_min=noise_min, noise_max=noise_max,
                                   header=header, wave_unit=wave_unit,
                                   continuum=None if continuum is None else _as_float_array(continuum))
 
@@ -642,7 +664,8 @@ def fit_line(wavelength, spectrum, x1, x2, line_name=None, peak_x=None,
             if save_path is not None:
                 _save_gaussian_fit_internal(save_path, wl, fl, [result], wave_unit=wave_unit,
                                             flux_unit=flux_unit, header_lines=header_lines, fit_type='single',
-                                            markers={'fit_left': x1, 'peak': peak_x, 'fit_right': x2})
+                                            markers={'fit_left': x1, 'peak': peak_x, 'fit_right': x2,
+                                                     'noise_left': noise_min, 'noise_right': noise_max})
                 print(f"[OK] Saved the fit to {save_path}")
             if parameters_path is not None:
                 _save_gaussian_parameters_internal(
