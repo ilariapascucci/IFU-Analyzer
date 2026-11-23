@@ -32,6 +32,7 @@ from .gui_gaussian import GuiGaussianMixin
 from .gui_flux_map import GuiFluxMapMixin
 from .gui_spectrum import GuiSpectrumMixin
 from .gui_spectrum_file import GuiSpectrumFileMixin
+from .spectrum_file import plotted_description, spectrum_header_lines, write_spectrum_file
 from .gui_fit_file import GuiFitFileMixin
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin, make_vertical_separator
@@ -47,7 +48,7 @@ from .line_catalog import (
 from .transition_patterns import TRANSITION_PATTERNS
 from .molecule_transition_filters import apply_transition_filter
 from .species_dialog import SpeciesDialog
-from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, doppler_factor_to_velocity, extract_value_from_quantity, spectral_axis_medium
+from .unit_converter import convert_wavelength, are_units_compatible, clean_flux_unit, clean_wave_unit, doppler_velocity_to_wavelength_factor, extract_value_from_quantity
 
 
 # Qt value for "no maximum size" on a widget.
@@ -3709,16 +3710,10 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         trace = self._apply_continuum(tab, original)
         divisor = self._normalization_divisor(tab, trace)
         self_normalize = {"left": self.self_normalize_left, "right": self.self_normalize_right}.get(tab, False)
-        steps = []
+        source = "this spectrum, Self-Normalize" if self_normalize else "the Full spectrum"
         # _apply_continuum gives back the same array when nothing is subtracted.
-        if trace is not original:
-            steps.append("continuum subtracted")
-        if divisor != 1.0:
-            source = "this spectrum, Self-Normalize" if self_normalize else "the Full spectrum"
-            steps.append(f"divided by {divisor:.6e} (peak of {source})")
-        elif self_normalize or self.spectrum_normalized:
-            steps.append("normalization is on, but the peak is not a positive number, so the plot is not normalized")
-        text = "; ".join(steps) if steps else "same as Original (no subtraction, no normalization)"
+        text = plotted_description(trace is not original, divisor, f"peak of {source}",
+                                   bool(self_normalize or self.spectrum_normalized))
         return np.asarray(trace, dtype=float) / divisor, text, divisor
 
     def _spectrum_file_header_lines(self, tab, wave_unit, flux_unit, plotted_text, divisor, has_error=False):
@@ -3737,37 +3732,12 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
         Returns:
             lines (list): Header lines. Each line starts with '#', with no line break at the end.
         """
-        header = getattr(self.cube_data, 'header', None)
-        instrument = getattr(self.cube_data, 'instrument', None) or "Unknown"
-        filename = getattr(self.cube_data, 'filename', None)
-        medium = spectral_axis_medium(header) or "unknown"
-
-        shift_factor = self.spectrum_shift_factor[tab]
-        shift_velocity = doppler_factor_to_velocity(shift_factor)
-
-        lines = ["# IFU Analyzer spectrum file, format 1"]
-        if filename:
-            lines.append(f"# Source file: {os.path.basename(filename)}")
-        if header is not None and str(header.get('OBJECT', '')).strip():
-            lines.append(f"# Object: {str(header.get('OBJECT')).strip()}")
-        lines.append(f"# Instrument: {instrument}")
-        if header is not None and str(instrument).upper() == "NIRSPEC" and str(header.get('GRATING', '')).strip():
-            lines.append(f"# Grating: {str(header.get('GRATING')).strip().upper()}")
-        lines.append(f"# Spectrum tab: {tab}")
-        lines.append(f"# Spaxels: {self._spectrum_tab_description(tab)}")
-        lines.append(f"# Wavelength unit: {wave_unit}")
-        lines.append(f"# Wavelength medium: {medium}")
-        # 0.0 stops a rounding error from printing "-0".
-        shift_velocity = 0.0 if abs(shift_velocity) < 5e-7 else shift_velocity
-        lines.append(f"# Wavelength shift: {shift_velocity:.6f}".rstrip('0').rstrip('.') + " km/s")
-        lines.append(f"# Wavelength shift factor: {shift_factor:.12g}")
-        lines.append(f"# Flux unit: {flux_unit}")
-        lines.extend(f"# {text}" for text in self._continuum_lines(tab))
-        lines.append(f"# Plotted: {plotted_text}")
-        if divisor != 1.0:
-            lines.append("# Plotted is dimensionless because it is normalized.")
-        lines.append("# Columns: wavelength, original, continuum, subtracted, plotted" + (", error" if has_error else ""))
-        return lines
+        return spectrum_header_lines(
+            tab, self._spectrum_tab_description(tab), wave_unit, flux_unit, plotted_text, divisor,
+            self.spectrum_shift_factor[tab], self._continuum_lines(tab), has_error=has_error,
+            header=getattr(self.cube_data, 'header', None),
+            instrument=getattr(self.cube_data, 'instrument', None),
+            filename=getattr(self.cube_data, 'filename', None))
 
     def _save_results_ascii(self):
         """Save the active tab's spectrum to an ASCII file. Columns: wavelength,
@@ -3798,16 +3768,8 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
             QMessageBox.warning(self, "No Data", "No spectrum to save for that tab.")
             return
 
-        # The continuum is absent if the user never fitted one for this tab.
+        # The continuum is absent if the user never fitted one for this tab. It is then written as NaN.
         continuum = self.continuum_fitted.get(tab)
-        if continuum is None:
-            continuum = np.full_like(original, np.nan, dtype=float)
-
-        # Subtracted column = original - continuum, where the continuum is
-        # finite.  Where the continuum is NaN, the subtracted result is NaN.
-        subtracted = np.where(
-            np.isfinite(continuum), original - continuum, np.nan
-        )
 
         plotted, plotted_text, divisor = self._plotted_spectrum(tab, original)
 
@@ -3831,14 +3793,7 @@ class CubeExplorer(QWidget, GuiContinuumMixin, GuiGaussianMixin, GuiFluxMapMixin
 
             header_lines = self._spectrum_file_header_lines(
                 tab, wave_unit, flux_unit, plotted_text, divisor, has_error=error is not None)
-            with open(file_path, 'w') as f:
-                for line in header_lines:
-                    f.write(line + "\n")
-                for i, (w, o, c, s, p) in enumerate(zip(wavelength, original, continuum, subtracted, plotted)):
-                    row = f"{w:.10e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\t{p:.6e}"
-                    if error is not None:
-                        row += f"\t{error[i]:.6e}"
-                    f.write(row + "\n")
+            write_spectrum_file(file_path, header_lines, wavelength, original, continuum, plotted, error)
 
             QMessageBox.information(self, "Success", f"Spectrum saved to:\n{file_path}")
             print(f"Spectrum saved to {file_path}")

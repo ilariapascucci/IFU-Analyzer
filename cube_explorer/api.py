@@ -606,6 +606,115 @@ def load_continuum_points(filename, flux_unit=None):
     return points
 
 
+from .flux_map_extractor import NONE_LINES as _NONE_LINES, custom_lines as _custom_lines
+from .spectrum_file import (
+    plotted_description as _plotted_description,
+    spectrum_header_lines as _spectrum_header_lines,
+    write_spectrum_file as _write_spectrum_file,
+)
+
+def save_spectrum(filename, cube, spectrum=None, wavelength=None, continuum=None, error=None, spaxels=None,
+                  continuum_params=None, continuum_points=None, subtract_continuum=False, divisor=1.0,
+                  shift_factor=1.0, tab='full'):
+    """Save a spectrum to a tab-separated text file. This is the same file as the GUI's Save Spectrum
+    button writes. The columns are wavelength, original, continuum, subtracted and plotted, and error if
+    you give one. The header gives the units, the instrument, the continuum and how the plotted column was
+    made. load_spectrum and the GUI can read the file again.
+
+    Args:
+        filename (str): Path of the text file to write
+        cube (CubeData): The cube that the spectrum comes from, as load_cube returns it. It gives the
+            wavelength unit, the instrument, the source file and the header.
+        spectrum (array-like or Quantity, optional): Flux values, for example from extract_region_spectrum.
+            None uses cube.spectrum, the sum of the whole cube. A Quantity gives its own flux unit.
+        wavelength (array-like, optional): Wavelength values of the spectrum, in the unit of cube.wave_unit.
+            None uses cube.wavelength. Give it if you shifted or cut the spectrum.
+        continuum (array-like or Quantity, optional): The fitted continuum, with the same length as the
+            spectrum. None writes NaN in the continuum and subtracted columns.
+        error (array-like, optional): Flux error of each point, in the unit of the spectrum. It adds an
+            error column.
+        spaxels (str, optional): Sentence for the header that says which spaxels the spectrum sums over,
+            for example "sum over 120 spaxels in the selected region". None writes the whole cube for the
+            default spectrum, and "not recorded" for a spectrum that you give.
+        continuum_params (dict, optional): The keyword arguments that you gave to fit_continuum, for the
+            header, for example {'sigma_threshold': 2.0}. Use {} for the default settings.
+        continuum_points (list, optional): The (wavelength, flux) points that you gave to
+            fit_custom_continuum, for the header. Give only one of continuum_params and continuum_points.
+            With neither, the header says that the caller supplied the continuum.
+        subtract_continuum (bool, optional): True to subtract the continuum in the plotted column, as the
+            GUI does when Subtract Continuum is on. It needs a continuum.
+        divisor (float, optional): The number that the plotted column is divided by. 1.0 does not
+            normalize. The GUI divides by the peak of the spectrum when Normalize is on.
+        shift_factor (float, optional): Doppler shift factor of the wavelength axis, for the header. It is
+            1.0 if the axis is not shifted. Use doppler_shift_factor to get it from a velocity.
+        tab (str, optional): The spectrum tab that the file says it comes from: 'full', 'left' or 'right'.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if the arrays have different lengths, subtract_continuum has no continuum, the divisor
+            is not a positive number, tab is not 'full', 'left' or 'right', or both continuum_params and
+            continuum_points are given
+        OSError: if the file cannot be written
+
+    Example:
+        >>> continuum = fit_continuum(cube.wavelength, cube.spectrum)
+        >>> save_spectrum("spectrum.txt", cube, continuum=continuum, continuum_params={},
+        ...               subtract_continuum=True)
+    """
+    if tab not in ('full', 'left', 'right'):
+        raise ValueError(f"tab must be 'full', 'left' or 'right', not {tab!r}.")
+    if continuum_params is not None and continuum_points is not None:
+        raise ValueError("Give only one of continuum_params and continuum_points.")
+    if not np.isfinite(divisor) or divisor <= 0:
+        raise ValueError(f"divisor must be a positive number, not {divisor}.")
+    default_spectrum = spectrum is None
+    if default_spectrum:
+        spectrum = cube.spectrum
+    wl = _as_float_array(cube.wavelength if wavelength is None else wavelength)
+    original = _as_float_array(spectrum)
+    unit = getattr(spectrum, "unit", None)
+    flux_unit = unit.to_string() if unit is not None else (getattr(cube, 'spectrum_flux_unit', '') or 'Unknown')
+    if continuum is not None:
+        if unit is not None and getattr(continuum, "unit", None) is not None:
+            continuum = continuum.to(unit)
+        continuum = _as_float_array(continuum)
+    if error is not None:
+        error = _as_float_array(error)
+    for name, values in (("wavelength", wl), ("continuum", continuum), ("error", error)):
+        if values is not None and values.shape != original.shape:
+            raise ValueError(f"{name} has the shape {values.shape}, but the spectrum has the shape {original.shape}.")
+    if subtract_continuum and continuum is None:
+        raise ValueError("subtract_continuum needs a continuum.")
+
+    trace = original - continuum if subtract_continuum else original
+    plotted = trace / divisor
+    plotted_text = _plotted_description(subtract_continuum, divisor, "given by the caller", False)
+
+    if continuum is None:
+        continuum_lines = _NONE_LINES
+    elif continuum_points is not None:
+        continuum_lines = _custom_lines(continuum_points)
+    elif continuum_params is not None:
+        continuum_lines = automatic_lines(continuum_params, default=not continuum_params)
+    else:
+        continuum_lines = CALLER_LINES
+    if spaxels is None:
+        if default_spectrum and cube.cube is not None:
+            n_y, n_x = [n for i, n in enumerate(cube.cube.shape) if i != cube.spec_axis]
+            spaxels = f"sum over all {n_y} x {n_x} spaxels"
+        else:
+            spaxels = "the whole spectrum of the file" if default_spectrum else "not recorded"
+
+    header_lines = _spectrum_header_lines(
+        tab, spaxels, getattr(cube, 'wave_unit', None) or "Unknown", flux_unit, plotted_text, divisor,
+        shift_factor, continuum_lines, has_error=error is not None, header=getattr(cube, 'header', None),
+        instrument=getattr(cube, 'instrument', None), filename=getattr(cube, 'filename', None))
+    _write_spectrum_file(filename, header_lines, wl, original, continuum, plotted, error)
+    print(f"[OK] Saved the spectrum to {filename}")
+
+
 from .continuum_cube import export_continuum_cubes as _export_continuum_cubes_internal
 
 def save_continuum_cubes(cube_data, continuum_path, contsub_path, continuum_params=None,
@@ -2308,6 +2417,7 @@ __all__ = [
     # Region Extraction
     'extract_pixel_spectrum',
     'extract_region_spectrum',
+    'save_spectrum',
     # Continuum
     'fit_continuum',
     'snap_continuum_points',

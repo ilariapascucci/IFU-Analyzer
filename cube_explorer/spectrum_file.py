@@ -1,6 +1,8 @@
 """
 Read a spectrum from a text file (txt, csv, tsv) or from a 1D FITS table (for example a JWST x1d file).
 The file has a wavelength column, a flux column, and an optional flux error column.
+This module also writes the file that "Save Spectrum" makes (spectrum_header_lines, write_spectrum_file),
+and the reader above reads that file again.
 This module has no GUI code. The GUI and the API both use it.
 """
 
@@ -10,6 +12,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from astropy.io import fits
+
+from .unit_converter import doppler_factor_to_velocity, spectral_axis_medium
 
 # The fewest points that the spectrum tools can work with.
 MIN_POINTS = 10
@@ -569,3 +573,113 @@ def default_settings(table):
         "object": meta.get("object") or None,
         "complete": "wave_unit" in meta and ("flux_unit" in meta or bool(flux_unit)) and table.names_found,
     }
+
+
+def plotted_description(subtracted, divisor, divisor_note, normalization_on):
+    """Say how the "plotted" column of a saved spectrum was made, as a sentence for the file header.
+
+    Args:
+        subtracted (bool): True if the continuum was subtracted from the plotted column
+        divisor (float): The number that the plotted column was divided by, 1.0 if it was not divided
+        divisor_note (str): Where the divisor comes from, for example "peak of the Full spectrum"
+        normalization_on (bool): True if a normalization was asked for. It is used only when
+            divisor is 1.0, because then the normalization did nothing
+
+    Returns:
+        text (str): The steps, separated by semicolons
+    """
+    steps = []
+    if subtracted:
+        steps.append("continuum subtracted")
+    if divisor != 1.0:
+        steps.append(f"divided by {divisor:.6e} ({divisor_note})")
+    elif normalization_on:
+        steps.append("normalization is on, but the peak is not a positive number, so the plot is not normalized")
+    return "; ".join(steps) if steps else "same as Original (no subtraction, no normalization)"
+
+
+def spectrum_header_lines(tab, spaxels, wave_unit, flux_unit, plotted_text, divisor, shift_factor,
+                          continuum_lines, has_error=False, header=None, instrument=None, filename=None):
+    """Build the comment lines at the top of a saved spectrum file.
+    The lines give the units, instrument, wavelength frame, continuum and column names. They hold
+    all the facts that the spectrum tools need to work on the file without the FITS cube.
+
+    Args:
+        tab (str): Spectrum tab, 'full', 'left' or 'right'
+        spaxels (str): Sentence that says which spaxels the spectrum sums over
+        wave_unit (str): Wavelength unit of the saved wavelengths
+        flux_unit (str): Flux unit of the Original, Continuum and Subtracted columns
+        plotted_text (str): Sentence that says how the Plotted column was made
+        divisor (float): Normalization divisor of the Plotted column, 1.0 if not normalized
+        shift_factor (float): Doppler shift factor of the wavelength axis, 1.0 if not shifted
+        continuum_lines (list): Lines about the continuum, each without "#"
+        has_error (bool): True if the file has an Error column after the Plotted column
+        header (astropy.io.fits.Header): Header of the cube, or None. It gives the object name and
+            the wavelength medium (air or vacuum)
+        instrument (str): Instrument name, or None
+        filename (str): Path or name of the cube file, or None
+
+    Returns:
+        lines (list): Header lines. Each line starts with '#', with no line break at the end.
+    """
+    instrument = instrument or "Unknown"
+    medium = spectral_axis_medium(header) or "unknown"
+
+    shift_velocity = doppler_factor_to_velocity(shift_factor)
+
+    lines = ["# IFU Analyzer spectrum file, format 1"]
+    if filename:
+        lines.append(f"# Source file: {os.path.basename(filename)}")
+    if header is not None and str(header.get('OBJECT', '')).strip():
+        lines.append(f"# Object: {str(header.get('OBJECT')).strip()}")
+    lines.append(f"# Instrument: {instrument}")
+    if header is not None and str(instrument).upper() == "NIRSPEC" and str(header.get('GRATING', '')).strip():
+        lines.append(f"# Grating: {str(header.get('GRATING')).strip().upper()}")
+    lines.append(f"# Spectrum tab: {tab}")
+    lines.append(f"# Spaxels: {spaxels}")
+    lines.append(f"# Wavelength unit: {wave_unit}")
+    lines.append(f"# Wavelength medium: {medium}")
+    # 0.0 stops a rounding error from printing "-0".
+    shift_velocity = 0.0 if abs(shift_velocity) < 5e-7 else shift_velocity
+    lines.append(f"# Wavelength shift: {shift_velocity:.6f}".rstrip('0').rstrip('.') + " km/s")
+    lines.append(f"# Wavelength shift factor: {shift_factor:.12g}")
+    lines.append(f"# Flux unit: {flux_unit}")
+    lines.extend(f"# {text}" for text in continuum_lines)
+    lines.append(f"# Plotted: {plotted_text}")
+    if divisor != 1.0:
+        lines.append("# Plotted is dimensionless because it is normalized.")
+    lines.append("# Columns: wavelength, original, continuum, subtracted, plotted" + (", error" if has_error else ""))
+    return lines
+
+
+def write_spectrum_file(path, header_lines, wavelength, original, continuum, plotted, error=None):
+    """Write a spectrum file in the format of "Save Spectrum". The columns are wavelength, original,
+    continuum, subtracted and plotted, and error if it is given. The subtracted column is
+    original minus continuum where the continuum is a number, and NaN where it is not.
+
+    Args:
+        path (str): Path of the file to write
+        header_lines (list): Comment lines, as spectrum_header_lines gives them
+        wavelength (numpy.ndarray): Wavelength values
+        original (numpy.ndarray): Flux values, with the same length
+        continuum (numpy.ndarray): The fitted continuum, or None if there is none. It is written as NaN.
+        plotted (numpy.ndarray): The plotted column, with the same length
+        error (numpy.ndarray): Flux error of each point, or None for no error column
+
+    Returns:
+        None
+
+    Raises:
+        OSError: if the file cannot be written
+    """
+    if continuum is None:
+        continuum = np.full_like(original, np.nan, dtype=float)
+    subtracted = np.where(np.isfinite(continuum), original - continuum, np.nan)
+    with open(path, 'w') as f:
+        for line in header_lines:
+            f.write(line + "\n")
+        for i, (w, o, c, s, p) in enumerate(zip(wavelength, original, continuum, subtracted, plotted)):
+            row = f"{w:.10e}\t{o:.6e}\t{c:.6e}\t{s:.6e}\t{p:.6e}"
+            if error is not None:
+                row += f"\t{error[i]:.6e}"
+            f.write(row + "\n")
