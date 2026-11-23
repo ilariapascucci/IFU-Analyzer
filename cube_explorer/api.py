@@ -473,6 +473,139 @@ def load_continuum_masks(filename, wave_unit=None, shift_factor=1.0):
     return _merge_mask_ranges(moved)
 
 
+from .fit_file import check_same_flux_unit as _check_same_flux_unit
+from .custom_continuum import (
+    snap_points as _snap_points,
+    skipped_lines_text as _skipped_lines_text,
+    spline_continuum as _spline_continuum,
+    write_points_file as _write_points_file,
+    read_points_file as _read_points_file,
+)
+
+def snap_continuum_points(wavelength, flux, wavelengths):
+    """Find the points of a custom continuum at some wavelengths, as clicks in the GUI do. A click
+    in the GUI gives the sample of the spectrum that is nearest to the click, with the flux of that
+    sample. This function gives the same points for the wavelengths that you choose.
+
+    Args:
+        wavelength (array-like): Wavelength values of the spectrum. Quantities are accepted; their
+            units are stripped.
+        flux (array-like or Quantity): The spectrum, with the same length as wavelength. The numbers
+            of a Quantity are used in its own unit, so the points are in that unit.
+        wavelengths (array-like): The wavelengths where you would click, in the unit of ``wavelength``.
+
+    Returns:
+        list: (wavelength, flux) tuples of float, one for each wavelength you gave, ready for
+        fit_custom_continuum and save_continuum_points.
+
+    Raises:
+        ValueError: if wavelength and flux have different shapes, or the nearest sample has no flux
+
+    Example:
+        >>> points = snap_continuum_points(cube.wavelength, cube.spectrum, [6.80, 6.88, 6.97, 7.10])
+        >>> continuum = fit_custom_continuum(cube.wavelength, cube.spectrum, points)
+    """
+    return _snap_points(_as_float_array(wavelength), _as_float_array(flux), wavelengths)
+
+
+def fit_custom_continuum(wavelength, flux, points):
+    """Fit a custom continuum through points that you give. This is the "Select Points" and
+    "Fit Continuum" tools of the GUI for one spectrum. The continuum is a natural cubic spline
+    through the points. It is not fitted to the flux, so the flux is used only for its unit.
+    The points of the GUI are samples of the spectrum. To get the same points from wavelengths,
+    use snap_continuum_points.
+
+    Args:
+        wavelength (array-like): Wavelength values where the continuum is evaluated, in the unit
+            of the spectrum axis. Astropy Quantities are accepted; their units are stripped.
+        flux (array-like or Quantity): The spectrum, with the same length as wavelength. Only its unit
+            is used.
+        points (array-like): (wavelength, flux) pairs, at least 3. The wavelength is in the unit of
+            ``wavelength``. The flux is in the unit of ``flux``. In the GUI, you click these points on
+            the spectrum.
+
+    Returns:
+        array or Quantity: Continuum values, one for each wavelength value. If flux is an astropy
+        Quantity (like cube.spectrum, which is in Jy), the continuum has the same unit, so
+        spectrum - continuum works. A plain array in gives a plain array out. The spline goes
+        beyond the first and the last point, as in the GUI.
+
+    Raises:
+        ValueError: if there are fewer than 3 points, a value is not finite, two points have the same
+            wavelength, or flux and wavelength do not have the same length
+
+    Example:
+        >>> points = [(6.80, 0.0012), (6.88, 0.0013), (6.97, 0.0013), (7.10, 0.0015)]
+        >>> continuum = fit_custom_continuum(cube.wavelength, cube.spectrum, points)
+        >>> line_only = cube.spectrum - continuum
+    """
+    wl = _as_float_array(wavelength)
+    if np.shape(flux) != wl.shape:
+        raise ValueError(f"flux has the shape {np.shape(flux)}, but wavelength has the shape {wl.shape}.")
+    continuum = _spline_continuum(wl, points)
+    unit = getattr(flux, "unit", None)
+    if unit is None or unit == u.dimensionless_unscaled:
+        return continuum
+    return continuum * unit
+
+
+def save_continuum_points(filename, points, flux_unit=None):
+    """Save the points of a custom continuum to a text file. This is the same file as the GUI's
+    Save Points button writes. The file gives the flux unit, so a load can check it.
+
+    Args:
+        filename (str): Path of the text file to write
+        points (array-like): (wavelength, flux) pairs, in the unit of the spectrum axis and of the spectrum
+        flux_unit (str or astropy unit, optional): Flux unit of the points, for example 'Jy' or
+            cube.spectrum.unit. None writes "Unknown", and a load then cannot check the unit.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if there is no point, or a value is not finite
+        OSError: if the file cannot be written
+
+    Example:
+        >>> save_continuum_points("points.txt", points, flux_unit=cube.spectrum.unit)
+    """
+    unit_text = flux_unit if flux_unit is None or isinstance(flux_unit, str) else flux_unit.to_string()
+    _write_points_file(filename, points, unit_text)
+
+
+def load_continuum_points(filename, flux_unit=None):
+    """Load the points of a custom continuum from a text file that save_continuum_points or the
+    GUI wrote. The points are in the unit that the file gives. They are not converted.
+
+    Args:
+        filename (str): Path of the points file
+        flux_unit (str or astropy unit, optional): Flux unit of the spectrum that you use the points
+            on, for example cube.spectrum.unit. If the file states another unit, this function
+            raises an error. If the file states no unit, a warning is raised. None does not check.
+
+    Returns:
+        list: (wavelength, flux) tuples of float, ready for fit_custom_continuum. A line that is not
+        'wavelength, flux' is skipped, and a warning lists the skipped lines, as the GUI does.
+
+    Raises:
+        OSError: if the file cannot be opened
+        ValueError: if the file has no valid point, or its flux unit is not the unit of the spectrum
+
+    Example:
+        >>> points = load_continuum_points("points.txt", flux_unit=cube.spectrum.unit)
+        >>> continuum = fit_custom_continuum(cube.wavelength, cube.spectrum, points)
+    """
+    points, file_unit, skipped = _read_points_file(filename)
+    if skipped:
+        warnings.warn(f"{filename}: " + _skipped_lines_text(skipped))
+    if flux_unit is not None:
+        unit_text = flux_unit if isinstance(flux_unit, str) else flux_unit.to_string()
+        _check_same_flux_unit(file_unit, unit_text, what="points file")
+        if file_unit is None:
+            warnings.warn(f"{filename} does not give its flux unit. The points are used as {unit_text}.")
+    return points
+
+
 from .continuum_cube import export_continuum_cubes as _export_continuum_cubes_internal
 
 def save_continuum_cubes(cube_data, continuum_path, contsub_path, continuum_params=None,
@@ -2177,6 +2310,10 @@ __all__ = [
     'extract_region_spectrum',
     # Continuum
     'fit_continuum',
+    'snap_continuum_points',
+    'fit_custom_continuum',
+    'save_continuum_points',
+    'load_continuum_points',
     'save_continuum_masks',
     'load_continuum_masks',
     'save_continuum_cubes',

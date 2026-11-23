@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QMessageBox, QApplication, QProgressDialog, QPushBu
 
 from .file_dialogs import open_file_name, save_file_name
 from .continuum_dialog import ContinuumParametersDialog, ContinuumCubeWorker
-from .custom_continuum import CustomContinuumSelector
+from .custom_continuum import CustomContinuumSelector, write_points_file, read_points_file, skipped_lines_text
 from .fit_file import check_same_flux_unit
 from .flux_map_extractor import (fit_auto_continuum, NONE_LINES, UNKNOWN_LINES, automatic_lines, custom_lines,
                                  mask_file_lines, merge_mask_ranges, read_mask_file)
@@ -1459,11 +1459,7 @@ class GuiContinuumMixin:
             fname += ".txt"
 
         try:
-            with open(fname, 'w') as f:
-                f.write("# Wavelength, Flux\n")
-                f.write(f"# Flux unit: {getattr(self.cube_data, 'spectrum_flux_unit', '') or 'Unknown'}\n")
-                for x, y in points:
-                    f.write(f"{x:.6e}, {y:.6e}\n")
+            write_points_file(fname, points, getattr(self.cube_data, 'spectrum_flux_unit', ''))
             QMessageBox.information(self, "Saved", f"Points successfully saved to:\n{fname}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save points:\n{str(e)}")
@@ -1497,23 +1493,7 @@ class GuiContinuumMixin:
             return
 
         try:
-            points = []
-            file_unit = None
-            with open(fname, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line.lower().startswith('# flux unit:'):
-                        file_unit = line.split(':', 1)[1].strip()
-                    if not line or line.startswith('#'):
-                        continue
-                    parts = line.split(',')
-                    if len(parts) >= 2:
-                        x, y = float(parts[0]), float(parts[1])
-                        points.append((x, y))
-
-            if not points:
-                QMessageBox.warning(self, "No Valid Points", "No valid coordinates found in the file.")
-                return
+            points, file_unit, skipped = read_points_file(fname)
 
             # The flux of the points is in the unit of the spectrum that they were clicked on.
             spectrum_unit = getattr(self.cube_data, 'spectrum_flux_unit', '')
@@ -1521,6 +1501,8 @@ class GuiContinuumMixin:
             note = ""
             if file_unit is None:
                 note = f"\nThe file does not give its flux unit. The points are used as {spectrum_unit or 'the unit of the spectrum'}."
+            if skipped:
+                note += "\n" + skipped_lines_text(skipped)
 
             # The file is good, so the selection can open now. A message tells the user if it cannot.
             if not self._custom_points_open():

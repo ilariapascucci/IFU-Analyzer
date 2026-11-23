@@ -259,7 +259,7 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 | Task                | Functions                                                                                                   |
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Load data           | `load_cube`, `load_spectrum`, `load_fit`, `extract_pixel_spectrum`, `extract_region_spectrum`               |
-| Continuum           | `fit_continuum`, `save_continuum_masks`, `load_continuum_masks`, `save_continuum_cubes`                     |
+| Continuum           | `fit_continuum`, `fit_custom_continuum`, `snap_continuum_points`, `save_continuum_points`, `load_continuum_points`, `save_continuum_masks`, `load_continuum_masks`, `save_continuum_cubes` |
 | Gaussian fitting    | `fit_line`, `fit_hitran_lines`, `measure_equivalent_width`, `create_gaussian_map`, `create_velocity_map`, `export_residual_cube` |
 | Flux                | `extract_flux`, `create_flux_map`                                                                           |
 | Save maps (FITS)    | `save_gaussian_map`, `save_gaussian_maps`, `save_flux_map`, `save_line_maps`, `save_rotational_diagram_map_fits` |
@@ -380,7 +380,7 @@ python main.py
    - Click "Fit Left", then click the spectrum to mark the left edge of the fit window.
    - Click "Peak", then click the spectrum to mark the line peak.
    - Click "Fit Right", then click the spectrum to mark the right edge. "Fit Left" must be to the left of "Fit Right".
-   - Optionally, mark a line-free noise region with "Noise Left" and "Noise Right".
+   - Optionally, mark a line-free noise region with "Noise Left" and "Noise Right". In a single-line fit, the noise region does not change the fitted numbers. The Save Fit file records it. In a script, give it as `noise_min` and `noise_max` to `fit_line`.
    - Click "Fit Gaussian" to run the fit.
    - Read the fit results: the centre, the amplitude, the width, the area, the baseline, and R².
    - Click "Save Fit..." in the results window to save the fit. Click "Load Fit" later to see the same fit again, with its five markers, on the same spectrum.
@@ -427,7 +427,8 @@ python main.py
    - Click "Subtract Continuum" when the curve is right. The full subtracted spectrum is shown and the points are removed. Click "Subtract Continuum" again to undo the subtraction. The orange curve then shows again. If you changed the points after the last fit, the button asks you to fit again first.
    - Click "Select Points" again to start over. Unpressing it, or clicking Home, removes the points and the custom continuum.
    - Save the points with "Save Points" before you subtract, and save the result with "Save Spectrum".
-   - "Load Points" loads the points of a saved file. It starts the point selection if the selection is not on, so you do not need to click "Select Points" first. The loaded points replace the points on the plot. If the file gives no flux unit, a message says which unit the points use.
+   - "Load Points" loads the points of a saved file. It starts the point selection if the selection is not on, so you do not need to click "Select Points" first. The loaded points replace the points on the plot. If the file gives no flux unit, a message says which unit the points use. A line that is not `wavelength, flux` is skipped, and a message lists the skipped lines. The other lines still load. In a script, `load_continuum_points` gives a warning for the skipped lines.
+   - In a script, use `snap_continuum_points`, `fit_custom_continuum`, `save_continuum_points`, and `load_continuum_points`. A click in the GUI gives the sample of the spectrum that is nearest to the click, with the flux of that sample. `snap_continuum_points(wavelength, flux, wavelengths)` gives the same points for the wavelengths that you choose. `fit_custom_continuum(wavelength, flux, points)` fits the same natural cubic spline, and the result is the same as the GUI result. The two file functions read and write the same file as "Save Points" and "Load Points".
 
    **Pixel-by-Pixel.** Click "Pixel-by-Pixel". The tool fits the continuum at every pixel. It saves the continuum cube and the continuum-subtracted cube as two FITS files.
    - Automatic: click "Automatic", then "Set Parameters and Save". Set the fit parameters, then choose the base file name.
