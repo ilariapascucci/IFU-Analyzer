@@ -434,23 +434,20 @@ def save_contour_file(path, segments, wcs, image_name=None, header=None):
     return has_sky
 
 
-def read_contour_file(path, wcs):
-    """Read a contour file and give its lines in the pixel positions of another image.
+def _read_contour_rows(path, wcs):
+    """Read the rows of a contour file, with the positions in the pixel grid of another image.
 
-    This is Load Contour in the 2D viewer. The RA and Dec of the file are turned into pixel
-    positions with the WCS. A file with no RA and Dec, or no WCS, gives the saved pixel positions.
-    A jump of more than 5 pixels between two points starts a new line.
+    The RA and Dec of the file are turned into pixel positions with the WCS. A file with no RA
+    and Dec, or no WCS, gives the saved pixel positions. The Load Contour of the 2D viewer and
+    the API use this function.
 
     Args:
         path (str): Path of a file that save_contour_file wrote.
         wcs (astropy.wcs.WCS): WCS of the image that the lines go on, or None.
 
     Returns:
-        x_plot (numpy.ndarray): x pixel positions, with NaN between the lines.
-        y_plot (numpy.ndarray): y pixel positions, with NaN between the lines.
-        used_sky (bool): True if the positions come from RA and Dec. False if they are the saved pixel
-            positions, which are right only if the image has the same pixel grid as the image that
-            the file came from.
+        rows (tuple): (levels, x_pts, y_pts, use_sky). The first three are arrays with one value for
+            each row of the file. use_sky is True if the positions come from RA and Dec.
 
     Raises:
         ValueError: The file has no rows with a level, an x and a y position.
@@ -479,10 +476,79 @@ def read_contour_file(path, wcs):
         y_pts = np.asarray(y_pts, dtype=float)
     else:
         x_pts, y_pts = x_pix_saved, y_pix_saved
+    return data[:, 0], x_pts, y_pts, use_sky
 
+
+def read_contour_file(path, wcs):
+    """Read a contour file and give its lines in the pixel positions of another image.
+
+    This is Load Contour in the 2D viewer. The RA and Dec of the file are turned into pixel
+    positions with the WCS. A file with no RA and Dec, or no WCS, gives the saved pixel positions.
+    A jump of more than 5 pixels between two points starts a new line.
+
+    Args:
+        path (str): Path of a file that save_contour_file wrote.
+        wcs (astropy.wcs.WCS): WCS of the image that the lines go on, or None.
+
+    Returns:
+        x_plot (numpy.ndarray): x pixel positions, with NaN between the lines.
+        y_plot (numpy.ndarray): y pixel positions, with NaN between the lines.
+        used_sky (bool): True if the positions come from RA and Dec. False if they are the saved pixel
+            positions, which are right only if the image has the same pixel grid as the image that
+            the file came from.
+
+    Raises:
+        ValueError: The file has no rows with a level, an x and a y position.
+        OSError: The file cannot be read.
+    """
+    segments, use_sky = read_contour_segments(path, wcs)
+    x_plot, y_plot = contour_line_arrays(segments)
+    return x_plot, y_plot, use_sky
+
+
+def contour_line_arrays(segments):
+    """Join the segments of a contour into one line for plotting.
+    A jump of more than 5 pixels between two points starts a new line, and the arrays have NaN there.
+
+    Args:
+        segments (list): The (level, vertices) tuples of contour_segments, or of read_contour_segments.
+
+    Returns:
+        x_plot (numpy.ndarray): x pixel positions, with NaN between the lines.
+        y_plot (numpy.ndarray): y pixel positions, with NaN between the lines.
+    """
+    vertices = np.concatenate([points for _, points in segments])
+    x_pts, y_pts = vertices[:, 0], vertices[:, 1]
     dist = np.sqrt(np.diff(x_pts)**2 + np.diff(y_pts)**2)
     break_indices = np.where(dist > 5.0)[0] + 1
 
     x_plot = np.insert(x_pts, break_indices, np.nan)
     y_plot = np.insert(y_pts, break_indices, np.nan)
-    return x_plot, y_plot, use_sky
+    return x_plot, y_plot
+
+
+def read_contour_segments(path, wcs):
+    """Read a contour file and give its lines with their levels, in the pixel positions of another image.
+    The rows of one level that follow each other make one segment. This is what Save Contour needs
+    to write a loaded contour again, and it is the same positions as read_contour_file gives.
+
+    Args:
+        path (str): Path of a file that save_contour_file wrote.
+        wcs (astropy.wcs.WCS): WCS of the image that the lines go on, or None.
+
+    Returns:
+        segments (list): The (level, vertices) tuples of contour_segments. vertices is an (N, 2) array
+            of (x, y) pixel positions.
+        used_sky (bool): True if the positions come from RA and Dec. See read_contour_file.
+
+    Raises:
+        ValueError: The file has no rows with a level, an x and a y position.
+        OSError: The file cannot be read.
+    """
+    levels, x_pts, y_pts, use_sky = _read_contour_rows(path, wcs)
+    # A NaN level (no number in the file) is equal to the NaN level next to it.
+    same_level = (levels[1:] == levels[:-1]) | (np.isnan(levels[1:]) & np.isnan(levels[:-1]))
+    bounds = np.concatenate(([0], np.where(~same_level)[0] + 1, [len(levels)]))
+    segments = [(float(levels[start]), np.column_stack((x_pts[start:stop], y_pts[start:stop])))
+                for start, stop in zip(bounds[:-1], bounds[1:])]
+    return segments, use_sky

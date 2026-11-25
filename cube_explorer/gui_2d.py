@@ -34,7 +34,7 @@ from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
 from .visualization import SlicePlotter, apply_wcs_grid, hide_wcs_grid
 from .scale_dialog import ScaleSettings, build_norm
 from .superimposition_dialog import SuperimpositionWindow, PairSuperimpositionWindow, draw_layers
-from .table_export import contour_segments, read_contour_file, save_contour_file
+from .table_export import contour_line_arrays, contour_segments, read_contour_segments, save_contour_file
 from .region_selector import RegionSelector
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
@@ -1302,7 +1302,8 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return
 
         try:
-            x_plot, y_plot, used_sky = read_contour_file(fname, target_wcs)
+            segments, used_sky = read_contour_segments(fname, target_wcs)
+            x_plot, y_plot = contour_line_arrays(segments)
             if not used_sky:
                 QMessageBox.warning(
                     self, "No WCS Alignment",
@@ -1319,20 +1320,27 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             contour_line, = ax.plot(x_plot, y_plot, color=color, linewidth=1.5, alpha=0.8, zorder=10)
             
             class DummyContourSet:
-                def __init__(self, line):
+                def __init__(self, line, segments):
                     """Wrap a plain Line2D so it looks like a QuadContourSet.
+                    The levels and allsegs are what Save Contour reads from a contour set.
 
                     Args:
                         line (matplotlib.lines.Line2D): Plotted contour line.
+                        segments (list): The (level, vertices) tuples that were loaded from the file.
 
                     Returns:
                         None
                     """
                     self.collections = [line]
-            
-            target_plotter.contours.append(DummyContourSet(contour_line))
-            target_plotter.current_contour = DummyContourSet(contour_line)
-            
+                    self.levels = [level for level, _ in segments]
+                    self.allsegs = [[points] for _, points in segments]
+
+            target_plotter.contours.append(DummyContourSet(contour_line, segments))
+            target_plotter.current_contour = DummyContourSet(contour_line, segments)
+            # The file gives no image. Without this, Save Contour names the image of an older contour.
+            if target == 'left': self.last_contour_left_source = None
+            else:                 self.last_contour_right_source = None
+
             if target == 'left': self.slice1_canvas.draw()
             else: self.slice2_canvas.draw()
             

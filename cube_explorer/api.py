@@ -2364,8 +2364,9 @@ def save_rotational_fit(path, results, header_text=None):
 from .fits_export import write_fits_product as _write_fits_product
 from .unit_converter import sky_wcs_problem
 from .table_export import (
+    contour_line_arrays as _contour_line_arrays,
     image_contour_segments as _image_contour_segments,
-    read_contour_file as _read_contour_file,
+    read_contour_segments as _read_contour_segments,
     save_contour_file as _save_contour_file,
 )
 from .utils import (
@@ -2563,8 +2564,9 @@ def load_contours(filename, header=None):
             warning says so.
 
     Returns:
-        dict: The keys 'x' and 'y' (arrays of pixel positions) and 'used_sky' (True if the positions
-        come from RA and Dec).
+        dict: The keys 'x' and 'y' (arrays of pixel positions), 'used_sky' (True if the positions
+        come from RA and Dec) and 'segments' (the lines with their levels, a list of (level, vertices)
+        tuples, where vertices is an (N, 2) array of x and y).
 
     Raises:
         OSError: if the file cannot be read
@@ -2575,12 +2577,13 @@ def load_contours(filename, header=None):
         >>> lines = load_contours("map_contours.txt", found['header'])
     """
     wcs = None if header is None else _viewer_wcs(header)[0]
-    x_plot, y_plot, used_sky = _read_contour_file(filename, wcs)
+    segments, used_sky = _read_contour_segments(filename, wcs)
+    x_plot, y_plot = _contour_line_arrays(segments)
     if not used_sky:
         warnings.warn("This contour file has no RA/Dec, or no header was given, so the lines are at their "
                       "saved pixel positions. They line up only if the image has the same pixel grid as "
                       "the image that the file came from.")
-    return {"x": x_plot, "y": y_plot, "used_sky": used_sky}
+    return {"x": x_plot, "y": y_plot, "used_sky": used_sky, "segments": segments}
 
 
 def superimpose(rows, figsize=(7, 6)):

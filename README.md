@@ -85,9 +85,9 @@ The "Contour" button in the side column of each panel opens a menu: "Plot Contou
 #### Contour Export and Import
 
 - **Save Contour (.txt):** writes all contour path vertices as pixel coordinates and RA/Dec (degrees) with the sigma-level labels. The file is human-readable.
-- **Load Contour:** reads a saved contour (`.txt` or `.csv`) and draws it on the panel of the button through the WCS mapping. The contour lines up on an image with a different pixel scale or orientation.
+- **Load Contour:** reads a saved contour (`.txt` or `.csv`) and draws it on the panel of the button through the WCS mapping. The contour lines up on an image with a different pixel scale or orientation. You can save a loaded contour with "Save Contour...". The new file has the levels and the positions on that panel. It has no "Image", "Map" and "Level unit" lines, because the loaded file does not give them back.
 - **If the image has no complete sky coordinates:** the RA and Dec columns of a saved file are empty, and the message after the save says so.
-- **In a script:** use `contour_levels(image, levels, sigma)` for the levels, `save_contours(filename, image, header, levels, sigma, image_name, on_header)` to save a contour file, and `load_contours(filename, header)` to read one. They write and read the same files as the buttons. Give `on_header` to draw the lines on the pixel grid of another image, as "Other Image (Match WCS)" does. `load_contours` returns the arrays `x` and `y`. Draw them with `ax.plot(lines['x'], lines['y'])`. A warning tells you about a level outside the data range, and about a file or image with no sky coordinates.
+- **In a script:** use `contour_levels(image, levels, sigma)` for the levels, `save_contours(filename, image, header, levels, sigma, image_name, on_header)` to save a contour file, and `load_contours(filename, header)` to read one. They write and read the same files as the buttons. Give `on_header` to draw the lines on the pixel grid of another image, as "Other Image (Match WCS)" does. `load_contours` returns the arrays `x` and `y`, and `segments`, the lines with their levels. Draw the arrays with `ax.plot(lines['x'], lines['y'])`. A warning tells you about a level outside the data range, and about a file or image with no sky coordinates.
 
 #### Superimposition
 
