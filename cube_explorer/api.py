@@ -2596,7 +2596,7 @@ def superimpose(rows, figsize=(7, 6)):
     'mode' ('Image' or 'Contour', default 'Image'), 'cmap' (a matplotlib colormap, or 'Pure Red',
     'Pure Green', 'Pure Blue'; default 'magma' for row 1 and 'hot' for the others), 'scale' (a dict
     with 'scale', 'gamma', 'range_mode', 'vmin', 'vmax', 'p_lo', 'p_hi', see ScaleSettings), 'alpha'
-    (0.1 to 1, default 0.5), 'rotation' (degrees, clockwise; it turns the whole figure for row 1,
+    (0.1 to 1, default 1.0 for row 1 and 0.5 for the others; a figure of one row is drawn opaque), 'rotation' (degrees, clockwise; it turns the whole figure for row 1,
     and a note says that it is not used for other rows), and, for a Contour row, 'color',
     'line_style', 'thickness', 'levels' (default '3, 5, 10'), 'sigma' (text, default '' for
     automatic) and 'contour_alpha' (default 0.8). One Contour row alone is drawn on the grid of its
@@ -2642,6 +2642,7 @@ def superimpose(rows, figsize=(7, 6)):
                 raise ValueError(f"Row {number} has no 'source', the path of a 2D FITS file.")
             spec.setdefault("mode", MODE_IMAGE)
             spec.setdefault("cmap", SUPERIMPOSITION_CMAP if number > 1 else BASE_CMAP)
+            spec.setdefault("alpha", 0.5 if number > 1 else 1.0)
             if isinstance(spec.get("scale"), dict):
                 spec["scale"] = ScaleSettings(**spec["scale"])
             try:

@@ -318,8 +318,9 @@ def draw_superimposition(fig, images, rows):
     fig.clear()
     ax = fig.add_subplot(111, projection=base_panel["wcs"])
     norm, shown = build_norm(base_panel["image"], base_row.scale)
+    # A row that is drawn alone has no layer below it, so it is drawn opaque.
     base_im = ax.imshow(shown, origin="lower", cmap=base_row.cmap, norm=norm,
-                        interpolation="nearest", aspect="equal")
+                        alpha=base_row.alpha if len(rows) > 1 else 1.0, interpolation="nearest", aspect="equal")
     apply_wcs_grid(ax, base_panel["image"].shape, grid=False)
     cbar = fig.colorbar(base_im, ax=ax, fraction=0.046, pad=0.04)
     header = base_panel["header"]
@@ -454,8 +455,10 @@ class SuperimpositionWindow(QDialog):
                     except (ValueError, OSError) as error:
                         failed.append(f"{os.path.basename(path)}: {error}")
                         continue
+                # The first row is the base, and it starts opaque. The other rows start at 0.5.
                 self.rows.append(SuperimpositionRow(mode=MODE_IMAGE, source=path,
-                                                    cmap=SUPERIMPOSITION_CMAP if self.rows else BASE_CMAP))
+                                                    cmap=SUPERIMPOSITION_CMAP if self.rows else BASE_CMAP,
+                                                    alpha=0.5 if self.rows else 1.0))
         finally:
             QApplication.restoreOverrideCursor()
         self._rebuild_table()
@@ -626,8 +629,9 @@ class SuperimpositionWindow(QDialog):
                 scale_btn.setToolTip("Change the scale and the color range.")
                 scale_btn.clicked.connect(lambda _checked=False, r=row, b=scale_btn: self._edit_scale(r, b))
                 self.table.setCellWidget(index, COL_SCALE, scale_btn)
-            # The base row is opaque. Both modes have an opacity, and each mode keeps its own value.
-            if index > 0:
+            # Both modes have an opacity, and each mode keeps its own value. The base panel of Pair
+            # Superimposition is the image of the viewer, so its row has no opacity.
+            if index > 0 or not self.BASE_IS_PANEL:
                 alpha_name = "contour_alpha" if is_contour else "alpha"
                 alpha = QDoubleSpinBox()
                 alpha.setRange(0.1, 1.0)
@@ -635,7 +639,8 @@ class SuperimpositionWindow(QDialog):
                 alpha.setValue(getattr(row, alpha_name))
                 alpha.setAlignment(Qt.AlignCenter)
                 alpha.setMinimumWidth(70)
-                alpha.setToolTip("Opacity of this layer. 1.0 is fully opaque. A lower value shows the layers below.")
+                alpha.setToolTip("Opacity of this layer. 1.0 is fully opaque. A lower value shows the layers below. "
+                                 "A row that View shows alone, or the only row of a figure, is drawn opaque.")
                 alpha.valueChanged.connect(lambda v, r=row, n=alpha_name: setattr(r, n, v))
                 self.table.setCellWidget(index, COL_ALPHA, alpha)
             # The base panel of Pair Superimposition has its own Rotate button in the viewer.
