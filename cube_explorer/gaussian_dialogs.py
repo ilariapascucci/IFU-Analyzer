@@ -44,8 +44,7 @@ class GaussianMapWorker(ProgressWorker):
     progress = pyqtSignal(int, int)  # (current, total) - emits progress updates
     
     def __init__(self, cube, wavelength, lam_min, lam_max, n_jobs=8, fac_above_stdres=DEFAULT_DETECTION_SIGMA,
-                 noise_min=None, noise_max=None, header=None, wave_unit=None, flux_unit=None, lambda_0=None,
-                 region_mask=None):
+                 noise_min=None, noise_max=None, header=None, wave_unit=None, flux_unit=None, lambda_0=None):
         """
         Initialize Gaussian map fitting worker.
         
@@ -60,7 +59,6 @@ class GaussianMapWorker(ProgressWorker):
             header: FITS header for unit/metadata information
             wave_unit: Wavelength unit string
             lambda_0: Rest wavelength for velocity calculations
-            region_mask: Boolean (n_y, n_x) mask of the region whose summed spectrum also gets a fit, or None
 
         Returns:
             None
@@ -78,7 +76,6 @@ class GaussianMapWorker(ProgressWorker):
         self.wave_unit = wave_unit
         self.flux_unit = flux_unit
         self.lambda_0 = lambda_0
-        self.region_mask = region_mask
         self._cancel_event = threading.Event()
 
     def cancel(self):
@@ -119,7 +116,6 @@ class GaussianMapWorker(ProgressWorker):
                 lambda_0=self.lambda_0,
                 progress_callback=self._emit_progress,
                 cancel_event=self._cancel_event,
-                region_mask=self.region_mask,
             )
             # results is None when cancel() fired before completion; nothing
             # is listening by then, so just let the thread end.
@@ -618,42 +614,9 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
                     "observed wavelengths. Revert the shift of this spectrum, then fit the map again.")
         return None
 
-    def _systemic_velocity(self):
-        """
-        Give the systemic velocity: the Doppler velocity of the line center of the Gaussian fit to the
-        summed spectrum, against the rest line. The Full tab uses all pixels, and a region tab uses its pixels.
-
-        Args:
-            None
-
-        Returns:
-            result (tuple): (velocity, reason). velocity is a float in km/s, or None when it cannot be
-                found. reason is None, or a sentence that says why not.
-        """
-        reason = self._shift_reason()
-        if reason is not None:
-            return None, reason
-        key = 'global_fit' if self.fit_tab == 'full' else 'region_global_fit'
-        if key not in self.results:
-            return None, "This map has no fit of the summed spectrum of its region. Fit the map again."
-        fit = self.results[key]
-        if fit is None:
-            return None, "The Gaussian fit of the summed spectrum could not run."
-        if not fit['success']:
-            return None, ("The Gaussian fit of the summed spectrum did not converge, "
-                          "so its center is only a starting guess.")
-        rest, reason = self._rest_wavelength()
-        if rest is None:
-            return None, reason
-        try:
-            return float(wavelength_to_doppler_velocity(fit['center'], rest, self.wave_unit)), None
-        except ValueError as e:
-            return None, str(e)
-
     def _update_systemic_controls(self):
         """
         Show the systemic velocity box for the Velocity map only.
-        The box does not show the fitted value of the summed spectrum. The statistics show it.
         It does not change the map.
 
         Args:
@@ -853,9 +816,6 @@ class GaussianMapResultsDialog(MapResultsDialogMixin, QDialog):
             if rest is not None:
                 lines.append(f"  Zero velocity: {rest:.6f} {self.wave_unit} ({self._rest_line_label()})")
             lines.append(f"  Systemic velocity removed from this map: {self.systemic_velocity:+.2f} km/s")
-            systemic, _why = self._systemic_velocity()
-            if systemic is not None:
-                lines.append(f"  Systemic velocity (Gaussian fit of the summed spectrum): {systemic:+.2f} km/s")
         if data is None:
             lines.append("  (not available for this fit)" if param_name != "Velocity"
                          else f"  ({self._velocity_map()[1]})")

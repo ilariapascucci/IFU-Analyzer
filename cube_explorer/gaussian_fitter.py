@@ -1351,10 +1351,10 @@ def _fit_row_worker(row_idx: int, spectra_row: np.ndarray, spectra_noise_row: Op
 
 
 def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig, header, unit,
-                         flux_unit, region_mask=None):
+                         flux_unit):
     """
-    Fit one Gaussian to the summed spectrum of the cube, or of a region of it.
-    The result seeds the per-pixel fits, and it gives the line center of the summed spectrum.
+    Fit one Gaussian to the summed spectrum of the cube.
+    The result seeds the per-pixel fits.
     The fit window is the one that wave_mask selects.
 
     Args:
@@ -1368,8 +1368,6 @@ def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig
         header (astropy.io.fits.Header): FITS header for unit conversion, or None.
         unit (str): Wavelength unit of x_data.
         flux_unit (str): Flux unit of the cube.
-        region_mask (numpy.ndarray): Boolean mask of shape (n_y, n_x) that picks the pixels to sum,
-            or None to sum every pixel.
 
     Returns:
         result (tuple): (global_guess, global_fit_info). global_guess is (amplitude, center, sigma),
@@ -1381,10 +1379,7 @@ def _fit_summed_spectrum(cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig
     try:
         # STEP 2 GLOBAL-a: Stack all spatial pixels into one average spectrum
         #NBedit: Using sum instead of mean to preserve total flux for better peak detection
-        if region_mask is None:
-            total_spectrum = np.nansum(cube[wave_mask, :, :], axis=(1, 2))
-        else:
-            total_spectrum = np.nansum(cube[wave_mask, :, :][:, region_mask], axis=1)
+        total_spectrum = np.nansum(cube[wave_mask, :, :], axis=(1, 2))
         finite_mask_total = np.isfinite(total_spectrum) & np.isfinite(x_data)
         if np.count_nonzero(finite_mask_total) >= MIN_FIT_WINDOW_POINTS:
             x_total = x_data[finite_mask_total]
@@ -1471,8 +1466,7 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
                             flux_unit: Optional[str] = None,
                             lambda_0: Optional[float] = None,
                             progress_callback: Optional[callable] = None,
-                            cancel_event: Optional[threading.Event] = None,
-                            region_mask: Optional[np.ndarray] = None) -> Optional[dict]:
+                            cancel_event: Optional[threading.Event] = None) -> Optional[dict]:
     """
     Fit a Gaussian to each pixel's spectrum in the cube, using the same per-pixel fit as
     fit_gaussian_to_line() but seeded by a global fit to the stacked spectrum first.
@@ -1493,8 +1487,6 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         progress_callback (callable): Optional progress_callback(current, total) called after each row
         cancel_event (threading.Event): Checked once per cube row; if set, fitting stops after
             in-flight rows finish and the function returns None instead of a results dict
-        region_mask (numpy.ndarray): Optional boolean mask of shape (n_y, n_x). The summed spectrum of
-            these pixels gets its own fit, saved as 'region_global_fit'. The per-pixel fits do not change
 
     Returns:
         results (dict or None): None if cancelled via cancel_event, otherwise 2D parameter maps:
@@ -1520,19 +1512,11 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
             'global_fit': dict with the global 1D fit used to seed initial guesses
                 (also carries area/area_error/r_squared and the x_data/y_data/
                 baseline it was fit from, for the Area (AUC) export), or None
-            'region_global_fit': same as 'global_fit', but for the summed spectrum of region_mask.
-                None when region_mask is None or its fit could not run
     """
     # ========== PER-PIXEL GAUSSIAN FITTING SETUP ==========
     # Get cube dimensions
     n_wave, n_y, n_x = cube.shape
-    if region_mask is not None:
-        region_mask = np.asarray(region_mask, dtype=bool)
-        if region_mask.shape != (n_y, n_x):
-            raise ValueError(f"region_mask has shape {region_mask.shape}, but the cube has {(n_y, n_x)} pixels")
-        if not region_mask.any():
-            raise ValueError("region_mask selects no pixels")
-    
+
     # Get wavelength unit
     unit = get_wave_unit(header, wave_unit)
     
@@ -1599,13 +1583,6 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
     # Fits the stacked spectrum once to seed every pixel with consistent starting parameters.
     global_guess, global_fit_info = _fit_summed_spectrum(
         cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig, header, unit, flux_unit)
-    # A region gets its own fit, so the line center of that region is known. The seeds stay the same.
-    region_global_fit = None
-    if region_mask is not None:
-        _, region_global_fit = _fit_summed_spectrum(
-            cube, wave_mask, x_data, x1, x2, x_range, lambda_0_orig, header, unit, flux_unit,
-            region_mask=region_mask)
-    
     # Progress tracking
     total_pixels = n_y * n_x
     completed = 0
@@ -1758,6 +1735,5 @@ def fit_gaussians_per_pixel(cube: np.ndarray, wavelength: np.ndarray,
         'wavelength_unit': (wavelength.unit.to_string() if isinstance(wavelength, Quantity)
                             else (wave_unit or 'unknown')),
         'global_fit': global_fit_info,  # Global 1D fit used for initial guesses
-        'region_global_fit': region_global_fit,  # Same fit on the region_mask pixels, or None
         'center_limits': center_limits  # Lowest and highest center a pixel fit may use
     }

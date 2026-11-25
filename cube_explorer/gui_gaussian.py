@@ -1243,8 +1243,7 @@ STATUS: {result.message}
             cube=cube, wavelength=wavelength, lam_min=lam_min, lam_max=lam_max, n_jobs=8,
             fac_above_stdres=DEFAULT_DETECTION_SIGMA, noise_min=noise_min, noise_max=noise_max,
             header=self.cube_data.header, wave_unit=self.cube_data.wave_unit,
-            flux_unit=self.cube_data.flux_unit, lambda_0=self.lambda_0,
-            region_mask=region_mask
+            flux_unit=self.cube_data.flux_unit, lambda_0=self.lambda_0
         )
         self.gauss_worker.finished.connect(self._on_gaussian_map_complete)
         self.gauss_worker.error.connect(self._on_gaussian_map_error)
