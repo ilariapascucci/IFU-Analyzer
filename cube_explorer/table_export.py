@@ -379,7 +379,25 @@ def image_contour_segments(image, levels, source_wcs=None, target_wcs=None):
     return contour_segments(ax.contour(image, levels=levels, transform=ax.get_transform(source_wcs)))
 
 
-def save_contour_file(path, segments, wcs, image_name=None, header=None):
+def contour_file_source_lines(path):
+    """Read the lines of a contour file that say which image the levels come from.
+    These are the lines "# Image:", "# Map:" and "# Level unit:". A file can have none of them.
+
+    Args:
+        path (str): Path of a file that save_contour_file wrote.
+
+    Returns:
+        lines (list): The lines of the file header that start with one of those words, each
+            without a line break at the end.
+
+    Raises:
+        OSError: The file cannot be read.
+    """
+    with open(path, encoding='utf-8', errors='replace') as f:
+        return [line.rstrip("\r\n") for line in f if line.startswith(("# Image:", "# Map:", "# Level unit:"))]
+
+
+def save_contour_file(path, segments, wcs, image_name=None, header=None, source_lines=None):
     """Save contour lines to a text file, as pixel positions and as RA and Dec in degrees.
 
     This is the file that Save Contour writes in the 2D viewer. The pixel positions are positions
@@ -393,6 +411,8 @@ def save_contour_file(path, segments, wcs, image_name=None, header=None):
             None leaves out the lines about that image.
         header (astropy.io.fits.Header): Header of the image that the levels come from, for the map
             name and the unit of the levels in the file header, or None.
+        source_lines (list): Header lines about the image, from contour_file_source_lines. If it is
+            not None, these lines are written as they are, and image_name and header are not used.
 
     Returns:
         has_sky (bool): True if the file has RA and Dec. False if the columns are empty, because the
@@ -402,7 +422,9 @@ def save_contour_file(path, segments, wcs, image_name=None, header=None):
         OSError: The file cannot be written.
     """
     rows = ["# IFU Analyzer 2D - Contour Export\n"]
-    if image_name:
+    if source_lines is not None:
+        rows.extend(f"{line}\n" for line in source_lines)
+    elif image_name:
         rows.append(f"# Image: {image_name}\n")
         description = map_description(header, True) if header is not None else ''
         if description:
