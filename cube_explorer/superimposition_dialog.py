@@ -12,7 +12,6 @@ from dataclasses import dataclass, field, replace
 import matplotlib
 import numpy as np
 from astropy.io import fits
-from astropy.stats import sigma_clipped_stats
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -30,7 +29,7 @@ from .gui_sizing import fit_to_screen
 from .icon_loader import set_button_icon
 from .scale_dialog import ScaleDialog, ScaleSettings, build_norm
 from .unit_converter import clean_flux_unit, sky_wcs_problem
-from .utils import make_2d_wcs, rotate_image_with_wcs
+from .utils import contour_levels, levels_inside_data, make_2d_wcs, rotate_image_with_wcs, select_2d_image
 from .visualization import apply_wcs_grid
 
 MODE_CONTOUR = "Contour"
@@ -93,66 +92,6 @@ class SuperimpositionRow:
     rotation: float = 0.0
 
 
-def contour_levels(image, levels_text, sigma_text):
-    """Turn the level entries into the pixel values where contours are drawn.
-
-    A number with a % sign is a percent of the peak: p / 100 * the largest finite pixel.
-    Any other number N is a multiple of sigma: median + N * sigma. The median and the sigma
-    come from a sigma-clipped fit of the image. A typed sigma replaces the fitted sigma.
-
-    Args:
-        image (numpy.ndarray): 2D array of pixel values.
-        levels_text (str): Comma-separated levels, for example '3, 5, 50%'.
-        sigma_text (str): Sigma as text, or '' for the fitted value. Not used when
-            every level is a percent.
-
-    Returns:
-        levels (list): The pixel values, sorted from low to high.
-
-    Raises:
-        ValueError: A level or the sigma is not a number, no level is given, a percent is
-            not above 0, the image has no finite pixel, a percent level needs a peak that
-            is not above 0, or the sigma is not above 0.
-    """
-    entries = [x.strip() for x in levels_text.split(",") if x.strip()]
-    if not entries:
-        raise ValueError("Enter at least one level.")
-    multiples, percents = [], []
-    for entry in entries:
-        is_percent = entry.endswith("%")
-        try:
-            number = float(entry[:-1] if is_percent else entry)
-        except ValueError:
-            number = float("nan")
-        if not np.isfinite(number):
-            raise ValueError("Levels must be comma-separated numbers, for example 3, 5, 50%.")
-        if is_percent and not number > 0:
-            raise ValueError("A percent level must be above 0%.")
-        (percents if is_percent else multiples).append(number)
-    valid = image[np.isfinite(image)]
-    if valid.size == 0:
-        raise ValueError("The source image has no finite pixel.")
-    levels = []
-    if percents:
-        peak = valid.max()
-        if not peak > 0:
-            raise ValueError("A percent level needs a source image with a peak above 0.")
-        levels += [percent / 100 * peak for percent in percents]
-    if multiples:
-        _, median_val, fitted_std = sigma_clipped_stats(valid, sigma=3.0)
-        if sigma_text.strip():
-            try:
-                sigma = float(sigma_text)
-            except ValueError:
-                raise ValueError("Sigma must be a number, or empty for the automatic value.")
-        else:
-            sigma = fitted_std
-        if not sigma > 0:
-            raise ValueError("Sigma must be above 0.")
-        levels += [median_val + n * sigma for n in multiples]
-    return sorted(levels)
-
-
 def load_superimposition_image(path):
     """Read the first 2D image of a FITS file, with its header and sky WCS.
 
@@ -172,16 +111,12 @@ def load_superimposition_image(path):
     """
     name = os.path.basename(path)
     with fits.open(path) as hdul:
-        data, header = None, None
-        for hdu in hdul:
-            if hdu.data is not None and getattr(hdu.data, "size", 0) > 0:
-                squeezed = np.squeeze(hdu.data)
-                if squeezed.ndim == 2:
-                    data = squeezed.astype(float)
-                    header = hdu.header.copy()
-                    break
-    if data is None:
-        raise ValueError(f"{name} has no 2D image.")
+        try:
+            found = select_2d_image(hdul)
+        except ValueError:
+            raise ValueError(f"{name} has no 2D image.")
+        data = found["image"].astype(float)
+        header = found["header"]
     problem = sky_wcs_problem(header)
     if problem is not None:
         raise ValueError(f"{name} has no sky WCS. {problem}")
@@ -256,13 +191,10 @@ def _draw_contour_row(ax, source, row, label, **kwargs):
         levels = contour_levels(source["image"], row.levels, row.sigma)
     except ValueError as error:
         raise ValueError(f"{label}: {error}")
-    # Astropy fails on a contour set with no level inside the data.
-    finite = source["image"][np.isfinite(source["image"])]
-    inside = [lv for lv in levels if finite.min() < lv < finite.max()]
+    inside, skipped = levels_inside_data(source["image"], levels)
     note = None
-    if len(inside) < len(levels):
-        skipped = ", ".join(f"{lv:.3e}" for lv in levels if lv not in inside)
-        note = (f"{label}: no contour drawn at {skipped}. "
+    if skipped:
+        note =(f"{label}: no contour drawn at {skipped}. "
                 "The level is outside the data range of the source image.")
     if not inside:
         return note, None

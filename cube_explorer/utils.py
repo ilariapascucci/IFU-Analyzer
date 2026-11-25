@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import astropy.units as u
 from astropy.io import fits
+from astropy.stats import sigma_clipped_stats
 from astropy.wcs import WCS
 from astropy.wcs.utils import proj_plane_pixel_scales
 from scipy.ndimage import rotate
@@ -601,6 +602,299 @@ def rotate_image_with_wcs(image, wcs_in, total_angle):
 
     wcs_out.wcs.crpix = np.array([new_cx + new_dx, new_cy + new_dy]) + 1
     return array_out, wcs_out
+
+
+def rotate_image_with_header(image, header, total_angle):
+    """Turn a 2D image and write the matching header, like the Rotate button of the 2D viewer.
+
+    The WCS keywords of the header are replaced with the keywords of the turned WCS, and the
+    size keywords follow the new array. The other keywords stay. The 2D viewer calls this
+    function, and so does the API function rotate_image.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values, with the image as it was loaded.
+        header (astropy.io.fits.Header): FITS header of image, with complete sky coordinates.
+        total_angle (float): Rotation in degrees from the loaded image. A positive value is clockwise.
+
+    Returns:
+        array_out (numpy.ndarray): The turned image, with the new shape.
+        header_out (astropy.io.fits.Header): A copy of header for array_out. header does not change.
+
+    Raises:
+        ValueError: The header has no complete sky coordinates.
+    """
+    problem = sky_wcs_problem(header)
+    if problem is not None:
+        raise ValueError(f"Rotate needs complete sky coordinates. {problem}")
+    wcs_in_full = WCS(header)
+
+    if wcs_in_full.pixel_n_dim > 2:
+        wcs_in = wcs_in_full.celestial
+    else:
+        wcs_in = wcs_in_full
+
+    array_out, wcs_out = rotate_image_with_wcs(image, wcs_in, total_angle)
+    new_ny, new_nx = array_out.shape
+
+    new_header = header.copy()
+    for key in list(wcs_in_full.to_header().keys()):
+        if key in new_header:
+            del new_header[key]
+
+    wcs_header = wcs_out.to_header()
+    for key in wcs_header:
+        new_header[key] = wcs_header[key]
+
+    new_header['NAXIS'] = 2
+    new_header['NAXIS1'] = new_nx
+    new_header['NAXIS2'] = new_ny
+    if 'NAXIS3' in new_header:
+        del new_header['NAXIS3']
+    if 'WCSAXES' in new_header:
+        new_header['WCSAXES'] = 2
+    return array_out, new_header
+
+
+class CubeFileError(ValueError):
+    """The FITS file holds a data cube and no 2D image. Callers can show their own advice for it."""
+
+
+def select_2d_image(hdul, hdu_index=None):
+    """Pick the first 2D image of an open FITS file, with its header and coverage map.
+
+    Without an HDU index, the first HDU with data that squeezes to 2D is used. The header loses
+    the third axis keywords of JWST files. The data is not copied, so it is valid only while
+    the file is open.
+
+    Args:
+        hdul (astropy.io.fits.HDUList): Open FITS file.
+        hdu_index (int): Index of the HDU to use, or None for the first 2D image.
+
+    Returns:
+        found (dict): The keys image (numpy.ndarray), header (astropy.io.fits.Header),
+            coverage (numpy.ndarray or None) and hdu_index (int).
+
+    Raises:
+        CubeFileError: No HDU holds a 2D image, and one holds a data cube.
+        ValueError: No HDU holds image data.
+    """
+    data = None
+    header = None
+    coverage = None
+    loaded_index = None
+    # Accurately find the correct 2D extension (fixes JWST empty primary HDUs)
+    for index, hdu in enumerate(hdul):
+        if hdu_index is not None and index != hdu_index:
+            continue
+        if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
+            sq_data = np.squeeze(hdu.data)
+            if sq_data.ndim == 2:
+                data = sq_data
+                header = hdu.header.copy()
+                loaded_index = index
+                break
+
+    # "COVERAGE" extension holds the per-pixel coverage fraction (0-1)
+    # from the reproject pipeline, used to weight partial-overlap pixels.
+    for hdu in hdul:
+        name = (getattr(hdu, 'name', '') or '').strip().upper()
+        if name == 'COVERAGE' and hdu.data is not None:
+            try:
+                cov_arr = np.squeeze(hdu.data).astype(float)
+                if data is not None and cov_arr.shape == data.shape:
+                    coverage = cov_arr
+                    break
+            except Exception:
+                pass
+
+    if data is None:
+        # No HDU squeezed to 2D; distinguish a genuine multi-plane
+        # cube from a file with no image data.
+        cube_shape = None
+        for hdu in hdul:
+            if hdu.data is None or getattr(hdu.data, 'size', 0) == 0:
+                continue
+            sq = np.squeeze(hdu.data)
+            if sq.ndim > 2:
+                cube_shape = tuple(sq.shape)
+                break
+        if cube_shape is not None:
+            raise CubeFileError(f"This file holds a {cube_shape} data cube, not a 2D image.")
+        raise ValueError("No image data found in FITS file.")
+
+    # data is the squeezed 2D array from the loop above (degenerate
+    # axes accepted); true multi-plane cubes are rejected earlier.
+
+    # Remove dangling 3D JWST keys
+    header['NAXIS'] = 2
+    if 'WCSAXES' in header:
+        header['WCSAXES'] = 2
+
+    bad_keys = ['NAXIS3', 'NAXIS4','CTYPE3', 'CRVAL3', 'CRPIX3', 'CDELT3', 'CUNIT3',
+                'PC1_3', 'PC2_3', 'PC3_1', 'PC3_2', 'PC3_3',
+                'CD1_3', 'CD2_3', 'CD3_1', 'CD3_2', 'CD3_3']
+    for k in bad_keys:
+        if k in header:
+            del header[k]
+    return {"image": data, "header": header, "coverage": coverage, "hdu_index": loaded_index}
+
+
+def read_2d_fits(path, hdu_index=None):
+    """Read one 2D image of a FITS file into memory, with its header and coverage map.
+
+    This is select_2d_image on a file that this function opens and closes. The arrays are
+    copies, so they stay valid after the file is closed.
+
+    Args:
+        path (str): Path of the FITS file.
+        hdu_index (int): Index of the HDU to use, or None for the first 2D image.
+
+    Returns:
+        found (dict): The keys image (numpy.ndarray), header (astropy.io.fits.Header),
+            coverage (numpy.ndarray or None) and hdu_index (int).
+
+    Raises:
+        CubeFileError: The file holds a data cube and no 2D image.
+        ValueError: The file holds no image data.
+        OSError: The file cannot be read as FITS.
+    """
+    with fits.open(path) as hdul:
+        found = select_2d_image(hdul, hdu_index)
+        found["image"] = np.array(found["image"])
+        if found["coverage"] is not None:
+            found["coverage"] = np.array(found["coverage"])
+    return found
+
+
+
+def contour_levels(image, levels_text, sigma_text):
+    """Turn the level entries into the pixel values where contours are drawn.
+
+    A number with a % sign is a percent of the peak: p / 100 * the largest finite pixel.
+    Any other number N is a multiple of sigma: median + N * sigma. The median and the sigma
+    come from a sigma-clipped fit of the image. A typed sigma replaces the fitted sigma.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values.
+        levels_text (str): Comma-separated levels, for example '3, 5, 50%'.
+        sigma_text (str): Sigma as text, or '' for the fitted value. Not used when
+            every level is a percent.
+
+    Returns:
+        levels (list): The pixel values, sorted from low to high.
+
+    Raises:
+        ValueError: A level or the sigma is not a number, no level is given, a percent is
+            not above 0, the image has no finite pixel, a percent level needs a peak that
+            is not above 0, or the sigma is not above 0.
+    """
+    entries = [x.strip() for x in levels_text.split(",") if x.strip()]
+    if not entries:
+        raise ValueError("Enter at least one level.")
+    multiples, percents = [], []
+    for entry in entries:
+        is_percent = entry.endswith("%")
+        try:
+            number = float(entry[:-1] if is_percent else entry)
+        except ValueError:
+            number = float("nan")
+        if not np.isfinite(number):
+            raise ValueError("Levels must be comma-separated numbers, for example 3, 5, 50%.")
+        if is_percent and not number > 0:
+            raise ValueError("A percent level must be above 0%.")
+        (percents if is_percent else multiples).append(number)
+    valid = image[np.isfinite(image)]
+    if valid.size == 0:
+        raise ValueError("The source image has no finite pixel.")
+    levels = []
+    if percents:
+        peak = valid.max()
+        if not peak > 0:
+            raise ValueError("A percent level needs a source image with a peak above 0.")
+        levels += [percent / 100 * peak for percent in percents]
+    if multiples:
+        _, median_val, fitted_std = sigma_clipped_stats(valid, sigma=3.0)
+        if sigma_text.strip():
+            try:
+                sigma = float(sigma_text)
+            except ValueError:
+                raise ValueError("Sigma must be a number, or empty for the automatic value.")
+        else:
+            sigma = fitted_std
+        if not sigma > 0:
+            raise ValueError("Sigma must be above 0.")
+        levels += [median_val + n * sigma for n in multiples]
+    return sorted(levels)
+
+
+def levels_inside_data(image, levels):
+    """Split contour levels into the ones that have a line and the ones that have none.
+
+    A level has a line only when it is between the lowest and the highest finite pixel.
+    Astropy fails on a contour set with no level inside the data.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values, with at least one finite pixel.
+        levels (list): Pixel values, as contour_levels gives them.
+
+    Returns:
+        inside (list): The levels between the lowest and the highest finite pixel.
+        skipped (str): The other levels as text, for example '1.000e-05, 2.500e+03'. It is
+            empty when no level is skipped.
+    """
+    finite = image[np.isfinite(image)]
+    inside = [level for level in levels if finite.min() < level < finite.max()]
+    skipped = ", ".join(f"{level:.3e}" for level in levels if level not in inside)
+    return inside, skipped
+
+
+def viewer_wcs(header):
+    """Build the 2D WCS that the 2D viewer uses for a panel, from the header of its image.
+
+    The third axis keywords and the distortion keywords are removed first, because they
+    break the axes of the plot. A header with incomplete sky coordinates gives a plain
+    pixel WCS, and the problem is returned as text.
+
+    Args:
+        header (astropy.io.fits.Header): FITS header of a 2D image.
+
+    Returns:
+        wcs (astropy.wcs.WCS): The WCS. A plain pixel WCS when the sky coordinates are not complete.
+        problem (str): What is missing in the sky coordinates, or None when they are complete.
+    """
+    ch = header.copy()
+    ch['NAXIS']   = 2
+    ch['WCSAXES'] = 2
+
+    # Remove every 3-D / spectral / distortion key that breaks WCSAxes
+    bad_keys = [
+        'NAXIS3', 'NAXIS4',
+        'CTYPE3', 'CRVAL3', 'CRPIX3', 'CDELT3', 'CUNIT3',
+        'PC1_3',  'PC2_3',  'PC3_1',  'PC3_2',  'PC3_3',
+        'CD1_3',  'CD2_3',  'CD3_1',  'CD3_2',  'CD3_3',
+        'A_ORDER','B_ORDER','AP_ORDER','BP_ORDER',
+    ]
+    # Dynamically collect SIP coefficient keys (A_i_j, B_i_j, AP_i_j, BP_i_j)
+    sip_keys = [k for k in ch.keys()
+                if k.startswith(('A_', 'B_', 'AP_', 'BP_')) and k != 'BUNIT']
+    bad_keys.extend(sip_keys)
+    for k in bad_keys:
+        if k in ch:
+            del ch[k]
+
+    # Strip '-SIP' suffix from CTYPE1 / CTYPE2 if present
+    for ct in ('CTYPE1', 'CTYPE2'):
+        if ct in ch and '-SIP' in str(ch[ct]):
+            ch[ct] = str(ch[ct]).replace('-SIP', '')
+
+    problem = sky_wcs_problem(ch)
+    if problem is None:
+        wcs_obj = WCS(ch, naxis=2)
+        wcs_for_projection = wcs_obj.celestial if wcs_obj.has_celestial else wcs_obj
+    else:
+        # Plain pixel axes. Astropy would fill the missing keywords with default values.
+        wcs_for_projection = WCS(naxis=2)
+    return wcs_for_projection, problem
 
 
 # --- BUNIT helper: per-pixel-flux detection ---

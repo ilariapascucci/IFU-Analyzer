@@ -7,16 +7,12 @@ GUI-free); this module is Qt only.
 
 import os
 import gc
-import zipfile
-import tempfile
 import warnings
 import traceback
 import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.stats import gaussian_sigma_to_fwhm
-from astropy.coordinates import SkyCoord  # used by: _apply_loaded_contour
-import astropy.units as u  # used by: _apply_loaded_contour
 
 # Suppress FITS warning messages about header formatting
 warnings.filterwarnings('ignore', category=Warning, module='astropy.wcs.wcs')
@@ -37,14 +33,16 @@ from .gui import CollapsibleButtonGroup, build_group_bar
 from .gui_sizing import fit_to_screen, ResponsiveButtonColumn
 from .visualization import SlicePlotter, apply_wcs_grid, hide_wcs_grid
 from .scale_dialog import ScaleSettings, build_norm
-from .superimposition_dialog import SuperimpositionWindow, PairSuperimpositionWindow, draw_layers, contour_levels
+from .superimposition_dialog import SuperimpositionWindow, PairSuperimpositionWindow, draw_layers
+from .table_export import contour_segments, read_contour_file, save_contour_file
 from .region_selector import RegionSelector
 from .gui_region_selection import RegionSelectionMixin
 from .gui_mixins import DualPanelViewMixin
 from .icon_loader import set_button_icon
 from .utils import (
     detect_instrument, detect_instrument_from_header, psf_fwhm_arcsec, get_pixel_size_arcsec, make_2d_wcs,
-    is_per_pixel_flux_unit, wcs_footprints_overlap, rotate_image_with_wcs,
+    is_per_pixel_flux_unit, wcs_footprints_overlap, rotate_image_with_header,
+    select_2d_image, CubeFileError, viewer_wcs, contour_levels, levels_inside_data,
 )
 from .unit_converter import clean_flux_unit, is_per_solid_angle_unit, has_sky_keywords, sky_wcs_problem
 from .fits_export import (
@@ -52,12 +50,16 @@ from .fits_export import (
     _LINE_KEYWORDS,
 )
 from .convolve_reproject import (
+    EmptyConvolutionError,
     convolution_flux_totals,
+    convolution_reference,
+    convolve_loaded_maps,
     convolve_map_to_reference as _run_convolve_pair,
     convolved_description as _convolved_description,
     header_line_wavelength_um as _header_line_wavelength_um,
     load_map_for_convolution,
     map_description as _map_description,
+    save_convolved_maps,
     unsupported_files as _unsupported_files,
 )
 
@@ -438,11 +440,7 @@ class BatchMatchResolutionDialog(QDialog):
             QApplication.setOverrideCursor(Qt.WaitCursor)
 
             # ---- 5. Longest wavelength = reference (largest PSF) ---
-            ref_info = max(images_data, key=lambda info: info['wavelength_um'])
-            ref_header = ref_info['header'].copy()
-            ref_header['NAXIS'] = 2
-            ref_header['NAXIS1'] = ref_info['shape'][1]
-            ref_header['NAXIS2'] = ref_info['shape'][0]
+            ref_info, ref_header = convolution_reference(images_data)
 
             # ---- 5b. Show the plan, and ask before the slow part ---------
             QApplication.restoreOverrideCursor()
@@ -461,61 +459,23 @@ class BatchMatchResolutionDialog(QDialog):
 
             # ---- 6. Convolve + reproject every other file onto the -------
             #         reference's own native grid.
-            flux_audit = []
-            with tempfile.TemporaryDirectory() as tmpdir:
-                for info in images_data:
-                    bunit = info['header'].get('BUNIT', '')
-                    if info is ref_info:
-                        result_img = np.asarray(info['data'], dtype=float).copy()
-                        result_img[result_img == 0.0] = np.nan
-                        coverage = np.where(np.isfinite(result_img), 1.0, 0.0)
-                        sigma_arcsec = 0.0
-                    else:
-                        convolve_out = _run_convolve_pair(
-                            info['data'], info['header'], info['wavelength_um'], info['pix_scale'],
-                            ref_info['data'], ref_header, ref_info['wavelength_um'])
-                        result_img = convolve_out['image']
-                        coverage = convolve_out['footprint']
-                        sigma_arcsec = convolve_out['sigma_arcsec']
+            try:
+                result = convolve_loaded_maps(images_data, ref_info, ref_header)
+            except EmptyConvolutionError as error:
+                QApplication.restoreOverrideCursor()
+                QMessageBox.warning(self, "Empty Result", str(error))
+                return
 
-                    if not np.any(np.isfinite(result_img)):
-                        QApplication.restoreOverrideCursor()
-                        QMessageBox.warning(
-                            self, "Empty Result",
-                            f"Convolve produced no valid pixels for "
-                            f"{info['filename']}.")
-                        return
-
-                    out_header = build_resample_header(
-                        ref_header, result_img.shape, bunit=bunit or None,
-                        history=(f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
-                                 f"reprojected onto {ref_info['filename']}'s native grid "
-                                 f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"),
-                        description=_convolved_description(info['header'], ref_info['wavelength_um']),
-                        line_header=info['header'],
-                    )
-
-                    out_name = f"matched_{info['filename']}"
-                    out_filepath = os.path.join(tmpdir, out_name)
-                    write_fits_product(out_filepath, result_img, out_header,
-                                       extensions=[build_coverage_extension(coverage)])
-
-                    in_total, out_total = convolution_flux_totals(
-                        info['data'], info['header'], result_img, ref_header)
-                    flux_audit.append((info['filename'], in_total, out_total))
-
-                # ---- 7. Pack everything into the ZIP ---------------------
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for root, dirs, files in os.walk(tmpdir):
-                        for file in files:
-                            zipf.write(os.path.join(root, file), arcname=file)
+            # ---- 7. Pack everything into the ZIP ---------------------
+            save_convolved_maps(result, zip_path)
 
             QApplication.restoreOverrideCursor()
 
             audit_lines = []
-            for name, fi, fo in flux_audit:
+            for item in result['maps']:
+                fi, fo = item['input_total'], item['output_total']
                 ratio = (fo / fi) if fi != 0 else float('nan')
-                audit_lines.append(f"  {name}: ratio = {ratio:.6f}")
+                audit_lines.append(f"  {item['filename']}: ratio = {ratio:.6f}")
 
             final_msg = (
                 f"Batch Convolution complete!\n\n"
@@ -1167,15 +1127,12 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         except ValueError as error:
             QMessageBox.warning(self, "Invalid Input", str(error))
             return
-        # A level outside the data range has no line, and astropy fails on an empty contour set.
-        finite = source_img[np.isfinite(source_img)]
-        inside = [level for level in band_levels if finite.min() < level < finite.max()]
+        inside, skipped = levels_inside_data(source_img, band_levels)
         if not inside:
             QMessageBox.warning(self, "No Contour",
                                 "Every level is outside the data range of the source image.")
             return
-        if len(inside) < len(band_levels):
-            skipped = ", ".join(f"{level:.3e}" for level in band_levels if level not in inside)
+        if skipped:
             QMessageBox.information(self, "Levels Skipped",
                                     f"No contour is drawn at {skipped}. "
                                     "The level is outside the data range of the source image.")
@@ -1286,39 +1243,16 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             fname += '.txt'
 
         try:
-            rows = ["# IFU Analyzer 2D - Contour Export\n"]
             source = self.last_contour_left_source if target == 'left' else self.last_contour_right_source
-            if source is not None and source[0]:
-                rows.append(f"# Image: {source[0]}\n")
-                description = _map_description(source[1], True) if source[1] is not None else ''
-                if description:
-                    rows.append(f"# Map: {description}\n")
-                unit = str(source[1].get('BUNIT', '')).strip() if source[1] is not None else ''
-                if unit:
-                    rows.append(f"# Level unit: {unit}\n")
-            rows.append("# level, x_pixel, y_pixel, RA_deg, Dec_deg\n")
+            image_name = source[0] if source is not None else None
+            source_header = source[1] if source is not None else None
+            # The lines are in the pixel positions of this panel, also a contour from the other image.
+            has_sky = save_contour_file(fname, contour_segments(cset), wcs_obj, image_name, source_header)
 
-            collections = cset.collections if hasattr(cset, 'collections') else [cset]
-            levels      = list(cset.levels) if hasattr(cset, 'levels') else []
-
-            for i, coll in enumerate(collections):
-                level = levels[i] if i < len(levels) else i
-                for path in coll.get_paths():
-                    for x, y in path.vertices:
-                        ra_str = dec_str = ''
-                        if wcs_obj is not None:
-                            try:
-                                sky    = wcs_obj.pixel_to_world(x, y)
-                                ra_str  = f"{sky.ra.deg:.8f}"
-                                dec_str = f"{sky.dec.deg:.8f}"
-                            except Exception:
-                                pass
-                        rows.append(f"{level:.6e}, {x:.4f}, {y:.4f}, {ra_str}, {dec_str}\n")
-
-            with open(fname, 'w', encoding='utf-8') as f:
-                f.writelines(rows)
-
-            QMessageBox.information(self, "Saved", f"Contour coordinates saved to:\n{fname}")
+            message = f"Contour coordinates saved to:\n{fname}"
+            if not has_sky:
+                message += "\n\nThe RA and Dec columns are empty, because the image has no complete sky coordinates."
+            QMessageBox.information(self, "Saved", message)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save contour:\n{str(e)}")
@@ -1368,40 +1302,15 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             return
 
         try:
-            data = np.genfromtxt(fname, delimiter=',', comments='#')
-            if data.ndim == 1: data = data.reshape(1, -1)
-
-            x_pix_saved = data[:, 1]
-            y_pix_saved = data[:, 2]
-
-            # Prefer RA/Dec converted into this panel's pixel grid so the
-            # contour aligns across different images; else fall back to raw pixels.
-            use_sky = data.shape[1] >= 5 and target_wcs is not None
-            if use_sky:
-                ra_pts = data[:, 3]
-                dec_pts = data[:, 4]
-                use_sky = bool(np.all(np.isfinite(ra_pts)) and np.all(np.isfinite(dec_pts)))
-
-            if use_sky:
-                sky = SkyCoord(ra=ra_pts * u.deg, dec=dec_pts * u.deg, frame='icrs')
-                x_pts, y_pts = target_wcs.world_to_pixel(sky)
-                x_pts = np.asarray(x_pts, dtype=float)
-                y_pts = np.asarray(y_pts, dtype=float)
-            else:
+            x_plot, y_plot, used_sky = read_contour_file(fname, target_wcs)
+            if not used_sky:
                 QMessageBox.warning(
                     self, "No WCS Alignment",
                     "This contour file has no RA/Dec, or this panel has no WCS, "
                     "so it will be plotted at its saved pixel coordinates.\n\n"
                     "It will only line up correctly if this panel uses the exact "
                     "same pixel grid as the panel it was saved from.")
-                x_pts, y_pts = x_pix_saved, y_pix_saved
 
-            dist = np.sqrt(np.diff(x_pts)**2 + np.diff(y_pts)**2)
-            break_indices = np.where(dist > 5.0)[0] + 1 
-            
-            x_plot = np.insert(x_pts, break_indices, np.nan)
-            y_plot = np.insert(y_pts, break_indices, np.nan)
-            
             ax = target_plotter.ax
 
             if not hasattr(target_plotter, 'contours'):
@@ -1811,38 +1720,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
 
         # --- Step 1: Build a clean, strictly-2D, SIP-free WCS ---
         try:
-            ch = header.copy()
-            ch['NAXIS']   = 2
-            ch['WCSAXES'] = 2
-
-            # Remove every 3-D / spectral / distortion key that breaks WCSAxes
-            bad_keys = [
-                'NAXIS3', 'NAXIS4',
-                'CTYPE3', 'CRVAL3', 'CRPIX3', 'CDELT3', 'CUNIT3',
-                'PC1_3',  'PC2_3',  'PC3_1',  'PC3_2',  'PC3_3',
-                'CD1_3',  'CD2_3',  'CD3_1',  'CD3_2',  'CD3_3',
-                'A_ORDER','B_ORDER','AP_ORDER','BP_ORDER',
-            ]
-            # Dynamically collect SIP coefficient keys (A_i_j, B_i_j, AP_i_j, BP_i_j)
-            sip_keys = [k for k in ch.keys()
-                        if k.startswith(('A_', 'B_', 'AP_', 'BP_')) and k != 'BUNIT']
-            bad_keys.extend(sip_keys)
-            for k in bad_keys:
-                if k in ch:
-                    del ch[k]
-
-            # Strip '-SIP' suffix from CTYPE1 / CTYPE2 if present
-            for ct in ('CTYPE1', 'CTYPE2'):
-                if ct in ch and '-SIP' in str(ch[ct]):
-                    ch[ct] = str(ch[ct]).replace('-SIP', '')
-
-            problem = sky_wcs_problem(ch)
-            if problem is None:
-                wcs_obj = WCS(ch, naxis=2)
-                wcs_for_projection = wcs_obj.celestial if wcs_obj.has_celestial else wcs_obj
-            else:
-                # Plain pixel axes. Astropy would fill the missing keywords with default values.
-                wcs_for_projection = WCS(naxis=2)
+            wcs_for_projection, problem = viewer_wcs(header)
 
         except Exception as e:
             print(f"DEBUG rebuild_axes [{target}]: WCS parse FAILED -> {e}")
@@ -1935,72 +1813,22 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             self.clear_region(target)
 
             with fits.open(fname) as hdul:
-                data = None
-                header = None
-                coverage = None
-                loaded_index = None
-                # Accurately find the correct 2D extension (fixes JWST empty primary HDUs)
-                for index, hdu in enumerate(hdul):
-                    if hdu_index is not None and index != hdu_index:
-                        continue
-                    if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
-                        sq_data = np.squeeze(hdu.data)
-                        if sq_data.ndim == 2:
-                            data = sq_data
-                            header = hdu.header.copy()
-                            loaded_index = index
-                            break
-
-                # "COVERAGE" extension holds the per-pixel coverage fraction (0-1)
-                # from the reproject pipeline, used to weight partial-overlap pixels.
-                for hdu in hdul:
-                    name = (getattr(hdu, 'name', '') or '').strip().upper()
-                    if name == 'COVERAGE' and hdu.data is not None:
-                        try:
-                            cov_arr = np.squeeze(hdu.data).astype(float)
-                            if data is not None and cov_arr.shape == data.shape:
-                                coverage = cov_arr
-                                break
-                        except Exception:
-                            pass
-                
-                if data is None:
-                    # No HDU squeezed to 2D; distinguish a genuine multi-plane
-                    # cube (reject with guidance) from a file with no image data.
-                    cube_shape = None
-                    for hdu in hdul:
-                        if hdu.data is None or getattr(hdu.data, 'size', 0) == 0:
-                            continue
-                        sq = np.squeeze(hdu.data)
-                        if sq.ndim > 2:
-                            cube_shape = tuple(sq.shape)
-                            break
-                    if cube_shape is not None:
-                        QMessageBox.warning(
-                            self, "3D Cube Not Supported",
-                            f"This file holds a {cube_shape} data cube, not a 2D image.\n\n"
-                            "The 2D viewer needs a single plane. Extract or collapse a "
-                            "slice in the main window first, then open that saved 2D FITS here.")
-                    else:
-                        QMessageBox.warning(
-                            self, "Load Error", "No image data found in FITS file.")
+                try:
+                    found = select_2d_image(hdul, hdu_index)
+                except CubeFileError as error:
+                    QMessageBox.warning(
+                        self, "3D Cube Not Supported",
+                        f"{error}\n\n"
+                        "The 2D viewer needs a single plane. Extract or collapse a "
+                        "slice in the main window first, then open that saved 2D FITS here.")
                     return False
-
-                # data is the squeezed 2D array from the loop above (degenerate
-                # axes accepted); true multi-plane cubes are rejected earlier.
-
-                # --- NEW CLEANUP BLOCK: Remove dangling 3D JWST keys ---
-                header['NAXIS'] = 2
-                if 'WCSAXES' in header:
-                    header['WCSAXES'] = 2
-                
-                bad_keys = ['NAXIS3', 'NAXIS4','CTYPE3', 'CRVAL3', 'CRPIX3', 'CDELT3', 'CUNIT3', 
-                            'PC1_3', 'PC2_3', 'PC3_1', 'PC3_2', 'PC3_3',
-                            'CD1_3', 'CD2_3', 'CD3_1', 'CD3_2', 'CD3_3']
-                for k in bad_keys:
-                    if k in header:
-                        del header[k]
-                # -------------------------------------------------------
+                except ValueError as error:
+                    QMessageBox.warning(self, "Load Error", str(error))
+                    return False
+                data = found["image"]
+                header = found["header"]
+                coverage = found["coverage"]
+                loaded_index = found["hdu_index"]
 
                 filename = os.path.basename(fname)
                 label_text = _source_label(hdul, loaded_index, filename)
@@ -2083,59 +1911,32 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
         if not clockwise:
             angle = -angle
 
-        if target == "left":
-            self.cum_angle_left += angle
-            total_angle = self.cum_angle_left
-        else:
-            self.cum_angle_right += angle
-            total_angle = self.cum_angle_right
+        # The new total is stored only after the rotation works, so a failed rotation changes nothing.
+        total_angle = (self.cum_angle_left if target == "left" else self.cum_angle_right) + angle
 
         try:
             QApplication.setOverrideCursor(Qt.WaitCursor)
-            
-            problem = sky_wcs_problem(base_header)
-            if problem is not None:
+
+            try:
+                array_out, new_header = rotate_image_with_header(base_image, base_header, total_angle)
+            except ValueError as error:
                 QApplication.restoreOverrideCursor()
-                QMessageBox.warning(self, "WCS Error", f"Rotate needs complete sky coordinates. {problem}")
+                QMessageBox.warning(self, "WCS Error", str(error))
                 return
-            wcs_in_full = WCS(base_header)
 
-            if wcs_in_full.pixel_n_dim > 2:
-                wcs_in = wcs_in_full.celestial
-            else:
-                wcs_in = wcs_in_full
-                
-            array_out, wcs_out = rotate_image_with_wcs(base_image, wcs_in, total_angle)
-            new_ny, new_nx = array_out.shape
-
-            new_header = base_header.copy()
-            for key in list(wcs_in_full.to_header().keys()):
-                if key in new_header:
-                    del new_header[key]
-                    
-            wcs_header = wcs_out.to_header()
-            for key in wcs_header:
-                new_header[key] = wcs_header[key]
-            
-            new_header['NAXIS'] = 2
-            new_header['NAXIS1'] = new_nx
-            new_header['NAXIS2'] = new_ny
-            if 'NAXIS3' in new_header:
-                del new_header['NAXIS3']
-            if 'WCSAXES' in new_header:
-                new_header['WCSAXES'] = 2
-                    
             if target == "left":
+                self.cum_angle_left = total_angle
                 self.image_left = array_out
                 self.header_left = new_header
                 # Coverage map (if any) is no longer valid after rotation,
                 # because rotate() reshapes the array; user can re-load to get it back.
                 self.coverage_left = None
             else:
+                self.cum_angle_right = total_angle
                 self.image_right = array_out
                 self.header_right = new_header
                 self.coverage_right = None
-                
+
             self.rebuild_axes(target, new_header)
             self.clear_region(target)
             
@@ -2175,8 +1976,7 @@ class Ifu_analyzer_2d_window(QWidget, RegionSelectionMixin, DualPanelViewMixin):
             fname += '.fits'
             
         try:
-            hdu = fits.PrimaryHDU(data=image, header=header)
-            hdu.writeto(fname, overwrite=True)
+            write_fits_product(fname, image, header)
             QMessageBox.information(self, "Success", f"FITS successfully saved to:\n{fname}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save FITS file:\n{str(e)}")

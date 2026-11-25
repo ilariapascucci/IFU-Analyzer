@@ -2360,6 +2360,303 @@ def save_rotational_fit(path, results, header_text=None):
     _save_rotational_fit_csv(path, results, header_text=header_text)
 
 
+# --- 2D Images API: the tools of the 2D viewer ---
+from .fits_export import write_fits_product as _write_fits_product
+from .unit_converter import sky_wcs_problem
+from .table_export import (
+    image_contour_segments as _image_contour_segments,
+    read_contour_file as _read_contour_file,
+    save_contour_file as _save_contour_file,
+)
+from .utils import (
+    contour_levels as _contour_levels,
+    levels_inside_data as _levels_inside_data,
+    make_2d_wcs as _make_2d_wcs,
+    read_2d_fits as _read_2d_fits,
+    rotate_image_with_header as _rotate_image_with_header,
+    viewer_wcs as _viewer_wcs,
+)
+
+
+def load_image(filename, hdu_index=None):
+    """Read one 2D image of a FITS file, with its header. This is Load 2D FITS in the 2D viewer.
+    The first HDU with a 2D image is used, and the third axis keywords of JWST files are removed
+    from its header.
+
+    Args:
+        filename (str): Path of the FITS file
+        hdu_index (int, optional): Index of the HDU to read. None reads the first 2D image.
+
+    Returns:
+        dict: The keys 'image' (2D array), 'header' (astropy Header), 'coverage' (2D array from a
+        COVERAGE extension of the same shape, or None) and 'hdu_index' (int).
+
+    Raises:
+        ValueError: if the file has no image data, holds a data cube and no 2D image, or the chosen
+            HDU is not a 2D image
+        OSError: if the file cannot be read as FITS
+
+    Example:
+        >>> found = load_image("map.fits")
+        >>> found['image'].shape
+    """
+    return _read_2d_fits(filename, hdu_index=hdu_index)
+
+
+def rotate_image(image, header, angle, clockwise=True):
+    """Turn a 2D image and its WCS together, so the sky position of every pixel stays the same.
+    This is the Rotate button of the 2D viewer. The array grows to hold the turned image, and
+    the new pixels are NaN.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values, as load_image gives it
+        header (astropy.io.fits.Header): Header of the image, with complete sky coordinates
+        angle (float): Rotation in degrees from this image
+        clockwise (bool): True turns the image clockwise as drawn (origin='lower'). False turns it
+            counter-clockwise.
+
+    Returns:
+        tuple: (image, header). Both are new. An angle of 0 gives the inputs back without change.
+
+    Raises:
+        ValueError: if the header has no complete sky coordinates
+
+    Example:
+        >>> found = load_image("map.fits")
+        >>> image, header = rotate_image(found['image'], found['header'], 30.0, clockwise=False)
+    """
+    if angle == 0.0:
+        return image, header
+    # A positive angle turns the image clockwise as drawn, so counter-clockwise is negative.
+    if not clockwise:
+        angle = -angle
+    return _rotate_image_with_header(image, header, angle)
+
+
+def save_image_fits(filename, image, header):
+    """Save a 2D image and its header to a FITS file. This is Save FITS in the 2D viewer.
+    An existing file is replaced.
+
+    Args:
+        filename (str): Path of the FITS file to write
+        image (numpy.ndarray): 2D array of pixel values
+        header (astropy.io.fits.Header): Header of the image
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if image does not have two axes
+
+    Example:
+        >>> image, header = rotate_image(found['image'], found['header'], 30.0)
+        >>> save_image_fits("map_rotated.fits", image, header)
+    """
+    if np.ndim(image) != 2:
+        raise ValueError(f"The image must have two axes. It has {np.ndim(image)}.")
+    _write_fits_product(filename, image, header)
+
+
+def _levels_text(levels):
+    """Write contour levels as the text that the contour tools of the GUI read.
+
+    Args:
+        levels (str or list): Levels as text, or as a list of numbers and strings such as '50%'.
+
+    Returns:
+        str: Comma-separated levels.
+    """
+    return levels if isinstance(levels, str) else ", ".join(str(level) for level in levels)
+
+
+def contour_levels(image, levels="3, 5, 10", sigma=None):
+    """Turn contour levels into the pixel values where the lines are drawn. These are the levels
+    of the contour tools of the 2D viewer and of Superimposition.
+
+    A number N is a multiple of sigma: the median of the image plus N times sigma. A number with a
+    % sign, for example '50%', is that percent of the largest finite pixel. The median and sigma
+    come from a sigma-clipped fit of the image.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values
+        levels (str or list): Levels, for example '3, 5, 50%' or [3, 5, '50%']
+        sigma (float, optional): Sigma in the unit of the image. None measures it from the image.
+
+    Returns:
+        list: The pixel values, from low to high
+
+    Raises:
+        ValueError: if a level or sigma is not a number, no level is given, a percent is not above 0,
+            the image has no finite pixel, or sigma is not above 0
+
+    Example:
+        >>> found = load_image("map.fits")
+        >>> contour_levels(found['image'], "3, 5, 50%")
+    """
+    return _contour_levels(image, _levels_text(levels), "" if sigma is None else str(sigma))
+
+
+def save_contours(filename, image, header, levels="3, 5, 10", sigma=None, image_name=None, on_header=None):
+    """Find the contour lines of an image and save them to a text file. This is Plot WCS Contour
+    followed by Save Contour in the 2D viewer. Each row of the file has the level, the x and y pixel
+    position, and the RA and Dec in degrees.
+
+    The pixel positions are on the image that the lines are drawn on. That is this image, or the image
+    of on_header, as with "Other Image (Match WCS)" in the viewer. A level outside the range of the
+    data has no line, and a warning names it. The RA and Dec let load_contours put the lines on any
+    other image of the same field.
+
+    Args:
+        filename (str): Path of the text file to write
+        image (numpy.ndarray): 2D array of pixel values, where the levels are measured
+        header (astropy.io.fits.Header): Header of the image
+        levels (str or list): Levels, see contour_levels
+        sigma (float, optional): Sigma in the unit of the image. None measures it from the image.
+        image_name (str, optional): Name of the image, for the header of the file. With None, the
+            file has no lines about the image, its map name and the unit of the levels.
+        on_header (astropy.io.fits.Header, optional): Header of another image. The lines are then
+            drawn on the pixel grid of that image. Both headers need complete sky coordinates.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: if the levels are wrong (see contour_levels), or every level is outside the data range
+        OSError: if the file cannot be written
+
+    Example:
+        >>> found = load_image("map.fits")
+        >>> save_contours("map_contours.txt", found['image'], found['header'], "3, 5, 10", image_name="map.fits")
+    """
+    pixel_levels = _contour_levels(image, _levels_text(levels), "" if sigma is None else str(sigma))
+    inside, skipped = _levels_inside_data(image, pixel_levels)
+    if not inside:
+        raise ValueError("Every level is outside the data range of the source image.")
+    if skipped:
+        warnings.warn(f"No contour is drawn at {skipped}. The level is outside the data range of the source image.")
+    wcs, _ = _viewer_wcs(header if on_header is None else on_header)
+    if on_header is None:
+        segments = _image_contour_segments(image, inside)
+    else:
+        for name, side in (("header", header), ("on_header", on_header)):
+            problem = sky_wcs_problem(side)
+            if problem is not None:
+                raise ValueError(f"A contour on another image needs complete sky coordinates in both images. {name}: {problem}")
+        segments = _image_contour_segments(image, inside, _make_2d_wcs(header), wcs)
+    has_sky = _save_contour_file(filename, segments, wcs, image_name, header)
+    if not has_sky:
+        warnings.warn("The RA and Dec columns are empty, because the image has no complete sky coordinates.")
+
+
+def load_contours(filename, header=None):
+    """Read a contour file and give its lines on the pixel grid of an image. This is Load Contour in
+    the 2D viewer. The lines come from the RA and Dec in the file, so the file can come from another
+    image of the same field.
+
+    A jump of more than 5 pixels between two points starts a new line, and the arrays have NaN there.
+    Draw the lines with matplotlib: ax.plot(lines['x'], lines['y']).
+
+    Args:
+        filename (str): Path of a file that save_contours wrote
+        header (astropy.io.fits.Header, optional): Header of the image that the lines go on. Without
+            it, or if the file has no RA and Dec, the lines are at the saved pixel positions, and a
+            warning says so.
+
+    Returns:
+        dict: The keys 'x' and 'y' (arrays of pixel positions) and 'used_sky' (True if the positions
+        come from RA and Dec).
+
+    Raises:
+        OSError: if the file cannot be read
+        ValueError: if the file has no contour rows
+
+    Example:
+        >>> found = load_image("other_map.fits")
+        >>> lines = load_contours("map_contours.txt", found['header'])
+    """
+    wcs = None if header is None else _viewer_wcs(header)[0]
+    x_plot, y_plot, used_sky = _read_contour_file(filename, wcs)
+    if not used_sky:
+        warnings.warn("This contour file has no RA/Dec, or no header was given, so the lines are at their "
+                      "saved pixel positions. They line up only if the image has the same pixel grid as "
+                      "the image that the file came from.")
+    return {"x": x_plot, "y": y_plot, "used_sky": used_sky}
+
+
+def superimpose(rows, figsize=(7, 6)):
+    """Draw contours and colormap images over one base image and give the matplotlib figure. This is
+    Produce in Batch Superimposition. Each row is one layer. Row 1 is the base image, and each next
+    row goes on top. This function loads PyQt5 when you call it, but it opens no window.
+
+    A row is a dict with the columns of the table as keys, or a SuperimpositionRow. Only 'source',
+    the path of a 2D FITS file with sky coordinates, is needed. These keys are known:
+    'mode' ('Image' or 'Contour', default 'Image'), 'cmap' (a matplotlib colormap, or 'Pure Red',
+    'Pure Green', 'Pure Blue'; default 'magma' for row 1 and 'hot' for the others), 'scale' (a dict
+    with 'scale', 'gamma', 'range_mode', 'vmin', 'vmax', 'p_lo', 'p_hi', see ScaleSettings), 'alpha'
+    (0.1 to 1, default 0.5), 'rotation' (degrees, clockwise; it turns the whole figure for row 1,
+    and a note says that it is not used for other rows), and, for a Contour row, 'color',
+    'line_style', 'thickness', 'levels' (default '3, 5, 10'), 'sigma' (text, default '' for
+    automatic) and 'contour_alpha' (default 0.8). One Contour row alone is drawn on the grid of its
+    own file, with no base image.
+
+    Args:
+        rows (list): The rows, from the base image to the top layer
+        figsize (tuple): Width and height of the figure in inches (default (7, 6), as in the GUI)
+
+    Returns:
+        matplotlib.figure.Figure: The figure. Use figure.savefig("name.png") to save it. A warning
+        gives each note that the GUI shows, for example a level outside the data range.
+
+    Raises:
+        ValueError: if there is no row, a row has no 'source' or an unknown key or mode, row 1 is
+            not an Image row (unless it is the only row), a file has no 2D image or no sky
+            coordinates, the levels are wrong, or an Image row has no sky area in common with the base
+        OSError: if a file cannot be read as FITS
+
+    Example:
+        >>> figure = superimpose([
+        ...     {'source': "miri_map.fits", 'cmap': 'magma'},
+        ...     {'source': "nirspec_map.fits", 'mode': 'Contour', 'color': 'cyan', 'levels': '3, 50%'},
+        ... ])
+        >>> figure.savefig("superimposed.png", dpi=200)
+    """
+    from matplotlib.figure import Figure
+    from .scale_dialog import ScaleSettings
+    from .superimposition_dialog import (
+        BASE_CMAP, MODE_CONTOUR, MODE_IMAGE, SUPERIMPOSITION_CMAP, SuperimpositionRow,
+        draw_superimposition, load_superimposition_image,
+    )
+
+    if not rows:
+        raise ValueError("There is no row to draw.")
+    built, images = [], {}
+    for number, spec in enumerate(rows, start=1):
+        if isinstance(spec, SuperimpositionRow):
+            row = spec
+        else:
+            spec = dict(spec)
+            if "source" not in spec:
+                raise ValueError(f"Row {number} has no 'source', the path of a 2D FITS file.")
+            spec.setdefault("mode", MODE_IMAGE)
+            spec.setdefault("cmap", SUPERIMPOSITION_CMAP if number > 1 else BASE_CMAP)
+            if isinstance(spec.get("scale"), dict):
+                spec["scale"] = ScaleSettings(**spec["scale"])
+            try:
+                row = SuperimpositionRow(**spec)
+            except TypeError as error:
+                raise ValueError(f"Row {number}: {error}")
+        if row.mode not in (MODE_IMAGE, MODE_CONTOUR):
+            raise ValueError(f"Row {number}: the mode must be '{MODE_IMAGE}' or '{MODE_CONTOUR}', not '{row.mode}'.")
+        if row.source not in images:
+            images[row.source] = load_superimposition_image(row.source)
+        built.append(row)
+
+    figure = Figure(figsize=figsize)
+    for note in draw_superimposition(figure, images, built):
+        warnings.warn(note)
+    return figure
+
+
 def doppler_shift_factor(velocity):
     """Give the number that moves observed wavelengths to rest wavelengths for a systemic velocity.
     This is the multiplicative Doppler shift of the GUI: rest = observed / (1 + v/c).
@@ -2470,6 +2767,14 @@ __all__ = [
     'save_line_fluxes',
     'load_line_fluxes',
     'save_rotational_fit',
+    # 2D Images
+    'load_image',
+    'rotate_image',
+    'save_image_fits',
+    'contour_levels',
+    'save_contours',
+    'load_contours',
+    'superimpose',
     # Helpers
     'doppler_shift_factor',
     'fetch_hitran_lines',

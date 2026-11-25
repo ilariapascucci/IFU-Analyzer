@@ -16,7 +16,7 @@ from .fits_export import build_coverage_extension, build_resample_header, write_
 from .unit_converter import is_per_solid_angle_unit, pixel_solid_angle
 from .utils import (
     detect_instrument_from_header, get_pixel_size_arcsec, is_per_pixel_flux_unit, make_2d_wcs,
-    psf_fwhm_arcsec, wcs_footprints_overlap,
+    psf_fwhm_arcsec, select_2d_image, wcs_footprints_overlap,
 )
 
 
@@ -535,17 +535,13 @@ def load_map_for_convolution(path):
         ValueError: If the file has no 2D image, no pixel scale, or no usable WCS.
     """
     with fits.open(path) as hdul:
-        data, header = None, None
-        for hdu in hdul:
-            if hdu.data is not None and getattr(hdu.data, 'size', 0) > 0:
-                sq = np.squeeze(hdu.data)
-                if sq.ndim == 2:
-                    data = sq.astype(float)
-                    header = hdu.header.copy()
-                    break
-        if data is None:
+        try:
+            found = select_2d_image(hdul)
+        except ValueError:
             raise ValueError(
                 f"No 2D image data in {os.path.basename(path)}")
+        data = found["image"].astype(float)
+        header = found["header"]
         pix = get_pixel_size_arcsec(header)
         if pix is None:
             raise ValueError(
@@ -585,6 +581,85 @@ def convolution_flux_totals(input_image, input_header, output_image, output_head
             input_total *= omega_in.value
             output_total *= omega_out.value
     return input_total, output_total
+
+
+class EmptyConvolutionError(ValueError):
+    """A convolution gave an image with no valid pixel."""
+
+
+def convolution_reference(infos):
+    """Choose the reference map of a batch convolution, and make the header of its grid.
+    The reference is the map with the longest wavelength, because it has the largest PSF.
+    The Batch Convolution of the 2D viewer and convolve_maps both use this function.
+
+    Args:
+        infos (list): Maps from load_map_for_convolution, each with the key 'wavelength_um'.
+
+    Returns:
+        reference (tuple): (ref_info, ref_header). ref_info is the dict of the reference map.
+            ref_header is a copy of its header with NAXIS, NAXIS1 and NAXIS2 set for 2D.
+    """
+    ref_info = max(infos, key=lambda info: info['wavelength_um'])
+    ref_header = ref_info['header'].copy()
+    ref_header['NAXIS'] = 2
+    ref_header['NAXIS1'] = ref_info['shape'][1]
+    ref_header['NAXIS2'] = ref_info['shape'][0]
+    return ref_info, ref_header
+
+
+def convolve_loaded_maps(infos, ref_info, ref_header):
+    """Convolve every map to the PSF of the reference map, and reproject it onto the grid of that map.
+    The reference map keeps its pixels, and a pixel with the value 0 becomes NaN.
+    The Batch Convolution of the 2D viewer and convolve_maps both use this function.
+
+    Args:
+        infos (list): Maps from load_map_for_convolution, each with the key 'wavelength_um'.
+        ref_info (dict): The reference map, from convolution_reference.
+        ref_header (astropy.io.fits.Header): The header of the reference grid, from convolution_reference.
+
+    Returns:
+        result (dict): The result of convolve_maps.
+
+    Raises:
+        EmptyConvolutionError: If a map has no valid pixel after the convolution.
+        ValueError: If a PSF or a unit cannot be used (from convolve_map_to_reference).
+    """
+    maps = []
+    for info in infos:
+        bunit = info['header'].get('BUNIT', '')
+        if info is ref_info:
+            result_img = np.asarray(info['data'], dtype=float).copy()
+            result_img[result_img == 0.0] = np.nan
+            coverage = np.where(np.isfinite(result_img), 1.0, 0.0)
+            sigma_arcsec = 0.0
+        else:
+            convolve_out = convolve_map_to_reference(
+                info['data'], info['header'], info['wavelength_um'], info['pix_scale'],
+                ref_info['data'], ref_header, ref_info['wavelength_um'])
+            result_img = convolve_out['image']
+            coverage = convolve_out['footprint']
+            sigma_arcsec = convolve_out['sigma_arcsec']
+        if not np.any(np.isfinite(result_img)):
+            raise EmptyConvolutionError(f"The convolution gave no valid pixels for {info['filename']}.")
+
+        out_header = build_resample_header(
+            ref_header, result_img.shape, bunit=bunit or None,
+            history=(f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
+                     f"reprojected onto {ref_info['filename']}'s native grid "
+                     f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"),
+            description=convolved_description(info['header'], ref_info['wavelength_um']),
+            line_header=info['header'],
+        )
+        input_total, output_total = convolution_flux_totals(
+            info['data'], info['header'], result_img, ref_header)
+        maps.append({
+            'filename': info['filename'], 'wavelength_um': info['wavelength_um'],
+            'is_reference': info is ref_info, 'image': result_img, 'coverage': coverage,
+            'header': out_header, 'sigma_arcsec': sigma_arcsec,
+            'input_total': input_total, 'output_total': output_total,
+        })
+    return {'reference': ref_info['filename'], 'reference_wavelength_um': ref_info['wavelength_um'],
+            'dst_shape': ref_info['shape'], 'maps': maps}
 
 
 def convolve_maps(paths, wavelengths_um=None):
@@ -648,48 +723,8 @@ def convolve_maps(paths, wavelengths_um=None):
             raise ValueError(f"'{info['filename']}' has no LINEWAVE, LAMMIN or LAMMAX in its header. "
                              "Give its wavelength in wavelengths_um.")
 
-    ref_info = max(infos, key=lambda info: info['wavelength_um'])
-    ref_header = ref_info['header'].copy()
-    ref_header['NAXIS'] = 2
-    ref_header['NAXIS1'] = ref_info['shape'][1]
-    ref_header['NAXIS2'] = ref_info['shape'][0]
-
-    maps = []
-    for info in infos:
-        bunit = info['header'].get('BUNIT', '')
-        if info is ref_info:
-            result_img = np.asarray(info['data'], dtype=float).copy()
-            result_img[result_img == 0.0] = np.nan
-            coverage = np.where(np.isfinite(result_img), 1.0, 0.0)
-            sigma_arcsec = 0.0
-        else:
-            convolve_out = convolve_map_to_reference(
-                info['data'], info['header'], info['wavelength_um'], info['pix_scale'],
-                ref_info['data'], ref_header, ref_info['wavelength_um'])
-            result_img = convolve_out['image']
-            coverage = convolve_out['footprint']
-            sigma_arcsec = convolve_out['sigma_arcsec']
-        if not np.any(np.isfinite(result_img)):
-            raise ValueError(f"The convolution gave no valid pixels for {info['filename']}.")
-
-        out_header = build_resample_header(
-            ref_header, result_img.shape, bunit=bunit or None,
-            history=(f"Batch Convolution: sigma={sigma_arcsec:.4f}\"; "
-                     f"reprojected onto {ref_info['filename']}'s native grid "
-                     f"(ref wavelength {ref_info['wavelength_um']:.4f} um)"),
-            description=convolved_description(info['header'], ref_info['wavelength_um']),
-            line_header=info['header'],
-        )
-        input_total, output_total = convolution_flux_totals(
-            info['data'], info['header'], result_img, ref_header)
-        maps.append({
-            'filename': info['filename'], 'wavelength_um': info['wavelength_um'],
-            'is_reference': info is ref_info, 'image': result_img, 'coverage': coverage,
-            'header': out_header, 'sigma_arcsec': sigma_arcsec,
-            'input_total': input_total, 'output_total': output_total,
-        })
-    return {'reference': ref_info['filename'], 'reference_wavelength_um': ref_info['wavelength_um'],
-            'dst_shape': ref_info['shape'], 'maps': maps}
+    ref_info, ref_header = convolution_reference(infos)
+    return convolve_loaded_maps(infos, ref_info, ref_header)
 
 
 def save_convolved_maps(result, out_path):

@@ -69,6 +69,7 @@ The 2D viewer is a side-by-side viewer for 2D intensity maps, moment maps, and o
 - The rotation is cumulative. Successive rotations compose correctly.
 - Under the intensity statistics of each panel, a line shows the net rotation of the image, for example "Rotation: 60° CW" or "Rotation: 90° CCW". The line shows the shorter direction, so the angle is never more than 180°. It goes back to "Rotation: 0°" when you load a new image.
 - Save the rotated image as a new FITS file with the updated WCS header.
+- In a script, use `load_image(filename)`, `rotate_image(image, header, angle, clockwise=True)`, and `save_image_fits(filename, image, header)`. They are Load 2D FITS, Rotate, and Save FITS of the panels, and they give the same arrays and the same files. `rotate_image` turns from the loaded image, so a second call with a new angle does not add to the first one. The array grows to hold the turned image, and the new pixels are NaN.
 
 #### Contour Plotting
 
@@ -85,6 +86,8 @@ The "Contour" button in the side column of each panel opens a menu: "Plot Contou
 
 - **Save Contour (.txt):** writes all contour path vertices as pixel coordinates and RA/Dec (degrees) with the sigma-level labels. The file is human-readable.
 - **Load Contour:** reads a saved contour (`.txt` or `.csv`) and draws it on the panel of the button through the WCS mapping. The contour lines up on an image with a different pixel scale or orientation.
+- **If the image has no complete sky coordinates:** the RA and Dec columns of a saved file are empty, and the message after the save says so.
+- **In a script:** use `contour_levels(image, levels, sigma)` for the levels, `save_contours(filename, image, header, levels, sigma, image_name, on_header)` to save a contour file, and `load_contours(filename, header)` to read one. They write and read the same files as the buttons. Give `on_header` to draw the lines on the pixel grid of another image, as "Other Image (Match WCS)" does. `load_contours` returns the arrays `x` and `y`. Draw them with `ax.plot(lines['x'], lines['y'])`. A warning tells you about a level outside the data range, and about a file or image with no sky coordinates.
 
 #### Superimposition
 
@@ -120,6 +123,7 @@ The "Superimposition" group in the bottom row has three buttons: "Pair Superimpo
 - The base starts with the `magma` colormap and the other Image rows with `hot`.
 - A rotation that you applied in a panel is not used, because the file on disk is not rotated. Save the rotated image as a FITS file first.
 - **Produce** draws all rows, from the base image to the top row, in a new window. The toolbar of the window saves the picture as an image file.
+- **In a script:** `superimpose(rows)` draws the same figure as Produce and gives the matplotlib figure. Each row is a dict with the columns of the table as keys, and only `source` (the path of the file) is needed. A missing `mode` is `'Image'`, and a missing `cmap` is `'magma'` for row 1 and `'hot'` for the other rows. For example: `figure = superimpose([{'source': 'miri.fits'}, {'source': 'nirspec.fits', 'mode': 'Contour', 'color': 'cyan', 'levels': '3, 50%'}])`, then `figure.savefig('picture.png')`. The scale is a dict, for example `{'scale': 'Log', 'range_mode': 'percentile', 'p_lo': 5, 'p_hi': 99}`. A warning gives each note that the window shows. The function loads PyQt5 when you call it, but it opens no window and needs no display.
 
 #### Resolution Matching: Pair (two images)
 
@@ -266,6 +270,7 @@ print(f"Line centre: {result.center:.4f} um, FWHM: {result.fwhm:.4f} um")
 | Save maps (FITS)    | `save_gaussian_map`, `save_gaussian_maps`, `save_flux_map`, `save_line_maps`, `save_rotational_diagram_map_fits` |
 | Rotational diagrams | `rotational_diagram`, `fit_region`, `fit_pixel`, `create_rotational_diagram_map`, and the `_multi` versions for cubes at different pixel scales |
 | Regions             | `make_region_mask`, `save_region`, `load_region` |
+| 2D images           | `load_image`, `rotate_image`, `save_image_fits`, `contour_levels`, `save_contours`, `load_contours`, `superimpose` |
 | Rotational-diagram tables | `save_line_fluxes`, `load_line_fluxes`, `save_rotational_fit` |
 | Helpers             | `fetch_hitran_lines`, `doppler_shift_factor` |
 | Rotational-diagram map, one step at a time | `compute_native_line_maps`, `convolution_plan`, `convolve_line_maps`, `combine_line_maps`, `import_line_map`, `fit_region_mixed`, `create_rotational_diagram_map_mixed` |

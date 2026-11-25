@@ -1,6 +1,7 @@
 """
-Regions and rotational-diagram tables, read and written with no GUI.
+Regions, contours and rotational-diagram tables, read and written with no GUI.
 The region files are the ones that "Save Region" and "Import Region" use in the GUI.
+The contour files are the ones that "Save Contour" and "Load Contour" use in the 2D viewer.
 The CSV files are the ones that "Save Fluxes", "Import from CSV" and "Save Fit" use in the
 rotational-diagram window.
 """
@@ -9,9 +10,12 @@ import csv
 import os
 import warnings
 
+import astropy.units as u
 import numpy as np
+from astropy.coordinates import SkyCoord
 
 from . import region_io
+from .convolve_reproject import map_description
 from .line_catalog import fetch_hitran_data, match_nearest_hitran_line
 from .region_selector import mask_from_saved_region, mask_from_shape_coords
 from .rotational_diagram_h2_fitter import model_1T, model_2T
@@ -333,3 +337,152 @@ def save_rotational_fit_csv(path, results, header_text=None):
             writer.writerow(table[0])
             for row in zip(*table[1]):
                 writer.writerow([f"{row[0]:.1f}"] + [f"{value:.4f}" for value in row[1:]])
+
+
+def contour_segments(cset):
+    """Read the lines of a matplotlib contour set, as the vertices of each level.
+
+    The vertices of one level are in the order that matplotlib gives them, one line after the other.
+    A level with no line is left out.
+
+    Args:
+        cset (matplotlib.contour.QuadContourSet): Contour set made by ax.contour.
+
+    Returns:
+        segments (list): One (level, vertices) tuple for each level that has a line. level is a float
+            and vertices is an (N, 2) array of (x, y) pixel positions.
+    """
+    return [(float(level), np.concatenate(segs)) for level, segs in zip(cset.levels, cset.allsegs) if len(segs)]
+
+
+def image_contour_segments(image, levels, source_wcs=None, target_wcs=None):
+    """Find the contour lines of an image with no plot window.
+
+    The lines are the ones that the 2D viewer draws, because the same matplotlib call finds them.
+    Without WCS, the vertices are pixel positions in the image. With both WCS, the lines go through
+    the sky onto the pixel grid of the target, as a contour from the other image does in the viewer.
+
+    Args:
+        image (numpy.ndarray): 2D array of pixel values.
+        levels (list): Pixel values where the lines are drawn. Each one must be between the
+            lowest and the highest finite pixel.
+        source_wcs (astropy.wcs.WCS): 2D WCS of image, or None.
+        target_wcs (astropy.wcs.WCS): 2D WCS of the image that the lines go on, or None.
+
+    Returns:
+        segments (list): The (level, vertices) tuples of contour_segments.
+    """
+    from matplotlib.figure import Figure
+    if source_wcs is None or target_wcs is None:
+        return contour_segments(Figure().add_subplot(111).contour(image, levels=levels))
+    ax = Figure().add_subplot(111, projection=target_wcs)
+    return contour_segments(ax.contour(image, levels=levels, transform=ax.get_transform(source_wcs)))
+
+
+def save_contour_file(path, segments, wcs, image_name=None, header=None):
+    """Save contour lines to a text file, as pixel positions and as RA and Dec in degrees.
+
+    This is the file that Save Contour writes in the 2D viewer. The pixel positions are positions
+    on the image that the lines are drawn on, so the wcs must be the WCS of that image.
+
+    Args:
+        path (str): Path of the text file to write.
+        segments (list): (level, vertices) tuples, as contour_segments gives them.
+        wcs (astropy.wcs.WCS): WCS of the image that the lines are drawn on, or None.
+        image_name (str): Name of the image that the levels come from, for the header of the file.
+            None leaves out the lines about that image.
+        header (astropy.io.fits.Header): Header of the image that the levels come from, for the map
+            name and the unit of the levels in the file header, or None.
+
+    Returns:
+        has_sky (bool): True if the file has RA and Dec. False if the columns are empty, because the
+            WCS has no sky coordinates or cannot give them.
+
+    Raises:
+        OSError: The file cannot be written.
+    """
+    rows = ["# IFU Analyzer 2D - Contour Export\n"]
+    if image_name:
+        rows.append(f"# Image: {image_name}\n")
+        description = map_description(header, True) if header is not None else ''
+        if description:
+            rows.append(f"# Map: {description}\n")
+        unit = str(header.get('BUNIT', '')).strip() if header is not None else ''
+        if unit:
+            rows.append(f"# Level unit: {unit}\n")
+    rows.append("# level, x_pixel, y_pixel, RA_deg, Dec_deg\n")
+
+    has_sky = wcs is not None and wcs.has_celestial
+    for level, vertices in segments:
+        x_pix, y_pix = vertices[:, 0], vertices[:, 1]
+        ra = dec = None
+        if has_sky:
+            try:
+                sky = wcs.pixel_to_world(x_pix, y_pix)
+                ra, dec = sky.ra.deg, sky.dec.deg
+            except Exception:
+                has_sky = False
+        for index, (x, y) in enumerate(zip(x_pix, y_pix)):
+            ra_str = dec_str = ''
+            if ra is not None:
+                ra_str = f"{ra[index]:.8f}"
+                dec_str = f"{dec[index]:.8f}"
+            rows.append(f"{level:.6e}, {x:.4f}, {y:.4f}, {ra_str}, {dec_str}\n")
+
+    with open(path, 'w', encoding='utf-8') as f:
+        f.writelines(rows)
+    return has_sky
+
+
+def read_contour_file(path, wcs):
+    """Read a contour file and give its lines in the pixel positions of another image.
+
+    This is Load Contour in the 2D viewer. The RA and Dec of the file are turned into pixel
+    positions with the WCS. A file with no RA and Dec, or no WCS, gives the saved pixel positions.
+    A jump of more than 5 pixels between two points starts a new line.
+
+    Args:
+        path (str): Path of a file that save_contour_file wrote.
+        wcs (astropy.wcs.WCS): WCS of the image that the lines go on, or None.
+
+    Returns:
+        x_plot (numpy.ndarray): x pixel positions, with NaN between the lines.
+        y_plot (numpy.ndarray): y pixel positions, with NaN between the lines.
+        used_sky (bool): True if the positions come from RA and Dec. False if they are the saved pixel
+            positions, which are right only if the image has the same pixel grid as the image that
+            the file came from.
+
+    Raises:
+        ValueError: The file has no rows with a level, an x and a y position.
+        OSError: The file cannot be read.
+    """
+    data = np.genfromtxt(path, delimiter=',', comments='#')
+    if data.ndim == 1: data = data.reshape(1, -1)
+    if data.shape[1] < 3:
+        raise ValueError("This is not a contour file. It has no rows with a level, an x and a y position.")
+
+    x_pix_saved = data[:, 1]
+    y_pix_saved = data[:, 2]
+
+    # Prefer RA/Dec converted into this panel's pixel grid so the
+    # contour aligns across different images; else fall back to raw pixels.
+    use_sky = data.shape[1] >= 5 and wcs is not None
+    if use_sky:
+        ra_pts = data[:, 3]
+        dec_pts = data[:, 4]
+        use_sky = bool(np.all(np.isfinite(ra_pts)) and np.all(np.isfinite(dec_pts)))
+
+    if use_sky:
+        sky = SkyCoord(ra=ra_pts * u.deg, dec=dec_pts * u.deg, frame='icrs')
+        x_pts, y_pts = wcs.world_to_pixel(sky)
+        x_pts = np.asarray(x_pts, dtype=float)
+        y_pts = np.asarray(y_pts, dtype=float)
+    else:
+        x_pts, y_pts = x_pix_saved, y_pix_saved
+
+    dist = np.sqrt(np.diff(x_pts)**2 + np.diff(y_pts)**2)
+    break_indices = np.where(dist > 5.0)[0] + 1
+
+    x_plot = np.insert(x_pts, break_indices, np.nan)
+    y_plot = np.insert(y_pts, break_indices, np.nan)
+    return x_plot, y_plot, use_sky
